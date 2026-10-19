@@ -194,12 +194,9 @@ fn sun_visibility(in: VertexOutput) -> f32 {
 }
 
 #ifdef GS_CLEAR
-// M129: where the ray from the eye through `p` first enters the players' room grown by `grow` m (the doubles court,
-// 4 m beside it and 6 m behind each baseline, from the ground to 3 m up; Bevy's world, y up), in units of eye → p
-// (1 = at p); a large number where it never does.
-fn room_entry(eye: vec3<f32>, d: vec3<f32>, grow: f32) -> f32 {
-    let half = vec3(5.485 + 4.0 + grow, 1.5 + grow * 0.5, 11.885 + 6.0 + grow);
-    let centre = vec3(0.0, 1.5 + grow * 0.5, 0.0);
+// M129: where the ray from the eye along `d` first enters the box `centre` ± `half` (in units of `d`); a large number
+// where it never does.
+fn box_entry(eye: vec3<f32>, d: vec3<f32>, centre: vec3<f32>, half: vec3<f32>) -> f32 {
     let inv = 1.0 / select(d, vec3(1e-6), abs(d) < vec3(1e-6));
     let a = (centre - half - eye) * inv;
     let b = (centre + half - eye) * inv;
@@ -210,10 +207,11 @@ fn room_entry(eye: vec3<f32>, d: vec3<f32>, grow: f32) -> f32 {
     return select(1e9, t0, t1 >= t0);
 }
 
-// M129: a piece of scenery standing in the way of the play isn't drawn: anything within 1 m of the eye (a replay
-// camera inside a prop), and anything over 0.5 m up (never the ground) whose ray from the eye goes on into the
-// players' room at least 0.3 m further; in a 2.25 m margin round the room it fades out (ordered dither: 3/4 of the
-// pixels gone within 0.75 m, 1/2 within 1.5 m, 1/4 beyond).
+// M129: only a big blocker isn't drawn (user 2026-10-19): anything within 1 m of the eye (a replay camera inside a
+// prop), and a piece of scenery close to the eye (within 7 m, fading out by ordered dither to 10 m), over 0.5 m up,
+// outside the players' room (the doubles court, 4 m beside it and 6 m behind each baseline, at any height: what
+// stands over the play, a helicopter's rotor, stays), whose ray from the eye goes on into the back court (the half
+// of the court away from the eye, up to 2.5 m). Bevy's world, y up.
 fn cleared(p: vec3<f32>, pixel: vec2<f32>) -> bool {
     let eye = view_bindings::view.world_position;
     let d = p - eye;
@@ -221,21 +219,18 @@ fn cleared(p: vec3<f32>, pixel: vec2<f32>) -> bool {
     if dist < 1.0 {
         return true;
     }
-    if p.y < 0.5 {
+    if dist > 10.0 || p.y < 0.5 || (abs(p.x) < 5.485 + 4.0 && abs(p.z) < 11.885 + 6.0) {
         return false;
     }
-    let past = 1.0 + 0.3 / dist;
+    let far = -sign(eye.z) * 11.885 * 0.5;
+    let t = box_entry(eye, d, vec3(0.0, 1.25, far), vec3(5.485, 1.25, 11.885 * 0.5));
+    if t <= 1.0 || t > 1e8 {
+        return false;
+    }
     // 4×4 Bayer threshold, 0..15/16
     var bayer = array<u32, 16>(0u, 8u, 2u, 10u, 12u, 4u, 14u, 6u, 3u, 11u, 1u, 9u, 15u, 7u, 13u, 5u);
     let q = vec2<u32>(pixel) % vec2(4u);
-    let b = f32(bayer[q.y * 4u + q.x]) / 16.0;
-    for (var k = 0; k < 4; k++) {
-        let t = room_entry(eye, d, f32(k) * 0.75);
-        if t > past && t < 1e8 {
-            return b < 1.0 - f32(k) * 0.25;
-        }
-    }
-    return false;
+    return f32(bayer[q.y * 4u + q.x]) / 16.0 >= (dist - 7.0) / 3.0;
 }
 #endif
 

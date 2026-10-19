@@ -95,8 +95,8 @@ pub struct GsKey {
     /// A court model other than the hole model: VU1 drops every triangle with a vertex outside its guard band
     /// (gs.wgsl, `GS_GUARD`).
     pub guard: bool,
-    /// M129: scenery (a court model other than the hole, a court mod's court and gimmicks) that isn't drawn where it
-    /// stands between the eye and the players' room or right at the eye (gs.wgsl, `GS_CLEAR`).
+    /// M129: a court mod's court and gimmicks, not drawn where a piece is a big blocker right in front of the eye or
+    /// the eye is inside it (gs.wgsl, `GS_CLEAR`). Stock courts never.
     pub clear: bool,
 }
 
@@ -395,7 +395,7 @@ impl GsMaterial {
         let mut draws = Self::for_batch(m, prim, texture);
         // the hole model is exempt: on the indoor court it holds the hall's ceiling, which the original draws from
         // the low replay cameras looking up
-        draws.iter_mut().for_each(|d| (d.key.guard, d.key.clear) = (!hole, !hole));
+        draws.iter_mut().for_each(|d| d.key.guard = !hole);
         if hole {
             let mut lt = draws.swap_remove(0);
             lt.key.modulate = true;
@@ -751,7 +751,7 @@ mod tests {
         let tex = Some(Handle::default());
         let keys = |m: &mtl::Material, prim, hole| GsMaterial::for_court_batch(m, prim, tex.clone(), hole).iter().map(|g| g.key).collect::<Vec<_>>();
         // opaque, no @vert: unchanged
-        assert_eq!(keys(&material("grass", 5, 1.0), 0x30, false), GsMaterial::for_batch(&material("grass", 5, 1.0), 0x30, tex.clone()).iter().map(|g| GsKey { guard: true, clear: true, ..g.key }).collect::<Vec<_>>());
+        assert_eq!(keys(&material("grass", 5, 1.0), 0x30, false), GsMaterial::for_batch(&material("grass", 5, 1.0), 0x30, tex.clone()).iter().map(|g| GsKey { guard: true, ..g.key }).collect::<Vec<_>>());
         // MODULATE (translucent colour or @vert) → ABE on every batch
         assert_eq!(keys(&material("leaf", 5, 0.5), 0x30, false)[0].blend, Some(mtl::Blend::Normal));
         assert_eq!(keys(&material("fence@vert", 5, 1.0), 0x30, false)[0].blend, Some(mtl::Blend::Normal));

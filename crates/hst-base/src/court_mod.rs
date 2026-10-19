@@ -5,7 +5,7 @@
 //! into their vertex colours, its sun casts the shadows, and its BGM and ambience loops play in place of the layout
 //! court's music and creature sounds. A `__clear` node isn't drawn while it stands between the eye and the court
 //! (M8f5a3, `clear_view`); a gimmick creature standing in the players' room isn't drawn at all (B506,
-//! `creatures_in_play`), and no piece of the court or its gimmicks is drawn where it stands in the way of the play
+//! `creatures_in_play`), and a big piece of the court or its gimmicks right in front of the camera isn't drawn
 //! (M129, gs.wgsl's `GS_CLEAR`). Nothing here reads or writes the match: replays stay bit-exact.
 
 use std::collections::HashMap;
@@ -187,7 +187,7 @@ pub fn scene(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob:
 }
 
 /// [`scene`]; with `off_court`, the creatures standing in the players' room ([`creatures_in_play`]) aren't spawned (B506);
-/// with `clear`, its pieces aren't drawn where they stand in the way of the play (M129, `GsKey::clear`).
+/// with `clear`, its big blockers aren't drawn (M129, `GsKey::clear`).
 #[allow(clippy::too_many_arguments)]
 fn scene_off(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob: &[u8], parent: Entity, singles: bool, light: Option<&Light>, sky: bool, mut spawned: Option<&mut Spawned>, off_court: bool, clear: bool) -> Result<usize, String> {
     let worlds = worlds(doc);
