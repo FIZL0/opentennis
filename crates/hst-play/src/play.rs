@@ -635,6 +635,7 @@ pub fn plugin(app: &mut App) {
                 effects::draw_marks,
                 balloons,
                 character::animate,
+                character::racket_shown,
             )
                 .chain(),
         )

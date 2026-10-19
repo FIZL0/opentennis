@@ -147,6 +147,7 @@ pub fn load(
         visual: HashMap::new(),
         takes: HashMap::new(),
         own_faces: HashMap::new(),
+        racketless: Default::default(),
         feet: None,
         frame_gameplay: false,
     }))

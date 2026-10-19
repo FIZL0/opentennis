@@ -4,7 +4,7 @@
 //! the game uses (`Bip01Pelvis`, `Bip01RHand`, …, plus `Racket` where the racket sits) and clips keyed by the
 //! game's motion numbers ([`hst_data::ani::MOTIONS`]). Built in game space (Y down, feet at the origin).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use bevy::asset::RenderAssetUsages;
@@ -128,6 +128,9 @@ pub struct CharacterData {
     /// A mod's clips' own faces, by motion and take (0 the `visual` clip, k its k-th take): drawn with the clip on its
     /// clock in place of the donor's face ([`drawn_face`](Self::drawn_face)).
     pub own_faces: HashMap<(usize, usize), Face>,
+    /// A mod's clips drawn without the racket, by motion and take as `own_faces` (`extras.racket: false`: the racket
+    /// would go through the body in a move made without one); [`racket_shown`] hides it while one plays.
+    pub racketless: HashSet<(usize, usize)>,
     /// A mod's feet, set down where the donor's are (B543, looks only): see [`Feet`].
     pub feet: Option<Feet>,
     /// B556: an online mod: the cameras frame it on its gameplay clips ([`framed`](Self::framed)), as every peer has
@@ -491,8 +494,17 @@ impl CharacterData {
 
     /// The mod's own face of the clip [`drawn_take`](Self::drawn_take) draws, if it has one.
     pub fn drawn_face(&self, id: usize, sets: u32) -> Option<&Face> {
-        let k = self.takes.get(&id).filter(|t| !t.is_empty()).map_or(0, |t| take(sets, t.len() + 1));
-        self.visual.contains_key(&id).then(|| self.own_faces.get(&(id, k))).flatten()
+        self.visual.contains_key(&id).then(|| self.own_faces.get(&(id, self.drawn_k(id, sets)))).flatten()
+    }
+
+    /// Whether the clip [`drawn_take`](Self::drawn_take) draws hides the racket.
+    pub fn drawn_racketless(&self, id: usize, sets: u32) -> bool {
+        self.visual.contains_key(&id) && self.racketless.contains(&(id, self.drawn_k(id, sets)))
+    }
+
+    /// Which of motion `id`'s clips `drawn_take` draws: 0 the motion itself, k its k-th take.
+    fn drawn_k(&self, id: usize, sets: u32) -> usize {
+        self.takes.get(&id).filter(|t| !t.is_empty()).map_or(0, |t| take(sets, t.len() + 1))
     }
 
     /// Whether `clip` is one of the mod's own (`visual` or `takes`).
@@ -844,7 +856,7 @@ pub fn load_disc_with(
     // the game binds a face track to the target of the same name; others are dropped
     let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &skeleton, |name| model.morph_names.iter().position(|m| m == name), only)?;
     let binds = part_skins(&joints, &parts, meshes, bindposes);
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), feet: None, frame_gameplay: false })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), feet: None, frame_gameplay: false })
 }
 
 /// The node names of disc character `n`'s body model (costume 0; every costume shares the skeleton).
@@ -1105,6 +1117,7 @@ pub fn load_npc(
         visual: HashMap::new(),
         takes: HashMap::new(),
         own_faces: HashMap::new(),
+        racketless: Default::default(),
         feet: None,
         frame_gameplay: false,
     })
@@ -1153,6 +1166,14 @@ pub fn spawn(commands: &mut Commands, data: &Arc<CharacterData>, parent: Entity)
 /// in the tick (`npcs::step`), ahead of `animate`, so the frame it shows again is posed.
 pub fn put_away(minor: bool, shown: Option<&Visibility>) -> bool {
     minor && shown == Some(&Visibility::Hidden)
+}
+
+/// Hide a character's racket while it plays a clip of its own drawn without one (`CharacterData::racketless`).
+pub fn racket_shown(rigs: Query<(&Rig, &Motion)>, mut shown: Query<&mut Visibility>) {
+    for (rig, motion) in &rigs {
+        let Some(mut v) = rig.data.joint("Racket").and_then(|r| shown.get_mut(rig.joints[r]).ok()) else { continue };
+        v.set_if_neq(if rig.data.drawn_racketless(motion.id, motion.sets) { Visibility::Hidden } else { Visibility::Inherited });
+    }
 }
 
 /// Sample every character's motion into its joints (unkeyed joints at rest, as the game binds a motion).
