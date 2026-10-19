@@ -3,4 +3,4 @@
 - Characters with several celebrations and disappointed reactions now vary them from point to point instead of repeating one.
 - Characters with their own reaction animations now make their own facial expressions with them, instead of borrowing another character's.
 - Characters with their own reactions put the racket away in moves where it would have gone through their body.
-- Characters with their own emotes now play them to the end instead of being cut short.
+- Characters with their own emotes play them for their full length, shorter or longer than before, online too, and ease into them smoothly.

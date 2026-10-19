@@ -140,6 +140,9 @@ pub struct Mod {
     /// Online (M2i): the skeleton every peer simulates this mod on (its owner's costume's, from the lobby), in place
     /// of the one its looks load with. `None` offline.
     pub skeleton: Option<std::sync::Arc<Skeleton>>,
+    /// Online: how long each emote's own clips run, from its owner's wire (`mods_online::Wire::emotes`), what every
+    /// peer holds the player for; None offline (the drawn clip times it).
+    pub emotes: Option<Vec<(usize, Vec<u32>)>>,
     /// §3 `upscale` (B488): false when its textures are HD already (e.g. Hot Shots Golf Fore's), so its
     /// `textures/upscaled/` is never read nor downloaded. Absent: true.
     pub upscale: bool,
@@ -259,6 +262,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     }
     Ok(Mod {
         skeleton: None,
+        emotes: None,
         upscale,
         costume_of,
         motions,
@@ -300,6 +304,7 @@ pub fn read_any(dir: &Path) -> Result<Mod, String> {
         motions: None,
         costume_of: None,
         skeleton: None,
+        emotes: None,
         upscale: true,
     };
     match Kind::of_dir(dir) {
@@ -1361,7 +1366,7 @@ pub fn load_with(
     let binds = crate::character::part_skins(&joints, &parts, meshes, bindposes);
     let springs = crate::spring::masses(&nodes, &joints);
     let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs }));
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, frame_gameplay: false })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, frame_gameplay: false, emote_ticks: HashMap::new() })
 }
 
 /// `mod.json`'s `disc_racket` (§6, M1r): the disc character (0..13) whose racket it holds when it ships no
@@ -1375,6 +1380,24 @@ fn disc_racket(dir: &Path) -> Option<usize> {
 fn eye_materials(dir: &Path) -> Vec<String> {
     let j: serde_json::Value = crate::modfs::read_to_string(&dir.join("mod.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     j["eyes"].as_array().into_iter().flatten().filter_map(|m| m.as_str().map(str::to_string)).collect()
+}
+
+/// How many ticks each of motion `ids`' own clips runs in mod `m`'s motions file, the motion itself first and then
+/// its takes in K order (the order `CharacterData::drawn_take` picks from): what an emote holds the player for,
+/// sent with the lobby's wire so every peer times it alike (`mods_online::Wire::emotes`). Empty without one.
+pub fn emote_ticks(m: &Mod, ids: &[usize]) -> Result<Vec<(usize, Vec<u32>)>, String> {
+    let Some(f) = &m.motions else { return Ok(Vec::new()) };
+    let (doc, _) = open(&m.dir.join(f))?;
+    let mut takes: Vec<(usize, u32, u32)> = Vec::new();
+    for a in doc.animations() {
+        let name = a.name().unwrap_or("");
+        let (base, k) = name.rsplit_once('.').map_or((name, 0), |(b, k)| (b, k.parse().unwrap_or(u32::MAX)));
+        let Some(id) = hst_data::ani::MOTIONS.iter().position(|n| n.replace("_pc%02d", "") == base).filter(|id| ids.contains(id)) else { continue };
+        let end = a.channels().filter_map(|c| c.sampler().input().max()?.get(0)?.as_f64()).fold(0.0, f64::max);
+        takes.push((id, k, (end * 60.0).round().clamp(1.0, 3600.0) as u32));
+    }
+    takes.sort();
+    Ok(ids.iter().filter(|&&id| takes.iter().any(|t| t.0 == id && t.1 == 0)).map(|&id| (id, takes.iter().filter(|t| t.0 == id).map(|t| t.2).collect())).collect())
 }
 
 /// A mod's own motions (§6 `motions`): each animation, named by its motion (`re_gu`, `sh_f_t`: the disc name

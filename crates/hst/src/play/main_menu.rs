@@ -3854,6 +3854,7 @@ mod tests {
             motions: None,
             costume_of: None,
             skeleton: None,
+            emotes: None,
             upscale: true,
         }
     }
@@ -4779,6 +4780,7 @@ mod tests {
             motions: None,
             costume_of: None,
             skeleton: None,
+            emotes: None,
             upscale: true,
         };
         let ok = press(|p| &mut p.ok);
@@ -4848,6 +4850,7 @@ mod tests {
             motions: None,
             costume_of: Some(of),
             skeleton: None,
+            emotes: None,
             upscale: true,
         };
         // Ashley (grid 0, character 0) gets 2 + 1 more; Cody none

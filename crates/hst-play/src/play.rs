@@ -2913,15 +2913,6 @@ fn played_out(mut g: ResMut<Game>, q: Query<(&Figure, &Motion, &character::Rig)>
                     .motions
                     .get(&m.id)
                     .is_some_and(|c| m.clock.done(c.length));
-            // a mod's own emote holds the player until it has played out, not just the donor's length; offline
-            // only: online the peers draw different clips (`frame_gameplay`), so the donor's length times it
-            if p.emote > 0
-                && m.serial == p.cmd.serial
-                && !rig.data.frame_gameplay
-                && rig.data.drawn_take(m.id, m.sets).is_some_and(|c| rig.data.own(c) && !m.drawn.done(c.length))
-            {
-                p.emote = p.emote.max(2);
-            }
         }
     }
 }
@@ -4272,7 +4263,7 @@ fn marks_age(g: &Game) -> bool {
 /// Which of the game's motions each player plays (by its motion number): the serve's stance, baseline walk,
 /// toss and swing; a locked stroke's swing (timed so its contact pose, frame 8, meets the ball); otherwise the
 /// stand/run motion the game picks (`locomote`).
-fn motions(g: Res<Game>, mut q: Query<(&Figure, &mut Motion)>) {
+fn motions(mut g: ResMut<Game>, mut q: Query<(&Figure, &mut Motion)>) {
     for (f, mut m) in &mut q {
         let i = f.0;
         let p = &g.players[i];
@@ -4332,6 +4323,12 @@ fn motions(g: Res<Game>, mut q: Query<(&Figure, &mut Motion)>) {
         let c = p.cmd;
         if c.serial != m.serial {
             m.set(c.id, c.speed, c.looping, c.hold, c.serial);
+            // a mod's emote holds the player for its own clip (the take this set draws), not the donor's
+            if g.players[i].emote > 0
+                && let Some(t) = g.data[i].emote_ticks(c.id, m.sets)
+            {
+                g.players[i].emote = t - 1;
+            }
             // a doubles team reaction: the point's losers show its `_2` face, five on from the winners'
             if c.id >= motion::id::TEAM as usize && i as i32 & 1 != g.post_winner {
                 m.face += 5;

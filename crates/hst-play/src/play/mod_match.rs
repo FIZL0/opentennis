@@ -41,6 +41,7 @@ pub(super) fn load(
         (d.motions, d.paths, d.pelvis, d.arm, d.stance_ball, d.skeleton) = (mo.motions, mo.paths, mo.pelvis, mo.arm, mo.stance_ball, (**sk).clone());
         // B556: what it draws differs by peer, so the cameras frame it as the game plays it
         d.frame_gameplay = true;
+        d.emote_ticks = m.emotes.iter().flatten().cloned().collect();
     }
     Arc::new(d)
 }

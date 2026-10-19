@@ -150,6 +150,7 @@ pub fn load(
         racketless: Default::default(),
         feet: None,
         frame_gameplay: false,
+        emote_ticks: HashMap::new(),
     }))
 }
 

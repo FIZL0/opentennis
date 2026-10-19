@@ -136,6 +136,9 @@ pub struct CharacterData {
     /// B556: an online mod: the cameras frame it on its gameplay clips ([`framed`](Self::framed)), as every peer has
     /// them, whether or not it has the looks (`visual` differs, and the camera decides the match's draws).
     pub frame_gameplay: bool,
+    /// An online mod's emotes: how long each of their own clips runs in ticks, from the owner's wire
+    /// ([`emote_ticks`](Self::emote_ticks)).
+    pub emote_ticks: HashMap<usize, Vec<u32>>,
 }
 
 /// A mod's feet against its donor's (B543, looks only). The donor's clips bind to the costume's own bone lengths
@@ -507,6 +510,16 @@ impl CharacterData {
         self.takes.get(&id).filter(|t| !t.is_empty()).map_or(0, |t| take(sets, t.len() + 1))
     }
 
+    /// How many ticks emote `id` started by the `sets`-th motion set holds the player: its own clip's length, the
+    /// same on every peer (online from the owner's wire, whether or not this one draws it); None for the donor's.
+    pub fn emote_ticks(&self, id: usize, sets: u32) -> Option<u32> {
+        if self.frame_gameplay {
+            self.emote_ticks.get(&id).filter(|t| !t.is_empty()).map(|t| t[take(sets, t.len())])
+        } else {
+            self.visual.get(&id).and(self.drawn_take(id, sets)).map(|c| (c.length.ceil() as u32).max(1))
+        }
+    }
+
     /// Whether `clip` is one of the mod's own (`visual` or `takes`).
     pub fn own(&self, clip: &Clip) -> bool {
         self.visual.values().chain(self.takes.values().flatten()).any(|v| std::ptr::eq(v, clip))
@@ -856,7 +869,7 @@ pub fn load_disc_with(
     // the game binds a face track to the target of the same name; others are dropped
     let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &skeleton, |name| model.morph_names.iter().position(|m| m == name), only)?;
     let binds = part_skins(&joints, &parts, meshes, bindposes);
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), feet: None, frame_gameplay: false })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), feet: None, frame_gameplay: false, emote_ticks: HashMap::new() })
 }
 
 /// The node names of disc character `n`'s body model (costume 0; every costume shares the skeleton).
@@ -1120,6 +1133,7 @@ pub fn load_npc(
         racketless: Default::default(),
         feet: None,
         frame_gameplay: false,
+        emote_ticks: HashMap::new(),
     })
 }
 
@@ -1197,6 +1211,14 @@ pub fn animate(
         c.frame = *frame;
         c.face(rig, motion, &mut weights);
         let Some(new) = rig.data.drawn_take(motion.id, motion.sets) else { continue };
+        // a mod's own clip that the game starts with a cut (an emote, a reaction) eases in from the pose last drawn
+        if c.sets != motion.sets {
+            c.sets = motion.sets;
+            c.from.clear();
+            if motion.mix.is_none() && rig.data.own(new) {
+                c.from.extend_from_slice(&c.drawn);
+            }
+        }
         // the outgoing motion was the set before this one
         let fading = rig.data.drawn_take(motion.fade.id as usize, motion.sets.wrapping_sub(1)).filter(|_| motion.fade.clip);
         // between the last two ticks' sampled times (across a loop's wrap); a mod's own clip on its own clock
@@ -1243,6 +1265,16 @@ pub fn animate(
             };
             feet.unturn(&rig.data.joints, &mut drawn, u);
         }
+        if !c.from.is_empty() {
+            let w = ((motion.drawn.sampled + time.overstep_fraction()) / EASE_IN).min(1.0);
+            let w = w * w * (3.0 - 2.0 * w);
+            for (d, &(q, v)) in drawn.iter_mut().zip(&c.from) {
+                *d = (q.slerp(d.0, w), v.lerp(d.1, w));
+            }
+            if w >= 1.0 {
+                c.from.clear();
+            }
+        }
         for (j, joint) in rig.data.joints.iter().enumerate() {
             let (Ok(mut tf), Some(&(rotation, translation))) = (joints.get_mut(rig.joints[j]), drawn.get(j)) else { continue };
             tf.set_if_neq(Transform { translation, rotation, scale: joint.rest.scale });
@@ -1265,7 +1297,14 @@ pub struct Posing {
     drawn: Vec<(Quat, Vec3)>,
     /// A mod's [`Feet::lift`] averaged over each clip it has played (by the clip's address, as [`PoseKey`]).
     lifts: HashMap<usize, f32>,
+    /// The motion set last drawn (`Motion::sets`), and the pose an own clip eases in from ([`EASE_IN`]).
+    sets: u32,
+    from: Vec<(Quat, Vec3)>,
 }
+
+/// Frames a mod's own clip takes to ease in from the pose before it, where the game cuts straight to it.
+// ponytail: picked by eye, not the source game's blend
+const EASE_IN: f32 = 10.0;
 
 /// `clip` at time `t` into `out` (each joint's rotation and translation): unkeyed joints at rest.
 pub(crate) fn pose_at(joints: &[Joint], clip: &Clip, t: f32, out: &mut Vec<(Quat, Vec3)>) {

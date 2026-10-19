@@ -10,6 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use bevy::prelude::*;
+use hst_sim::motion::id;
 use hst_sim::pose::Skeleton;
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +24,9 @@ const MAX_FILES: usize = 4096;
 const MAX_JOINTS: usize = 512;
 
 /// A mod as a lobby pick carries it.
+/// The motions a right-stick flick plays (up, down, left, right): the reactions `gu_set`, `di_set`, `gu`, `di`.
+pub const EMOTES: [usize; 4] = [id::WON_GAME as usize, id::LOST_GAME as usize, id::WON as usize, id::LOST as usize];
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Wire {
     pub id: String,
@@ -38,6 +42,9 @@ pub struct Wire {
     pub rest: Vec<[u32; 16]>,
     /// The looks: the hash of the mod's [`pack`].
     pub looks: u64,
+    /// Each emote's own clips' lengths in ticks ([`mods::emote_ticks`]): every peer holds the player that long,
+    /// whether or not it draws them.
+    pub emotes: Vec<(usize, Vec<u32>)>,
     /// The owner's folder (never sent).
     #[serde(skip)]
     pub dir: Option<PathBuf>,
@@ -59,6 +66,7 @@ impl Wire {
             parent: sk.parent,
             rest: sk.rest.iter().map(|r| std::array::from_fn(|k| r[k / 4][k % 4].to_bits())).collect(),
             looks,
+            emotes: mods::emote_ticks(m, &EMOTES)?,
             dir: Some(m.dir.clone()),
         })
     }
@@ -83,6 +91,10 @@ impl Wire {
         // a tree with parents before children, as `pose::Skeleton` wants
         if self.parent.iter().enumerate().any(|(i, p)| p.is_some_and(|p| p >= i)) {
             return bad("skeleton");
+        }
+        // an emote holds the player at most a minute
+        if self.emotes.len() > EMOTES.len() || self.emotes.iter().any(|(id, t)| !EMOTES.contains(id) || t.is_empty() || t.len() > 64 || t.iter().any(|&n| !(1..=3600).contains(&n))) {
+            return bad("emotes");
         }
         Ok(())
     }
@@ -116,10 +128,12 @@ pub fn for_match(w: &Wire, looks: Option<&Path>) -> Mod {
         motions: None,
         costume_of: None,
         skeleton: None,
+        emotes: None,
         upscale: true,
     });
     (m.donor, m.hand, m.base, m.overrides, m.ai_row) = (w.donor, w.hand, w.base, w.overrides.clone(), w.ai_row);
     m.skeleton = Some(Arc::new(w.skeleton()));
+    m.emotes = Some(w.emotes.clone());
     m
 }
 
@@ -351,6 +365,7 @@ mod tests {
             parent: vec![None, Some(0)],
             rest: vec![[0.5f32.to_bits(); 16], [(-0.1f32).to_bits(); 16]],
             looks: 1,
+            emotes: vec![(EMOTES[2], vec![90, 200])],
             dir: None,
         }
     }
@@ -372,6 +387,9 @@ mod tests {
         bad(Wire { parent: vec![Some(1), Some(0)], ..wire() });
         bad(Wire { parent: vec![None, Some(9)], ..wire() });
         bad(Wire { rest: vec![], ..wire() });
+        bad(Wire { emotes: vec![(0, vec![90])], ..wire() });
+        bad(Wire { emotes: vec![(EMOTES[0], vec![])], ..wire() });
+        bad(Wire { emotes: vec![(EMOTES[0], vec![0])], ..wire() });
     }
 
     #[test]

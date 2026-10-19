@@ -15,7 +15,7 @@ use super::{Game, Phase, controls::Action, set_motion};
 
 /// The emotes by flick (up, down, left, right): the character's post-point reactions `gu_set` (the big win),
 /// `di_set` (the big loss), `gu` (a won point), `di` (a lost one) — a mod character's from its pack.
-pub const MOTIONS: [usize; 4] = [id::WON_GAME as usize, id::LOST_GAME as usize, id::WON as usize, id::LOST as usize];
+pub const MOTIONS: [usize; 4] = crate::mods_online::EMOTES;
 
 /// Keys 1–4 by default, in flick order.
 pub const KEYS: [Action; 4] = [Action::EmoteUp, Action::EmoteDown, Action::EmoteLeft, Action::EmoteRight];
@@ -505,31 +505,29 @@ mod match_tests {
         }
         for id in ["opentee2_pc10_carly", "opentee2_pc03_shu", "oob_pc12_anya"] {
             let m = crate::mods::read(&std::path::Path::new(ROOT).join(id)).unwrap();
-            let mut a = modded([false, true, false, false], vec![], Some(m));
-            let len = (0..4).map(|d| a.world().resource::<Game>().data[1].motions.get(&MOTIONS[d]).map_or(0, |c| c.length.ceil() as usize)).max().unwrap();
-            let ats: Vec<usize> = (0..4).map(|d| 10 + d * (len + 5)).collect();
-            let mut pads = vec![[IDLE; 4]; ats[3] + 2];
-            for (d, &at) in ats.iter().enumerate() {
-                pads[at][1] = [Pad { rx: 0x80, ry: 0, ..IDLE }, Pad { rx: 0x80, ry: 0xff, ..IDLE }, Pad { rx: 0, ry: 0x80, ..IDLE }, Pad { rx: 0xff, ry: 0x80, ..IDLE }][d];
-            }
-            a.insert_resource(Replay(pads.into_iter().collect()));
-            let sound = crate::audio::Sound::test(&mut hst_data::iso::Iso::open(ISO).unwrap());
-            a.insert_resource(sound.clone());
-            a.add_plugins(heard::plugin);
-            a.add_systems(FixedUpdate, super::play_lines.after(held_ball));
-            for t in 0..=ats[3] {
-                let before = sound.plays();
-                let (_, emote, ..) = step(&mut a);
-                if let Some(d) = ats.iter().position(|&at| at == t) {
-                    assert!(emote > 0, "{id}: flick {d} started no emote");
-                    assert_eq!(sound.plays(), before + 1, "{id}: flick {d}'s emote spoke no line");
+            // one match per flick: a mod's emote lasts its own clip, longer than the wait for the serve
+            for (d, flick) in [Pad { rx: 0x80, ry: 0, ..IDLE }, Pad { rx: 0x80, ry: 0xff, ..IDLE }, Pad { rx: 0, ry: 0x80, ..IDLE }, Pad { rx: 0xff, ry: 0x80, ..IDLE }].into_iter().enumerate() {
+                let mut a = modded([false, true, false, false], vec![], Some(m.clone()));
+                let mut pads = vec![[IDLE; 4]; 12];
+                pads[10][1] = flick;
+                a.insert_resource(Replay(pads.into_iter().collect()));
+                let sound = crate::audio::Sound::test(&mut hst_data::iso::Iso::open(ISO).unwrap());
+                a.insert_resource(sound.clone());
+                a.add_plugins(heard::plugin);
+                a.add_systems(FixedUpdate, super::play_lines.after(held_ball));
+                for _ in 0..10 {
+                    step(&mut a);
                 }
+                let before = sound.plays();
+                assert!(step(&mut a).1 > 0, "{id}: flick {d} started no emote");
+                assert_eq!(sound.plays(), before + 1, "{id}: flick {d}'s emote spoke no line");
             }
         }
     }
 
-    /// A mod's own emote longer than the donor's holds the player until it has played out (offline), not for the
-    /// donor's length. Needs the ISO and `mods/hst-mods` (skipped without).
+    /// A mod's emote holds the player for its own clip, not the donor's: offline, and online alike whether this
+    /// peer has the looks or plays the stand-in (the wire carries the lengths). Needs the ISO and `mods/hst-mods`
+    /// (skipped without).
     #[test]
     fn a_mod_emote_lasts_its_own_clip() {
         const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/oob_pc12_anya");
@@ -537,24 +535,30 @@ mod match_tests {
             return eprintln!("no ISO or mods/hst-mods, skipped");
         }
         let m = crate::mods::read(std::path::Path::new(ROOT)).unwrap();
-        let mut a = modded([false, true, false, false], vec![], Some(m));
-        let data = a.world().resource::<Game>().data[1].clone();
-        let donor = data.motions[&MOTIONS[0]].length;
-        let f = a.world_mut().query::<(Entity, &Figure)>().iter(a.world()).find(|(_, f)| f.0 == 1).unwrap().0;
-        a.world_mut().entity_mut(f).insert(character::Rig { data: data.clone(), joints: vec![] });
-        let mut pads = vec![[IDLE; 4]; 400];
-        pads[10][1] = Pad { rx: 0x80, ry: 0, ..IDLE };
-        a.insert_resource(Replay(pads.into_iter().collect()));
-        let (mut held, mut own) = (0.0, 0.0);
-        for t in 0..400 {
-            held += (step(&mut a).1 > 0) as u8 as f32;
-            if t == 10 {
-                let m = a.world().get::<character::Motion>(f).unwrap();
-                own = data.drawn_take(m.id, m.sets).unwrap().length;
+        let w = crate::mods_online::Wire::of(&m, 0).unwrap();
+        let held = |m: crate::mods::Mod| {
+            let mut a = modded([false, true, false, false], vec![], Some(m));
+            let mut pads = vec![[IDLE; 4]; 400];
+            pads[10][1] = Pad { rx: 0x80, ry: 0, ..IDLE };
+            a.insert_resource(Replay(pads.into_iter().collect()));
+            let f = a.world_mut().query::<(Entity, &Figure)>().iter(a.world()).find(|(_, f)| f.0 == 1).unwrap().0;
+            let (mut n, mut own) = (0, 0.0);
+            for t in 0..400 {
+                n += (step(&mut a).1 > 0) as u32;
+                if t == 10 {
+                    let (g, m) = (a.world().resource::<Game>(), a.world().get::<character::Motion>(f).unwrap());
+                    own = g.data[1].drawn_take(m.id, m.sets).unwrap().length;
+                }
             }
-        }
-        assert!(own > donor + 10.0, "the mod's emote ({own}) isn't longer than the donor's ({donor})");
-        assert!((held - own.ceil()).abs() <= 2.0, "held {held} ticks, the mod's clip is {own}, the donor's {donor}");
+            (n + 1, own) // the last tick it holds reads 0
+        };
+        let (offline, own) = held(m);
+        let donor = held(crate::mods::read(std::path::Path::new(ROOT)).map(|m| crate::mods::Mod { motions: None, ..m }).unwrap()).0;
+        assert_eq!(offline, own.ceil() as u32, "held {offline} ticks, the mod's clip is {own}");
+        assert!(offline > donor + 10, "the mod's emote ({offline}) isn't longer than the donor's ({donor})");
+        let looks = held(crate::mods_online::for_match(&w, Some(std::path::Path::new(ROOT)))).0;
+        let stand_in = held(crate::mods_online::for_match(&w, None)).0;
+        assert_eq!((looks, stand_in), (offline, offline), "online: with the looks, as the stand-in; offline {offline}");
     }
 
     /// B472 (B363 before it): 1P tosses and swings as the ball drops past (a whiff: a fault); the same flick in the

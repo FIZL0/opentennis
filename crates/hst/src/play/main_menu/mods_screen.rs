@@ -2092,6 +2092,7 @@ mod tests {
             motions: None,
             costume_of: None,
             skeleton: None,
+            emotes: None,
             upscale: true,
         }
     }
