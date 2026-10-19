@@ -2,3 +2,4 @@
 - The character select no longer shows the "each browses on their own" note in the top bar.
 - The Steam Deck graphics preset now draws at High quality (full shadows), keeping vsync and its speed-ups; a Deck already on the old preset moves up to it.
 - Resolution can now go above 100 % (125, 150 or 200 %) for smoother edges on a strong graphics card.
+- A computer player's card on the character select shows its level again (e.g. "COM - Lv 3").
