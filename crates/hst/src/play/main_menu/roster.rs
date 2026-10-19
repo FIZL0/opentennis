@@ -1,9 +1,11 @@
 //! B368: the character select (`Screen::Chars`: the local roster and, until B370's lobby, an online
 //! room's) as one column per player (`plan/B368.md`, the approved 1280×720 mockup). Each column is its player's own:
-//! the header (seat, character, device), the costume and hand pills, the 3D preview beside the play style and stats
-//! card, and a grid of face tiles that scrolls inside that column only (B382: one grid, a heading per section,
-//! `tabs.rs`). Sizes are the mockup's pixels at 720 lines ([`PY`] units down, [`PX`] across, so a tile is square on screen);
-//! a narrower column fits fewer tiles a row (13 / 6 / 4 / 3 for 1–4 columns at 16:9), a taller view more rows.
+//! the header (seat, character, device), M128's compact top (a small 3D thumbnail beside the character's name, hand and
+//! costume, the costume and hand pills, the play style and the five grades as a row of letter tiles), and a grid of
+//! face tiles that scrolls inside that column only (B382: one grid, a heading per section, `tabs.rs`). Sizes are the
+//! mockup's pixels at 720 lines ([`PY`] units down, [`PX`] across, so a tile is square on screen); a column fits
+//! at least [`MIN_COLS`] tiles a row, more where [`TILE`]-wide ones fit (18 / 8 / 5 / 5 for 1–4 columns at 16:9), a
+//! taller view more rows.
 
 use bevy::prelude::*;
 
@@ -18,8 +20,8 @@ pub(super) const PX: f32 = PY * 15.0 / 14.0;
 
 /// The mockup's sizes (px at 720 lines): the top bar over the columns, the side margins and the columns' gap, a
 /// column's padding and the gap between its rows, the rows' heights (B422: the seat's header band across the card's
-/// top, the section rail over the grid), the stats stack's width, a tile and its gap, the scroll bar, a section's
-/// heading (B382).
+/// top, the section rail over the grid; M128: the thumbnail, 124×172 at 1080 lines, the pills beside it and the
+/// foot's Ready pill), a tile and its gap, the scroll bar, a section's heading (B382).
 const TOP_BAR: f32 = 60.0;
 pub(super) const MARGIN: f32 = 24.0;
 const GAP: f32 = 12.0;
@@ -27,18 +29,28 @@ const PAD: f32 = 10.0;
 const ROW_GAP: f32 = 8.0;
 const BAND: f32 = 50.0;
 const RAIL: f32 = 24.0;
-const PILL: f32 = 26.0;
-const PREVIEW: f32 = 150.0;
-const FOOT: f32 = 14.0;
-const STATS_W: f32 = 150.0;
-const TILE: f32 = 84.0;
+const PILL: f32 = 22.0;
+const THUMB_W: f32 = 124.0 * 720.0 / 1080.0;
+const THUMB_H: f32 = 172.0 * 720.0 / 1080.0;
+const FOOT: f32 = 20.0;
+const TILE: f32 = 60.0;
+/// M128: the fewest tiles a row (25 faces on view in a quarter-width column at 16:9, 5 × 5).
+pub(super) const MIN_COLS: usize = 5;
 const TILE_GAP: f32 = 6.0;
 const BAR: f32 = 6.0;
 const HEADING: f32 = 22.0;
 /// B426: the least of a row that shows under the grid's last whole line.
 const PEEK: f32 = 12.0;
-/// The pills go on two rows in a column narrower than this inside (px).
-const PILLS_W: f32 = 290.0;
+/// M128: down the words beside the thumbnail (px from its top): the character's name, hand · costume, the pills, the
+/// play style bar and the grade tiles, and the sizes of the ones without a constant of their own.
+const NAME_Y: f32 = 0.0;
+const NAME_S: f32 = 17.0;
+const SUB_Y: f32 = 20.0;
+const SUB_S: f32 = 12.0;
+const PILLS_Y: f32 = 36.0;
+const STYLE_Y: f32 = 63.0;
+const STYLE_H: f32 = 20.0;
+const GRADES_Y: f32 = 87.0;
 
 /// `#rrggbb` in the menus' 0–128 colour.
 pub(super) fn hex(c: u32) -> [f32; 3] {
@@ -89,10 +101,8 @@ pub(super) struct Columns {
     /// seats and open ones are compact cards, narrower than this machine's players' columns).
     first: [f32; 4],
     xs: [[f32; 2]; 4],
-    /// The pills on two rows (a narrow column).
-    pub stack: bool,
-    /// The preview row's height.
-    preview: f32,
+    /// M128: the grid's height: everything under the rail, a part row peeking under the last whole line.
+    grid: f32,
 }
 
 /// The parts of a player's column.
@@ -100,9 +110,12 @@ pub(super) struct Parts {
     pub card: [f32; 4],
     /// B422: the seat's header band, across the card's top.
     pub head: [f32; 4],
-    /// The pills' row (both rows when stacked).
-    pub pills: [f32; 4],
+    /// M128: the compact top: the thumbnail on the left, the words, pills, style and grades beside it (`info`), the
+    /// pills' row in that.
+    pub top: [f32; 4],
     pub preview: [f32; 4],
+    pub info: [f32; 4],
+    pub pills: [f32; 4],
     /// B422: the section rail.
     pub rail: [f32; 4],
     /// The tiles on view, and the scroll bar right of them.
@@ -140,25 +153,19 @@ pub(super) fn columns_mixed(view: [f32; 4], n: usize, compact: [bool; 4]) -> Col
     }
     let h = b - top;
     let inner = w - 2.0 * PAD * PX;
-    let stack = inner < PILLS_W * PX;
-    // the tiles fill the width left of the scroll bar's lane, at least `TILE` wide
+    // the tiles fill the width left of the scroll bar's lane: as many `TILE` wide as fit, M128: at least `MIN_COLS`
     let gx = TILE_GAP * PX;
     let gw = inner - (BAR + TILE_GAP) * PX;
-    let cols = (((gw + gx) / (TILE * PX + gx)) as usize).max(1);
+    let cols = (((gw + gx) / (TILE * PX + gx)) as usize).max(MIN_COLS);
     let tw = ((gw - gx * (cols - 1) as f32) / cols as f32).max(1.0);
     let th = tw * PY / PX;
     let gy = TILE_GAP * PY;
-    let pills = if stack { 2.0 * PILL + ROW_GAP } else { PILL };
-    let fixed = (BAND + 2.0 * PAD + pills + RAIL + FOOT + 4.0 * ROW_GAP) * PY;
-    // the preview gives way to keep a row of tiles on a short view; B382: the grid has room for a heading over its
-    // rows
+    let fixed = (BAND + 2.0 * PAD + THUMB_H + RAIL + FOOT + 3.0 * ROW_GAP) * PY;
+    // M128: the grid takes the rest; B382: room for a heading over its rows
     let room = h - fixed - (HEADING * PY + gy);
-    let preview = (PREVIEW * PY).min(room - th).max(60.0 * PY);
-    let rows = (((room - preview + gy) / (th + gy)) as usize).max(1);
-    // what's left under the last row whole goes to the preview, up to twice its size
-    let spare = room - preview - (rows as f32 * (th + gy) - gy);
-    let preview = preview + spare.clamp(0.0, PREVIEW * PY);
-    Columns { n, cols, rows, tile: [tw, th], gap: [gx, gy], first: [l + MARGIN * PX, top, w, h], xs, stack, preview }
+    let rows = (((room + gy) / (th + gy)) as usize).max(1);
+    let grid = room.max(rows as f32 * (th + gy) - gy) + HEADING * PY + gy;
+    Columns { n, cols, rows, tile: [tw, th], gap: [gx, gy], first: [l + MARGIN * PX, top, w, h], xs, grid }
 }
 
 impl Columns {
@@ -174,19 +181,24 @@ impl Columns {
             y += hh + ROW_GAP * PY;
             r
         };
-        let pills = next(if self.stack { 2.0 * PILL + ROW_GAP } else { PILL } * PY);
-        let preview = next(self.preview);
+        let top_ = next(THUMB_H * PY);
+        // M128: the thumbnail its 124×172 (narrower in a column too narrow for the words beside it), the rest beside it
+        let tw = (THUMB_W * PX).min(iw * 0.4);
+        let preview = [ix, top_[1], tw, top_[3]];
+        let gap = ROW_GAP * PX;
+        let info = [ix + tw + gap, top_[1], iw - tw - gap, top_[3]];
+        let pills = [info[0], info[1] + PILLS_Y * PY, info[2], PILL * PY];
         let rail = next(RAIL * PY);
         let gh = self.grid_h();
         let grid = next(gh);
         let foot = [ix, top + h - (PAD + FOOT) * PY, iw, FOOT * PY];
         let bar = [ix + iw - BAR * PX, grid[1], BAR * PX, gh];
-        Parts { card: [x, top, w, h], head, pills, preview, rail, grid: [ix, grid[1], iw - (BAR + TILE_GAP) * PX, gh], bar, foot }
+        Parts { card: [x, top, w, h], head, top: top_, preview, info, pills, rail, grid: [ix, grid[1], iw - (BAR + TILE_GAP) * PX, gh], bar, foot }
     }
 
-    /// The grid's height: `rows` rows of tiles and a heading.
+    /// The grid's height: at least `rows` rows of tiles and a heading.
     fn grid_h(&self) -> f32 {
-        self.rows as f32 * (self.tile[1] + self.gap[1]) + HEADING * PY
+        self.grid
     }
 
     /// B382: a line's height (without the gap under it).
@@ -602,56 +614,54 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
         d.hit([hx, hy, hw * 0.6, hh], pointer::press(|k| k.name = true));
     }
 
-    // the pills: the costume (L1 / R1) on the left, the hand (Select) on the right
-    pills(d, m, text, bind, &s, p, at.pills, c.stack, mine);
-
-    // the preview, and the play style over the stats card on its right
+    // M128: the compact top: the thumbnail, the seat's number big and faint behind the figure
     let [px, py, pw, ph] = at.preview;
-    let sw = (STATS_W * PX).min(pw * 0.56);
-    let (sx, area) = (px + pw - sw, pw - sw - 8.0 * PX);
-    rounded(d, [px, py, area, ph], 10.0, s.tile, 128.0);
-    // B422: the seat's number, big and faint, behind the figure
+    rounded(d, at.preview, 10.0, s.tile, 128.0);
     let num = format!("{}P", p + 1);
-    let big = (ph * 0.78).min(area * 0.9 * 32.0 / d.width(&num, 32.0));
+    let big = (ph * 0.5).min(pw * 0.9 * 32.0 / d.width(&num, 32.0));
     let start = d.out.len();
-    d.centred(&num, px + area / 2.0, py + (ph - big) / 2.0, big, s.ring);
+    d.centred(&num, px + pw / 2.0, py + (ph - big) / 2.0, big, s.ring);
     d.out[start..].iter_mut().for_each(|q| q.alpha = 26.0);
     if active {
         if pl.random {
-            let fw = (area - 8.0 * PX).min((ph - 8.0 * PY) * 92.0 / 68.0);
-            d.q(C02, RANDOM_TILE, [px + (area - fw) / 2.0, py + (ph - fw * 68.0 / 92.0) / 2.0, fw, fw * 68.0 / 92.0], WHITE, 128.0);
+            let fw = (pw - 8.0 * PX).min((ph - 8.0 * PY) * 92.0 / 68.0);
+            d.q(C02, RANDOM_TILE, [px + (pw - fw) / 2.0, py + (ph - fw * 68.0 / 92.0) / 2.0, fw, fw * 68.0 / 92.0], WHITE, 128.0);
         } else {
             // the bake's 128×160, its shape on screen
             let k = 0.8 * PX / PY;
-            let rw = area.min(ph * k);
+            let rw = pw.min(ph * k);
             let rh = rw / k;
-            d.q(Tex::Preview(p), [0.0; 4], [px + (area - rw) / 2.0, py + (ph - rh) / 2.0, rw, rh], WHITE, 128.0);
+            d.q(Tex::Preview(p), [0.0; 4], [px + (pw - rw) / 2.0, py + (ph - rh) / 2.0, rw, rh], WHITE, 128.0);
         }
     }
     if online && active && m.seats[p].is_some() {
-        // M95 (M120): online, this machine's platform and input in the well's corner, as the other players' cards
-        device_pill(d, *crate::device::CURRENT.lock().unwrap_or_else(|e| e.into_inner()), px + area, py, &s);
+        // M95 (M120): online, this machine's platform and input in the thumbnail's corner, as the other players' cards
+        device_pill(d, *crate::device::CURRENT.lock().unwrap_or_else(|e| e.into_inner()), px + pw, py, &s);
     }
+    // beside it: the character's name, its hand and costume, the pills, the play style, the grades
+    let [ix, iy, iw, ih] = at.info;
+    let hidden = pl.random || !active;
+    let ns = NAME_S * PY;
+    d.text(&ellipsis(d, &name, ns, iw), ix, iy + NAME_Y * PY, ns, hex(look::INK));
+    let hand = if hidden { "Hand ?" } else if m.hand(text, p) < 0.0 { "Left" } else { "Right" };
+    let costume = if hidden { "Costume ?".to_string() } else { format!("Costume {}", pl.costume + 1) };
+    super::frame::dotted(d, &format!("{hand} · {costume}"), ix, iy + SUB_Y * PY, SUB_S * PY, iw, s.soft, false);
+    // the pills: the costume (L1 / R1) on the left, the hand (Select) on the right
+    pills(d, m, text, bind, &s, p, at.pills, mine);
     let style_of = |w: Who| match w {
         Who::Mod(i) => text.mods[i].0,
         Who::Disc(ch) => text.style[ch],
     };
-    let hidden = pl.random || !active;
-    let sh = 24.0 * PY;
-    rounded(d, [sx, py, sw, sh], 8.0, hex(look::INK), 128.0);
+    let sh = STYLE_H * PY;
+    rounded(d, [ix, iy + STYLE_Y * PY, iw, sh], 8.0, hex(look::INK), 128.0);
     let style = if hidden { "?" } else { STYLE_NAMES[style_of(m.who(p)).min(3)] };
-    d.label(style, sx + sw / 2.0, py + 5.0 * PY, 14.0 * PY, sw - 10.0 * PX, hex(0xffd23f));
-    stats(d, if hidden { None } else { Some(grades_of(text, m.who(p))) }, [sx, py + sh + 4.0 * PY, sw, ph - sh - 4.0 * PY]);
-    if pl.ready {
-        // "Ready!" across the preview's foot
-        let rh = 24.0 * PY;
-        rounded(d, [px + 6.0 * PX, py + ph - rh - 6.0 * PY, area - 12.0 * PX, rh], 12.0, hex(0xffd23f), 128.0);
-        d.centred("Ready!", px + area / 2.0, py + ph - rh - 6.0 * PY + 4.0 * PY, 16.0 * PY, hex(BG));
-    }
+    d.label(style, ix + iw / 2.0, iy + STYLE_Y * PY + (sh - 13.0 * PY) / 2.0, 13.0 * PY, iw - 10.0 * PX, hex(0xffd23f));
+    let gy = iy + GRADES_Y * PY;
+    grade_tiles(d, if hidden { None } else { Some(grades_of(text, m.who(p))) }, [ix, gy, iw, iy + ih - gy]);
 
-    // B481: a computer player a device here can take over: the join bar across its preview and stats
+    // B481: a computer player a device here can take over: the join bar across its thumbnail and stats
     if let Some(style) = join_glyph(m, p) {
-        join_bar(d, style, [px, py, pw, ph]);
+        join_bar(d, style, at.top);
     }
 
     // B382: the grid: the lines on view, a heading per section, the tiles this player's darker with a rim in the
@@ -718,8 +728,15 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
     let ty = by + (bh - thumb) * v.top as f32 / c.last_top(&v.lines).max(1) as f32;
     rounded(d, [bx, ty, bw, thumb], 3.0, s.ring, 128.0);
 
-    // the footer: where the tile is in its tab and the whole cast (B424), without the tab's name if that won't fit
-    let [fx, fy, fw, fh] = at.foot;
+    // the footer: where the tile is in its tab and the whole cast (B424), without the tab's name if that won't fit;
+    // M128: "Ready!" in a pill at its right end
+    let [fx, fy, mut fw, fh] = at.foot;
+    if pl.ready {
+        let (rs, rw) = (13.0 * PY, 64.0 * PX);
+        rounded(d, [fx + fw - rw, fy, rw, fh], 10.0, hex(0xffd23f), 128.0);
+        d.centred("Ready!", fx + fw - rw / 2.0, fy + (fh - rs) / 2.0, rs, hex(BG));
+        fw -= rw + 8.0 * PX;
+    }
     let fs = 12.0 * PY;
     let [long, short] = tabs::foot(m, p);
     let line = if d.width(&long, fs) <= fw { long } else { short };
@@ -1277,75 +1294,110 @@ fn tags(d: &mut Draw, [x, y, w, h]: [f32; 4], seats: &[usize]) {
     }
 }
 
-/// The costume and hand pills in `[x, y, w, h]` (two rows when `stack`); taps on them when `mine`.
+/// The costume and hand pills side by side in `[x, y, w, h]`; taps on them when `mine`. M128: beside the thumbnail,
+/// their words the long ones ("Costume 2", "Right-handed") where they fit, else the short ones ("2", "Right"), else the
+/// whole pair shrunk to fit.
 #[allow(clippy::too_many_arguments)]
-fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usize, [x, y, w, _]: [f32; 4], stack: bool, mine: bool) {
+fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usize, [x, y, w, h]: [f32; 4], mine: bool) {
     let pl = m.players[p];
     // a computer player's keys are its driver's (1P's)
     let dev = match m.seats[p].or_else(|| m.lead()) {
         Some(Dev::Pad(e)) => Some(e),
         _ => None,
     };
-    let ph = PILL * PY;
-    let (ts, gh) = (13.0 * PY, 18.0 * PY);
-    let names = |a: legend::Act| legend::button_names(dev, a, bind);
     let keys = !pl.ready && (m.seats[p].is_some() || m.driven(Dev::Keys) == Some(p));
-    let costume = if pl.random { "Costume ?".to_string() } else if m.blocked(p) { "Taken".to_string() } else { format!("Costume {}", pl.costume + 1) };
-    let hand = if pl.random { "Hand ?" } else if m.hand(text, p) < 0.0 { "Left-handed" } else { "Right-handed" };
+    let left = m.hand(text, p) < 0.0;
+    let costume = [
+        if pl.random { "Costume ?".to_string() } else if m.blocked(p) { "Taken".to_string() } else { format!("Costume {}", pl.costume + 1) },
+        if pl.random { "?".to_string() } else if m.blocked(p) { "Taken".to_string() } else { (pl.costume + 1).to_string() },
+    ];
+    let hand = [
+        if pl.random { "Hand ?" } else if left { "Left-handed" } else { "Right-handed" },
+        if pl.random { "?" } else if left { "Left" } else { "Right" },
+    ];
+    let names = |a: legend::Act| legend::button_names(dev, a, bind);
     let cn = names(legend::Act::Costume);
     let (l1, r1) = (cn.first().cloned().unwrap_or_default(), cn.get(1).cloned().unwrap_or_default());
     let sel = names(legend::Act::Hand).first().cloned().unwrap_or_default();
-    let icon = 18.0 * PX;
-    let pad = 8.0 * PX;
-    let gap = 6.0 * PX;
     use GamepadButton::{LeftTrigger, RightTrigger, Select};
-    let chips = |d: &Draw, b: GamepadButton, a: &str| match key_w(d, dev, b, a, gh) {
-        w if keys && w > 0.0 => w + gap,
+    // the pair's natural widths at scale `k`, with words `i`
+    let (ts, gh, icon, pad, gap) = (13.0 * PY, 16.0 * PY, 16.0 * PX, 7.0 * PX, 5.0 * PX);
+    let chips = |d: &Draw, b: GamepadButton, a: &str, k: f32| match key_w(d, dev, b, a, gh * k) {
+        cw if keys && cw > 0.0 => cw + gap * k,
         _ => 0.0,
     };
-    let cw_nat = pad + icon + gap + chips(d, LeftTrigger, &l1) + d.width(&costume, ts) + gap + chips(d, RightTrigger, &r1) + pad - gap;
-    let hw_nat = pad + icon + gap + d.width(hand, ts) + gap + chips(d, Select, &sel) + pad - gap;
-    // side by side, or the costume over the hand; squeezed to fit
-    let (cw, hw) = if stack { (cw_nat.min(w), hw_nat.min(w)) } else {
-        let k = ((w - 8.0 * PX) / (cw_nat + hw_nat)).min(1.0);
-        (cw_nat * k, hw_nat * k)
+    let widths = |d: &Draw, i: usize, k: f32| {
+        let cw = (pad + icon + gap) * k + chips(d, LeftTrigger, &l1, k) + d.width(&costume[i], ts * k) + gap * k + chips(d, RightTrigger, &r1, k) + (pad - gap) * k;
+        let hw = (pad + icon + gap) * k + d.width(hand[i], ts * k) + gap * k + chips(d, Select, &sel, k) + (pad - gap) * k;
+        (cw, hw)
     };
-    let (cy, hy) = if stack { (y, y + ph + ROW_GAP * PY) } else { (y, y) };
-    let fits = |nat: f32, real: f32, words: f32| (words - (nat - real)).max(10.0);
-    // the costume pill
-    let cb = [x, cy, cw, ph];
-    // B471: the main menu's grey buttons, white key caps
+    let between = 6.0 * PX;
+    let fits = |(cw, hw): (f32, f32)| cw + hw + between <= w;
+    let i = if fits(widths(d, 0, 1.0)) { 0 } else { 1 };
+    let (cw0, hw0) = widths(d, i, 1.0);
+    let k = ((w - between) / (cw0 + hw0)).min(1.0);
+    let (cw, hw) = widths(d, i, k);
+    let (ts, gh, icon, pad, gap) = (ts * k, gh * k, icon * k, pad * k, gap * k);
+    let ph = h * k.max(0.75);
+    let y = y + (h - ph) / 2.0;
+    // the costume pill; B471: the main menu's grey buttons, white key caps
+    let cb = [x, y, cw, ph];
     let grey = hex(look::GREY);
     look::outlined_pill(d, cb, grey, 2.0);
     let mut cx = x + pad;
-    shirt(d, [cx, cy + 5.0 * PY, icon, 16.0 * PY], s.ring, grey);
+    shirt(d, [cx, y + (ph - icon * 0.9 * PY / PX) / 2.0, icon, icon * 0.9 * PY / PX], s.ring, grey);
     cx += icon + gap;
-    if chips(d, LeftTrigger, &l1) > 0.0 {
-        cx += key(d, dev, LeftTrigger, &l1, [cx, cy + (ph - gh) / 2.0], gh) + gap;
+    if chips(d, LeftTrigger, &l1, k) > 0.0 {
+        cx += key(d, dev, LeftTrigger, &l1, [cx, y + (ph - gh) / 2.0], gh) + gap;
     }
-    let words = fits(cw_nat, cw, d.width(&costume, ts));
-    d.label(&costume, cx + words / 2.0, cy + (ph - ts) / 2.0, ts, words, if m.blocked(p) && !pl.random { [70.0; 3] } else { WHITE });
-    cx += words + gap;
-    if chips(d, RightTrigger, &r1) > 0.0 {
-        key(d, dev, RightTrigger, &r1, [cx, cy + (ph - gh) / 2.0], gh);
+    d.text(&costume[i], cx, y + (ph - ts) / 2.0, ts, if m.blocked(p) && !pl.random { [70.0; 3] } else { WHITE });
+    cx += d.width(&costume[i], ts) + gap;
+    if chips(d, RightTrigger, &r1, k) > 0.0 {
+        key(d, dev, RightTrigger, &r1, [cx, y + (ph - gh) / 2.0], gh);
     }
     // the hand pill, at the right end
     let hx = x + w - hw;
-    let hb = [hx, hy, hw, ph];
+    let hb = [hx, y, hw, ph];
     look::outlined_pill(d, hb, grey, 2.0);
     let mut cx = hx + pad;
-    d.q(Tex::Cursor, [0.0, 0.0, 64.0, 32.0], [cx - 4.0 * PX, hy + 6.0 * PY, icon + 6.0 * PX, 14.0 * PY], WHITE, 128.0);
+    d.q(Tex::Cursor, [0.0, 0.0, 64.0, 32.0], [cx - 3.0 * k * PX, y + (ph - icon * 0.8 * PY / PX) / 2.0, icon + 5.0 * k * PX, icon * 0.8 * PY / PX], WHITE, 128.0);
     cx += icon + gap;
-    let words = fits(hw_nat, hw, d.width(hand, ts));
-    d.label(hand, cx + words / 2.0, hy + (ph - ts) / 2.0, ts, words, WHITE);
-    cx += words + gap;
-    if chips(d, Select, &sel) > 0.0 {
-        key(d, dev, Select, &sel, [cx, hy + (ph - gh) / 2.0], gh);
+    d.text(hand[i], cx, y + (ph - ts) / 2.0, ts, WHITE);
+    cx += d.width(hand[i], ts) + gap;
+    if chips(d, Select, &sel, k) > 0.0 {
+        key(d, dev, Select, &sel, [cx, y + (ph - gh) / 2.0], gh);
     }
     if mine && !pl.ready && !pl.random {
         d.hit([cb[0], cb[1], cb[2] / 2.0, ph], pointer::press(|k| k.prev = true));
         d.hit([cb[0] + cb[2] / 2.0, cb[1], cb[2] / 2.0, ph], pointer::press(|k| k.next = true));
         d.hit(hb, pointer::press(|k| k.hand = true));
+    }
+}
+
+/// M128: the five grades as one row of small tiles in `[x, y, w, h]`: each the stats card's pink, its short name
+/// (SRV STR VOL IMP FTW) over the original's letter (as [`stats`] draws it), "?" for a hidden pick.
+fn grade_tiles(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4]) {
+    let gap = 4.0 * PX;
+    let tw = (w - 4.0 * gap) / 5.0;
+    let ls = (h * 0.34).min(10.0 * PY);
+    let ch = (h - ls - 3.0 * PY).max(0.0);
+    for (k, label) in ["SRV", "STR", "VOL", "IMP", "FTW"].into_iter().enumerate() {
+        let tx = x + (tw + gap) * k as f32;
+        rounded(d, [tx, y, tw, h], 6.0, hex(0xf58ac0), 128.0);
+        let size = ls * (tw * 0.9 / d.width(label, ls).max(1.0)).min(1.0);
+        d.centred(label, tx + tw / 2.0, y + 2.0 * PY, size, WHITE);
+        let cy = y + ls + 2.0 * PY;
+        match grades {
+            Some(g) => {
+                let i = (5 - g[k].min(5)) as f32;
+                let c = ch.min(tw * PY / PX);
+                d.q(super::ATTRS, [232.0, 24.0 * i, 24.0, 24.0], [tx + (tw - c * PX / PY) / 2.0, cy + (ch - c) / 2.0, c * PX / PY, c], WHITE, 128.0);
+            }
+            None => {
+                let qs = ch * 0.7;
+                ringed_text(d, "?", tx + (tw - d.width("?", qs)) / 2.0, cy + (ch - qs) / 2.0, qs, hex(0xc8ccd0));
+            }
+        }
     }
 }
 
