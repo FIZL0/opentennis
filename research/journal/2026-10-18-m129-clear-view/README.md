@@ -25,7 +25,7 @@ The match camera sits more than 10 m from any prop outside the room, so normal p
 frames, `HST_CLEAR` 0 vs 1: only animation differs). `HST_CLEAR=0` turns it off for A/B shots. `HST_KEYS` gained
 `KEY*S` (hold a key S seconds) and KeyW/A/S/D.
 
-Shots: `context/m129/show2/` (in the `opentennis-m129` worktree). The user checked it live and approved the merge.
+The user checked it live and approved the merge (the A/B shots went with the removed worktree).
 
 ## Not verified / not 1:1
 
