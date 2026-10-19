@@ -3981,7 +3981,7 @@ mod tests {
         assert!(m.players[0].ready && !m.blocked(1));
         assert_eq!(m.players[1].costume, 1);
         m.step(pad, press(|p| &mut p.down));
-        assert_eq!((m.players[1].char(), m.players[1].costume), (2, 0));
+        assert_eq!((m.players[1].char(), m.players[1].costume), (4, 0));
         m.step(pad, press(|p| &mut p.up));
         assert_eq!((m.players[1].char(), m.players[1].costume), (0, 1));
         m.step(pad, press(|p| &mut p.prev));
@@ -3992,9 +3992,9 @@ mod tests {
         assert!(m.players[1].ready);
         // 1P now picks the computer's 3P: Cody; the open 4P starts on Cody too (B346), his next free costume
         assert_eq!(m.driven(Dev::Keys), Some(2));
-        // (the grid two across here: ← the Random card, ↓ Cody)
+        // (from Jun, ← onto Cody)
+        m.players[2].cursor = GRID.iter().position(|g| g.0 == 2).unwrap();
         m.step(Dev::Keys, press(|p| &mut p.left));
-        m.step(Dev::Keys, press(|p| &mut p.down));
         m.step(Dev::Keys, ok);
         // B258: then the open 4P's COM card
         assert_eq!(m.driven(Dev::Keys), Some(3));
@@ -4505,7 +4505,7 @@ mod tests {
 
     /// B368: the select's player columns at any aspect, 1 to 4 of them: side by side in the view, apart, over the
     /// legend strip; each part of a column inside its card, in order down it; tiles square on screen, filling the grid's
-    /// width, at least a row on view; at 16:9 13 / 6 / 4 / 3 a row (the mockup's).
+    /// width, at least a row on view; at 16:9 18 / 8 / 5 / 5 a row (M128: at least 5).
     #[test]
     fn select_fits_the_window() {
         use super::super::widescreen::{share, vplace, vshare};
@@ -4524,7 +4524,12 @@ mod tests {
                     assert!(card[0] >= -ex && card[0] + card[2] <= 640.0 + ex + 1e-3 && card[1] >= -ey, "{a} {n} {card:?}");
                     let (t, h) = vplace(card[1], card[3], a, Anchor::Centre);
                     assert!(t + h <= legend + 1e-3, "{a} {n} {card:?}");
-                    let rows = [at.head, at.pills, at.preview, at.grid, at.foot];
+                    let rows = [at.head, at.top, at.grid, at.foot];
+                    // M128: the thumbnail, then the words, pills, style and grades beside it, in the top
+                    for r in [at.preview, at.info, at.pills] {
+                        assert!(inside(r, at.top) && r[2] > 0.0, "{a} {n} {p}: {r:?} in {:?}", at.top);
+                    }
+                    assert!(at.preview[0] + at.preview[2] < at.info[0] && inside(at.pills, at.info), "{a} {n} {p}");
                     for (i, r) in rows.iter().enumerate() {
                         assert!(inside(*r, card) && r[3] > 0.0, "{a} {n} {p} part {i} {r:?} in {card:?}");
                         if i > 0 {
@@ -4552,7 +4557,7 @@ mod tests {
                 }
             }
             if (a - 16.0 / 9.0).abs() < 1e-3 {
-                assert_eq!((1..=4).map(|n| roster::columns(g.view, n).cols).collect::<Vec<_>>(), [13, 6, 4, 3]);
+                assert_eq!((1..=4).map(|n| roster::columns(g.view, n).cols).collect::<Vec<_>>(), [18, 8, 5, 5]);
             }
         }
     }
