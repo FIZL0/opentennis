@@ -53,7 +53,7 @@ impl<'a> Archive<'a> {
         }
         let count = u32_at(data, 4)? as usize;
         let names = block(data, 8 + count * 8, lz)?;
-        let mut entries = Vec::with_capacity(count);
+        let mut entries = Vec::new(); // `count` is unchecked until the names are read
         let mut p = 0;
         for i in 0..count {
             let len = *names.get(p).ok_or_else(|| Error("name list truncated".into()))? as usize;
@@ -111,9 +111,12 @@ fn block(d: &[u8], at: usize, decode: fn(&[u8], usize) -> Result<Vec<u8>>) -> Re
     decode(src, size)
 }
 
+/// What a block's stated size may preallocate: a damaged header can claim 4 GB.
+const CAP_HINT: usize = 64 << 20;
+
 /// Byte-oriented LZ77. Control byte low bits: `00` literal run, `x1` short match, `10` long match.
 pub fn lz(src: &[u8], size: usize) -> Result<Vec<u8>> {
-    let mut out = Vec::with_capacity(size);
+    let mut out = Vec::with_capacity(size.min(CAP_HINT));
     let mut s = 0;
     let b = |i: usize| src.get(i).copied().map(u32::from).ok_or_else(|| Error("lz input truncated".into()));
     while out.len() < size {
@@ -136,6 +139,7 @@ pub fn lz(src: &[u8], size: usize) -> Result<Vec<u8>> {
         let start = out
             .len()
             .checked_sub(dist as usize)
+            .filter(|_| dist > 0)
             .ok_or_else(|| Error(format!("lz distance {dist} before start")))?;
         for i in 0..len as usize {
             out.push(out[start + i]); // overlapping copies are intentional (run-length)
@@ -157,6 +161,9 @@ pub fn huffman(src: &[u8], size: usize) -> Result<Vec<u8>> {
         Ok(v)
     };
     let max_len = rd(&mut p)? as u32;
+    if max_len > 31 {
+        return err(format!("huffman code length {max_len}"));
+    }
     let mut code = 0u32;
     for len in 1..=max_len {
         for _ in 0..rd(&mut p)? {
@@ -176,12 +183,15 @@ pub fn huffman(src: &[u8], size: usize) -> Result<Vec<u8>> {
     p += p & 1; // bitstream is 2-byte aligned; blocks are word-aligned so relative == absolute parity
     // The game refills 16 bits ahead, so the last entry of a file reads past its end: treat as zeros.
     let mut half = || -> Result<u32> {
+        if p > src.len() + 4 {
+            return err("huffman input truncated");
+        }
         let v = src.get(p..p + 2).map_or(0, |v| u16::from_le_bytes([v[0], v[1]]) as u32);
         p += 2;
         Ok(v)
     };
     let (mut bits, mut n) = (0u32, 0u32);
-    let mut out = Vec::with_capacity(size);
+    let mut out = Vec::with_capacity(size.min(CAP_HINT));
     while out.len() < size {
         if n < 16 {
             bits |= half()? << n;
@@ -205,4 +215,23 @@ pub fn huffman(src: &[u8], size: usize) -> Result<Vec<u8>> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Damaged archives fail instead of panicking or asking for gigabytes (found by `fuzz/`'s `disc`).
+    #[test]
+    fn damaged_archives_fail() {
+        // an entry whose LZ stream copies from distance 0
+        let x = b"xe\0\x01\0\0\0\0\xff\xff\xff\xff\xff\xff\xff\xff\0\0\0\xf0\x04\x08\x22\x01\0";
+        if let Ok(a) = Archive::parse(x) {
+            assert!(a.entries.iter().all(|e| a.read(e).is_err()));
+        }
+        assert!(lz(&[0x01, 0x00], 5).is_err());
+        // a Huffman stream that claims a gigabyte from nothing
+        assert!(huffman(&[0], 1 << 30).is_err());
+        assert!(huffman(&[40], 1).is_err());
+    }
 }

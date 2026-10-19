@@ -468,7 +468,12 @@ pub fn voice(m: &Mod) -> Option<crate::audio::SoundBank> {
 /// A `.glb`: its document and binary chunk.
 pub fn open(path: &Path) -> Result<(gltf::Document, Vec<u8>), String> {
     // ponytail: glTF's own validation skipped (older rerig.py output lacks POSITION min/max); §7's checks gate the file
-    let g = gltf::Gltf::from_slice_without_validation(&crate::modfs::read(path).map_err(|e| format!("{}: {e}", path.display()))?).map_err(|e| format!("{}: {e}", path.display()))?;
+    let b = crate::modfs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    // the gltf crate subtracts its 12-byte header from the stated length unchecked (a panic in debug builds)
+    if b.starts_with(b"glTF") && b.get(8..12).is_some_and(|n| u32::from_le_bytes(n.try_into().unwrap()) < 12) {
+        return Err(format!("{}: a .glb shorter than its header", path.display()));
+    }
+    let g = gltf::Gltf::from_slice_without_validation(&b).map_err(|e| format!("{}: {e}", path.display()))?;
     if g.buffers().any(|b| !matches!(b.source(), gltf::buffer::Source::Bin)) {
         return Err(format!("{}: buffers must be embedded (.glb)", path.display()));
     }
@@ -1485,6 +1490,15 @@ fn moved(v: &Prim, first: usize, end: usize, joints: &[Joint]) -> Vec<crate::noi
 mod tests {
     use super::*;
     use hst_sim::pose::{model, M4};
+
+    /// A `.glb` whose header states a length shorter than the header is refused, not a panic (found by `fuzz/`).
+    #[test]
+    fn short_glb_header_is_refused() {
+        let p = std::env::temp_dir().join(format!("hst-short-glb-{}.glb", std::process::id()));
+        std::fs::write(&p, [&b"glTF"[..], &2u32.to_le_bytes(), &9u32.to_le_bytes()].concat()).unwrap();
+        assert!(open(&p).is_err());
+        let _ = std::fs::remove_file(&p);
+    }
 
     const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
     /// Test mods (local, `research/journal/2026-10-08-m1a-mod-loader`): `test_pc00` is HST's pc00 through

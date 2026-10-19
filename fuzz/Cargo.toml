@@ -1,0 +1,55 @@
+# Fuzzing the readers of files from strangers (mod zips, mod files, online mod packs) and the disc readers:
+# `cargo +nightly fuzz run <target> -- -max_total_time=300` from this folder (cargo install cargo-fuzz). Its own
+# workspace, so the game's builds never see it; a crash it finds becomes a regular test next to the code.
+[package]
+name = "hst-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+hst-base = { path = "../crates/hst-base", features = ["testing"] }
+hst-data = { path = "../crates/hst-data" }
+
+[workspace]
+members = ["."]
+
+# the game's patches (../Cargo.toml), so hst-base builds as it does there
+[patch.crates-io]
+gilrs-core = { path = "../third_party/gilrs-core" }
+ggrs = { path = "../third_party/ggrs" }
+wgpu = { path = "../third_party/wgpu" }
+bevy_render = { path = "../third_party/bevy_render" }
+bevy_pbr = { path = "../third_party/bevy_pbr" }
+winit = { path = "../third_party/winit" }
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "mod_zip"
+path = "fuzz_targets/mod_zip.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "mod_files"
+path = "fuzz_targets/mod_files.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "online_pack"
+path = "fuzz_targets/online_pack.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "disc"
+path = "fuzz_targets/disc.rs"
+test = false
+doc = false

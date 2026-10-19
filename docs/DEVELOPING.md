@@ -131,6 +131,11 @@ soon as one guest is in and ready, and the computer plays the open seats.
 folder and in `context/fixtures` (or `HST_FIXTURES`), and **skip themselves when those are missing**. The recordings
 are made from the original game and are not distributed.
 
+`fuzz/` throws random bytes at everything a stranger can hand the game (mod zips, mod files, a peer's mod pack
+in an online lobby) and at the disc readers: `cargo install cargo-fuzz`, then from `fuzz/`
+`cargo +nightly fuzz run <mod_zip|mod_files|online_pack|disc> -- -max_total_time=300 -rss_limit_mb=4096`. Run it
+after changing one of those readers; anything it finds becomes a regular test next to the code.
+
 To verify against the original, you also need PCSX2 and your own PS2 BIOS, since the tools drive the real game.
 Reverse-engineering notes and dumps live in `context/`, which is git-ignored and never published. Shipped code
 describes behaviour only. The single exception is `hst-data::exe`, which reads tuning values from your disc's

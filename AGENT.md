@@ -3,7 +3,8 @@
 Rust/Bevy remaster of Hot Shots Tennis (SCUS-97610). Faithful: same AI, physics, timing; better rendering.
 
 - Retail data is read from the user's ISO at runtime. Never commit game data, extracted assets, or dumps.
-- No retail addresses or Ghidra names (`FUN_…`, `DAT_…`) in shipped code; describe behaviour instead.
+- No retail addresses or Ghidra names (`FUN_…`, `DAT_…`) in shipped code; describe behaviour instead. Ports go
+  spec first, then a second session ports from the spec with the decompile locked (PLAN.md *Clean-room ports*).
   Single exception (user decision, 2026-10-06): `hst-data::exe` reads tuning *data* that only exists inside the
   game program from the user's own GAME.BIN at documented offsets, after checking the disc is SCUS-97610 US 1.00.
   No code addresses, no game data in git.
