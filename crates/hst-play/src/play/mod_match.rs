@@ -145,29 +145,17 @@ mod tests {
         panic!("{}: longest rally {best} shots, mod returned a ball: {mod_hit}", m.id);
     }
 
-    /// M1g: the chair umpires, packaged by the mods repo (`tools/rerig/hst_umpires.py` -> `mods/hst-mods`), are
-    /// in the custom roster (`mods::list` of `mods/`, readable TParam row, as the select builds it; all but B381's
-    /// four [`mods::dropped`], so only Robot Tennis), load as a model and each plays a rally (skipped without the ISO or the umpire mods).
+    /// M1g: the chair umpires, packaged by the mods repo (`tools/rerig/hst_umpires.py` -> `mods/hst-mods`), are all
+    /// [`mods::dropped`] (B381's four, Robot Tennis since 2026-10-19): none is on the custom roster (`mods::list` of
+    /// `mods/`, as the select builds it; skipped without the umpire mods).
     #[test]
-    fn umpires_are_on_the_roster_and_play_a_rally() {
+    fn umpires_stay_off_the_roster() {
         let root = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods"));
-        let ump: Vec<Mod> = mods::list(root).into_iter().filter(|m| m.id.starts_with("hst_umpire_")).collect();
-        if !Path::new(ISO).is_file() || ump.len() < 5 {
-            return eprintln!("no ISO or not all five umpire mods under mods/, skipped");
+        if !root.join("hst-mods/hst_umpire_03_robottennis").is_dir() {
+            return eprintln!("no umpire mods under mods/hst-mods, skipped");
         }
-        if ump.iter().any(|m| m.dir.join("store.json").is_file()) {
-            // installed one by one from the mod store, not the packaged set
-            return eprintln!("umpire mods under mods/ came from the store, skipped");
-        }
-        let ids: Vec<&str> = ump.iter().map(|m| m.id.as_str()).collect();
-        assert_eq!(ids, ["hst_umpire_03_robottennis"]);
-        let mut iso = Iso::open(ISO).unwrap();
-        for m in &ump {
-            mods::tparam(&mut iso, m).unwrap_or_else(|e| panic!("{}: no TParam row, left off the select: {e}", m.id));
-            let data = mods::load(&mut iso, m, 0, &mut Assets::<Mesh>::default(), &mut Assets::<StandardMaterial>::default(), &mut Assets::<Image>::default(), &mut Assets::<SkinnedMeshInverseBindposes>::default());
-            assert!(data.is_ok_and(|d| !d.joints.is_empty()), "{}: model doesn't load", m.id);
-            rally(&mut bot_match(m, m.donor), m);
-        }
+        let ump: Vec<String> = mods::list(root).into_iter().map(|m| m.id).filter(|id| id.starts_with("hst_umpire_")).collect();
+        assert!(ump.is_empty(), "umpires on the roster: {ump:?}");
     }
 
     /// B181: a mod player speaks only its own takes, never its donor's. Helghast ships no voice: no bank at all, so

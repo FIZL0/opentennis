@@ -404,8 +404,8 @@ pub fn dirs(root: &Path) -> Vec<PathBuf> {
 }
 
 /// B381: mods left off the custom roster and the store even when installed or uploaded — HST's own chair umpires
-/// Chika, Suzuki, Lily and Anna, whose stood-up meshes look wrong as players (Robot Tennis stays).
-const DROPPED: [&str; 4] = ["hst_umpire_00_chika", "hst_umpire_01_suzuki", "hst_umpire_02_lily", "hst_umpire_04_anna"];
+/// Chika, Suzuki, Lily and Anna, whose stood-up meshes look wrong as players; Robot Tennis too (user 2026-10-19).
+const DROPPED: [&str; 5] = ["hst_umpire_00_chika", "hst_umpire_01_suzuki", "hst_umpire_02_lily", "hst_umpire_03_robottennis", "hst_umpire_04_anna"];
 
 /// Whether the mod `id` is one of the [`DROPPED`] ones.
 pub fn dropped(id: &str) -> bool {

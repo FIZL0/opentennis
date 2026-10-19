@@ -17,3 +17,4 @@
 - Characters with their own reaction animations now make their own facial expressions with them, instead of borrowing another character's.
 - Characters with their own reactions put the racket away in moves where it would have gone through their body.
 - Characters with their own emotes play them for their full length, shorter or longer than before, online too, and ease into them smoothly.
+- No chair umpire is offered as a playable character or in the mod store any more.
