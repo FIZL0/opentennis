@@ -1348,9 +1348,9 @@ pub fn load_with(
             f.uv.extend(f.uv_unbound.drain(..).filter(|t| donor.contains(&t.0)).map(|(_, ticks, values)| (character::EYES, ticks, values)));
         }
     }
-    let visual = match &m.motions {
+    let (visual, takes) = match &m.motions {
         Some(f) => own_motions(&m.dir.join(f), &skeleton, &motions, only)?,
-        None => HashMap::new(),
+        None => Default::default(),
     };
     // the donor's stance, where the soles are laid flat (a card's load may not have it)
     let stand = match motions.get(&0) {
@@ -1361,7 +1361,7 @@ pub fn load_with(
     let binds = crate::character::part_skins(&joints, &parts, meshes, bindposes);
     let springs = crate::spring::masses(&nodes, &joints);
     let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs }));
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, feet, frame_gameplay: false })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, feet, frame_gameplay: false })
 }
 
 /// `mod.json`'s `disc_racket` (§6, M1r): the disc character (0..13) whose racket it holds when it ships no
@@ -1381,16 +1381,23 @@ fn eye_materials(dir: &Path) -> Vec<String> {
 /// without `_pc%02d`), keys the skeleton's joints by name with their local rotation and translation in game space.
 /// Its key times are seconds at 60 Hz (the source's own speed); it may run past the donor clip (drawn on its own
 /// clock, `Motion::drawn`) but not stop short of it, except a celebration ([`CELEBRATIONS`]). Gameplay keeps reading
-/// the donor's clip.
-fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, only: Option<&[usize]>) -> Result<HashMap<usize, Clip>, String> {
+/// the donor's clip. `NAME.K` (K = 1, 2, …) is a further take of `NAME` (M130), under the same rules, drawn in turn
+/// with it (`CharacterData::drawn_take`): returned apart, in K order, and only beside `NAME` itself.
+type OwnMotions = (HashMap<usize, Clip>, HashMap<usize, Vec<Clip>>);
+fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, only: Option<&[usize]>) -> Result<OwnMotions, String> {
     use hst_data::ani::{Anim, MOTIONS, Track};
     use gltf::animation::util::ReadOutputs;
     let (doc, blob) = open(path)?;
     let ctx = |e: String| format!("{}: {e}", path.display());
     let mut out = HashMap::new();
+    let mut more: HashMap<usize, Vec<(u32, Clip)>> = HashMap::new();
     for a in doc.animations() {
         let name = a.name().unwrap_or("");
-        let id = MOTIONS.iter().position(|m| m.replace("_pc%02d", "") == name).ok_or_else(|| ctx(format!("animation `{name}` is not a motion name")))?;
+        let (base, take) = match name.rsplit_once('.') {
+            Some((b, k)) => (b, Some(k.parse::<u32>().ok().filter(|&k| k > 0).ok_or_else(|| ctx(format!("animation `{name}`: a take is `.1`, `.2`, …")))?)),
+            None => (name, None),
+        };
+        let id = MOTIONS.iter().position(|m| m.replace("_pc%02d", "") == base).ok_or_else(|| ctx(format!("animation `{name}` is not a motion name")))?;
         if only.is_some_and(|o| !o.contains(&id)) {
             continue;
         }
@@ -1442,9 +1449,22 @@ fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, o
         if clip.length < d.length && !CELEBRATIONS.contains(&id) {
             return Err(ctx(format!("`{name}` spans {} frames, short of the donor's {}", clip.length, d.length)));
         }
-        out.insert(id, clip);
+        match take {
+            Some(k) => more.entry(id).or_default().push((k, clip)),
+            None => {
+                out.insert(id, clip);
+            }
+        }
     }
-    Ok(out)
+    let mut takes = HashMap::new();
+    for (id, mut t) in more {
+        if !out.contains_key(&id) {
+            return Err(ctx(format!("takes of `{}` without the motion itself", MOTIONS[id].replace("_pc%02d", ""))));
+        }
+        t.sort_by_key(|t| t.0);
+        takes.insert(id, t.into_iter().map(|t| t.1).collect());
+    }
+    Ok((out, takes))
 }
 
 /// The point and game reactions (`re_gu`, `re_di`, `re_gu_set`, `re_di_set`): a mod's own may end before the donor's
@@ -1869,6 +1889,32 @@ mod tests {
         }
     }
 
+    /// M130: an installed mod whose motions carry takes loads them beside their motion, each as long as its glTF
+    /// and at least the donor's clip.
+    #[test]
+    fn a_mods_takes_load_beside_its_motions() {
+        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods");
+        let mut dirs: Vec<_> = std::fs::read_dir(&root).into_iter().flatten().flatten().map(|e| e.path()).collect();
+        dirs.sort();
+        let has_takes = |m: &Mod, dir: &Path| {
+            let Some(f) = &m.motions else { return false };
+            open(&dir.join(f)).is_ok_and(|(doc, _)| doc.animations().any(|a| a.name().is_some_and(|n| n.contains('.'))))
+        };
+        let Some((dir, m)) = dirs.iter().filter_map(|d| Some((d, read(d).ok()?))).find(|(d, m)| has_takes(m, d)) else {
+            return eprintln!("no installed mod with takes, skipped");
+        };
+        let mut s = Stores(default(), default(), default(), default());
+        let c = load(&mut iso, &m, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
+        assert!(!c.takes.is_empty(), "{}", dir.display());
+        for (id, takes) in &c.takes {
+            assert!(c.visual.contains_key(id));
+            for t in takes {
+                assert!(t.length >= c.motions[id].length * 0.999, "{id:#x}: {} < {}", t.length, c.motions[id].length);
+            }
+        }
+    }
+
     /// B439: a select card's load (`load_with` the inspect motions) has those motions and own motions, the same
     /// clips as the whole load's, and no others.
     #[test]
@@ -2016,6 +2062,62 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// A `motions.glb` of one `Bip01` turning a quarter about y over 0.5 s (30 frames), once per animation name.
+    fn quarter_turns(names: &[&str]) -> Vec<u8> {
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        let mut bin: Vec<u8> = [0.0f32, 0.5, 0.0, 0.0, 0.0, 1.0, 0.0, half, 0.0, half].iter().flat_map(|f| f.to_le_bytes()).collect();
+        let anims: Vec<String> = names
+            .iter()
+            .map(|name| format!(r#"{{"name":"{name}","samplers":[{{"input":0,"output":1}}],"channels":[{{"sampler":0,"target":{{"node":0,"path":"rotation"}}}}]}}"#))
+            .collect();
+        let json = format!(
+            r#"{{"asset":{{"version":"2.0"}},"nodes":[{{"name":"Bip01"}}],"scenes":[{{"nodes":[0]}}],"buffers":[{{"byteLength":40}}],"bufferViews":[{{"buffer":0,"byteLength":8}},{{"buffer":0,"byteOffset":8,"byteLength":32}}],"accessors":[{{"bufferView":0,"componentType":5126,"count":2,"type":"SCALAR","min":[0],"max":[0.5]}},{{"bufferView":1,"componentType":5126,"count":2,"type":"VEC4"}}],"animations":[{}]}}"#,
+            anims.join(",")
+        );
+        let mut json = json.into_bytes();
+        json.resize(json.len().next_multiple_of(4), b' ');
+        bin.resize(bin.len().next_multiple_of(4), 0);
+        let mut out = b"glTF".to_vec();
+        out.extend(2u32.to_le_bytes());
+        out.extend((12 + 8 + json.len() as u32 + 8 + bin.len() as u32).to_le_bytes());
+        out.extend((json.len() as u32).to_le_bytes());
+        out.extend(b"JSON");
+        out.extend(json);
+        out.extend((bin.len() as u32).to_le_bytes());
+        out.extend(b"BIN\0");
+        out.extend(bin);
+        out
+    }
+
+    /// M130: a mod's further takes (`re_gu.1`, `re_gu.2`) load in their order beside the motion itself, and every one
+    /// is drawn as the motion restarts; a take with no motion, numbered 0 or not at all, is refused.
+    #[test]
+    fn takes_load_and_take_turns() {
+        use hst_data::ani::{Anim, Track};
+        let sk = Skeleton { names: vec!["Bip01".into()], parent: vec![None], rest: vec![[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 1.0]]] };
+        let short = Clip::new(&sk, &Anim { ticks_per_frame: 1, tracks: vec![Track { name: "Bip01".into(), length: 0.0, rotation: vec![(0, [0.0, 0.0, 0.0, 1.0]), (20, [0.0, 0.0, 0.0, 1.0])], position: vec![], parent: None }] });
+        let donor: HashMap<usize, Clip> = [(0x2c, short.clone()), (0x10, short)].into_iter().collect();
+        let dir = std::env::temp_dir().join(format!("hst_m130_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("motions.glb");
+        let load = |names: &[&str]| {
+            std::fs::write(&path, quarter_turns(names)).unwrap();
+            own_motions(&path, &sk, &donor, None)
+        };
+        let (own, takes) = load(&["re_gu.2", "re_gu", "sh_f_t", "re_gu.1"]).unwrap();
+        assert_eq!((own.len(), takes.len(), takes[&0x2c].len()), (2, 1, 2));
+        for bad in [&["re_gu.1"][..], &["re_gu", "re_gu.0"], &["re_gu", "re_gu.x"], &["re_gux.1"]] {
+            assert!(load(bad).is_err(), "{bad:?}");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+        // a dozen restarts draw each of three takes
+        let mut seen: Vec<usize> = (0..12).map(|s| character::take(s, 3)).collect();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen, [0, 1, 2]);
+        assert!((0..12).all(|s| character::take(s, 1) == 0));
+    }
+
     /// B478: a celebration of a mod's own that ends before the donor's loads and holds its last frame to the end of the
     /// transition (the gameplay clock runs the donor's on), while any other clip shorter than the donor's is rejected.
     #[test]
@@ -2023,25 +2125,7 @@ mod tests {
         use hst_data::ani::{Anim, Track};
         // one joint turning a quarter about y over 0.5 s (30 frames)
         let half = std::f32::consts::FRAC_1_SQRT_2;
-        let glb = |name: &str| -> Vec<u8> {
-            let mut bin: Vec<u8> = [0.0f32, 0.5, 0.0, 0.0, 0.0, 1.0, 0.0, half, 0.0, half].iter().flat_map(|f| f.to_le_bytes()).collect();
-            let json = format!(
-                r#"{{"asset":{{"version":"2.0"}},"nodes":[{{"name":"Bip01"}}],"scenes":[{{"nodes":[0]}}],"buffers":[{{"byteLength":40}}],"bufferViews":[{{"buffer":0,"byteLength":8}},{{"buffer":0,"byteOffset":8,"byteLength":32}}],"accessors":[{{"bufferView":0,"componentType":5126,"count":2,"type":"SCALAR","min":[0],"max":[0.5]}},{{"bufferView":1,"componentType":5126,"count":2,"type":"VEC4"}}],"animations":[{{"name":"{name}","samplers":[{{"input":0,"output":1}}],"channels":[{{"sampler":0,"target":{{"node":0,"path":"rotation"}}}}]}}]}}"#
-            );
-            let mut json = json.into_bytes();
-            json.resize(json.len().next_multiple_of(4), b' ');
-            bin.resize(bin.len().next_multiple_of(4), 0);
-            let mut out = b"glTF".to_vec();
-            out.extend(2u32.to_le_bytes());
-            out.extend((12 + 8 + json.len() as u32 + 8 + bin.len() as u32).to_le_bytes());
-            out.extend((json.len() as u32).to_le_bytes());
-            out.extend(b"JSON");
-            out.extend(json);
-            out.extend((bin.len() as u32).to_le_bytes());
-            out.extend(b"BIN\0");
-            out.extend(bin);
-            out
-        };
+        let glb = |name: &str| quarter_turns(&[name]);
         let sk = Skeleton { names: vec!["Bip01".into()], parent: vec![None], rest: vec![[[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 1.0]]] };
         // the donor's clips: 90 frames
         let long = Clip::new(&sk, &Anim { ticks_per_frame: 1, tracks: vec![Track { name: "Bip01".into(), length: 0.0, rotation: vec![(0, [0.0, 0.0, 0.0, 1.0]), (90, [0.0, 0.0, 0.0, 1.0])], position: vec![], parent: None }] });
@@ -2053,7 +2137,7 @@ mod tests {
         let e = own_motions(&path, &sk, &donor, None).err().expect("a short stroke is rejected");
         assert!(e.contains("short of the donor's"), "{e}");
         std::fs::write(&path, glb("re_di_set")).unwrap();
-        let own = own_motions(&path, &sk, &donor, None).unwrap();
+        let (own, _) = own_motions(&path, &sk, &donor, None).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         let clip = &own[&0x2f];
         assert_eq!((clip.length, donor[&0x2f].length), (30.0, 90.0));

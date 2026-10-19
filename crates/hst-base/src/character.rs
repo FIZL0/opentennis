@@ -122,6 +122,9 @@ pub struct CharacterData {
     /// A mod's own clips (standard §6 `motions`), by motion number, drawn in place of `motions`' but never read by
     /// gameplay: each plays at its own length on `Motion::drawn`, so timing, events and the sim stay the donor's.
     pub visual: HashMap<usize, Clip>,
+    /// A mod's further takes of a motion (`re_gu.1`, `re_gu.2`, …: M130), drawn in turn with `visual`'s as the motion
+    /// restarts ([`drawn_take`](Self::drawn_take)); looks only, as `visual`.
+    pub takes: HashMap<usize, Vec<Clip>>,
     /// A mod's feet, set down where the donor's are (B543, looks only): see [`Feet`].
     pub feet: Option<Feet>,
     /// B556: an online mod: the cameras frame it on its gameplay clips ([`framed`](Self::framed)), as every peer has
@@ -448,6 +451,12 @@ pub fn face_counted(m: Option<Vec<u8>>, u: Option<Vec<u8>>, skeleton: &Skeleton,
     Some(f)
 }
 
+/// Which of `n` takes a motion started by the `sets`-th motion set draws (M130): the count scrambled, so takes
+/// don't follow the order the match happens to set motions in.
+pub fn take(sets: u32, n: usize) -> usize {
+    (sets.wrapping_mul(0x9e37_79b9) >> 16) as usize % n.max(1)
+}
+
 impl CharacterData {
     /// The morph target a `.MOR` track binds: the same name (disc), else a mod's channel for it
     /// ([`crate::mods::face_target`]: the name after its object prefix, `face\x01joy_eye`, or the nearest expression).
@@ -462,6 +471,24 @@ impl CharacterData {
     /// The clip drawn for motion `id`: the mod's own if it has one, else the gameplay clip.
     pub fn drawn(&self, id: usize) -> Option<&Clip> {
         self.visual.get(&id).or_else(|| self.motions.get(&id))
+    }
+
+    /// The clip drawn for motion `id` started by the `sets`-th motion set (`Motion::sets`): a mod with several takes
+    /// of it (M130) draws one of them, picked from that count (no generator: the same on every peer and in a
+    /// replay, and the rollback snapshot keeps the count), else [`drawn`](Self::drawn)'s.
+    pub fn drawn_take(&self, id: usize, sets: u32) -> Option<&Clip> {
+        match self.takes.get(&id).filter(|t| !t.is_empty()) {
+            Some(more) => match take(sets, more.len() + 1) {
+                0 => self.drawn(id),
+                k => more.get(k - 1),
+            },
+            None => self.drawn(id),
+        }
+    }
+
+    /// Whether `clip` is one of the mod's own (`visual` or `takes`).
+    pub fn own(&self, clip: &Clip) -> bool {
+        self.visual.values().chain(self.takes.values().flatten()).any(|v| std::ptr::eq(v, clip))
     }
 
     /// The clip a camera frames motion `id` by: the one drawn, but an online mod's gameplay clip (`frame_gameplay`).
@@ -808,7 +835,7 @@ pub fn load_disc_with(
     // the game binds a face track to the target of the same name; others are dropped
     let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &skeleton, |name| model.morph_names.iter().position(|m| m == name), only)?;
     let binds = part_skins(&joints, &parts, meshes, bindposes);
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), feet: None, frame_gameplay: false })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), feet: None, frame_gameplay: false })
 }
 
 /// The node names of disc character `n`'s body model (costume 0; every costume shares the skeleton).
@@ -1067,6 +1094,7 @@ pub fn load_npc(
         gs,
         texture_face: None,
         visual: HashMap::new(),
+        takes: HashMap::new(),
         feet: None,
         frame_gameplay: false,
     })
@@ -1137,8 +1165,9 @@ pub fn animate(
         let c = cache.entry(root).or_default();
         c.frame = *frame;
         c.face(rig, motion, &mut weights);
-        let Some(new) = rig.data.drawn(motion.id) else { continue };
-        let fading = rig.data.drawn(motion.fade.id as usize).filter(|_| motion.fade.clip);
+        let Some(new) = rig.data.drawn_take(motion.id, motion.sets) else { continue };
+        // the outgoing motion was the set before this one
+        let fading = rig.data.drawn_take(motion.fade.id as usize, motion.sets.wrapping_sub(1)).filter(|_| motion.fade.clip);
         // between the last two ticks' sampled times (across a loop's wrap); a mod's own clip on its own clock
         let (a, b) = if rig.data.visual.contains_key(&motion.id) { (motion.drawn_prev, motion.drawn.sampled) } else { (motion.prev, motion.clock.sampled) };
         let b = if b < a && motion.clock.looping { b + new.length } else { b };
@@ -1176,7 +1205,7 @@ pub fn animate(
             }
             feet.plant(&rig.data.joints, clip, &mut drawn, lift);
             // a mod's own clip keys the foot in the costume's own frame: its binds' turn undone (B563)
-            let own = |c: &Clip| rig.data.visual.values().any(|v| std::ptr::eq(v, c)) as u8 as f32;
+            let own = |c: &Clip| rig.data.own(c) as u8 as f32;
             let u = match over {
                 Some((other, _, w)) => own(clip) + (own(other) - own(clip)) * w,
                 None => own(clip),
@@ -1368,7 +1397,7 @@ pub fn tick(mut q: Query<(&Rig, &mut Motion)>) {
         m.uv_clock.tick(uv);
         m.drawn_prev = m.drawn.sampled;
         (m.drawn.speed, m.drawn.looping) = (m.clock.speed, m.clock.looping);
-        let drawn = rig.data.drawn(m.id).map_or(0.0, |c| c.length);
+        let drawn = rig.data.drawn_take(m.id, m.sets).map_or(0.0, |c| c.length);
         m.drawn.tick(drawn);
     }
 }

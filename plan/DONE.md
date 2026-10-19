@@ -854,6 +854,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B579** Sophie's hair has no physics again (user 2026-10-19): her pigtails don't move with physics; regressed after B410/B435 (crates/hst/src/spring.rs). Find what broke it and add a test that would have caught it.
 - [x] **B580** A modded court still blocks the screen after M129 (user 2026-10-19, screenshot context/user-shots/2026-10-19-cloud-blocker.png): a big cream cloud prop near the camera covers the lower right of the near court in play (balloons/stands court; identify which mod). M129's cut misses it: check why (size/distance test, its node not counted as one object, alpha/sky material skipped) and make it fade. Show the user before/after.
 - [x] **M132** Hair physics changes (user 2026-10-19): look into the hair physics changes for the golf mod characters (see M130's video); show the user A/B shots/clips, keep a change ONLY after the user approves it, revert the rest → ../opentennis-mods · crates/hst-base/src/character.rs
+- [x] **M130** Sophie's missing animations (user 2026-10-19): compare the Sophie mod's motions against the reference video `/home/ryha/Downloads/Hot Shots Golf: Out of Bounds | All Sophie Animations(60fps) [vs7UYu0fVf8].mp4` (all her HSG:OoB animations, 60 fps), list which are missing and add them; bump the mod's mod.json version → ../opentennis-mods
 
 
 ### Shots
