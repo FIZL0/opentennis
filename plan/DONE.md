@@ -849,6 +849,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B576** Still no tiebreak score SFX (user 2026-10-18): the 'ching' when the score changes in a tiebreak doesn't play. Take the cue from the original.
 - [x] **B570** Menu text looks bad on low-res screens and phones (user 2026-10-18): menu text is blurry/ugly at low resolutions. Make menu scaling work better and automatically (pick scale/font size from window size and DPI so text stays crisp and readable), at any aspect ratio.
 - [x] **B577** Name-entry buttons vanish with 4 local players (user 2026-10-18): the on-screen name typing buttons go missing when someone joins during 4-player local.
+- [x] **B574** CPU partners on a human team act weird (user 2026-10-18): in doubles, CPUs on the human's team sometimes won't go for an easy ball. Compare against the original's partner AI and port any gap.
 
 
 ### Shots
