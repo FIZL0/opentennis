@@ -10,4 +10,4 @@
 - The button to move on to the stats page after a match responds as soon as its prompt appears.
 - The score board chimes again in a tiebreak.
 - In doubles, computer players line up smashes from each character's own reach.
-- Mod courts: low props behind the baseline no longer pop in and out, and props right in front of the camera no longer block the view.
+- Objects on modded courts no longer block the camera or pop in and out.
