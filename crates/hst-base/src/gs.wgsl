@@ -212,6 +212,9 @@ fn box_entry(eye: vec3<f32>, d: vec3<f32>, centre: vec3<f32>, half: vec3<f32>) -
 // outside the players' room (the doubles court, 4 m beside it and 6 m behind each baseline, at any height: what
 // stands over the play, a helicopter's rotor, stays), whose ray from the eye goes on into the players' room (up
 // to 20 m, so the whole of a pole in front of the camera goes, not only where it covers the court). Bevy's world, y up.
+// B580: further out, such a piece goes too while it stands less than 3/4 of the way from the eye to the room (Studio
+// A's cloud on the wall behind the camera covering the run-off a player runs into, ~0.72; fading out to 0.77, so
+// what stands by the room's end stays: Dubno's house, the gas lamps, the trees beside a baseline, 0.77 and up).
 fn cleared(p: vec3<f32>, pixel: vec2<f32>) -> bool {
     let eye = view_bindings::view.world_position;
     let d = p - eye;
@@ -219,17 +222,19 @@ fn cleared(p: vec3<f32>, pixel: vec2<f32>) -> bool {
     if dist < 1.0 {
         return true;
     }
-    if dist > 10.0 || p.y < 0.5 || (abs(p.x) < 5.485 + 4.0 && abs(p.z) < 11.885 + 6.0) {
+    if p.y < 0.5 || (abs(p.x) < 5.485 + 4.0 && abs(p.z) < 11.885 + 6.0) {
         return false;
     }
     let t = box_entry(eye, d, vec3(0.0, 10.0, 0.0), vec3(5.485 + 4.0, 10.0, 11.885 + 6.0));
     if t <= 1.0 || t > 1e8 {
         return false;
     }
+    // how far it's kept: by its distance (7..10 m), or by its share of the way into the room (0.74..0.77), the nearer
+    let keep = min((dist - 7.0) / 3.0, (1.0 / t - 0.74) / 0.03);
     // 4×4 Bayer threshold, 0..15/16
     var bayer = array<u32, 16>(0u, 8u, 2u, 10u, 12u, 4u, 14u, 6u, 3u, 11u, 1u, 9u, 15u, 7u, 13u, 5u);
     let q = vec2<u32>(pixel) % vec2(4u);
-    return f32(bayer[q.y * 4u + q.x]) / 16.0 >= (dist - 7.0) / 3.0;
+    return f32(bayer[q.y * 4u + q.x]) / 16.0 >= keep;
 }
 #endif
 

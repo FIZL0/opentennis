@@ -15,3 +15,4 @@
 - In doubles, computer players (and their judgement of whether a human partner can smash a ball) now line up smashes from each character's own reach instead of one shared measurement.
 - On mod courts, low props behind the baseline (like the toolboxes on Dubno Tower) no longer vanish and pop back in as play changes ends.
 - On mod courts, a big prop right in front of the camera (like the pillars round Dubno's rooftop in a replay) is no longer drawn, and a camera inside a prop sees through it; the helicopter, its rotor and everything over the court stay.
+- On the Studio A court (Get a Grip court mod), the big cloud on the wall behind the camera no longer covers the bottom right of the screen when a player runs off the side of the court.
