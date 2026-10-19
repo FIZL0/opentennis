@@ -846,6 +846,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B571** Store-downloaded modded characters have no baked icons (user 2026-10-18): after downloading random modded characters from the store, their roster icons weren't baked. Make sure every downloaded character gets its face icon baked (on install or first roster show).
 - [x] **B573** Bot rank doesn't show (user 2026-10-18): the CPU's rank/difficulty isn't displayed at character select.
 - [x] **B575** T-Bone mod whiff line too long (user 2026-10-18): his voice line on a miss is long speech. Use a grunt for whiffs instead of talking (check his bank and other mods for grunt clips); a talking line on a sweet spot is fine.
+- [x] **B576** Still no tiebreak score SFX (user 2026-10-18): the 'ching' when the score changes in a tiebreak doesn't play. Take the cue from the original.
 
 
 ### Shots

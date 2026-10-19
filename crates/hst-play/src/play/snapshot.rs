@@ -336,7 +336,8 @@ mod tests {
         app
     }
 
-    /// B71: every tiebreak point plays court, crowd and racket sounds like any other point.
+    /// B71: every tiebreak point plays court, crowd and racket sounds like any other point. B576: and its score show
+    /// chimes as the new points flash in.
     #[test]
     fn tiebreak_points_sound() {
         if !Path::new(ISO).is_file() {
@@ -344,10 +345,15 @@ mod tests {
         }
         let (mut app, sound) = match_app(true);
         app.world_mut().resource_mut::<Game>().humans[0] = true;
-        let (mut last, mut plays, mut tiebreak_points) = (String::new(), 0, 0);
+        let (mut last, mut plays, mut tiebreak_points, mut chimes) = (String::new(), 0, 0, 0);
         for _ in 0..60 * 60 * 25 {
+            let before = sound.plays();
             run(&mut app, &[[tick_input::IDLE; 4]]);
             let mut g = app.world_mut().resource_mut::<Game>();
+            if g.post.as_ref().and_then(|p| p.show()).is_some_and(|s| s.tiebreak_chime()) {
+                assert!(sound.plays() > before, "tiebreak chime didn't play");
+                chimes += 1;
+            }
             // the first game goes to the other side so the one-game match reaches a tiebreak at 1-1
             if g.score.games == [1, 0] && g.phase == Phase::Serve {
                 g.score.games = [0, 1];
@@ -365,6 +371,7 @@ mod tests {
             }
         }
         assert!(tiebreak_points > 3, "reached the tiebreak ({tiebreak_points} points)");
+        assert!(chimes > 3, "tiebreak shows chimed ({chimes} of {tiebreak_points} points)");
     }
 
     /// A singles match on the disc, 1P a person (`autoplay`: a bot too), its sound the test's.

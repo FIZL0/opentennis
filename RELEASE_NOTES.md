@@ -9,3 +9,4 @@
 - Characters downloaded from the mod store now get their face icons right away: new downloads are drawn as they install, and the character select draws the faces on screen first.
 - A computer player's card on the character select shows its level again (e.g. "COM - Lv 3").
 - The T-Bone mod character now grunts when he misses a swing instead of saying a whole line (update the mod to hear it).
+- In a tiebreak the score board chimes again as the new points come up, as in the original.

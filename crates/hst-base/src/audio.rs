@@ -1030,6 +1030,29 @@ mod tests {
         }
     }
 
+    /// B576: every court's bank has the tiebreak score show's chime, and it is heard.
+    #[test]
+    fn tiebreak_chime_is_heard() {
+        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
+            return eprintln!("no ISO, skipped");
+        };
+        let base = mix(&mut iso);
+        let mut courts = 0;
+        for n in 1..=11 {
+            let CourtBank(Some(bank)) = court_bank(&mut iso, n) else { continue };
+            let sound = Sound(Arc::new(Mutex::new(mix_clone(&base))));
+            sound.play_centre(&bank, sound::TIEBREAK_CHIME);
+            let mut out = Vec::new();
+            for _ in 0..60 {
+                sound.0.lock().unwrap().render(&mut out);
+            }
+            let peak = out.iter().fold(0f32, |a, x| a.max(x.abs()));
+            assert!(peak > 0.01, "court {n} tiebreak chime peak {peak}");
+            courts += 1;
+        }
+        assert!(courts > 0);
+    }
+
     /// B235: each volume slider at 0 silences only its group — the BGM (music), a system sound (SFX), the umpire
     /// (voices), court 2's surf (ambience, M111) — and master silences all; at full the output is as before (no gain
     /// applied).
