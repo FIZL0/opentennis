@@ -15,7 +15,9 @@
     tools/ctx.py newid <PREFIX>       next free id, e.g. B -> B212
     tools/ctx.py archive         move every [x] line left in TODO.md to DONE.md (after merges, hand edits)
     tools/ctx.py brief <ID>      everything a task starts from: its line, plan/<ID>.md, its journal (newest file in
-                                 full), where its files are and their last commits; the runners paste it in the prompt
+                                 full), where its files are and their last commits; the runners paste it in the prompt.
+                                 A journal with a SPEC.md makes it a clean-room port (PLAN.md): the brief says so and,
+                                 in a worktree, writes .cleanroom, which locks the decompile for the session
 """
 import os, re, subprocess, sys, time
 
@@ -268,6 +270,20 @@ def brief(root, tid):
             body = open(os.path.join(d, files[-1]), encoding='utf-8').read()
             cut = len(body) > JOURNAL_MAX
             out += [f'### {files[-1]}' + (f' (first {JOURNAL_MAX} chars)' if cut else ''), body[:JOURNAL_MAX].rstrip()]
+    specs = [os.path.join('research/journal', j, 'SPEC.md') for j in own_j
+             if os.path.exists(os.path.join(root, 'research/journal', j, 'SPEC.md'))]
+    if specs:
+        body = open(os.path.join(root, specs[-1]), encoding='utf-8').read()
+        asked = re.search(r'^## Open questions\s*\n(.*?)(?=^## |\Z)', body, re.M | re.S)
+        if asked and re.sub(r'^[\s-]*none\.?\s*$', '', asked.group(1), flags=re.M | re.I).strip():
+            out += ['', f'## Spec phase: answer the open questions in {specs[-1]}',
+                    'Read the decompile, answer them in the spec (behaviour in your own words), empty the section, '
+                    f'`tools/done.sh {tid} "<msg>" --spec`, stop. No Rust this session.']
+        else:
+            out += ['', f'## Port phase: implement from {specs[-1]} and the tests alone',
+                    'The decompile is locked for this session (fn.sh, xref.py, context/decomp, Ghidra). Prove the port '
+                    'with the PINE recordings and the oracle as usual. Something the spec doesn\'t say: write it under '
+                    f'`## Open questions` in the spec, `tools/done.sh {tid} "<msg>" --spec`, stop.', '', body.rstrip()]
     names = list(dict.fromkeys(re.findall(r'[\w-]+\.(?:rs|py|sh|md|toml)\b', text.split('| t:')[0])))
     tracked = subprocess.run(['git', 'ls-files'], cwd=root, capture_output=True, text=True).stdout.split()
     where = [(n, [t for t in tracked if t.endswith('/' + n) or t == n]) for n in names]
@@ -313,7 +329,17 @@ if __name__ == '__main__':
     if args[:1] == ['newid'] and len(args) == 2:
         sys.exit(print(next_id([todo, done], args[1])))
     if args[:1] == ['brief'] and len(args) == 2:
-        sys.exit(print('\n'.join(brief(root, args[1]))))
+        out = brief(root, args[1])
+        # the lock goes in the checkout the session runs in (a runner slot), never the shared main checkout
+        top, gd, cd = (subprocess.run(['git', 'rev-parse', '--path-format=absolute', f], capture_output=True,
+                                      text=True).stdout.strip() for f in ('--show-toplevel', '--git-dir', '--git-common-dir'))
+        if top and gd != cd:
+            lock = os.path.join(top, '.cleanroom')
+            if any(l.startswith('## Port phase') for l in out):
+                open(lock, 'w').write(args[1] + '\n')
+            elif os.path.exists(lock):
+                os.remove(lock)
+        sys.exit(print('\n'.join(out)))
     if args == ['archive']:
         sys.exit(print(f'archived {archive(todo, done)}'))
     paths = [todo, os.path.join(root, 'PLAN.md'), os.path.join(root, 'plan', 'HUMAN.md'), done]

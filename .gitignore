@@ -1,7 +1,33 @@
+# The top level is a whitelist: anything new there (the ISO, hf-token.txt, a desync or mesh dump, an extracted
+# disc folder) stays out of git until it is named here. A dump at the root went in twice (B92's `obj`, M101's desync json).
+/*
+!/.claude/
+/.claude/worktrees/
+!/.github/
+!/crates/
+!/docs/
+!/fuzz/
+!/plan/
+!/research/
+!/third_party/
+!/tools/
+!/web/
+!/.gitattributes
+!/.gitignore
+!/AGENT.md
+!/CLAUDE.md
+!/CREDITS.md
+!/Cargo.lock
+!/Cargo.toml
+!/LICENSE-APACHE
+!/LICENSE-MIT
+!/PLAN.md
+!/README.md
+!/RELEASE_NOTES.md
+
 # Retail data and anything derived from it never goes in git.
 *.iso
 replacements
-/mods
 context
 target/
 __pycache__/
@@ -15,14 +41,8 @@ research/**/*.p2m2
 research/journal/**/*
 !research/journal/**/
 !research/journal/**/*.md
-/controls.txt
-/hints.txt
-/dist
 tools/upscale_mods.sh
-/cache
 research/tools/wasmtime-*/
-/target-wasm/
-/target-*/
 /web/pkg/
 /web/pkg-webgpu/
 /web/version.txt
@@ -31,8 +51,3 @@ research/tools/wasmtime-*/
 /web/apple-touch-icon-precomposed.png
 # M17 store listing cache and the player's Hugging Face token (written beside the game)
 mods-store.json
-hf-token.txt
-/mods-upload
-
-# extracted disc archives must never land at the root (B168 committed COURT/07)
-/COURT/

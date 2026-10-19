@@ -16,6 +16,16 @@ iteration; don't merge or skip ahead. Too big → split it into sub-tasks (new `
   `research/fn.sh <addr>`), port it, prove it against the real game: a test compares the port to a PINE recording
   or save-state capture and passes bit-exact (f32 via `hst_sim::ps2`) or frame-exact.
   This covers gameplay only: physics, AI, shots, scoring, rules and match timing.
+- **Clean-room ports: spec, then port, in two sessions** (user 2026-10-19). A session that reads the decompile to
+  port behaviour writes no Rust: it writes `research/journal/<dir>/SPEC.md` (in the task's own journal) and ends with
+  `tools/done.sh <ID> "<msg>" --spec`. The spec is behaviour in your own words: inputs, outputs, rules, constants by
+  meaning and value, the order things happen in, the quirks the game shows (those are behaviour, match them). It
+  has no code, no addresses, no Ghidra names, no struct offsets or field order (`tools/audit.sh` checks), and ends with
+  `## Open questions` (`none`). The next session gets a *Port phase* brief: it implements from the spec and the
+  recordings/oracle, with the decompile locked (`.cleanroom`, `tools/guard_decomp.py`); a gap goes under *Open
+  questions* and back through `--spec`. Write the port as you'd write it fresh: your own structure and names, no dead
+  branches, unused fields or instruction order copied over; the tests prove it's exact. Why: a port transcribed from
+  decompiled code is a copy of it (CREDITS.md, *How it's made*).
 - **Rendering only has to look right** (user 2026-10-12): shadows, shade maps, lighting, effects and GS output
   match the original by eye or within a small tolerance against a capture, not bit for bit. Don't replay GS/VU1
   rounding to close the last few pixels, and don't open a follow-up "(X gap)" task just to chase remaining

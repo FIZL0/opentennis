@@ -49,6 +49,23 @@ What you need:
 - **You don't need a PS2 BIOS, an emulator or any other files** to play. Those are only for the research tools
   (see [docs/DEVELOPING.md](docs/DEVELOPING.md)).
 
+## What works, what's missing
+
+**Plays like the original** (checked against recordings of the real game, frame for frame): ball flight, spin,
+bounces and the court, net, walls and props it hits; every shot (topspin, slice, lob, flat, drop, smash, serve),
+timing grades and each character's own shot data, reach and dives; the CPU players in singles and doubles; line
+calls, scoring, change of ends and the timing between points; weather and the courts' moving creatures.
+
+**Ours, made to look and feel right:** rendering (any resolution and aspect ratio, uncapped frame rate, upscaled
+texture packs), menus, settings, online play with rollback, touch controls, character/court/umpire/texture mods.
+
+**Not there yet:**
+- The original's second match camera, Set Handicap and Offbeat Rules.
+- Let serves aren't proven against the real game yet.
+- Shadows are sharper than the PS2's in the "Original" look.
+
+The open list is [plan/TODO.md](plan/TODO.md); how it's made and what it's built on: [CREDITS.md](CREDITS.md).
+
 ## Controls
 
 Player 1 uses the keyboard or the first controller. In doubles, a second controller plays player 1's partner (P1 + P2

@@ -5,6 +5,7 @@ import json, os, re, sys, time
 
 t = json.load(sys.stdin)
 i = t.get('tool_input', {})
+cmd = i.get('command', '')
 DUMP = re.compile(r'context/decomp/[^ ]*\.c\b|hst_(game|menu|movie)\.c\b')
 HOW = ('16 MB decompile dump: use research/fn.sh <addr> (one function), research/xref.py <addr> '
        '(callers/callees, --similar), or Read with offset+limit, or grep -m/-c/| head.')
@@ -15,6 +16,14 @@ cmd = i.get('command', '')
 if t.get('tool_name') == 'Bash' and DUMP.search(cmd) and not re.search(
         r'fn\.sh|xref\.py|\|\s*(head|tail|wc|sed -n)|\bgrep\b[^|]*\s-[a-zA-Z]*[mcl]|\bwc\b|\bsed -n', cmd):
     sys.exit(print(HOW, file=sys.stderr) or 2)
+# clean-room port phase (PLAN.md): tools/ctx.py brief wrote .cleanroom because the task's journal has a SPEC.md; the
+# session ports from the spec and the tests, so everything that shows the decompile is refused until done.sh clears it
+ROOT = __file__.rsplit('/tools/', 1)[0]
+LOCKED = re.compile(r'context/(decomp|ghidra)|fn\.sh|xref\.py|ghidra|objdump')
+if os.path.exists(os.path.join(ROOT, '.cleanroom')) and LOCKED.search(i.get('file_path', '') + ' ' + cmd):
+    sys.exit(print('Clean-room port phase: the decompile is locked this session. Port from the SPEC.md in the brief and '
+                   'prove it with the recordings/oracle; anything the spec does not say goes under "## Open questions" '
+                   'in it, then tools/done.sh <ID> "<msg>" --spec.', file=sys.stderr) or 2)
 # pgrep/pkill -f -> tools/pgrep, which skips the caller's own shell (pkill -f pat killed it, pgrep -f pat always found itself)
 ROOT = __file__.rsplit('/tools/', 1)[0]
 # test runs: the 120 s default Bash timeout moved check.sh/done.sh to the background, and agents then polled them with

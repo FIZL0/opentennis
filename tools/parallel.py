@@ -803,9 +803,12 @@ def main():
                     free_at[n] = reset + timedelta(seconds=PAUSE)
                     log(f'slot {n}: {task[0]} only hit the limit; transcript discarded, slot sleeps until {reset:%H:%M}')
                 else:
-                    tried.add(task[0])  # one attempt per night: ticked, blocked or failed, a human looks next
                     git('checkout', '-q', '--detach', cwd=slot(n))  # frees task/<ID> for the merge to delete
                     commits = git('log', '--format=%s', f'main..task/{task[0]}').stdout.splitlines()
+                    # one attempt per night: ticked, blocked or failed, a human looks next; a clean-room spec phase
+                    # (done.sh --spec) isn't an attempt, its port phase starts once the spec is merged
+                    if not (commits and commits[0].startswith(f'{task[0]} spec:')):
+                        tried.add(task[0])
                     t = threading.Thread(target=finish, args=(task[0], n, sid, commits))
                     t.start()
                     merging.append(t)

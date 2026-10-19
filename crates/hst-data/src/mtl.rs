@@ -97,7 +97,7 @@ struct Cursor<'a> {
 }
 impl<'a> Cursor<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], Error> {
-        let b = self.d.get(self.p..self.p + n).ok_or_else(|| Error(format!("mtl: need {n:#x} at {:#x}", self.p)))?;
+        let b = self.d.get(self.p..).and_then(|r| r.get(..n)).ok_or_else(|| Error(format!("mtl: need {n:#x} at {:#x}", self.p)))?;
         self.p = (self.p + n + 15) & !15;
         Ok(b)
     }
@@ -110,6 +110,10 @@ impl<'a> Cursor<'a> {
 fn texture(h: &[u8], src: &mut Cursor) -> Result<Texture, Error> {
     let u16_ = |o: usize| u16::from_le_bytes([h[o], h[o + 1]]);
     let (w, ht, psm) = (u16_(2) as u32, u16_(4) as u32, h[0xc]);
+    // the GS's limit; a damaged header would otherwise ask for gigabytes
+    if w > 1024 || ht > 1024 {
+        return Err(Error(format!("mtl: a {w}×{ht} texture")));
+    }
     let mut levels = Vec::new();
     for i in 0..7 {
         let n = i32::from_le_bytes(h[0x10 + i * 8..0x14 + i * 8].try_into().unwrap());
@@ -172,11 +176,11 @@ pub fn parse(mtl: &[u8], mti: Option<&[u8]>) -> Result<Mtl, Error> {
         let mip0 = i32::from_le_bytes(h[0x10..0x14].try_into().unwrap()).max(0) as usize;
         attributes.push(AttributeMap {
             header: h.try_into().unwrap(),
-            texels: mtl[top..top + mip0].to_vec(),
+            texels: mtl.get(top..).and_then(|r| r.get(..mip0)).ok_or_else(|| Error(format!("mtl: attribute map past the end at {top:#x}")))?.to_vec(),
             table: c.take(0x10)?.try_into().unwrap(),
         });
     }
-    let mut materials = Vec::with_capacity(nmat);
+    let mut materials = Vec::new(); // not with_capacity: `nmat` is unchecked until the records are read
     for _ in 0..nmat {
         let h: [u8; 0x30] = c.take(0x30)?.try_into().unwrap();
         let extra = i16::from_le_bytes([h[0x1c], h[0x1d]]);
@@ -218,5 +222,19 @@ impl Material {
         } else {
             Blend::Normal
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Damaged material files fail instead of asking for gigabytes (found by `fuzz/`'s `disc`).
+    #[test]
+    fn damaged_materials_fail() {
+        let hex = |s: &str| (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect::<Vec<_>>();
+        // a material count of 0x7e00da00040000bb
+        assert!(super::parse(&hex("0abb000400da007e0000000000000000000000000000000000ffffffffffffff000000002a"), None).is_err());
+        // a 0x4e4e×… texture
+        let big = "251a4e4e000000000000000000004e311a1a1a2f6ce5e52c".to_string() + &"ff".repeat(97) + "e5e532cd0a1a220a";
+        assert!(super::parse(&hex(&big), None).is_err());
     }
 }
