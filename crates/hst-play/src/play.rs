@@ -2913,6 +2913,15 @@ fn played_out(mut g: ResMut<Game>, q: Query<(&Figure, &Motion, &character::Rig)>
                     .motions
                     .get(&m.id)
                     .is_some_and(|c| m.clock.done(c.length));
+            // a mod's own emote holds the player until it has played out, not just the donor's length; offline
+            // only: online the peers draw different clips (`frame_gameplay`), so the donor's length times it
+            if p.emote > 0
+                && m.serial == p.cmd.serial
+                && !rig.data.frame_gameplay
+                && rig.data.drawn_take(m.id, m.sets).is_some_and(|c| rig.data.own(c) && !m.drawn.done(c.length))
+            {
+                p.emote = p.emote.max(2);
+            }
         }
     }
 }

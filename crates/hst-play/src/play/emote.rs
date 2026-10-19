@@ -528,6 +528,35 @@ mod match_tests {
         }
     }
 
+    /// A mod's own emote longer than the donor's holds the player until it has played out (offline), not for the
+    /// donor's length. Needs the ISO and `mods/hst-mods` (skipped without).
+    #[test]
+    fn a_mod_emote_lasts_its_own_clip() {
+        const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/oob_pc12_anya");
+        if !std::path::Path::new(ISO).is_file() || !std::path::Path::new(ROOT).is_dir() {
+            return eprintln!("no ISO or mods/hst-mods, skipped");
+        }
+        let m = crate::mods::read(std::path::Path::new(ROOT)).unwrap();
+        let mut a = modded([false, true, false, false], vec![], Some(m));
+        let data = a.world().resource::<Game>().data[1].clone();
+        let donor = data.motions[&MOTIONS[0]].length;
+        let f = a.world_mut().query::<(Entity, &Figure)>().iter(a.world()).find(|(_, f)| f.0 == 1).unwrap().0;
+        a.world_mut().entity_mut(f).insert(character::Rig { data: data.clone(), joints: vec![] });
+        let mut pads = vec![[IDLE; 4]; 400];
+        pads[10][1] = Pad { rx: 0x80, ry: 0, ..IDLE };
+        a.insert_resource(Replay(pads.into_iter().collect()));
+        let (mut held, mut own) = (0.0, 0.0);
+        for t in 0..400 {
+            held += (step(&mut a).1 > 0) as u8 as f32;
+            if t == 10 {
+                let m = a.world().get::<character::Motion>(f).unwrap();
+                own = data.drawn_take(m.id, m.sets).unwrap().length;
+            }
+        }
+        assert!(own > donor + 10.0, "the mod's emote ({own}) isn't longer than the donor's ({donor})");
+        assert!((held - own.ceil()).abs() <= 2.0, "held {held} ticks, the mod's clip is {own}, the donor's {donor}");
+    }
+
     /// B472 (B363 before it): 1P tosses and swings as the ball drops past (a whiff: a fault); the same flick in the
     /// call's post-point time starts nothing, nor in one that won a game (the fault's post-point turned into one) or
     /// a set; once the next serve's wait is on, it does.
