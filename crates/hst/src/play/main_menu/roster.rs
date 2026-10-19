@@ -1403,14 +1403,19 @@ fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usiz
     }
 }
 
-/// M128: the five grades as one row of small tiles in `[x, y, w, h]`: each the stats card's pink, its short name
-/// (SRV STR VOL IMP FTW) over the original's letter (as [`stats`] draws it), "?" for a hidden pick.
+/// M128: the five grades as one row of small tiles in `[x, y, w, h]`: each the stats card's pink, its name (Serve …
+/// Footwork while they all fit, else Serv Strk Vol Imp Foot with the full name in a tooltip under the mouse or a tap)
+/// over the original's letter (as [`stats`] draws it), "?" for a hidden pick.
 fn grade_tiles(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4]) {
+    const FULL: [&str; 5] = ["Serve", "Stroke", "Volley", "Impact", "Footwork"];
     let gap = 4.0 * PX;
     let tw = (w - 4.0 * gap) / 5.0;
     let ls = (h * 0.34).min(10.0 * PY);
     let ch = (h - ls - 3.0 * PY).max(0.0);
-    for (k, label) in ["SRV", "STR", "VOL", "IMP", "FTW"].into_iter().enumerate() {
+    let short = FULL.iter().any(|l| d.width(l, ls) > tw * 0.9);
+    let labels = if short { ["Serv", "Strk", "Vol", "Imp", "Foot"] } else { FULL };
+    let mut tip = None;
+    for (k, label) in labels.into_iter().enumerate() {
         let tx = x + (tw + gap) * k as f32;
         rounded(d, [tx, y, tw, h], 6.0, hex(0xf58ac0), 128.0);
         let size = ls * (tw * 0.9 / d.width(label, ls).max(1.0)).min(1.0);
@@ -1427,6 +1432,19 @@ fn grade_tiles(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4]) {
                 ringed_text(d, "?", tx + (tw - d.width("?", qs)) / 2.0, cy + (ch - qs) / 2.0, qs, hex(0xc8ccd0));
             }
         }
+        if short && pointer::over([tx, y, tw, h], d.anchor) {
+            tip = Some((k, tx));
+        }
+    }
+    // the hovered tile's full name just above the row, kept within it
+    if let Some((k, tx)) = tip {
+        let ts = 11.0 * PY;
+        let (pad, bh) = (5.0 * PX, ts + 6.0 * PY);
+        let bw = d.width(FULL[k], ts) + 2.0 * pad;
+        let bx = (tx + (tw - bw) / 2.0).clamp(x, (x + w - bw).max(x));
+        let by = y - bh - 2.0 * PY;
+        rounded(d, [bx, by, bw, bh], 6.0, hex(look::INK), 128.0);
+        d.text(FULL[k], bx + pad, by + 3.0 * PY, ts, WHITE);
     }
 }
 

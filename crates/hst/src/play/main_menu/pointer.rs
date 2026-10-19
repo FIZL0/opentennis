@@ -7,6 +7,7 @@
 //! scroll with it). A tap or click outside a popup is its Back (`Draw::popup`). Hit rects are placed as their quads are
 //! (`widescreen::place`), so they follow the art at any aspect; a press within `SLOP` of one still lands on it.
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
@@ -300,6 +301,16 @@ impl Menu {
     }
 }
 
+/// Where the mouse rests or a finger last went down (fractions of the view) and the view's aspect, for tooltips
+/// (`over`); none while the mouse is hidden.
+static AT: Mutex<Option<(Vec2, f32)>> = Mutex::new(None);
+
+/// Whether the mouse rests or the last tap landed on `rect` (placed as `Draw::q` places it with `anchor`).
+pub(super) fn over(rect: [f32; 4], anchor: Anchor) -> bool {
+    let Some((p, aspect)) = *AT.lock().unwrap_or_else(|e| e.into_inner()) else { return false };
+    hit_at(&[Hit { rect, anchor, act: Act::Wheel(false) }], p, aspect, widescreen::menu_scale(), 0.0).is_some()
+}
+
 /// The mouse pointer is hidden and ignored (hover and clicks) since a key or a pad button was pressed, until the mouse
 /// moves or clicks again: a resting mouse never pulls the keyboard's or pad's cursor back to the row under it.
 pub(in crate::play) static MOUSE_IDLE: AtomicBool = AtomicBool::new(false);
@@ -367,6 +378,7 @@ pub(in crate::play) fn pointer(
     let aspect = size.x / size.y;
     let at = |p: Vec2, slop: f32| hit_at(&hits.0, (p - off) / size, aspect, widescreen::menu_scale(), slop);
     let mut out = |a: Option<Act>, tap: bool| pending.0.extend(a.map(|a| (a, tap)));
+    let mut at_now = AT.lock().unwrap_or_else(|e| e.into_inner());
     let now = time.elapsed_secs();
     let hover = |a: Option<Act>| a.filter(|a| matches!(a, Act::Row(..) | Act::Cell(..) | Act::Wipe(_)));
     // the mouse also hovers Browse's tiles (a finger doesn't: it scrolls them)
@@ -380,6 +392,7 @@ pub(in crate::play) fn pointer(
     for t in touches.iter_just_pressed() {
         if st.finger.is_none() {
             st.finger = Some((t.id(), t.position(), t.position(), false));
+            *at_now = Some(((t.position() - off) / size, aspect));
             out(hover(at(t.position(), SLOP_TOUCH)), false);
         }
     }
@@ -421,8 +434,10 @@ pub(in crate::play) fn pointer(
         if let Some(c) = win.cursor_position() {
             (st.mouse, st.hovered) = (Some(c), mouse_hover(at(c, SLOP)));
         }
+        *at_now = None;
     } else if now - st.touched > 0.6 {
         let c = win.cursor_position();
+        *at_now = c.map(|c| ((c - off) / size, aspect));
         // no position (the pointer left, or the compositor's leave / enter as it hides): what it was over stays, so
         // coming back to the same row doesn't select it again
         if c.is_some() && c != st.mouse {
