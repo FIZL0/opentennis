@@ -2,12 +2,14 @@
 
 User report after playing: the new reactions look too fast, and the eyes stay shut at the end of the celebrations.
 
-## Speed: unchanged, matches the source
-- The match starts reactions at speed 1, and a mod clip plays on its own clock at 60 Hz from key times in seconds.
-- The source's key spacing is one key per 1/60 s at the assumed tick rate.
-- Timed one celebration in a 60 fps recording of the source game against our export (crouch → landing, settle
-  into the end pose). They match within the frame-sampling error (~0.35–0.4 s), nowhere near 2×.
-- The source clips really are that snappy: a quick move, then a long held end pose. No speed change made.
+## Speed: the source time base was 2× fast (fixed in the mods repo)
+- First check (one celebration, coarse frame sampling) said 1×. That was wrong. The user still saw the waves and
+  claps as far too fast.
+- Rechecked against footage at 60 fps: claps cycle every 0.1 s in our export and every ~0.2 s in the source. The
+  results jump is airborne ~0.2 s for a ~0.4 m rise, where gravity needs ~0.55 s.
+- Every source clip keys every 80 ticks. The tick rate is 2400/s, not 4800/s. The extractor now uses 2400. Every
+  clip of that game is twice as long, faces included. Its mods are re-exported, repackaged and version-bumped.
+- No game-side change: a mod clip still plays at speed 1 on its own clock.
 
 ## Faces: a mod clip now plays its own
 - Before, every mod clip played the donor's `.MOR` face, which ran on its own clock and held its last frame. A
@@ -30,4 +32,4 @@ User report after playing: the new reactions look too fast, and the eyes stay sh
 - Eyes may still close at the end of some emotes: some source clips end on a laughing (closed-eye) face. That is
   the source's own look.
 - The donor's eye texture scroll (`.UVA`) and blinks still play over a mod's own face.
-- The tick rate is checked against a single clip only.
+- The tick rate (2400/s) is inferred from the clap rate and jump physics, not read from the source executable.
