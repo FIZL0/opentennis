@@ -1329,12 +1329,13 @@ fn tags(d: &mut Draw, [x, y, w, h]: [f32; 4], seats: &[usize]) {
 #[allow(clippy::too_many_arguments)]
 fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usize, [x, y, w, h]: [f32; 4], mine: bool) {
     let pl = m.players[p];
-    // a computer player's keys are its driver's (1P's)
-    let dev = match m.seats[p].or_else(|| m.lead()) {
+    // a computer player's keys are those of the human picking for it (else 1P's)
+    let driver = m.seats.iter().flatten().copied().find(|&d| m.driven(d) == Some(p));
+    let dev = match m.seats[p].or(driver).or_else(|| m.lead()) {
         Some(Dev::Pad(e)) => Some(e),
         _ => None,
     };
-    let keys = !pl.ready && (m.seats[p].is_some() || m.driven(Dev::Keys) == Some(p));
+    let keys = !pl.ready && (m.seats[p].is_some() || driver.is_some());
     let left = m.hand(text, p) < 0.0;
     let costume = [
         if pl.random { "Costume ?".to_string() } else if m.blocked(p) { "Taken".to_string() } else { format!("Costume {}", pl.costume + 1) },
