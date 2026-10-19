@@ -20,6 +20,8 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
     let s = m.sel;
     match m.screen {
         // B516: the splash's one press (none once 1P is taken)
+        // B581: and △ for the New version card's button
+        Screen::Press if m.p1.is_none() && crate::update::latest().is_some() => v.extend([(Act::Ok, "Start"), (Act::Card, crate::update::button())]),
         Screen::Press if m.p1.is_none() => v.push((Act::Ok, "Start")),
         Screen::Press => {}
         // M127: the pad takeover prompt: the asked pad answers, the keyboard's Esc dismisses it

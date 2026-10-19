@@ -57,6 +57,7 @@ export async function landing(dir, hasPack) {
   if (dir.memory && !document.getElementById('nostore')) $('#status').before(el('p', { id: 'nostore', className: 'note', textContent: MEMORY_NOTE }));
   const parts = { dir, have, hasPack };
   homeScreen();
+  newVersion();
   username();
   account();
   prefs();
@@ -106,6 +107,27 @@ function homeScreen() {
     $('#a2hs-where').textContent = 'At the top right of the screen. If you don\'t see it, tap ⋯ first.';
   }
   $('#a2hs-ok').onclick = () => { put('hst-a2hs', '0'); box.hidden = true; };
+}
+
+// ---------------------------------------------------------------- a newer version
+
+// B581: index.html's version check (B317: `version.txt?next`, the build the service worker has ready, or the
+// server's after a while) found a newer build than this page: a panel over the play section offers a refresh into it,
+// dropping the cached builds first when the service worker never finished downloading it (`hstFresh`).
+function newVersion() {
+  const box = $('#newver');
+  const show = () => {
+    if (!window.hstLatest) return;
+    $('#newver-tag').textContent = ` (build ${window.hstLatest.slice(0, 7)})`;
+    box.hidden = false;
+  };
+  $('#newver-ok').onclick = async () => {
+    if (window.hstFresh) try { for (const k of await caches.keys()) if (k.startsWith('hst')) await caches.delete(k); } catch {}
+    location.reload();
+  };
+  addEventListener('hstlatest', show);
+  show();
+  window.hstCheck?.();
 }
 
 // ---------------------------------------------------------------- the ISO

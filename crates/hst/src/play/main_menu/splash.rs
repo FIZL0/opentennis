@@ -7,6 +7,10 @@
 //! Behind it the confirm screen's court pictures (`MENU/WALL/COURTnn.XB`, read with the menus: nothing more to load)
 //! fill the window, still, crossfading slowly from court to court, dimmed and softened (568×256 is soft blown up
 //! to a big window), court mods with their own picture among them; the site's logo (`web/logo.svg`) over them.
+//!
+//! B581: a newer version out (`crate::update::latest`) puts a card in the top right corner with the main menu's
+//! Update row's button in it (Update installs, Download opens the release page, Refresh reloads the page): △ or a
+//! tap on it, before 1P is taken; an install's progress shows in the card.
 
 use bevy::prelude::*;
 
@@ -88,6 +92,15 @@ impl Menu {
         true
     }
 
+    /// B581: △ on the splash while a newer version is out (and 1P isn't taken yet): the update's button.
+    pub(super) fn splash_update(&mut self, card: bool) -> bool {
+        if !card || self.p1.is_some() || crate::update::latest().is_none() {
+            return false;
+        }
+        crate::update::act();
+        true
+    }
+
     /// B533: Back on the main menu: the splash again, 1P free for the next press (its backdrop carries on).
     pub(super) fn splash_back(&mut self) {
         self.p1 = None;
@@ -161,6 +174,38 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, pads: &[Entity], controllers: usize
     d.outlined(|d| d.centred(&sub, 320.0, 374.0, 17.0, [100.0; 3]));
     // a click or tap anywhere is the keyboard's press (`pointer::device`: 1P has no device yet)
     d.popup(Some(pointer::press(|k| k.ok = true)));
+    if m.p1.is_none() {
+        new_version(d);
+    }
+}
+
+/// B581: the New version card, pinned to the window's top right: the new version, then the update's button (a tap
+/// on it is △) or, once an install is under way, its progress and words.
+fn new_version(d: &mut Draw) {
+    let Some(new) = crate::update::latest() else { return };
+    let (x, y, w, h) = (476.0, 16.0, 148.0, 112.0);
+    let cx = x + w / 2.0;
+    d.anchor = Anchor::Sides;
+    d.box3([x, y, w, h], 10.0, [Some([15.0; 3]), Some(WHITE), Some([40.0, 36.0, 44.0])], 118.0);
+    d.outlined(|d| d.centred("New version", cx, y + 9.0, 14.0, [128.0, 112.0, 30.0]));
+    d.outlined(|d| d.label(&new, cx, y + 28.0, 20.0, w - 16.0, WHITE));
+    match crate::update::progress() {
+        Some((says, k)) => {
+            if let Some(k) = k {
+                let r = [x + 12.0, y + 60.0, w - 24.0, 10.0];
+                d.box3(r, 5.0, [Some([15.0; 3]), Some(WHITE), Some([60.0; 3])], 128.0);
+                d.box3([r[0], r[1], (r[2] * k).max(10.0), 10.0], 5.0, [None, None, Some([128.0, 112.0, 30.0])], 128.0);
+            }
+            super::home::para(d, &says, x + 10.0, y + 76.0, w - 20.0, 9.0, 3, WHITE);
+        }
+        None => {
+            let b = [x + 18.0, y + 58.0, w - 36.0, 30.0];
+            super::look::word_pill(d, b, true, crate::update::button(), 17.0);
+            d.hit(b, pointer::press(|k| k.card = true));
+            d.centred("Settings and mods stay", cx, y + 94.0, 9.0, [100.0; 3]);
+        }
+    }
+    d.anchor = Anchor::Centre;
 }
 
 #[cfg(test)]
