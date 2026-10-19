@@ -885,17 +885,16 @@ impl Menu {
         self.net.room.is_some() && !self.net.me.is_empty() && !self.net.started
     }
 
-    /// The player `dev` drives on the character select: its own until it is ready, then (player 1's device, once
-    /// every human is ready) the first computer player not ready.
+    /// The player `dev` drives on the character select: its own until it is ready, then the first computer player
+    /// not ready.
     fn driven(&self, dev: Dev) -> Option<usize> {
         let n = self.players();
         if let Some(p) = (0..n).find(|&p| self.seats[p] == Some(dev)) {
-            let humans_ready = (0..n).all(|q| self.seats[q].is_none() || self.players[q].ready);
             if self.online() {
                 return self.online_driven(dev, p);
             }
-            // B258: any human, once every human is ready (not only 1P)
-            if !self.players[p].ready || !humans_ready {
+            // B258: any human (not only 1P); B572: as soon as it is ready, while others still pick
+            if !self.players[p].ready {
                 return Some(p);
             }
             return (0..n).find(|&q| self.bot(q) && !self.players[q].ready).or(Some(p));
@@ -935,11 +934,13 @@ impl Menu {
     }
 
     /// B258: once every human is ready, the open seats' COM cards (not ready) start on their automatic pick, for a
-    /// human to keep (✕) or change; ○ goes back to the last pick readied (B355).
+    /// human to keep (✕) or change; ○ goes back to the last pick readied (B355). B572: not one a ready human is
+    /// already picking for (it took the last pick readied, [`Menu::carry_pick`]).
     fn preset_coms(&mut self) {
         let n = self.players();
         if (0..n).all(|q| self.seats[q].is_none() || self.players[q].ready) {
-            for q in (0..n).filter(|&q| self.open(q) && !self.players[q].ready).collect::<Vec<_>>() {
+            let held = self.held_coms();
+            for q in (0..n).filter(|&q| self.open(q) && !self.players[q].ready && !held.contains(&q)).collect::<Vec<_>>() {
                 self.players[q] = self.auto_com(q);
             }
         }
@@ -948,14 +949,21 @@ impl Menu {
     /// B269 / B346: the computer player `dev` drives next (one 1P added, or an open seat's COM card) starts on the
     /// cell the last pick readied on, so ✕ over and over gives them all the same (e.g. all Random, or one character
     /// in its next free costumes).
+    /// B572: not one another ready human is already picking for.
     fn carry_pick(&mut self, dev: Dev) {
+        let others = self.seats.iter().flatten().filter(|&&d| d != dev).filter_map(|&d| self.driven(d)).collect::<Vec<_>>();
         if let (Some(q), Some(c)) = (self.driven(dev), self.last)
-            && self.seats[q].is_none() && !self.players[q].ready
+            && self.seats[q].is_none() && !self.players[q].ready && !others.contains(&q)
         {
             self.put(q, c);
             self.players[q].tab = self.last_tab;
             self.skip_taken();
         }
+    }
+
+    /// B572: the computer players a seated device drives on the select (a ready human picking for one).
+    fn held_coms(&self) -> Vec<usize> {
+        self.seats.iter().flatten().filter_map(|&d| self.driven(d)).filter(|&q| self.seats[q].is_none()).collect()
     }
 
     /// The local select done: on to the court and umpire once every card is ready.
@@ -1621,8 +1629,10 @@ impl Menu {
                         out.push(Sound(1));
                     } else if self.seats[p].is_none() {
                         // player 1 driving a computer player (one added or an open seat's COM card): back to the last
-                        // one readied, never a pick for the computer (B355)
-                        if let Some(q) = (0..self.players()).rev().find(|&q| self.players[q].ready) {
+                        // one readied, never a pick for the computer (B355); B572: a computer's, else the driver's
+                        // own (not another human's, who may still be picking)
+                        let own = self.seats.iter().position(|&s| s == Some(dev));
+                        if let Some(q) = (0..self.players()).rev().find(|&q| self.bot(q) && self.players[q].ready).or(own) {
                             self.unready(q);
                         }
                         out.push(Sound(1));
@@ -3876,7 +3886,7 @@ mod tests {
         let pad = Dev::Pad(Entity::from_raw_u32(9).unwrap());
         let mut m = Menu { screen: Screen::Chars, doubles: true, seats: [Some(Dev::Keys), Some(pad), None, None], ..default() };
         m.step(Dev::Keys, ok);
-        assert_eq!(m.driven(Dev::Keys), Some(0), "2P not ready yet");
+        assert_eq!((m.driven(Dev::Keys), m.driven(pad)), (Some(2), Some(1)), "B572: 1P on 3P's computer while 2P picks");
         m.step(pad, ok);
         assert_eq!((m.driven(Dev::Keys), m.driven(pad)), (Some(2), Some(2)));
         m.step(pad, ok);
@@ -4060,6 +4070,44 @@ mod tests {
         assert_eq!((m.players[1].cursor, m.players[1].random, m.players[1].costume), (3, false, 1));
         m.step(Dev::Keys, ok);
         assert_eq!((m.players[2].cursor, m.players[2].costume), (3, 2));
+    }
+
+    /// B572: a ready human picks for the computer players while another human is still choosing: 1P readies, then
+    /// readies 3P's computer while 2P is on the grid; 2P's pick doesn't reset it, and 2P then picks for 4P. ○ while
+    /// picking for a computer undoes a computer's pick or the driver's own, never the other human's.
+    #[test]
+    fn bots_pick_while_another_human_chooses() {
+        let ok = press(|p| &mut p.ok);
+        let back = press(|p| &mut p.back);
+        let pad = Dev::Pad(Entity::from_raw_u32(9).unwrap());
+        let mut m = Menu { screen: Screen::Chars, doubles: true, seats: [Some(Dev::Keys), Some(pad), None, None], bots: [false, false, true, true], ..default() };
+        m.players[0].cursor = 3;
+        m.step(Dev::Keys, ok);
+        assert_eq!((m.driven(Dev::Keys), m.driven(pad)), (Some(2), Some(1)), "1P on 3P's computer, 2P still on its own");
+        assert_eq!((m.players[2].cursor, m.players[2].costume), (3, 1), "3P carried 1P's pick");
+        // ○ on 3P's card with no computer ready: 1P's own pick, not 2P's
+        m.step(Dev::Keys, back);
+        assert!(!m.players[0].ready && !m.players[1].ready);
+        m.step(Dev::Keys, ok);
+        m.step(Dev::Keys, press(|p| &mut p.right));
+        let cursor = m.players[2].cursor;
+        m.step(Dev::Keys, ok);
+        assert!(m.players[2].ready, "3P's computer ready before 2P picked");
+        assert_eq!(m.driven(Dev::Keys), Some(3));
+        m.step(Dev::Keys, press(|p| &mut p.right));
+        let four = m.players[3];
+        // 2P readies: 4P's card (1P's, mid-pick) stays as it is, 2P picks for it too
+        m.step(pad, ok);
+        assert_eq!(m.screen, Screen::Chars);
+        assert_eq!((m.players[3].cursor, m.players[3].random, m.players[3].costume), (four.cursor, four.random, four.costume));
+        assert_eq!(m.driven(pad), Some(3));
+        // ○ from 2P: the computer's pick (3P), not 1P's or 2P's
+        m.step(pad, back);
+        assert!(m.players[0].ready && m.players[1].ready && !m.players[2].ready);
+        assert_eq!(m.players[2].cursor, cursor);
+        m.step(pad, ok);
+        m.step(Dev::Keys, ok);
+        assert_eq!(m.screen, Screen::Confirm);
     }
 
     /// B346: a local select opens with 1P on the Random card (not Ashley); in doubles the open seats' COM cards then

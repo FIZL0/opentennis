@@ -839,6 +839,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B566** Mods store: the mod icons flicker before they finish loading/show; load them without the flicker (crates/hst/src/play/main_menu/mods_screen/)
 - [x] **B568** hst-base `mods::tests::rerigged_mod_plays_forehand_and_run` fails ("rest·inverse bind off by 0.0037", seen 2026-10-17 in B565's done.sh, unrelated to it): local `context/mods/test_pc00` or the rig code drifted (feet-ik merge?); rebuild the test mod or fix the bind — crates/hst-base/src/mods.rs
 - [x] **P63** Steam Deck preset higher (user 2026-10-18): the Deck runs well on High, so its preset should be High-level quality while keeping its optimizations. Also offer render scale above 100% (supersampling, e.g. 125/150/200%) as an option in graphics settings.
+- [x] **B572** Can't add bots while another local player is choosing (user 2026-10-18, local): at character select you can't select/add a CPU player until the last local player has picked; bots should be addable any time.
 
 
 ### Shots
