@@ -2731,7 +2731,8 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
         if p.ik.is_none() {
             p.prev = p.pos;
         }
-        if c.frames == 0 && c.cancelled {
+        // a ball that already hit a player is dead: the swing misses it
+        if c.frames == 0 && (c.cancelled || g.body_hit.is_some()) {
             miss_contact(g, i, &c);
         } else if c.frames == 0 {
             let (stick, end) = (aim(g), g.players[i].end);
@@ -2845,7 +2846,7 @@ fn dive_frame(g: &mut Game, i: usize, aim: &impl Fn(&mut Game) -> Vec2) {
     if let Some(q) = at {
         (p.pos[0], p.pos[2]) = (q[0], q[1]);
     }
-    if d.contact && n == d.frame {
+    if d.contact && n == d.frame && g.body_hit.is_none() {
         let stick = aim(g);
         let kind = hst_sim::shot::stick_kind(branch::DIVE, g.players[i].kind, [stick.x, stick.y], end);
         let (grade, offset) = swing::dive_lock(d.frame);
