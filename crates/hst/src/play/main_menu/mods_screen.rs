@@ -1358,6 +1358,20 @@ pub(super) fn faces(m: &Menu) -> Vec<super::Who> {
     grid::faces(m)
 }
 
+/// B571: the installed character mods the select's roster doesn't have (installed since the game started), so
+/// `previews.rs` draws each one's picture and face on install: they join the roster after the restart with their faces.
+pub(super) fn unrostered(m: &Menu) -> Vec<&Mod> {
+    m.add.list.iter().filter(|x| mod_of(m, &x.dir).is_none() && !x.costumes.is_empty()).collect()
+}
+
+impl View {
+    /// The installed character mods, as the page last read them (tests).
+    #[cfg(test)]
+    pub(super) fn set_list(&mut self, list: Vec<Mod>) {
+        self.list = list;
+    }
+}
+
 /// B448: the page (`grid.rs` draws every page in the select's look).
 pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
     grid::layout(d, m, hand_x);
