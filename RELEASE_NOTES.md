@@ -16,3 +16,4 @@
 - On mod courts, low props behind the baseline (like the toolboxes on Dubno Tower) no longer vanish and pop back in as play changes ends.
 - On mod courts, a big prop right in front of the camera (like the pillars round Dubno's rooftop in a replay) is no longer drawn, and a camera inside a prop sees through it; the helicopter, its rotor and everything over the court stay.
 - Out of Bounds mod characters' hair swings again as they run and stop (Sophie's pigtails had gone stiff); it still hangs the same way at rest.
+- On the Studio A court (Get a Grip court mod), the big cloud on the wall behind the camera no longer covers the bottom right of the screen when a player runs off the side of the court.
