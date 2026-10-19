@@ -476,6 +476,7 @@ fn player_columns(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[
     for p in 0..c.n {
         let start = d.out.len();
         column(d, m, text, bind, pads, &c, p, pointer_p == Some(p));
+        hidden_by_name_picker(d, m, &c, p, start);
         // a player who just changed sides slides over from their old column, over the others
         let [dx, dy] = m.cols[p];
         if dx != 0.0 || dy != 0.0 {
@@ -488,6 +489,19 @@ fn player_columns(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[
     }
     d.out.extend(sliding);
     c
+}
+
+/// B577: player `p`'s name picker is open: the quads of its card from `start` on that the picker covers are dropped
+/// (its box is all but opaque), so four open pickers over a full select stay within the menu's quad pool instead of
+/// losing their keys off its end.
+fn hidden_by_name_picker(d: &mut Draw, m: &Menu, c: &Columns, p: usize, start: usize) {
+    if !m.naming(p) {
+        return;
+    }
+    let [x, y, w, h] = c.parts(p).card;
+    let inside = |r: [f32; 4]| r[0] >= x && r[1] >= y && r[0] + r[2] <= x + w && r[1] + r[3] <= y + h;
+    let kept: Vec<_> = d.out.drain(start..).filter(|q| !inside(q.dst)).collect();
+    d.out.extend(kept);
 }
 
 /// B371: the name pickers over their players' columns (at least 180 wide).
