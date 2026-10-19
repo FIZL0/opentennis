@@ -439,17 +439,22 @@ pub fn ok_aspect(style: Style) -> f32 {
     w[Style::ALL.iter().position(|s| *s == style).unwrap_or(0)]
 }
 
+/// B570: a key glyph (`H` px tall) with its levels down to 8 px, so it stays smooth drawn small.
+fn glyph_mips(img: Image) -> Image {
+    crate::mips::with_mips(img, crate::mips::levels_to_1x(H as f32 / 8.0))
+}
+
 fn bake_buttons(mut images: ResMut<Assets<Image>>, mut buttons: ResMut<Buttons>) {
     for s in Style::ALL {
         let p = draw_glyph(&ok_glyph(s));
         let (w, h) = (p.width(), p.height());
-        let img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
+        let img = glyph_mips(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD));
         buttons.0.insert(s, (images.add(img), w as f32 / h as f32));
         // B383: the Mods page's kind switch and detail buttons
         for (i, g) in baked(s).iter().enumerate() {
             let p = draw_glyph(g);
             let (w, h) = (p.width(), p.height());
-            let img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
+            let img = glyph_mips(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD));
             buttons.1.insert((s, i as u8), (images.add(img), w as f32 / h as f32));
         }
     }
@@ -860,7 +865,7 @@ pub fn draw(
     }
     for (k, p) in want {
         let (w, h) = (p.width(), p.height());
-        let img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
+        let img = glyph_mips(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD));
         chips.0.insert(k, (images.add(img), w as f32 / h as f32));
     }
     plan.iter().for_each(|(k, _)| key.push_str(k));

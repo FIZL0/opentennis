@@ -1412,7 +1412,7 @@ mod tests {
     }
 
     /// Menu Size: at 60% on a 16:9 view the 640×448 screen is 60% of its 100% size, centred, its own shape; a tap
-    /// lands on the scaled rect, not where it was at 100%; Auto is 80% past 1440 px tall; it round-trips settings.txt.
+    /// lands on the scaled rect, not where it was at 100%; Auto is 80% past a 1440-logical-px screen; it round-trips settings.txt.
     #[test]
     fn menu_size_scales_centred() {
         use super::super::super::widescreen::{menu_shares, place, vplace_in};
@@ -1429,9 +1429,9 @@ mod tests {
         assert_eq!(at(0.14, 0.02, 0.6), None);
         assert_eq!(at(0.14, 0.02, 1.0), Some(pointer::Act::Tab(0)));
         let mut set = Settings::default();
-        assert_eq!((set.menu_scale(1440), set.menu_scale(2160), set.value(MenuSize).as_str()), (1.0, 0.8, "Auto"));
+        assert_eq!((set.menu_scale(1440.0), set.menu_scale(2160.0), set.value(MenuSize).as_str()), (1.0, 0.8, "Auto"));
         set.step(MenuSize, 1);
-        assert_eq!((set.menu_scale(2160), set.value(MenuSize).as_str()), (0.5, "50%"));
+        assert_eq!((set.menu_scale(2160.0), set.value(MenuSize).as_str()), (0.5, "50%"));
         set.step(MenuSize, -1);
         set.step(MenuSize, -1);
         assert_eq!(set.value(MenuSize), "150%");

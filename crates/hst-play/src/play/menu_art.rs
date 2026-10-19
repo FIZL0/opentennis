@@ -267,8 +267,36 @@ fn wall_image(data: &[u8]) -> Image {
     let pic = tim2::decode_alpha8(data).expect("TIM2").remove(0);
     let (w, h) = (pic.width as usize, pic.height as usize);
     let rgba = grid(&pic.rgba, w, h);
-    Image::new(Extent3d { width: w as u32 * K, height: h as u32 * K, depth_or_array_layers: 1 }, TextureDimension::D2, rgba, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)
+    deep_mips(Image::new(Extent3d { width: w as u32 * K, height: h as u32 * K, depth_or_array_layers: 1 }, TextureDimension::D2, rgba, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD), 0.25)
 }
+
+/// B570: a `K`× sheet with its levels down to the disc's size, so a small window draws its words from the level
+/// nearest their size on screen rather than picking every `K`th texel.
+fn sharp_mips(img: Image) -> Image {
+    deep_mips(img, 1.0)
+}
+
+/// [`sharp_mips`] down to `last`× the disc's size: `word.tm2`'s glyphs (their 32-px cells, each glyph's ink 7 px or
+/// more from the next one across and 2 px from the next one down, so a level a quarter of the disc's still blends no
+/// glyph into its neighbour) are drawn ~a third of their disc size on a small window; a wall is a tiled grid; the
+/// pills' pieces ([`pill_layers`]) sit 2 px apart, so they stop at half.
+fn deep_mips(img: Image, last: f32) -> Image {
+    deep_steps(img, last).finish()
+}
+
+/// [`deep_mips`] a band at a time.
+fn deep_steps(img: Image, last: f32) -> crate::mips::MipSteps {
+    crate::mips::MipSteps::new(img, crate::mips::levels_to_1x(K as f32 / last), None, 1.0)
+}
+
+/// `word.tm2`'s glyphs: [`deep_mips`] to a quarter, cell by cell, their small levels inked fuller
+/// (`mips::with_glyph_mips`), a band at a time.
+fn glyph_steps(img: Image) -> crate::mips::MipSteps {
+    crate::mips::MipSteps::new(img, crate::mips::levels_to_1x(K as f32 / 0.25), Some(32 * K as usize), INK)
+}
+
+/// The glyphs' small levels' coverage gain.
+const INK: f32 = 1.5;
 
 /// A disc sheet as it is ([`super::panel::image`] with no replacement to look up).
 fn disc_image(data: &[u8]) -> Image {
@@ -327,6 +355,8 @@ struct Steps {
     stamps: Option<usize>,
     /// The finished sheet's pixels, unpremultiplied so far.
     pixels: Option<Vec<u8>>,
+    /// The finished sheet's smaller levels, a band at a time (B570).
+    mips: Option<crate::mips::MipSteps>,
 }
 
 impl Steps {
@@ -338,11 +368,14 @@ impl Steps {
             labels.extend(glyph_boxes(&pic.rgba, w));
         }
         let redo = Rebuild::new(w, h, &pic.rgba, labels, if name == "word" { BOLD } else { HEAVY });
-        Steps { name: name.to_string(), sheet, redo, stamps: None, pixels: None }
+        Steps { name: name.to_string(), sheet, redo, stamps: None, pixels: None, mips: None }
     }
 
     /// Does the next piece; the image once it's all done.
     fn step(&mut self) -> Option<Image> {
+        if let Some(m) = &mut self.mips {
+            return m.step().then(|| self.mips.take().unwrap().image());
+        }
         if !self.redo.step() {
             return None;
         }
@@ -385,7 +418,9 @@ impl Steps {
             return None;
         }
         let (w, h) = (out.width(), out.height());
-        Some(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, self.pixels.take().unwrap(), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD))
+        let img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, self.pixels.take().unwrap(), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
+        self.mips = Some(if self.name == "word" { glyph_steps(img) } else { deep_steps(img, 1.0) });
+        None
     }
 }
 
@@ -432,7 +467,7 @@ pub(crate) fn relabel(images: &mut Assets<Image>, w: usize, h: usize, rgba: &[u8
     let (x1, y1) = (ink.iter().map(|p| p.0).max()? + 1, ink.iter().map(|p| p.1).max()? + 1);
     let out = rebuild(w, h, rgba, &[(x0 as u16, y0 as u16, (x1 - x0) as u16, (y1 - y0) as u16, s)], HEAVY);
     let (w, h) = (out.width(), out.height());
-    let handle = images.add(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD));
+    let handle = images.add(sharp_mips(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)));
     crate::textures::ours(handle.id(), Vec2::splat(K as f32));
     Some(handle)
 }
@@ -541,7 +576,7 @@ pub fn pill_layers(images: &mut Assets<Image>) -> Handle<Image> {
     }
     meter_icons(&mut out);
     let (w, h) = (out.width(), out.height());
-    let handle = images.add(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD));
+    let handle = images.add(deep_mips(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD), 0.5));
     crate::textures::ours(handle.id(), Vec2::splat(k));
     handle
 }

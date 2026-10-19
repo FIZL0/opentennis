@@ -337,10 +337,13 @@ impl Settings {
         }
     }
 
-    /// The Menu Size factor on a window `physical_h` px tall: Auto is 100%, 80% on a window taller than 1440 px.
-    fn menu_scale(&self, physical_h: u32) -> f32 {
+    /// The Menu Size factor for a 640×448 screen `screen_h` logical px tall at 100%: Auto is 100%, 80% past 1440.
+    /// B570: logical px (the OS's DPI scale taken out) on the screen as the view letterboxes it, so a phone or a HiDPI
+    /// laptop, whose window is many physical px tall but small to the eye, keeps its menus at full size; only a
+    /// big monitor gets them smaller.
+    fn menu_scale(&self, screen_h: f32) -> f32 {
         match self.7 {
-            0 if physical_h > 1440 => 0.8,
+            0 if screen_h > 1440.0 => 0.8,
             0 => 1.0,
             t => t as f32 / 10.0,
         }
@@ -349,7 +352,7 @@ impl Settings {
     /// Puts the Menu Size factor for window `w` in force (`widescreen::MENU_SCALE`, which the menus' drawing and
     /// pointer read) and returns it.
     pub(super) fn apply_menu_scale(&self, w: &Window) -> f32 {
-        let k = self.menu_scale(w.physical_height());
+        let k = self.menu_scale(super::widescreen::view_size(w).y * super::widescreen::vshare(super::widescreen::aspect(w)));
         super::widescreen::MENU_SCALE.store(k.to_bits(), std::sync::atomic::Ordering::Relaxed);
         k
     }
@@ -2605,7 +2608,10 @@ impl Draw<'_> {
         for c in s.chars() {
             match self.text.glyphs.get(&c) {
                 Some(&(u, v, w)) => {
-                    self.q(Tex::Font, [u, v, w, 32.0], [x, y, w * k, size], rgb, 128.0);
+                    // B570: up to 2 px of the glyph's own clear cell either side, so a narrow glyph (an i) set small
+                    // still spans a pixel; a quad under a pixel wide rounds away on a low-res window
+                    let (l, r) = ((u % 32.0).min(2.0), (32.0 - u % 32.0 - w).clamp(0.0, 2.0));
+                    self.q(Tex::Font, [u - l, v, w + l + r, 32.0], [x - l * k, y, (w + l + r) * k, size], rgb, 128.0);
                     x += (w + 2.0) * k;
                 }
                 None => x += 10.0 * k,
