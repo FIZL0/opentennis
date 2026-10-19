@@ -5,3 +5,4 @@
 - Character select: each player's card is more compact (a small portrait beside the name, costume, hand, play style and grades), so the face grid shows many more characters at once: 25 per player with four players. The online lobby's cards for your own players change the same way.
 - Character face icons of mods installed from the store (most visibly Get a Grip's) are no longer zoomed in past the chin: they're framed like the disc characters'.
 - After a match, the button to move on to the stats page now responds the moment its prompt appears, instead of ignoring presses for a moment.
+- At character select, a player who has picked can now choose the computer players' characters straight away, without waiting for the other players to finish.

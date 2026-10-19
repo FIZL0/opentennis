@@ -501,9 +501,10 @@ fn names(d: &mut Draw, m: &Menu, c: &Columns) {
 }
 
 /// Whether player `p` of `n` is picking or has picked: who's picking (the old select's rules) is a seated human, else
-/// a computer player once the humans before it are done; online, a seat with a player on it or the one being edited.
+/// a computer player once the computers before it are done and a human is ready to pick for it (B572: while other
+/// humans still pick); online, a seat with a player on it or the one being edited.
 fn is_active(m: &Menu, n: usize, p: usize) -> bool {
-    let picking = |q: usize| m.seats[q].is_some() || m.bot(q) && (0..n).filter(|&o| m.bot(o)).all(|o| o >= q || m.players[o].ready) && (0..n).all(|o| m.seats[o].is_none() || m.players[o].ready);
+    let picking = |q: usize| m.seats[q].is_some() || m.bot(q) && (0..n).filter(|&o| m.bot(o)).all(|o| o >= q || m.players[o].ready) && (0..n).any(|o| m.seats[o].is_some() && m.players[o].ready);
     let picking = |q: usize| if m.select_online() { m.seats[q].is_some() || m.remote(q).is_some() || m.net.edit == Some(q) } else { picking(q) };
     picking(p) || m.players[p].ready
 }
