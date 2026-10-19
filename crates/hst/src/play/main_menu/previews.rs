@@ -571,7 +571,8 @@ fn receive(mut loader: ResMut<Loader>, mut menu: Option<ResMut<Menu>>, mut asset
 /// (a phone's mods aren't parsed again each launch).
 #[cfg(not(target_arch = "wasm32"))]
 fn check_mods(root: &Path, cache: &Path, report: &Sender<PathBuf>) {
-    let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| format!("{} {:?}", m.len(), m.modified().ok()));
+    // `v2`: the check's version (v1 refused motion takes, M130), so an older verdict is made again
+    let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| format!("v2 {} {:?}", m.len(), m.modified().ok()));
     // a line: `ok|bad <tab> stamp <tab> path`
     let old: HashMap<String, (String, bool)> = std::fs::read_to_string(cache).unwrap_or_default().lines().filter_map(|l| {
         let mut f = l.splitn(3, '\t');
