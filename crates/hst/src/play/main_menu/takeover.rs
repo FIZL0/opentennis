@@ -3,7 +3,7 @@
 //! keyboard's Esc dismisses it, a tap or click picks a pill), and the press that opened it does nothing else. Yes
 //! makes the pad 1P (its seat and [`Menu::p1`]: the legend's hints follow it) and frees the keyboard to join as
 //! another player, with a short toast saying so; No or Esc keep the keyboard and that pad isn't asked again until
-//! it's unplugged; [`WAIT`] seconds untouched just close it (the pad's next button asks again). Not on the splash (its first press takes 1P), the screens a press
+//! it's unplugged or 1P's device changes; [`WAIT`] seconds untouched just close it (the pad's next button asks again). Not on the splash (its first press takes 1P), the screens a press
 //! joins a player on (the online lobby among them; the online menus before it do ask), over a paused match (its
 //! controller assignment does it there), nor on a touch page (a pad's press takes the screen's 1P there, B247).
 
@@ -30,6 +30,8 @@ pub(super) struct Takeover {
     toast: Option<(String, f32)>,
     /// `HST_MENU=takeover` / `takeover-toast` (for `--shot`s, which read no pad): held up, no clock.
     held: bool,
+    /// 1P's device last frame: any change of it forgets the pads that said No.
+    p1: Option<Dev>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -141,6 +143,12 @@ impl Menu {
         }
     }
 
+    /// 1P's device changed: the pads that said No may ask again.
+    fn takeover_follow_p1(&mut self) {
+        self.takeover.p1 = self.p1;
+        self.takeover.declined.clear();
+    }
+
     /// The clock: the prompt's wait (closed unanswered once it runs out, or gone with its pad), the toast's, and the pads that said
     /// No forgotten once unplugged (`pads`: the connected ones).
     fn takeover_tick(&mut self, dt: f32, pads: &[Entity]) {
@@ -186,8 +194,11 @@ pub(super) fn sample(m: &mut Menu, toast: bool) {
 pub(super) fn watch(mut menu: ResMut<Menu>, gamepads: Query<(Entity, &Gamepad, Option<&Name>)>, time: Res<Time>) {
     let mut pads: Vec<_> = gamepads.iter().filter(|(_, g, _)| super::controls::readable(g)).map(|(e, _, _)| e).collect();
     pads.sort();
-    let busy = menu.takeover != Takeover::default();
-    if busy {
+    if menu.takeover.p1 != menu.p1 {
+        menu.takeover_follow_p1();
+    }
+    let t = &menu.takeover;
+    if t.ask.is_some() || t.toast.is_some() || !t.declined.is_empty() {
         menu.takeover_tick(time.delta_secs(), &pads);
     }
     if menu.takeover.ask.is_some() || super::touch_page() {
@@ -326,7 +337,12 @@ mod tests {
                 assert!(m.takeover_open(p, "Pad".into()));
                 continue;
             }
-            // not again while plugged in; unplugged and back, it asks again
+            // not again while plugged in; 1P's device changing, or unplugged and back, it asks again
+            assert!(!m.takeover_open(p, "Pad".into()));
+            m.p1 = Some(Dev::Keys);
+            m.takeover_follow_p1();
+            assert!(m.takeover_open(p, "Pad".into()));
+            m.takeover_answer(false, &mut Vec::new());
             assert!(!m.takeover_open(p, "Pad".into()));
             m.takeover_tick(0.016, &[]);
             assert!(m.takeover_open(p, "Pad".into()));
