@@ -9,3 +9,4 @@
 - A player who loses the point while still in a missed swing now walks away facing the way they're going instead of sliding sideways.
 - On the character select, the costume and hand button hints now show on the computer player's card you're picking for with a controller.
 - The start screen now shows your controller's confirm button (or Enter) instead of Start, and Back / Esc there asks whether to quit the game.
+- In an online lobby, Back now steps back one thing at a time: first it undoes your character pick, then it takes you out of your seat (you still run the lobby), then it leaves, asking first if anyone else is in or joining.

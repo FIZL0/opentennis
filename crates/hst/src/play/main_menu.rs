@@ -1035,7 +1035,12 @@ impl Menu {
     /// The device driving the menu's 1P screens: 1P's, except on the controller assignment after it moved its own
     /// seat there (B437: still the one that came in, until it leaves).
     pub(super) fn lead(&self) -> Option<Dev> {
-        self.assign_lead.filter(|_| self.screen == Screen::Assign).or(self.seats[self.first_seat()])
+        // concept: online, 1P off its seat still works the lobby
+        let seat = match self.seats[self.first_seat()] {
+            Some(Dev::Open) if self.online() => self.p1,
+            s => s,
+        };
+        self.assign_lead.filter(|_| self.screen == Screen::Assign).or(seat)
     }
 
     /// M124: the seat whose device drives the assignment: 1P's, over an online match this machine's first.
@@ -1328,7 +1333,7 @@ impl Menu {
             return out;
         }
         // concept: another pad here joins the online lobby with ✕, into the open seat its card prompts
-        if k.ok && matches!(dev, Dev::Pad(_)) && !self.seats.contains(&Some(dev)) && self.lobby_join(dev, &mut out) {
+        if k.ok && matches!(dev, Dev::Pad(_)) && self.p1 != Some(dev) && !self.seats.contains(&Some(dev)) && self.lobby_join(dev, &mut out) {
             return out;
         }
         // concept: on the lobby another local player's ○ leaves its seat (held open here for another pad), not the lobby
@@ -1662,11 +1667,15 @@ impl Menu {
                         // B238: a joined device's ○ takes it off its seat
                         out.push(Sound(LEAVE_SOUND));
                     } else if p == 0 && self.online() && self.net.first {
-                        self.chars_back(&mut out);
+                        if !self.ask_leave(&mut out) {
+                            self.chars_back(&mut out);
+                        }
                     } else if p == 0 && self.online() {
-                        // online: back to the lobby, the seats still held
+                        // concept: online, 1P off its seat (held open for a pad's ✕) and back on the lobby it still
+                        // works; ○ there leaves
+                        self.seats[0] = Some(Dev::Open);
                         self.screen = Screen::Lobby;
-                        out.push(Sound(1));
+                        out.push(Sound(LEAVE_SOUND));
                     } else if p == 0 {
                         // B331: the local roster is the first screen past the main menu
                         self.seats[1..].fill(None);
