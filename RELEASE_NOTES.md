@@ -4,3 +4,4 @@
 - Resolution can now go above 100 % (125, 150 or 200 %) for smoother edges on a strong graphics card.
 - Character select: each player's card is more compact (a small portrait beside the name, costume, hand, play style and grades), so the face grid shows many more characters at once: 25 per player with four players. The online lobby's cards for your own players change the same way.
 - Character face icons of mods installed from the store (most visibly Get a Grip's) are no longer zoomed in past the chin: they're framed like the disc characters'.
+- In a tiebreak the score board chimes again as the new points come up, as in the original.

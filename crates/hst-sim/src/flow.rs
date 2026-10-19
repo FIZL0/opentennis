@@ -297,6 +297,14 @@ impl PostPoint {
     }
 }
 
+impl ShowState {
+    /// The tiebreak show's roll ended this tick and its new points flash in (not at deuce): the tick the game plays
+    /// `sound::TIEBREAK_CHIME`.
+    pub fn tiebreak_chime(&self) -> bool {
+        self.event == Event::TiebreakPoint && self.stage == stage::FLASH && self.t == 3 && !self.fading_out
+    }
+}
+
 impl Show {
     fn new(event: Event) -> Self {
         let t = if matches!(event, Event::Game | Event::Set) { 14 } else { 5 };
