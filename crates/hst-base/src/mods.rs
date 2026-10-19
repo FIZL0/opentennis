@@ -1166,6 +1166,19 @@ pub fn check(m: &Mod) -> Result<(), String> {
     })
 }
 
+/// Whether costume `c` of `m` passes the checks [`load_with`] makes before it builds anything (the select marks a
+/// failing one up front instead of on its first hover).
+pub fn costume_ok(m: &Mod, c: usize) -> bool {
+    m.costumes.get(c).and_then(|f| open(&m.dir.join(f)).ok()).is_some_and(|(doc, blob)| conform(&doc, &blob, !m.texture_face && !m.no_face).is_ok())
+}
+
+/// Whether the mod's own motions (§6), if it ships any, open and every animation is named by a motion ([`own_motions`]'s
+/// first check; a renamed copy like `re_gu.1` fails every costume's load).
+pub fn motions_ok(m: &Mod) -> bool {
+    use hst_data::ani::MOTIONS;
+    m.motions.as_ref().is_none_or(|f| open(&m.dir.join(f)).is_ok_and(|(doc, _)| doc.animations().all(|a| MOTIONS.iter().any(|n| n.replace("_pc%02d", "") == a.name().unwrap_or("")))))
+}
+
 /// Loads costume `costume` of mod `m` (motions, faces and arm table from the donor on the disc).
 pub fn load(
     iso: &mut Iso,
