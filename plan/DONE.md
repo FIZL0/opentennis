@@ -848,6 +848,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B575** T-Bone mod whiff line too long (user 2026-10-18): his voice line on a miss is long speech. Use a grunt for whiffs instead of talking (check his bank and other mods for grunt clips); a talking line on a sweet spot is fine.
 - [x] **B576** Still no tiebreak score SFX (user 2026-10-18): the 'ching' when the score changes in a tiebreak doesn't play. Take the cue from the original.
 - [x] **B570** Menu text looks bad on low-res screens and phones (user 2026-10-18): menu text is blurry/ugly at low resolutions. Make menu scaling work better and automatically (pick scale/font size from window size and DPI so text stays crisp and readable), at any aspect ratio.
+- [x] **B577** Name-entry buttons vanish with 4 local players (user 2026-10-18): the on-screen name typing buttons go missing when someone joins during 4-player local.
 
 
 ### Shots
