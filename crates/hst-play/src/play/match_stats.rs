@@ -372,6 +372,8 @@ struct Screen {
     /// The stats page has been shown.
     seen: bool,
     timer: i32,
+    /// B578: a slide pressed on a frame with no tick, kept for the next tick.
+    held: u8,
     /// Ticks into the fade to black after Continue.
     leaving: Option<i32>,
 }
@@ -633,6 +635,13 @@ fn step(
         }
     }
     screen.acc += time.delta_secs() * 60.0;
+    // B578: a frame between ticks (high refresh rates, frame jitter) would drop the press
+    if input == 0 {
+        input = std::mem::take(&mut screen.held);
+    }
+    if screen.acc < 1.0 {
+        screen.held = input;
+    }
     while screen.acc >= 1.0 {
         screen.acc -= 1.0;
         if !busy && screen.step(input) {
