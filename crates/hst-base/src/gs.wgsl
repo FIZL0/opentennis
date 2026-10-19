@@ -193,10 +193,59 @@ fn sun_visibility(in: VertexOutput) -> f32 {
     return 1.0;
 }
 
+#ifdef GS_CLEAR
+// M129: where the ray from the eye through `p` first enters the players' room grown by `grow` m (the doubles court,
+// 4 m beside it and 6 m behind each baseline, from the ground to 3 m up; Bevy's world, y up), in units of eye → p
+// (1 = at p); a large number where it never does.
+fn room_entry(eye: vec3<f32>, d: vec3<f32>, grow: f32) -> f32 {
+    let half = vec3(5.485 + 4.0 + grow, 1.5 + grow * 0.5, 11.885 + 6.0 + grow);
+    let centre = vec3(0.0, 1.5 + grow * 0.5, 0.0);
+    let inv = 1.0 / select(d, vec3(1e-6), abs(d) < vec3(1e-6));
+    let a = (centre - half - eye) * inv;
+    let b = (centre + half - eye) * inv;
+    let lo = min(a, b);
+    let hi = max(a, b);
+    let t0 = max(max(max(lo.x, lo.y), lo.z), 0.0);
+    let t1 = min(min(hi.x, hi.y), hi.z);
+    return select(1e9, t0, t1 >= t0);
+}
+
+// M129: a piece of scenery standing in the way of the play isn't drawn: anything within 1 m of the eye (a replay
+// camera inside a prop), and anything over 0.5 m up (never the ground) whose ray from the eye goes on into the
+// players' room at least 0.3 m further; in a 2.25 m margin round the room it fades out (ordered dither: 3/4 of the
+// pixels gone within 0.75 m, 1/2 within 1.5 m, 1/4 beyond).
+fn cleared(p: vec3<f32>, pixel: vec2<f32>) -> bool {
+    let eye = view_bindings::view.world_position;
+    let d = p - eye;
+    let dist = length(d);
+    if dist < 1.0 {
+        return true;
+    }
+    if p.y < 0.5 {
+        return false;
+    }
+    let past = 1.0 + 0.3 / dist;
+    // 4×4 Bayer threshold, 0..15/16
+    var bayer = array<u32, 16>(0u, 8u, 2u, 10u, 12u, 4u, 14u, 6u, 3u, 11u, 1u, 9u, 15u, 7u, 13u, 5u);
+    let q = vec2<u32>(pixel) % vec2(4u);
+    let b = f32(bayer[q.y * 4u + q.x]) / 16.0;
+    for (var k = 0; k < 4; k++) {
+        let t = room_entry(eye, d, f32(k) * 0.75);
+        if t > past && t < 1e8 {
+            return b < 1.0 - f32(k) * 0.25;
+        }
+    }
+    return false;
+}
+#endif
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef GS_GUARD_DISCARD
     if in.guard > 0.0 { discard; }
+#endif
+#ifdef GS_CLEAR
+    if cleared(in.world_position.xyz, in.position.xy) { discard; }
 #endif
     // the vertex's lit colour, Gouraud-shaded
     var rgb = in.color.rgb;
