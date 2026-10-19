@@ -1,20 +1,15 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- With four players on the character select, the on-screen name letters and buttons no longer go missing when everyone is typing a name.
-- The character select no longer shows the "each browses on their own" note in the top bar.
-- The Steam Deck graphics preset now draws at High quality (full shadows), keeping vsync and its speed-ups; a Deck already on the old preset moves up to it.
-- Resolution can now go above 100 % (125, 150 or 200 %) for smoother edges on a strong graphics card.
-- Character select: each player's card is more compact (a small portrait beside the name, costume, hand, play style and grades), so the face grid shows many more characters at once: 25 per player with four players. The online lobby's cards for your own players change the same way.
-- Character face icons of mods installed from the store (most visibly Get a Grip's) are no longer zoomed in past the chin: they're framed like the disc characters'.
-- After a match, the button to move on to the stats page now responds the moment its prompt appears, instead of ignoring presses for a moment.
-- At character select, a player who has picked can now choose the computer players' characters straight away, without waiting for the other players to finish.
-- Characters downloaded from the mod store now get their face icons right away: new downloads are drawn as they install, and the character select draws the faces on screen first.
-- A computer player's card on the character select shows its level again (e.g. "COM - Lv 3").
-- The T-Bone mod character now grunts when he misses a swing instead of saying a whole line (update the mod to hear it).
-- In a tiebreak the score board chimes again as the new points come up, as in the original.
-- Menu text is sharper and easier to read on small or low-resolution screens and phones, and the Auto menu size now takes the screen's scaling into account.
-- In doubles, computer players (and their judgement of whether a human partner can smash a ball) now line up smashes from each character's own reach instead of one shared measurement.
-- On mod courts, low props behind the baseline (like the toolboxes on Dubno Tower) no longer vanish and pop back in as play changes ends.
-- On mod courts, a big prop right in front of the camera (like the pillars round Dubno's rooftop in a replay) is no longer drawn, and a camera inside a prop sees through it; the helicopter, its rotor and everything over the court stay.
-- Out of Bounds mod characters' hair swings again as they run and stop (Sophie's pigtails had gone stiff); it still hangs the same way at rest.
-- On the Studio A court (Get a Grip court mod), the big cloud on the wall behind the camera no longer covers the bottom right of the screen when a player runs off the side of the court.
-- Character select: the grade tiles' labels are clearer (Serv, Strk, Vol, Imp, Foot), show the full names when there's room, and hovering or tapping a tile shows its full name.
+- Character select: smaller player cards, so many more faces fit on screen (25 per player with four players); online lobby cards match.
+- Character select: clearer grade labels (Serv, Strk, Vol, Imp, Foot); hover or tap a tile for its full name.
+- Character select: a player who has picked can choose the computer players straight away; computer cards show their level again.
+- Character select: name entry no longer loses its letters and buttons with four players typing; the "each browses on their own" note is gone.
+- Store mod characters get their face icons straight away, framed like the disc characters' instead of zoomed past the chin.
+- Resolution can go above 100 % (125, 150, 200 %) for smoother edges.
+- Steam Deck preset now uses High quality with full shadows.
+- Sharper menu text on small screens and phones; Auto menu size follows the screen's scaling.
+- The button to move on to the stats page after a match responds as soon as its prompt appears.
+- The score board chimes again in a tiebreak.
+- In doubles, computer players line up smashes from each character's own reach.
+- Mod courts: low props behind the baseline no longer pop in and out, and props right in front of the camera no longer block the view.
+- Studio A court: the big cloud no longer covers the corner of the screen when a player runs wide.
+- Out of Bounds characters' hair swings again; T-Bone grunts on a miss instead of saying a whole line (update the mods).
