@@ -193,10 +193,53 @@ fn sun_visibility(in: VertexOutput) -> f32 {
     return 1.0;
 }
 
+#ifdef GS_CLEAR
+// M129: where the ray from the eye along `d` first enters the box `centre` ± `half` (in units of `d`); a large number
+// where it never does.
+fn box_entry(eye: vec3<f32>, d: vec3<f32>, centre: vec3<f32>, half: vec3<f32>) -> f32 {
+    let inv = 1.0 / select(d, vec3(1e-6), abs(d) < vec3(1e-6));
+    let a = (centre - half - eye) * inv;
+    let b = (centre + half - eye) * inv;
+    let lo = min(a, b);
+    let hi = max(a, b);
+    let t0 = max(max(max(lo.x, lo.y), lo.z), 0.0);
+    let t1 = min(min(hi.x, hi.y), hi.z);
+    return select(1e9, t0, t1 >= t0);
+}
+
+// M129: only a big blocker isn't drawn (user 2026-10-19): anything within 1 m of the eye (a replay camera inside a
+// prop), and a piece of scenery close to the eye (within 7 m, fading out by ordered dither to 10 m), over 0.5 m up,
+// outside the players' room (the doubles court, 4 m beside it and 6 m behind each baseline, at any height: what
+// stands over the play, a helicopter's rotor, stays), whose ray from the eye goes on into the players' room (up
+// to 20 m, so the whole of a pole in front of the camera goes, not only where it covers the court). Bevy's world, y up.
+fn cleared(p: vec3<f32>, pixel: vec2<f32>) -> bool {
+    let eye = view_bindings::view.world_position;
+    let d = p - eye;
+    let dist = length(d);
+    if dist < 1.0 {
+        return true;
+    }
+    if dist > 10.0 || p.y < 0.5 || (abs(p.x) < 5.485 + 4.0 && abs(p.z) < 11.885 + 6.0) {
+        return false;
+    }
+    let t = box_entry(eye, d, vec3(0.0, 10.0, 0.0), vec3(5.485 + 4.0, 10.0, 11.885 + 6.0));
+    if t <= 1.0 || t > 1e8 {
+        return false;
+    }
+    // 4×4 Bayer threshold, 0..15/16
+    var bayer = array<u32, 16>(0u, 8u, 2u, 10u, 12u, 4u, 14u, 6u, 3u, 11u, 1u, 9u, 15u, 7u, 13u, 5u);
+    let q = vec2<u32>(pixel) % vec2(4u);
+    return f32(bayer[q.y * 4u + q.x]) / 16.0 >= (dist - 7.0) / 3.0;
+}
+#endif
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef GS_GUARD_DISCARD
     if in.guard > 0.0 { discard; }
+#endif
+#ifdef GS_CLEAR
+    if cleared(in.world_position.xyz, in.position.xy) { discard; }
 #endif
     // the vertex's lit colour, Gouraud-shaded
     var rgb = in.color.rgb;

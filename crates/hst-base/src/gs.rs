@@ -95,6 +95,9 @@ pub struct GsKey {
     /// A court model other than the hole model: VU1 drops every triangle with a vertex outside its guard band
     /// (gs.wgsl, `GS_GUARD`).
     pub guard: bool,
+    /// M129: a court mod's court and gimmicks, not drawn where a piece is a big blocker right in front of the eye or
+    /// the eye is inside it (gs.wgsl, `GS_CLEAR`). Stock courts never.
+    pub clear: bool,
 }
 
 #[derive(ShaderType, Clone, Copy, Debug)]
@@ -372,7 +375,7 @@ impl GsMaterial {
             .map(|test| GsMaterial {
                 uniform,
                 texture: texture.clone().filter(|_| textured),
-                key: GsKey { textured, modulate, test, blend, fog: prim & 0x20 != 0, cull: !m.two_sided, mirror: false, guard: false },
+                key: GsKey { textured, modulate, test, blend, fog: prim & 0x20 != 0, cull: !m.two_sided, mirror: false, guard: false, clear: false },
                 order: 0.0,
             })
             .collect()
@@ -574,6 +577,11 @@ impl Material for GsMaterial {
         // the shadow pass has no fragment stage for draws that cannot discard
         let Some(fragment) = descriptor.fragment.as_mut() else { return Ok(()) };
         let defs = &mut fragment.shader_defs;
+        // `HST_CLEAR=0`: drawn in the way as before, for A/B shots
+        static CLEAR: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var("HST_CLEAR").map_or(true, |v| v != "0"));
+        if k.clear && *CLEAR {
+            defs.push("GS_CLEAR".into());
+        }
         if k.textured {
             defs.push("GS_TEXTURED".into());
         }
@@ -672,15 +680,15 @@ mod tests {
         let keys = |m: &mtl::Material, prim| GsMaterial::for_batch(m, prim, tex.clone()).iter().map(|g| g.key).collect::<Vec<_>>();
         // opaque material, textured unblended batch: HIGHLIGHT2, no test
         let k = keys(&material("grass", 5, 1.0), 0x30);
-        assert_eq!(k, [GsKey { textured: true, modulate: false, test: Test::Always, blend: None, fog: true, cull: true, mirror: false, guard: false }]);
+        assert_eq!(k, [GsKey { textured: true, modulate: false, test: Test::Always, blend: None, fog: true, cull: true, mirror: false, guard: false, clear: false }]);
         // mode 15 cut-out, translucent colour → MODULATE
         let k = keys(&material("leaf", 15, 0.5), 0x70);
-        assert_eq!(k, [GsKey { textured: true, modulate: true, test: Test::Ge40, blend: Some(mtl::Blend::Normal), fog: true, cull: true, mirror: false, guard: false }]);
+        assert_eq!(k, [GsKey { textured: true, modulate: true, test: Test::Ge40, blend: Some(mtl::Blend::Normal), fog: true, cull: true, mirror: false, guard: false, clear: false }]);
         // mode 25: two draws
         assert_eq!(keys(&material("fence@vert", 25, 1.0), 0x70).iter().map(|k| k.test).collect::<Vec<_>>(), [Test::Ge70, Test::Lt70]);
         // court lines: @add without ABE still adds, no Z; @sub wins over @add; untextured batch
         let k = keys(&material("line@add@sub", 15, 0.4), 0x20);
-        assert_eq!(k, [GsKey { textured: false, modulate: true, test: Test::Never, blend: Some(mtl::Blend::Sub), fog: true, cull: true, mirror: false, guard: false }]);
+        assert_eq!(k, [GsKey { textured: false, modulate: true, test: Test::Never, blend: Some(mtl::Blend::Sub), fog: true, cull: true, mirror: false, guard: false, clear: false }]);
         // specular exponent 128·(+0x10)^1.65, at least 1; highlight +0x14
         let mut m = material("crayline", 5, 1.0);
         m.header[0x10..0x14].copy_from_slice(&0.49f32.to_le_bytes());
@@ -752,7 +760,7 @@ mod tests {
         assert!(keys(&material("line@add@sub", 5, 1.0), 0x30, false)[0].fog);
         // the hole: MODULATE, A ≥ 0x80 opaque with Z, below blended without, no guard band (B170)
         let k = keys(&material("abb_zassou", 5, 1.0), 0x30, true);
-        let base = GsKey { textured: true, modulate: true, test: Test::Ge80, blend: None, fog: true, cull: true, mirror: false, guard: false };
+        let base = GsKey { textured: true, modulate: true, test: Test::Ge80, blend: None, fog: true, cull: true, mirror: false, guard: false, clear: false };
         assert_eq!(k, [base, GsKey { test: Test::Lt80, blend: Some(mtl::Blend::Normal), ..base }]);
         assert_eq!(GsMaterial::for_court_batch(&material("abb_zassou", 5, 1.0), 0x30, tex.clone(), true)[1].uniform.highlight, 0.0);
         // a hole @add batch keeps its add in both draws

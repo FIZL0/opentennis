@@ -270,7 +270,7 @@ fn setup(mut commands: Commands, args: Res<Args>, mut meshes: ResMut<Assets<Mesh
         // the streaks' alpha stays under 0x80: they only need the colour-only half
         let tests: &[Test] = if name == "rain" { &[Test::Lt80] } else { &[Test::Ge80, Test::Lt80] };
         for &test in tests {
-            let key = GsKey { textured: true, modulate: true, test, blend: Some(hst_data::mtl::Blend::Normal), fog: true, cull: false, mirror: false, guard: false };
+            let key = GsKey { textured: true, modulate: true, test, blend: Some(hst_data::mtl::Blend::Normal), fog: true, cull: false, mirror: false, guard: false, clear: false };
             let m = materials.add(GsMaterial { uniform, texture: texture.clone(), key, order: 0.0 });
             commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(m), Transform::from_rotation(Quat::from_rotation_x(PI)), NoFrustumCulling, bevy::light::NotShadowCaster));
         }

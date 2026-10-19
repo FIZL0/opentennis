@@ -5,7 +5,8 @@
 //! into their vertex colours, its sun casts the shadows, and its BGM and ambience loops play in place of the layout
 //! court's music and creature sounds. A `__clear` node isn't drawn while it stands between the eye and the court
 //! (M8f5a3, `clear_view`); a gimmick creature standing in the players' room isn't drawn at all (B506,
-//! `creatures_in_play`). Nothing here reads or writes the match: replays stay bit-exact.
+//! `creatures_in_play`), and a big piece of the court or its gimmicks right in front of the camera isn't drawn
+//! (M129, gs.wgsl's `GS_CLEAR`). Nothing here reads or writes the match: replays stay bit-exact.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -147,7 +148,7 @@ fn setup(
         } else {
             root
         };
-        match crate::mods::open(&path).and_then(|(doc, blob)| scene_off(&mut commands, &mut store, &doc, &blob, parent, args.singles, if sky { None } else { c.light.as_ref() }, sky, None, file == "gimmick.glb")) {
+        match crate::mods::open(&path).and_then(|(doc, blob)| scene_off(&mut commands, &mut store, &doc, &blob, parent, args.singles, if sky { None } else { c.light.as_ref() }, sky, None, file == "gimmick.glb", !sky)) {
             Ok(n) => info!("court mod {}: {file}, {n} draws", c.id),
             Err(e) => warn!("court mod {}: {}: {e}", c.id, path.display()),
         }
@@ -182,17 +183,18 @@ pub struct Store<'a> {
 /// go there by name with the named nodes. Returns the draws.
 #[allow(clippy::too_many_arguments)]
 pub fn scene(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob: &[u8], parent: Entity, singles: bool, light: Option<&Light>, sky: bool, spawned: Option<&mut Spawned>) -> Result<usize, String> {
-    scene_off(commands, s, doc, blob, parent, singles, light, sky, spawned, false)
+    scene_off(commands, s, doc, blob, parent, singles, light, sky, spawned, false, false)
 }
 
-/// [`scene`]; with `off_court`, the creatures standing in the players' room ([`creatures_in_play`]) aren't spawned (B506).
+/// [`scene`]; with `off_court`, the creatures standing in the players' room ([`creatures_in_play`]) aren't spawned (B506);
+/// with `clear`, its big blockers aren't drawn (M129, `GsKey::clear`).
 #[allow(clippy::too_many_arguments)]
-fn scene_off(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob: &[u8], parent: Entity, singles: bool, light: Option<&Light>, sky: bool, mut spawned: Option<&mut Spawned>, off_court: bool) -> Result<usize, String> {
+fn scene_off(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob: &[u8], parent: Entity, singles: bool, light: Option<&Light>, sky: bool, mut spawned: Option<&mut Spawned>, off_court: bool, clear: bool) -> Result<usize, String> {
     let worlds = worlds(doc);
     let space = doc.nodes().find(|n| n.name() == Some("game_space")).map_or(Mat4::IDENTITY, |n| worlds[n.index()]);
     let to_game = space.inverse();
     let role = if sky { Role::Sky } else if light.is_some() { Role::Baked } else { Role::Weather };
-    let mats = materials(doc, blob, s, role)?;
+    let mats = materials(doc, blob, s, role, clear)?;
     let anchor = commands.spawn((Transform::from_matrix(to_game), Visibility::default(), ChildOf(parent))).id();
     let skip = |n: &gltf::Node| n.name().is_some_and(|m| m.ends_with(if singles { "__doubles" } else { "__singles" }));
     // the node tree as entities (an animation or a skin moves them)
@@ -369,7 +371,7 @@ fn worlds(doc: &gltf::Document) -> Vec<Mat4> {
 
 /// The `.glb`'s materials as GS draws (as a character mod's, `mods::materials_of`; the last one glTF's default), lit
 /// as `role` says.
-fn materials(doc: &gltf::Document, blob: &[u8], s: &mut Store, role: Role) -> Result<Vec<Vec<Handle<GsMaterial>>>, String> {
+fn materials(doc: &gltf::Document, blob: &[u8], s: &mut Store, role: Role, clear: bool) -> Result<Vec<Vec<Handle<GsMaterial>>>, String> {
     let sampler = || ImageSampler::Descriptor(ImageSamplerDescriptor { address_mode_u: ImageAddressMode::Repeat, address_mode_v: ImageAddressMode::Repeat, ..ImageSamplerDescriptor::linear() });
     let mut tex = Vec::new();
     for im in doc.images() {
@@ -400,6 +402,7 @@ fn materials(doc: &gltf::Document, blob: &[u8], s: &mut Store, role: Role) -> Re
         let mut handles = Vec::new();
         for mut g in GsMaterial::for_batch(&mtl, prim, t.and_then(|t| tex.get(t)).cloned()) {
             style(&mut g, role, None, 0.0);
+            g.key.clear = clear;
             if role == Role::Sky {
                 g.order = crate::BACKDROP;
             }
