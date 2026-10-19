@@ -441,14 +441,6 @@ pub(super) fn chars(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: 
         // B375: a tap swaps Singles ↔ Doubles, as 1P's □ / Tab (step checks the device is 1P's; online: `lobby::over`)
         d.hit([mx, my, mw, 30.0 * PY], pointer::press(|k| k.page = true));
     }
-    let humans = m.humans() + (0..m.players()).filter(|&p| m.seats[p].is_none() && m.remote(p).is_some_and(|s| s.human())).count();
-    let who = if humans > 1 { format!("{humans} players, each browses on their own") } else { "1 player".into() };
-    let right = mx - 12.0 * PX;
-    let ws = 14.0 * PY;
-    let ww = d.width(&who, ws).min(right - (l + 40.0 + d.width(title, size)));
-    if ww > 20.0 {
-        d.outlined(|d| d.label(&who, right - ww / 2.0, my + 8.0 * PY, ws, ww, WHITE));
-    }
     let c = player_columns(d, m, text, bind, pads);
     super::confirm::local_foot(d, m, text);
     names(d, m, &c);
