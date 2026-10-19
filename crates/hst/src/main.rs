@@ -66,6 +66,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
     // drawing runs uncapped by default; the simulation stays a fixed 60 Hz tick either way
     let mut gfx = graphics::Graphics::default();
     let mut music = false;
+    let mut no_marks = false;
     let mut shot_at = 0.5;
     let mut sound = None;
     let mut swap_hands = play::hand_swap::SwapHands::default();
@@ -142,6 +143,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
                 play::main_menu::ASPECT.store(play::widescreen::ASPECTS.iter().position(|n| *n == a).unwrap_or(0) as u8, std::sync::atomic::Ordering::Relaxed);
             }
             "--no-upscale" => upscale = false,
+            "--no-shot-markers" => no_marks = true,
             // M98: no HUD in the match (promo screenshots)
             "--no-hud" => play::no_hud::OFF.store(true, std::sync::atomic::Ordering::Relaxed),
             // B505: F10 toggles the HUD only with this
@@ -219,6 +221,8 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
             court = c.layout as usize + 1;
         }
     }
+    // each match's flags set it afresh (the menu's next match parses its own)
+    play::NO_MARKS.store(no_marks, std::sync::atomic::Ordering::Relaxed);
     let args = Args { iso, archives, shot, shot_at, radius, ball, court, stage, play, singles, chars, outfits, viewer: viewer_char.map(|c| (c, viewer_motion)), sound, music, umpire, sets, games, pads };
     Cli { args, gfx, upscale, viewer_mod, mod_slot, slot_mods, roster, swap_hands, names, umpire_mod, court_mod }
 }
@@ -1447,7 +1451,7 @@ fn log_assets(w: &World, mut next: Local<f32>) {
 fn scripted_keys(mut commands: Commands, time: Res<Time<Real>>, mut keys: ResMut<ButtonInput<KeyCode>>, mut done: Local<usize>, mut pressed_at: Local<f32>, mut hold: Local<f32>) {
     let script = std::env::var("HST_KEYS").unwrap_or_default();
     let steps: Vec<_> = script.split_whitespace().filter_map(|s| s.split_once(':')).collect();
-    for k in [KeyCode::Enter, KeyCode::Space, KeyCode::Escape, KeyCode::ArrowUp, KeyCode::ArrowDown, KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::KeyK, KeyCode::KeyO, KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD, KeyCode::F10] {
+    for k in [KeyCode::Enter, KeyCode::Space, KeyCode::Escape, KeyCode::ArrowUp, KeyCode::ArrowDown, KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::KeyK, KeyCode::KeyO, KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD, KeyCode::Tab, KeyCode::F10] {
         // held through at least one 60 Hz menu tick (a fast display's frame may fall between two)
         if keys.pressed(k) && !keys.just_pressed(k) && time.elapsed_secs() - *pressed_at >= hold.max(1.0 / 30.0) {
             keys.release(k);
@@ -1481,6 +1485,8 @@ fn scripted_keys(mut commands: Commands, time: Res<Time<Real>>, mut keys: ResMut
         "KeyA" => KeyCode::KeyA,
         "KeyS" => KeyCode::KeyS,
         "KeyD" => KeyCode::KeyD,
+        // the select's Singles / Doubles
+        "Tab" => KeyCode::Tab,
         // the HUD on/off (M98); a scripted F10 turns the key on (B505)
         "F10" => {
             play::no_hud::KEY.store(true, std::sync::atomic::Ordering::Relaxed);

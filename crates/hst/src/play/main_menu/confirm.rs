@@ -7,7 +7,7 @@
 //! player back to the character select. The court and umpire selects (`court_screen`, `umpire_screen`) are as before.
 
 use super::frame::{self, Cell, Chip, Plate, Spec, Thumb};
-use super::{CHAR_NAMES, CONFIRM_ROWS, Draw, Menu, Press, RANK_NAMES, SETS, Text, UMPIRES, Who};
+use super::{CHAR_NAMES, CONFIRM_ROWS, Draw, MARKS_ROW, Menu, Press, RANK_NAMES, SETS, Text, UMPIRES, Who};
 use super::pointer;
 use super::super::controls::Bindings;
 use bevy::prelude::{Entity, default};
@@ -19,12 +19,12 @@ impl Menu {
             let mut g = self.lobby_foot();
             let c = self.columns();
             g.plates = (0..c.n).map(|p| c.parts(p).card).collect();
-            frame::spread(&mut g, 4);
+            frame::spread(&mut g, 5);
             return g;
         }
         let mut g = frame::layout(self.grid.reach(), Spec { n: self.players(), code: false, public: false, chat: false });
         // Handicap is hidden until handicaps work (B482; B40g1 brings it back)
-        frame::spread(&mut g, 4);
+        frame::spread(&mut g, 5);
         g
     }
 
@@ -44,11 +44,11 @@ impl Menu {
     }
 }
 
-/// The confirm screen's rows (`Menu::sel`): Start, the court, Sets, Games, the umpire (`CONFIRM_ROWS`), then a plate a
+/// The confirm screen's rows (`Menu::sel`): Start, the court, Sets, Games, the umpire, Markers (`CONFIRM_ROWS`), then a plate a
 /// player.
 pub(super) fn rects(m: &Menu) -> Vec<[f32; 4]> {
     let g = m.confirm_geo();
-    let mut v = vec![g.start, g.cells[0], g.cells[2], g.cells[3], g.cells[1]];
+    let mut v = vec![g.start, g.cells[0], g.cells[2], g.cells[3], g.cells[1], g.cells[4]];
     v.extend(g.plates);
     v
 }
@@ -75,20 +75,8 @@ pub(super) fn draw(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &
         d.hit(rect, pointer::Act::Row(CONFIRM_ROWS + p, pointer::OK));
     }
     // the strip: Court, Umpire, Sets, Games (Handicap hidden, B482)
-    let u = m.umpire as usize;
-    let umpire = match (u, m.umpire_mod_of(u)) {
-        (UMPIRES, _) => "Random".to_string(),
-        (_, Some(x)) => x.name.clone(),
-        _ => m.umpire_name(text, u),
-    };
-    let cells = [
-        Cell { label: "COURT", value: m.court_title(text, m.court), arrows: false, sel: on(1), thumb: Thumb::Court(m.court) },
-        Cell { label: "UMPIRE", value: umpire, arrows: false, sel: on(4), thumb: Thumb::Umpire(u) },
-        Cell { label: "SETS", value: SETS[m.sets].to_string(), arrows: true, sel: on(2), thumb: Thumb::None },
-        Cell { label: "GAMES", value: m.games.to_string(), arrows: true, sel: on(3), thumb: Thumb::None },
-    ];
-    frame::strip(d, m, &g, &cells);
-    for (row, cell) in [(1, 0), (4, 1), (2, 2), (3, 3)] {
+    frame::strip(d, m, &g, &cells(m, text, &on));
+    for (row, cell) in [(1, 0), (4, 1), (2, 2), (3, 3), (MARKS_ROW, 4)] {
         d.hit(g.cells[cell], pointer::Act::Row(row, pointer::OK));
     }
     // the bottom row: ‹ Back, Start
@@ -115,23 +103,11 @@ pub(super) fn local_foot(d: &mut Draw, m: &Menu, text: &Text) {
             d.hit(rect, pointer::Act::Row(CONFIRM_ROWS + p, pointer::OK));
         }
     }
-    let u = m.umpire as usize;
-    let umpire = match (u, m.umpire_mod_of(u)) {
-        (UMPIRES, _) => "Random".to_string(),
-        (_, Some(x)) => x.name.clone(),
-        _ => m.umpire_name(text, u),
-    };
-    let cells = [
-        Cell { label: "COURT", value: m.court_title(text, m.court), arrows: false, sel: on(1), thumb: Thumb::Court(m.court) },
-        Cell { label: "UMPIRE", value: umpire, arrows: false, sel: on(4), thumb: Thumb::Umpire(u) },
-        Cell { label: "SETS", value: SETS[m.sets].to_string(), arrows: true, sel: on(2), thumb: Thumb::None },
-        Cell { label: "GAMES", value: m.games.to_string(), arrows: true, sel: on(3), thumb: Thumb::None },
-    ];
-    frame::strip(d, m, &g, &cells);
+    frame::strip(d, m, &g, &cells(m, text, &on));
     let n = m.players();
     let ready = (0..n).filter(|&p| m.players[p].ready).count();
     // concept: the strip takes a tap while the cards are still picked too
-    for (row, cell) in [(1, 0), (4, 1), (2, 2), (3, 3)] {
+    for (row, cell) in [(1, 0), (4, 1), (2, 2), (3, 3), (MARKS_ROW, 4)] {
         d.hit(g.cells[cell], pointer::Act::Row(row, pointer::OK));
     }
     let all = ready == n;
@@ -143,6 +119,23 @@ pub(super) fn local_foot(d: &mut Draw, m: &Menu, text: &Text) {
             picked_cell(d, m, &g);
         }
     }
+}
+
+/// The strip: Court, Umpire, Sets, Games, Markers (rows 1, 4, 2, 3, `MARKS_ROW`).
+fn cells(m: &Menu, text: &Text, on: &dyn Fn(usize) -> bool) -> [Cell; 5] {
+    let u = m.umpire as usize;
+    let umpire = match (u, m.umpire_mod_of(u)) {
+        (UMPIRES, _) => "Random".to_string(),
+        (_, Some(x)) => x.name.clone(),
+        _ => m.umpire_name(text, u),
+    };
+    [
+        Cell { label: "COURT", value: m.court_title(text, m.court), arrows: false, sel: on(1), thumb: Thumb::Court(m.court) },
+        Cell { label: "UMPIRE", value: umpire, arrows: false, sel: on(4), thumb: Thumb::Umpire(u) },
+        Cell { label: "SETS", value: SETS[m.sets].to_string(), arrows: true, sel: on(2), thumb: Thumb::None },
+        Cell { label: "GAMES", value: m.games.to_string(), arrows: true, sel: on(3), thumb: Thumb::None },
+        Cell { label: "MARKERS", value: if m.no_marks { "Off" } else { "On" }.into(), arrows: false, sel: on(MARKS_ROW), thumb: Thumb::None },
+    ]
 }
 
 /// Sets or Games picked (B212): its cell lit blue with ‹ › (each gone at its end, as the original's); the cell's

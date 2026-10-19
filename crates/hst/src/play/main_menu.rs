@@ -500,6 +500,8 @@ struct Menu {
     sets: usize,
     games: i32,
     umpire: u8,
+    /// The match settings' Markers Off: no red or yellow landing marks (`--no-shot-markers`); online, the host's.
+    no_marks: bool,
     /// The dice for a random court or umpire, thrown at Start (`venue`).
     roll: u64,
     /// The action waiting for a new key or button (controls screen).
@@ -564,6 +566,8 @@ struct Menu {
     /// Online pressed while a newer version is out: the suggestion popup's chosen pill (0 Update, 1 Play anyway), and
     /// whether it has been shown this run (it asks once; Play anyway always goes on).
     stale: (Option<usize>, bool),
+    /// ○ on the splash: the Quit the game? popup's chosen pill (0 Quit, 1 Stay).
+    quit: Option<usize>,
     /// B498: a many-choice Settings row's dropdown is open (row `sel`, `editing` set): the highlighted choice.
     listing: Option<usize>,
     /// B369: the select's favorite characters (`favorites.txt`).
@@ -616,6 +620,7 @@ impl Default for Menu {
             sets: 0,
             games: 4,
             umpire: UMPIRES as u8, // B191: Random until a pick is saved
+            no_marks: false,
             roll: 0,
             rebinding: None,
             keys_tab: false,
@@ -645,6 +650,7 @@ impl Default for Menu {
             editing: None,
             switch: None,
             stale: (None, false),
+            quit: None,
             listing: None,
             favs: default(),
             names: default(),
@@ -667,7 +673,9 @@ impl Default for Menu {
 }
 
 /// Rows per screen (the main screen's: `Menu::main_rows`).
-const CONFIRM_ROWS: usize = 5;
+const CONFIRM_ROWS: usize = 6;
+/// The confirm screen's Markers row (✕ toggles it, no picker).
+const MARKS_ROW: usize = 5;
 
 /// The system bank's cue for a device leaving the roster (joining plays the back cue, key 1).
 const LEAVE_SOUND: u8 = 3;
@@ -872,8 +880,9 @@ impl Menu {
         // B519: online, the relay's notice band over the top bar pushes the columns down
         let [l, t, r, b] = self.grid.view;
         let band = online::band_h(self, r - l - 2.0 * roster::MARGIN * roster::PX);
-        // M121: online, the lobby's strip and bottom row under them
-        let b = match self.online() || matches!(self.screen, Screen::Chars | Screen::Confirm) {
+        // M121: online, the lobby's strip and bottom row under them; local, the strip too, also while the match
+        // starts (the confirm screen stays up under the switch's zoom-out as `Playing`)
+        let b = match self.online() || matches!(self.screen, Screen::Chars | Screen::Confirm | Screen::Playing) {
             true => {
                 let [_, y, _, h] = self.lobby_foot().stage;
                 y + h
@@ -1027,7 +1036,12 @@ impl Menu {
     /// The device driving the menu's 1P screens: 1P's, except on the controller assignment after it moved its own
     /// seat there (B437: still the one that came in, until it leaves).
     pub(super) fn lead(&self) -> Option<Dev> {
-        self.assign_lead.filter(|_| self.screen == Screen::Assign).or(self.seats[self.first_seat()])
+        // concept: online, 1P off its seat still works the lobby
+        let seat = match self.seats[self.first_seat()] {
+            Some(Dev::Open) if self.online() => self.p1,
+            s => s,
+        };
+        self.assign_lead.filter(|_| self.screen == Screen::Assign).or(seat)
     }
 
     /// M124: the seat whose device drives the assignment: 1P's, over an online match this machine's first.
@@ -1229,7 +1243,9 @@ impl Menu {
     /// across the net (singles' 2P is doubles' 3P); going to singles keeps 1P and the first other human (opponents
     /// first). Picks follow their seats; `keep`: a human's ready pick stays ready, else every card picks again.
     fn swap_mode(&mut self, keep: bool) {
-        let (seats, players) = (self.seats, self.players);
+        let (seats, players, scroll) = (self.seats, self.players, self.scroll);
+        // a ready human mid-pick for a computer player: that pick stays on the computer card it drives after the swap
+        let editing = seats.iter().flatten().find_map(|&d| self.driven(d).filter(|&q| self.bot(q)).map(|q| (d, players[q])));
         let from = if self.doubles {
             let o = [2, 3, 1].into_iter().find(|&q| seats[q].is_some()).unwrap_or(2);
             [Some(0), Some(o), None, None]
@@ -1241,7 +1257,16 @@ impl Menu {
             self.seats[p] = q.and_then(|q| seats[q]);
             let ready = keep && q.is_some_and(|q| seats[q].is_some() && players[q].ready);
             self.players[p] = Player { ready, ..q.map_or_else(Player::fresh, |q| players[q]) };
+            self.scroll[p] = q.map_or(0, |q| scroll[q]);
         }
+        if let Some((d, pick)) = editing
+            && let Some(r) = self.driven(d).filter(|&r| self.bot(r))
+        {
+            self.players[r] = pick;
+            self.skip_taken();
+        }
+        // the columns change width (and tiles per row): every column scrolls back onto its tile
+        self.followed = [None; 4];
         self.focus = 0;
     }
 
@@ -1276,7 +1301,7 @@ impl Menu {
         };
         // a lobby link's start (`online::linked`): the first device to press anything is this machine's player
         if self.screen == Screen::Press {
-            if self.splash_step(dev, k.ok) {
+            if !self.splash_quit(k, &mut out) && (self.splash_step(dev, k.ok) || self.splash_update(k.card)) {
                 out.push(Effect::Sound(2));
             }
             return out;
@@ -1309,7 +1334,7 @@ impl Menu {
             return out;
         }
         // concept: another pad here joins the online lobby with ✕, into the open seat its card prompts
-        if k.ok && matches!(dev, Dev::Pad(_)) && !self.seats.contains(&Some(dev)) && self.lobby_join(dev, &mut out) {
+        if k.ok && matches!(dev, Dev::Pad(_)) && self.p1 != Some(dev) && !self.seats.contains(&Some(dev)) && self.lobby_join(dev, &mut out) {
             return out;
         }
         // concept: on the lobby another local player's ○ leaves its seat (held open here for another pad), not the lobby
@@ -1643,11 +1668,15 @@ impl Menu {
                         // B238: a joined device's ○ takes it off its seat
                         out.push(Sound(LEAVE_SOUND));
                     } else if p == 0 && self.online() && self.net.first {
-                        self.chars_back(&mut out);
+                        if !self.ask_leave(&mut out) {
+                            self.chars_back(&mut out);
+                        }
                     } else if p == 0 && self.online() {
-                        // online: back to the lobby, the seats still held
+                        // concept: online, 1P off its seat (held open for a pad's ✕) and back on the lobby it still
+                        // works; ○ there leaves
+                        self.seats[0] = Some(Dev::Open);
                         self.screen = Screen::Lobby;
-                        out.push(Sound(1));
+                        out.push(Sound(LEAVE_SOUND));
                     } else if p == 0 {
                         // B331: the local roster is the first screen past the main menu
                         self.seats[1..].fill(None);
@@ -1735,7 +1764,13 @@ impl Menu {
                     out.push(Sound(0));
                 }
                 // B212: the court, Sets, Games and the umpire open their picker on ✕ (the value it puts back on ○)
-                if k.ok && (1..CONFIRM_ROWS).contains(&self.sel) {
+                if k.ok && self.sel == MARKS_ROW {
+                    self.no_marks = !self.no_marks;
+                    out.push(Sound(0));
+                    if self.online() {
+                        out.push(Effect::Online(online::Fx::Net(crate::net::Cmd::NoMarks(self.no_marks))));
+                    }
+                } else if k.ok && (1..MARKS_ROW).contains(&self.sel) {
                     self.picking = Some([0, self.court, self.sets, self.games as usize, self.umpire as usize][self.sel]);
                     out.push(Sound(2));
                 }
@@ -1871,6 +1906,9 @@ impl Menu {
             "--pads".into(),
             Seat::flag(&seats),
         ]);
+        if self.no_marks {
+            a.push("--no-shot-markers".into());
+        }
         a.extend(slot_mods);
         a.extend(self.umpire_mod_flags());
         a.extend(self.court_mod_flags());
@@ -2300,13 +2338,16 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         "code" | "name" | "relay-url" => Screen::Code,
         "addmods" | "browsemods" | "uploadmods" | "mymods" | "signinmods" | "phonemods" | "phonemods-ask" => Screen::Mods,
         "extras" => Screen::Extras,
-        "press" | "press-claimed" => Screen::Press,
+        "press" | "press-claimed" | "press-quit" => Screen::Press,
         // B516: a fresh start opens on the splash
         "" if fresh => Screen::Press,
         _ => Screen::Main,
     };
     if screen == "main-stale" {
         menu.stale = (Some(0), true);
+    }
+    if screen == "press-quit" {
+        menu.quit = Some(1);
     }
     if screen == "press-claimed" {
         menu.p1 = Some(Dev::Keys);
@@ -3133,6 +3174,8 @@ fn step(
     mut voice: Local<(std::collections::HashMap<u8, Option<Arc<crate::audio::SoundBank>>>, Option<u64>, Option<(u8, u8, u8)>)>,
     // B336: a launch waiting for the browser to read its mods in
     mut launching: Local<bool>,
+    // the picks' faces being baked for the match HUD, and since when (`previews::picks_drawn`)
+    (mut loader, baker, mut baking): (Option<ResMut<previews::Loader>>, Option<Res<previews::Baker>>, Local<Option<f32>>),
 ) {
     let play = |key: u8| {
         if let (Some(s), Some(Art(_, Some(b), _))) = (&sound, art.as_deref()) {
@@ -3303,6 +3346,17 @@ fn step(
                         *launching = true;
                         continue;
                     }
+                    // ponytail: a fixed 3 s cap on the wait (a first bake takes ~0.5 s; one that never lands can't hold the start)
+                    let since = *baking.get_or_insert(time.elapsed_secs());
+                    let drawn = match (loader.as_deref_mut(), baker.as_deref()) {
+                        (Some(l), Some(b)) => previews::picks_drawn(&menu, l, b),
+                        _ => true,
+                    };
+                    if !drawn && time.elapsed_secs() - since < 3.0 {
+                        *launching = true;
+                        continue;
+                    }
+                    *baking = None;
                     info!("starting the match: {}", a.join(" "));
                     // the match in this app; its quit comes back to this menu as it is now
                     let (base, kept) = (args.clone(), menu.clone());
@@ -4083,6 +4137,23 @@ mod tests {
         assert_eq!((m.players[2].cursor, m.players[2].costume), (3, 2));
     }
 
+    /// Singles ↔ Doubles while a ready 1P picks for a computer player: the card it drives after the swap carries that
+    /// pick (doubles' partner → singles' opponent, and back).
+    #[test]
+    fn swap_keeps_the_computer_pick_being_made() {
+        let mut m = Menu { screen: Screen::Chars, doubles: true, seats: [Some(Dev::Keys), None, None, None], ..default() };
+        m.players[0].ready = true;
+        m.players[1] = Player { cursor: 4, costume: 1, ..Player::fresh() };
+        m.players[1].random = false;
+        assert_eq!(m.driven(Dev::Keys), Some(1));
+        let pick = m.cell(1);
+        m.swap_mode(true);
+        assert!(!m.doubles);
+        assert_eq!((m.driven(Dev::Keys), m.cell(1)), (Some(1), pick), "singles' opponent");
+        m.swap_mode(true);
+        assert_eq!((m.driven(Dev::Keys), m.cell(1)), (Some(1), pick), "doubles' partner");
+    }
+
     /// B572: a ready human picks for the computer players while another human is still choosing: 1P readies, then
     /// readies 3P's computer while 2P is on the grid; 2P's pick doesn't reset it, and 2P then picks for 4P. ○ while
     /// picking for a computer undoes a computer's pick or the driver's own, never the other human's.
@@ -4352,6 +4423,17 @@ mod tests {
     /// B212: Sets and Games are picked like the court and umpire: ←→ on the unpicked row do nothing, ✕ picks the pill,
     /// ←→ step it and stop at the ends (the original's 1/3/5 and 2/4/6), ✕ keeps, ○ puts back; a tap picks it too,
     /// its thirds step it and keep it, a tap off puts it back.
+    #[test]
+    fn markers_toggle_reaches_the_match() {
+        let mut m = Menu { screen: Screen::Confirm, seats: [Some(Dev::Keys), None, None, None], sel: MARKS_ROW, ..default() };
+        let off = |m: &Menu| m.args(&[]).contains(&"--no-shot-markers".to_string());
+        assert!(!off(&m));
+        m.step(Dev::Keys, press(|p| &mut p.ok));
+        assert!(off(&m) && m.picking.is_none());
+        m.step(Dev::Keys, press(|p| &mut p.ok));
+        assert!(!off(&m));
+    }
+
     #[test]
     fn sets_and_games_pickers() {
         let mut m = Menu { screen: Screen::Confirm, seats: [Some(Dev::Keys), None, None, None], sel: 2, sets: 0, games: 4, ..default() };
@@ -4673,6 +4755,26 @@ mod tests {
         pointer::tests::hits(m).0.into_iter().map(|h| h.act).collect()
     }
 
+    /// The local select's columns end above its strip at any aspect, the same while the match starts (`Playing`, the
+    /// confirm screen under the zoom-out) as on the select and confirm screens: no roster rows run under the strip.
+    #[test]
+    fn local_rosters_stop_above_the_strip() {
+        for a in [0.4, 9.0 / 16.0, 1.0, 4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 4.0] {
+            let mut m = Menu { screen: Screen::Confirm, seats: [Some(Dev::Keys), None, None, None], grid: Grid::fit(a), ..default() };
+            let strip = m.lobby_foot().strip[1];
+            let confirm: Vec<_> = (0..m.players()).map(|p| m.columns().parts(p).card).collect();
+            for screen in [Screen::Chars, Screen::Playing] {
+                m.screen = screen;
+                let c = m.columns();
+                for (p, card) in confirm.iter().enumerate() {
+                    let at = c.parts(p);
+                    assert_eq!(at.card, *card, "{a} {screen:?} {p}");
+                    assert!(at.card[1] + at.card[3] <= strip + 1e-3 && at.grid[1] + at.grid[3] <= strip + 1e-3, "{a} {screen:?} {p}");
+                }
+            }
+        }
+    }
+
     /// B295: the lobby and confirm screens at any aspect: the seats column and side card in the view, apart, over the
     /// legend strip; every button on the side card, none overlapping (B370: the lobby's items in the view, apart).
     #[test]
@@ -4827,6 +4929,11 @@ mod tests {
         assert_eq!(m.players[0].costume, 2, "0 → 2 → 0 → 2");
         m.players[0].costume = 1;
         assert!(m.blocked(0));
+        // every costume broken: the cursor steps off its tile, and ←→ passes it
+        m.broken.extend([(0, 0), (0, 2)]);
+        m.step_off(0);
+        assert_ne!(m.cell(0), Some(Who::Mod(0)));
+        assert!(m.full(0, Some(Who::Mod(0))));
     }
 
     /// M1: a costume pack (`costume_of`) adds its costumes after the disc character's own on L1 / R1; picked, the match

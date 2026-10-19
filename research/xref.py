@@ -19,7 +19,7 @@ KEEP = {'if', 'else', 'while', 'do', 'for', 'return', 'switch', 'case', 'break',
 
 def load(path):
     names = {}
-    for row in open(path.replace('.c', '.funcs.tsv')):
+    for row in open(path.removesuffix('.c') + '.funcs.tsv'):
         a, name, size, _ = row.rstrip('\n').split('\t')
         names[name] = (a[2:], int(size))
     bodies, cur = {}, None

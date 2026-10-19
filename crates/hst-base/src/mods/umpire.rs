@@ -149,6 +149,7 @@ pub fn load(
         own_faces: HashMap::new(),
         racketless: Default::default(),
         feet: None,
+        grip: None,
         frame_gameplay: false,
         emote_ticks: HashMap::new(),
     }))

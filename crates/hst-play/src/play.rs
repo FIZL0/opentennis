@@ -476,6 +476,10 @@ struct Marks {
 
 const PATH_MAX: usize = 600;
 
+/// `--no-shot-markers` (the match settings' Markers Off, online the host's): the red and yellow landing marks are
+/// never drawn. Presentation only: the match still tracks them.
+pub static NO_MARKS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The predictor's path entry for `f` (the game stores it y up).
 fn path_entry(f: &Flight) -> PathEntry {
     let (p, v) = (f.ball.pos, f.ball.vel);
@@ -2732,7 +2736,8 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
         if p.ik.is_none() {
             p.prev = p.pos;
         }
-        if c.frames == 0 && c.cancelled {
+        // a ball that already hit a player is dead: the swing misses it
+        if c.frames == 0 && (c.cancelled || g.body_hit.is_some()) {
             miss_contact(g, i, &c);
         } else if c.frames == 0 {
             let (stick, end) = (aim(g), g.players[i].end);
@@ -2846,7 +2851,7 @@ fn dive_frame(g: &mut Game, i: usize, aim: &impl Fn(&mut Game) -> Vec2) {
     if let Some(q) = at {
         (p.pos[0], p.pos[2]) = (q[0], q[1]);
     }
-    if d.contact && n == d.frame {
+    if d.contact && n == d.frame && g.body_hit.is_none() {
         let stick = aim(g);
         let kind = hst_sim::shot::stick_kind(branch::DIVE, g.players[i].kind, [stick.x, stick.y], end);
         let (grade, offset) = swing::dive_lock(d.frame);
@@ -2994,9 +2999,9 @@ fn whiff(g: &mut Game, i: usize, miss: bool, quiet: bool) {
     p.whiff = Some(motion::Whiff::new(anim, miss, quiet));
     set_motion(p, anim, 1.0, false, None);
     p.vel = Vec2::ZERO;
-    // the stroke state ends the run: freed, the run counter starts again from 0, no dash carried over (B59)
-    p.body.running = false;
-    p.facing = base_yaw(p.end);
+    // the stroke state ends the run: freed, the run counter starts again from 0, no dash carried over (B59); the
+    // body squares up too, or a point lost mid-miss walks its reaction along the old run direction
+    square_up(p);
 }
 
 /// Every locked swing but `but`'s is cancelled: the ball touched the net (or a hit) after it locked. A dive that
@@ -4236,7 +4241,7 @@ fn start_effects(
 /// point (the reaction message), so they're gone through the rest of the point-over and the change of ends (B193); `g.marks`
 /// itself is kept until the next point (the AI reads it).
 fn landing_shown(g: &Game) -> bool {
-    !matches!(g.phase, Phase::ChangeEnds(_)) && !g.post.as_ref().is_some_and(|p| p.reacted)
+    !NO_MARKS.load(std::sync::atomic::Ordering::Relaxed) && !matches!(g.phase, Phase::ChangeEnds(_)) && !g.post.as_ref().is_some_and(|p| p.reacted)
 }
 
 /// Whether a bounce now leaves a contact record, as the original's ball step: only once its game phase is past the

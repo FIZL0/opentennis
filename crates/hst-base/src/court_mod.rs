@@ -402,6 +402,9 @@ fn materials(doc: &gltf::Document, blob: &[u8], s: &mut Store, role: Role, clear
         let mut handles = Vec::new();
         for mut g in GsMaterial::for_batch(&mtl, prim, t.and_then(|t| tex.get(t)).cloned()) {
             style(&mut g, role, None, 0.0);
+            // glTF's alpha is texture × vertex alpha: Get a Grip's shadow decals are black texels, their strength in
+            // the vertex alpha (HIGHLIGHT2 drew them solid black)
+            g.key.modulate = true;
             g.key.clear = clear;
             if role == Role::Sky {
                 g.order = crate::BACKDROP;

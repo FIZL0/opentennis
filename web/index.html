@@ -205,6 +205,11 @@ if (!('game' in document.documentElement.dataset))
       </ol>
       <button class="pill small" id="a2hs-ok">Got it</button>
     </div>
+    <div class="panel newver" id="newver" hidden>
+      <span class="head gold">New version</span>
+      <p>A newer OpenTennis is out<span id="newver-tag"></span>. Refresh this page to play it; your disc, settings and mods stay.</p>
+      <button class="pill small gold" id="newver-ok">Refresh</button>
+    </div>
     <div class="pick" data-new>
       <div class="panel">
         <span class="head gold">Play in your browser</span>
@@ -767,19 +772,22 @@ const loaded = await read();
   let behind = 0;
   const check = async () => {
     const now = await read('?next');
-    if (build(now)) { window.hstLatest = now; window.hstFresh = false; return; }
+    if (build(now)) { window.hstLatest = now; window.hstFresh = false; dispatchEvent(new Event('hstlatest')); return; }
     // iOS Safari stops the service worker during its background download (a ~70 MB wasm), so `?next` stayed on this
     // build for good: the server's newer one is offered anyway after 3 min, and Refresh drops the caches first
     // (`hstReload`) so the reload comes from the network
     const server = await read('?server');
     if (!build(server)) { behind = 0; return; }
     behind ||= Date.now();
-    if (Date.now() - behind > 180000) { window.hstLatest = server; window.hstFresh = true; }
+    if (Date.now() - behind > 180000) { window.hstLatest = server; window.hstFresh = true; dispatchEvent(new Event('hstlatest')); }
   };
   // every minute (was 10: a phone's short sessions and throttled timers never saw it), and soon after load; each
   // `?next` is a tiny read that also keeps sw.js's background download going (a phone stops an idle service worker)
   setInterval(check, 60000);
   setTimeout(check, 5000);
+  // B581: the site page (site.js) asks at once, nothing of the game is loading behind it; its New version panel
+  // shows on `hstlatest`
+  window.hstCheck = check;
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check());
 }
 say('Opening this browser\'s storage…');

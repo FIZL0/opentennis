@@ -7,10 +7,16 @@
 //! Behind it the confirm screen's court pictures (`MENU/WALL/COURTnn.XB`, read with the menus: nothing more to load)
 //! fill the window, still, crossfading slowly from court to court, dimmed and softened (568×256 is soft blown up
 //! to a big window), court mods with their own picture among them; the site's logo (`web/logo.svg`) over them.
+//!
+//! B581: a newer version out (`crate::update::latest`) puts a card in the top right corner with the main menu's
+//! Update row's button in it (Update installs, Download opens the release page, Refresh reloads the page): △ or a
+//! tap on it, before 1P is taken; an install's progress shows in the card.
+//!
+//! ○ / Esc before 1P is taken asks Quit the game? (the browser's: back to the launcher page; the phone apps have none).
 
 use bevy::prelude::*;
 
-use super::{COURTS, Dev, Draw, Menu, Screen, Tex, WHITE, court_pic, pointer};
+use super::{COURTS, Dev, Draw, Effect, INK, Menu, Press, Screen, Tex, WHITE, court_pic, pointer};
 use hst_base::widescreen::Anchor;
 
 /// `web/logo.svg` drawn 640 wide (`rsvg-convert -w 640 web/logo.svg -o crates/hst/assets/logo.png`).
@@ -26,6 +32,10 @@ const BLUR: f32 = 1.4;
 const DIM: f32 = 52.0;
 /// Seconds the "Player 1" card stays up after the press, before the main menu.
 const CLAIMED: f32 = 1.2;
+/// Whether the game can be left from the splash (the main menu's Quit row, `home::Menu::main_rows`).
+pub(super) const QUITS: bool = cfg!(not(any(target_os = "ios", target_os = "android")));
+/// The Quit popup's first pill.
+const QUIT_TOP: f32 = 226.0;
 
 /// The splash's clock and the window's shape (`tick`), for `layout`.
 #[derive(Clone, Debug)]
@@ -88,6 +98,42 @@ impl Menu {
         true
     }
 
+    /// ○ on the splash before 1P is taken: the Quit popup (on Stay). While it's up it takes every press: any arrow
+    /// swaps Quit / Stay, ✕ chooses, ○ stays. Whether it took the press.
+    pub(super) fn splash_quit(&mut self, k: Press, out: &mut Vec<Effect>) -> bool {
+        let Some(a) = self.quit else {
+            if !(QUITS && k.back && self.p1.is_none()) {
+                return false;
+            }
+            self.quit = Some(1);
+            out.push(Effect::Sound(0));
+            return true;
+        };
+        if k.up || k.down || k.left || k.right {
+            self.quit = Some(1 - a);
+            out.push(Effect::Sound(0));
+        } else if k.ok && a == 0 {
+            self.quit = None;
+            #[cfg(target_arch = "wasm32")]
+            crate::web::launcher();
+            #[cfg(not(target_arch = "wasm32"))]
+            out.push(Effect::Quit);
+        } else if k.ok || k.back {
+            self.quit = None;
+            out.push(Effect::Sound(1));
+        }
+        true
+    }
+
+    /// B581: △ on the splash while a newer version is out (and 1P isn't taken yet): the update's button.
+    pub(super) fn splash_update(&mut self, card: bool) -> bool {
+        if !card || self.p1.is_some() || crate::update::latest().is_none() {
+            return false;
+        }
+        crate::update::act();
+        true
+    }
+
     /// B533: Back on the main menu: the splash again, 1P free for the next press (its backdrop carries on).
     pub(super) fn splash_back(&mut self) {
         self.p1 = None;
@@ -146,21 +192,109 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, pads: &[Entity], controllers: usize
     }
     d.anchor = Anchor::Centre;
     d.q(Tex::Logo, [0.0, 0.0, LOGO[0], LOGO[1]], [180.0, 34.0, 280.0, 280.0 * LOGO[1] / LOGO[0]], [128.0; 3], 128.0);
+    // an empty line: Press (the pad's ✕ / A) or (Enter), in key art (`press`)
     let (line, sub) = match m.p1 {
         Some(Dev::Keys) if super::touch_page() => ("Player 1: Touch screen".to_string(), "Other players join on the character select".to_string()),
         Some(dev) => (format!("Player 1: {}", super::dev_name(Some(dev), pads)), "Other players join on the character select".to_string()),
         None if super::touch_page() => ("Tap to start".to_string(), "or press Start on a controller".to_string()),
-        None if controllers > 0 => ("Press Start or Enter".to_string(), "Whoever presses it plays as Player 1".to_string()),
-        None => ("Press Enter".to_string(), "or plug in a controller and press Start".to_string()),
+        None if controllers > 0 => (String::new(), "Whoever presses it plays as Player 1".to_string()),
+        None => (String::new(), "or plug in a controller".to_string()),
     };
     // the prompt breathes until it's answered
     let a = if m.p1.is_some() { 128.0 } else { 128.0 * (0.7 + 0.3 * (s.t * 2.6).cos().abs()) };
     let start = d.out.len();
+    if line.is_empty() {
+        press(d, controllers > 0, 334.0, 30.0);
+    }
     d.outlined(|d| d.centred(&line, 320.0, 334.0, 30.0, if m.p1.is_some() { [128.0, 112.0, 30.0] } else { WHITE }));
     d.out[start..].iter_mut().for_each(|q| q.alpha = q.alpha.min(a));
     d.outlined(|d| d.centred(&sub, 320.0, 374.0, 17.0, [100.0; 3]));
     // a click or tap anywhere is the keyboard's press (`pointer::device`: 1P has no device yet)
     d.popup(Some(pointer::press(|k| k.ok = true)));
+    if m.p1.is_none() && m.quit.is_none() {
+        new_version(d);
+    }
+    quit_layout(d, m);
+}
+
+/// "Press (✕) or (Enter)" centred on x 320 from `y` (text `size`): the shown pad's ✕ / A art (`pad`: one is plugged
+/// in; Start still works), the keyboard's as a key cap.
+fn press(d: &mut Draw, pad: bool, y: f32, size: f32) {
+    use super::super::legend;
+    let h = size * 1.05;
+    let gap = size * 0.3;
+    let glyph = legend::button_glyph(GamepadButton::South).filter(|_| pad).map(|i| {
+        let style = legend::pad_style_shown();
+        (style, i, h * legend::glyph_aspect(style, i))
+    });
+    let enter = super::roster::chip_w(d, "Enter", h);
+    let mut w = d.width("Press", size) + gap + enter;
+    if let Some((_, _, gw)) = glyph {
+        w += gw + gap + d.width("or", size) + gap;
+    }
+    let mut x = 320.0 - w / 2.0;
+    let gy = y + (size - h) / 2.0;
+    d.outlined(|d| d.text("Press", x, y, size, WHITE));
+    x += d.width("Press", size) + gap;
+    if let Some((style, i, gw)) = glyph {
+        d.q(Tex::Glyph(style, i), [0.0; 4], [x, gy, gw, h], WHITE, 128.0);
+        x += gw + gap;
+        d.outlined(|d| d.text("or", x, y, size, WHITE));
+        x += d.width("or", size) + gap;
+    }
+    super::roster::chip(d, "Enter", [x, gy], h, WHITE);
+}
+
+/// The Quit the game? popup over the dimmed splash, in the newer-version popup's style (`home::stale_layout`).
+fn quit_layout(d: &mut Draw, m: &Menu) {
+    let Some(a) = m.quit else { return };
+    use super::super::menu::{CHOSEN, PANEL, UNCHOSEN};
+    let (title, leave) = if cfg!(target_arch = "wasm32") { ("Back to the launcher?", "Launcher") } else { ("Quit the game?", "Quit") };
+    // a tap off the popup is ○
+    d.popup(Some(pointer::Act::Row(1, Press { ok: false, back: true, ..pointer::OK })));
+    d.anchor = Anchor::Span;
+    d.q(Tex::Solid, [0.0, 0.0, 1.0, 1.0], [0.0, 0.0, 640.0, 448.0], [0.0; 3], 80.0);
+    d.anchor = Anchor::Centre;
+    d.box3([160.0, QUIT_TOP - 56.0, 320.0, 56.0 + 72.0 + 16.0], 16.0, [Some(INK), Some(WHITE), Some(PANEL)], 128.0);
+    d.outlined(|d| d.label(title, 320.0, QUIT_TOP - 42.0, 22.0, 288.0, WHITE));
+    for (k, word) in [leave, "Stay"].into_iter().enumerate() {
+        let y = QUIT_TOP + 40.0 * k as f32;
+        let on = k == a;
+        d.pill_at([176.0, y, 288.0, 32.0], [INK, WHITE, if on { CHOSEN } else { UNCHOSEN }], 128.0);
+        d.hit([176.0, y, 288.0, 32.0], pointer::Act::Row(k, pointer::OK));
+        d.label(word, 320.0, y + 6.0, 20.0, 160.0, if on { WHITE } else { UNCHOSEN.map(|c| c * 1.4) });
+    }
+    d.q(Tex::Cursor, [0.0, 0.0, 64.0, 32.0], [116.0, QUIT_TOP + 40.0 * a as f32, 64.0, 32.0], WHITE, 128.0);
+    d.said = title.into();
+}
+
+/// B581: the New version card, pinned to the window's top right: the new version, then the update's button (a tap
+/// on it is △) or, once an install is under way, its progress and words.
+fn new_version(d: &mut Draw) {
+    let Some(new) = crate::update::latest() else { return };
+    let (x, y, w, h) = (476.0, 16.0, 148.0, 112.0);
+    let cx = x + w / 2.0;
+    d.anchor = Anchor::Sides;
+    d.box3([x, y, w, h], 10.0, [Some([15.0; 3]), Some(WHITE), Some([40.0, 36.0, 44.0])], 118.0);
+    d.outlined(|d| d.centred("New version", cx, y + 9.0, 14.0, [128.0, 112.0, 30.0]));
+    d.outlined(|d| d.label(&new, cx, y + 28.0, 20.0, w - 16.0, WHITE));
+    match crate::update::progress() {
+        Some((says, k)) => {
+            if let Some(k) = k {
+                let r = [x + 12.0, y + 60.0, w - 24.0, 10.0];
+                d.box3(r, 5.0, [Some([15.0; 3]), Some(WHITE), Some([60.0; 3])], 128.0);
+                d.box3([r[0], r[1], (r[2] * k).max(10.0), 10.0], 5.0, [None, None, Some([128.0, 112.0, 30.0])], 128.0);
+            }
+            super::home::para(d, &says, x + 10.0, y + 76.0, w - 20.0, 9.0, 3, WHITE);
+        }
+        None => {
+            let b = [x + 18.0, y + 58.0, w - 36.0, 30.0];
+            super::look::word_pill(d, b, true, crate::update::button(), 17.0);
+            d.hit(b, pointer::press(|k| k.card = true));
+            d.centred("Settings and mods stay", cx, y + 94.0, 9.0, [100.0; 3]);
+        }
+    }
+    d.anchor = Anchor::Centre;
 }
 
 #[cfg(test)]
@@ -185,6 +319,23 @@ mod tests {
         assert!(m.splash_step(pad, true));
         assert!(!m.splash_step(Dev::Keys, true));
         assert_eq!(m.p1, Some(pad));
+    }
+
+    /// ○ on the splash asks before quitting: Stay (or ○) closes the popup, Quit quits; not once 1P is taken.
+    #[test]
+    fn back_asks_to_quit() {
+        let back = Press { back: true, ..default() };
+        let mut m = Menu { screen: Screen::Press, ..default() };
+        m.step(Dev::Keys, back);
+        assert_eq!(m.quit, Some(1));
+        assert!(!m.step(Dev::Keys, Press { ok: true, ..default() }).iter().any(|e| matches!(e, Effect::Quit)));
+        assert_eq!((m.quit, m.p1), (None, None));
+        m.step(Dev::Keys, back);
+        m.step(Dev::Keys, Press { up: true, ..default() });
+        assert!(m.step(Dev::Keys, Press { ok: true, ..default() }).iter().any(|e| matches!(e, Effect::Quit)));
+        m.splash_step(Dev::Keys, true);
+        m.step(Dev::Keys, back);
+        assert_eq!(m.quit, None);
     }
 
     /// B533: Back on the main menu (○ / Esc, the title tab) is the splash again with 1P free; the keyboard can go

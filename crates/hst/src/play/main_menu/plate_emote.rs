@@ -120,7 +120,9 @@ fn input(
     for (dev, d) in flicks {
         // B463: the select's Random has no figure to play it, a seat naming itself takes its presses
         let idle = |p: usize| !select || !menu.players[p].random && !menu.naming(p);
-        for p in (0..4).filter(|&p| menu.seats[p] == Some(dev) && idle(p)) {
+        // on the select a ready human picking for a computer emotes that computer's card (`Menu::driven`)
+        let mine: Vec<usize> = if select { menu.driven(dev).into_iter().collect() } else { (0..4).filter(|&p| menu.seats[p] == Some(dev)).collect() };
+        for p in mine.into_iter().filter(|&p| idle(p)) {
             if start(&mut plates, p, d, now) && shared(&menu)
                 && let Some(net) = &net
             {
@@ -308,6 +310,20 @@ mod tests {
         app.update();
         assert_eq!(queued(&mut app), [None; 4], "the touch pad's L1 is the costume");
         assert!(app.world().get::<Gamepad>(touch).unwrap().just_pressed(GamepadButton::LeftTrigger));
+    }
+
+    /// A ready human picking for a computer player emotes that computer's card, not its own.
+    #[test]
+    fn a_driven_computers_card_emotes() {
+        let mut app = App::new();
+        app.init_resource::<Plates>().init_resource::<ButtonInput<KeyCode>>().init_resource::<Bindings>().init_resource::<Time>();
+        let mut m = Menu { screen: Screen::Chars, seats: [Some(Dev::Keys), None, None, None], ..default() };
+        m.players[0].ready = true;
+        app.insert_resource(m);
+        app.add_systems(Update, input);
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Digit3);
+        app.update();
+        assert_eq!(app.world().resource::<Plates>().queued.map(|q| q.map(|q| q.0)), [None, Some(2), None, None]);
     }
 
     /// B271's touch pad: its L1 is the left flick here, and the menu's costume step no longer sees the press; a real

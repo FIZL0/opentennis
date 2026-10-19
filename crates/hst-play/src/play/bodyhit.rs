@@ -33,7 +33,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Posed>()
         .init_resource::<Bones>()
         .add_systems(PostStartup, setup.after(super::setup))
-        .add_systems(FixedUpdate, (detect.before(super::simulate), place_ball.before(super::simulate), (age, bounce_words).after(super::simulate), pose.after(crate::character::tick)))
+        .add_systems(FixedUpdate, (detect.after(super::control).before(super::simulate), place_ball.before(super::simulate), (age, bounce_words).after(super::simulate), pose.after(crate::character::tick)))
         .add_systems(Update, (draw, draw_words).after(super::balloons));
 }
 
@@ -84,13 +84,15 @@ fn setup(
     }
 }
 
-/// Swinging, diving or whiffing players aren't tested (the game's stroke state).
+/// Swinging, diving or whiffing players aren't tested (the game's stroke state). A hit ball can't hit a player the same
+/// tick, and a hit player's ball can't be struck after (see `advance_stroke`): whichever comes first owns the ball.
 fn detect(mut g: ResMut<Game>, mut hits: ResMut<Hits>, posed: Res<Posed>, bones: Res<Bones>, q: Query<&Figure, With<Motion>>) {
     let last = std::mem::replace(&mut hits.last, g.flight.ball.pos);
     if g.phase == Phase::Serve {
         g.body_hit = None;
     }
-    if g.phase != Phase::Rally || g.shots == 0 || g.body_hit.is_some() {
+    // a ball struck this tick is the striker's: no body hit on its contact frame (strikes run first, in `control`)
+    if g.phase != Phase::Rally || g.shots == 0 || g.body_hit.is_some() || g.since_hit == 0 {
         return;
     }
     // `HST_BODY_HIT=<player>`: that player counts as hit 30 frames into the first rally (tools/record_bodyhit.py forces

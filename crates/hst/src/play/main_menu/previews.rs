@@ -138,9 +138,12 @@ type Loaded = (Key, Result<(CharacterData, f32, Staged<Mesh>, Staged<StandardMat
 
 /// The worker threads: characters, and PNG files.
 #[derive(Resource)]
-struct Loader {
+pub(super) struct Loader {
     ask: Sender<(Key, Option<Mod>)>,
     done: Mutex<Receiver<Loaded>>,
+    /// Mod costume files found broken up front ([`check_mods`]), marked on the select as the menu's mods come by.
+    found: Mutex<Receiver<PathBuf>>,
+    bad: Vec<PathBuf>,
     asked: HashSet<Key>,
     /// Loaded characters (`None`: failed), least recently used first.
     models: HashMap<Key, Option<(Arc<CharacterData>, f32)>>,
@@ -291,6 +294,16 @@ pub(crate) fn face(iso: &str, m: Option<&Mod>, c: usize, k: usize) -> Option<Ima
     face_from(&path, 40)
 }
 
+/// The players' picks all have their face close-up (the match HUD's, [`face`]) drawn, or one that can't be drawn
+/// (gone, failed): a launch waits on it so a quick start shows the baked faces, not the disc's (the baker draws the picks
+/// first once the menu is on `Playing`). A mod's own `previews/` picture counts as drawn (its face is cut from it).
+pub(super) fn picks_drawn(menu: &Menu, loader: &mut Loader, baker: &Baker) -> bool {
+    (0..menu.players()).map(|p| menu.pick(p)).all(|key| {
+        baker.failed.contains(&key)
+            || loader.path(key, menu).is_none_or(|p| !p.starts_with(&loader.dir) || cached(&face_path(&p)))
+    })
+}
+
 /// B229: the Mods page's hovered mod without a picture (`want`), whose costume 0 the baker draws on that page as the
 /// select would (the same cache: `card` reads it); `baked` counts finished drawings, so the page reads again.
 #[derive(Resource, Default)]
@@ -434,14 +447,24 @@ fn start_loader(mut commands: Commands, args: Res<Args>, meshes: Res<Assets<Mesh
             }
         }
         let ((who, costume), md) = queue.pop().unwrap();
-        let (mut m, mut t, mut i, mut b) = (Staged::new(providers.0.clone()), Staged::new(providers.1.clone()), Staged::new(providers.2.clone()), Staged::new(providers.3.clone()));
-        let r = match (who, md) {
-            (Who::Mod(_), Some(md)) => crate::mods::load_with(iso, &md, costume, &mut m, &mut t, &mut i, &mut b, Some(&inspect::MOTIONS)).map(|d| (d, md.hand)),
-            (Who::Disc(c), _) => character::load_disc_with(iso, c, costume, &mut m, &mut t, &mut i, &mut b, Some(&inspect::MOTIONS)).map(|d| (d, inspect::disc_hand(iso, c))),
-            (Who::Mod(_), None) => Err("no mod".into()),
+        let mut load = |costume: usize| {
+            let (mut m, mut t, mut i, mut b) = (Staged::new(providers.0.clone()), Staged::new(providers.1.clone()), Staged::new(providers.2.clone()), Staged::new(providers.3.clone()));
+            let r = match (who, &md) {
+                (Who::Mod(_), Some(md)) => crate::mods::load_with(iso, md, costume, &mut m, &mut t, &mut i, &mut b, Some(&inspect::MOTIONS)).map(|d| (d, md.hand)),
+                (Who::Disc(c), _) => character::load_disc_with(iso, c, costume, &mut m, &mut t, &mut i, &mut b, Some(&inspect::MOTIONS)).map(|d| (d, inspect::disc_hand(iso, c))),
+                (Who::Mod(_), None) => Err("no mod".into()),
+            };
+            ((who, costume), r.map(|(d, hand)| (d, hand, m, t, i, b)).map_err(|e| if e.is_empty() { "failed".into() } else { e }))
         };
-        let r = r.map(|(d, hand)| (d, hand, m, t, i, b)).map_err(|e| if e.is_empty() { "failed".into() } else { e });
-        send.send(((who, costume), r)).is_ok()
+        let mut out = vec![load(costume)];
+        // a mod's costume that fails: its others are tried now and all sent at once, so the select learns which are
+        // broken in one go instead of the card stepping through them one load at a time
+        if out[0].1.is_err()
+            && let Some(md) = md.as_ref().filter(|_| matches!(who, Who::Mod(_)))
+        {
+            out.extend((0..md.costumes.len()).filter(|&c| c != costume).map(&mut load));
+        }
+        out.into_iter().all(|r| send.send(r).is_ok())
     };
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(move || {
@@ -475,7 +498,19 @@ fn start_loader(mut commands: Commands, args: Res<Args>, meshes: Res<Assets<Mesh
         crate::web::cards_keep(&format!("{name}~"));
         cache_dir(&args.iso, &name)
     };
+    let (report, found) = std::sync::mpsc::channel();
+    // ponytail: native only; the browser's mods still turn broken on their first hover
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let settings = super::Settings::path(&args.iso);
+        let (root, cache) = (settings.with_file_name("mods"), settings.with_file_name("cache").join("mod_checks.txt"));
+        std::thread::spawn(move || check_mods(&root, &cache, &report));
+    }
+    #[cfg(target_arch = "wasm32")]
+    drop(report);
     commands.insert_resource(Loader {
+        found: Mutex::new(found),
+        bad: Vec::new(),
         ask,
         done: Mutex::new(done),
         asked: HashSet::new(),
@@ -495,6 +530,15 @@ fn receive(mut loader: ResMut<Loader>, mut menu: Option<ResMut<Menu>>, mut asset
     let loader = &mut *loader;
     #[cfg(target_arch = "wasm32")]
     WORK.with(|w| w.borrow_mut().as_mut().map(|f| f()));
+    loader.bad.extend(loader.found.get_mut().unwrap().try_iter());
+    if let Some(menu) = menu.as_deref_mut() {
+        for path in &loader.bad {
+            let hit = menu.mods.iter().enumerate().find_map(|(i, m)| m.costumes.iter().position(|c| path.strip_prefix(&m.dir).is_ok_and(|r| r == Path::new(c))).map(|k| (i, k)));
+            if let Some((i, k)) = hit.filter(|h| !menu.broken.contains(h)) {
+                broke(menu, i, k);
+            }
+        }
+    }
     for (key, r) in loader.done.get_mut().unwrap().try_iter() {
         let loaded = match r {
             Ok((d, hand, m, t, i, b)) => {
@@ -522,6 +566,43 @@ fn receive(mut loader: ResMut<Loader>, mut menu: Option<ResMut<Menu>>, mut asset
     }
 }
 
+/// Every mod costume under `root` checked once ([`crate::mods::costume_ok`]) on a thread of its own, the broken ones
+/// sent to `report`. Verdicts are kept in `cache` by file size and time, so a later start reads no unchanged file
+/// (a phone's mods aren't parsed again each launch).
+#[cfg(not(target_arch = "wasm32"))]
+fn check_mods(root: &Path, cache: &Path, report: &Sender<PathBuf>) {
+    let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| format!("{} {:?}", m.len(), m.modified().ok()));
+    // a line: `ok|bad <tab> stamp <tab> path`
+    let old: HashMap<String, (String, bool)> = std::fs::read_to_string(cache).unwrap_or_default().lines().filter_map(|l| {
+        let mut f = l.splitn(3, '\t');
+        let ok = f.next()? == "ok";
+        let st = f.next()?.to_string();
+        Some((f.next()?.to_string(), (st, ok)))
+    }).collect();
+    let mut new = String::new();
+    for m in crate::mods::list(root) {
+        // the mod's own motions fail all its costumes: their file's stamp is part of each costume's
+        let moves = m.motions.as_ref().and_then(|f| stamp(&m.dir.join(f))).unwrap_or_default();
+        let mut moves_ok = None;
+        for (k, c) in m.costumes.iter().enumerate() {
+            let path = m.dir.join(c);
+            let Some(st) = stamp(&path).map(|s| format!("{s} {moves}")) else { continue };
+            let key = path.display().to_string();
+            let ok = match old.get(&key) {
+                Some((s, ok)) if *s == st => *ok,
+                _ => *moves_ok.get_or_insert_with(|| crate::mods::motions_ok(&m)) && crate::mods::costume_ok(&m, k),
+            };
+            new += &format!("{}\t{st}\t{key}\n", if ok { "ok" } else { "bad" });
+            if !ok && report.send(path).is_err() {
+                return;
+            }
+        }
+    }
+    if let Err(e) = std::fs::create_dir_all(cache.parent().unwrap()).and_then(|_| std::fs::write(cache, new)) {
+        warn!("{}: {e}", cache.display());
+    }
+}
+
 /// M1n: costume `k` of mod `i` failed to load: the select passes it, and a player still picking on it moves to its
 /// next costume that hasn't failed.
 fn broke(menu: &mut Menu, i: usize, k: usize) {
@@ -531,6 +612,8 @@ fn broke(menu: &mut Menu, i: usize, k: usize) {
     for pl in menu.players.iter_mut().filter(|pl| pl.modded && pl.pick == i && pl.costume == k && !pl.ready) {
         pl.costume = next.unwrap_or(k);
     }
+    // every costume broken: nobody picking stays on its tile
+    (0..menu.players()).for_each(|p| menu.step_off(p));
 }
 
 /// Card-frames whose card showed another key or nothing though its PNG was read ([0]), the hovered one ([1]), or
@@ -715,7 +798,7 @@ fn sync(
 /// The off-screen preview drawing uncached PNGs one at a time: hovered ones first (newest first), then every disc
 /// character's costumes, then every mod's (`HST_BAKE=all` quits when done).
 #[derive(Resource, Default)]
-struct Baker {
+pub(super) struct Baker {
     queue: Vec<Key>,
     job: Option<Job>,
     /// Keys whose drawing came back empty this run, not tried again.
@@ -854,12 +937,14 @@ fn bake(
     .rev()
     .map(|w| (w, 0))
     .collect();
-    if !matches!(menu.screen, Screen::Chars | Screen::Assign) && asked.is_none() && home.is_empty() && lent.is_empty() && fresh.is_empty() && view.is_empty() && baker.job.is_none() && baker.warmed {
+    if !matches!(menu.screen, Screen::Chars | Screen::Assign | Screen::Playing) && asked.is_none() && home.is_empty() && lent.is_empty() && fresh.is_empty() && view.is_empty() && baker.job.is_none() && baker.warmed {
         return;
     }
     // a hovered card without a PNG jumps the queue (the tiles on view next, then the new installs)
     let now: Vec<Key> = match menu.screen {
         Screen::Chars | Screen::Assign => view.iter().copied().chain((0..menu.players()).map(|p| menu.pick(p))).collect(),
+        // a launch waits for the picks' faces (`picks_drawn`)
+        Screen::Playing => (0..menu.players()).map(|p| menu.pick(p)).collect(),
         Screen::Main => fresh.iter().rev().chain(home.iter().rev()).copied().collect(),
         Screen::Mods => fresh.iter().rev().chain(home.iter().rev()).copied().chain(asked).collect(),
         Screen::Lobby | Screen::Confirm => view.iter().chain(&lent).copied().collect(),
@@ -1195,9 +1280,11 @@ fn buttons(
             }
             Dev::Open => 0,
         };
+        // a ready human picking for a computer player poses that computer's card
+        let card = menu.driven(dev).unwrap_or(player);
         match flick {
-            1 => pending.0[player] = Some(Act::Win),
-            -1 => pending.0[player] = Some(Act::Loss),
+            1 => pending.0[card] = Some(Act::Win),
+            -1 => pending.0[card] = Some(Act::Loss),
             _ => {}
         }
     }
@@ -1389,6 +1476,29 @@ fn shots(dir: String, from: u32) -> impl FnMut(Commands, Local<u32>) {
 mod tests {
     use super::*;
 
+    /// A mod's broken costume is reported before anyone hovers it, and its verdict is cached: a second start reads
+    /// the cache, not the file (here a file that no longer opens but keeps its size and time stays as cached).
+    #[test]
+    fn broken_mod_costumes_are_found_up_front_and_cached() {
+        let root = std::env::temp_dir().join(format!("hst-check-mods-{}", std::process::id()));
+        let (dir, cache) = (root.join("mods/x"), root.join("cache/mod_checks.txt"));
+        std::fs::create_dir_all(dir.join("model")).unwrap();
+        std::fs::write(dir.join("model/c00.glb"), b"not a glb").unwrap();
+        std::fs::write(dir.join("mod.json"), r#"{"standard":1,"id":"x","name":"X","costumes":["model/c00.glb"],"donor":3,"hand":"right","params":{"base":3},"ai_row":3,"face":"morph","voice":"voice/"}"#).unwrap();
+        let run = || {
+            let (tx, rx) = std::sync::mpsc::channel();
+            check_mods(&root.join("mods"), &cache, &tx);
+            rx.try_iter().collect::<Vec<_>>()
+        };
+        assert_eq!(run(), [dir.join("model/c00.glb")]);
+        let text = std::fs::read_to_string(&cache).unwrap();
+        assert!(text.starts_with("bad\t"), "{text}");
+        // forged verdict, same stamp: the cache is believed
+        std::fs::write(&cache, text.replacen("bad", "ok", 1)).unwrap();
+        assert!(run().is_empty());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     /// B335: a store picture (any size) becomes this device's drawing and a close-up of its head.
     #[test]
     fn a_store_picture_stands_in_for_a_drawing() {
@@ -1455,7 +1565,7 @@ mod tests {
         menu.add.set_list(vec![m("a"), m("b")]);
         let (tx, _) = std::sync::mpsc::channel();
         let (_, rx) = std::sync::mpsc::channel();
-        let mut loader = Loader { ask: tx, done: Mutex::new(rx), asked: default(), models: default(), model_order: default(), pngs: default(), png_order: default(), dir: PathBuf::new(), stamps: default(), extra: Vec::new() };
+        let mut loader = Loader { ask: tx, done: Mutex::new(rx), found: Mutex::new(std::sync::mpsc::channel().1), bad: Vec::new(), asked: default(), models: default(), model_order: default(), pngs: default(), png_order: default(), dir: PathBuf::new(), stamps: default(), extra: Vec::new() };
         let new: Vec<_> = super::super::mods_screen::unrostered(&menu).into_iter().cloned().collect();
         assert_eq!(new.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["b"]);
         assert_eq!((loader.extra_index(&menu, &new[0], false), loader.extra_index(&menu, &new[0], false)), (1, 1));

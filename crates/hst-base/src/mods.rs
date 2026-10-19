@@ -1171,6 +1171,35 @@ pub fn check(m: &Mod) -> Result<(), String> {
     })
 }
 
+/// Whether costume `c` of `m` passes the checks [`load_with`] makes before it builds anything (the select marks a
+/// failing one up front instead of on its first hover).
+pub fn costume_ok(m: &Mod, c: usize) -> bool {
+    m.costumes.get(c).and_then(|f| open(&m.dir.join(f)).ok()).is_some_and(|(doc, blob)| conform(&doc, &blob, !m.texture_face && !m.no_face).is_ok())
+}
+
+/// Whether the mod's own motions (§6), if it ships any, open and every animation is a motion or a take of one present
+/// ([`own_motions`]'s name checks; `re_gu.x`, or `re_gu.1` without `re_gu`, fails every costume's load).
+pub fn motions_ok(m: &Mod) -> bool {
+    m.motions.as_ref().is_none_or(|f| {
+        open(&m.dir.join(f)).is_ok_and(|(doc, _)| {
+            let named: Result<Vec<_>, _> = doc.animations().map(|a| motion_of(a.name().unwrap_or(""))).collect();
+            // a take needs its motion itself ([`own_motions`])
+            named.is_ok_and(|n| n.iter().all(|&(id, take)| take.is_none() || n.contains(&(id, None))))
+        })
+    })
+}
+
+/// An animation name in a mod's motions (§6): its motion number and take (`re_gu` → (id, None), `re_gu.2` → (id, 2)).
+fn motion_of(name: &str) -> Result<(usize, Option<u32>), String> {
+    use hst_data::ani::MOTIONS;
+    let (base, take) = match name.rsplit_once('.') {
+        Some((b, k)) => (b, Some(k.parse::<u32>().ok().filter(|&k| k > 0).ok_or_else(|| format!("animation `{name}`: a take is `.1`, `.2`, …"))?)),
+        None => (name, None),
+    };
+    let id = MOTIONS.iter().position(|m| m.replace("_pc%02d", "") == base).ok_or_else(|| format!("animation `{name}` is not a motion name"))?;
+    Ok((id, take))
+}
+
 /// Loads costume `costume` of mod `m` (motions, faces and arm table from the donor on the disc).
 pub fn load(
     iso: &mut Iso,
@@ -1363,10 +1392,22 @@ pub fn load_with(
         None => character::disc_motions_counted(iso, m.donor, &skeleton, |_| None, |_| false, Some(&[0]))?.motions.remove(&0),
     };
     let feet = level_feet(&mut joints, &sides, &soles, &character::disc_body(iso, m.donor)?, stand.as_ref());
+    // the off hand on the racket (`character::Grip`): the donor's bones, and how much longer this racket is than
+    // the disc ones (the donor's measures them; dropping its handles frees it)
+    let grip = {
+        let body = character::disc_body(iso, m.donor)?;
+        let bones = joints.iter().map(|j| body.node_names.iter().position(|x| *x == j.name).map_or(j.rest.translation, |i| Mat4::from_cols_array_2d(&body.node_local[i]).to_scale_rotation_translation().2)).collect();
+        let data = iso.read(&format!("PC/PC{:02}C00.XB", m.donor)).map_err(|e| e.to_string())?;
+        let disc = character::disc_racket(&Archive::parse(&data).map_err(|e| e.0)?, m.donor, meshes, materials, images, &mut gs.clone())?;
+        let mut tip = |r: &[(Handle<Mesh>, Handle<StandardMaterial>)]| {
+            r.iter().filter_map(|(h, _)| match meshes.get_mut(h)?.attribute(Mesh::ATTRIBUTE_POSITION)? { bevy::mesh::VertexAttributeValues::Float32x3(p) => p.iter().map(|v| v[1]).reduce(f32::max), _ => None }).fold(f32::MIN, f32::max)
+        };
+        Some(character::Grip { bones, reach: tip(&racket) - tip(&disc) })
+    };
     let binds = crate::character::part_skins(&joints, &parts, meshes, bindposes);
     let springs = crate::spring::masses(&nodes, &joints);
     let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs }));
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, frame_gameplay: false, emote_ticks: HashMap::new() })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, grip, frame_gameplay: false, emote_ticks: HashMap::new() })
 }
 
 /// `mod.json`'s `disc_racket` (§6, M1r): the disc character (0..13) whose racket it holds when it ships no
@@ -1421,11 +1462,7 @@ fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, o
     let mut racketless: Vec<(usize, u32)> = Vec::new();
     for a in doc.animations() {
         let name = a.name().unwrap_or("");
-        let (base, take) = match name.rsplit_once('.') {
-            Some((b, k)) => (b, Some(k.parse::<u32>().ok().filter(|&k| k > 0).ok_or_else(|| ctx(format!("animation `{name}`: a take is `.1`, `.2`, …")))?)),
-            None => (name, None),
-        };
-        let id = MOTIONS.iter().position(|m| m.replace("_pc%02d", "") == base).ok_or_else(|| ctx(format!("animation `{name}` is not a motion name")))?;
+        let (id, take) = motion_of(name).map_err(ctx)?;
         if only.is_some_and(|o| !o.contains(&id)) {
             continue;
         }
@@ -1958,6 +1995,9 @@ mod tests {
         let mut s = Stores(default(), default(), default(), default());
         let c = load(&mut iso, &m, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
         assert!(!c.takes.is_empty(), "{}", dir.display());
+        // the select's up-front check passes it; a take whose suffix isn't a number, or without its motion, fails
+        assert!(motions_ok(&m));
+        assert!(motion_of("re_gu.2").is_ok_and(|(_, t)| t == Some(2)) && motion_of("re_gu.x").is_err() && motion_of("re_gu.0").is_err());
         for (id, takes) in &c.takes {
             assert!(c.visual.contains_key(id));
             for t in takes {
@@ -2026,9 +2066,8 @@ mod tests {
         }
         // each own clip lasts as long as its glTF (seconds at 60 Hz), at least the donor's
         let (doc, _) = open(&dir.join("motions.glb")).unwrap();
-        // (takes, `NAME.K`, are a_mods_takes_load_beside_its_motions')
-        for a in doc.animations().filter(|a| !a.name().unwrap().contains('.')) {
-            let id = hst_data::ani::MOTIONS.iter().position(|n| n.replace("_pc%02d", "") == a.name().unwrap()).unwrap();
+        for a in doc.animations() {
+            let Ok((id, None)) = motion_of(a.name().unwrap()) else { continue };
             let secs = a.channels().filter_map(|c| c.sampler().input().max()).filter_map(|m| m.as_array()?.first()?.as_f64()).fold(0.0, f64::max);
             assert_eq!(c.visual[&id].length, (secs * 60.0).round() as f32, "{id:#x}");
         }

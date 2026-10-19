@@ -31,7 +31,7 @@
   picked: journal 2026-10-16-m98-promo-shots.
 - `vpad.py send` returns at once and the server runs commands one after another (sleeps included): a script
   that sends several batches must wait each one out (`vpad()` in `tools/pick.py`), or presses pile up and land late.
-  In menus ○ confirms, ✕ goes back.
+  In menus ✕ confirms, ○ goes back.
 - **Choosing characters:** `tools/pcsx2.sh python3 tools/pick.py <char 0–13> [slot]` loads save slot 2 (doubles
   character select), puts character <char> in as P1, takes the three COM picks where their cursors start, starts
   the match and saves P1's first serve to the scratch slot (8). It prints P1's character (+0x12bc), hand
@@ -198,7 +198,9 @@ Private windows (B457): a browser that refuses OPFS (Firefox/Zen private browsin
 
 ## Known gaps / caveats
 
-- Table lookups at an axis maximum read one cell past the table in the original; we clamp (never seen in captures).
+- Table lookups at an axis maximum: the original reads the next cell at weight 0, we take the last pair at weight 1;
+  same bits (PS2 has no inf/NaN, so 0·x = 0). The shot lookup's oracle run (`float_steps::lookup_frames`) has ~700
+  inputs past the depth axis' end, all bit-exact.
 - Stored-path fixtures can't verify net hits (the game records paths against the court plane only); live-ball
   recordings do (`tests/live.rs`). The app without `--stage` collides with court 10's mesh (court drawn flat).
 - `libm::sinf` ports only |x| ≤ 2^7·π/2 (asserts beyond); the game's callers stay in [0, π].

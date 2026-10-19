@@ -127,6 +127,7 @@ impl Menu {
         let was = match self.screen {
             Screen::Main if self.add.ask.is_some() => self.add.ask.replace(i),
             Screen::Main if self.stale.0.is_some() => self.stale.0.replace(i),
+            Screen::Press if self.quit.is_some() => self.quit.replace(i),
             _ if self.switch.is_some() => self.switch.as_mut().map(|s| std::mem::replace(&mut s.1, i)),
             // B498: an open dropdown's choices
             _ if self.listing.is_some() => self.listing.replace(i),
@@ -725,8 +726,8 @@ pub(super) mod tests {
         let mut m = Menu { screen: Screen::Lobby, ..default() };
         super::super::online::sample(&mut m);
         (m.net.hosting, m.sel) = (true, 0);
-        // the four cards (0–3), the settings (4–9), the code (10), Copy Link (11) Public (12)
-        let copy = 11;
+        // the four cards (0–3), the settings (4–10), the code (11), Copy Link (12) Public (13)
+        let copy = 12;
         let at = centre(&m, copy);
         frame(&mut app, &mut m, at, 0);
         assert_eq!(m.sel, copy, "hovering selects");

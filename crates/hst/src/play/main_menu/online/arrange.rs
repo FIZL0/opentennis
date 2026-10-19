@@ -11,6 +11,8 @@ use crate::net::Cmd;
 
 /// The kick prompt's rows; Kick is the first.
 pub(super) const KICK_ROWS: [&str; 2] = ["Kick", "Cancel"];
+/// The leave prompt's rows; Leave is the first.
+pub(super) const LEAVE_ROWS: [&str; 2] = ["Leave", "Cancel"];
 
 impl Menu {
     /// The host's lobby with the host's own player picked and no countdown running.
@@ -80,6 +82,42 @@ impl Menu {
                 out.extend([Effect::Sound(1), Effect::Online(Fx::Net(Cmd::Kick(peer)))]);
             }
             None => out.push(Effect::Sound(1)),
+        }
+    }
+
+    /// Concept: another person in the lobby or joining it (leaving then asks first).
+    pub(super) fn others_here(&self) -> bool {
+        let me = self.me();
+        self.net.room.as_ref().is_some_and(|r| r.seats.iter().flatten().any(|s| s.human() && s.peer != me) || r.names.keys().any(|p| p != me))
+    }
+
+    /// Leaving, from the lobby or its select: asked first with others here (true: the prompt is up).
+    pub(in super::super) fn ask_leave(&mut self, out: &mut Vec<Effect>) -> bool {
+        if !self.others_here() {
+            return false;
+        }
+        (self.net.leave, self.sel) = (Some(if self.screen == Screen::Lobby { self.sel } else { 0 }), 1);
+        self.screen = Screen::Lobby;
+        out.push(Effect::Sound(2));
+        true
+    }
+
+    /// A press on the leave prompt: ↑↓ a row, ✕ Leave or Cancel, ○ Cancel.
+    pub(super) fn leave_step(&mut self, k: Press, out: &mut Vec<Effect>) {
+        let Some(back) = self.net.leave else { return };
+        if k.up || k.down {
+            self.sel = 1 - self.sel.min(1);
+            return out.push(Effect::Sound(0));
+        }
+        if !k.ok && !k.back {
+            return;
+        }
+        let leave = k.ok && self.sel == 0;
+        (self.net.leave, self.sel) = (None, back);
+        if leave {
+            self.chars_back(out);
+        } else {
+            out.push(Effect::Sound(1));
         }
     }
 

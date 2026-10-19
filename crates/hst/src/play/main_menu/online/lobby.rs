@@ -19,7 +19,7 @@ use crate::net::Room;
 use bevy::prelude::default;
 
 /// The strip's settings in its order: court, umpire, sets, games, mods; then the top bar's Singles / Doubles.
-pub(in super::super) const SIDE: [Item; SETTINGS + 1] = [Item::Set(0), Item::Set(1), Item::Set(2), Item::Set(3), Item::Set(4), Item::Mode];
+pub(in super::super) const SIDE: [Item; SETTINGS + 1] = [Item::Set(0), Item::Set(1), Item::Set(2), Item::Set(3), Item::Set(4), Item::Set(5), Item::Mode];
 
 /// Seat `i`'s state on its plate.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -95,8 +95,13 @@ impl Menu {
 
     /// Seat `i` is this machine's player's.
     pub(in super::super) fn mine(&self, i: usize) -> bool {
-        let me = if self.net.me.is_empty() && self.net.hosting { "host" } else { self.net.me.as_str() };
+        let me = self.me();
         self.net.room.as_ref().is_some_and(|r| r.seats.get(i).is_some_and(|s| s.as_ref().is_some_and(|s| s.peer == me)))
+    }
+
+    /// This machine's peer id in the room.
+    pub(in super::super) fn me(&self) -> &str {
+        if self.net.me.is_empty() && self.net.hosting { "host" } else { self.net.me.as_str() }
     }
 
     /// Where `items` are drawn.
@@ -106,7 +111,7 @@ impl Menu {
             .iter()
             .map(|it| match *it {
                 Item::Seat(i) => g.plates.get(i).copied().unwrap_or_default(),
-                Item::Set(i) => g.cells[i.min(4)],
+                Item::Set(i) => g.cells[i.min(5)],
                 Item::Mode => g.mode,
                 Item::Button("Start" | "Ready") => g.start,
                 Item::Button("Code") => g.code,
@@ -229,7 +234,7 @@ fn carried(d: &mut Draw, m: &Menu, r: &Room, i: usize, rect: [f32; 4], s: f32) {
     d.label(words, x + w / 2.0, py + (ph - size) / 2.0, size, pw - 8.0, if i == from { frame::GOLD } else { frame::NAVY });
 }
 
-/// The strip: Court, Umpire, Sets, Games, Mods (the host's ‹ › on the values that step). The host's own choices before
+/// The strip: Court, Umpire, Sets, Games, Mods, Markers (the host's ‹ › on the values that step). The host's own choices before
 /// the lobby is open; a guest's "..." until its line-up comes.
 fn strip(d: &mut Draw, m: &Menu, r: Option<&Room>, g: &frame::Geo, on: &dyn Fn(Item) -> bool, hit: &dyn Fn(&mut Draw, Item, [f32; 4], Press)) {
     let text = d.text;
@@ -237,7 +242,7 @@ fn strip(d: &mut Draw, m: &Menu, r: Option<&Room>, g: &frame::Geo, on: &dyn Fn(I
     let own = (r.is_none() && host).then(|| m.room());
     let Some(r) = r.or(own.as_ref()) else {
         let cell = |label| Cell { label, value: "...".into(), arrows: false, sel: false, thumb: Thumb::None };
-        return frame::strip(d, m, g, &[cell("COURT"), cell("UMPIRE"), cell("SETS"), cell("GAMES"), cell("MODS")]);
+        return frame::strip(d, m, g, &[cell("COURT"), cell("UMPIRE"), cell("SETS"), cell("GAMES"), cell("MODS"), cell("MARKERS")]);
     };
     // the host's own choice (Random stays Random), a guest's the lobby's
     let (court, sets, games, umpire) = if host { (m.court, m.sets, m.games, m.umpire as usize) } else { (m.room_court_value(r), r.sets, r.games, r.umpire as usize) };
@@ -252,6 +257,7 @@ fn strip(d: &mut Draw, m: &Menu, r: Option<&Room>, g: &frame::Geo, on: &dyn Fn(I
         Cell { label: "SETS", value: super::super::SETS.get(sets).copied().unwrap_or(1).to_string(), arrows: host, sel: on(Item::Set(2)), thumb: Thumb::None },
         Cell { label: "GAMES", value: games.to_string(), arrows: host, sel: on(Item::Set(3)), thumb: Thumb::None },
         Cell { label: "MODS", value: if r.vanilla { "None" } else { "Allowed" }.to_string(), arrows: host, sel: on(Item::Set(4)), thumb: Thumb::None },
+        Cell { label: "MARKERS", value: if r.no_marks { "Off" } else { "On" }.to_string(), arrows: host, sel: on(Item::Set(5)), thumb: Thumb::None },
     ];
     frame::strip(d, m, g, &cells);
     for (i, cell) in g.cells.iter().enumerate() {

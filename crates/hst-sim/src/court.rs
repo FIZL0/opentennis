@@ -140,6 +140,7 @@ pub fn world(iso: &mut Iso, n: u32) -> World {
 /// trees and chair would be invisible walls to the ball. Keeps the court model's ground (faces turned up or down,
 /// no more than 0.5 m above the court; game space is Y down) and the net, the prop at the centre.
 // ponytail: the mod's own scenery doesn't collide (its glb has no collision); add a mod collision mesh if wanted
+#[allow(clippy::float_arithmetic)] // load-time filter of a mod's collision faces, not ported math
 pub fn open(mut w: World) -> World {
     let court = &mut w.models[w.court.model];
     court.tris.retain(|t| {

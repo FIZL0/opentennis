@@ -20,7 +20,18 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
     let s = m.sel;
     match m.screen {
         // B516: the splash's one press (none once 1P is taken)
-        Screen::Press if m.p1.is_none() => v.push((Act::Ok, "Start")),
+        // B581: and △ for the New version card's button
+        Screen::Press if m.quit.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Stay")]),
+        Screen::Press if m.p1.is_none() => {
+            v.push((Act::Ok, "Start"));
+            if crate::update::latest().is_some() {
+                v.push((Act::Card, crate::update::button()));
+            }
+            // ○ asks to quit
+            if super::splash::QUITS {
+                v.push((Act::Back, if cfg!(target_arch = "wasm32") { "Launcher" } else { "Quit" }));
+            }
+        }
         Screen::Press => {}
         // M127: the pad takeover prompt: the asked pad answers, the keyboard's Esc dismisses it
         _ if m.takeover_asking() && m.takeover_asked(dev) => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Keep keyboard")]),
@@ -233,7 +244,7 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
         Screen::Lobby if m.net.ask.is_none() && !m.net.keep.is_empty() => v.extend([(Act::UpDown, "Move"), (Act::Ok, "Choose"), (Act::Back, "Not this time")]),
         Screen::Lobby if m.net.ask.is_some() => v.extend([(Act::UpDown, "Move"), (Act::Ok, "Choose"), (Act::Back, "Leave")]),
         // B523: the host's kick prompt; a card carried to another
-        Screen::Lobby if m.net.kick.is_some() => v.extend([(Act::UpDown, "Move"), (Act::Ok, "Choose"), (Act::Back, "Cancel")]),
+        Screen::Lobby if m.net.kick.is_some() || m.net.leave.is_some() => v.extend([(Act::UpDown, "Move"), (Act::Ok, "Choose"), (Act::Back, "Cancel")]),
         Screen::Lobby if let Some(from) = m.carrying() => {
             moves(&mut v, (true, true));
             v.extend([(Act::Ok, if m.target_seat() == Some(from) { "Put Back" } else { "Drop" }), (Act::Back, "Cancel")]);

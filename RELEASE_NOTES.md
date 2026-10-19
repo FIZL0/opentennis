@@ -1,5 +1,18 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- The start screen and the browser launcher page now tell you when a newer version is out, with a button to update or refresh.
 - A damaged disc image or a broken mod file is now refused instead of crashing the game.
+- Starting a match straight after picking a character no longer shows the old disc face on the scoreboard: the match waits a moment for the new face to be drawn.
+- In doubles, when the ball hits a player at the same moment a teammate swings at it, whichever happened first now counts: a ball that hits a player can't be returned, and a ball that was just returned can't hit a player.
+- On the character select, switching between singles and doubles keeps the computer player you were picking for on the character you had chosen, and keeps each roster scrolled to its character.
+- On the character select, emotes and the win / loss poses while picking for a computer player now play on that computer's card instead of your own.
+- New Markers setting next to Sets and Games: turn it Off to hide the red and yellow shot markers. Online, the host's choice applies to everyone.
+- A player who loses the point while still in a missed swing now walks away facing the way they're going instead of sliding sideways.
+- On the character select, the costume and hand button hints now show on the computer player's card you're picking for with a controller.
+- The start screen now shows your controller's confirm button (or Enter) instead of Start, and Back / Esc there asks whether to quit the game.
+- In an online lobby, Back now steps back one thing at a time: first it undoes your character pick, then it takes you out of your seat (you still run the lobby), then it leaves, asking first if anyone else is in or joining.
+- When you start a local match, the character rosters no longer jump down under the court and umpire options at the bottom of the screen.
+- Mod characters now hold the racket's head with their other hand the way the original characters do (palm under the rim, fingers over the frame) instead of resting it behind the strings.
+- A controller whose "use it for 1P?" prompt timed out, or was turned down, now asks again on its next button press (after a turn-down, once 1P switches input), instead of staying ignored until it's unplugged.
 - Characters with several celebrations and disappointed reactions now vary them from point to point instead of repeating one.
 - Characters with their own reaction animations now make their own facial expressions with them, instead of borrowing another character's.
 - Characters with their own reactions put the racket away in moves where it would have gone through their body.

@@ -8,7 +8,6 @@
 
 use bevy::prelude::*;
 use hst_sim::score::Event;
-use hst_sim::motion::id;
 use hst_sim::sound;
 
 use super::{Game, Phase, controls::Action, set_motion};
