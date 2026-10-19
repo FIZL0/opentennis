@@ -15,7 +15,6 @@ crate's `tests/`. Fixtures in `context/fixtures/` (`match_s05.bin` slot-5 bot ma
 - [ ] **B581** New-version check (user 2026-10-19): the splash screen and the pre-launch web page both check for a newer release and tell the player (offer the update where the self-updater can) → crates/hst/src/update.rs · main.rs · web.rs
 - [ ] **M130** Sophie's missing animations (user 2026-10-19): compare the Sophie mod's motions against the reference video `/home/ryha/Downloads/Hot Shots Golf: Out of Bounds | All Sophie Animations(60fps) [vs7UYu0fVf8].mp4` (all her HSG:OoB animations, 60 fps), list which are missing and add them; bump the mod's mod.json version → ../opentennis-mods
 - [ ] **M131** Other modded golf characters' animations (user 2026-10-19): as M130, find reference footage/data for each other Hot Shots Golf mod character, list missing motions, add them; bump each mod.json version → ../opentennis-mods
-- [ ] **M132** Hair physics changes (user 2026-10-19): look into the hair physics changes for the golf mod characters (see M130's video); show the user A/B shots/clips, keep a change ONLY after the user approves it, revert the rest → ../opentennis-mods · crates/hst-base/src/character.rs
 1949cf8c6b5b557f/bevy_render-0.19.1/src/render_phase/mod.rs:1241:40:
 index out of bounds: the len is 0 but the index is 0"
 

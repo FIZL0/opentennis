@@ -85,6 +85,9 @@ fn attach(mut commands: Commands, rigs: Query<(Entity, &Rig), Added<Rig>>) {
 // by eye on Sophie idling. The game's own solver would replace both
 const SOFT: f32 = 0.1;
 const LAG: f32 = 3f32.to_radians();
+/// M132: a lower link's lag grows by at most this a step (picked with the user against Out of Bounds' footage): the
+/// pigtails fling out on a swing as there, and still hang still on an idle bob
+const CHILD_LAG: f32 = 2f32.to_radians();
 /// Steps a fresh rig's hair hangs for at its first pose: soft springs take ~2 s to fall from the bind pose, and a
 /// preview bake or a point's set-up would catch it sticking out
 const HANG: usize = 180;
@@ -159,16 +162,18 @@ fn solve(masses: &[Mass], parents: &[Option<usize>], root: Mat4, locals: &mut [T
         let kept = st.filter(|(x, ..)| x.distance(target) < 1.0);
         let steps = if kept.is_some() { steps } else { HANG };
         let (x, v, last) = kept.unwrap_or((target, Vec3::ZERO, frame));
-        // B410b: carried with its parent joint since the last step. The chain's first link keeps its world motion (the
-        // head moves on under it: the swing); a link below rides along with the one above, or every link would lag
-        // its own origin again and a short chain whip off a gentle bob
+        // B410b: carried with its parent joint since the last step, keeping some of its world motion (the head moves
+        // on under it: the swing). Fully kept, every link would lag its own origin again and a short chain whip off a
+        // gentle bob; fully carried (B410b's lower links), the pigtails hang stiff through a swing (M132)
         let moved = frame * last.inverse();
         let (cx, cv) = (moved.transform_point3(x), moved.transform_vector3(v));
         let mut dir = (cx - origin).normalize_or_zero();
         if steps > 0 {
-            // the first link's lag grows by at most `LAG` a step: a jolt of the head would flick a short ribbon
+            // the lag grows by at most `LAG` (`CHILD_LAG` below the first link) a step: a jolt of the head would flick a
+            // short ribbon
             let lag = (x - origin).angle_between(cx - origin);
-            let c = if !m.first { 1.0 } else if lag > LAG { 1.0 - LAG / lag } else { 0.0 };
+            let cap = if m.first { LAG } else { CHILD_LAG };
+            let c = if lag > cap { 1.0 - cap / lag } else { 0.0 };
             let (mut x, mut v) = (x.lerp(cx, c), v.lerp(cv, c));
             for _ in 0..steps {
                 (x, v) = step(m, origin, target, (x, v));
@@ -272,6 +277,27 @@ mod tests {
     }
 
     #[test]
+    fn a_jump_bends_the_lower_links() {
+        // M132: the head jumps 30 cm across: a link below the first trails its own origin too (the pigtail flings out),
+        // within its limit, and comes back to its pose
+        let masses: Vec<Mass> = KAMI.iter().enumerate().map(|(k, &(limit, stiffness, damping))| Mass { joint: k + 1, parent: k, limit: limit.to_radians(), stiffness, gravity: 4.9, damping, first: k == 0 }).collect();
+        let parents: Vec<Option<usize>> = (0..=KAMI.len()).map(|k| k.checked_sub(1)).collect();
+        let rest: Vec<Transform> = (0..=KAMI.len()).map(|k| Transform::from_xyz(0.0, -0.04 * (k > 0) as u8 as f32, 0.0)).collect();
+        let mut state = Vec::new();
+        // link 3's local turn off its pose, each frame
+        let bend: Vec<f32> = (0..300)
+            .map(|f| {
+                let mut locals = rest.clone();
+                solve(&masses, &parents, Mat4::from_translation(if f < 10 { Vec3::ZERO } else { Vec3::X * 0.3 }), &mut locals, &mut state, 1);
+                locals[3].rotation.angle_between(Quat::IDENTITY)
+            })
+            .collect();
+        let most = bend.iter().cloned().fold(0f32, f32::max);
+        assert!(most > 5f32.to_radians() && most <= 20.5f32.to_radians(), "{}", most.to_degrees());
+        assert!(bend[299] < 3f32.to_radians(), "{}", bend[299].to_degrees());
+    }
+
+    #[test]
     fn zero_limit_is_rigid() {
         let m = mass(0.0);
         let st = step(&m, Vec3::ZERO, Vec3::X, (Vec3::NEG_Y, Vec3::ZERO));
@@ -281,9 +307,10 @@ mod tests {
     #[test]
     fn a_bobbing_head_does_not_whip() {
         // B410b: an idle bob (3 cm at ~3 Hz) lagged every 4 cm link off its own origin: the pigtail whipped up to 86°
-        // off its pose, 38° in one step. Carried by the link above, it sways
+        // off its pose, 38° in one step. Carried by the link above (lower links lag ≤ `CHILD_LAG` a step), it sways:
+        // ≤ 5.9° a step with M132's lower-link lag
         let off = chain(&KAMI, 0.04, 600, |f| Vec3::Y * 0.03 * (f as f32 * 0.3).sin());
         let jump = off[300..].windows(2).map(|w| (w[1] - w[0]).abs()).fold(0f32, f32::max);
-        assert!(jump < 5f32.to_radians() && off[300..].iter().all(|&o| o < 60f32.to_radians()), "{} {:?}", jump.to_degrees(), off[300..].iter().cloned().fold(0f32, f32::max).to_degrees());
+        assert!(jump < 8f32.to_radians() && off[300..].iter().all(|&o| o < 60f32.to_radians()), "{} {:?}", jump.to_degrees(), off[300..].iter().cloned().fold(0f32, f32::max).to_degrees());
     }
 }
