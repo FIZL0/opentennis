@@ -102,8 +102,8 @@ function homeScreen() {
   box.hidden = !ios || !safari || app || get('hst-a2hs') === '0';
   if (box.hidden) return;
   if (ipad) {
-    box.querySelector('.head').textContent = 'Play full screen on iPad';
-    $('#a2hs-where').textContent = 'At the top right, beside the address bar. If you don\'t see it, tap ⋯ first.';
+    box.querySelector('.head').textContent = 'Install the iPad web app';
+    $('#a2hs-where').textContent = 'At the top right of the screen. If you don\'t see it, tap ⋯ first.';
   }
   $('#a2hs-ok').onclick = () => { put('hst-a2hs', '0'); box.hidden = true; };
 }
