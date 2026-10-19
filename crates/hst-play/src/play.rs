@@ -1370,6 +1370,12 @@ pub fn setup(
         marks: Marks::default(),
         finish: default(),
     };
+    // dev: `HST_TIEBREAK=1` opens the match in the set's tiebreak (to hear and see its score show)
+    if std::env::var("HST_TIEBREAK").is_ok() {
+        let s = &mut game.score;
+        (s.games, s.set_games[0][0], s.set_games[1][0]) = ([rules.games; 2], rules.games, rules.games);
+        (s.tiebreak, s.side, s.tiebreak_count) = (true, hst_sim::score::AD_COURT, 1);
+    }
     reset_positions(&mut game);
     game.finish.new_point(&game.score, &game.rules);
     game.emitters = emitters(
