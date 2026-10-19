@@ -210,8 +210,8 @@ fn box_entry(eye: vec3<f32>, d: vec3<f32>, centre: vec3<f32>, half: vec3<f32>) -
 // M129: only a big blocker isn't drawn (user 2026-10-19): anything within 1 m of the eye (a replay camera inside a
 // prop), and a piece of scenery close to the eye (within 7 m, fading out by ordered dither to 10 m), over 0.5 m up,
 // outside the players' room (the doubles court, 4 m beside it and 6 m behind each baseline, at any height: what
-// stands over the play, a helicopter's rotor, stays), whose ray from the eye goes on into the back court (the half
-// of the court away from the eye, up to 2.5 m). Bevy's world, y up.
+// stands over the play, a helicopter's rotor, stays), whose ray from the eye goes on into the players' room (up
+// to 20 m, so the whole of a pole in front of the camera goes, not only where it covers the court). Bevy's world, y up.
 fn cleared(p: vec3<f32>, pixel: vec2<f32>) -> bool {
     let eye = view_bindings::view.world_position;
     let d = p - eye;
@@ -222,8 +222,7 @@ fn cleared(p: vec3<f32>, pixel: vec2<f32>) -> bool {
     if dist > 10.0 || p.y < 0.5 || (abs(p.x) < 5.485 + 4.0 && abs(p.z) < 11.885 + 6.0) {
         return false;
     }
-    let far = -sign(eye.z) * 11.885 * 0.5;
-    let t = box_entry(eye, d, vec3(0.0, 1.25, far), vec3(5.485, 1.25, 11.885 * 0.5));
+    let t = box_entry(eye, d, vec3(0.0, 10.0, 0.0), vec3(5.485 + 4.0, 10.0, 11.885 + 6.0));
     if t <= 1.0 || t > 1e8 {
         return false;
     }
