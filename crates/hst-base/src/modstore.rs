@@ -1576,10 +1576,10 @@ mod tests {
         let by = |id: &str, rev: &str, who: &str, sha: &str| Entry { meta: Meta { author: who.into(), sha256: sha.into(), ..e(id, rev).meta }, ..e(id, rev) };
         let got = merge(vec![vec![by("a", "main", "x", "1")], vec![by("a", "refs/pr/9", "y", "2"), by("a", "refs/pr/8", "z", "1"), by("a", "refs/pr/7", "y", "3")]]);
         assert_eq!(got.iter().map(|e| e.rev.as_str()).collect::<Vec<_>>(), ["main", "refs/pr/9"]);
-        // B381: HST's four human chair umpires aren't listed, Robot Tennis is
+        // B381: HST's chair umpires aren't listed (Robot Tennis neither, since 2026-10-19)
         let ids = ["hst_umpire_00_chika", "hst_umpire_01_suzuki", "hst_umpire_02_lily", "hst_umpire_03_robottennis", "hst_umpire_04_anna", "getagrip_pc12_suzuki"];
         let got = merge(vec![ids.iter().map(|id| e(id, "main")).collect()]);
-        assert_eq!(got.iter().map(|e| e.meta.id.as_str()).collect::<Vec<_>>(), ["getagrip_pc12_suzuki", "hst_umpire_03_robottennis"]);
+        assert_eq!(got.iter().map(|e| e.meta.id.as_str()).collect::<Vec<_>>(), ["getagrip_pc12_suzuki"]);
     }
 
     /// B250: a re-upload by its uploader goes onto their open PR, or a new PR once merged; the same zip, or an older
