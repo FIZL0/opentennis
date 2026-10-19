@@ -1,13 +1,1 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- Character select: smaller player cards, so many more faces fit on screen (25 per player with four players); online lobby cards match.
-- Character select: clearer grade labels (Serv, Strk, Vol, Imp, Foot); hover or tap a tile for its full name.
-- Character select: a player who has picked can choose the computer players straight away; computer cards show their level again.
-- Character select: name entry no longer loses its letters and buttons with four players typing; the "each browses on their own" note is gone.
-- Store mod characters get their face icons straight away, framed like the disc characters' instead of zoomed past the chin.
-- Resolution can go above 100 % (125, 150, 200 %) for smoother edges.
-- Steam Deck preset now uses High quality with full shadows.
-- Sharper menu text on small screens and phones; Auto menu size follows the screen's scaling.
-- The button to move on to the stats page after a match responds as soon as its prompt appears.
-- The score board chimes again in a tiebreak.
-- In doubles, computer players line up smashes from each character's own reach.
-- Objects on modded courts no longer block the camera or pop in and out.
