@@ -3133,6 +3133,8 @@ fn step(
     mut voice: Local<(std::collections::HashMap<u8, Option<Arc<crate::audio::SoundBank>>>, Option<u64>, Option<(u8, u8, u8)>)>,
     // B336: a launch waiting for the browser to read its mods in
     mut launching: Local<bool>,
+    // the picks' faces being baked for the match HUD, and since when (`previews::picks_drawn`)
+    (mut loader, baker, mut baking): (Option<ResMut<previews::Loader>>, Option<Res<previews::Baker>>, Local<Option<f32>>),
 ) {
     let play = |key: u8| {
         if let (Some(s), Some(Art(_, Some(b), _))) = (&sound, art.as_deref()) {
@@ -3303,6 +3305,17 @@ fn step(
                         *launching = true;
                         continue;
                     }
+                    // ponytail: a fixed 3 s cap on the wait (a first bake takes ~0.5 s; one that never lands can't hold the start)
+                    let since = *baking.get_or_insert(time.elapsed_secs());
+                    let drawn = match (loader.as_deref_mut(), baker.as_deref()) {
+                        (Some(l), Some(b)) => previews::picks_drawn(&menu, l, b),
+                        _ => true,
+                    };
+                    if !drawn && time.elapsed_secs() - since < 3.0 {
+                        *launching = true;
+                        continue;
+                    }
+                    *baking = None;
                     info!("starting the match: {}", a.join(" "));
                     // the match in this app; its quit comes back to this menu as it is now
                     let (base, kept) = (args.clone(), menu.clone());

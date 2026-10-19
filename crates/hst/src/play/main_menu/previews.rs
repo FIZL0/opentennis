@@ -138,7 +138,7 @@ type Loaded = (Key, Result<(CharacterData, f32, Staged<Mesh>, Staged<StandardMat
 
 /// The worker threads: characters, and PNG files.
 #[derive(Resource)]
-struct Loader {
+pub(super) struct Loader {
     ask: Sender<(Key, Option<Mod>)>,
     done: Mutex<Receiver<Loaded>>,
     asked: HashSet<Key>,
@@ -289,6 +289,16 @@ pub(crate) fn face(iso: &str, m: Option<&Mod>, c: usize, k: usize) -> Option<Ima
         None => dir.join(format!("d{c:02}-{k}.png")),
     };
     face_from(&path, 40)
+}
+
+/// The players' picks all have their face close-up (the match HUD's, [`face`]) drawn, or one that can't be drawn
+/// (gone, failed): a launch waits on it so a quick start shows the baked faces, not the disc's (the baker draws the picks
+/// first once the menu is on `Playing`). A mod's own `previews/` picture counts as drawn (its face is cut from it).
+pub(super) fn picks_drawn(menu: &Menu, loader: &mut Loader, baker: &Baker) -> bool {
+    (0..menu.players()).map(|p| menu.pick(p)).all(|key| {
+        baker.failed.contains(&key)
+            || loader.path(key, menu).is_none_or(|p| !p.starts_with(&loader.dir) || cached(&face_path(&p)))
+    })
 }
 
 /// B229: the Mods page's hovered mod without a picture (`want`), whose costume 0 the baker draws on that page as the
@@ -715,7 +725,7 @@ fn sync(
 /// The off-screen preview drawing uncached PNGs one at a time: hovered ones first (newest first), then every disc
 /// character's costumes, then every mod's (`HST_BAKE=all` quits when done).
 #[derive(Resource, Default)]
-struct Baker {
+pub(super) struct Baker {
     queue: Vec<Key>,
     job: Option<Job>,
     /// Keys whose drawing came back empty this run, not tried again.
@@ -854,12 +864,14 @@ fn bake(
     .rev()
     .map(|w| (w, 0))
     .collect();
-    if !matches!(menu.screen, Screen::Chars | Screen::Assign) && asked.is_none() && home.is_empty() && lent.is_empty() && fresh.is_empty() && view.is_empty() && baker.job.is_none() && baker.warmed {
+    if !matches!(menu.screen, Screen::Chars | Screen::Assign | Screen::Playing) && asked.is_none() && home.is_empty() && lent.is_empty() && fresh.is_empty() && view.is_empty() && baker.job.is_none() && baker.warmed {
         return;
     }
     // a hovered card without a PNG jumps the queue (the tiles on view next, then the new installs)
     let now: Vec<Key> = match menu.screen {
         Screen::Chars | Screen::Assign => view.iter().copied().chain((0..menu.players()).map(|p| menu.pick(p))).collect(),
+        // a launch waits for the picks' faces (`picks_drawn`)
+        Screen::Playing => (0..menu.players()).map(|p| menu.pick(p)).collect(),
         Screen::Main => fresh.iter().rev().chain(home.iter().rev()).copied().collect(),
         Screen::Mods => fresh.iter().rev().chain(home.iter().rev()).copied().chain(asked).collect(),
         Screen::Lobby | Screen::Confirm => view.iter().chain(&lent).copied().collect(),
