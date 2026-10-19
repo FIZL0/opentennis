@@ -18,7 +18,7 @@
 //! it, and a character with none free is drawn dark and passed over by the cursor); the computer players added are
 //! picked by player 1 after the humans. B368: the select is one column per player (`roster`), each browsing and
 //! scrolling the roster on its own device, its stats card always up (△ opens its name picker, B371).
-//! `HST_MENU=<screen>` (main, rematch = main with a Rematch card, settings, graphics, sound, controls, mode, assign, chars, coms = chars with 1P ready (the COM cards), coms-random / confirm-random = 2P's computer readied on Random, chars-random = 1P on the Random card, names / names-type / names-card = chars with 1P named and its name picker open on the list / typing / closed (B371, B541), attrs / mods-attrs = chars / mods (B368: the stats card is always up), roster1–roster4 = 1–4 humans (B368), roster2-favs / roster4-favs = them with four favorites, 1P in Favorites and 2P on the last section (B382), roster2-deep = 2P's column scrolled to a mod far down, lobby-bot = the host's lobby with a computer player, lobby-singles = a singles lobby (B490), lobby-wait = the host's lobby waiting on a player choosing about a mod (B281), lobby-fetching = the host's lobby with a player still downloading a mod (M122), confirm-court = confirm on Nakagawa River Courts (B192), umpires-mod / confirm-umpire-mod = the umpire select / confirm on the first umpire mod (M8f3), courts-mod / confirm-court-mod = the court select / confirm on the first court mod (M8f6), chars4 = four humans on one portrait, mods = chars with 1P on the first mod, main-mods = main with the Mods row highlighted, main-update = main with B317's New version card highlighted (with `HST_LATEST`), rematch-update = both cards (M97), main-extras / extras = main on Extras / the Extras screen (M97), confirm, sets / games = confirm with that pill picked, assign-moved = assign with 1P moved to 3P, pending (B437), online-custom / relay-url = the Relay row on Custom... / its URL entry, renderer = Display with the Renderer switch's confirm popup up (B327), takeover / takeover-toast = main with the pad takeover prompt up / its Yes's toast (M127), graphics-list / graphics-fps = Graphics with Preset's / Frame Limit's dropdown open (B498)) opens on that screen (for `--shot`).
+//! `HST_MENU=<screen>` (main, rematch = main with a Rematch card, settings, graphics, sound, controls, mode, assign, chars, coms = chars with 1P ready (the COM cards), coms-random / confirm-random = 2P's computer readied on Random, chars-random = 1P on the Random card, names / names-type / names-card = chars with 1P named and its name picker open on the list / typing / closed (B371, B541), attrs / mods-attrs = chars / mods (B368: the stats card is always up), roster1–roster4 = 1–4 humans (B368), roster4-names = four humans all typing a name (B577), roster2-favs / roster4-favs = them with four favorites, 1P in Favorites and 2P on the last section (B382), roster2-deep = 2P's column scrolled to a mod far down, lobby-bot = the host's lobby with a computer player, lobby-singles = a singles lobby (B490), lobby-wait = the host's lobby waiting on a player choosing about a mod (B281), lobby-fetching = the host's lobby with a player still downloading a mod (M122), confirm-court = confirm on Nakagawa River Courts (B192), umpires-mod / confirm-umpire-mod = the umpire select / confirm on the first umpire mod (M8f3), courts-mod / confirm-court-mod = the court select / confirm on the first court mod (M8f6), chars4 = four humans on one portrait, mods = chars with 1P on the first mod, main-mods = main with the Mods row highlighted, main-update = main with B317's New version card highlighted (with `HST_LATEST`), rematch-update = both cards (M97), main-extras / extras = main on Extras / the Extras screen (M97), confirm, sets / games = confirm with that pill picked, assign-moved = assign with 1P moved to 3P, pending (B437), online-custom / relay-url = the Relay row on Custom... / its URL entry, renderer = Display with the Renderer switch's confirm popup up (B327), takeover / takeover-toast = main with the pad takeover prompt up / its Yes's toast (M127), graphics-list / graphics-fps = Graphics with Preset's / Frame Limit's dropdown open (B498)) opens on that screen (for `--shot`).
 //!
 //! Custom characters (remaster-only): every standard mod under `mods/` beside the disc image (`mods::list`) is on a
 //! second page of the select, switched for everyone by Tab / □: B133: a grid like the disc characters', as many
@@ -310,6 +310,8 @@ impl Settings {
                 s.1.set(k, v);
             }
         }
+        // P63: an older build's Steam Deck preset (Low shadows) moves up to the current one
+        s.1 = s.1.upgrade();
         s.0[UPSCALED_DOWNLOADS] = downloads.unwrap_or(s.0[0]);
         s.3 = aspect.or(wide).unwrap_or(s.3);
         s.2 = Volumes::parse(text);
@@ -335,10 +337,13 @@ impl Settings {
         }
     }
 
-    /// The Menu Size factor on a window `physical_h` px tall: Auto is 100%, 80% on a window taller than 1440 px.
-    fn menu_scale(&self, physical_h: u32) -> f32 {
+    /// The Menu Size factor for a 640×448 screen `screen_h` logical px tall at 100%: Auto is 100%, 80% past 1440.
+    /// B570: logical px (the OS's DPI scale taken out) on the screen as the view letterboxes it, so a phone or a HiDPI
+    /// laptop, whose window is many physical px tall but small to the eye, keeps its menus at full size; only a
+    /// big monitor gets them smaller.
+    fn menu_scale(&self, screen_h: f32) -> f32 {
         match self.7 {
-            0 if physical_h > 1440 => 0.8,
+            0 if screen_h > 1440.0 => 0.8,
             0 => 1.0,
             t => t as f32 / 10.0,
         }
@@ -347,7 +352,7 @@ impl Settings {
     /// Puts the Menu Size factor for window `w` in force (`widescreen::MENU_SCALE`, which the menus' drawing and
     /// pointer read) and returns it.
     pub(super) fn apply_menu_scale(&self, w: &Window) -> f32 {
-        let k = self.menu_scale(w.physical_height());
+        let k = self.menu_scale(super::widescreen::view_size(w).y * super::widescreen::vshare(super::widescreen::aspect(w)));
         super::widescreen::MENU_SCALE.store(k.to_bits(), std::sync::atomic::Ordering::Relaxed);
         k
     }
@@ -883,17 +888,16 @@ impl Menu {
         self.net.room.is_some() && !self.net.me.is_empty() && !self.net.started
     }
 
-    /// The player `dev` drives on the character select: its own until it is ready, then (player 1's device, once
-    /// every human is ready) the first computer player not ready.
+    /// The player `dev` drives on the character select: its own until it is ready, then the first computer player
+    /// not ready.
     fn driven(&self, dev: Dev) -> Option<usize> {
         let n = self.players();
         if let Some(p) = (0..n).find(|&p| self.seats[p] == Some(dev)) {
-            let humans_ready = (0..n).all(|q| self.seats[q].is_none() || self.players[q].ready);
             if self.online() {
                 return self.online_driven(dev, p);
             }
-            // B258: any human, once every human is ready (not only 1P)
-            if !self.players[p].ready || !humans_ready {
+            // B258: any human (not only 1P); B572: as soon as it is ready, while others still pick
+            if !self.players[p].ready {
                 return Some(p);
             }
             return (0..n).find(|&q| self.bot(q) && !self.players[q].ready).or(Some(p));
@@ -933,11 +937,13 @@ impl Menu {
     }
 
     /// B258: once every human is ready, the open seats' COM cards (not ready) start on their automatic pick, for a
-    /// human to keep (✕) or change; ○ goes back to the last pick readied (B355).
+    /// human to keep (✕) or change; ○ goes back to the last pick readied (B355). B572: not one a ready human is
+    /// already picking for (it took the last pick readied, [`Menu::carry_pick`]).
     fn preset_coms(&mut self) {
         let n = self.players();
         if (0..n).all(|q| self.seats[q].is_none() || self.players[q].ready) {
-            for q in (0..n).filter(|&q| self.open(q) && !self.players[q].ready).collect::<Vec<_>>() {
+            let held = self.held_coms();
+            for q in (0..n).filter(|&q| self.open(q) && !self.players[q].ready && !held.contains(&q)).collect::<Vec<_>>() {
                 self.players[q] = self.auto_com(q);
             }
         }
@@ -946,14 +952,21 @@ impl Menu {
     /// B269 / B346: the computer player `dev` drives next (one 1P added, or an open seat's COM card) starts on the
     /// cell the last pick readied on, so ✕ over and over gives them all the same (e.g. all Random, or one character
     /// in its next free costumes).
+    /// B572: not one another ready human is already picking for.
     fn carry_pick(&mut self, dev: Dev) {
+        let others = self.seats.iter().flatten().filter(|&&d| d != dev).filter_map(|&d| self.driven(d)).collect::<Vec<_>>();
         if let (Some(q), Some(c)) = (self.driven(dev), self.last)
-            && self.seats[q].is_none() && !self.players[q].ready
+            && self.seats[q].is_none() && !self.players[q].ready && !others.contains(&q)
         {
             self.put(q, c);
             self.players[q].tab = self.last_tab;
             self.skip_taken();
         }
+    }
+
+    /// B572: the computer players a seated device drives on the select (a ready human picking for one).
+    fn held_coms(&self) -> Vec<usize> {
+        self.seats.iter().flatten().filter_map(|&d| self.driven(d)).filter(|&q| self.seats[q].is_none()).collect()
     }
 
     /// The local select done: on to the court and umpire once every card is ready.
@@ -1619,8 +1632,10 @@ impl Menu {
                         out.push(Sound(1));
                     } else if self.seats[p].is_none() {
                         // player 1 driving a computer player (one added or an open seat's COM card): back to the last
-                        // one readied, never a pick for the computer (B355)
-                        if let Some(q) = (0..self.players()).rev().find(|&q| self.players[q].ready) {
+                        // one readied, never a pick for the computer (B355); B572: a computer's, else the driver's
+                        // own (not another human's, who may still be picking)
+                        let own = self.seats.iter().position(|&s| s == Some(dev));
+                        if let Some(q) = (0..self.players()).rev().find(|&q| self.bot(q) && self.players[q].ready).or(own) {
                             self.unready(q);
                         }
                         out.push(Sound(1));
@@ -2277,7 +2292,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         "controls" | "controls-keys" | "controls-bind" => Screen::Controls,
         "mode" => Screen::Mode,
         "assign" | "assign-moved" => Screen::Assign,
-        "chars" | "chars2" | "chars4" | "chars4-pads" | "roster1" | "roster2" | "roster3" | "roster4" | "roster2-favs" | "roster4-favs" | "roster2-deep" | "mods" | "attrs" | "mods-attrs" | "coms" | "coms-random" | "chars-online" | "chars-hosting" | "chars-joining" | "chars-relay" | "chars-random" | "names" | "names-type" | "names-card" => Screen::Chars,
+        "chars" | "chars2" | "chars4" | "chars4-pads" | "roster1" | "roster2" | "roster3" | "roster4" | "roster4-names" | "roster2-favs" | "roster4-favs" | "roster2-deep" | "mods" | "attrs" | "mods-attrs" | "coms" | "coms-random" | "chars-online" | "chars-hosting" | "chars-joining" | "chars-relay" | "chars-random" | "names" | "names-type" | "names-card" => Screen::Chars,
         "confirm" | "confirm-random" | "confirm-court" | "courts" | "umpires" | "umpires-mod" | "confirm-umpire-mod" | "courts-mod" | "confirm-court-mod" | "sets" | "games" => Screen::Confirm,
         "online" | "online-custom" | "online-unread" => Screen::Online,
         "lobbies" | "lobbies-searching" | "lobbies-more" | "lobbies-none" | "lobbies-failed" => Screen::Lobbies,
@@ -2438,6 +2453,10 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
             }
             menu.players[menu.players() - 1].ready = n < menu.players();
         }
+        // B577: `roster4-names`: every seat's name picker open on its letter grid
+        if screen == "roster4-names" {
+            (0..4).for_each(|p| menu.names.demo(p, Dev::Keys, true));
+        }
         // B382: `rosterN-favs`: four disc favorites (Favorites first), 1P on the second, 2P on the last section
         if screen.ends_with("-favs") {
             menu.favs = [0, 3, 5, 9].map(|c| format!("hst {c}")).into();
@@ -2593,7 +2612,10 @@ impl Draw<'_> {
         for c in s.chars() {
             match self.text.glyphs.get(&c) {
                 Some(&(u, v, w)) => {
-                    self.q(Tex::Font, [u, v, w, 32.0], [x, y, w * k, size], rgb, 128.0);
+                    // B570: up to 2 px of the glyph's own clear cell either side, so a narrow glyph (an i) set small
+                    // still spans a pixel; a quad under a pixel wide rounds away on a low-res window
+                    let (l, r) = ((u % 32.0).min(2.0), (32.0 - u % 32.0 - w).clamp(0.0, 2.0));
+                    self.q(Tex::Font, [u - l, v, w + l + r, 32.0], [x - l * k, y, (w + l + r) * k, size], rgb, 128.0);
                     x += (w + 2.0) * k;
                 }
                 None => x += 10.0 * k,
@@ -3874,7 +3896,7 @@ mod tests {
         let pad = Dev::Pad(Entity::from_raw_u32(9).unwrap());
         let mut m = Menu { screen: Screen::Chars, doubles: true, seats: [Some(Dev::Keys), Some(pad), None, None], ..default() };
         m.step(Dev::Keys, ok);
-        assert_eq!(m.driven(Dev::Keys), Some(0), "2P not ready yet");
+        assert_eq!((m.driven(Dev::Keys), m.driven(pad)), (Some(2), Some(1)), "B572: 1P on 3P's computer while 2P picks");
         m.step(pad, ok);
         assert_eq!((m.driven(Dev::Keys), m.driven(pad)), (Some(2), Some(2)));
         m.step(pad, ok);
@@ -3979,7 +4001,7 @@ mod tests {
         assert!(m.players[0].ready && !m.blocked(1));
         assert_eq!(m.players[1].costume, 1);
         m.step(pad, press(|p| &mut p.down));
-        assert_eq!((m.players[1].char(), m.players[1].costume), (2, 0));
+        assert_eq!((m.players[1].char(), m.players[1].costume), (4, 0));
         m.step(pad, press(|p| &mut p.up));
         assert_eq!((m.players[1].char(), m.players[1].costume), (0, 1));
         m.step(pad, press(|p| &mut p.prev));
@@ -3990,9 +4012,9 @@ mod tests {
         assert!(m.players[1].ready);
         // 1P now picks the computer's 3P: Cody; the open 4P starts on Cody too (B346), his next free costume
         assert_eq!(m.driven(Dev::Keys), Some(2));
-        // (the grid two across here: ← the Random card, ↓ Cody)
+        // (from Jun, ← onto Cody)
+        m.players[2].cursor = GRID.iter().position(|g| g.0 == 2).unwrap();
         m.step(Dev::Keys, press(|p| &mut p.left));
-        m.step(Dev::Keys, press(|p| &mut p.down));
         m.step(Dev::Keys, ok);
         // B258: then the open 4P's COM card
         assert_eq!(m.driven(Dev::Keys), Some(3));
@@ -4058,6 +4080,44 @@ mod tests {
         assert_eq!((m.players[1].cursor, m.players[1].random, m.players[1].costume), (3, false, 1));
         m.step(Dev::Keys, ok);
         assert_eq!((m.players[2].cursor, m.players[2].costume), (3, 2));
+    }
+
+    /// B572: a ready human picks for the computer players while another human is still choosing: 1P readies, then
+    /// readies 3P's computer while 2P is on the grid; 2P's pick doesn't reset it, and 2P then picks for 4P. ○ while
+    /// picking for a computer undoes a computer's pick or the driver's own, never the other human's.
+    #[test]
+    fn bots_pick_while_another_human_chooses() {
+        let ok = press(|p| &mut p.ok);
+        let back = press(|p| &mut p.back);
+        let pad = Dev::Pad(Entity::from_raw_u32(9).unwrap());
+        let mut m = Menu { screen: Screen::Chars, doubles: true, seats: [Some(Dev::Keys), Some(pad), None, None], bots: [false, false, true, true], ..default() };
+        m.players[0].cursor = 3;
+        m.step(Dev::Keys, ok);
+        assert_eq!((m.driven(Dev::Keys), m.driven(pad)), (Some(2), Some(1)), "1P on 3P's computer, 2P still on its own");
+        assert_eq!((m.players[2].cursor, m.players[2].costume), (3, 1), "3P carried 1P's pick");
+        // ○ on 3P's card with no computer ready: 1P's own pick, not 2P's
+        m.step(Dev::Keys, back);
+        assert!(!m.players[0].ready && !m.players[1].ready);
+        m.step(Dev::Keys, ok);
+        m.step(Dev::Keys, press(|p| &mut p.right));
+        let cursor = m.players[2].cursor;
+        m.step(Dev::Keys, ok);
+        assert!(m.players[2].ready, "3P's computer ready before 2P picked");
+        assert_eq!(m.driven(Dev::Keys), Some(3));
+        m.step(Dev::Keys, press(|p| &mut p.right));
+        let four = m.players[3];
+        // 2P readies: 4P's card (1P's, mid-pick) stays as it is, 2P picks for it too
+        m.step(pad, ok);
+        assert_eq!(m.screen, Screen::Chars);
+        assert_eq!((m.players[3].cursor, m.players[3].random, m.players[3].costume), (four.cursor, four.random, four.costume));
+        assert_eq!(m.driven(pad), Some(3));
+        // ○ from 2P: the computer's pick (3P), not 1P's or 2P's
+        m.step(pad, back);
+        assert!(m.players[0].ready && m.players[1].ready && !m.players[2].ready);
+        assert_eq!(m.players[2].cursor, cursor);
+        m.step(pad, ok);
+        m.step(Dev::Keys, ok);
+        assert_eq!(m.screen, Screen::Confirm);
     }
 
     /// B346: a local select opens with 1P on the Random card (not Ashley); in doubles the open seats' COM cards then
@@ -4503,7 +4563,7 @@ mod tests {
 
     /// B368: the select's player columns at any aspect, 1 to 4 of them: side by side in the view, apart, over the
     /// legend strip; each part of a column inside its card, in order down it; tiles square on screen, filling the grid's
-    /// width, at least a row on view; at 16:9 13 / 6 / 4 / 3 a row (the mockup's).
+    /// width, at least a row on view; at 16:9 18 / 8 / 5 / 5 a row (M128: at least 5).
     #[test]
     fn select_fits_the_window() {
         use super::super::widescreen::{share, vplace, vshare};
@@ -4522,7 +4582,12 @@ mod tests {
                     assert!(card[0] >= -ex && card[0] + card[2] <= 640.0 + ex + 1e-3 && card[1] >= -ey, "{a} {n} {card:?}");
                     let (t, h) = vplace(card[1], card[3], a, Anchor::Centre);
                     assert!(t + h <= legend + 1e-3, "{a} {n} {card:?}");
-                    let rows = [at.head, at.pills, at.preview, at.grid, at.foot];
+                    let rows = [at.head, at.top, at.grid, at.foot];
+                    // M128: the thumbnail, then the words, pills, style and grades beside it, in the top
+                    for r in [at.preview, at.info, at.pills] {
+                        assert!(inside(r, at.top) && r[2] > 0.0, "{a} {n} {p}: {r:?} in {:?}", at.top);
+                    }
+                    assert!(at.preview[0] + at.preview[2] < at.info[0] && inside(at.pills, at.info), "{a} {n} {p}");
                     for (i, r) in rows.iter().enumerate() {
                         assert!(inside(*r, card) && r[3] > 0.0, "{a} {n} {p} part {i} {r:?} in {card:?}");
                         if i > 0 {
@@ -4550,7 +4615,7 @@ mod tests {
                 }
             }
             if (a - 16.0 / 9.0).abs() < 1e-3 {
-                assert_eq!((1..=4).map(|n| roster::columns(g.view, n).cols).collect::<Vec<_>>(), [13, 6, 4, 3]);
+                assert_eq!((1..=4).map(|n| roster::columns(g.view, n).cols).collect::<Vec<_>>(), [18, 8, 5, 5]);
             }
         }
     }
@@ -4657,6 +4722,10 @@ mod tests {
             m.players[3].ready = true;
             let n = drawn(&m, &t, &Bindings::default(), &[], 0, 0.0).out.len();
             assert!(n < POOL * 9 / 10, "{a}: {n} quads");
+            // B577: and with every seat's name picker open on its letter grid
+            m.names.open = std::array::from_fn(|_| Some(names::Picker::Typing("ABCDEF".into(), 0)));
+            let n = drawn(&m, &t, &Bindings::default(), &[], 0, 0.0).out.len();
+            assert!(n < POOL * 9 / 10, "{a} naming: {n} quads");
         }
     }
 

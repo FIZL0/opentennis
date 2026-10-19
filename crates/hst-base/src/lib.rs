@@ -33,6 +33,7 @@ pub mod chat;
 pub mod hud_gamma;
 pub mod inspect;
 pub mod lod;
+pub mod mips;
 pub mod noise;
 pub mod pipelines;
 pub mod jobs;

@@ -215,6 +215,26 @@ impl Loader {
         }
     }
 
+    /// The index `Who::Mod` gives installed mod `m`: its place in the roster, else in [`Loader::extra`] (added at the end
+    /// the first time; B259: with `update`, an updated one's newest files replace its old entry).
+    fn extra_index(&mut self, menu: &Menu, m: &Mod, update: bool) -> usize {
+        if let Some(i) = menu.mods.iter().position(|o| o.dir == m.dir) {
+            return i;
+        }
+        match self.extra.iter().position(|o| o.dir == m.dir) {
+            Some(n) => {
+                if update {
+                    self.extra[n] = m.clone();
+                }
+                menu.mods.len() + n
+            }
+            None => {
+                self.extra.push(m.clone());
+                menu.mods.len() + self.extra.len() - 1
+            }
+        }
+    }
+
     /// Mod index `i` (the roster's, else [`Loader::extra`]'s).
     fn mod_at<'a>(&'a self, menu: &'a Menu, i: usize) -> Option<&'a Mod> {
         menu.mods.get(i).or_else(|| self.extra.get(i.checked_sub(menu.mods.len())?))
@@ -287,7 +307,12 @@ pub(super) fn card(iso: &str, m: &Mod) -> Option<Vec<u8>> {
 /// B133: the select's face icons (each character's costume 0, as the disc grid shows each character's first face;
 /// B160: the disc grid's too; the main screen's pictures' too), read from the face close-ups as they're baked (a mod's own preview PNG: cut from it);
 /// [`ICON_READS`] new ones a frame so a page turn doesn't stall.
-fn icons(menu: Res<Menu>, mut loader: ResMut<Loader>, mut icons: ResMut<super::Icons>, mut images: ResMut<Assets<Image>>, mut failed: Local<HashSet<Who>>) {
+fn icons(menu: Res<Menu>, mut loader: ResMut<Loader>, mut icons: ResMut<super::Icons>, mut images: ResMut<Assets<Image>>, mut failed: Local<HashSet<Who>>, (card, mut baked, mut baker, mut redrawn): (Res<ModCard>, Local<u32>, Option<ResMut<Baker>>, Local<HashSet<Who>>)) {
+    // B571: one that didn't read (caught mid-write, or a drawing since replaced it) is tried again after each drawing
+    if card.baked != *baked {
+        *baked = card.baked;
+        failed.clear();
+    }
     let page: Vec<Who> = match menu.screen {
         // B368: every column's tiles on view
         Screen::Chars => menu.on_view(),
@@ -316,6 +341,15 @@ fn icons(menu: Res<Menu>, mut loader: ResMut<Loader>, mut icons: ResMut<super::I
             }
             None => {
                 failed.insert(w);
+                // B571: a cut or empty file of ours: gone, and drawn again (once a run)
+                if !own && let Some(b) = baker.as_mut().filter(|_| redrawn.insert(w)) {
+                    warn!("{}: its face doesn't read; drawn again", path.display());
+                    forget(&path);
+                    loader.pngs.remove(&(w, 0));
+                    loader.png_order.retain(|k| *k != (w, 0));
+                    b.failed.remove(&(w, 0));
+                    b.queue.push((w, 0));
+                }
             }
         }
     }
@@ -348,6 +382,8 @@ pub(super) fn dir_stamp(dir: &Path) -> String {
     for f in ["mod.json", "store.json"] {
         crate::modfs::read(&dir.join(f)).ok().hash(&mut h);
     }
+    // B569: store mods' face close-ups cut again, sized on the head
+    CUT.hash(&mut h);
     // the folder's name, as its PNGs' names start (`m-<name>-<hash>-<k>.png`)
     let name: String = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default().chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '-' }).collect();
     format!("{name}-{:016x}", h.finish())
@@ -781,14 +817,13 @@ fn bake(
     mut loaded: Local<Option<Key>>,
 ) {
     // B229: on the Mods page only its hovered mod's costume 0 draws
-    let asked = card.want.as_ref().filter(|_| menu.screen == Screen::Mods).map(|m| {
-        // B259: an updated one's newest files
-        let i = menu.mods.iter().position(|o| o.dir == m.dir).or_else(|| loader.extra.iter().position(|o| o.dir == m.dir).inspect(|&n| loader.extra[n] = m.clone()).map(|n| menu.mods.len() + n));
-        (Who::Mod(i.unwrap_or_else(|| {
-            loader.extra.push(m.clone());
-            menu.mods.len() + loader.extra.len() - 1
-        })), 0)
-    });
+    let asked = card.want.as_ref().filter(|_| menu.screen == Screen::Mods).map(|m| (Who::Mod(loader.extra_index(&menu, m, true)), 0));
+    // B571: mods installed since the start (the store's downloads) drawn on the Mods and main pages as they land, so
+    // they join the roster with their faces already baked
+    let fresh: Vec<Key> = match menu.screen {
+        Screen::Mods | Screen::Main => super::mods_screen::unrostered(&menu).into_iter().map(|m| (Who::Mod(loader.extra_index(&menu, m, false)), 0)).collect(),
+        _ => Vec::new(),
+    };
     // the main screen's faces (`home::faces`): drawn there, first shown first, so they fill in without a select visit
     // the Mods page's shown cards' too (`mods_screen::faces`)
     let home: Vec<Key> = match menu.screen {
@@ -808,15 +843,26 @@ fn bake(
         }
         _ => Vec::new(),
     };
-    if !matches!(menu.screen, Screen::Chars | Screen::Assign) && asked.is_none() && home.is_empty() && lent.is_empty() && baker.job.is_none() && baker.warmed {
+    // B571: the roster's tiles on view (their face icons), so a mod's face is drawn the first time the roster shows it,
+    // not after every character before it in the background queue
+    let view: Vec<Key> = match menu.screen {
+        Screen::Chars => menu.on_view(),
+        Screen::Lobby if menu.online() => menu.on_view(),
+        _ => Vec::new(),
+    }
+    .into_iter()
+    .rev()
+    .map(|w| (w, 0))
+    .collect();
+    if !matches!(menu.screen, Screen::Chars | Screen::Assign) && asked.is_none() && home.is_empty() && lent.is_empty() && fresh.is_empty() && view.is_empty() && baker.job.is_none() && baker.warmed {
         return;
     }
-    // a hovered card without a PNG jumps the queue
+    // a hovered card without a PNG jumps the queue (the tiles on view next, then the new installs)
     let now: Vec<Key> = match menu.screen {
-        Screen::Chars | Screen::Assign => (0..menu.players()).map(|p| menu.pick(p)).collect(),
-        Screen::Main => home.iter().rev().copied().collect(),
-        Screen::Mods => home.iter().rev().copied().chain(asked).collect(),
-        Screen::Lobby | Screen::Confirm => lent.clone(),
+        Screen::Chars | Screen::Assign => view.iter().copied().chain((0..menu.players()).map(|p| menu.pick(p))).collect(),
+        Screen::Main => fresh.iter().rev().chain(home.iter().rev()).copied().collect(),
+        Screen::Mods => fresh.iter().rev().chain(home.iter().rev()).copied().chain(asked).collect(),
+        Screen::Lobby | Screen::Confirm => view.iter().chain(&lent).copied().collect(),
         _ => asked.into_iter().collect(),
     };
     for k in &now {
@@ -898,7 +944,11 @@ fn bake(
     if baker.fetching {
         let Some((key, path, png)) = baker.got.lock().unwrap().take() else { return };
         baker.fetching = false;
-        if png.is_some_and(|b| from_store(&b, &path)) {
+        let head = match key.0 {
+            Who::Mod(i) => loader.mod_at(&menu, i).and_then(|m| crate::mods::head_height(m, 0)),
+            Who::Disc(_) => None,
+        };
+        if png.is_some_and(|b| from_store(&b, &path, head)) {
             loader.pngs.remove(&key);
             loader.png_order.retain(|k| *k != key);
             card.baked += 1;
@@ -906,7 +956,7 @@ fn bake(
     }
     // the next key without a PNG
     while let Some(&key) = baker.queue.last() {
-        if menu.screen != Screen::Chars && Some(key) != asked && !home.contains(&key) && !lent.contains(&key) && baker.warmed {
+        if menu.screen != Screen::Chars && Some(key) != asked && !home.contains(&key) && !lent.contains(&key) && !fresh.contains(&key) && !view.contains(&key) && baker.warmed {
             return;
         }
         let path = loader.path(key, &menu);
@@ -1012,6 +1062,14 @@ fn save(rgba: Vec<u8>, size: UVec2, path: &Path) -> bool {
     }
 }
 
+/// Bumped when how a mod's card or face close-up is made changes, so every mod's is made again.
+const CUT: u32 = 1;
+
+/// B569: a drawn head's hair-to-bone height over its rest height ([`crate::mods::head_height`]): the preview's pose bows the
+/// head a little. The median over every store mod's second costume, its bone-framed close-up against its rest height
+/// (±4% for most; hair spikes and hats off the bone's column make a few up to 25% looser).
+const HEAD_BOW: f32 = 0.96;
+
 /// B160: a baked preview's face close-up beside it (`d05-0.png` → `d05-0-face.png`).
 fn face_path(preview: &Path) -> PathBuf {
     let stem = preview.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -1019,13 +1077,19 @@ fn face_path(preview: &Path) -> PathBuf {
 }
 
 /// B335: a store mod's listing picture (`preview.png`, the uploader's baked card) as `path`'s drawing at this
-/// device's size and its close-up (the head found by [`inspect::face_square`] without a head bone).
-fn from_store(png: &[u8], path: &Path) -> bool {
+/// device's size and its close-up (the head found by [`inspect::face_square`] without a head bone). B569: sized on
+/// the costume's head, `head` m above its head bone at rest ([`crate::mods::head_height`]), as the bone frames a drawn one
+/// (a fixed square cut Get a Grip's big heads at the chin).
+fn from_store(png: &[u8], path: &Path, head: Option<f32>) -> bool {
     use image::imageops::{self, FilterType};
     let Ok(img) = image::load_from_memory_with_format(png, image::ImageFormat::Png) else { return false };
     let (bake, face) = sizes();
     let img = imageops::resize(&img.into_rgba8(), bake.x, bake.y, FilterType::Triangle);
-    let Some(sq) = inspect::face_square(&img, None) else { return false };
+    let sq = match head {
+        Some(m) => inspect::face_square_sized(&img, m * HEAD_BOW * inspect::metre_px(bake.as_vec2())),
+        None => inspect::face_square(&img, None),
+    };
+    let Some(sq) = sq else { return false };
     let head = imageops::resize(&imageops::crop_imm(&img, sq.min.x, sq.min.y, sq.width(), sq.height()).to_image(), face.x, face.y, FilterType::Triangle);
     save(head.into_raw(), face, &face_path(path)) && save(img.into_raw(), bake, path)
 }
@@ -1058,8 +1122,23 @@ fn read(path: &Path) -> Option<Vec<u8>> {
 fn write(path: &Path, png: Vec<u8>) -> std::io::Result<()> {
     #[cfg(target_arch = "wasm32")]
     return crate::web::put_card(card_name(path), png);
+    // B571: written whole, then named: a run quit mid-write left a cut PNG that counted as baked and never decoded
     #[cfg(not(target_arch = "wasm32"))]
-    std::fs::write(path, png)
+    {
+        let part = path.with_extension("png.part");
+        std::fs::write(&part, png)?;
+        std::fs::rename(&part, path)
+    }
+}
+
+/// B571: drop a cached drawing and its close-up that don't decode, so the baker draws them again.
+fn forget(path: &Path) {
+    #[cfg(not(target_arch = "wasm32"))]
+    for p in [face_path(path), path.to_path_buf()] {
+        let _ = std::fs::remove_file(p);
+    }
+    #[cfg(target_arch = "wasm32")]
+    crate::web::cards_drop(|n| n == card_name(path) || n == card_name(&face_path(path)));
 }
 
 /// A cache path's OPFS file name (no folders there): `<folder>~<file>`.
@@ -1324,11 +1403,63 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("hst-b335-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("m-x-0.png");
-        assert!(from_store(&png, &path) && !from_store(b"not a png", &dir.join("m-y-0.png")));
+        assert!(from_store(&png, &path, None) && !from_store(b"not a png", &dir.join("m-y-0.png"), None));
         let dims = |p: &Path| image::open(p).unwrap().into_rgba8().dimensions();
         assert_eq!(dims(&path), (BAKE.x, BAKE.y));
         assert_eq!(dims(&face_path(&path)), (FACE.x, FACE.y));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// B571: a drawing is written whole (no `.part` left), and one that doesn't read is forgotten with its close-up,
+    /// so it's baked again.
+    #[test]
+    fn a_cut_drawing_is_baked_again() {
+        let dir = std::env::temp_dir().join(format!("hst-b571-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("m-x-0.png");
+        write(&path, b"whole".to_vec()).unwrap();
+        assert!(cached(&path) && !path.with_extension("png.part").exists());
+        write(&face_path(&path), b"cut".to_vec()).unwrap();
+        assert!(face_from(&path, 64).is_none());
+        forget(&path);
+        assert!(!cached(&path) && !cached(&face_path(&path)));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// B571: a mod installed since the start gets its own index after the roster (the same one each frame), which the
+    /// baker draws on the Mods and main pages; a roster mod keeps its place.
+    #[test]
+    fn a_new_install_is_drawn_before_it_joins_the_roster() {
+        let m = |id: &str| Mod {
+            dir: PathBuf::from("mods").join(id),
+            id: id.into(),
+            name: id.into(),
+            source: String::new(),
+            costumes: vec!["model/c00.glb".into()],
+            donor: 0,
+            hand: 1.0,
+            base: 0,
+            overrides: Vec::new(),
+            ai_row: 0,
+            texture_face: false,
+            no_face: false,
+            voice: String::new(),
+            motions: None,
+            costume_of: None,
+            skeleton: None,
+            upscale: true,
+        };
+        let mut menu = Menu { screen: Screen::Mods, ..default() };
+        menu.mods = vec![m("a")];
+        menu.add.set_list(vec![m("a"), m("b")]);
+        let (tx, _) = std::sync::mpsc::channel();
+        let (_, rx) = std::sync::mpsc::channel();
+        let mut loader = Loader { ask: tx, done: Mutex::new(rx), asked: default(), models: default(), model_order: default(), pngs: default(), png_order: default(), dir: PathBuf::new(), stamps: default(), extra: Vec::new() };
+        let new: Vec<_> = super::super::mods_screen::unrostered(&menu).into_iter().cloned().collect();
+        assert_eq!(new.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["b"]);
+        assert_eq!((loader.extra_index(&menu, &new[0], false), loader.extra_index(&menu, &new[0], false)), (1, 1));
+        assert_eq!(loader.extra_index(&menu, &menu.mods[0].clone(), true), 0);
+        assert_eq!(loader.mod_at(&menu, 1).map(|m| m.id.as_str()), Some("b"));
     }
 
     /// A card's load (B102) has the preview's motions (B460: and the lobby's other two emotes), the same as a full load's, for every disc character.

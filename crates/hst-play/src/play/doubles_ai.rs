@@ -25,6 +25,9 @@ pub(super) struct Shared {
     /// The path's line gap (B57): the distance to the nearest line of the last landing that went from no call to
     /// out; kept across paths and points as the original's.
     gap: f32,
+    /// Each player's smash stand offset sideways (`smash_side`); worked out once, again after a snapshot load.
+    #[serde(skip)]
+    smash_x: Vec<f32>,
 }
 
 #[cfg(test)]
@@ -36,6 +39,21 @@ fn no_cache() -> bool {
     return NO_CACHE.load(std::sync::atomic::Ordering::Relaxed);
     #[cfg(not(test))]
     false
+}
+
+/// Player `i`'s smash stand offset sideways: as the original measures it at load, the smash motion's racket point
+/// at its contact frame (x; its z is the reach's `smash_ahead`). A player without the motion keeps the measured
+/// value of the stock smash.
+fn smash_side(g: &mut Game, i: usize) -> f32 {
+    if g.doubles_ai.smash_x.len() != g.players.len() {
+        let x = |k: usize| {
+            let d = g.data.get(k)?;
+            let clip = d.motions.get(&(hst_sim::motion::id::SMASH as usize))?;
+            Some(hst_sim::serve::serve_arm(&d.skeleton, clip, None, false).point[0])
+        };
+        g.doubles_ai.smash_x = (0..g.players.len()).map(|k| x(k).unwrap_or(-0.067)).collect();
+    }
+    g.doubles_ai.smash_x[i]
 }
 
 /// The predicted ball path from now (or, for a held ball, what to step it from), and (B57) the path's mode and gap.
@@ -204,6 +222,7 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     if let Some(dir) = g.players[i].approach {
         locomote(g, i, dir);
     }
+    let smash_x = smash_side(g, i);
     let p = g.players[i];
     let busy = p.contact.is_some() || p.pending.is_some() || p.swing.is_some() || p.whiff.is_some() || p.dive.is_some();
     // singles: no partner (its own spot), one opponent
@@ -224,10 +243,8 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
         tick: p.body.stamina_tick,
         run: p.body.run,
         moving: p.body.running as u8,
-        // ponytail: character 0's contact depth and smash stand offset (x measured on the recording); per character
-        // from the skeleton (P11k6)
         depth: r.ahead,
-        smash_off: [-0.067, r.smash_ahead],
+        smash_off: [smash_x, r.smash_ahead],
         control: CPU,
         formation: p.formation,
         swing: p.contact.map_or(-1, |c| c.frames as i32),
@@ -490,6 +507,7 @@ pub(super) fn human(g: &mut Game, i: usize) {
         (d.frame, d.stepped) = (d.frame + 1, 0);
     }
     d.stepped |= 1 << i;
+    let smash_x = smash_side(g, i);
     let p = g.players[i];
     let r = &g.reaches[i];
     let b = Body {
@@ -506,7 +524,7 @@ pub(super) fn human(g: &mut Game, i: usize) {
         run: p.body.run,
         moving: p.body.running as u8,
         depth: r.ahead,
-        smash_off: [-0.067, r.smash_ahead],
+        smash_off: [smash_x, r.smash_ahead],
         control: CPU,
         reach: loco::ReachStats {
             base: r.base,
@@ -717,5 +735,25 @@ mod tests {
         });
         eprintln!("first dive at frame {dove:?}");
         assert!(dove.is_some(), "no bot dove in 4 minutes");
+    }
+
+    /// B574: each player's smash stand offset sideways is its own, bit for bit as the original measures it at load
+    /// (slot 3's characters, read from each player object there); the AI used one character's for everyone.
+    #[test]
+    fn smash_side_per_character() {
+        if !std::path::Path::new(ISO).is_file() {
+            return eprintln!("no ISO, skipped");
+        }
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+        app.insert_resource(Args { iso: ISO.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 4, stage: None, play: true, singles: false, chars: vec![6, 4, 3, 11], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 6, pads: None });
+        app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
+        app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
+        app.add_systems(Startup, setup);
+        app.update();
+        let g = &mut *app.world_mut().resource_mut::<Game>();
+        let x: Vec<u32> = (0..4).map(|i| smash_side(g, i).to_bits()).collect();
+        assert_eq!(x, [0xbd75_cdd6, 0xbd89_49e8, 0xbdc8_5d9e, 0xbd03_01a8]);
     }
 }

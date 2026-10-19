@@ -435,7 +435,7 @@ fn start(argv: Vec<String>) {
     if bg {
         app.insert_resource(GlobalVolume::new(bevy::audio::Volume::SILENT));
     }
-    app.add_plugins((audio::plugin, gs::plugin, shadow::plugin, court_anim::plugin, effects::plugin, textures::plugin, hud_gamma::plugin, weather::plugin));
+    app.add_plugins((audio::plugin, gs::plugin, shadow::plugin, court_anim::plugin, effects::plugin, textures::plugin, hud_gamma::plugin, weather::plugin, mips::plugin));
     app.add_plugins(asset_use::plugin);
     app.add_plugins(shade::plugin);
     app.add_plugins(cull::plugin);

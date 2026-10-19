@@ -490,7 +490,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(PostUpdate, follow_camera.before(bevy::transform::TransformSystems::Propagate))
         .add_systems(PostUpdate, call_camera_on.after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate))
         .add_systems(FixedUpdate, (tick_calls, tick_banners, tick_result, tick_speed).after(super::simulate))
-        .add_systems(FixedUpdate, point_jingle.after(super::simulate))
+        .add_systems(FixedUpdate, (point_jingle, tiebreak_chime).after(super::simulate))
         .init_resource::<ResultBanner>();
 }
 
@@ -1415,6 +1415,23 @@ fn point_jingle(
     let (Some(PointBank(Some(b))), Some(sound)) = (bank.as_deref(), sound) else { return };
     if played.first(heard.tick, ("point jingle", speed.to_bits())) {
         sound.play_centre(b, hst_sim::sound::Play { slot: 9, program: 0, key: 13, volume: 0x40, speed });
+    }
+}
+
+/// The tiebreak show's chime as the new points flash in, once per tick heard (`heard`).
+fn tiebreak_chime(
+    g: Res<Game>,
+    bank: Option<Res<crate::audio::CourtBank>>,
+    sound: Option<Res<crate::audio::Sound>>,
+    heard: Res<super::heard::Heard>,
+    mut played: ResMut<super::heard::Played>,
+) {
+    if !g.post.as_ref().and_then(|p| p.show()).is_some_and(|s| s.tiebreak_chime()) {
+        return;
+    }
+    let (Some(crate::audio::CourtBank(Some(b))), Some(sound)) = (bank.as_deref(), sound) else { return };
+    if played.first(heard.tick, "tiebreak chime") {
+        sound.play_centre(b, hst_sim::sound::TIEBREAK_CHIME);
     }
 }
 

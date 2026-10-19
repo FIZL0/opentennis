@@ -157,8 +157,8 @@ fn about(o: Opt) -> &'static str {
         ShowFps => "Show the frame rate in the bottom-left corner, in the menus and in a match. Detailed: where each frame's time goes (game, simulation, rendering, waiting on the GPU/browser), meshes drawn and the renderer.",
         KeyHints => "Show the keyboard's keys at the bottom during a match while you play on the keyboard.",
         ButtonIcons => "The controller buttons the hints show. Auto: each controller's own (PlayStation, Switch, Steam Deck, else Xbox); or the same set for every controller.",
-        Preset => "High draws at full quality with every speed-up off; Default looks the same with Fewer Shadows and Skip Off-Screen on; Steam Deck, Low and Phone trade detail for frame rate; Lowest is the cheapest (half resolution, no shadows, simpler characters) for the weakest devices. Auto picks one for this device, then times the first seconds of each match and lowers the resolution and shadows until it holds 60 fps.",
-        Scale => "Draw the court at this share of the window's resolution, scaled up to fill it (the HUD stays sharp).",
+        Preset => "High draws at full quality with every speed-up off; Default looks the same with Fewer Shadows and Skip Off-Screen on; Steam Deck looks like High with vsync and the speed-ups on; Low and Phone trade detail for frame rate; Lowest is the cheapest (half resolution, no shadows, simpler characters) for the weakest devices. Auto picks one for this device, then times the first seconds of each match and lowers the resolution and shadows until it holds 60 fps.",
+        Scale => "Draw the court at this share of the window's resolution, scaled up to fill it (the HUD stays sharp). Above 100 % draws it larger and scales it down: smoother edges, more work for the graphics card.",
         Shadows => "Off, or the shadow map's detail (Low: one cascade, and only what shades the court casts).",
         Msaa if locked(o) => "Off on WebGL2: anti-aliasing makes the browser build every drawing setup a second time, which stalls the first match for seconds. WebGPU (Display → Renderer) or the desktop app has it.",
         Msaa => "Smooth the court's jagged edges (MSAA): off, 2x or 4x samples per pixel.",
@@ -269,7 +269,7 @@ fn hint(o: Opt, c: &str) -> &'static str {
     match (o, c) {
         (Preset, "High") => "full quality, no speed-ups",
         (Preset, "Default") => "High with speed-ups on",
-        (Preset, "Steam Deck") => "tuned for the Deck",
+        (Preset, "Steam Deck") => "High's look, vsync, speed-ups",
         (Preset, "Low") => "less detail, more fps",
         (Preset, "Lowest") => "half res, no shadows",
         (Preset, "Phone") => "for phones and tablets",
@@ -1412,7 +1412,7 @@ mod tests {
     }
 
     /// Menu Size: at 60% on a 16:9 view the 640×448 screen is 60% of its 100% size, centred, its own shape; a tap
-    /// lands on the scaled rect, not where it was at 100%; Auto is 80% past 1440 px tall; it round-trips settings.txt.
+    /// lands on the scaled rect, not where it was at 100%; Auto is 80% past a 1440-logical-px screen; it round-trips settings.txt.
     #[test]
     fn menu_size_scales_centred() {
         use super::super::super::widescreen::{menu_shares, place, vplace_in};
@@ -1429,9 +1429,9 @@ mod tests {
         assert_eq!(at(0.14, 0.02, 0.6), None);
         assert_eq!(at(0.14, 0.02, 1.0), Some(pointer::Act::Tab(0)));
         let mut set = Settings::default();
-        assert_eq!((set.menu_scale(1440), set.menu_scale(2160), set.value(MenuSize).as_str()), (1.0, 0.8, "Auto"));
+        assert_eq!((set.menu_scale(1440.0), set.menu_scale(2160.0), set.value(MenuSize).as_str()), (1.0, 0.8, "Auto"));
         set.step(MenuSize, 1);
-        assert_eq!((set.menu_scale(2160), set.value(MenuSize).as_str()), (0.5, "50%"));
+        assert_eq!((set.menu_scale(2160.0), set.value(MenuSize).as_str()), (0.5, "50%"));
         set.step(MenuSize, -1);
         set.step(MenuSize, -1);
         assert_eq!(set.value(MenuSize), "150%");

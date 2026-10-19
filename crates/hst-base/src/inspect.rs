@@ -559,7 +559,21 @@ pub fn face_square(img: &image::RgbaImage, head: Option<Vec2>) -> Option<URect> 
         let y0 = top.saturating_sub(s * 7 / 100).min(h - s);
         return Some(URect::new(x0, y0, x0 + s, y0 + s));
     }
-    let s = ICON_CROP.min(w).min(h);
+    picture_square(img, ICON_CROP, |_| 2)
+}
+
+/// B569: [`face_square`] of a picture (no head bone) of a head `height` px from its top to the head bone, framed as
+/// the bone would: [`HEAD_FIT`] × that, its top a little above the hair. None if nothing drew.
+pub fn face_square_sized(img: &image::RgbaImage, height: f32) -> Option<URect> {
+    picture_square(img, (HEAD_FIT * height) as u32, |s| s * 7 / 100)
+}
+
+/// B133's square of side `side` in a picture: centred on the head found from the body's column, `margin(side)` px
+/// above the head's top.
+fn picture_square(img: &image::RgbaImage, side: u32, margin: impl Fn(u32) -> u32) -> Option<URect> {
+    let (w, h) = img.dimensions();
+    let opaque = |x: u32, y: u32| x < w && y < h && img.get_pixel(x, y)[3] > 0;
+    let s = side.max(16).min(w).min(h);
     let median = |rows: std::ops::Range<u32>, cols: std::ops::Range<u32>| {
         let mut xs: Vec<u32> = rows.flat_map(|y| cols.clone().filter(move |&x| opaque(x, y))).collect();
         xs.sort_unstable();
@@ -573,8 +587,13 @@ pub fn face_square(img: &image::RgbaImage, head: Option<Vec2>) -> Option<URect> 
     let left = body.saturating_sub(s / 2);
     let cx = median((top + s / 4).min(h)..(top + s * 3 / 4).min(h), left..(left + s).min(w)).unwrap_or(body);
     let x0 = cx.saturating_sub(s / 2).min(w - s);
-    let y0 = top.saturating_sub(2).min(h - s);
+    let y0 = top.saturating_sub(margin(s)).min(h - s);
     Some(URect::new(x0, y0, x0 + s, y0 + s))
+}
+
+/// B569: pixels a metre spans at the preview's model (its spot 8 m out) in a `size` image drawn with [`CROP`].
+pub fn metre_px(size: Vec2) -> f32 {
+    FOCAL.y / 8.0 * size.y / widen(CROP, size).1.y
 }
 
 /// B219: `sq` grown `f`× about its centre, kept inside a `w`×`h` image (Ashley's wide, short head: [`HEAD_FIT`] on

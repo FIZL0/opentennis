@@ -417,7 +417,9 @@ pub(super) fn draw(d: &mut Draw, m: &Menu, p: usize, [x, y, w, h]: [f32; 4]) {
             for (i, c) in KEYS.iter().enumerate().filter(|_| grid) {
                 let (kx, ky) = (ix + kw * (i % COLS) as f32, top + kh * (i / COLS) as f32);
                 let on = *sel == i;
-                d.box3([kx + 1.0, ky + 1.0, kw - 2.0, kh - 2.0], 4.0, [Some(INK), None, Some(if on { ON } else { OFF })], 128.0);
+                // B577: one rounded quad a layer (a nine-sliced box is 18 a key): four open grids over a full select
+                // stay inside the menu's quad pool
+                super::roster::ringed(d, [kx + 1.0, ky + 1.0, kw - 2.0, kh - 2.0], 6.0, 1.5, INK, if on { ON } else { OFF });
                 let c = if m.names.lower[p] { c.to_ascii_lowercase() } else { *c };
                 let label = if c == b' ' { "_".to_string() } else { (c as char).to_string() };
                 d.label(&label, kx + kw / 2.0, ky + kh * 0.15, kh * 0.7, kw - 4.0, if on { WHITE } else { [100.0; 3] });

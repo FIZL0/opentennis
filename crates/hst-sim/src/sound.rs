@@ -645,6 +645,9 @@ pub const CHANGE_ENDS_CALL: Play = play(slot::UMPIRE, umpire::CALL, 3, FULL);
 pub const TIEBREAK_CALL: Play = play(slot::UMPIRE, umpire::CALL, 0, FULL);
 /// The umpire's match call, once the scoreboard has shown the match point (the match ends when it is over).
 pub const MATCH_CALL: Play = play(slot::UMPIRE, umpire::CALL, 4, FULL);
+/// The tiebreak score show's chime (court bank program 0 key 2, not placed), as its roll ends and the new points
+/// flash in (`flow::ShowState::tiebreak_chime`). Plain points and a tiebreak deuce roll without it.
+pub const TIEBREAK_CHIME: Play = play(slot::COURT, 0, 2, FULL);
 
 /// The umpire's score after a point that wins no game (program 0 keys, in order): one word at deuce (9; 13 for the
 /// game's second deuce except on court 5), "advantage" (10) then the server's (11) or the receiver's (12) by who
