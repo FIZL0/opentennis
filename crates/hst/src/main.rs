@@ -200,6 +200,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
         umpire = u.donor;
     }
     // M8f6: a court mod plays on its layout court (`--stage`/`--court` default to it)
+    mods_court::OPEN.store(court_mod.is_some() || court_mod_id.is_some(), std::sync::atomic::Ordering::Relaxed);
     let court_mod = match (court_mod, court_mod_id) {
         (Some(dir), _) => mods_court::read(dir.as_ref()).map_err(|e| warn!("{e}")).ok(),
         // M8f8: an online room's, by id; not installed (or another layout) → the disc court the room plays on

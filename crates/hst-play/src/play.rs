@@ -1139,7 +1139,13 @@ fn disc(
     (
         (game.line_margin(), hst_sim::shot::Margins { lines, angle }),
         game.scoreboard_timing(0, umpire_n),
-        (court::world(iso, n), court::materials(&game)),
+        (
+            match crate::mods_court::OPEN.load(std::sync::atomic::Ordering::Relaxed) {
+                true => court::open(court::world(iso, n)),
+                false => court::world(iso, n),
+            },
+            court::materials(&game),
+        ),
         params,
         umpire,
     )

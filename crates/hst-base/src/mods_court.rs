@@ -15,6 +15,10 @@ use crate::mods::Kind;
 /// The disc courts (`layout` 0..=10).
 pub const DISC: u8 = 11;
 
+/// A court mod is in play (`--court-mod`, or an online room's `--court-mod-id`, installed or not, so both peers
+/// agree): the ball collides with the layout court's ground and net only (`hst_sim::court::open`), not its scenery.
+pub static OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The manifest's `light` (game space, Y down; colours linear 0..1).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Light {

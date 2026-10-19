@@ -135,3 +135,22 @@ pub fn world(iso: &mut Iso, n: u32) -> World {
     }
     World { models, court, props, grid: world::grid(&spheres) }
 }
+
+/// A court mod's view of disc court `w` (its layout): the mod draws its own scenery, so the disc's walls, stands,
+/// trees and chair would be invisible walls to the ball. Keeps the court model's ground (faces turned up or down,
+/// no more than 0.5 m above the court; game space is Y down) and the net, the prop at the centre.
+// ponytail: the mod's own scenery doesn't collide (its glb has no collision); add a mod collision mesh if wanted
+pub fn open(mut w: World) -> World {
+    let court = &mut w.models[w.court.model];
+    court.tris.retain(|t| {
+        let [a, b, c] = t.pos;
+        let (e, f) = ([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);
+        let n = [e[1] * f[2] - e[2] * f[1], e[2] * f[0] - e[0] * f[2], e[0] * f[1] - e[1] * f[0]];
+        let flat = n[1] * n[1] > 0.81 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        flat && t.pos.iter().all(|v| v[1] > -0.5)
+    });
+    w.props.retain(|p| p.center[0].abs() < 1.0 && p.center[2].abs() < 1.0);
+    let spheres: Vec<_> = w.props.iter().enumerate().map(|(i, p)| (i, p.center, p.radius * p.scale)).collect();
+    w.grid = world::grid(&spheres);
+    w
+}

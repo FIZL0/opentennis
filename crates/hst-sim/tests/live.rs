@@ -267,6 +267,25 @@ fn every_court_builds_its_world() {
 }
 
 #[test]
+fn a_court_mod_keeps_only_the_ground_and_net() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
+        return eprintln!("disc missing, skipped");
+    };
+    // game space, Y down: the ball's centre 1 m up, radius 3.5 cm
+    let (r, at) = (0.035, |x: f32, y: f32, z: f32| [x, y, z, 1.0]);
+    for n in 1..=11 {
+        let w = court::open(court::world(&mut iso, n));
+        assert!(w.sweep(at(1.0, -1.0, 5.0), at(1.0, 0.5, 5.0), r, &[]).is_some(), "court {n}: no ground");
+        assert!(w.sweep(at(1.0, -0.5, 3.0), at(1.0, -0.5, -3.0), r, &[]).is_some(), "court {n}: no net");
+        // out past the baselines and the sidelines: the disc's walls, stands and trees are gone
+        for (from, to) in [(at(0.0, -1.0, 13.0), at(0.0, -1.0, 80.0)), (at(0.0, -1.0, -13.0), at(0.0, -1.0, -80.0)), (at(7.0, -1.0, 5.0), at(80.0, -1.0, 5.0)), (at(-7.0, -1.0, 5.0), at(-80.0, -1.0, 5.0))] {
+            assert!(w.sweep(from, to, r, &[]).is_none(), "court {n}: a wall toward {to:?}");
+        }
+    }
+}
+
+#[test]
 fn net_touch_keeps_the_predicted_contacts() {
     // On a net touch the game re-seeds its predicted path (`*(gm+0x98)`, the second ball object of each sample)
     // from the live ball but keeps the court contacts the old prediction had reached: in a rally those are 2,
