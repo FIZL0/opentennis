@@ -6,3 +6,4 @@
 - On the character select, switching between singles and doubles keeps the computer player you were picking for on the character you had chosen, and keeps each roster scrolled to its character.
 - On the character select, emoting while picking for a computer player now plays the emote on that computer's card instead of your own.
 - New Markers setting next to Sets and Games: turn it Off to hide the red and yellow shot markers. Online, the host's choice applies to everyone.
+- A player who loses the point while still in a missed swing now walks away facing the way they're going instead of sliding sideways.

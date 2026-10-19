@@ -2998,9 +2998,9 @@ fn whiff(g: &mut Game, i: usize, miss: bool, quiet: bool) {
     p.whiff = Some(motion::Whiff::new(anim, miss, quiet));
     set_motion(p, anim, 1.0, false, None);
     p.vel = Vec2::ZERO;
-    // the stroke state ends the run: freed, the run counter starts again from 0, no dash carried over (B59)
-    p.body.running = false;
-    p.facing = base_yaw(p.end);
+    // the stroke state ends the run: freed, the run counter starts again from 0, no dash carried over (B59); the
+    // body squares up too, or a point lost mid-miss walks its reaction along the old run direction
+    square_up(p);
 }
 
 /// Every locked swing but `but`'s is cancelled: the ball touched the net (or a hit) after it locked. A dive that
