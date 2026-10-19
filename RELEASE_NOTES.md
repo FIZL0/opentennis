@@ -3,3 +3,5 @@
 - A damaged disc image or a broken mod file is now refused instead of crashing the game.
 - Starting a match straight after picking a character no longer shows the old disc face on the scoreboard: the match waits a moment for the new face to be drawn.
 - In doubles, when the ball hits a player at the same moment a teammate swings at it, whichever happened first now counts: a ball that hits a player can't be returned, and a ball that was just returned can't hit a player.
+- On the character select, switching between singles and doubles keeps each player's roster scrolled to their own character.
+- On the character select, emoting while picking for a computer player now plays the emote on that computer's card instead of your own.

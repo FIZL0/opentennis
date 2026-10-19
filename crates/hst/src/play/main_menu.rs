@@ -1229,7 +1229,7 @@ impl Menu {
     /// across the net (singles' 2P is doubles' 3P); going to singles keeps 1P and the first other human (opponents
     /// first). Picks follow their seats; `keep`: a human's ready pick stays ready, else every card picks again.
     fn swap_mode(&mut self, keep: bool) {
-        let (seats, players) = (self.seats, self.players);
+        let (seats, players, scroll) = (self.seats, self.players, self.scroll);
         let from = if self.doubles {
             let o = [2, 3, 1].into_iter().find(|&q| seats[q].is_some()).unwrap_or(2);
             [Some(0), Some(o), None, None]
@@ -1241,7 +1241,10 @@ impl Menu {
             self.seats[p] = q.and_then(|q| seats[q]);
             let ready = keep && q.is_some_and(|q| seats[q].is_some() && players[q].ready);
             self.players[p] = Player { ready, ..q.map_or_else(Player::fresh, |q| players[q]) };
+            self.scroll[p] = q.map_or(0, |q| scroll[q]);
         }
+        // the columns change width (and tiles per row): every column scrolls back onto its tile
+        self.followed = [None; 4];
         self.focus = 0;
     }
 
