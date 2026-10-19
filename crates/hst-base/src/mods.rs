@@ -1802,13 +1802,19 @@ mod tests {
     /// (the pose plus gravity's sag), then settle back there; the head they hang on is never turned.
     #[test]
     fn oob_hair_swings_and_settles() {
+        // Jasmine: 23 records, 5 of them chain anchors (pinned); Sophie's pigtails and ribbons (B579)
+        for (name, springs) in [("oob_pc00_jasmine", 18), ("oob_pc02_sophie", 32)] {
+            oob_hair_of(name, springs);
+        }
+    }
+
+    fn oob_hair_of(name: &str, springs: usize) {
         let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods/oob_pc00_jasmine");
-        let Ok(m) = read(&dir) else { return eprintln!("no mods/hst-mods/oob_pc00_jasmine, skipped") };
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods").join(name);
+        let Ok(m) = read(&dir) else { return eprintln!("no mods/hst-mods/{name}, skipped") };
         let mut s = Stores(default(), default(), default(), default());
         let c = load(&mut iso, &m, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
-        // 23 records, 5 of them chain anchors (pinned)
-        assert_eq!(c.noise.as_ref().map_or(0, |n| n.springs.len()), 18);
+        assert_eq!(c.noise.as_ref().map_or(0, |n| n.springs.len()), springs, "{name}");
         use bevy::ecs::system::RunSystemOnce;
         let data = std::sync::Arc::new(c);
         let run = |whip: f32| {
@@ -1832,9 +1838,9 @@ mod tests {
         let head = data.joint("Bip01Head").unwrap();
         let apart = |f: usize| calm[f].iter().zip(&whipped[f]).map(|(a, b)| a.angle_between(*b)).fold(0f32, f32::max).to_degrees();
         eprintln!("whipped vs calm, largest joint difference every 10 frames: {:?}", (0..240).step_by(10).map(|f| apart(f).round()).collect::<Vec<_>>());
-        assert!((0..12).any(|f| apart(f) > 5.0), "the hair never trailed");
-        assert!(apart(239) < 0.5, "the hair never settled: {}", apart(239));
-        assert!(whipped.iter().all(|f| f[head] == data.joints[head].rest.rotation), "the hair turned the head");
+        assert!((0..12).any(|f| apart(f) > 5.0), "{name}: the hair never trailed");
+        assert!(apart(239) < 0.5, "{name}: the hair never settled: {}", apart(239));
+        assert!(whipped.iter().all(|f| f[head] == data.joints[head].rest.rotation), "{name}: the hair turned the head");
     }
 
     /// A Get a Grip mod's own reactions (§6 `motions`) are drawn in place of the donor's at the source's own
