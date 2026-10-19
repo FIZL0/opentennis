@@ -21,8 +21,17 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
     match m.screen {
         // B516: the splash's one press (none once 1P is taken)
         // B581: and △ for the New version card's button
-        Screen::Press if m.p1.is_none() && crate::update::latest().is_some() => v.extend([(Act::Ok, "Start"), (Act::Card, crate::update::button())]),
-        Screen::Press if m.p1.is_none() => v.push((Act::Ok, "Start")),
+        Screen::Press if m.quit.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Stay")]),
+        Screen::Press if m.p1.is_none() => {
+            v.push((Act::Ok, "Start"));
+            if crate::update::latest().is_some() {
+                v.push((Act::Card, crate::update::button()));
+            }
+            // ○ asks to quit
+            if super::splash::QUITS {
+                v.push((Act::Back, if cfg!(target_arch = "wasm32") { "Launcher" } else { "Quit" }));
+            }
+        }
         Screen::Press => {}
         // M127: the pad takeover prompt: the asked pad answers, the keyboard's Esc dismisses it
         _ if m.takeover_asking() && m.takeover_asked(dev) => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Keep keyboard")]),

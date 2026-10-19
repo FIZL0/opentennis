@@ -566,6 +566,8 @@ struct Menu {
     /// Online pressed while a newer version is out: the suggestion popup's chosen pill (0 Update, 1 Play anyway), and
     /// whether it has been shown this run (it asks once; Play anyway always goes on).
     stale: (Option<usize>, bool),
+    /// ○ on the splash: the Quit the game? popup's chosen pill (0 Quit, 1 Stay).
+    quit: Option<usize>,
     /// B498: a many-choice Settings row's dropdown is open (row `sel`, `editing` set): the highlighted choice.
     listing: Option<usize>,
     /// B369: the select's favorite characters (`favorites.txt`).
@@ -648,6 +650,7 @@ impl Default for Menu {
             editing: None,
             switch: None,
             stale: (None, false),
+            quit: None,
             listing: None,
             favs: default(),
             names: default(),
@@ -1292,7 +1295,7 @@ impl Menu {
         };
         // a lobby link's start (`online::linked`): the first device to press anything is this machine's player
         if self.screen == Screen::Press {
-            if self.splash_step(dev, k.ok) || self.splash_update(k.card) {
+            if !self.splash_quit(k, &mut out) && (self.splash_step(dev, k.ok) || self.splash_update(k.card)) {
                 out.push(Effect::Sound(2));
             }
             return out;
@@ -2325,13 +2328,16 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         "code" | "name" | "relay-url" => Screen::Code,
         "addmods" | "browsemods" | "uploadmods" | "mymods" | "signinmods" | "phonemods" | "phonemods-ask" => Screen::Mods,
         "extras" => Screen::Extras,
-        "press" | "press-claimed" => Screen::Press,
+        "press" | "press-claimed" | "press-quit" => Screen::Press,
         // B516: a fresh start opens on the splash
         "" if fresh => Screen::Press,
         _ => Screen::Main,
     };
     if screen == "main-stale" {
         menu.stale = (Some(0), true);
+    }
+    if screen == "press-quit" {
+        menu.quit = Some(1);
     }
     if screen == "press-claimed" {
         menu.p1 = Some(Dev::Keys);

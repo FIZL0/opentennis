@@ -127,6 +127,7 @@ impl Menu {
         let was = match self.screen {
             Screen::Main if self.add.ask.is_some() => self.add.ask.replace(i),
             Screen::Main if self.stale.0.is_some() => self.stale.0.replace(i),
+            Screen::Press if self.quit.is_some() => self.quit.replace(i),
             _ if self.switch.is_some() => self.switch.as_mut().map(|s| std::mem::replace(&mut s.1, i)),
             // B498: an open dropdown's choices
             _ if self.listing.is_some() => self.listing.replace(i),
