@@ -577,6 +577,8 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
     let device = match m.remote(p).filter(|s| s.human() && online) {
         Some(st) => m.net.room.as_ref().and_then(|r| r.names.get(&st.peer)).map_or("Online".to_string(), |n| n.clone()),
         None if m.seats[p] == Some(Dev::Open) => "Open".into(),
+        // B573: a computer player's rank under its character, as on its online card and the confirm plate
+        None if m.seats[p].is_none() && !pl.random => com_line(m, text, p),
         None => dev_name(m.seats[p], pads),
     };
     let name = match m.who(p) {
@@ -743,6 +745,18 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
     let line = if d.width(&long, fs) <= fw { long } else { short };
     let lw = d.width(&line, fs).min(fw);
     d.label(&line, fx + lw / 2.0, fy + (fh - fs) / 2.0, fs, lw, s.soft);
+}
+
+/// B573: computer player `p`'s line under its character on a full card: "COM - Lv 3", its rank for the character
+/// (a mod's donor) and costume it has now, in this match's singles/doubles.
+fn com_line(m: &Menu, text: &Text, p: usize) -> String {
+    let (who, costume) = m.pick(p);
+    let ch = match who {
+        Who::Mod(i) => m.mods[i].donor,
+        Who::Disc(c) => c,
+    };
+    let rank = super::com_rank(&text.ranks, ch, costume, m.doubles);
+    format!("COM - {}", super::RANK_NAMES.get(rank).copied().unwrap_or("COM").trim_start_matches("Tennis "))
 }
 
 /// An open seat's line on the online select.
@@ -1439,6 +1453,24 @@ pub(super) fn stats(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B573: a computer player's full card names its rank for the character and costume it has.
+    #[test]
+    fn a_com_card_shows_its_rank() {
+        let mut m = Menu::default();
+        m.players[1].modded = false;
+        m.players[1].pick = 1;
+        m.players[1].costume = 0;
+        let (ch, k) = match m.pick(1) {
+            (Who::Disc(c), k) => (c, k),
+            _ => unreachable!(),
+        };
+        let row = hst_sim::ai::Choice::new(hst_sim::ai::menu_row(ch as u8, k as u8) as u32, ch as u8, m.doubles).row;
+        let mut ranks = vec![0u8; row + 1];
+        ranks[row] = 2;
+        let text = Text { msg: Vec::new(), glyphs: default(), grades: [[0; 5]; 14], style: [0; 14], hands: [1.0; 14], ranks, mods: Vec::new() };
+        assert_eq!(com_line(&m, &text, 1), "COM - Lv 3");
+    }
 
     /// B422: the rail stays put while its chips fit or the cursor's is on view, else scrolls as little as keeps that
     /// chip clear of the fade, never past the last chip.

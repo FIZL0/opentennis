@@ -844,6 +844,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B578** Match-end prompt shows before it works (user 2026-10-19): after 'Game, set and match' the button prompt to go on to the stats screen appears, but pressing it does nothing for a few seconds. Either show the prompt only once it accepts input, or make it accept input as soon as it shows.
 - [x] **B572** Can't add bots while another local player is choosing (user 2026-10-18, local): at character select you can't select/add a CPU player until the last local player has picked; bots should be addable any time.
 - [x] **B571** Store-downloaded modded characters have no baked icons (user 2026-10-18): after downloading random modded characters from the store, their roster icons weren't baked. Make sure every downloaded character gets its face icon baked (on install or first roster show).
+- [x] **B573** Bot rank doesn't show (user 2026-10-18): the CPU's rank/difficulty isn't displayed at character select.
 
 
 ### Shots

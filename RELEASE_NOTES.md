@@ -7,3 +7,4 @@
 - After a match, the button to move on to the stats page now responds the moment its prompt appears, instead of ignoring presses for a moment.
 - At character select, a player who has picked can now choose the computer players' characters straight away, without waiting for the other players to finish.
 - Characters downloaded from the mod store now get their face icons right away: new downloads are drawn as they install, and the character select draws the faces on screen first.
+- A computer player's card on the character select shows its level again (e.g. "COM - Lv 3").
