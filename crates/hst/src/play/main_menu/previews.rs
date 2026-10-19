@@ -1207,9 +1207,11 @@ fn buttons(
             }
             Dev::Open => 0,
         };
+        // a ready human picking for a computer player poses that computer's card
+        let card = menu.driven(dev).unwrap_or(player);
         match flick {
-            1 => pending.0[player] = Some(Act::Win),
-            -1 => pending.0[player] = Some(Act::Loss),
+            1 => pending.0[card] = Some(Act::Win),
+            -1 => pending.0[card] = Some(Act::Loss),
             _ => {}
         }
     }
