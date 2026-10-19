@@ -17,3 +17,13 @@ fails without it.
 
 B579's solver changes (SAG ×0.3, every link keeps lagged inertia) were diagnosed while this bug was active. They are
 left as they are for now: whether to go back to the B410b tuning is the user's call.
+
+## Follow-up: B579's solver reverted
+
+With the order fixed, B579's solver (SAG ×0.3, every link keeps its lagged motion) made the hair much more active
+than v1.2.1 (user). That made the live card hang lower than its baked PNG. `spring.rs` is back to v1.2.1's (B410b's
+tuning, picked with the user). Sophie stays in `oob_hair_swings_and_settles`, which passes on it (trails 10°, settles).
+`previews::RENDER` 11 → 12, so pictures baked while B579 was in drop out of the cache. Now a fresh bake (springs on)
+matches the live card: `context/b579b/bake/pl.png`.
+Pitfall: `HST_NO_SPRINGS=1` runs bake into the same cache, so clear `cache/` after one, or the next run shows its
+stiff hair.

@@ -17,6 +17,8 @@ pub struct Mass {
     stiffness: f32,
     gravity: f32,
     damping: f32,
+    /// The chain's first link (hung on the pinned anchor).
+    first: bool,
 }
 
 /// The skin's spring joints (`nodes` in skin order, as `joints`), parents before children.
@@ -37,14 +39,15 @@ pub fn masses(nodes: &[gltf::Node], joints: &[Joint]) -> Vec<Mass> {
             let s = &e["spring"];
             let f = |key: &str, default: f64| s[key].as_f64().unwrap_or(default) as f32;
             s.is_object().then_some(())?;
-            Some((depth(k), Mass { joint: k, parent: joints[k].parent?, limit: f("limit", 30.0).to_radians(), stiffness: f("stiffness", 0.5), gravity: f("gravity", 4.9), damping: f("damping", 0.83) }))
+            Some((depth(k), Mass { joint: k, parent: joints[k].parent?, limit: f("limit", 30.0).to_radians(), stiffness: f("stiffness", 0.5), gravity: f("gravity", 4.9), damping: f("damping", 0.83), first: false }))
         })
         .collect();
     // a chain's first record is its anchor (stiffness 1, limit 0..5°): pinned, it never turns the head it hangs on
     let springy: Vec<usize> = out.iter().map(|(_, m)| m.joint).collect();
     out.retain(|(_, m)| springy.contains(&m.parent));
     out.sort_by_key(|(d, _)| *d);
-    out.into_iter().map(|(_, m)| m).collect()
+    let inner: Vec<usize> = out.iter().map(|(_, m)| m.joint).collect();
+    out.into_iter().map(|(_, m)| Mass { first: !inner.contains(&m.parent), ..m }).collect()
 }
 
 /// A mass in world space: position, last step's motion, and its parent joint's world matrix at that step (the frame
@@ -82,10 +85,6 @@ fn attach(mut commands: Commands, rigs: Query<(Entity, &Rig), Added<Rig>>) {
 // by eye on Sophie idling. The game's own solver would replace both
 const SOFT: f32 = 0.1;
 const LAG: f32 = 3f32.to_radians();
-/// B579: gravity softened with the stiffness (×0.3 against `SOFT`'s ×0.1). At full strength it sagged each link ~10× as
-/// far as Out of Bounds' own stiffness:gravity balance does, past its limit, where it stayed pinned: the pigtails
-/// hung rigid and never swung. ×0.3 (picked by eye) keeps the hang B410b chose and every link inside its limit
-const SAG: f32 = 0.3;
 /// Steps a fresh rig's hair hangs for at its first pose: soft springs take ~2 s to fall from the bind pose, and a
 /// preview bake or a point's set-up would catch it sticking out
 const HANG: usize = 180;
@@ -93,7 +92,7 @@ const HANG: usize = 180;
 /// One 60 Hz step of a mass toward `target`, hung at `origin`; returns the new position and motion.
 fn step(m: &Mass, origin: Vec3, target: Vec3, (x, v): (Vec3, Vec3)) -> (Vec3, Vec3) {
     let len = (target - origin).length();
-    let v = v * m.damping + (target - x) * m.stiffness * SOFT + Vec3::NEG_Y * m.gravity * SAG / 3600.0;
+    let v = v * m.damping + (target - x) * m.stiffness * SOFT + Vec3::NEG_Y * m.gravity / 3600.0;
     let posed = (target - origin).normalize_or_zero();
     // only the motion across the segment turns it: a pull along it (gravity on a tip posed upright) would shorten
     // the step and the renormalised turn would overshoot, swinging for ever
@@ -160,17 +159,16 @@ fn solve(masses: &[Mass], parents: &[Option<usize>], root: Mat4, locals: &mut [T
         let kept = st.filter(|(x, ..)| x.distance(target) < 1.0);
         let steps = if kept.is_some() { steps } else { HANG };
         let (x, v, last) = kept.unwrap_or((target, Vec3::ZERO, frame));
-        // B410b: carried with its parent joint since the last step, keeping its world motion (the head moves on under
-        // it: the swing) only as far as `LAG` a step: uncapped, every link lagged its own origin again and a short chain
-        // whipped off a gentle bob. B579: every link, not just a chain's first (riding rigidly with the link above, a
-        // pigtail could swing no further than its 5° anchor)
+        // B410b: carried with its parent joint since the last step. The chain's first link keeps its world motion (the
+        // head moves on under it: the swing); a link below rides along with the one above, or every link would lag
+        // its own origin again and a short chain whip off a gentle bob
         let moved = frame * last.inverse();
         let (cx, cv) = (moved.transform_point3(x), moved.transform_vector3(v));
         let mut dir = (cx - origin).normalize_or_zero();
         if steps > 0 {
-            // a link's lag grows by at most `LAG` a step: a jolt of the head would flick a short ribbon
+            // the first link's lag grows by at most `LAG` a step: a jolt of the head would flick a short ribbon
             let lag = (x - origin).angle_between(cx - origin);
-            let c = if lag > LAG { 1.0 - LAG / lag } else { 0.0 };
+            let c = if !m.first { 1.0 } else if lag > LAG { 1.0 - LAG / lag } else { 0.0 };
             let (mut x, mut v) = (x.lerp(cx, c), v.lerp(cv, c));
             for _ in 0..steps {
                 (x, v) = step(m, origin, target, (x, v));
@@ -205,7 +203,7 @@ mod tests {
     use super::*;
 
     fn mass(limit: f32) -> Mass {
-        Mass { joint: 1, parent: 0, limit: limit.to_radians(), stiffness: 0.5, gravity: 4.9, damping: 0.83 }
+        Mass { joint: 1, parent: 0, limit: limit.to_radians(), stiffness: 0.5, gravity: 4.9, damping: 0.83, first: true }
     }
 
     #[test]
@@ -245,7 +243,7 @@ mod tests {
     /// A chain hung off a head at `head(frame)` (translation), one step a frame through `solve`; returns each frame's
     /// largest angle of a link off its pose.
     fn chain(params: &[(f32, f32, f32)], seg: f32, frames: usize, head: impl Fn(usize) -> Vec3) -> Vec<f32> {
-        let masses: Vec<Mass> = params.iter().enumerate().map(|(k, &(limit, stiffness, damping))| Mass { joint: k + 1, parent: k, limit: limit.to_radians(), stiffness, gravity: 4.9, damping }).collect();
+        let masses: Vec<Mass> = params.iter().enumerate().map(|(k, &(limit, stiffness, damping))| Mass { joint: k + 1, parent: k, limit: limit.to_radians(), stiffness, gravity: 4.9, damping, first: k == 0 }).collect();
         let parents: Vec<Option<usize>> = (0..=params.len()).map(|k| k.checked_sub(1)).collect();
         // rest: hanging out sideways and down
         let rest: Vec<Transform> = (0..=params.len()).map(|k| Transform::from_xyz(seg * 0.7 * (k > 0) as u8 as f32, -seg * 0.7 * (k > 0) as u8 as f32, 0.0)).collect();
@@ -287,25 +285,5 @@ mod tests {
         let off = chain(&KAMI, 0.04, 600, |f| Vec3::Y * 0.03 * (f as f32 * 0.3).sin());
         let jump = off[300..].windows(2).map(|w| (w[1] - w[0]).abs()).fold(0f32, f32::max);
         assert!(jump < 5f32.to_radians() && off[300..].iter().all(|&o| o < 60f32.to_radians()), "{} {:?}", jump.to_degrees(), off[300..].iter().cloned().fold(0f32, f32::max).to_degrees());
-    }
-
-    #[test]
-    fn a_sprint_swings_the_pigtail() {
-        // B579: Sophie sprints off (0 → 3 m/s in a third of a second (an OOB-sized sprint)), runs, stops dead. Gravity at full strength pinned
-        // every link against its limit and only the anchor link carried the head's motion: the pigtail held one
-        // shape throughout (0.07° sway). It must trail, swing past the stop and come to rest again, while an idle bob
-        // stays calm
-        // metres at frame t: 0.05 m a frame (3 m/s) reached in 20 frames, held for 40, then stopped
-        let at = |t: f32| if t < 20.0 { 0.05 * t * t / 40.0 } else { 0.5 + 0.05 * (t.min(60.0) - 20.0) };
-        let off = chain(&KAMI, 0.04, 900, |f| Vec3::X * at(f.saturating_sub(300) as f32));
-        let sway = |o: &[f32]| {
-            let m = o.iter().sum::<f32>() / o.len() as f32;
-            (o.iter().map(|x| (x - m).powi(2)).sum::<f32>() / o.len() as f32).sqrt().to_degrees()
-        };
-        assert!(sway(&off[300..500]) > 10.0, "the pigtail barely moved: {:.2}° sway", sway(&off[300..500]));
-        assert!((off[899] - off[700]).abs() < 1f32.to_radians(), "never settled: {} {}", off[700].to_degrees(), off[899].to_degrees());
-        let idle = chain(&KAMI, 0.04, 900, |f| Vec3::Y * 0.03 * (f as f32 * 0.3).sin());
-        let jitter = idle[300..].windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>().to_degrees() / 599.0;
-        assert!(jitter < 2.0, "idle jitter {jitter:.2}° a step");
     }
 }
