@@ -838,6 +838,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B565** Joining from a link (user 2026-10-17, e.g. https://beta.opentennis.dev/?code=VTPP) seats the keyboard as P1. Leave P1 unassigned and give it to the first input that presses something (keyboard or pad), since someone may open the link and then pick up a controller
 - [x] **B566** Mods store: the mod icons flicker before they finish loading/show; load them without the flicker (crates/hst/src/play/main_menu/mods_screen/)
 - [x] **B568** hst-base `mods::tests::rerigged_mod_plays_forehand_and_run` fails ("rest·inverse bind off by 0.0037", seen 2026-10-17 in B565's done.sh, unrelated to it): local `context/mods/test_pc00` or the rig code drifted (feet-ik merge?); rebuild the test mod or fix the bind — crates/hst-base/src/mods.rs
+- [x] **B569** Get a Grip mod faces too zoomed in (user 2026-10-18): the roster's face icons for the Get a Grip characters are cropped much tighter than the disc and other packs' faces (head fills/overflows the tile). Find how the face shot frames the head (head bone height/size from the rig) and why these rigs come out closer (scale, head bone, bounds), frame them like the disc characters; check every pack's faces after → crates/hst/src/play/main_menu/previews.rs
 
 
 ### Shots
