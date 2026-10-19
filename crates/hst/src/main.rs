@@ -1447,7 +1447,7 @@ fn log_assets(w: &World, mut next: Local<f32>) {
 fn scripted_keys(mut commands: Commands, time: Res<Time<Real>>, mut keys: ResMut<ButtonInput<KeyCode>>, mut done: Local<usize>, mut pressed_at: Local<f32>, mut hold: Local<f32>) {
     let script = std::env::var("HST_KEYS").unwrap_or_default();
     let steps: Vec<_> = script.split_whitespace().filter_map(|s| s.split_once(':')).collect();
-    for k in [KeyCode::Enter, KeyCode::Space, KeyCode::Escape, KeyCode::ArrowUp, KeyCode::ArrowDown, KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::KeyK, KeyCode::KeyO, KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD, KeyCode::F10] {
+    for k in [KeyCode::Enter, KeyCode::Space, KeyCode::Escape, KeyCode::ArrowUp, KeyCode::ArrowDown, KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::KeyK, KeyCode::KeyO, KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD, KeyCode::Tab, KeyCode::F10] {
         // held through at least one 60 Hz menu tick (a fast display's frame may fall between two)
         if keys.pressed(k) && !keys.just_pressed(k) && time.elapsed_secs() - *pressed_at >= hold.max(1.0 / 30.0) {
             keys.release(k);
@@ -1481,6 +1481,8 @@ fn scripted_keys(mut commands: Commands, time: Res<Time<Real>>, mut keys: ResMut
         "KeyA" => KeyCode::KeyA,
         "KeyS" => KeyCode::KeyS,
         "KeyD" => KeyCode::KeyD,
+        // the select's Singles / Doubles
+        "Tab" => KeyCode::Tab,
         // the HUD on/off (M98); a scripted F10 turns the key on (B505)
         "F10" => {
             play::no_hud::KEY.store(true, std::sync::atomic::Ordering::Relaxed);

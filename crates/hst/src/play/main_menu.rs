@@ -1230,6 +1230,8 @@ impl Menu {
     /// first). Picks follow their seats; `keep`: a human's ready pick stays ready, else every card picks again.
     fn swap_mode(&mut self, keep: bool) {
         let (seats, players, scroll) = (self.seats, self.players, self.scroll);
+        // a ready human mid-pick for a computer player: that pick stays on the computer card it drives after the swap
+        let editing = seats.iter().flatten().find_map(|&d| self.driven(d).filter(|&q| self.bot(q)).map(|q| (d, players[q])));
         let from = if self.doubles {
             let o = [2, 3, 1].into_iter().find(|&q| seats[q].is_some()).unwrap_or(2);
             [Some(0), Some(o), None, None]
@@ -1242,6 +1244,12 @@ impl Menu {
             let ready = keep && q.is_some_and(|q| seats[q].is_some() && players[q].ready);
             self.players[p] = Player { ready, ..q.map_or_else(Player::fresh, |q| players[q]) };
             self.scroll[p] = q.map_or(0, |q| scroll[q]);
+        }
+        if let Some((d, pick)) = editing
+            && let Some(r) = self.driven(d).filter(|&r| self.bot(r))
+        {
+            self.players[r] = pick;
+            self.skip_taken();
         }
         // the columns change width (and tiles per row): every column scrolls back onto its tile
         self.followed = [None; 4];
@@ -4096,6 +4104,23 @@ mod tests {
         assert_eq!((m.players[1].cursor, m.players[1].random, m.players[1].costume), (3, false, 1));
         m.step(Dev::Keys, ok);
         assert_eq!((m.players[2].cursor, m.players[2].costume), (3, 2));
+    }
+
+    /// Singles ↔ Doubles while a ready 1P picks for a computer player: the card it drives after the swap carries that
+    /// pick (doubles' partner → singles' opponent, and back).
+    #[test]
+    fn swap_keeps_the_computer_pick_being_made() {
+        let mut m = Menu { screen: Screen::Chars, doubles: true, seats: [Some(Dev::Keys), None, None, None], ..default() };
+        m.players[0].ready = true;
+        m.players[1] = Player { cursor: 4, costume: 1, ..Player::fresh() };
+        m.players[1].random = false;
+        assert_eq!(m.driven(Dev::Keys), Some(1));
+        let pick = m.cell(1);
+        m.swap_mode(true);
+        assert!(!m.doubles);
+        assert_eq!((m.driven(Dev::Keys), m.cell(1)), (Some(1), pick), "singles' opponent");
+        m.swap_mode(true);
+        assert_eq!((m.driven(Dev::Keys), m.cell(1)), (Some(1), pick), "doubles' partner");
     }
 
     /// B572: a ready human picks for the computer players while another human is still choosing: 1P readies, then
