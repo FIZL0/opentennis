@@ -644,6 +644,9 @@ pub fn flags(room: &Room, me: &str, devices: &[Option<super::controls::Seat>], e
     if let Some(c) = room.court_mod.as_ref().filter(|_| !room.vanilla) {
         a.extend(["--court-mod-id".into(), c.id.clone()]);
     }
+    if room.no_marks {
+        a.push("--no-shot-markers".into());
+    }
     // B370: the select's hand toggles, by match slot
     if order.iter().any(|&s| pick(s).is_some_and(|p| p.swap)) {
         a.extend(["--swap-hands".into(), order.iter().map(|&s| if pick(s).is_some_and(|p| p.swap) { "1" } else { "0" }).collect::<Vec<_>>().join(",")]);
@@ -746,6 +749,18 @@ mod tests {
         room.seats[1].as_mut().unwrap().pick.swap = true;
         let a = flags(&room, "host", &[None, None], &[]);
         assert_eq!(a[a.iter().position(|x| x == "--swap-hands").unwrap() + 1], "0,0,1,0");
+    }
+
+    /// The host's Markers Off reaches every peer's match.
+    #[test]
+    fn flags_carry_markers_off() {
+        use crate::net::{Pick, Seat};
+        let s = |peer: &str| Some(Seat { peer: peer.into(), pick: Pick::disc(0, 0) });
+        let mut room = Room { seats: vec![s("host"), s("g")], ..Default::default() };
+        let off = |room: &Room| flags(room, "g", &[None], &[]).contains(&"--no-shot-markers".to_string());
+        assert!(!off(&room));
+        room.no_marks = true;
+        assert!(off(&room));
     }
 
     /// M8f3: the host's umpire mod goes in the flags by id (each peer looks it up under its own `mods/`, the donor

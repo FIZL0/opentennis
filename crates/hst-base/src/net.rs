@@ -288,6 +288,9 @@ pub struct Room {
     /// A vanilla lobby: the host allows no mods, so every seat plays a disc character (mod picks are refused).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub vanilla: bool,
+    /// The host turned the shot markers (the red and yellow landing marks) off for everyone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_marks: bool,
     /// B322: the host's short code once it's online (empty until then, or with none), so a guest's lobby shows the
     /// same code and link as the host's and can pass the lobby on. Never the long ticket (B224).
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -940,6 +943,8 @@ pub enum Cmd {
     Private(bool),
     /// The host's lobby vanilla (no mods) or not.
     Vanilla(bool),
+    /// The host's shot markers off (true) or on, for everyone.
+    NoMarks(bool),
     /// M20: a chat line to everyone else in the lobby or match.
     Chat(String),
     /// B460: this machine's player in seat `.0` emotes (`.1`: the flick) in the lobby.
@@ -2257,6 +2262,12 @@ async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) 
                 }
                 Some(Cmd::Vanilla(v)) if starting.is_none() && room.set_vanilla(v) => {
                     ready.clear();
+                    broadcast(&joined, &Msg::Room(room.clone()));
+                    cx.say(Event::Room(room.clone()));
+                    dirty = true;
+                }
+                Some(Cmd::NoMarks(v)) if starting.is_none() && v != room.no_marks => {
+                    room.no_marks = v;
                     broadcast(&joined, &Msg::Room(room.clone()));
                     cx.say(Event::Room(room.clone()));
                     dirty = true;

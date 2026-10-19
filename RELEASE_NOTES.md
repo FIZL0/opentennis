@@ -5,3 +5,4 @@
 - In doubles, when the ball hits a player at the same moment a teammate swings at it, whichever happened first now counts: a ball that hits a player can't be returned, and a ball that was just returned can't hit a player.
 - On the character select, switching between singles and doubles keeps the computer player you were picking for on the character you had chosen, and keeps each roster scrolled to its character.
 - On the character select, emoting while picking for a computer player now plays the emote on that computer's card instead of your own.
+- New Markers setting next to Sets and Games: turn it Off to hide the red and yellow shot markers. Online, the host's choice applies to everyone.

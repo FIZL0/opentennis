@@ -476,6 +476,10 @@ struct Marks {
 
 const PATH_MAX: usize = 600;
 
+/// `--no-shot-markers` (the match settings' Markers Off, online the host's): the red and yellow landing marks are
+/// never drawn. Presentation only: the match still tracks them.
+pub static NO_MARKS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The predictor's path entry for `f` (the game stores it y up).
 fn path_entry(f: &Flight) -> PathEntry {
     let (p, v) = (f.ball.pos, f.ball.vel);
@@ -4236,7 +4240,7 @@ fn start_effects(
 /// point (the reaction message), so they're gone through the rest of the point-over and the change of ends (B193); `g.marks`
 /// itself is kept until the next point (the AI reads it).
 fn landing_shown(g: &Game) -> bool {
-    !matches!(g.phase, Phase::ChangeEnds(_)) && !g.post.as_ref().is_some_and(|p| p.reacted)
+    !NO_MARKS.load(std::sync::atomic::Ordering::Relaxed) && !matches!(g.phase, Phase::ChangeEnds(_)) && !g.post.as_ref().is_some_and(|p| p.reacted)
 }
 
 /// Whether a bounce now leaves a contact record, as the original's ball step: only once its game phase is past the
