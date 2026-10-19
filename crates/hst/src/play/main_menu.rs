@@ -877,8 +877,9 @@ impl Menu {
         // B519: online, the relay's notice band over the top bar pushes the columns down
         let [l, t, r, b] = self.grid.view;
         let band = online::band_h(self, r - l - 2.0 * roster::MARGIN * roster::PX);
-        // M121: online, the lobby's strip and bottom row under them
-        let b = match self.online() || matches!(self.screen, Screen::Chars | Screen::Confirm) {
+        // M121: online, the lobby's strip and bottom row under them; local, the strip too, also while the match
+        // starts (the confirm screen stays up under the switch's zoom-out as `Playing`)
+        let b = match self.online() || matches!(self.screen, Screen::Chars | Screen::Confirm | Screen::Playing) {
             true => {
                 let [_, y, _, h] = self.lobby_foot().stage;
                 y + h
@@ -4736,6 +4737,26 @@ mod tests {
 
     fn hits_chars(m: &Menu) -> Vec<pointer::Act> {
         pointer::tests::hits(m).0.into_iter().map(|h| h.act).collect()
+    }
+
+    /// The local select's columns end above its strip at any aspect, the same while the match starts (`Playing`, the
+    /// confirm screen under the zoom-out) as on the select and confirm screens: no roster rows run under the strip.
+    #[test]
+    fn local_rosters_stop_above_the_strip() {
+        for a in [0.4, 9.0 / 16.0, 1.0, 4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 4.0] {
+            let mut m = Menu { screen: Screen::Confirm, seats: [Some(Dev::Keys), None, None, None], grid: Grid::fit(a), ..default() };
+            let strip = m.lobby_foot().strip[1];
+            let confirm: Vec<_> = (0..m.players()).map(|p| m.columns().parts(p).card).collect();
+            for screen in [Screen::Chars, Screen::Playing] {
+                m.screen = screen;
+                let c = m.columns();
+                for (p, card) in confirm.iter().enumerate() {
+                    let at = c.parts(p);
+                    assert_eq!(at.card, *card, "{a} {screen:?} {p}");
+                    assert!(at.card[1] + at.card[3] <= strip + 1e-3 && at.grid[1] + at.grid[3] <= strip + 1e-3, "{a} {screen:?} {p}");
+                }
+            }
+        }
     }
 
     /// B295: the lobby and confirm screens at any aspect: the seats column and side card in the view, apart, over the

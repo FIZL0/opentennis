@@ -7,3 +7,4 @@
 - On the character select, emotes and the win / loss poses while picking for a computer player now play on that computer's card instead of your own.
 - New Markers setting next to Sets and Games: turn it Off to hide the red and yellow shot markers. Online, the host's choice applies to everyone.
 - A player who loses the point while still in a missed swing now walks away facing the way they're going instead of sliding sideways.
+- When you start a local match, the character rosters no longer jump down under the court and umpire options at the bottom of the screen.
