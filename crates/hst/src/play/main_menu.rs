@@ -4927,6 +4927,11 @@ mod tests {
         assert_eq!(m.players[0].costume, 2, "0 → 2 → 0 → 2");
         m.players[0].costume = 1;
         assert!(m.blocked(0));
+        // every costume broken: the cursor steps off its tile, and ←→ passes it
+        m.broken.extend([(0, 0), (0, 2)]);
+        m.step_off(0);
+        assert_ne!(m.cell(0), Some(Who::Mod(0)));
+        assert!(m.full(0, Some(Who::Mod(0))));
     }
 
     /// M1: a costume pack (`costume_of`) adds its costumes after the disc character's own on L1 / R1; picked, the match

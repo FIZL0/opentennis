@@ -551,6 +551,8 @@ fn broke(menu: &mut Menu, i: usize, k: usize) {
     for pl in menu.players.iter_mut().filter(|pl| pl.modded && pl.pick == i && pl.costume == k && !pl.ready) {
         pl.costume = next.unwrap_or(k);
     }
+    // every costume broken: nobody picking stays on its tile
+    (0..menu.players()).for_each(|p| menu.step_off(p));
 }
 
 /// Card-frames whose card showed another key or nothing though its PNG was read ([0]), the hovered one ([1]), or

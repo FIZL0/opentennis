@@ -211,6 +211,18 @@ impl Menu {
         }
     }
 
+    /// Player `p` (not ready) off a tile that has just turned full (a mod found broken as it loads): the next open
+    /// tile beside it, else above or below, else the Random card.
+    pub(super) fn step_off(&mut self, p: usize) {
+        if self.players[p].ready || !self.full(p, self.cell(p)) {
+            return;
+        }
+        let ways = [Press { right: true, ..Press::default() }, Press { left: true, ..Press::default() }, Press { down: true, ..Press::default() }, Press { up: true, ..Press::default() }];
+        if !ways.into_iter().any(|k| self.grid_move(p, k)) {
+            self.put(p, None);
+        }
+    }
+
     /// Whether player `p`'s ←→ would move: another open tile in its row (a grid one across walks on).
     pub(super) fn row_open(&self, p: usize) -> bool {
         let secs = self.sections();
