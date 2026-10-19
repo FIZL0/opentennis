@@ -7,3 +7,4 @@
 - On the character select, emotes and the win / loss poses while picking for a computer player now play on that computer's card instead of your own.
 - New Markers setting next to Sets and Games: turn it Off to hide the red and yellow shot markers. Online, the host's choice applies to everyone.
 - A player who loses the point while still in a missed swing now walks away facing the way they're going instead of sliding sideways.
+- In an online lobby, Back now steps back one thing at a time: first it undoes your character pick, then it takes you out of your seat (you still run the lobby), then it leaves, asking first if anyone else is in or joining.
