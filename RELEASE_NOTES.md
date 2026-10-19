@@ -11,5 +11,3 @@
 - The score board chimes again in a tiebreak.
 - In doubles, computer players line up smashes from each character's own reach.
 - Mod courts: low props behind the baseline no longer pop in and out, and props right in front of the camera no longer block the view.
-- Studio A court: the big cloud no longer covers the corner of the screen when a player runs wide.
-- Out of Bounds characters' hair swings again; T-Bone grunts on a miss instead of saying a whole line (update the mods).
