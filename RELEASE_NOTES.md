@@ -8,3 +8,4 @@
 - New Markers setting next to Sets and Games: turn it Off to hide the red and yellow shot markers. Online, the host's choice applies to everyone.
 - A player who loses the point while still in a missed swing now walks away facing the way they're going instead of sliding sideways.
 - On the character select, the costume and hand button hints now show on the computer player's card you're picking for with a controller.
+- On the character select, a broken add-on character now shows as unavailable straight away instead of flicking through each of its costumes first.

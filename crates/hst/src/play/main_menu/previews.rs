@@ -444,14 +444,24 @@ fn start_loader(mut commands: Commands, args: Res<Args>, meshes: Res<Assets<Mesh
             }
         }
         let ((who, costume), md) = queue.pop().unwrap();
-        let (mut m, mut t, mut i, mut b) = (Staged::new(providers.0.clone()), Staged::new(providers.1.clone()), Staged::new(providers.2.clone()), Staged::new(providers.3.clone()));
-        let r = match (who, md) {
-            (Who::Mod(_), Some(md)) => crate::mods::load_with(iso, &md, costume, &mut m, &mut t, &mut i, &mut b, Some(&inspect::MOTIONS)).map(|d| (d, md.hand)),
-            (Who::Disc(c), _) => character::load_disc_with(iso, c, costume, &mut m, &mut t, &mut i, &mut b, Some(&inspect::MOTIONS)).map(|d| (d, inspect::disc_hand(iso, c))),
-            (Who::Mod(_), None) => Err("no mod".into()),
+        let mut load = |costume: usize| {
+            let (mut m, mut t, mut i, mut b) = (Staged::new(providers.0.clone()), Staged::new(providers.1.clone()), Staged::new(providers.2.clone()), Staged::new(providers.3.clone()));
+            let r = match (who, &md) {
+                (Who::Mod(_), Some(md)) => crate::mods::load_with(iso, md, costume, &mut m, &mut t, &mut i, &mut b, Some(&inspect::MOTIONS)).map(|d| (d, md.hand)),
+                (Who::Disc(c), _) => character::load_disc_with(iso, c, costume, &mut m, &mut t, &mut i, &mut b, Some(&inspect::MOTIONS)).map(|d| (d, inspect::disc_hand(iso, c))),
+                (Who::Mod(_), None) => Err("no mod".into()),
+            };
+            ((who, costume), r.map(|(d, hand)| (d, hand, m, t, i, b)).map_err(|e| if e.is_empty() { "failed".into() } else { e }))
         };
-        let r = r.map(|(d, hand)| (d, hand, m, t, i, b)).map_err(|e| if e.is_empty() { "failed".into() } else { e });
-        send.send(((who, costume), r)).is_ok()
+        let mut out = vec![load(costume)];
+        // a mod's costume that fails: its others are tried now and all sent at once, so the select learns which are
+        // broken in one go instead of the card stepping through them one load at a time
+        if out[0].1.is_err()
+            && let Some(md) = md.as_ref().filter(|_| matches!(who, Who::Mod(_)))
+        {
+            out.extend((0..md.costumes.len()).filter(|&c| c != costume).map(&mut load));
+        }
+        out.into_iter().all(|r| send.send(r).is_ok())
     };
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(move || {
