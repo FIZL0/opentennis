@@ -13,3 +13,4 @@
 - When you start a local match, the character rosters no longer jump down under the court and umpire options at the bottom of the screen.
 - Mod characters now hold the racket's head with their other hand the way the original characters do (palm under the rim, fingers over the frame) instead of resting it behind the strings.
 - A controller whose "use it for 1P?" prompt timed out now asks again on its next button press, instead of staying ignored until it's unplugged.
+- Characters with several celebrations and disappointed reactions now vary them from point to point instead of repeating one.
