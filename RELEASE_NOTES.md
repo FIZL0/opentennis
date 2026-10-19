@@ -13,3 +13,4 @@
 - In a tiebreak the score board chimes again as the new points come up, as in the original.
 - Menu text is sharper and easier to read on small or low-resolution screens and phones, and the Auto menu size now takes the screen's scaling into account.
 - In doubles, computer players (and their judgement of whether a human partner can smash a ball) now line up smashes from each character's own reach instead of one shared measurement.
+- On mod courts, low props behind the baseline (like the toolboxes on Dubno Tower) no longer vanish and pop back in as play changes ends.
