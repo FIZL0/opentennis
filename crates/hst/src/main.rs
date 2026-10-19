@@ -516,8 +516,11 @@ fn start(argv: Vec<String>) {
     if !menu && !args.play {
         app.add_systems(Startup, load);
     }
+    if args.shot.is_some() && std::env::var_os("HST_CLIP").is_some() {
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
+    }
     app.insert_resource(args).insert_resource(ClearColor(Color::srgb(0.25, 0.3, 0.35))).add_systems(Update, (orbit, auto_shot, clouds))
-        .add_systems(PostUpdate, (fixed_eye, backdrops, hide_inside).chain().before(bevy::transform::TransformSystems::Propagate)).run();
+        .add_systems(PostUpdate, (fixed_eye, follow, backdrops, hide_inside).chain().before(bevy::transform::TransformSystems::Propagate)).run();
 }
 
 /// P50: the players' disc characters and costumes (`play::setup`'s line-up), but a mod's slots.
@@ -936,7 +939,9 @@ fn load(
         (Vec3::ZERO, 10.0)
     };
     info!("bounds {bounds:?}");
-    let (focus, radius) = args.radius.map_or((focus, radius), |r| (Vec3::ZERO, r));
+    // HST_VIEW_Y: with `--radius`, look at this height (a head, for hair clips)
+    let lift = std::env::var("HST_VIEW_Y").ok().and_then(|y| y.parse().ok()).unwrap_or(0.0);
+    let (focus, radius) = args.radius.map_or((focus, radius), |r| (Vec3::Y * lift, r));
     commands.spawn((
         Camera3d::default(),
         // the PS2 writes its colours as they are
@@ -1333,6 +1338,16 @@ fn fixed_eye(mut camera: Query<(&mut Transform, &mut Projection), With<Orbit>>, 
     }
 }
 
+/// `HST_FOLLOW=radius,yaw,height`: the camera trails the first spring-haired (mod) rig from `radius` m at `yaw`
+/// (world, radians) looking at `height` m over its root, for hair clips (M132).
+fn follow(mut camera: Query<&mut Transform, With<Orbit>>, rigs: Query<(&character::Rig, &GlobalTransform)>) {
+    let Some(v) = std::env::var("HST_FOLLOW").ok().map(|e| e.split(',').filter_map(|x| x.trim().parse::<f32>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 3) else { return };
+    let Some((_, at)) = rigs.iter().find(|(r, _)| r.data.noise.as_ref().is_some_and(|c| !c.springs.is_empty())) else { return };
+    let Ok(mut t) = camera.single_mut() else { return };
+    let focus = at.translation() + Vec3::Y * v[2];
+    *t = Transform::from_translation(focus + Vec3::new(v[1].sin(), 0.25, v[1].cos()) * v[0]).looking_at(focus, Vec3::Y);
+}
+
 /// `HST_FPS=1`: every 5 s, the frame rate and the slowest frame to stderr, and each frame over 33 ms as it happens
 /// (for profiling, P23, Z1).
 fn log_fps(time: Res<Time<Real>>, mut acc: Local<(u32, f32, f32, f32)>, mut dts: Local<Vec<f32>>) {
@@ -1482,8 +1497,21 @@ fn scripted_keys(mut commands: Commands, time: Res<Time<Real>>, mut keys: ResMut
     *hold = secs;
 }
 
-fn auto_shot(mut commands: Commands, args: Res<Args>, time: Res<Time>, mut taken: Local<bool>, mut exit: MessageWriter<AppExit>) {
+fn auto_shot(mut commands: Commands, args: Res<Args>, time: Res<Time>, mut taken: Local<bool>, mut clip: Local<usize>, mut exit: MessageWriter<AppExit>) {
     let Some(path) = &args.shot else { return };
+    // HST_CLIP=N: N frames from `--shot-at` on, OUT_0000.png… (the clock steps 1/60 s a frame)
+    if let Some(n) = std::env::var("HST_CLIP").ok().and_then(|n| n.parse::<usize>().ok()) {
+        let frame = |i: usize| path.replace(".png", &format!("_{i:04}.png"));
+        if *clip < n && time.elapsed_secs() >= args.shot_at {
+            commands.spawn(Screenshot::primary_window()).observe(save_to_disk(frame(*clip)));
+            *clip += 1;
+        }
+        if *clip == n && std::path::Path::new(&frame(n - 1)).exists() {
+            commands.insert_resource(mode::Quit);
+            exit.write(AppExit::Success);
+        }
+        return;
+    }
     if !*taken && time.elapsed_secs() >= args.shot_at {
         *taken = true;
         commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path.clone()));
