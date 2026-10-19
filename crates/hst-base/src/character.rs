@@ -125,6 +125,9 @@ pub struct CharacterData {
     /// A mod's further takes of a motion (`re_gu.1`, `re_gu.2`, …: M130), drawn in turn with `visual`'s as the motion
     /// restarts ([`drawn_take`](Self::drawn_take)); looks only, as `visual`.
     pub takes: HashMap<usize, Vec<Clip>>,
+    /// A mod's clips' own faces, by motion and take (0 the `visual` clip, k its k-th take): drawn with the clip on its
+    /// clock in place of the donor's face ([`drawn_face`](Self::drawn_face)).
+    pub own_faces: HashMap<(usize, usize), Face>,
     /// A mod's feet, set down where the donor's are (B543, looks only): see [`Feet`].
     pub feet: Option<Feet>,
     /// B556: an online mod: the cameras frame it on its gameplay clips ([`framed`](Self::framed)), as every peer has
@@ -486,6 +489,12 @@ impl CharacterData {
         }
     }
 
+    /// The mod's own face of the clip [`drawn_take`](Self::drawn_take) draws, if it has one.
+    pub fn drawn_face(&self, id: usize, sets: u32) -> Option<&Face> {
+        let k = self.takes.get(&id).filter(|t| !t.is_empty()).map_or(0, |t| take(sets, t.len() + 1));
+        self.visual.contains_key(&id).then(|| self.own_faces.get(&(id, k))).flatten()
+    }
+
     /// Whether `clip` is one of the mod's own (`visual` or `takes`).
     pub fn own(&self, clip: &Clip) -> bool {
         self.visual.values().chain(self.takes.values().flatten()).any(|v| std::ptr::eq(v, clip))
@@ -835,7 +844,7 @@ pub fn load_disc_with(
     // the game binds a face track to the target of the same name; others are dropped
     let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &skeleton, |name| model.morph_names.iter().position(|m| m == name), only)?;
     let binds = part_skins(&joints, &parts, meshes, bindposes);
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), feet: None, frame_gameplay: false })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), feet: None, frame_gameplay: false })
 }
 
 /// The node names of disc character `n`'s body model (costume 0; every costume shares the skeleton).
@@ -1095,6 +1104,7 @@ pub fn load_npc(
         texture_face: None,
         visual: HashMap::new(),
         takes: HashMap::new(),
+        own_faces: HashMap::new(),
         feet: None,
         frame_gameplay: false,
     })
@@ -1340,15 +1350,21 @@ impl Posing {
     /// the face or its time changed.
     // ponytail: the key cursor restarts from 0 each sample; the game walks from the last key, ≤1 ulp apart after a wrap
     fn face(&mut self, rig: &Rig, motion: &Motion, weights: &mut Mut<bevy::mesh::morph::MorphWeights>) {
-        let key = (Arc::as_ptr(&rig.data) as usize ^ motion.face, motion.face_clock.sampled.to_bits());
+        // a mod's clip with a face of its own plays it on the clip's clock instead of the donor's
+        let own = rig.data.drawn_face(motion.id, motion.sets);
+        let (face, t) = match own {
+            Some(f) => (Some(f), motion.drawn.sampled),
+            None => (rig.data.faces.get(&motion.face), motion.face_clock.sampled),
+        };
+        let key = (Arc::as_ptr(&rig.data) as usize ^ own.map_or(motion.face, |f| f as *const Face as usize), t.to_bits());
         if self.face == Some(key) {
             return;
         }
         self.face = Some(key);
         let w = weights.weights_mut();
         w.fill(0.0);
-        if let Some(face) = rig.data.faces.get(&motion.face) {
-            face.weights(hst_sim::ps2::mul(motion.face_clock.sampled, 80.0), w);
+        if let Some(face) = face {
+            face.weights(hst_sim::ps2::mul(t, 80.0), w);
         }
     }
 }

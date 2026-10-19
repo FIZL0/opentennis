@@ -146,6 +146,7 @@ pub fn load(
         texture_face: None,
         visual: HashMap::new(),
         takes: HashMap::new(),
+        own_faces: HashMap::new(),
         feet: None,
         frame_gameplay: false,
     }))
