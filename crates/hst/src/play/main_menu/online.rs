@@ -185,12 +185,12 @@ enum Item {
     Button(&'static str),
     /// B201: the host's singles / doubles switch (the settings row's last pill).
     Mode,
-    /// The host's settings row (`SETTINGS` of them): the court and umpire (✕ opens their select), sets, games, mods
-    /// (←→ change them for everyone).
+    /// The host's settings row (`SETTINGS` of them): the court and umpire (✕ opens their select), sets, games, mods,
+    /// markers (←→ change them for everyone).
     Set(usize),
 }
-/// The settings row's pills before Mode: court, umpire, sets, games, mods.
-const SETTINGS: usize = 5;
+/// The settings row's pills before Mode: court, umpire, sets, games, mods, markers.
+const SETTINGS: usize = 6;
 /// The prompt for a mod this machine doesn't have: fetch its looks or not, and whether to ask again.
 const ASK_ROWS: [(&str, bool, Ask); 4] =
     [("Download, always", true, Ask::Always), ("Download this one", true, Ask::Each), ("Stand-in this time", false, Ask::Each), ("Never download", false, Ask::Never)];
@@ -343,7 +343,7 @@ impl Menu {
         let names = [("host".to_string(), cfg.name.clone())].into();
         let picking = ["host".to_string()].into();
         let court_mod = self.court_mod_wire();
-        Room { name: cfg.name, doubles: self.doubles, court, sets: self.sets, games: self.games, umpire, seats, names, picking, private: cfg.private, court_mod, ..Default::default() }
+        Room { name: cfg.name, doubles: self.doubles, court, sets: self.sets, games: self.games, umpire, seats, names, picking, private: cfg.private, court_mod, no_marks: self.no_marks, ..Default::default() }
     }
 
     /// The code screen's keys: the short code's symbols, or the name's.
@@ -392,8 +392,8 @@ impl Menu {
         self.lobby_rects_geo()
     }
 
-    /// The host's ←→ (or ✕) on settings pill `i` (1: umpire, 2: sets, 3: games, 4: mods): the next value, sent to
-    /// everyone.
+    /// The host's ←→ (or ✕) on settings pill `i` (1: umpire, 2: sets, 3: games, 4: mods, 5: markers): the next value,
+    /// sent to everyone.
     fn change_setting(&mut self, i: usize, d: isize, out: &mut Vec<Effect>) {
         let step = |v: usize, n: usize| (v as isize + d).rem_euclid(n as isize) as usize;
         match i {
@@ -415,6 +415,11 @@ impl Menu {
                     m.send_venue(&mut fx);
                     out.extend(fx.into_iter().filter(|e| !matches!(e, Effect::Sound(_))));
                 }
+                return;
+            }
+            5 => {
+                self.no_marks = !self.no_marks;
+                out.extend([Effect::Sound(0), Effect::Online(Fx::Net(Cmd::NoMarks(self.no_marks)))]);
                 return;
             }
             _ => return,
@@ -3315,8 +3320,8 @@ mod tests {
         sample(&mut m);
         m.net.hosting = true;
         let items = m.items();
-        assert_eq!(items[..10], [Item::Seat(0), Item::Seat(1), Item::Seat(2), Item::Seat(3), Item::Set(0), Item::Set(1), Item::Set(2), Item::Set(3), Item::Set(4), Item::Mode]);
-        assert_eq!(items[10..13], [Item::Button("Code"), Item::Button("Copy Link"), Item::Button("Public")]);
+        assert_eq!(items[..11], [Item::Seat(0), Item::Seat(1), Item::Seat(2), Item::Seat(3), Item::Set(0), Item::Set(1), Item::Set(2), Item::Set(3), Item::Set(4), Item::Set(5), Item::Mode]);
+        assert_eq!(items[11..14], [Item::Button("Code"), Item::Button("Copy Link"), Item::Button("Public")]);
         assert_eq!(*items.last().unwrap(), Item::Button("Start"));
         // B523: a guest's card: ✕ picks it up (○ puts it back); △ asks to kick them (its hint on the card), Kick takes
         // them out
@@ -3919,7 +3924,7 @@ mod tests {
         assert_eq!(go(Item::Seat(3), |k| k.right = true), Item::Seat(3), "the court's edge");
         assert!(matches!(go(Item::Seat(1), |k| k.down = true), Item::Set(_)), "↓ onto the strip");
         assert!(matches!(go(Item::Seat(0), |k| k.up = true), Item::Button(_) | Item::Mode), "↑ onto the bar");
-        assert_eq!(go(Item::Set(4), |k| k.right = true), Item::Button("Start"), "Start inline with the settings");
+        assert_eq!(go(Item::Set(5), |k| k.right = true), Item::Button("Start"), "Start inline with the settings");
         // the code pill: OK copies the link
         let mut c = m.clone();
         c.sel = at(Item::Button("Code"));
@@ -4081,8 +4086,8 @@ mod tests {
         // M121: the top bar left to right: Copy link, Public, the code, Singles / Doubles
         m.sel = m.items().iter().position(|i| *i == b("Copy Link")).unwrap();
         walk(&mut m, &[(r, b("Public")), (r, b("Code")), (r, Item::Mode), (l, b("Code"))]);
-        m.sel = m.items().iter().position(|i| *i == set(4)).unwrap();
-        walk(&mut m, &[(r, b("Start")), (l, set(4))]);
+        m.sel = m.items().iter().position(|i| *i == set(5)).unwrap();
+        walk(&mut m, &[(r, b("Start")), (l, set(5))]);
         // every item reachable with the arrows, the host's and a guest's
         for guest in [false, true] {
             if guest {

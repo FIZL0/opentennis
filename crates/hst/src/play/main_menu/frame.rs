@@ -82,8 +82,8 @@ const CHAT_MIN: f32 = 220.0;
 /// B544: the chat box's most width and its height (smaller than the row's buttons: it's a glance, not a control).
 const CHAT_MAX: f32 = 380.0;
 const CHAT_H: f32 = 40.0;
-/// The strip's cells' shares (Court, Umpire, Sets, Games, Mods / Handicap) and its least width.
-const GROW: [f32; 5] = [2.2, 1.6, 1.0, 1.0, 1.3];
+/// The strip's cells' shares (Court, Umpire, Sets, Games, Mods / Handicap, Markers) and its least width.
+const GROW: [f32; 6] = [2.2, 1.6, 1.0, 1.0, 1.3, 1.3];
 const STRIP_MIN: f32 = 680.0;
 /// A turned court's plates may grow this much past the board's (a tall window has the room).
 const GROW_MAX: f32 = 1.4;
@@ -121,7 +121,7 @@ pub(super) struct Geo {
     pub plates: Vec<[f32; 4]>,
     /// The strip and its cells: Court, Umpire, Sets, Games, Mods / Handicap.
     pub strip: [f32; 4],
-    pub cells: [[f32; 4]; 5],
+    pub cells: [[f32; 4]; 6],
     /// The bottom row: Leave / Back, the chat box (zero wide without one), Start.
     pub back: [f32; 4],
     pub chat: [f32; 4],

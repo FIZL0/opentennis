@@ -500,6 +500,8 @@ struct Menu {
     sets: usize,
     games: i32,
     umpire: u8,
+    /// The match settings' Markers Off: no red or yellow landing marks (`--no-shot-markers`); online, the host's.
+    no_marks: bool,
     /// The dice for a random court or umpire, thrown at Start (`venue`).
     roll: u64,
     /// The action waiting for a new key or button (controls screen).
@@ -616,6 +618,7 @@ impl Default for Menu {
             sets: 0,
             games: 4,
             umpire: UMPIRES as u8, // B191: Random until a pick is saved
+            no_marks: false,
             roll: 0,
             rebinding: None,
             keys_tab: false,
@@ -667,7 +670,9 @@ impl Default for Menu {
 }
 
 /// Rows per screen (the main screen's: `Menu::main_rows`).
-const CONFIRM_ROWS: usize = 5;
+const CONFIRM_ROWS: usize = 6;
+/// The confirm screen's Markers row (✕ toggles it, no picker).
+const MARKS_ROW: usize = 5;
 
 /// The system bank's cue for a device leaving the roster (joining plays the back cue, key 1).
 const LEAVE_SOUND: u8 = 3;
@@ -1738,7 +1743,13 @@ impl Menu {
                     out.push(Sound(0));
                 }
                 // B212: the court, Sets, Games and the umpire open their picker on ✕ (the value it puts back on ○)
-                if k.ok && (1..CONFIRM_ROWS).contains(&self.sel) {
+                if k.ok && self.sel == MARKS_ROW {
+                    self.no_marks = !self.no_marks;
+                    out.push(Sound(0));
+                    if self.online() {
+                        out.push(Effect::Online(online::Fx::Net(crate::net::Cmd::NoMarks(self.no_marks))));
+                    }
+                } else if k.ok && (1..MARKS_ROW).contains(&self.sel) {
                     self.picking = Some([0, self.court, self.sets, self.games as usize, self.umpire as usize][self.sel]);
                     out.push(Sound(2));
                 }
@@ -1874,6 +1885,9 @@ impl Menu {
             "--pads".into(),
             Seat::flag(&seats),
         ]);
+        if self.no_marks {
+            a.push("--no-shot-markers".into());
+        }
         a.extend(slot_mods);
         a.extend(self.umpire_mod_flags());
         a.extend(self.court_mod_flags());
@@ -4367,6 +4381,17 @@ mod tests {
     /// B212: Sets and Games are picked like the court and umpire: ←→ on the unpicked row do nothing, ✕ picks the pill,
     /// ←→ step it and stop at the ends (the original's 1/3/5 and 2/4/6), ✕ keeps, ○ puts back; a tap picks it too,
     /// its thirds step it and keep it, a tap off puts it back.
+    #[test]
+    fn markers_toggle_reaches_the_match() {
+        let mut m = Menu { screen: Screen::Confirm, seats: [Some(Dev::Keys), None, None, None], sel: MARKS_ROW, ..default() };
+        let off = |m: &Menu| m.args(&[]).contains(&"--no-shot-markers".to_string());
+        assert!(!off(&m));
+        m.step(Dev::Keys, press(|p| &mut p.ok));
+        assert!(off(&m) && m.picking.is_none());
+        m.step(Dev::Keys, press(|p| &mut p.ok));
+        assert!(!off(&m));
+    }
+
     #[test]
     fn sets_and_games_pickers() {
         let mut m = Menu { screen: Screen::Confirm, seats: [Some(Dev::Keys), None, None, None], sel: 2, sets: 0, games: 4, ..default() };

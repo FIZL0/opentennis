@@ -725,8 +725,8 @@ pub(super) mod tests {
         let mut m = Menu { screen: Screen::Lobby, ..default() };
         super::super::online::sample(&mut m);
         (m.net.hosting, m.sel) = (true, 0);
-        // the four cards (0–3), the settings (4–9), the code (10), Copy Link (11) Public (12)
-        let copy = 11;
+        // the four cards (0–3), the settings (4–10), the code (11), Copy Link (12) Public (13)
+        let copy = 12;
         let at = centre(&m, copy);
         frame(&mut app, &mut m, at, 0);
         assert_eq!(m.sel, copy, "hovering selects");
