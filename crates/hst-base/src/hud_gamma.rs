@@ -141,6 +141,7 @@ fn follow_window(
     mut images: ResMut<Assets<Image>>,
     mut targets: Query<&mut RenderTarget>,
     mut cams: Query<&mut Camera>,
+    device: Option<Res<bevy::render::renderer::RenderDevice>>,
 ) {
     let Ok(w) = window.single() else { return };
     // B117: the images are the view's size, the composite drawn only there
@@ -160,7 +161,8 @@ fn follow_window(
         ((size(480.0 * pw / ph.max(1.0), 448.0), k), (size(pw * k, 448.0), k))
     } else {
         let cap = densest(w.scale_factor());
-        let k = (g.scale as f32 / 100.0).min(cap);
+        let side = device.map_or(8192, |d| d.limits().max_texture_dimension_2d) as f32;
+        let k = scene_scale(g.scale, cap, pw.max(ph), side);
         ((size((pw * k).floor(), (ph * k).floor()), k), (size((pw * cap).floor(), (ph * cap).floor()), cap))
     };
     let sampler = if g.original { ImageSampler::nearest() } else { ImageSampler::Default };
@@ -191,6 +193,14 @@ fn follow_window(
             *target = RenderTarget::Image(ImageRenderTarget { handle, scale_factor: scale });
         }
     }
+}
+
+/// The scene image's size in window pixels at render scale `scale` % with the density cap `cap` ([`densest`]): up to
+/// 100 % the scale, at most the cap; above it (P63: supersampling) the capped size times the scale, the composite
+/// filtering it down, but no side past the GPU's largest texture (`side` px; the window's longer side is `long`).
+fn scene_scale(scale: u32, cap: f32, long: f32, side: f32) -> f32 {
+    let s = scale as f32 / 100.0;
+    if s <= 1.0 { s.min(cap) } else { (cap * s).min(side / long.max(1.0)).max(cap) }
 }
 
 /// The share of a window's physical pixels the images may have at `scale_factor` device px per logical px
@@ -277,6 +287,14 @@ mod tests {
         // a DPR-3 phone: two thirds of its pixels; DPR 2 and below: all
         assert_eq!(densest(3.0), 2.0 / 3.0);
         assert_eq!((densest(2.0), densest(1.25), densest(1.0)), (1.0, 1.0, 1.0));
+    }
+
+    #[test]
+    fn supersampling_scale() {
+        // up to 100 % as before; above it the capped size times the scale, within the largest texture
+        assert_eq!((scene_scale(67, 1.0, 1920.0, 8192.0), scene_scale(100, 2.0 / 3.0, 1920.0, 8192.0)), (0.67, 2.0 / 3.0));
+        assert_eq!((scene_scale(150, 1.0, 1280.0, 8192.0), scene_scale(200, 2.0 / 3.0, 1280.0, 8192.0)), (1.5, 4.0 / 3.0));
+        assert_eq!((scene_scale(200, 1.0, 5120.0, 8192.0), scene_scale(200, 1.0, 9000.0, 8192.0)), (1.6, 1.0));
     }
 
     #[test]

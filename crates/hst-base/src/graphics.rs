@@ -58,7 +58,8 @@ pub static KEEP_WINDOWED: AtomicBool = AtomicBool::new(false);
 /// P44: 240/360/480 for high-refresh monitors (the sim stays 60 Hz; drawing interpolates between ticks).
 /// 90 for the OLED Steam Deck's 90 Hz screen.
 pub const FPS: [u32; 9] = [30, 60, 90, 120, 144, 240, 360, 480, 0];
-pub const SCALES: [u32; 5] = [50, 67, 75, 85, 100];
+/// P63: above 100 % supersamples (the scene drawn larger, filtered down to the window).
+pub const SCALES: [u32; 8] = [50, 67, 75, 85, 100, 125, 150, 200];
 pub const SHADOWS: [Shadows; 3] = [Shadows::Off, Shadows::Low, Shadows::High];
 pub const MSAA: [u32; 3] = [1, 2, 4];
 pub const MESHES: [u32; 4] = [25, 50, 75, 100];
@@ -72,8 +73,11 @@ impl Default for Graphics {
 }
 
 impl Graphics {
-    /// The Steam Deck's: its native 1280×800, cheaper shadows, vsync on (picked on a Deck's first run).
-    pub const STEAM_DECK: Graphics = Graphics { fps: 0, vsync: true, scale: 100, shadows: Shadows::Low, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, auto: false };
+    /// The Steam Deck's (picked on a Deck's first run): its native 1280×800 at High's quality (P63: the Deck holds it),
+    /// with vsync and the speed-ups (Fewer Shadows, Skip Off-Screen) on.
+    pub const STEAM_DECK: Graphics = Graphics { fps: 0, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, auto: false };
+    /// The Steam Deck preset before P63 (Low shadows): a settings.txt still on it moves up to [`Self::STEAM_DECK`].
+    const STEAM_DECK_OLD: Graphics = Graphics { shadows: Shadows::Low, ..Self::STEAM_DECK };
     /// A phone's or tablet's (B351, picked on the browser build's first run on a touch screen and the iOS app's first
     /// run): Low shadows, which also drop the small props' and the spectators' (`shadow::Minor`), at 67% scale with 2x
     /// MSAA. M91: an iPhone 15 Pro at 100%/2x is GPU-bound on the Grand Indoor Palace (40 fps); a phone's dense screen
@@ -97,7 +101,7 @@ impl Graphics {
         match key.trim() {
             "fps" | "frame_limit" => self.fps = if v == "uncapped" { 0 } else { v.parse().unwrap_or(self.fps) },
             "vsync" => self.vsync = v != "off",
-            "scale" | "render_scale" => self.scale = v.trim_end_matches('%').parse::<u32>().map_or(self.scale, |s| s.clamp(25, 100)),
+            "scale" | "render_scale" => self.scale = v.trim_end_matches('%').parse::<u32>().map_or(self.scale, |s| s.clamp(25, 200)),
             "msaa" | "anti_aliasing" => self.msaa = MSAA.into_iter().find(|&m| msaa_name(m) == v).unwrap_or(self.msaa),
             "original" => self.original = v != "off",
             "windowed" => self.windowed = v != "off",
@@ -164,6 +168,12 @@ impl Graphics {
 
     pub fn preset(&self) -> &'static str {
         Self::PRESETS.iter().find(|(_, g)| self.keep(*g) == *self).map_or("Custom", |(n, _)| n)
+    }
+
+    /// Settings read from an older build's settings.txt, brought up to date: the old Steam Deck preset becomes the
+    /// current one (P63).
+    pub fn upgrade(self) -> Graphics {
+        if self.keep(Self::STEAM_DECK_OLD) == self { self.keep(Self::STEAM_DECK) } else { self }
     }
 
     /// Preset `p` with this one's settings that no preset sets (the window, Show FPS, Auto).
@@ -1104,6 +1114,23 @@ mod tests {
         assert!(Graphics::LOWEST.fewer_shadows && Graphics::LOWEST.cull && Graphics::LOWEST.mesh == MESHES[0] && Graphics::LOWEST.scale == SCALES[0]);
         let names: Vec<_> = Graphics::PRESETS.iter().map(|(n, _)| *n).collect();
         assert_eq!(names, ["High", "Default", "Steam Deck", "Low", "Lowest", "Phone"]);
+        // P63: the Deck at High's look with vsync and the speed-ups; an old Deck settings.txt moves up to it
+        assert_eq!(Graphics::STEAM_DECK, Graphics { vsync: true, ..default() });
+        assert_eq!(Graphics::STEAM_DECK.preset(), "Steam Deck");
+        let old = Graphics { shadows: Shadows::Low, windowed: true, ..Graphics::STEAM_DECK };
+        assert_eq!(old.upgrade(), Graphics { windowed: true, ..Graphics::STEAM_DECK });
+        assert_eq!((Graphics::LOW.upgrade(), Graphics::default().upgrade()), (Graphics::LOW, Graphics::default()));
+        // P63: supersampling scales read back from settings.txt, 200 % at most
+        for s in [125, 150, 200] {
+            let g = Graphics { scale: s, ..default() };
+            let mut back = Graphics::default();
+            for (k, v) in g.text().lines().filter_map(|l| l.split_once('=')) {
+                back.set(k, v);
+            }
+            assert_eq!((back, g.preset()), (g, "Custom"));
+        }
+        let mut g = Graphics::default();
+        assert!(g.set("render_scale", "400%") && g.scale == 200);
     }
 
     /// P53: the Auto preset's device pick and its step-down ladder never cap at 30, and the timing steps down until
@@ -1127,6 +1154,7 @@ mod tests {
         assert_eq!(cheaper(Graphics::PHONE), Some(Graphics::LOW));
         assert_eq!((cheaper(Graphics::LOW).unwrap().scale, cheaper(Graphics::LOWEST)), (50, None));
         assert_eq!(cheaper(Graphics::HIGH), Some(Graphics::default()));
+        assert_eq!(cheaper(Graphics { scale: 200, ..default() }).unwrap().scale, 150);
         assert_eq!(cheaper(Graphics { fps: 30, ..Graphics::LOW }).unwrap().fps, 60);
         // the pick: a Deck its own (no timing), a desktop Default, a phone Phone or below; never a 30 cap
         let phone = Device { touch: true, ..default() };

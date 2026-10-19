@@ -310,6 +310,8 @@ impl Settings {
                 s.1.set(k, v);
             }
         }
+        // P63: an older build's Steam Deck preset (Low shadows) moves up to the current one
+        s.1 = s.1.upgrade();
         s.0[UPSCALED_DOWNLOADS] = downloads.unwrap_or(s.0[0]);
         s.3 = aspect.or(wide).unwrap_or(s.3);
         s.2 = Volumes::parse(text);
