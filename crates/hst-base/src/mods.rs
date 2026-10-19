@@ -1358,10 +1358,22 @@ pub fn load_with(
         None => character::disc_motions_counted(iso, m.donor, &skeleton, |_| None, |_| false, Some(&[0]))?.motions.remove(&0),
     };
     let feet = level_feet(&mut joints, &sides, &soles, &character::disc_body(iso, m.donor)?, stand.as_ref());
+    // the off hand on the racket (`character::Grip`): the donor's bones, and how much longer this racket is than
+    // the disc ones (the donor's measures them; dropping its handles frees it)
+    let grip = {
+        let body = character::disc_body(iso, m.donor)?;
+        let bones = joints.iter().map(|j| body.node_names.iter().position(|x| *x == j.name).map_or(j.rest.translation, |i| Mat4::from_cols_array_2d(&body.node_local[i]).to_scale_rotation_translation().2)).collect();
+        let data = iso.read(&format!("PC/PC{:02}C00.XB", m.donor)).map_err(|e| e.to_string())?;
+        let disc = character::disc_racket(&Archive::parse(&data).map_err(|e| e.0)?, m.donor, meshes, materials, images, &mut gs.clone())?;
+        let mut tip = |r: &[(Handle<Mesh>, Handle<StandardMaterial>)]| {
+            r.iter().filter_map(|(h, _)| match meshes.get_mut(h)?.attribute(Mesh::ATTRIBUTE_POSITION)? { bevy::mesh::VertexAttributeValues::Float32x3(p) => p.iter().map(|v| v[1]).reduce(f32::max), _ => None }).fold(f32::MIN, f32::max)
+        };
+        Some(character::Grip { bones, reach: tip(&racket) - tip(&disc) })
+    };
     let binds = crate::character::part_skins(&joints, &parts, meshes, bindposes);
     let springs = crate::spring::masses(&nodes, &joints);
     let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs }));
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, feet, frame_gameplay: false })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, feet, grip, frame_gameplay: false })
 }
 
 /// `mod.json`'s `disc_racket` (§6, M1r): the disc character (0..13) whose racket it holds when it ships no

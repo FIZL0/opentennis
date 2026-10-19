@@ -124,9 +124,23 @@ pub struct CharacterData {
     pub visual: HashMap<usize, Clip>,
     /// A mod's feet, set down where the donor's are (B543, looks only): see [`Feet`].
     pub feet: Option<Feet>,
+    /// A mod's off-hand grip (looks only): see [`Grip`].
+    pub grip: Option<Grip>,
     /// B556: an online mod: the cameras frame it on its gameplay clips ([`framed`](Self::framed)), as every peer has
     /// them, whether or not it has the looks (`visual` differs, and the camera decides the match's draws).
     pub frame_gameplay: bool,
+}
+
+/// A mod's off hand on its racket (looks only). The donor's clips turn the costume's own bones, so on longer or
+/// shorter arms the hand that cradles the racket's head lands behind its strings or off it. While the hand is out at
+/// the head (not on the handle, not off the racket), the arm is bent so the hand sits where the donor's would under
+/// the same rotations, turned as the donor's is: palm under the head's bottom rim, fingers over the frame.
+#[derive(Clone, Debug)]
+pub struct Grip {
+    /// Per joint of the costume, the donor's rest translation of that name (the costume's own where it has none).
+    pub bones: Vec<Vec3>,
+    /// How much further along the costume's racket its head is than the disc rackets' (all one shape), by the tip.
+    pub reach: f32,
 }
 
 /// A mod's feet against its donor's (B543, looks only). The donor's clips bind to the costume's own bone lengths
@@ -808,7 +822,7 @@ pub fn load_disc_with(
     // the game binds a face track to the target of the same name; others are dropped
     let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &skeleton, |name| model.morph_names.iter().position(|m| m == name), only)?;
     let binds = part_skins(&joints, &parts, meshes, bindposes);
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), feet: None, frame_gameplay: false })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), feet: None, grip: None, frame_gameplay: false })
 }
 
 /// The node names of disc character `n`'s body model (costume 0; every costume shares the skeleton).
@@ -1068,6 +1082,7 @@ pub fn load_npc(
         texture_face: None,
         visual: HashMap::new(),
         feet: None,
+        grip: None,
         frame_gameplay: false,
     })
 }
@@ -1182,6 +1197,15 @@ pub fn animate(
                 None => own(clip),
             };
             feet.unturn(&rig.data.joints, &mut drawn, u);
+        }
+        // a mod's off hand holds the racket's head where its donor's does (looks only)
+        if let Some(grip) = &rig.data.grip {
+            let own = |c: &Clip| rig.data.visual.values().any(|v| std::ptr::eq(v, c)) as u8 as f32;
+            let mine = match over {
+                Some((other, _, w)) => own(clip) + (own(other) - own(clip)) * w,
+                None => own(clip),
+            };
+            hold_head(&rig.data, grip, &mut drawn, 1.0 - mine);
         }
         for (j, joint) in rig.data.joints.iter().enumerate() {
             let (Ok(mut tf), Some(&(rotation, translation))) = (joints.get_mut(rig.joints[j]), drawn.get(j)) else { continue };
@@ -1377,6 +1401,58 @@ pub fn tick(mut q: Query<(&Rig, &mut Motion)>) {
 /// the origin, playing motion M in a loop.
 pub fn viewer(app: &mut App) {
     app.insert_resource(Time::<Fixed>::from_hz(60.0)).add_systems(PostStartup, spawn_viewer).add_systems(FixedUpdate, tick).add_systems(Update, animate);
+}
+
+/// The disc rackets' head centre in the racket joint's frame.
+const HEAD: Vec3 = Vec3::new(0.0, 0.777, 0.0);
+
+/// [`Grip`]: bends the off arm (two bones) of `drawn` so the hand is where the donor's would be on the racket, by
+/// `weight` (0 leaves it, 1 all the way) and fully only while the donor's hand is within 0.2 of the head's centre
+/// (cradling it is ~0.15; the handle and a free arm are past 0.3).
+fn hold_head(d: &CharacterData, grip: &Grip, drawn: &mut [(Quat, Vec3)], weight: f32) {
+    let (Some(u), Some(e), Some(h), Some(r)) = (d.joint("Bip01LUpperArm"), d.joint("Bip01LForearm"), d.joint("Bip01LHand"), d.joint("Racket")) else { return };
+    if h >= drawn.len() || r >= drawn.len() {
+        return;
+    }
+    let up = |mut k: usize| {
+        let mut v = vec![k];
+        while let Some(p) = d.joints[k].parent {
+            v.push(p);
+            k = p;
+        }
+        v
+    };
+    // a joint's placement below `top`, on the costume's bones or the donor's
+    let down = |path: &[usize], top: Option<usize>, bones: &dyn Fn(usize) -> Vec3| {
+        path.iter().take_while(|&&j| Some(j) != top).fold(Transform::IDENTITY, |t, &i| Transform { translation: bones(i), rotation: drawn[i].0, scale: d.joints[i].rest.scale }.mul_transform(t))
+    };
+    let (hand, racket) = (up(h), up(r));
+    let top = hand.iter().find(|j| racket.contains(j)).copied();
+    let theirs = |i: usize| grip.bones[i];
+    let held = down(&racket, top, &theirs).compute_affine().inverse() * down(&hand, top, &theirs).compute_affine();
+    let (_, turn, at) = held.to_scale_rotation_translation();
+    let w = weight * ((0.30 - (at - HEAD).length()) / 0.10).clamp(0.0, 1.0);
+    if w <= 0.0 {
+        return;
+    }
+    let mine = |i: usize| drawn[i].1;
+    let world = |j: usize| down(&up(j), None, &mine);
+    let (wu, we, wh, wr) = (world(u), world(e), world(h), world(r));
+    let target = wh.translation.lerp(wr.transform_point(at + Vec3::Y * grip.reach), w);
+    let turn = wh.rotation.slerp(wr.rotation * turn, w);
+    // bend the elbow to the reach, then swing the shoulder onto the target
+    let (pu, pe, ph) = (wu.translation, we.translation, wh.translation);
+    let (a, b) = ((pe - pu).length(), (ph - pe).length());
+    let c = (target - pu).length().clamp((a - b).abs() + 1e-4, a + b - 1e-4);
+    let (su, sh) = (pu - pe, ph - pe);
+    let want = ((a * a + b * b - c * c) / (2.0 * a * b)).clamp(-1.0, 1.0).acos();
+    let bend = Quat::from_axis_angle(su.cross(sh).normalize_or_zero(), want - su.angle_between(sh));
+    let swing = Quat::from_rotation_arc((pe + bend * sh - pu).normalize(), (target - pu).normalize());
+    let (qu, qe) = (swing * wu.rotation, swing * bend * we.rotation);
+    let parent = wu.rotation * drawn[u].0.inverse();
+    drawn[u].0 = (parent.inverse() * qu).normalize();
+    drawn[e].0 = (qu.inverse() * qe).normalize();
+    drawn[h].0 = (qe.inverse() * turn).normalize();
 }
 
 /// The viewer's mod folder (`--mod`).
