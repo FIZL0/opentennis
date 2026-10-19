@@ -12,4 +12,4 @@
 - In an online lobby, Back now steps back one thing at a time: first it undoes your character pick, then it takes you out of your seat (you still run the lobby), then it leaves, asking first if anyone else is in or joining.
 - When you start a local match, the character rosters no longer jump down under the court and umpire options at the bottom of the screen.
 - Mod characters now hold the racket's head with their other hand the way the original characters do (palm under the rim, fingers over the frame) instead of resting it behind the strings.
-- A controller whose "use it for 1P?" prompt timed out now asks again on its next button press, instead of staying ignored until it's unplugged.
+- A controller whose "use it for 1P?" prompt timed out, or was turned down, now asks again on its next button press (after a turn-down, once 1P switches input), instead of staying ignored until it's unplugged.
