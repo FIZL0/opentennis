@@ -225,8 +225,9 @@ pub fn plugin(app: &mut App) {
         })
         .add_systems(FixedPostUpdate, |w: &mut World| run(w, FixedPostUpdate))
         // before the base's `texture_faces` (after the match's `animate`) and the UI layout (after `widescreen`'s fit);
-        // after the base's `orbit`, or its rig transform could land over the intro's and the ceremony's camera (B288)
-        .add_systems(Update, (|w: &mut World| run(w, Update)).before(crate::character::texture_faces).after(crate::orbit))
+        // after the base's `orbit`, or its rig transform could land over the intro's and the ceremony's camera (B288);
+        // B579: before the base's spring hair, or the mode's `animate` (match, select cards) poses over its swing
+        .add_systems(Update, (|w: &mut World| run(w, Update)).before(crate::character::texture_faces).after(crate::orbit).before(crate::spring::swing))
         .add_systems(PostUpdate, (|w: &mut World| run(w, PostUpdate)).before(bevy::ui::UiSystems::Layout).before(warm))
         // before winit drops the windows on an `AppExit`
         .add_systems(Last, ((|w: &mut World| run(w, Last)), back).chain().before(bevy::window::ExitSystems));
@@ -745,6 +746,19 @@ fn back(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B579: the mode's `Update` (the match's and the select cards' `animate`) runs before the spring hair swings,
+    /// or its pose lands over the swing and the hair never moves (an unrelated system added once flipped them).
+    #[test]
+    fn the_mode_poses_before_the_hair_swings() {
+        let mut app = App::new();
+        app.add_plugins((plugin, crate::spring::plugin));
+        let mut s = app.world_mut().resource_mut::<Schedules>().remove(Update).unwrap();
+        s.initialize(app.world_mut()).unwrap();
+        let names: Vec<String> = s.systems().unwrap().map(|(_, s)| s.name().to_string()).collect();
+        let at = |n: &str| names.iter().position(|s| s.contains(n)).unwrap_or_else(|| panic!("no {n} in {names:?}"));
+        assert!(at("mode::plugin::{{closure}}") < at("spring::swing"), "{names:?}");
+    }
 
     #[derive(Resource, Default)]
     struct Count(u32);
