@@ -259,7 +259,8 @@ fn scene_off(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob:
             }
         }
     }
-    for cv in clears.into_values() {
+    // a piece under 1.5 m (game up is −y) can't hide a player: always drawn (Dubno's toolboxes behind the baseline)
+    for cv in clears.into_values().filter(|cv| -cv.lo.y >= 1.5) {
         commands.spawn(cv);
     }
     for a in doc.animations() {
