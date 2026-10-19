@@ -1104,6 +1104,55 @@ pub fn skeleton(m: &Mod, costume: usize) -> Result<Skeleton, String> {
     Ok(skeleton_of(&joints_of(&doc, &blob)))
 }
 
+/// B569: how far costume `costume`'s head reaches above its `Bip01Head` joint at rest, in metres: the highest vertex
+/// on that joint or one under it (hair, hats, a PSP head's own mesh nodes), a skinned vertex going with its heaviest
+/// joint. The face icon of a store mod's picture is sized on it (no head bone in a picture). None without the joint
+/// or a vertex on it.
+pub fn head_height(m: &Mod, costume: usize) -> Option<f32> {
+    let (doc, blob) = open(&m.dir.join(m.costumes.get(costume)?)).ok()?;
+    let world = worlds(&doc);
+    let mut parent = vec![None; world.len()];
+    for n in doc.nodes() {
+        n.children().for_each(|c| parent[c.index()] = Some(n.index()));
+    }
+    let head = doc.nodes().find(|n| n.name().is_some_and(|s| s.replace(' ', "") == "Bip01Head"))?.index();
+    let on_head = |mut i: usize| loop {
+        if i == head {
+            break true;
+        }
+        match parent[i] {
+            Some(p) => i = p,
+            None => break false,
+        }
+    };
+    let mut top = f32::NEG_INFINITY;
+    for n in doc.nodes() {
+        let Some(mesh) = n.mesh() else { continue };
+        let skin = n.skin().map(|s| {
+            let ibm: Vec<Mat4> = s.reader(|_| Some(&blob)).read_inverse_bind_matrices().map_or_else(Vec::new, |i| i.map(|m| Mat4::from_cols_array_2d(&m)).collect());
+            s.joints().enumerate().map(|(k, j)| (j.index(), world[j.index()] * ibm.get(k).copied().unwrap_or(Mat4::IDENTITY))).collect::<Vec<_>>()
+        });
+        for p in mesh.primitives() {
+            let r = p.reader(|_| Some(&blob));
+            let Some(pos) = r.read_positions() else { continue };
+            match (&skin, r.read_joints(0), r.read_weights(0)) {
+                (Some(skin), Some(j), Some(w)) => {
+                    for ((v, j), w) in pos.zip(j.into_u16()).zip(w.into_f32()) {
+                        let k = (0..4).max_by(|&a, &b| w[a].total_cmp(&w[b])).unwrap();
+                        let Some(&(joint, m)) = skin.get(j[k] as usize) else { continue };
+                        if on_head(joint) {
+                            top = top.max(m.transform_point3(Vec3::from(v)).y);
+                        }
+                    }
+                }
+                _ if on_head(n.index()) => pos.for_each(|v| top = top.max(world[n.index()].transform_point3(Vec3::from(v)).y)),
+                _ => {}
+            }
+        }
+    }
+    (top > f32::NEG_INFINITY).then(|| top - world[head].w_axis.y)
+}
+
 /// §7's checks on every costume of `m` (a mod that came over the network, before it's used).
 pub fn check(m: &Mod) -> Result<(), String> {
     m.costumes.iter().try_for_each(|c| {
@@ -1559,6 +1608,17 @@ mod tests {
             }
         }
         eprintln!("{seen} PSP costumes have heads");
+    }
+
+    /// B569: the head's reach above its bone, from a PSP head's own mesh nodes (Emi) and a skinned head with its hair
+    /// joints (Fore's Phoebe), against the same sum done apart in numpy (`research/journal/2026-10-18-b569-gag-faces/`).
+    #[test]
+    fn head_height_over_the_bone() {
+        for (id, want) in [("getagrip_pc00_emi", 0.397), ("getagrip_pc12_suzuki", 0.393), ("fore_pc00_phoebe", 0.452)] {
+            let Ok(m) = read(&Path::new(MODS).join(id)) else { return eprintln!("no context/mods/{id}, skipped") };
+            let h = head_height(&m, 0).unwrap();
+            assert!((h - want).abs() < 0.001, "{id}: {h} vs {want}");
+        }
     }
 
     /// Get a Grip's Emi (a texture face, §4b): her face material starts neutral, the donor's `.MOR` tracks drive

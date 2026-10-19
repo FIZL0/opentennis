@@ -348,6 +348,8 @@ pub(super) fn dir_stamp(dir: &Path) -> String {
     for f in ["mod.json", "store.json"] {
         crate::modfs::read(&dir.join(f)).ok().hash(&mut h);
     }
+    // B569: store mods' face close-ups cut again, sized on the head
+    CUT.hash(&mut h);
     // the folder's name, as its PNGs' names start (`m-<name>-<hash>-<k>.png`)
     let name: String = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default().chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '-' }).collect();
     format!("{name}-{:016x}", h.finish())
@@ -898,7 +900,11 @@ fn bake(
     if baker.fetching {
         let Some((key, path, png)) = baker.got.lock().unwrap().take() else { return };
         baker.fetching = false;
-        if png.is_some_and(|b| from_store(&b, &path)) {
+        let head = match key.0 {
+            Who::Mod(i) => loader.mod_at(&menu, i).and_then(|m| crate::mods::head_height(m, 0)),
+            Who::Disc(_) => None,
+        };
+        if png.is_some_and(|b| from_store(&b, &path, head)) {
             loader.pngs.remove(&key);
             loader.png_order.retain(|k| *k != key);
             card.baked += 1;
@@ -1012,6 +1018,14 @@ fn save(rgba: Vec<u8>, size: UVec2, path: &Path) -> bool {
     }
 }
 
+/// Bumped when how a mod's card or face close-up is made changes, so every mod's is made again.
+const CUT: u32 = 1;
+
+/// B569: a drawn head's hair-to-bone height over its rest height ([`crate::mods::head_height`]): the preview's pose bows the
+/// head a little. The median over every store mod's second costume, its bone-framed close-up against its rest height
+/// (±4% for most; hair spikes and hats off the bone's column make a few up to 25% looser).
+const HEAD_BOW: f32 = 0.96;
+
 /// B160: a baked preview's face close-up beside it (`d05-0.png` → `d05-0-face.png`).
 fn face_path(preview: &Path) -> PathBuf {
     let stem = preview.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -1019,13 +1033,19 @@ fn face_path(preview: &Path) -> PathBuf {
 }
 
 /// B335: a store mod's listing picture (`preview.png`, the uploader's baked card) as `path`'s drawing at this
-/// device's size and its close-up (the head found by [`inspect::face_square`] without a head bone).
-fn from_store(png: &[u8], path: &Path) -> bool {
+/// device's size and its close-up (the head found by [`inspect::face_square`] without a head bone). B569: sized on
+/// the costume's head, `head` m above its head bone at rest ([`crate::mods::head_height`]), as the bone frames a drawn one
+/// (a fixed square cut Get a Grip's big heads at the chin).
+fn from_store(png: &[u8], path: &Path, head: Option<f32>) -> bool {
     use image::imageops::{self, FilterType};
     let Ok(img) = image::load_from_memory_with_format(png, image::ImageFormat::Png) else { return false };
     let (bake, face) = sizes();
     let img = imageops::resize(&img.into_rgba8(), bake.x, bake.y, FilterType::Triangle);
-    let Some(sq) = inspect::face_square(&img, None) else { return false };
+    let sq = match head {
+        Some(m) => inspect::face_square_sized(&img, m * HEAD_BOW * inspect::metre_px(bake.as_vec2())),
+        None => inspect::face_square(&img, None),
+    };
+    let Some(sq) = sq else { return false };
     let head = imageops::resize(&imageops::crop_imm(&img, sq.min.x, sq.min.y, sq.width(), sq.height()).to_image(), face.x, face.y, FilterType::Triangle);
     save(head.into_raw(), face, &face_path(path)) && save(img.into_raw(), bake, path)
 }
@@ -1324,7 +1344,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("hst-b335-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("m-x-0.png");
-        assert!(from_store(&png, &path) && !from_store(b"not a png", &dir.join("m-y-0.png")));
+        assert!(from_store(&png, &path, None) && !from_store(b"not a png", &dir.join("m-y-0.png"), None));
         let dims = |p: &Path| image::open(p).unwrap().into_rgba8().dimensions();
         assert_eq!(dims(&path), (BAKE.x, BAKE.y));
         assert_eq!(dims(&face_path(&path)), (FACE.x, FACE.y));
