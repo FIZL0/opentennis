@@ -1397,7 +1397,7 @@ fn spawn_viewer(
     let (Some((n, motion)), Ok(root)) = (args.viewer, root.single()) else { return };
     let mut iso = Iso::open(&args.iso).expect("open iso");
     let data = match &view_mod.0 {
-        Some(dir) => crate::mods::read(dir.as_ref()).and_then(|m| crate::mods::load(&mut iso, &m, 0, &mut meshes, &mut materials, &mut images, &mut bindposes)),
+        Some(dir) => crate::mods::read(dir.as_ref()).and_then(|m| crate::mods::load(&mut iso, &m, args.outfits.first().copied().unwrap_or(0), &mut meshes, &mut materials, &mut images, &mut bindposes)),
         None => load_disc(&mut iso, n, args.outfits.first().copied().unwrap_or(0), &mut meshes, &mut materials, &mut images, &mut bindposes),
     };
     let data = Arc::new(data.unwrap_or_else(|e| panic!("character: {e}")));
