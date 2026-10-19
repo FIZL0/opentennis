@@ -31,7 +31,7 @@
   picked: journal 2026-10-16-m98-promo-shots.
 - `vpad.py send` returns at once and the server runs commands one after another (sleeps included): a script
   that sends several batches must wait each one out (`vpad()` in `tools/pick.py`), or presses pile up and land late.
-  In menus ○ confirms, ✕ goes back.
+  In menus ✕ confirms, ○ goes back.
 - **Choosing characters:** `tools/pcsx2.sh python3 tools/pick.py <char 0–13> [slot]` loads save slot 2 (doubles
   character select), puts character <char> in as P1, takes the three COM picks where their cursors start, starts
   the match and saves P1's first serve to the scratch slot (8). It prints P1's character (+0x12bc), hand
