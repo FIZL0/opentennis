@@ -10,3 +10,13 @@ the predictor is reseeded, what the AI reads). Next session: port into hst-sim a
   than 15 are left), start +1 a frame, entry 0 = the live ball at the hit with y negated, the hit frame ends at
   end 15 / start 0, mode 0 on serves and 1 in rallies, and inactive at the point's end.
 - Not in run 1: a net touch, an out ball (gap), the 600 cap. SPEC.md *Recordings* says how to get them.
+
+## 2026-10-20: open question answered
+
+The doubles countdown has one reader. Each player's per-frame pose step skips the turn toward the live ball while
+the countdown is above 0. That is presentation only: nothing in the record, the AI, the ball or the shots reads it.
+SPEC.md step 4 now says this, and *Open questions* is `none`. I also re-read the update to check the entry-0 gap quirk
+(the gap is never taken on entry 0), and it holds.
+
+Not verified / not 1:1: the look-turn reader comes from reading the decompile only. It wasn't recorded, because it
+is presentation and the port doesn't need it.

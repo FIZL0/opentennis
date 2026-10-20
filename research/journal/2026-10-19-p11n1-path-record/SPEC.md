@@ -44,8 +44,13 @@ steps as a predictor: it makes no sounds or events, and it does not touch the li
 3. Presentation markers are updated after the record (lob / landing marker effects: out of scope, the app has its
    own).
 4. Doubles only: a countdown that resets to 15 when any player is in a swing state, and otherwise counts down
-   to 0. It is skipped when the update is run from a HIT (below). Nothing on the AI's side has been seen reading it
-   (Open questions).
+   to 0 (first it counts down by 1 if above 0, then it is set to 15 if a player swings). It is skipped when the update
+   is run from a HIT (below). In singles nothing sets it, so it stays 0. Its only reader is presentation: each
+   player's per-frame pose step turns the player's upper body/head toward the live ball only while the countdown is
+   0 or less. So in doubles, nobody turns to look at the ball while anyone is swinging and for 15 frames after. That
+   look turn is a bone adjustment on the drawn model. It does not feed the record, the AI, the ball or the shot
+   code. For the port session: keep the countdown with the record (it is cheap and its clears are listed below), and
+   expose it for a look-at-the-ball pose if the app adds one. No gameplay test depends on it.
 
 Quirks to keep:
 - **The gap is never reset.** It keeps its last value across paths and points; only an out-turning step overwrites
@@ -138,5 +143,4 @@ that the tip entries match bit for bit (y negated, −0).
 
 ## Open questions
 
-none. The doubles countdown's reader is unknown, but it does not feed the record or anything the AI reads; it is
-out of scope for this task.
+none
