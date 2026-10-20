@@ -173,7 +173,8 @@ fn fit_grid(window: Query<&Window, With<PrimaryWindow>>, mut menu: ResMut<Menu>)
     }
     // B297: the main screen's New in the store column, on a window wide enough for it
     // (and for the Mods row's Updates and Store facts while it's highlighted: the listing is cached an hour)
-    let mods_row = menu.main_rows().get(menu.sel) == Some(&home::Row::Mods);
+    // (M135: and whenever a store mod is installed, for the Update all card)
+    let mods_row = menu.main_rows().get(menu.sel) == Some(&home::Row::Mods) || mods_screen::from_store(&menu);
     if menu.screen == Screen::Main && (mods_row || home::columns(menu.grid.extra).3.is_some()) && mods_screen::store_len(&menu).is_none() {
         menu.want_store();
     }
@@ -1384,6 +1385,7 @@ impl Menu {
                         Row::Mods => self.mods_open(&mut out),
                         Row::Extras => self.go(Screen::Extras, &mut out),
                         Row::Update => crate::update::act(),
+                        Row::ModUpdates => self.update_all(&mut out),
                         #[cfg(target_arch = "wasm32")]
                         Row::Quit => crate::web::launcher(),
                         #[cfg(not(target_arch = "wasm32"))]
@@ -2377,6 +2379,11 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     }
     if fresh && (screen == "main-update" || screen == "rematch-update") {
         menu.sel = menu.main_at(home::Row::Update);
+    }
+    // M135: `main-modupdates`: the store has updates for three installed mods, the Update all card highlighted
+    if fresh && screen == "main-modupdates" {
+        mods_screen::sample_updates(&mut menu);
+        menu.sel = menu.main_at(home::Row::ModUpdates);
     }
     if fresh && screen == "reloadmods" {
         mods_screen::sample(&mut menu, &screen);

@@ -19,6 +19,8 @@ pub(super) enum Row {
     Settings,
     /// M97: Donate (`extras.rs`).
     Extras,
+    /// M135: the store has newer versions of installed mods: Update all queues them (`mods_screen::update_all`).
+    ModUpdates,
     /// B317: a newer build is out (`update.rs`): Refresh (browser) or Download (desktop).
     Update,
     Quit,
@@ -34,6 +36,9 @@ impl Menu {
             v.push(Row::Rematch);
         }
         v.extend([Row::Local, Row::Online, Row::Mods, Row::Settings, Row::Extras]);
+        if mods_screen::updating(self).0 > 0 {
+            v.push(Row::ModUpdates);
+        }
         if crate::update::latest().is_some() {
             v.push(Row::Update);
         }
@@ -119,6 +124,7 @@ fn backdrop(r: Row) -> [f32; 3] {
         Row::Settings => [118.0, 104.0, 98.0],
         Row::Extras => [118.0, 104.0, 70.0],
         Row::Update => [118.0, 104.0, 70.0],
+        Row::ModUpdates => [114.0, 104.0, 122.0],
         Row::Quit => [100.0; 3],
     }
 }
@@ -144,6 +150,7 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
     let (x, px, pw, store) = columns(m.grid.extra);
     let mut y = TOP;
     let mut hand = [0.0; 2];
+    let (pitch, ph) = pitch(&rows);
     for (i, &r) in rows.iter().enumerate() {
         let on = i == sel;
         let rect = match r {
@@ -169,6 +176,20 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
                 y += UPDATE_H + 4.0;
                 rect
             }
+            Row::ModUpdates => {
+                // M135: a card like the new version's, its count and Update all big (Updating... once all are queued)
+                let rect = [x, y + 4.0, LIST_W, UPDATE_H];
+                d.box3(rect, 12.0, [Some(INK), Some(if on { ON } else { WHITE }), Some(if on { ON } else { MODS_UP })], 128.0);
+                let (n, going) = mods_screen::updating(m);
+                let head = if n == 1 { "1 MOD UPDATE".to_string() } else { format!("{n} MOD UPDATES") };
+                d.text(&head, x + 14.0, rect[1] + 6.0, 13.0, if on { WHITE } else { [36.0, 70.0, 48.0] });
+                fit_text(d, if going == n { "Updating..." } else { name(r) }, x + 14.0, rect[1] + 21.0, 22.0, LIST_W - 50.0, if on { WHITE } else { INK });
+                if on {
+                    d.text(">", x + LIST_W - 28.0, rect[1] + 21.0, 22.0, WHITE);
+                }
+                y += UPDATE_H + 4.0;
+                rect
+            }
             Row::Quit => {
                 let rect = [x, FOOT - 32.0, if cfg!(target_arch = "wasm32") { 180.0 } else { 100.0 }, 30.0];
                 d.pill_at(rect, [INK, if on { ON } else { [80.0, 70.0, 90.0] }, if on { ON } else { [96.0, 84.0, 108.0] }], if on { 128.0 } else { 100.0 });
@@ -176,19 +197,19 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
                 rect
             }
             _ => {
-                let rect = [x, y, LIST_W, PILL_H];
+                let rect = [x, y, LIST_W, ph];
                 d.pill_at(rect, [INK, WHITE, if on { ON } else { OFF }], 128.0);
                 // B318: squeezed to stay clear of the chosen row's `>` (the words keep their height)
-                fit_text(d, name(r), x + 20.0, y + 7.0, 24.0, LIST_W - 56.0, if on { INK } else { [100.0; 3] });
+                let (ty, ts) = (y + 7.0 * ph / PILL_H, 24.0 * ph / PILL_H);
+                fit_text(d, name(r), x + 20.0, ty, ts, LIST_W - 56.0, if on { INK } else { [100.0; 3] });
                 if on {
-                    d.text(">", x + LIST_W - 28.0, y + 7.0, 24.0, INK);
+                    d.text(">", x + LIST_W - 28.0, ty, ts, INK);
                 }
                 // B205: mods installed or removed since the game started
                 if r == Row::Mods && mods_screen::reload_due(m) {
                     d.outlined(|d| d.text("Reload", x + LIST_W - 84.0, y + 10.0, 18.0, GOLD));
                 }
-                // M97: with both cards (Rematch, Update) the five pills close up so the Update card clears Quit
-                y += if m.rematch && rows.contains(&Row::Update) { PITCH - 4.0 } else { PITCH };
+                y += pitch;
                 rect
             }
         };
@@ -207,6 +228,25 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
 }
 
 const STALE_TOP: f32 = 226.0;
+
+/// The Mod updates card's fill (the Mods row's backdrop, deeper).
+const MODS_UP: [f32; 3] = [70.0, 104.0, 80.0];
+
+/// The five pills' pitch and height: M97: with the cards (Rematch, Update; M135: Mod updates) they close up so the last
+/// card clears Quit, and (all three up) get shorter too.
+fn pitch(rows: &[Row]) -> (f32, f32) {
+    let cards: f32 = rows
+        .iter()
+        .map(|r| match r {
+            Row::Rematch => CARD_H + 12.0,
+            Row::Update | Row::ModUpdates => UPDATE_H + 8.0,
+            _ => 0.0,
+        })
+        .sum();
+    let pills = rows.iter().filter(|r| !matches!(r, Row::Rematch | Row::Update | Row::ModUpdates | Row::Quit)).count().max(1);
+    let pitch = PITCH.min(((FOOT - 32.0 - TOP - cards) / pills as f32).floor());
+    (pitch, PILL_H.min(pitch - 4.0))
+}
 
 impl Menu {
     /// One press while the newer-version popup is up (it takes them all): any arrow swaps Update / Play anyway, ✕
@@ -277,6 +317,7 @@ fn name(r: Row) -> &'static str {
         Row::Settings => "Settings",
         Row::Extras => "Extras",
         Row::Update => crate::update::button(),
+        Row::ModUpdates => "Update all",
         Row::Quit if cfg!(target_arch = "wasm32") => "Back to launcher",
         Row::Quit => "Quit",
     }
@@ -339,6 +380,7 @@ fn preview(d: &mut Draw, m: &Menu, text: &Text, r: Row, pads: usize, [x, y, w, h
         Row::Update => "A new version is out. Download opens its release page: replace this game with the new build and keep your settings and mods folders next to it.".into(),
         Row::Quit if cfg!(target_arch = "wasm32") => "Leave the game for the launcher page: your disc, settings, mods and files. Play there comes back here.".into(),
         Row::Quit => "Close the game.".into(),
+        Row::ModUpdates => "The mod store has newer versions of mods you installed. Update all downloads and installs every one; Reload afterwards to play them.".into(),
     };
     let top = if r == Row::Quit { y + 60.0 } else { y + PIC_H + 16.0 };
     para(d, &words, x + 18.0, top, w - 36.0, 17.0, 4, INK);
@@ -364,6 +406,14 @@ fn preview(d: &mut Draw, m: &Menu, text: &Text, r: Row, pads: usize, [x, y, w, h
             }
             if let Some(n) = mods_screen::fresh_len(m) {
                 v.push(("Store", format!("{n} not installed")));
+            }
+            v
+        }
+        Row::ModUpdates => {
+            let (n, going) = mods_screen::updating(m);
+            let mut v = vec![("Updates", format!("{n} ready")), ("At once", m.settings.downloads_at_once().to_string())];
+            if going > 0 {
+                v.push(("Under way", going.to_string()));
             }
             v
         }
@@ -432,7 +482,7 @@ fn picture(d: &mut Draw, m: &Menu, r: Row, pads: usize, [x, y, w, h]: [f32; 4]) 
                 d.q(super::C02, [96.0 * (tile % 2) as f32, 72.0 * (tile / 2) as f32, 92.0, 68.0], dst, WHITE, 128.0);
             }
         }
-        Row::Mods => {
+        Row::Mods | Row::ModUpdates => {
             mod_tiles(d, m, [x, y, w, h]);
             if !m.mods.is_empty() {
                 caption(d, "Newest installed first", x + w - 13.0, y + h - 21.0, [45.0, 30.0, 51.0]);
@@ -687,5 +737,23 @@ mod tests {
         m.after_match();
         assert_eq!((m.screen, m.main_rows()[m.sel]), (Screen::Main, Row::Local));
         assert_eq!(m.main_rows()[0], Row::Rematch);
+    }
+
+    /// M135: with every card up (Rematch, Update, Mod updates) the pills close up and shrink so the last card still
+    /// clears Quit; with fewer, the pitch is as before (46, and 42 with Rematch and Update).
+    #[test]
+    fn cards_clear_quit() {
+        use Row::*;
+        let base = [Local, Online, Mods, Settings, Extras];
+        for (cards, want) in [(vec![], 46.0), (vec![Rematch], 46.0), (vec![Update], 46.0), (vec![Rematch, Update], 42.0), (vec![ModUpdates], 46.0), (vec![Rematch, ModUpdates, Update], 0.0)] {
+            let mut rows: Vec<Row> = cards.iter().filter(|r| **r == Rematch).copied().chain(base).chain(cards.iter().filter(|r| **r != Rematch).copied()).collect();
+            rows.push(Quit);
+            let (pitch, ph) = pitch(&rows);
+            if want > 0.0 {
+                assert_eq!(pitch, want, "{cards:?}");
+            }
+            let end = TOP + 5.0 * pitch + cards.iter().map(|r| if *r == Rematch { CARD_H + 12.0 } else { UPDATE_H + 8.0 }).sum::<f32>();
+            assert!(end <= FOOT - 32.0 && ph >= 24.0 && ph <= PILL_H, "{cards:?}: {end} {ph}");
+        }
     }
 }

@@ -84,6 +84,9 @@ pub(super) struct View {
     /// B248: the installed store mods by [`Entry::key`] (a pre-B248 install's under `/<id>`): the zip's sha256 and
     /// the folder. A mod added from a zip or by hand isn't one of the store's, though it may share an id.
     have: HashMap<String, (String, PathBuf)>,
+    /// M135: the installed mods' `mod.json` versions by folder (read with `have`): a store copy is an update only if
+    /// its version is newer. A folder not in it (`have` set by hand) goes by the sha256 alone.
+    vers: HashMap<PathBuf, String>,
     /// The listing or an install is under way.
     busy: bool,
     /// B250: each upload since the game started, by mod folder (uploads run in the background, not `busy`).
@@ -203,6 +206,7 @@ impl View {
         self.textures = crate::mods::list_kind(root(), &crate::mods::Kind::Textures);
         self.packs = packs::read(root());
         self.have = self.list.iter().chain(&self.courts).chain(&self.umpires).chain(&self.textures).filter_map(|m| modstore::stamp(&m.dir).map(|s| (format!("{}/{}", s.author, m.id), (s.sha256, m.dir.clone())))).collect();
+        self.vers = self.have.values().map(|(_, dir)| (dir.clone(), modstore::version(dir))).collect();
         self.child = None;
         self.relist();
     }
@@ -490,13 +494,25 @@ impl View {
         self.have.get(&e.key()).or_else(|| self.have.get(&format!("/{}", e.meta.id)))
     }
 
-    /// Entry `e`'s tag: installed as listed, installed but different (an update), or not.
+    /// Entry `e`'s tag: installed as listed, installed but different (M135: an update if the store's `mod.json`
+    /// version is newer than the installed copy's), or not.
     fn state(&self, e: &Entry) -> Option<&'static str> {
         match self.installed(e) {
             None => None,
-            Some((sha, _)) if *sha != e.meta.sha256 => Some("Update"),
+            Some((sha, dir)) if *sha != e.meta.sha256 && self.vers.get(dir).is_none_or(|v| modstore::newer(&e.meta.version, v)) => Some("Update"),
             Some(_) => Some("Installed"),
         }
+    }
+
+    /// M135: the store's mods (every kind) with a newer version than the installed copy.
+    pub(super) fn updates(&self) -> Vec<&Entry> {
+        self.store.iter().flatten().filter(|e| self.state(e) == Some("Update")).collect()
+    }
+
+    /// M135: whether `e` is queued or downloading.
+    fn on_way(&self, e: &Entry) -> bool {
+        let k = e.key();
+        self.queue.iter().chain(&self.doing).any(|q| q.key() == k)
     }
 
     /// The browse entry under the cursor.
@@ -859,6 +875,25 @@ impl Menu {
             self.add.status = format!("{name} is queued: it installs after the ones before it.");
         }
         out.push(Effect::Sound(2));
+    }
+
+    /// M135: Update all (the Mods page's footer, the main screen's card): queues every installed mod's update, any
+    /// kind, that isn't on its way already.
+    pub(super) fn update_all(&mut self, out: &mut Vec<Effect>) {
+        let (up, at_once) = (self.settings.0[super::UPSCALED_DOWNLOADS], self.settings.downloads_at_once());
+        let todo: Vec<Entry> = self.add.updates().into_iter().filter(|e| !self.add.on_way(e)).cloned().collect();
+        let n = todo.len();
+        for e in todo {
+            self.add.enqueue(e, up, at_once);
+        }
+        self.add.status = match n {
+            0 if self.add.updates().is_empty() => "Every mod is up to date.".into(),
+            0 => "Every update is on its way already.".into(),
+            1 => "Updating 1 mod.".into(),
+            n if at_once > 1 => format!("Updating {n} mods, {} at a time.", at_once.min(n)),
+            n => format!("Updating {n} mods, one after another."),
+        };
+        out.push(Effect::Sound(if n == 0 { 1 } else { 2 }));
     }
 
     /// B255: Download all on an author's list or on their heading: queues every one of `list` (`author`'s mods; B493:
@@ -1247,22 +1282,34 @@ pub(super) fn reload_due(m: &Menu) -> bool {
 }
 
 /// The main screen's Mods picture: which installed mods are the store's (their zips' sha256), read once at startup
-/// so its Updates and Store facts are known before the Mods page has been opened.
+/// so its Updates and Store facts are known before the Mods page has been opened (M135: every kind's, for Update all).
 pub(super) fn prime(m: &mut Menu) {
     if m.add.have.is_empty() {
-        m.add.have = m.mods.iter().filter_map(|md| modstore::stamp(&md.dir).map(|s| (format!("{}/{}", s.author, md.id), (s.sha256, md.dir.clone())))).collect();
+        m.add.refresh();
     }
 }
 
 /// The installed mods' folders the store has an update for, once it's listed.
 pub(super) fn updates(m: &Menu) -> Option<Vec<&Path>> {
-    let store = m.add.store.as_ref()?;
-    Some(store.iter().filter(|e| m.add.state(e) == Some("Update")).filter_map(|e| m.add.installed(e)).map(|(_, dir)| dir.as_path()).collect())
+    m.add.store.as_ref()?;
+    Some(m.add.updates().into_iter().filter_map(|e| m.add.installed(e)).map(|(_, dir)| dir.as_path()).collect())
+}
+
+/// M135: the updates waiting (the main screen's Update all card shows while there are any), and how many of them are
+/// queued or downloading.
+pub(super) fn updating(m: &Menu) -> (usize, usize) {
+    let u = m.add.updates();
+    (u.len(), u.iter().filter(|e| m.add.on_way(e)).count())
 }
 
 /// How many of the store's mods aren't installed, once it's listed.
 pub(super) fn fresh_len(m: &Menu) -> Option<usize> {
     Some(m.add.store.as_ref()?.iter().filter(|e| !m.add.have.contains_key(&e.key())).count())
+}
+
+/// M135: any installed mod came from the store (so the store's listing is worth reading for its updates).
+pub(super) fn from_store(m: &Menu) -> bool {
+    !m.add.have.is_empty()
 }
 
 /// The store's mod count, once listed.
@@ -1478,6 +1525,19 @@ fn nophone(d: &mut Draw, row: &str) {
     d.said = format!("{row} {why}, which the browser on phones can't do: use the desktop app.");
 }
 
+/// M135: `HST_MENU=main-modupdates`: a made-up listing with an update for each of the first three installed mods.
+pub(super) fn sample_updates(m: &mut Menu) {
+    let v = &mut m.add;
+    v.refresh();
+    let src: Vec<Mod> = v.list.iter().chain(&v.courts).take(3).cloned().collect();
+    let store: Vec<Entry> = src
+        .iter()
+        .map(|md| Entry { meta: modstore::Meta { id: md.id.clone(), name: md.name.clone(), author: "FIZL0".into(), version: "99".into(), sha256: "1".repeat(64), ..Default::default() }, rev: "main".into(), verified: true })
+        .collect();
+    v.have = store.iter().zip(&src).map(|(e, md)| (e.key(), ("0".repeat(64), md.dir.clone()))).collect();
+    v.store = Some(store);
+}
+
 /// `HST_MENU=browsemods` (Browse, its entries made up from the installed mods: Verified, Installed and Update all
 /// shown, someone's folded; with `HST_CHILD=1` narrowed to FIZL0's, B255's Download all under way) / `mymods` (My public mods, the same made-up entries, one's Take down open; `HST_CHILD=wipe`: B445's Remove all uploads warning) / `uploadmods` (Upload, Upload
 /// all open, the first mods tagged with each upload state; `HST_CHILD=0`: none open, the first mod hovered) / `signinmods` (Upload signed out, Sign in's buttons open) / `addmods` with `HST_CHILD=1` (Installed, a
@@ -1502,6 +1562,8 @@ pub(super) fn sample(m: &mut Menu, screen: &str) {
                     source: md.source.clone(),
                     author: ["FIZL0", "someone", ""][i % 3].into(),
                     size: ((i as u64 + 1) * 7) << 20,
+                    // M135: the second a newer version (an update; the rest at or under the installed copy's)
+                    version: if i == 1 { "99".into() } else { String::new() },
                     sha256: if screen == "browsemods" { format!("{i:064x}") } else { format!("{:064}", i % 2) },
                     style: (player && i % 3 != 2).then_some((i % 4) as u8),
                     grades: (player && i % 3 != 2).then_some([5, 4, 3, 2, 1].map(|g: u8| 1 + (g + i as u8) % 5)),
@@ -1520,6 +1582,7 @@ pub(super) fn sample(m: &mut Menu, screen: &str) {
             }).collect(),
         );
         v.have = v.store.iter().flatten().zip(&src).take(4).map(|(e, md)| (e.key(), (format!("{:064}", 0), md.dir.clone()))).collect();
+        v.vers = v.have.values().map(|(_, dir)| (dir.clone(), modstore::version(dir))).collect();
         m.sel = 2;
         // B372: the grid: the first four installed (the second an update), two downloading and one queued, no
         // network for the made-up mods' pictures; `HST_CHILD=search` searches "ma", `=keys` has the on-screen keyboard up
@@ -3305,6 +3368,63 @@ mod tests {
         // off a tile (the search box) the panel has no picture to wipe
         m.sel = 0;
         assert!(!hits(&m).0.iter().any(|h| matches!(h.act, Act::Wipe(_))));
+    }
+
+    /// M135: a store copy with another zip is an update only if its `mod.json` version is newer than the installed
+    /// one's; Update all (on Installed and Browse while any are waiting, and the main screen's card) queues every one,
+    /// any kind, leaving out those on their way already.
+    #[test]
+    fn update_all_queues_newer_versions() {
+        let mut m = Menu { screen: Screen::Mods, ..default() };
+        let e = |id: &str, v: &str, kind: Kind| Entry { meta: Meta { id: id.into(), name: id.into(), version: v.into(), sha256: "1".repeat(64), size: 1, kind, ..Default::default() }, rev: "main".into(), verified: true };
+        m.add.store = Some(vec![e("a", "1.10", Kind::Character), e("b", "1", Kind::Character), e("c", "2", Kind::Court), e("d", "3", Kind::Character), e("f", "2", Kind::Character)]);
+        let dir = |id: &str| PathBuf::from(format!("mods/{id}"));
+        m.add.have = ["a", "b", "c", "d"].map(|id| (format!("/{id}"), ("0".repeat(64), dir(id)))).into();
+        m.add.have.insert("/f".into(), ("1".repeat(64), dir("f")));
+        // a: 1.9 → 1.10; b: the same version re-zipped (not an update); c: a court; d: no version read (by the zip
+        // alone); f: the same zip
+        m.add.vers = [("a", "1.9"), ("b", "1"), ("c", "1"), ("f", "1")].map(|(id, v)| (dir(id), v.to_string())).into();
+        let tags: Vec<_> = m.add.store.iter().flatten().map(|x| m.add.state(x)).collect();
+        assert_eq!(tags, [Some("Update"), Some("Installed"), Some("Update"), Some("Update"), Some("Installed")]);
+        assert_eq!(updates(&m).map(|u| u.len()), Some(3));
+        // the footer's Update all, on Installed and Browse
+        m.mods_page(Page::Installed, 0);
+        assert!(m.add.words().contains(&"Update all"));
+        m.mods_page(Page::Browse, 0);
+        assert!(m.add.words().contains(&"Update all"));
+        // d downloading already: Update all queues a and c, under way side by side
+        let mut out = Vec::new();
+        m.add.doing = vec![e("d", "3", Kind::Character)];
+        m.settings.8 = 2;
+        m.sel = word(&m, "Update all");
+        assert!(info(&m).contains("all 3 mods"), "{}", info(&m));
+        m.mods_step(ok(), &mut out);
+        let on_way: Vec<String> = m.add.doing.iter().chain(&m.add.queue).map(|x| x.meta.id.clone()).collect();
+        assert_eq!(on_way, ["d", "a", "c"]);
+        assert_eq!(updating(&m), (3, 3));
+        // again: nothing more to queue
+        m.update_all(&mut out);
+        assert_eq!((m.add.status.as_str(), m.add.doing.len() + m.add.queue.len()), ("Every update is on its way already.", 3));
+        // all installed at their new versions: no Update all
+        m.add.vers.extend([("a", "1.10"), ("c", "2")].map(|(id, v)| (dir(id), v.to_string())));
+        m.add.have.insert("/d".into(), ("1".repeat(64), dir("d")));
+        assert!(!m.add.words().contains(&"Update all") && updating(&m) == (0, 0));
+    }
+
+    /// M135: the main screen's Update all card is there only while updates wait; ✕ on it queues them all.
+    #[test]
+    fn main_screen_update_all_card() {
+        use super::super::home::Row;
+        let mut m = Menu { screen: Screen::Main, ..default() };
+        assert!(!m.main_rows().contains(&Row::ModUpdates));
+        let e = Entry { meta: Meta { id: "a".into(), name: "A".into(), version: "2".into(), sha256: "1".repeat(64), size: 1, ..Default::default() }, rev: "main".into(), verified: true };
+        m.add.store = Some(vec![e]);
+        m.add.have = [("/a".to_string(), ("0".repeat(64), "mods/a".into()))].into();
+        m.sel = m.main_at(Row::ModUpdates);
+        assert_eq!(m.main_rows()[m.sel], Row::ModUpdates);
+        m.step(super::super::Dev::Keys, ok());
+        assert_eq!((m.screen, m.add.doing.len() + m.add.queue.len()), (Screen::Main, 1));
+        assert_eq!(updating(&m), (1, 1));
     }
 }
 
