@@ -779,6 +779,15 @@ pub fn upscaled_image(upscaled: Option<&Path>, im: &gltf::Image) -> Option<Vec<u
     upscaled.filter(|_| crate::modfs::plain(&image_file(im))).and_then(|d| crate::modfs::read(&d.join(image_file(im))).ok())
 }
 
+/// A glTF sampler wrap mode as the GPU's.
+fn address_mode(w: gltf::texture::WrappingMode) -> ImageAddressMode {
+    match w {
+        gltf::texture::WrappingMode::ClampToEdge => ImageAddressMode::ClampToEdge,
+        gltf::texture::WrappingMode::MirroredRepeat => ImageAddressMode::MirrorRepeat,
+        gltf::texture::WrappingMode::Repeat => ImageAddressMode::Repeat,
+    }
+}
+
 /// The `.glb`'s materials as a disc MTL would give them: an unlit `StandardMaterial` and its GS draws. Images
 /// with a PNG of the same name in `upscaled` are drawn from that instead.
 #[allow(clippy::type_complexity)]
@@ -790,8 +799,7 @@ fn materials_of(
     materials: &mut impl Store<StandardMaterial>,
     gs: &mut HashMap<AssetId<StandardMaterial>, Vec<crate::gs::GsMaterial>>,
 ) -> Result<Vec<Handle<StandardMaterial>>, String> {
-    let sampler = || ImageSampler::Descriptor(ImageSamplerDescriptor { address_mode_u: ImageAddressMode::Repeat, address_mode_v: ImageAddressMode::Repeat, ..ImageSamplerDescriptor::linear() });
-    let mut tex = Vec::new();
+    let mut decoded = Vec::new();
     for im in doc.images() {
         let gltf::image::Source::View { view, mime_type } = im.source() else { return Err("images must be embedded".into()) };
         let bytes = blob.get(view.offset()..view.offset() + view.length()).ok_or("image outside the buffer")?;
@@ -800,21 +808,35 @@ fn materials_of(
             Some(b) => (&b[..], ImageType::Extension("png")),
             None => (bytes, ImageType::MimeType(mime_type)),
         };
-        let mut img = Image::from_buffer(bytes, ty, CompressedImageFormats::NONE, true, sampler(), RenderAssetUsages::RENDER_WORLD).map_err(|e| format!("image {}: {e}", im.index()))?;
+        let mut img = Image::from_buffer(bytes, ty, CompressedImageFormats::NONE, true, ImageSampler::Default, RenderAssetUsages::RENDER_WORLD).map_err(|e| format!("image {}: {e}", im.index()))?;
         crate::textures::fit(&mut img);
-        let mut raw = img.clone();
-        raw.texture_descriptor.format = bevy::render::render_resource::TextureFormat::Rgba8Unorm;
-        tex.push((images.add(img), images.add(raw)));
+        decoded.push(img);
     }
+    // B584: each texture wraps as its glTF sampler says (repeat, clamp or mirror; a texture without one repeats),
+    // one upload per image and wrap pair: a face whose middle sits on the texture's edge doesn't pick up the far side
+    let mut tex: HashMap<(usize, [u32; 2]), (Handle<Image>, Handle<Image>)> = HashMap::new();
+    let mut texture = |t: &gltf::Texture| {
+        let wrap = [t.sampler().wrap_s(), t.sampler().wrap_t()];
+        let img = decoded.get(t.source().index())?;
+        Some(tex.entry((t.source().index(), wrap.map(|w| w.as_gl_enum()))).or_insert_with(|| {
+            let [u, v] = wrap.map(address_mode);
+            let mut img = img.clone();
+            img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor { address_mode_u: u, address_mode_v: v, ..ImageSamplerDescriptor::linear() });
+            let mut raw = img.clone();
+            raw.texture_descriptor.format = bevy::render::render_resource::TextureFormat::Rgba8Unorm;
+            (images.add(img), images.add(raw))
+        }).clone())
+    };
     let mut out = Vec::new();
     for m in doc.materials() {
         let t = m.pbr_metallic_roughness().base_color_texture().map(|i| i.texture().source().index());
+        let pair = m.pbr_metallic_roughness().base_color_texture().and_then(|i| texture(&i.texture()));
         let color = m.pbr_metallic_roughness().base_color_factor();
         let mask = m.alpha_mode() == gltf::material::AlphaMode::Mask;
         let blend = m.alpha_mode() == gltf::material::AlphaMode::Blend;
         let h = materials.add(StandardMaterial {
             base_color: Color::linear_rgba(color[0], color[1], color[2], color[3]),
-            base_color_texture: t.and_then(|t| tex.get(t)).map(|t| t.0.clone()),
+            base_color_texture: pair.as_ref().map(|t| t.0.clone()),
             unlit: true,
             double_sided: true,
             cull_mode: None,
@@ -833,7 +855,7 @@ fn materials_of(
         header[0x1e..0x20].copy_from_slice(&(if mask { 10i16 } else if blend { 25 } else { 0 }).to_le_bytes());
         let mtl = mtl::Material { texture: t, color: color.map(|c| c.min(1.0)), attributes: None, two_sided: m.double_sided(), name: m.name().unwrap_or("").to_string(), header };
         let prim = 0x20 | if t.is_some() { 0x10 } else { 0 } | if blend { 0x40 } else { 0 };
-        gs.insert(h.id(), crate::gs::GsMaterial::for_batch(&mtl, prim, t.and_then(|t| tex.get(t)).map(|t| t.1.clone())));
+        gs.insert(h.id(), crate::gs::GsMaterial::for_batch(&mtl, prim, pair.map(|t| t.1)));
         out.push(h);
     }
     // glTF's default material
@@ -1629,6 +1651,39 @@ mod tests {
         std::fs::write(&p, [&b"glTF"[..], &2u32.to_le_bytes(), &9u32.to_le_bytes()].concat()).unwrap();
         assert!(open(&p).is_err());
         let _ = std::fs::remove_file(&p);
+    }
+
+    /// B584: a texture wraps as its glTF sampler says (Emma's face clamps, so u = 0 down its middle draws no seam),
+    /// one image per wrap pair; no sampler repeats.
+    #[test]
+    fn textures_wrap_as_their_sampler_says() {
+        let mut png = Vec::new();
+        image::RgbaImage::new(2, 2).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        png.resize(png.len().next_multiple_of(4), 0);
+        let mat = |t: usize| format!(r#"{{"pbrMetallicRoughness":{{"baseColorTexture":{{"index":{t}}}}}}}"#);
+        let json = format!(
+            r#"{{"asset":{{"version":"2.0"}},"buffers":[{{"byteLength":{n}}}],"bufferViews":[{{"buffer":0,"byteLength":{n}}}],"images":[{{"bufferView":0,"mimeType":"image/png"}}],"samplers":[{{"wrapS":33071,"wrapT":10497}},{{"wrapS":33648}}],"textures":[{{"source":0,"sampler":0}},{{"source":0,"sampler":1}},{{"source":0}},{{"source":0,"sampler":0}}],"materials":[{},{},{},{}]}}"#,
+            mat(0), mat(1), mat(2), mat(3), n = png.len()
+        );
+        let mut js = json.into_bytes();
+        js.resize(js.len().next_multiple_of(4), b' ');
+        let len = (12 + 8 + js.len() + 8 + png.len()) as u32;
+        let glb = [&b"glTF"[..], &2u32.to_le_bytes(), &len.to_le_bytes(), &(js.len() as u32).to_le_bytes(), b"JSON", &js, &(png.len() as u32).to_le_bytes(), b"BIN\0", &png].concat();
+        let g = gltf::Gltf::from_slice_without_validation(&glb).unwrap();
+        let mut s = Stores(default(), default(), default(), default());
+        let handles = materials_of(&g.document, g.blob.as_deref().unwrap(), None, &mut s.2, &mut s.1, &mut HashMap::new()).unwrap();
+        let wrap = |k: usize| {
+            let tex = s.1.get(&handles[k]).unwrap().base_color_texture.clone().unwrap();
+            let ImageSampler::Descriptor(d) = &s.2.get(&tex).unwrap().sampler else { panic!("no sampler") };
+            (tex, [d.address_mode_u, d.address_mode_v])
+        };
+        use ImageAddressMode::*;
+        assert_eq!(wrap(0).1, [ClampToEdge, Repeat]);
+        assert_eq!(wrap(1).1, [MirrorRepeat, Repeat]);
+        assert_eq!(wrap(2).1, [Repeat, Repeat]);
+        assert_eq!(wrap(3).0, wrap(0).0, "one image per wrap pair");
+        // each wrap pair a drawn image and its raw (GS) copy
+        assert_eq!(s.2.len(), 6);
     }
 
     const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
