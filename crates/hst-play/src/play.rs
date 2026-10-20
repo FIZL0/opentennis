@@ -181,10 +181,6 @@ pub struct Player {
     surprised: bool,
     /// B58: this tick's hit was framed (the forced "death lob"): `surprise` raises the skull over the player.
     framed: bool,
-    /// Stand-in AI: set once it has picked its shot for the coming ball (serving: the contact frame it waits for).
-    bot_due: Option<usize>,
-    /// Stand-in AI: the shot it last decided to leave to its partner.
-    bot_left: i32,
     /// This player's AIParam.csv row when the computer plays it (`hst_sim::ai`).
     ai: hst_sim::ai::AiParams,
     /// Its doubles formation (`hst_sim::position::Team::pick`, 0 staggered, 1 attacking, 2 defensive): picked at
@@ -2076,6 +2072,8 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             let allowed = matches!((toss, press), (Toss::Under, Some(3)) | (Toss::Strong | Toss::Weak, Some(0 | 1)));
             if allowed {
                 g.players[i].missed = false;
+                g.doubles_ai.unmark(i);
+                doubles_ai::claim(g, i);
                 let grades = g.serve_data[i].grades(toss).to_vec();
                 let path = predicted_path(g, grades.len());
                 match serve::search(&g.serve_data[i], toss, &path) {
@@ -2206,15 +2204,16 @@ fn serve_ik_start(g: &mut Game, i: usize, toss: Toss, k: usize, ball: [f32; 3]) 
 }
 
 /// The serve IK's frame, after the serve's own (the press tick too, at weight 0; the contact tick before the hit's
-/// ramp-down, which `advance_stroke` runs on): as a stroke's, without the partner check the original skips for the
-/// server.
+/// ramp-down, which `advance_stroke` runs on): as a stroke's, kept from the partner unless the server holds the claim
+/// (from its swing's start to the serve's hit).
 fn serve_ik_tick(g: &mut Game, i: usize) {
+    let mate = doubles_ai::stroke_mate(g, i);
     let p = &mut g.players[i];
     let end = p.end;
     let Some(ik) = p.ik.as_mut() else { return };
     let mut pos = [p.pos[0], p.pos[1], p.pos[2], 1.0];
     let (w, _) = ik.tick(&mut pos, |at, d| {
-        let to = loco::mover([at[0], at[1], at[2]], [d[0], d[1], d[2]], end, None, false);
+        let to = loco::mover([at[0], at[1], at[2]], [d[0], d[1], d[2]], end, mate, false);
         let free = to[0] == hst_sim::ps2::add(at[0], d[0]) && to[2] == hst_sim::ps2::add(at[2], d[2]);
         ([to[0], to[1], to[2], at[3]], free)
     });
@@ -2616,6 +2615,7 @@ fn square_up(p: &mut Player) {
 /// shot over the last frames before contact, as the original; the racket meets the ball on the chosen frame.
 fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Option<Contact> {
     let mut struck = None;
+    doubles_ai::stroke_check(g, i);
     if let Some(f) = g.players[i].follow.take() {
         set_motion(
             &mut g.players[i],
@@ -2709,13 +2709,12 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
     }
     dive_frame(g, i, &aim);
     // the contact IK's frame: the body steps into the shot through the mover, the arm turns by its weight
-    let mate = (g.players.len() == 4).then(|| g.players[i ^ 2].pos);
+    let mate = doubles_ai::stroke_mate(g, i);
     let p = &mut g.players[i];
     p.arm = None;
     if let Some(ik) = p.ik.as_mut() {
         let mut pos = [p.pos[0], p.pos[1], p.pos[2], 1.0];
         let end = p.end;
-        // ponytail: the mover's partner check is skipped for the server in the original; kept here
         let (w, unit) = ik.tick(&mut pos, |at, d| {
             let to = loco::mover([at[0], at[1], at[2]], [d[0], d[1], d[2]], end, mate, false);
             let free =
@@ -2942,6 +2941,7 @@ fn press(g: &mut Game, i: usize, kind: i32) {
         let quiet = quiet || p.missed;
         p.missed = false;
         p.whiff = None;
+        g.doubles_ai.unmark(i);
         p.kind = kind;
         p.whiff_quiet = quiet;
         let theirs = g.last_hitter >= 0 && g.last_hitter & 1 != i as i32 & 1;
@@ -3027,6 +3027,7 @@ fn miss_contact(g: &mut Game, i: usize, c: &Contact) {
     (p.contact, p.swing, p.ik) = (None, None, None);
     if let Some(m) = motion::whiff(anim) {
         set_motion(p, m, 1.0, false, None);
+        g.doubles_ai.missed(i);
     }
     p.missed = true;
     p.whiff = Some(motion::Whiff { tick: motion::WHIFF_POSE, ..motion::Whiff::new(anim, true, false) });
@@ -3044,6 +3045,7 @@ fn whiff_frame(g: &mut Game, i: usize, stick: bool) {
     if let Some(m) = w.step() {
         set_motion(p, m, 1.0, false, None);
         p.missed = true;
+        g.doubles_ai.missed(i);
         if !w.quiet {
             let r = g.rng.shared.r15();
             let shout = g.voices[i].shout(i, sound::WHIFF_SHOUT, g.players.len() as u32, r);
@@ -3124,28 +3126,6 @@ fn human(g: &mut Game, i: usize, pad: &SlotPad, shot: Option<i32>, serve_press: 
     advance_stroke(g, i, move |_| aim);
 }
 
-/// Where the ball will be hittable on player `i`'s half: step a copy of the flight until it is waist-high after
-/// its bounce.
-fn intercept(g: &Game, i: usize) -> Option<(V3, u32)> {
-    let half = -g.players[i].end;
-    let mut f = g.flight;
-    for n in 0..240 {
-        f.step(&g.shot, &COURTS[g.court]);
-        let b = f.ball;
-        if b.pos[2] * half > 0.0
-            && f.bounces >= 1
-            && b.vel[1] > 0.0
-            && (-1.3..-0.5).contains(&b.pos[1])
-        {
-            return Some((b.pos, n));
-        }
-        if f.bounces >= 2 {
-            return None;
-        }
-    }
-    None
-}
-
 /// A computer player draws its timing errors (`hst_sim::ai`), given the opponents' shots when one just hit.
 /// A doubles AI beside a human partner takes a third of the smash base.
 fn ai_draw(g: &mut Game, i: usize, shots: Option<hst_sim::ai::Shots>) {
@@ -3214,44 +3194,6 @@ fn ai_draw_guess(g: &mut Game, i: usize, kind: i32, lob: bool) {
     }
 }
 
-/// After an opponent's hit the AI stands for its reaction frames (`ai_hold` without a guess). A guessing AI first runs sideways toward the guessed half for the move frames
-/// (stopping once there), then judges the guess against its contact point: right, it times the hit within a frame;
-/// wrong, it stands still for the stuck frames before it goes for the ball. Some(goal) while it holds.
-/// ponytail: the original's run boost after a right guess (×2, ×1.5 with the body-shot roll) is left out until the
-/// AI's own approach run (P7f).
-fn ai_guessing(g: &mut Game, i: usize, coming: bool, contact: Option<V3>) -> Option<V3> {
-    use hst_sim::ai::Verdict;
-    let (ad, p) = (g.score.side == hst_sim::score::AD_COURT, g.players[i]);
-    if !coming {
-        return None;
-    }
-    if p.ai_hold > 0 {
-        g.players[i].ai_hold -= 1;
-        let Some((q, _)) = p.ai_guess else { return Some(p.pos) };
-        let goal = [q.target_x(p.end, ad), 0.0, p.pos[2]];
-        if (goal[0] - p.pos[0]).abs() < 0.1 {
-            g.players[i].ai_hold = 0; // there
-        }
-        return Some(goal);
-    }
-    let ((q, from), b) = (p.ai_guess?, contact?);
-    g.players[i].ai_guess = None;
-    match q.verdict(p.end, from, [b[0], b[2]]) {
-        Verdict::Right => {
-            let e = g.rng.ai.r15() as i32 % 3 - 1;
-            let t = &mut g.players[i].ai_timing;
-            (t.stroke, t.volley, t.smash) = (e, e, e);
-            None
-        }
-        Verdict::Wrong => {
-            g.players[i].surprised = true;
-            g.players[i].ai_hold = p.ai.guess[2];
-            Some(p.pos)
-        }
-        Verdict::Neither => None,
-    }
-}
-
 /// A computer player's run toward `goal` as the game passes it on: the AI's step toward it (none within ⅔ of a
 /// step), as stick bytes and back.
 fn bot_run(g: &Game, i: usize, goal: V3) -> Vec2 {
@@ -3280,9 +3222,9 @@ fn ai_serve_step(g: &mut Game, i: usize, dir: Vec2) -> bool {
     g.players[i].served.is_some() && serve_follow(&mut g.players[i], dir != Vec2::ZERO)
 }
 
-/// Stand-in AI for player `i`: serves, runs to the predicted interception (in doubles only the teammate
-/// nearer to it; the other goes home), and presses the shot button around the sweet frame with a random timing
-/// error, through the same contact search as a human.
+/// Computer player `i`'s frame: its AI object's update, then its serve, or its receive or rally routine
+/// (`doubles_ai::step`, which decides who of a doubles team plays the ball). What's left (between ends) walks it to
+/// its formation spot or home.
 fn bot(g: &mut Game, i: usize) {
     if let Some(c) = &g.players[i].contact {
         g.players[i].ai_branch = Some(c.swing.branch);
@@ -3314,130 +3256,16 @@ fn bot(g: &mut Game, i: usize) {
         || g.players[i].swing.is_some()
         || g.players[i].whiff.is_some()
         || g.players[i].dive.is_some();
-    // the reaction runs down after an opponent's hit, through its own follow-through too
-    let opp_hit = g.phase == Phase::Rally && g.last_hitter >= 0 && g.last_hitter & 1 != i as i32 & 1;
-    if busy && opp_hit && g.players[i].ai_hold > 0 {
-        g.players[i].ai_hold -= 1;
-    }
     if !busy {
-        let plan = match g.phase {
-            Phase::Rally if g.last_hitter >= 0 && g.last_hitter & 1 != i as i32 & 1 => {
-                intercept(g, i)
-            }
-            _ => None,
-        };
-        // ponytail: in doubles each teammate takes the balls on its side of the court (the nearer by distance left
-        // the one at the net standing all rally); the original's partner logic is P0c/P11
-        let mine = plan.filter(|(b, _)| {
-            let d = |j: usize| (b[0] - g.players[j].pos[0]).abs();
-            let mate = i ^ 2;
-            mate >= g.players.len() || d(i) < d(mate) || (d(i) == d(mate) && i < mate)
-        });
-        // the original hands the ball over once its reaction has run down, from the second shot on, and calls
-        // only while the partner isn't swinging or diving
-        if plan.is_some()
-            && mine.is_none()
-            && g.players.len() == 4
-            && g.shots >= 2
-            && g.players[i].ai_hold == 0
-            && g.players[i].bot_left != g.shots
-        {
-            g.players[i].bot_left = g.shots;
-            if !ai_mate_busy(g, i) && g.rng.ai.r15() % 100 < 25 {
-                let call = sound::call_out(i, g.rng.ai.bit());
-                g.whooshes.push((0, i, call));
-            }
-        }
-        let guessing = ai_guessing(g, i, opp_hit, mine.map(|(b, _)| b));
-        let mine = if guessing.is_some() { None } else { mine };
-        let wait = if mine.is_none() {
-            guessing.or_else(|| ai_wait(g, i)).or_else(|| ai_wait_singles(g, i))
-        } else {
-            None
-        };
-        let stand = mine.map(|(b, _)| ai_stand_x(g, i, b));
-        let p = g.players[i];
-        let goal = mine.map_or(wait.unwrap_or(p.home), |(b, _)| {
-            [
-                stand.unwrap_or(b[0]),
-                0.0,
-                b[2] - p.end * g.reaches[i].ahead,
-            ]
-        });
+        let goal = ai_wait(g, i).or_else(|| ai_wait_singles(g, i)).unwrap_or(g.players[i].home);
         let dir = bot_run(g, i, goal);
         let dir = if mind.active { dir } else { Vec2::ZERO };
         if ai_serve_step(g, i, dir) {
             return;
         }
         locomote(g, i, dir);
-        // press when the contact search would lock onto the drawn frame (or later, if it is already past)
-        if mine.is_some() {
-            if g.players[i].bot_due.is_none() {
-                g.players[i].bot_due = Some(SWEET_FRAME as usize);
-            }
-            // the AI presses once the frames left plus its timing error for this stroke reach the sweet frame
-            let t = g.players[i].ai_timing;
-            let go = ai_lets_go(g, i);
-            if !go && (find_contact(g, i).is_some_and(|c| {
-                let err = match c.swing.branch {
-                    swing::Branch::Ground => t.stroke,
-                    swing::Branch::Volley => t.volley,
-                    swing::Branch::Smash => t.smash,
-                };
-                c.frames as i32 + err <= SWEET_FRAME
-            }) || ai_dives(g, i)) {
-                let kind = ai_press_kind(g, i);
-                press(g, i, kind);
-                g.players[i].bot_due = None;
-            }
-        } else {
-            g.players[i].bot_due = None;
-        }
     }
     advance_stroke(g, i, |g| ai_contact_stick(g, i));
-}
-
-/// Whether a computer player dives for its ball: it drew the dive chance (`AiParams::picks`), nothing it can
-/// stroke is in reach, and the dive search would find the ball (the original's check runs the same scan as
-/// the dive itself, on its own path and frame count, capped at the dive's 16).
-/// ponytail: "nothing in reach" is the app's press search and 20-frame approach; the original's own contact
-/// search per level (P11i) decides it
-fn ai_dives(g: &Game, i: usize) -> bool {
-    g.players[i].ai_picks.dive == Some(true)
-        && find_contact(g, i).is_none()
-        && approach(g, i).is_none()
-        && find_dive(g, i).is_some()
-}
-
-/// Whether `i`'s partner is mid-stroke or diving (its locomotion state past running): no call-out then.
-fn ai_mate_busy(g: &Game, i: usize) -> bool {
-    let m = &g.players[i ^ 2];
-    m.contact.is_some() || m.pending.is_some() || m.swing.is_some() || m.whiff.is_some() || m.dive.is_some()
-}
-
-/// The x a computer player runs to for ball `b`: the side of it the AI's contact search keeps (`hst_sim::ai::stand_side`,
-/// the run-round roll drawn on the first search for this shot), a reach away from the ball.
-/// ponytail: the stand-in `intercept` finds one contact point, so both sides share it (and their depth: 0 here);
-/// the original searches each side's best point of the path, and draws the roll on every search until one is found.
-fn ai_stand_x(g: &mut Game, i: usize, b: V3) -> f32 {
-    let (p, reach) = (g.players[i], g.reaches[i].reach);
-    let minus = match p.ai_side {
-        Some((shot, minus)) if shot == g.shots => minus,
-        _ => {
-            let beside_human = g.players.len() == 4 && g.humans.get(i ^ 2) == Some(&true);
-            let rng = &mut g.rng.ai;
-            let run = p.ai.run_round(beside_human, &mut || rng.next());
-            let width = run.then(|| p.ai.run_round_width(g.players.len() == 2));
-            // the strong side is TParam's hand (the AI's own strong side ignores the select-screen hand toggle)
-            let strong = if g.strong_hand[i] >= 0.0 { hst_sim::ai::strong::MINUS } else { hst_sim::ai::strong::PLUS };
-            let spot = Some((1, [b[0], b[2]]));
-            let at = [p.pos[0], p.pos[2]];
-            let minus = hst_sim::ai::stand_side(spot, spot, at, reach, p.end, 0.0, strong, width) == Some(true);
-            g.players[i].ai_side = Some((g.shots, minus));
-            minus
-        }
-    };
-    if minus { b[0] - reach * p.end } else { b[0] + reach * p.end }
 }
 
 /// A doubles bot's goal while the ball isn't its own (`hst_sim::position`): its formation spot, walked to once
@@ -3641,19 +3469,6 @@ fn ai_aim(g: &mut Game, i: usize) -> Vec2 {
     Vec2::new(stick.stick[0], stick.stick[2])
 }
 
-/// The shot button a computer player presses: its aim's plan (`hst_sim::aim::button`), through the kind lock in
-/// singles, as the app's kind (✕ topspin 0, ○ slice 1, △ lob 3). The aim is kept for the contact.
-fn ai_press_kind(g: &mut Game, i: usize) -> i32 {
-    ai_aim(g, i);
-    let (stick, mut b) = g.players[i].ai_press.unwrap_or_default();
-    if g.players.len() == 2 {
-        let ai = g.players[i].ai;
-        b = ai.lock_button(b, &mut ai_roll(&mut g.rng));
-        g.players[i].ai_press = Some((stick, b));
-    }
-    button_kind(b)
-}
-
 /// A pad button (`aim::button`: ✕, ○, △) as the app's shot kind.
 fn button_kind(b: u8) -> i32 {
     match b {
@@ -3727,24 +3542,6 @@ fn ai_second_toss(iso: &mut Iso, n: usize) -> i32 {
         iso.read("ZZBIN/GAME.BIN").expect("GAME.BIN"),
     );
     hst_data::exe::Game::new(&cnf, &bin).expect("supported disc").second_toss()[n]
-}
-
-/// Whether a computer player leaves the ball: its predicted first bounce lands out by at least the row's line
-/// margin (`AiParams::lets_go`; a ball that has bounced is played).
-/// ponytail: the original also stops its run there; this one only holds the press.
-fn ai_lets_go(g: &Game, i: usize) -> bool {
-    let mut f = g.flight;
-    if f.bounces > 0 {
-        return false;
-    }
-    for _ in 0..240 {
-        f.step(&g.shot, &COURTS[g.court]);
-        if f.bounces > 0 {
-            let at = [f.ball.pos[0], f.ball.pos[2]];
-            return g.players[i].ai.lets_go(at, g.shots <= 1, g.players.len() == 2);
-        }
-    }
-    false
 }
 
 /// The AI's draws on its generator.
