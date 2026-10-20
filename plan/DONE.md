@@ -857,6 +857,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B581** New-version check (user 2026-10-19): the splash screen and the pre-launch web page both check for a newer release and tell the player (offer the update where the self-updater can) → crates/hst/src/update.rs · main.rs · web.rs
 - [x] **M130** Sophie's missing animations (user 2026-10-19): compare the Sophie mod's motions against the reference video `/home/ryha/Downloads/Hot Shots Golf: Out of Bounds | All Sophie Animations(60fps) [vs7UYu0fVf8].mp4` (all her HSG:OoB animations, 60 fps), list which are missing and add them; bump the mod's mod.json version → ../opentennis-mods
 - [x] **M131** Other modded golf characters' animations (user 2026-10-19): every other golf mod gets its celebrations and disappointed moves as reaction takes, picked at build time by the mods repo's takes.py (no held poses, none that leave the shot); versions bumped → ../opentennis-mods
+- [x] **B583** Don't cull during the match intro (user 2026-10-20): props/players pop in or vanish as the intro camera sweeps (play/intro.rs). Assumed: frustum/distance culling (cull.rs, lod.rs) should be off, or use the intro camera, for the intro's shots.
 
 
 ### Shots

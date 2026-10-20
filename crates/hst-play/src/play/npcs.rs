@@ -804,16 +804,17 @@ fn crowd_shown(depth: f32, focal: f32) -> bool {
     0.001 < depth && focal / depth < 1000.0
 }
 
-/// Runs on the drawn camera (any mode) once it has moved, like `net_hide::hide_around_eye`.
+/// Runs on the drawn camera (any mode) once it has moved, like `net_hide::hide_around_eye`, and shows them all while
+/// `cull::Off` holds (the intro's flyover).
 // ponytail: depth and focal from the drawn camera in f32, not the game's VU0 view matrix (rendering only)
-fn cull_crowd(camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, mut q: Query<(&CrowdCull, &mut Visibility)>) {
+fn cull_crowd(camera: Query<(&Transform, &Projection), With<crate::Orbit>>, off: Option<Res<crate::cull::Off>>, window: Query<&Window>, mut q: Query<(&CrowdCull, &mut Visibility)>) {
     let Ok((t, Projection::Perspective(p))) = camera.single() else { return };
     let aspect = window.single().map_or(16.0 / 9.0, crate::play::widescreen::aspect);
     let focal = 240.0 * 0.75f32.max(1.0 / aspect) / (p.fov / 2.0).tan();
     for (c, mut v) in &mut q {
         // game space is Bevy's turned a half-turn about X
         let at = Vec3::new(c.0[0], -c.0[1], -c.0[2]);
-        let shown = crowd_shown((at - t.translation).dot(*t.forward()), focal);
+        let shown = off.is_some() || crowd_shown((at - t.translation).dot(*t.forward()), focal);
         v.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
     }
 }
