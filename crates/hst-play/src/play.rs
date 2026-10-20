@@ -3055,6 +3055,7 @@ fn whiff_frame(g: &mut Game, i: usize, stick: bool) {
 /// Every player's turn this frame: humans from their seat's pad this tick (`tick_input`), the rest from the stand-in AI.
 fn control(mut g: ResMut<Game>, pads: Res<Pads>, tick: Res<tick_input::TickPads>) {
     let g = &mut *g;
+    doubles_ai::path_frame(g);
     g.humans = (0..g.players.len())
         .map(|i| pads.slot_of(i, g.players.len()).is_some())
         .collect();
@@ -3902,7 +3903,9 @@ fn simulate(mut g: ResMut<Game>) {
     }
     if touched == 0 && g.flight.special_contacts > 0 {
         g.path_base = g.hit_flight.predicted_contacts(&shot, surface, g.since_hit);
-        doubles_ai::heard(g, msg::NEW_PATH);
+    }
+    if g.flight.special_contacts != touched {
+        doubles_ai::net_touch(g);
     }
     // bounce sounds stop once the point is decided (the deciding bounce still plays)
     let (n, (at, material)) = (g.flight.bounces, g.flight.landing);

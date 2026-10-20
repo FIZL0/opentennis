@@ -4,7 +4,7 @@
 
 use super::*;
 use hst_sim::ai::{style, Guess, Phase as Ai, Play};
-use hst_sim::rally::{guess, msg, phase, record, step, Ball as PathBall, Body, Human, Out, CPU, PATH_MAX, PathCopy, PathFrom, Rally, SEEN, Shot, World};
+use hst_sim::rally::{guess, msg, phase, record, step, Body, Human, Out, CPU, PATH_MAX, PathCopy, Rally, SEEN, Shot, World};
 
 /// The doubles AI state the players share (the path copy and the shot records) and each one's own.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -20,155 +20,36 @@ pub(super) struct Shared {
     humans: [Human; 4],
     /// The path object's claim: the player whose swing last found its contact (−1 none), and the tick it did.
     claim: (i32, i32),
-    /// The last ball path stepped (`step`) and what it was stepped from.
-    built: Built,
-    /// The path's line gap (B57): the distance to the nearest line of the last landing that went from no call to
-    /// out; kept across paths and points as the original's.
-    gap: f32,
+    /// The match's predicted ball path (P11n1): what the AI copies, its line call and gap (B57).
+    pub(super) record: hst_sim::path::Path,
     /// Each player's smash stand offset sideways (`smash_side`); worked out once, again after a snapshot load.
     #[serde(skip)]
-    smash_x: Vec<f32>,
+    smash_x: Unsaved<Vec<f32>>,
 }
 
-#[cfg(test)]
-static NO_CACHE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Worked out again after a snapshot load, so left out of the state text (`snapshot::state_text`) too.
+#[derive(Default, Clone)]
+struct Unsaved<T>(T);
 
-/// Tests step the path per player again, to compare.
-fn no_cache() -> bool {
-    #[cfg(test)]
-    return NO_CACHE.load(std::sync::atomic::Ordering::Relaxed);
-    #[cfg(not(test))]
-    false
+impl<T> std::fmt::Debug for Unsaved<T> {
+    fn fmt(&self, _: &mut std::fmt::Formatter) -> std::fmt::Result {
+        Ok(())
+    }
 }
 
 /// Player `i`'s smash stand offset sideways: as the original measures it at load, the smash motion's racket point
 /// at its contact frame (x; its z is the reach's `smash_ahead`). A player without the motion keeps the measured
 /// value of the stock smash.
 fn smash_side(g: &mut Game, i: usize) -> f32 {
-    if g.doubles_ai.smash_x.len() != g.players.len() {
+    if g.doubles_ai.smash_x.0.len() != g.players.len() {
         let x = |k: usize| {
             let d = g.data.get(k)?;
             let clip = d.motions.get(&(hst_sim::motion::id::SMASH as usize))?;
             Some(hst_sim::serve::serve_arm(&d.skeleton, clip, None, false).point[0])
         };
-        g.doubles_ai.smash_x = (0..g.players.len()).map(|k| x(k).unwrap_or(-0.067)).collect();
+        g.doubles_ai.smash_x.0 = (0..g.players.len()).map(|k| x(k).unwrap_or(-0.067)).collect();
     }
-    g.doubles_ai.smash_x[i]
-}
-
-/// The predicted ball path from now (or, for a held ball, what to step it from), and (B57) the path's mode and gap.
-fn path(g: &mut Game) -> (Vec<PathBall>, Option<PathFrom>) {
-    let mut start = g.flight;
-    start.net = false;
-    // P38: a ball without line calls (held, tossed) keeps its call and makes no gap: only the entries need its steps,
-    // and only on the frames a copy is taken
-    if start.lines.is_none() && !no_cache() {
-        let b = &mut g.doubles_ai.built;
-        (b.0, b.2, b.3) = (Vec::new(), start.call as u8, None);
-        return (Vec::new(), Some(PathFrom { flight: start, shot: g.shot, court: g.court, base: g.path_base }));
-    }
-    // the path is the same for every player stepping on the same ball (P23: 180 steps each, the doubles AI's
-    // whole cost); keyed on everything it's stepped from, bit for bit (bincode writes each float's bits)
-    let key = Steps::key(&start, &g.shot, g.path_base, g.court);
-    if g.doubles_ai.built.0 != key || no_cache() {
-        let s = &mut g.doubles_ai.built.4;
-        // P38: the ball moved one step along last tick's path: the same path one step on, so one new step instead
-        // of PATH_MAX
-        if s.next != key || no_cache() {
-            *s = Steps::new(start, &g.shot, g.court);
-        } else {
-            s.advance(&g.shot, g.court);
-        }
-        s.next = Steps::key(&s.flights[1], &g.shot, g.path_base, g.court);
-        let (path, mode, gap) = s.path(g.path_base);
-        if no_cache() {
-            assert_eq!(format!("{:?}", (&path, mode, gap)), format!("{:?}", predict(g.flight, &g.shot, g.court, g.path_base)));
-        }
-        (g.doubles_ai.built.0, g.doubles_ai.built.1, g.doubles_ai.built.2, g.doubles_ai.built.3) = (key, path, mode, gap);
-    }
-    if let Some(gap) = g.doubles_ai.built.3 {
-        g.doubles_ai.gap = gap;
-    }
-    (g.doubles_ai.built.1.clone(), None)
-}
-
-/// The flights a path is stepped through (`predict`'s, kept): `flights[k]` is the ball `k` steps on, `gaps[k]` the
-/// gap step `k` → `k + 1` takes if it calls the ball out.
-#[derive(Default, Clone)]
-struct Steps {
-    flights: std::collections::VecDeque<Flight>,
-    gaps: std::collections::VecDeque<Option<f32>>,
-    /// The key of the path stepped from `flights[1]`.
-    next: Vec<u8>,
-}
-
-impl Steps {
-    fn key(f: &Flight, shot: &hst_sim::ball::Shot, base: i32, court: usize) -> Vec<u8> {
-        bincode::serialize(&(f, shot, base, court)).expect("flight key")
-    }
-
-    /// `start` and the PATH_MAX steps from it.
-    fn new(start: Flight, shot: &hst_sim::ball::Shot, court: usize) -> Self {
-        let mut s = Steps { flights: [start].into(), ..Default::default() };
-        for _ in 0..PATH_MAX {
-            s.push(shot, court);
-        }
-        s
-    }
-
-    fn push(&mut self, shot: &hst_sim::ball::Shot, court: usize) {
-        let mut f = *self.flights.back().expect("a start");
-        let was = f.call;
-        f.step(shot, &COURTS[court]);
-        let out = was == hst_sim::judge::Call::None && f.call == hst_sim::judge::Call::Out;
-        self.gaps.push_back(out.then_some(f.line_distance));
-        self.flights.push_back(f);
-    }
-
-    /// Starts one step on.
-    fn advance(&mut self, shot: &hst_sim::ball::Shot, court: usize) {
-        self.flights.pop_front();
-        self.gaps.pop_front();
-        self.push(shot, court);
-    }
-
-    /// The path as `predict` gives it: the first PATH_MAX balls, the last flight's call, the last out call's gap.
-    fn path(&self, base: i32) -> (Vec<PathBall>, u8, Option<f32>) {
-        let path = self.flights.iter().take(PATH_MAX).map(|f| PathBall::of(f, base));
-        let mode = self.flights.back().expect("a start").call as u8;
-        (path.collect(), mode, self.gaps.iter().rev().find_map(|g| *g))
-    }
-}
-
-/// The path stepped from `f` against the court (no net), its mode (the far end's line call) and, B57, the gap the
-/// original takes on a step that calls a not-yet-landed ball out (in, net or net-out first leave the old gap).
-fn predict(mut f: Flight, shot: &hst_sim::ball::Shot, court: usize, base: i32) -> (Vec<PathBall>, u8, Option<f32>) {
-    let mut path = Vec::with_capacity(PATH_MAX);
-    f.net = false;
-    let mut gap = None;
-    for _ in 0..PATH_MAX {
-        let e = path_entry(&f);
-        let [x, y, z] = e.pos;
-        let [u, v, s] = e.vel;
-        path.push(PathBall { pos: [x, y, z, 0.0], vel: [u, v, s, 0.0], bounces: base + f.contacts });
-        let was = f.call;
-        f.step(shot, &COURTS[court]);
-        if was == hst_sim::judge::Call::None && f.call == hst_sim::judge::Call::Out {
-            gap = Some(f.line_distance);
-        }
-    }
-    (path, f.call as u8, gap)
-}
-
-/// A cache, so not part of the state (`snapshot::state_hash` prints `Game`); the flights it was stepped through (P38)
-/// aren't saved either.
-#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
-struct Built(Vec<u8>, Vec<PathBall>, u8, Option<f32>, #[serde(skip)] Steps);
-
-impl std::fmt::Debug for Built {
-    fn fmt(&self, _: &mut std::fmt::Formatter) -> std::fmt::Result {
-        Ok(())
-    }
+    g.doubles_ai.smash_x.0[i]
 }
 
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -287,9 +168,10 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
         path_gap: 0.0,
     };
     // B57: a CPU lets a ball that will land out by its row's margin go by (the NET and BASE routines' hold)
-    (w.path_mode, w.path_gap) = (g.doubles_ai.built.2, g.doubles_ai.gap);
+    let r = &g.doubles_ai.record;
+    (w.path_mode, w.path_gap) = (r.mode as u8, r.gap);
     if g.doubles_ai.path.stamp != w.frame {
-        (w.path, w.path_from) = path(g);
+        w.path = r.window().to_vec();
     }
     let row = p.ai;
     let me = &mut g.doubles_ai.me[i];
@@ -439,7 +321,19 @@ fn landing(g: &Game) -> [f32; 4] {
 /// A match message to the AI side (`msg`: `rally::msg::*`), sent where the original sends it, in its order within
 /// the tick.
 pub(super) fn heard(g: &mut Game, msg: u8) {
-    g.doubles_ai.hear(&g.players, msg);
+    let r = &mut g.doubles_ai.record;
+    match msg {
+        msg::NEW_PATH => r.new_path(),
+        msg::HIT => {
+            // the predictor takes the ball just launched; from the serve on, the path is built now
+            r.hit(&g.flight, &g.shot, &COURTS[g.court], g.phase == Phase::Rally, !matches!(g.phase, Phase::ChangeEnds(_)));
+        }
+        msg::STRIKE | msg::REACTION => r.stop(),
+        msg::SERVE | msg::CHANGE_ENDS => r.point(),
+        _ => {}
+    }
+    let records = msg != msg::HIT || !matches!(g.phase, Phase::ChangeEnds(_));
+    g.doubles_ai.hear(&g.players, msg, records);
     for m in &mut g.doubles_ai.me {
         let x = &mut m.rally;
         match msg {
@@ -456,14 +350,17 @@ pub(super) fn heard(g: &mut Game, msg: u8) {
 }
 
 impl Shared {
-    /// `heard`: the path object drops its claim (not on the reaction) and every shot record (`record::CLEARED`); on the strike, hit, new
-    /// path and serve each AI object's base handler sends its human search back to the path's start (by `players`'
-    /// z) and marks the shared path copy stale.
-    pub(super) fn hear(&mut self, players: &[Player], msg: u8) {
-        if msg != msg::REACTION {
+    /// `heard`: the path object drops its claim (not on the reaction and the message after it) and, when `records`
+    /// (not on a hit before the serve), every shot record (`record::CLEARED`); on the strike, hit, new path and serve
+    /// each AI object's base handler sends its human search back to the path's start (by `players`' z) and marks the
+    /// shared path copy stale.
+    pub(super) fn hear(&mut self, players: &[Player], msg: u8, records: bool) {
+        if msg != msg::REACTION && msg != msg::REACTION + 1 {
             self.claim.0 = -1;
         }
-        self.records.iter_mut().for_each(|r| r.n = record::CLEARED);
+        if records {
+            self.records.iter_mut().for_each(|r| r.n = record::CLEARED);
+        }
         if matches!(msg, msg::STRIKE | msg::NEW_PATH) {
             // only an AI in its receive or rally hears it
             for (m, p) in self.me.iter_mut().zip(players) {
@@ -477,6 +374,19 @@ impl Shared {
             }
         }
     }
+}
+
+/// The path's once-a-tick update (P11n1), after the ball's step and before anyone thinks, as the original's.
+pub(super) fn path_frame(g: &mut Game) {
+    let swinging = (g.players.len() == 4).then(|| g.players.iter().any(|p| p.swing.is_some()));
+    g.doubles_ai.record.frame(&g.shot, &COURTS[g.court], g.phase == Phase::Rally, swinging);
+}
+
+/// The live ball touched the net (or another special material) on its step: the path starts again from it, keeping
+/// the old path's counts.
+pub(super) fn net_touch(g: &mut Game) {
+    g.doubles_ai.record.net(&g.flight);
+    heard(g, msg::NEW_PATH);
 }
 
 /// Player `i`'s swing found its contact (the stroke, volley or smash search; not a dive): it claims the ball unless
@@ -554,7 +464,7 @@ pub(super) fn human(g: &mut Game, i: usize) {
         ..Default::default()
     };
     if g.doubles_ai.path.stamp != w.frame {
-        (w.path, w.path_from) = path(g);
+        w.path = g.doubles_ai.record.window().to_vec();
     }
     let row = p.ai;
     let d = &mut g.doubles_ai;
@@ -601,70 +511,35 @@ mod tests {
     use crate::{Args, GameSpace};
 
     /// B57: a rally ball landing 1 m past the baseline gives the path mode 2 (out) and gap 1 m; one landing in, mode
-    /// 1 and no gap; a ball already called keeps the old gap.
+    /// 1, and the gap stays from the path before.
     #[test]
     fn path_mode_and_gap() {
         let id = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
         let lines = hst_sim::judge::Lines { shots: 3, doubles: true, side: 0, hitter_far: false, margin: 0.0 };
         let shot = hst_sim::ball::Shot { params: hst_sim::ball::Params::default(), ..Default::default() };
-        let landing = |vz: f32| {
+        let mut r = hst_sim::path::Path::default();
+        let mut landing = |vz: f32| {
             let mut f = Flight::new(Ball { pos: [0.0, -1.0, 0.5], vel: [0.0, 0.0, vz], spin: 0.0 }, id, id);
             f.lines = Some(lines);
-            let mut p = f;
-            p.net = false;
-            for _ in 0..PATH_MAX {
-                if p.contacts == 0 {
-                    p.step(&shot, &COURTS[1]);
+            r.hit(&f, &shot, &COURTS[1], true, true);
+            let first = loop {
+                r.frame(&shot, &COURTS[1], true, Some(false));
+                if r.predictor.contacts > 0 {
+                    break r.predictor.landing.0[2];
                 }
-            }
-            (predict(f, &shot, 1, 0), p.landing.0[2])
+            };
+            (r.mode as u8, r.gap, first)
         };
-        let (out, z) = landing(0.55);
+        let (mode, out, z) = landing(0.55);
         assert!(z > 11.885, "{z}");
-        assert_eq!(out.1, 2);
-        assert!((out.2.unwrap() - (z - 11.885)).abs() < 0.05, "{:?} {z}", out.2);
-        let ((_, mode, gap), z) = landing(0.3);
+        assert_eq!(mode, 2);
+        assert!((out - (z - 11.885)).abs() < 0.05, "{out} {z}");
+        let (mode, gap, z) = landing(0.3);
         assert!(z < 11.885, "{z}");
-        assert_eq!((mode, gap), (1, None));
+        assert_eq!((mode, gap), (1, out));
     }
 
     const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-
-    /// The shared path (P23) plays a 4-bot doubles match tick for tick as stepping it per player did.
-    #[test]
-    fn path_cache_keeps_the_match() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
-        }
-        let hashes = |cache: bool| {
-            NO_CACHE.store(!cache, std::sync::atomic::Ordering::Relaxed);
-            // every player a bot
-            crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
-            let mut app = App::new();
-            app.add_plugins((MinimalPlugins, AssetPlugin::default()));
-            app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
-            app.insert_resource(Args { iso: ISO.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 1, stage: None, play: true, singles: false, chars: vec![0, 1, 2, 3], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None });
-            app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
-            app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
-            app.add_systems(Startup, setup);
-            app.add_systems(FixedUpdate, (remember, control, simulate, motions, character::tick, played_out, held_ball).chain());
-            app.update();
-            let (mut v, mut shots) = (Vec::new(), 0);
-            for _ in 0..60 * 60 {
-                let before = app.world().resource::<Game>().shots;
-                app.world_mut().run_schedule(FixedUpdate);
-                v.push(snapshot::state_hash(app.world_mut()));
-                // shots this rally: count each one struck (it goes back to 0 at the next point)
-                shots += (app.world().resource::<Game>().shots > before) as i32;
-            }
-            eprintln!("{shots} shots struck");
-            (v, shots)
-        };
-        let (with, _) = hashes(true);
-        let (without, shots) = hashes(false);
-        assert!(shots > 0);
-        assert_eq!(with.iter().zip(&without).position(|(a, b)| a != b), None);
-    }
 
     /// B15: singles bots get the point set-up's walk-back spot (the middle, 10 or 11 back) and their level's net reach
     /// (3.2), so after their own shot they go back to the baseline instead of running into the net, where the

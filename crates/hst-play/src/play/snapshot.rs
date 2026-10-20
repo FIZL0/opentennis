@@ -615,15 +615,15 @@ mod tests {
     /// B173: the human's serve touches the net and drops on its own half: the computer receiver gives the ball up
     /// (no path for it, and the net-touch message holds it) and stands still until the next serve, as the original,
     /// instead of running on to the stand spot and locking a contact. The human's pads are a fixed random walk; its
-    /// first net-touched serve comes within the 40000 ticks (seed 7: P4's per-player reach and the merge with main moved
-    /// the old seeds').
+    /// first net-touched serve comes within the 40000 ticks (seed 6: the AI's own path record (P11n1) moved seed 7's
+    /// match past its net-touched serves).
     #[test]
     fn receiver_gives_up_a_net_touched_serve() {
         if !Path::new(ISO).is_file() {
             return eprintln!("no ISO, skipped");
         }
         let mut app = app();
-        let mut r = 7u64;
+        let mut r = 6u64;
         let mut next = move || {
             r ^= r << 13; r ^= r >> 7; r ^= r << 17;
             r

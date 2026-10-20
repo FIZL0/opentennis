@@ -74,8 +74,8 @@ predicted first bounce.
   contacts), which the launch has zeroed, and its call reset. The launch then sends HIT, when the phase is not 0.
 - **Every live-ball step that touches a special material** (the net / net-cord type), not only the first one. This
   is skipped in slow motion (the replay / slow-mo time scale). The predictor becomes a copy of the live ball after
-  that step, except that its two counters (all contacts and court contacts) keep the values they had in the
-  predictor before the copy. The predictor's call is reset to 0. Then NEW_PATH is sent.
+  that step, except that its counters (all contacts and court contacts; port session: the special-contact count
+  too, per the cord recording) keep the values they had in the predictor before the copy. The predictor's call is reset to 0. Then NEW_PATH is sent.
   - Effect: the live ball's counters are what the AI reads as "hits so far". The predictor's counters carry the old
     prediction's count, so the new path's contact counts (and its "stop at 2" rule) follow the old prediction's
     counts, not the live ball's.

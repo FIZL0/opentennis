@@ -618,7 +618,8 @@ fn step(
             (g.marks.red, g.marks.smash) = (None, None);
             let (shot, material) = (g.shot, g.world.1[0]);
             g.flight.step_plane(&shot, &hst_sim::ball::COURTS[g.court], material);
-            g.doubles_ai.hear(&g.players, msg::STRIKE);
+            g.doubles_ai.record.stop();
+            g.doubles_ai.hear(&g.players, msg::STRIKE, true);
         }
         if let Ok((_, mut m)) = q.get_mut(*e) {
             // type 38 plays its second clip after a fast ball
