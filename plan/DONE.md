@@ -859,6 +859,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **M131** Other modded golf characters' animations (user 2026-10-19): every other golf mod gets its celebrations and disappointed moves as reaction takes, picked at build time by the mods repo's takes.py (no held poses, none that leave the shot); versions bumped → ../opentennis-mods
 - [x] **M134** Character select: once every seat has picked, swapping teams has no transition (user 2026-10-20): the cards should slide/animate to the other side like they do before all are picked (play/main_menu/).
 - [x] **B582** Ball-hits-player sound words ("conk", "bumps", "rattle"; P25's pop-ups) drawn behind the court backgrounds/scenery (user 2026-10-20): they must draw on top like the other pop-ups. Assumed: a draw-order/depth issue in play/popups.rs or bodyhit.rs, every court.
+- [x] **M136** Mod downloads/uploads in progress shown on every menu screen (user 2026-10-20): a progress indicator in the upper middle of the screen (queue count, current item, for downloads and uploads alike) stays visible wherever you are in the menus; when the queue empties, a prompt offers to restart so the new mods load.
 
 
 ### Shots
