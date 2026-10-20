@@ -66,6 +66,8 @@ fn setup(
         alpha_mode: AlphaMode::Blend,
         double_sided: true,
         cull_mode: None,
+        // drawn after the court's blended scenery, as the other pop-ups (the markers, the balloons)
+        depth_bias: super::markers::LAST,
         ..default()
     });
     commands.spawn((View(m.clone(), words), Mesh3d(quad.clone()), MeshMaterial3d(m), Transform::default(), Visibility::Hidden));
@@ -79,7 +81,7 @@ fn setup(
         .collect();
     commands.insert_resource(Words { words: BounceWords::default(), on: false, textures });
     for i in 0..10 {
-        let m = materials.add(StandardMaterial { unlit: true, alpha_mode: AlphaMode::Blend, double_sided: true, cull_mode: None, ..default() });
+        let m = materials.add(StandardMaterial { unlit: true, alpha_mode: AlphaMode::Blend, double_sided: true, cull_mode: None, depth_bias: super::markers::LAST, ..default() });
         commands.spawn((WordView(i, m.clone()), Mesh3d(quad.clone()), MeshMaterial3d(m), Transform::default(), Visibility::Hidden));
     }
 }

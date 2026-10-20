@@ -858,6 +858,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **M130** Sophie's missing animations (user 2026-10-19): compare the Sophie mod's motions against the reference video `/home/ryha/Downloads/Hot Shots Golf: Out of Bounds | All Sophie Animations(60fps) [vs7UYu0fVf8].mp4` (all her HSG:OoB animations, 60 fps), list which are missing and add them; bump the mod's mod.json version → ../opentennis-mods
 - [x] **M131** Other modded golf characters' animations (user 2026-10-19): every other golf mod gets its celebrations and disappointed moves as reaction takes, picked at build time by the mods repo's takes.py (no held poses, none that leave the shot); versions bumped → ../opentennis-mods
 - [x] **M134** Character select: once every seat has picked, swapping teams has no transition (user 2026-10-20): the cards should slide/animate to the other side like they do before all are picked (play/main_menu/).
+- [x] **B582** Ball-hits-player sound words ("conk", "bumps", "rattle"; P25's pop-ups) drawn behind the court backgrounds/scenery (user 2026-10-20): they must draw on top like the other pop-ups. Assumed: a draw-order/depth issue in play/popups.rs or bodyhit.rs, every court.
 
 
 ### Shots
