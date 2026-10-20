@@ -18,3 +18,4 @@
 - Settings → Display has a new Controller Vibration switch: turn it off and controllers stop buzzing on the player select (turning it on gives a short buzz). Matches never rumble, as in the original.
 - Computer players now follow the ball's predicted flight the way the original game does, including after it clips the net, so they chase, leave and line up for shots as they did on the PS2.
 - In doubles, every emote now plays its voice line: some of them used to stay silent.
+- The instant replay's slow motion now lands on the point it replays, not on a shot from the point before.
