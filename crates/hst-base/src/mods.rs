@@ -1767,7 +1767,8 @@ mod tests {
     }
 
     /// Get a Grip's Emi (a texture face, §4b): her face material starts neutral, the donor's `.MOR` tracks drive
-    /// face.json's channels by name, and over the donor's faces some frames show an expression texture.
+    /// face.json's channels by name, and every donor face that reaches half strength (B585: the stance and stroke
+    /// faces hold exactly half) shows its expression texture on some frame.
     #[test]
     fn texture_face_follows_the_donors_faces() {
         let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
@@ -1786,18 +1787,23 @@ mod tests {
         assert!(face > 0, "no part starts on the neutral face");
         assert!(c.gs.values().flatten().any(|d| d.texture.as_ref() == Some(&f.neutral.1)));
         // sample every face the way `character::animate` does; some frames must leave neutral
-        let mut shown = 0;
-        for face in c.faces.values() {
+        let mut silent = Vec::new();
+        for (id, face) in &c.faces {
+            let (mut peak, mut shown) = (0f32, 0);
             for k in 0..(face.length as i32) {
                 let mut w = vec![0.0; c.morph_names.len()];
                 let t = hst_sim::ps2::mul(k as f32, 80.0);
                 for (target, ticks, values) in &face.tracks {
                     w[*target] = hst_sim::face::sample(ticks, values, t, &mut 0, false)[0];
                 }
+                peak = w.iter().copied().fold(peak, f32::max);
                 shown += (f.pick(&w).0 != f.neutral.0) as usize;
             }
+            if peak >= 0.5 && shown == 0 {
+                silent.push(id);
+            }
         }
-        assert!(shown > 0, "the donor's faces never show an expression");
+        assert!(c.faces.len() > 10 && silent.is_empty(), "faces that never leave neutral: {silent:?}");
     }
 
     /// B542: target names read like rerig.py's `face_word`, and a donor track the mod has no target of plays on its

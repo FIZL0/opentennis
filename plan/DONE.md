@@ -857,6 +857,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B581** New-version check (user 2026-10-19): the splash screen and the pre-launch web page both check for a newer release and tell the player (offer the update where the self-updater can) → crates/hst/src/update.rs · main.rs · web.rs
 - [x] **M130** Sophie's missing animations (user 2026-10-19): compare the Sophie mod's motions against the reference video `/home/ryha/Downloads/Hot Shots Golf: Out of Bounds | All Sophie Animations(60fps) [vs7UYu0fVf8].mp4` (all her HSG:OoB animations, 60 fps), list which are missing and add them; bump the mod's mod.json version → ../opentennis-mods
 - [x] **M131** Other modded golf characters' animations (user 2026-10-19): every other golf mod gets its celebrations and disappointed moves as reaction takes, picked at build time by the mods repo's takes.py (no held poses, none that leave the shot); versions bumped → ../opentennis-mods
+- [x] **B585** Get a Grip mod characters' faces don't animate (user 2026-10-20): no facial animation (blinks, mouth, emotes' expressions) in matches. Check the getagrip packs' face channels against B561's donor map (../opentennis-mods); bump each fixed mod's version.
 
 
 ### Shots
