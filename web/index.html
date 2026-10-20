@@ -1026,26 +1026,40 @@ async function start() {
   const mods = await dir.getDirectoryHandle('mods', { create: true });
   const modsFrom = performance.now();
   let modBytes = 0;
-  const walk = async (d, path, out) => { for await (const [n, h] of d.entries()) h.kind === 'file' ? out.push([path + n, h]) : await walk(h, `${path}${n}/`, out); return out; };
-  for await (const [id, h] of mods.entries()) {
-    if (h.kind !== 'directory') continue;
+  // P64 listing
+  // P64: every mod at once, and in each its folders and files at once (`pool`: n at a time): Safari's OPFS answers
+  // each call in a round trip, so ~10k files one after the other (100 mods) held the start for many seconds
+  const pool = async (items, n, f) => { let i = 0; await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) await f(items[i++]); })); };
+  const walk = async (d, path) => {
+    const out = [], subs = [];
+    for await (const [n, h] of d.entries()) h.kind === 'file' ? out.push([path + n, h]) : subs.push(walk(h, `${path}${n}/`));
+    for (const s of await Promise.all(subs)) out.push(...s);
+    return out;
+  };
+  const ids = [];
+  for await (const [id, h] of mods.entries()) if (h.kind === 'directory') ids.push([id, h]);
+  let listed = 0;
+  if (ids.length) say(`Reading mods… 0 of ${ids.length}`);
+  await pool(ids, 8, async ([id, h]) => {
     // B227: an older install's upscaled set (modfs.rs kept_in_memory: never read in the browser) freed from storage
     await h.getDirectoryHandle('textures').then(t => t.removeEntry('upscaled', { recursive: true })).catch(() => {});
-    const files = await walk(h, `mods/${id}/`, []);
-    if (!files.some(f => f[0] === `mods/${id}/mod.json`)) { await mods.removeEntry(id, { recursive: true }).catch(() => {}); continue; }
-    say(`Reading mod ${id}…`);
+    const files = await walk(h, `mods/${id}/`);
+    const manifest = files.find(f => f[0] === `mods/${id}/mod.json`);
+    if (!manifest) { await mods.removeEntry(id, { recursive: true }).catch(() => {}); return; }
     // M5a: a texture pack (mod.json kind "textures") is read in whole: the menu's own textures are replaced at the start
     let pack = false;
-    try { pack = JSON.parse(await (await files.find(f => f[0] === `mods/${id}/mod.json`)[1].getFile()).text()).kind === 'textures'; } catch (e) {}
+    try { pack = JSON.parse(await (await manifest[1].getFile()).text()).kind === 'textures'; } catch (e) {}
     // B336: only the manifests and select pictures now (modfs.rs small); models, textures and voices when the game wants the mod (hstModLoad)
-    for (const [p, fh] of files) {
+    await pool(files, 16, async ([p, fh]) => {
       const f = await fh.getFile();
-      if (!pack && !p.endsWith('.json') && !p.includes('/previews/')) { add_mod_lazy(p, f.size); continue; }
+      if (!pack && !p.endsWith('.json') && !p.includes('/previews/')) return add_mod_lazy(p, f.size);
       const b = new Uint8Array(await f.arrayBuffer());
       modBytes += b.length;
       add_mod_file(p, b);
-    }
-  }
+    });
+    say(`Reading mods… ${++listed} of ${ids.length}`);
+  });
+  // P64 listing end
   // a mod folder (`mods/<id>`) in from OPFS, a file at a time (modfs.rs ready); a file that fails is left out
   window.hstModLoad = async dir => {
     const from = performance.now();
@@ -1053,11 +1067,10 @@ async function start() {
     try {
       let d = mods;
       for (const s of dir.split('/').slice(1)) d = await d.getDirectoryHandle(s);
-      for (const [p, fh] of await walk(d, `${dir}/`, [])) {
-        if (p.endsWith('.json') || p.includes('/previews/')) continue;
+      await pool((await walk(d, `${dir}/`)).filter(([p]) => !p.endsWith('.json') && !p.includes('/previews/')), 16, async ([p, fh]) => {
         try { const b = new Uint8Array(await (await fh.getFile()).arrayBuffer()); n += b.length; add_mod_file(p, b); }
         catch (e) { console.warn(`hst: ${p}: ${e}`); }
-      }
+      });
     } catch (e) { console.warn(`hst: reading ${dir}: ${e}`); }
     console.info(`hst: ${dir} read in (${(n / 1048576).toFixed(1)} MB) in ${Math.round(performance.now() - from)} ms`);
     mod_loaded(dir);

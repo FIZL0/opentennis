@@ -17,7 +17,6 @@ index out of bounds: the len is 0 but the index is 0"
 - [ ] **M136** Mod downloads/uploads in progress shown on every menu screen (user 2026-10-20): a progress indicator in the upper middle of the screen (queue count, current item, for downloads and uploads alike) stays visible wherever you are in the menus; when the queue empties, a prompt offers to restart so the new mods load.
 - [ ] **B588** Online lobby asks to download mods both players already have (user 2026-10-20): joining a lobby prompted a download though both sides had the mod, and the downloaded/has-it icon never showed even after downloading (mods_online.rs, handshake.rs). Assumed: the have-check compares the wrong key (version/hash/id).
 - [ ] **B590** Mobile web app: auto aspect still stretches under the Dynamic Island (user 2026-10-20): in landscape the picture runs past the notch/island. Honour env(safe-area-inset-*) in the web shell (web.rs / the page's viewport-fit) so the game area stays inside the safe area.
-- [ ] **P64** Web on Safari loads for a long time (user 2026-10-20), apparently on the local random characters step: profile the startup in Safari and make picking/preparing local random characters cheap (lazy, or off the load path).
 
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
 
