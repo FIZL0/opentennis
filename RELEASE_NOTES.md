@@ -1,3 +1,4 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Mods with a newer version on the store now show an Update button, and an Update all button on the Mods page and the main menu installs every update at once.
 - Switching teams after everyone has picked their character now slides the cards across, as it does before.
 - The sound words when the ball hits a player, the court, the net or a wall ("conk", "bumps", "rattle") no longer disappear behind see-through scenery.
