@@ -864,3 +864,54 @@ fn gallery_match_end() {
         assert_eq!(got, due, "event {event}");
     }
 }
+
+
+/// B598: the net's sound, from four recordings of slot 5 with the live ball's velocity overwritten once (as B85's,
+/// `tools/record_sound.py 5 300 context/fixtures/net_sound_<name>.bin vel=…`, the velocities in the 2026-10-07-n3-audio
+/// journal): off the cord and over (the net mesh, key 2), a serve off the cord (key 2), low into the net's top band
+/// (material 26, key 1) and off the post (material 22: no sound). Every net play `sound::Bounces` gives keyed its
+/// program 2 key at the contact point this frame or the next, L/R bit-exact and on the key's own pitch (root and note
+/// of the pitch command), and the game keyed the net's sample nowhere else.
+#[test]
+fn net_sounds_match_the_game() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else { return eprintln!("no disc, skipped") };
+    let materials = hst_sim::court::materials(&exe::Game::new(&iso.read("SYSTEM.CNF").unwrap(), &iso.read("ZZBIN/GAME.BIN").unwrap()).unwrap());
+    let mut keys = Vec::new();
+    for (name, want) in [("cord_over3", Some(2)), ("serve_let", Some(2)), ("net_low", Some(1)), ("post_back", None)] {
+        let Some((data, court)) = Court::load(&format!("net_sound_{name}.bin")) else { return };
+        let s = samples(&data, 0);
+        let bank = Bank::parse(&court.hd).unwrap();
+        // the net's keys (program 2 keys 1 and 2) share one tone; the pitch command's top half says which (root, note)
+        let tones = |key: usize| bank.key_ons(2, key).into_iter().flatten().filter_map(|e| Some((bank.tone(e.set as usize, e.note)?, e.note))).collect::<Vec<_>>();
+        let net = tones(2)[0].0;
+        let pitch = |key: usize| tones(key).iter().map(|&(t, note)| (t.raw[2] as u32) << 8 | note as u32).next().unwrap();
+        let net_keyed = |x: &Sample| x.cmds.iter().filter(|c| c[0] == 2 && c[3] != 8).filter_map(|c2| {
+            let c3 = x.cmds.iter().find(|c| c[0] == 3 && c[1] == c2[1])?;
+            let c4 = x.cmds.iter().find(|c| c[0] == 4 && c[1] == c2[1])?;
+            ((c2[2] as u16, c2[3] as u16) == net.adsr() && c3[2] == court.base + net.sample() as u32).then_some(c4[2] >> 16)
+        }).collect::<Vec<_>>();
+        let heard: Vec<(usize, u32)> = (0..s.len()).flat_map(|k| net_keyed(&s[k]).into_iter().map(move |p| (k, p))).collect();
+        let mut bounces = Bounces::default();
+        let mut ours = Vec::new();
+        for k in 1..s.len() - 1 {
+            let n = u(s[k].ball, 0x224) as i32;
+            let at = |n: i32| (n as usize - 1) * 0x50;
+            let bounce = (n != u(s[k - 1].ball, 0x224) as i32 && n > 0).then(|| (n, &materials[s[k].contacts[at(n) + 0x40] as usize]));
+            for pl in bounces.frame(bounce, None).into_iter().filter(|pl| pl.key != 0) {
+                let n = bounce.unwrap().0;
+                let pos = std::array::from_fn(|j| f32::from_bits(u(s[k].contacts, at(n) + 0x10 + 4 * j)));
+                let (angle, dist) = sound::place(pos);
+                let play = [angle, dist, sound::falloff(pl.volume, dist)];
+                let window: Vec<Key> = (k..=k + 1).flat_map(|j| court.keyed(&s[j], Some(&s[j + 1]))).collect();
+                assert!(window.iter().any(|w| court.gives(w, play, [(2, pl.key as usize)])), "{name} frame {k}: {pl:?} {play:?} not keyed");
+                assert!(heard.iter().any(|&(j, p)| (k..=k + 1).contains(&j) && p == pitch(pl.key as usize)), "{name} frame {k}: key {} not at its pitch", pl.key);
+                ours.push(pl.key);
+            }
+        }
+        assert_eq!(ours.len(), heard.len(), "{name}: net plays {ours:?}, the game's {heard:x?}");
+        assert_eq!(ours.first().copied(), want, "{name}");
+        keys.extend(ours);
+    }
+    eprintln!("net plays {keys:?}");
+}

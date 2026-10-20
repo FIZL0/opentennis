@@ -7,7 +7,9 @@ last positional play (angle, distance, volume: 3 × i32), u32 n and the n ring c
 ({cmd, voice, word8, wordC}) the EE wrote since the previous sample. With `hits`, the hit sound's inputs go
 between the play and n: effects object +0xb8..+0x100 (0xd0 shot kind, per-player 8-byte records at +0xd8),
 0x422fa0..0x422fc0 (player count, character ids), 0x423040..0x423080 (hitter, hit count), gm+0x340 8 bytes,
-the court marker matrix 8 (*(gm+0xb8) + 0xd130 + 8·0x40, 0x40) and players 0/1 +0x3e90..+0x3fb0."""
+the court marker matrix 8 (*(gm+0xb8) + 0xd130 + 8·0x40, 0x40) and players 0/1 +0x3e90..+0x3fb0.
+With `vel=V,x,y,z` the live ball's velocity is overwritten once right after vsync V (as research/b85_net_rec.py:
+B598 sends the ball into the net) and only frames from V − 30 on are written."""
 import struct, sys, time
 from pine import Pine
 
@@ -18,6 +20,7 @@ time.sleep(0.3)
 gm, snd = p.read32(GM_PTR), p.read32(SND_PTR)
 ball = p.read32(gm + 0x88)
 hits = "hits" in sys.argv[4:]
+vel = next(([float(x) for x in a[4:].split(",")] for a in sys.argv[4:] if a.startswith("vel=")), None)
 r = [(p.read32(gm + 0x88), 0x290), (p.read32(gm + 0x98), 0x290), (0x3165f0, 0x40), (snd + 8, 16)]
 if hits:
     r += [(p.read32(0x423f80) + 0xb8, 0x48), (0x422fa0, 0x20), (0x423040, 0x40), (gm + 0x340, 8),
@@ -29,6 +32,9 @@ while n < want:
     if v != last + 1:
         print(f"missed frames {last + 1}..{v - 1}", flush=True)
     last = v
+    if vel and v < vel[0] - 30:
+        head = p.read32(HEAD) % 1024
+        continue
     a = p.settle(r, v)
     if a is None:
         print(f"missed frame {v} (it ticked mid-read)", flush=True)
@@ -42,5 +48,9 @@ while n < want:
     fixed = 4 + 0x290 * 2 + 0x40
     out.write(struct.pack("<I", v) + a[:fixed - 4] + contacts + a[fixed:-8] + struct.pack("<I", k) + cmds)
     n += 1
+    if vel and v == int(vel[0]):
+        for k, x in enumerate(vel[1:]):
+            p.write32(ball + 0x130 + 4 * k, struct.unpack("<I", struct.pack("<f", x))[0])
+        print(f"velocity written after vsync {v}", flush=True)
     if n % 1200 == 0: print(n, flush=True)
 print("done", n)
