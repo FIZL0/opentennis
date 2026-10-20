@@ -1768,7 +1768,8 @@ pub fn read_input(
         let s = &mut now[slot];
         s.stick += pad_stick(g.left_stick());
         for (a, d) in dirs {
-            if bind.pad_pressed(g, a) {
+            // first person: the d-pad emotes and the right stick looks
+            if !fps::on() && bind.pad_pressed(g, a) {
                 s.dpad |= d;
             }
         }
@@ -1777,13 +1778,13 @@ pub fn read_input(
             .find(|(a, _)| bind.pad_just_pressed(g, *a))
             .map(|(_, k)| k));
         s.serve |= bind.pad_just_pressed(g, A::Replay);
-        let flick = emote::flick(g.right_stick());
+        let flick = emote::flick(g.right_stick()).filter(|_| !fps::on());
         let new_flick = flick.filter(|d| flicked.get(&e) != Some(d));
         match flick {
             Some(d) => flicked.insert(e, d),
             None => flicked.remove(&e),
         };
-        s.emote = s.emote.or(emote::bound(g, &bind)).or(new_flick).or(emote::touch(g, name));
+        s.emote = s.emote.or(fps::dpad_emote(g)).or(emote::bound(g, &bind)).or(new_flick).or(emote::touch(g, name));
     }
     pads.connected = held.connected();
     for (slot, n) in pads.slots.iter_mut().zip(now) {

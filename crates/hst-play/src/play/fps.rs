@@ -25,7 +25,11 @@ static YAW: AtomicU32 = AtomicU32::new(0);
 static PITCH: AtomicU32 = AtomicU32::new(0);
 
 const SENSITIVITY: f32 = 0.0025;
-const FOV: f32 = 70.0;
+const FOV: f32 = 90.0;
+/// The right stick's full-tilt turn, radians per second.
+const STICK_TURN: f32 = 3.5;
+/// The eye's distance ahead of the body's centre along the look, clear of the chest: looking down shows the legs.
+const AHEAD: f32 = 0.3;
 
 pub fn plugin(app: &mut App) {
     if on() {
@@ -48,10 +52,21 @@ pub fn turned(right: f32, fwd: f32) -> Vec2 {
     Vec2::new(c * right - s * fwd, s * right + c * fwd)
 }
 
-/// Mouse look, the cursor held in the window; the look starts toward the other end and again after a change of ends.
+/// First person's d-pad just pressed on pad `g`: its emote (up, down, left, right as the right stick's flicks).
+pub fn dpad_emote(g: &Gamepad) -> Option<u8> {
+    use GamepadButton::*;
+    if !on() {
+        return None;
+    }
+    [DPadUp, DPadDown, DPadLeft, DPadRight].into_iter().position(|b| g.just_pressed(b)).map(|d| d as u8)
+}
+
+/// Mouse or right-stick look, the cursor held in the window; the look starts toward the other end and again after a change of ends.
 fn look(
     g: Res<Game>,
     mouse: Res<AccumulatedMouseMotion>,
+    pads: Query<&Gamepad>,
+    time: Res<Time>,
     mut cursor: Query<&mut CursorOptions>,
     mut end: Local<f32>,
 ) {
@@ -73,7 +88,8 @@ fn look(
         c.grab_mode = CursorGrabMode::Locked;
         c.visible = false;
     }
-    let d = mouse.delta * SENSITIVITY;
+    let stick: Vec2 = pads.iter().map(|p| p.right_stick()).filter(|v| v.length() > 0.15).sum();
+    let d = mouse.delta * SENSITIVITY + Vec2::new(stick.x, -stick.y) * STICK_TURN * time.delta_secs();
     let yaw = f32::from_bits(YAW.load(Relaxed)) - d.x;
     let pitch = (f32::from_bits(PITCH.load(Relaxed)) - d.y).clamp(-1.5, 1.5);
     YAW.store(yaw.to_bits(), Relaxed);
@@ -97,8 +113,8 @@ fn view(
         .and_then(|h| joints.get(h.0).ok())
         .map_or(1.55, |t| t.translation().y);
     // game space → Bevy: (x, −y, −z)
-    let eye = Vec3::new(at.x, y, -at.z);
     o.yaw = f32::from_bits(YAW.load(Relaxed));
+    let eye = Vec3::new(at.x, y, -at.z) - Vec3::new(o.yaw.sin(), 0.0, o.yaw.cos()) * AHEAD;
     o.pitch = f32::from_bits(PITCH.load(Relaxed));
     o.focus = eye - Quat::from_euler(EulerRot::YXZ, o.yaw, o.pitch, 0.0) * Vec3::Z * o.radius;
     *tf = o.transform();
