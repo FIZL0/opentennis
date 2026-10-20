@@ -34,6 +34,7 @@ pub mod npc;
 pub mod ai;
 pub mod aim;
 pub mod rally;
+pub mod path;
 pub mod position;
 pub mod clouds;
 pub mod surprise;
