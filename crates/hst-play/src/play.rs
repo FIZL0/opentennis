@@ -61,6 +61,7 @@ mod intro;
 pub mod key_hints;
 mod instant_replay;
 mod doubles_ai;
+mod ai_setup;
 mod flare;
 mod markers;
 pub mod name_tags;
@@ -1516,6 +1517,7 @@ pub fn setup(
     game.humans = (0..n).map(|k| pads.slot_of(k, n).is_some()).collect();
     let draws = placement_draws(&mut game, false);
     doubles_ai::formations(&mut game, &draws);
+    ai_setup::match_start(&mut game);
     commands.insert_resource(game);
     commands.insert_resource(VoiceBanks(voices));
     let impacts = effects::load(
@@ -3063,6 +3065,7 @@ fn control(mut g: ResMut<Game>, pads: Res<Pads>, tick: Res<tick_input::TickPads>
     for i in 0..g.players.len() {
         match pads.slot_of(i, g.players.len()) {
             Some(s) => {
+                ai_setup::reset_human(g, i);
                 let pad = &tick.slot(s);
                 // an emote in the post-point time doesn't swallow the press that hurries it (B278)
                 post_press(g, matches!(pad.shot, Some(0 | 1)));
@@ -3758,7 +3761,7 @@ fn ai_roll(rng: &mut Rngs) -> impl FnMut() -> u32 + '_ {
 /// the mind isn't made afresh for a new match.
 fn ai_update(g: &mut Game, i: usize) -> hst_sim::ai::Mind {
     use hst_sim::ai::Phase as Ai;
-    let partner_bot = g.players.len() == 2 || g.humans.get(i ^ 2) != Some(&true);
+    let partner_bot = ai_setup::net_pick(g, i);
     let (style, heard) = (g.players[i].ai.style, g.players[i].ai_heard);
     let mut m = g.players[i].ai_mind.unwrap_or_default();
     if heard == 0 {

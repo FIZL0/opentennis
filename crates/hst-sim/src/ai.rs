@@ -706,8 +706,8 @@ impl Default for Mind {
 
 impl Mind {
     /// The AI's point reset (before the timing draw). `match_start`: the first point, which deals a fresh net
-    /// pick at even odds; doubles only does so when its partner is a computer player too (`partner_bot`, true in
-    /// singles).
+    /// pick at even odds; doubles only does so when its partner has an AI object too (`partner_bot`, true in
+    /// singles; a human beside a CPU partner has one).
     pub fn reset(&mut self, match_start: bool, partner_bot: bool, roll: &mut impl FnMut() -> u32) {
         self.active = true;
         if match_start && partner_bot {

@@ -42,7 +42,7 @@ mod tests {
         app.add_plugins((MinimalPlugins, AssetPlugin::default()));
         app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
         app.init_asset::<crate::gs::GsMaterial>();
-        app.insert_resource(Args { iso: ISO.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles: true, chars: vec![6, 1], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 2, pads: None });
+        app.insert_resource(Args { iso: ISO.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles: true, chars: vec![6, 1], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 6, pads: None });
         app.insert_resource(Pads { seats: Some(seats), autoplay: false, ..default() });
         app.init_resource::<tick_input::TickPads>();
         app.init_resource::<instant_replay::Recorder>();
@@ -104,7 +104,10 @@ mod tests {
         let (mut shots, mut own, mut own_lobs, mut their_lobs) = (0, 0, 0, 0);
         // a lob in the air: whether its marker has started yet
         let mut waiting: Option<bool> = None;
-        for t in 0..60 * 60 * 2 {
+        for t in 0..60 * 60 * 4 {
+            if own_lobs >= 2 && waiting.is_none() {
+                break;
+            }
             // a fresh △ press every 8 ticks, ✕ in between (the serve's toss and hit)
             let buttons = match t % 16 {
                 0..4 => 0x1000,

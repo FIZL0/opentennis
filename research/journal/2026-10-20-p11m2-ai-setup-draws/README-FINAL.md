@@ -29,3 +29,38 @@ This was the spec session. It read the decompile and wrote `SPEC.md`, but no Rus
 - Only draw counts were checked, not the values drawn. The values feed AI state that the first point's reset
   overwrites; the port session should compare the AI generator's index (and state words) at the first point to
   these captures.
+
+# Port phase (2026-10-20)
+
+Ported from `SPEC.md` with the decompile locked: `crates/hst-play/src/play/ai_setup.rs`, hooked into `play.rs` in
+three lines (setup's end, the human branch of `control`, the net-pick test in `ai_update`).
+
+- Setup's end (after the server is known): with any AI object, 36 draws (the last one's two full resets), 18 per
+  AI object (the intro's resets), then 17 for a CPU server and 1 per doubles CPU in the rally role.
+- A human's AI object (beside a CPU partner) is reset with the others at each point, in player order (full at the
+  first point, plain after), and takes no role.
+- The match-start net pick is drawn when the partner has an AI object (always true for a CPU now), not only a CPU.
+
+## Checked
+`ai_setup::tests` builds the app's match from the disc and reads the AI generator's index:
+- singles human serves to CPU: 54 at setup, 72 after the first point's reset (capture: 54, 72);
+- singles CPU vs CPU: 89, 125, 142 (capture: 89, 107, 125, 142);
+- doubles human + CPU vs two CPUs: 110, 182, 184 (capture: 110, 182, 184);
+- doubles later point (placement forced with `reset_positions`): +68 (capture 505 -> 573).
+
+## Not verified / not 1:1
+- Values, not only counts: the test matches aren't the captured ones (other characters/court/weather, so other
+  seeds), so only indices are compared. The intro's draws are taken in one go at setup instead of at the intro's
+  moment; nothing else draws from the AI generator in between and the first point's reset overwrites what they set.
+- CPU vs CPU singles: the capture's next index (144, the serve routine's spot + wait draws) isn't asserted: the spot
+  draw depends on the serve level drawn, which differs with the seed. The app drew 143 (level not 0) in its match.
+- Doubles' second-point rally entries (+2 after the resets) weren't seen in the forced-placement test (the doubles
+  AI's own per-point state isn't reset by that shortcut); only the 4 × 17 resets are asserted there.
+- Doubles with two CPUs on P0's team / a CPU serving first in doubles: not captured (as in the spec phase); follows
+  from the same rules.
+
+## Tests that moved with the new draws
+The AI's choices in the first points now differ, so two scripted-play tests were made seed-proof rather than
+re-tuned: `emote::an_emote_locks_then_plays_on` times its second flick off the point's measured end (half an emote
+before it) instead of a fixed tick after the serve, and `smash_marker::every_lob_shows_the_marker` plays a 6-game
+match (the 2-game one ended after 7 shots) and stops once it has seen two lobs.
