@@ -524,14 +524,11 @@ impl CharacterData {
         self.takes.get(&id).filter(|t| !t.is_empty()).map_or(0, |t| take(sets, t.len() + 1))
     }
 
-    /// How many ticks emote `id` started by the `sets`-th motion set holds the player: its own clip's length, the
-    /// same on every peer (online from the owner's wire, whether or not this one draws it); None for the donor's.
+    /// How many ticks emote `id` started by the `sets`-th motion set holds the player: its own clip's until it stops
+    /// moving (`mods::emote_ticks`), the same on every peer (online from the owner's wire, whether or not this one
+    /// draws it); None for the donor's.
     pub fn emote_ticks(&self, id: usize, sets: u32) -> Option<u32> {
-        if self.frame_gameplay {
-            self.emote_ticks.get(&id).filter(|t| !t.is_empty()).map(|t| t[take(sets, t.len())])
-        } else {
-            self.visual.get(&id).and(self.drawn_take(id, sets)).map(|c| (c.length.ceil() as u32).max(1))
-        }
+        self.emote_ticks.get(&id).filter(|t| !t.is_empty()).map(|t| t[take(sets, t.len())])
     }
 
     /// Whether `clip` is one of the mod's own (`visual` or `takes`).
@@ -1226,13 +1223,17 @@ pub fn animate(
         c.frame = *frame;
         c.face(rig, motion, &mut weights);
         let Some(new) = rig.data.drawn_take(motion.id, motion.sets) else { continue };
-        // a mod's own clip that the game starts with a cut (an emote, a reaction) eases in from the pose last drawn
+        // a mod's own clip that the game starts or ends with a cut (an emote, a reaction) eases in from the pose last
+        // drawn, and the clip after it eases out of it alike (an emote cut where its clip stops moving)
         if c.sets != motion.sets {
             c.sets = motion.sets;
             c.from.clear();
-            if motion.mix.is_none() && rig.data.own(new) {
+            let own = rig.data.own(new);
+            if motion.mix.is_none() && (own || c.own) {
                 c.from.extend_from_slice(&c.drawn);
+                c.eased = time.elapsed_secs_f64();
             }
+            c.own = own;
         }
         // the outgoing motion was the set before this one
         let fading = rig.data.drawn_take(motion.fade.id as usize, motion.sets.wrapping_sub(1)).filter(|_| motion.fade.clip);
@@ -1290,7 +1291,8 @@ pub fn animate(
             hold_head(&rig.data, grip, &mut drawn, 1.0 - mine);
         }
         if !c.from.is_empty() {
-            let w = ((motion.drawn.sampled + time.overstep_fraction()) / EASE_IN).min(1.0);
+            let w = (((time.elapsed_secs_f64() - c.eased) * 60.0) as f32 + time.overstep_fraction()) / EASE_IN;
+            let w = w.min(1.0);
             let w = w * w * (3.0 - 2.0 * w);
             for (d, &(q, v)) in drawn.iter_mut().zip(&c.from) {
                 *d = (q.slerp(d.0, w), v.lerp(d.1, w));
@@ -1321,12 +1323,16 @@ pub struct Posing {
     drawn: Vec<(Quat, Vec3)>,
     /// A mod's [`Feet::lift`] averaged over each clip it has played (by the clip's address, as [`PoseKey`]).
     lifts: HashMap<usize, f32>,
-    /// The motion set last drawn (`Motion::sets`), and the pose an own clip eases in from ([`EASE_IN`]).
+    /// The motion set last drawn (`Motion::sets`), whether its clip is the mod's own, and the pose a clip eases in
+    /// from ([`EASE_IN`]) since the fixed clock's `eased`.
     sets: u32,
+    own: bool,
     from: Vec<(Quat, Vec3)>,
+    eased: f64,
 }
 
-/// Frames a mod's own clip takes to ease in from the pose before it, where the game cuts straight to it.
+/// Frames a mod's own clip takes to ease in from the pose before it, and the clip after it out of it, where the game
+/// cuts straight between them.
 // ponytail: picked by eye, not the source game's blend
 const EASE_IN: f32 = 10.0;
 

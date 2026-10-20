@@ -1405,9 +1405,10 @@ pub fn load_with(
         Some(character::Grip { bones, reach: tip(&racket) - tip(&disc) })
     };
     let binds = crate::character::part_skins(&joints, &parts, meshes, bindposes);
+    let emote_ticks = emote_ticks(m, &crate::mods_online::EMOTES)?.into_iter().filter(|(id, _)| visual.contains_key(id)).collect();
     let springs = crate::spring::masses(&nodes, &joints);
     let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs }));
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, grip, frame_gameplay: false, emote_ticks: HashMap::new() })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, grip, frame_gameplay: false, emote_ticks })
 }
 
 /// `mod.json`'s `disc_racket` (§6, M1r): the disc character (0..13) whose racket it holds when it ships no
@@ -1423,18 +1424,34 @@ fn eye_materials(dir: &Path) -> Vec<String> {
     j["eyes"].as_array().into_iter().flatten().filter_map(|m| m.as_str().map(str::to_string)).collect()
 }
 
-/// How many ticks each of motion `ids`' own clips runs in mod `m`'s motions file, the motion itself first and then
-/// its takes in K order (the order `CharacterData::drawn_take` picks from): what an emote holds the player for,
-/// sent with the lobby's wire so every peer times it alike (`mods_online::Wire::emotes`). Empty without one.
+/// How many ticks each of motion `ids`' own clips moves for in mod `m`'s motions file, the motion itself first and
+/// then its takes in K order (the order `CharacterData::drawn_take` picks from): what an emote holds the player for,
+/// sent with the lobby's wire so every peer times it alike (`mods_online::Wire::emotes`). Empty without one. A clip
+/// padded with its last pose held (to last as long as the donor's) is cut where the hold starts.
 pub fn emote_ticks(m: &Mod, ids: &[usize]) -> Result<Vec<(usize, Vec<u32>)>, String> {
+    use gltf::animation::util::ReadOutputs;
     let Some(f) = &m.motions else { return Ok(Vec::new()) };
-    let (doc, _) = open(&m.dir.join(f))?;
+    let (doc, blob) = open(&m.dir.join(f))?;
     let mut takes: Vec<(usize, u32, u32)> = Vec::new();
     for a in doc.animations() {
         let name = a.name().unwrap_or("");
         let (base, k) = name.rsplit_once('.').map_or((name, 0), |(b, k)| (b, k.parse().unwrap_or(u32::MAX)));
         let Some(id) = hst_data::ani::MOTIONS.iter().position(|n| n.replace("_pc%02d", "") == base).filter(|id| ids.contains(id)) else { continue };
-        let end = a.channels().filter_map(|c| c.sampler().input().max()?.get(0)?.as_f64()).fold(0.0, f64::max);
+        // each channel moves until the key after the last one that differs from its final value
+        let end = a.channels().filter_map(|c| {
+            let r = c.reader(|_| Some(&blob[..]));
+            let times: Vec<f32> = r.read_inputs()?.collect();
+            let v: Vec<f32> = match r.read_outputs()? {
+                ReadOutputs::Translations(t) | ReadOutputs::Scales(t) => t.flatten().collect(),
+                ReadOutputs::Rotations(q) => q.into_f32().flatten().collect(),
+                ReadOutputs::MorphTargetWeights(w) => w.into_f32().collect(),
+            };
+            let keys: Vec<&[f32]> = v.chunks(v.len() / times.len().max(1)).collect();
+            let last = keys.last()?;
+            let moving = keys.iter().rposition(|k| k.iter().zip(*last).any(|(a, b)| (a - b).abs() > 1e-3));
+            Some(moving.map_or(0.0, |i| times[(i + 1).min(times.len() - 1)]))
+        });
+        let end = end.fold(0.0, f32::max);
         takes.push((id, k, (end * 60.0).round().clamp(1.0, 3600.0) as u32));
     }
     takes.sort();

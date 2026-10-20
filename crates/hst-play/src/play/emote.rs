@@ -543,20 +543,22 @@ mod match_tests {
             pads[10][1] = Pad { rx: 0x80, ry: 0, ..IDLE };
             a.insert_resource(Replay(pads.into_iter().collect()));
             let f = a.world_mut().query::<(Entity, &Figure)>().iter(a.world()).find(|(_, f)| f.0 == 1).unwrap().0;
-            let (mut n, mut own) = (0, 0.0);
+            let (mut n, mut own) = (0, (0.0, 0));
             for t in 0..400 {
                 n += (step(&mut a).1 > 0) as u32;
                 if t == 10 {
                     let (g, m) = (a.world().resource::<Game>(), a.world().get::<character::Motion>(f).unwrap());
-                    own = g.data[1].drawn_take(m.id, m.sets).unwrap().length;
+                    own = (g.data[1].drawn_take(m.id, m.sets).unwrap().length, g.data[1].emote_ticks(m.id, m.sets).unwrap_or(0));
                 }
             }
             (n + 1, own) // the last tick it holds reads 0
         };
         let (offline, own) = held(m);
         let donor = held(crate::mods::read(std::path::Path::new(ROOT)).map(|m| crate::mods::Mod { motions: None, ..m }).unwrap()).0;
-        assert_eq!(offline, own.ceil() as u32, "held {offline} ticks, the mod's clip is {own}");
-        assert!(offline > donor + 10, "the mod's emote ({offline}) isn't longer than the donor's ({donor})");
+        let (own, moves) = own;
+        assert_eq!(offline, moves, "held {offline} ticks, the mod's clip moves for {moves}");
+        assert!(moves <= own.ceil() as u32 && offline != donor, "the mod's clip ({own}, moves {moves}), the donor's {donor}");
+        eprintln!("held {offline}, clip {own}, donor {donor}");
         let looks = held(crate::mods_online::for_match(&w, Some(std::path::Path::new(ROOT)))).0;
         let stand_in = held(crate::mods_online::for_match(&w, None)).0;
         assert_eq!((looks, stand_in), (offline, offline), "online: with the looks, as the stand-in; offline {offline}");
