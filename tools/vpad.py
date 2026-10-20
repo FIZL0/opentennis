@@ -12,6 +12,8 @@ Commands: press <btn> <ms> · down <btn> · up <btn> · stick <l|r> <x> <y> (−
 Buttons (PS2 names → Xbox layout SDL sees): cross circle square triangle start l1 r1 l2 r2 l3 r3 up down left right.
 `select` is refused on purpose: PCSX2 hotkeys use Select + shoulder combos (load/save state, turbo).
 Timing is wall-clock, not frame-exact — use PCSX2 input recording for frame-exact replays.
+The pad also takes rumble (FF_RUMBLE): every effect PCSX2 plays or stops on it is logged, one line each
+(`<unix time> play|stop strong=<0..65535> weak=<0..65535> ms=<length>`), to $XDG_RUNTIME_DIR/hst-vpad<N>.rumble.
 """
 import os, sys, time
 
@@ -19,6 +21,7 @@ import os, sys, time
 # see only this pad (and the user's own PCSX2 none of them)
 INST = os.environ.get("HST_PCSX2", "")
 FIFO = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), f"hst-vpad{INST}.fifo")
+RUMBLE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), f"hst-vpad{INST}.rumble")
 
 def serve():
     import fcntl
@@ -41,11 +44,15 @@ def serve():
         e.EV_KEY: list(buttons.values()),
         e.EV_ABS: [(e.ABS_X, stick), (e.ABS_Y, stick), (e.ABS_RX, stick), (e.ABS_RY, stick),
                    (e.ABS_Z, trig), (e.ABS_RZ, trig), (e.ABS_HAT0X, hat), (e.ABS_HAT0Y, hat)],
+        e.EV_FF: [e.FF_RUMBLE],
     }
     # identify as an Xbox 360 pad so SDL applies its standard mapping; pad N gets the pid.codes test id 1209:500N
     # (SDL guesses an Xbox layout from the BTN_SOUTH.. evdev codes)
     ui = UInput(caps, name=f"HST vpad {INST}" if INST else "Microsoft X-Box 360 pad", vendor=0x1209 if INST else 0x045E,
-                product=0x5000 + int(INST) if INST else 0x028E, version=0x110, bustype=e.BUS_USB)
+                product=0x5000 + int(INST) if INST else 0x028E, version=0x110, bustype=e.BUS_USB,
+                max_effects=16)
+    import threading
+    threading.Thread(target=rumble_log, args=(ui, e), daemon=True).start()
     dpad = {"up": (e.ABS_HAT0Y, -1), "down": (e.ABS_HAT0Y, 1), "left": (e.ABS_HAT0X, -1), "right": (e.ABS_HAT0X, 1)}
     trigs = {"l2": e.ABS_Z, "r2": e.ABS_RZ}
 
@@ -99,6 +106,42 @@ def serve():
                     run(line.strip())
     finally:
         ui.close()
+
+def rumble_log(ui, e):
+    """Answer the kernel's force-feedback uploads (else the uploader blocks, up to 30 s each) and log each effect
+    played/stopped. A bad event is logged and skipped, never ends the loop."""
+    effects = {}
+    log = open(RUMBLE, "a", buffering=1)
+    for ev in ui.read_loop():
+        try:
+            rumble_event(ui, e, ev, effects, log)
+        except Exception as x:
+            print(f"vpad: rumble event {ev}: {x}", flush=True)
+
+def rumble_event(ui, e, ev, effects, log):
+    if ev.type == e.EV_UINPUT and ev.code == e.UI_FF_UPLOAD:
+        up = ui.begin_upload(ev.value)
+        up.retval = 0
+        eff = up.effect
+        effects[eff.id] = (eff.u.ff_rumble_effect.strong_magnitude, eff.u.ff_rumble_effect.weak_magnitude,
+                           eff.ff_replay.length)
+        ui.end_upload(up)
+        if eff.id in playing:
+            log.write("%.3f play strong=%d weak=%d ms=%d\n" % ((time.time(),) + effects[eff.id]))
+    elif ev.type == e.EV_UINPUT and ev.code == e.UI_FF_ERASE:
+        er = ui.begin_erase(ev.value)
+        er.retval = 0
+        effects.pop(er.effect_id, None)
+        ui.end_erase(er)
+    elif ev.type == e.EV_FF and ev.code in effects:
+        if ev.value:
+            playing.add(ev.code)
+            log.write("%.3f play strong=%d weak=%d ms=%d\n" % ((time.time(),) + effects[ev.code]))
+        else:
+            playing.discard(ev.code)
+            log.write("%.3f stop\n" % time.time())
+
+playing = set()
 
 def send(cmds):
     if not os.path.exists(FIFO):
