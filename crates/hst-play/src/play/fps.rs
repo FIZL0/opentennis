@@ -14,7 +14,11 @@ use super::{Figure, Game};
 use crate::Orbit;
 
 pub fn on() -> bool {
-    static ON: LazyLock<bool> = LazyLock::new(|| std::env::var_os("HST_THIRD_PERSON").is_some());
+    static ON: LazyLock<bool> = LazyLock::new(|| {
+        ["HST_THIRD_PERSON", "HST_FIRST_PERSON"]
+            .iter()
+            .any(|v| std::env::var_os(v).is_some())
+    });
     *ON
 }
 

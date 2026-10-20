@@ -282,7 +282,7 @@ pub fn run() -> Result<(), wasm_bindgen::JsValue> {
 /// `docs/DEVELOPING.md`'s texture reload.
 #[cfg(not(target_arch = "wasm32"))]
 fn dev_env() {
-    const KEEP: [&str; 4] = ["HST_FPS", "HST_THIRD_PERSON", "HST_TRACE", "HST_TEXTURE_RELOAD"];
+    const KEEP: [&str; 5] = ["HST_FPS", "HST_THIRD_PERSON", "HST_FIRST_PERSON", "HST_TRACE", "HST_TEXTURE_RELOAD"];
     if !cfg!(feature = "ship") {
         return;
     }
