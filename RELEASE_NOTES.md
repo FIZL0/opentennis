@@ -9,3 +9,4 @@
 - Character select emotes now put the racket away for moves made without one, as they do in a match.
 - In the mods browser, Refresh, Download all, Upload and the download status now sit at the top, just under the mod type tabs, so a controller reaches them without scrolling past every mod.
 - Characters with swapped face textures now show their expressions during rallies and celebrations instead of keeping a blank face.
+- A player's emote voice lines no longer pile up: a new emote (or a win / loss pose on the character select) stops that player's last line first.

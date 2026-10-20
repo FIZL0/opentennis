@@ -166,14 +166,13 @@ pub enum Line {
 }
 
 /// Plays the lines due this tick at their player, each once however often its tick runs (`heard`), cutting the emote
-/// lines still sounding (`emotes`: each player's last emote line's play id, 0 for none).
+/// lines still sounding (`audio::Sound::emote`, `stop_emotes`).
 pub(super) fn play_lines(
     mut g: ResMut<Game>,
     sound: Option<Res<crate::audio::Sound>>,
     voices: Option<Res<crate::audio::VoiceBanks>>,
     heard: Res<super::heard::Heard>,
     mut played: ResMut<super::heard::Played>,
-    mut emotes: Local<[u64; 4]>,
 ) {
     let lines = std::mem::take(&mut g.lines);
     let (Some(sound), Some(voices)) = (sound, voices) else { return };
@@ -183,17 +182,16 @@ pub(super) fn play_lines(
         if !played.first(heard.tick, ("line", p, at)) {
             continue;
         }
-        let cut = match line {
-            Line::Emote(..) => i..i + 1,
-            Line::Reaction(..) => 0..emotes.len(),
-        };
-        for id in emotes[cut].iter_mut().filter(|id| **id != 0) {
-            sound.stop(std::mem::take(id));
-        }
-        let Some(b) = voices.0.get(p.slot as usize - 1).and_then(|b| b.as_ref()) else { continue };
-        let id = sound.play_at(b, p, at);
-        if let Line::Emote(..) = line {
-            emotes[i] = id;
+        let bank = voices.0.get(p.slot as usize - 1).and_then(|b| b.as_ref());
+        // B594: the player's one emote voice, through the mixer's (`audio::Sound::emote`)
+        match line {
+            Line::Emote(..) => _ = sound.emote(i, |s| bank.map_or(0, |b| s.play_at(b, p, at))),
+            Line::Reaction(..) => {
+                sound.stop_emotes();
+                if let Some(b) = bank {
+                    sound.play_at(b, p, at);
+                }
+            }
         }
     }
 }

@@ -234,6 +234,8 @@ struct Mix {
     menu: [u64; 2],
     /// M8f6: the looping streams sounding (a court mod's BGM and ambience).
     loops: Vec<Looping>,
+    /// B594: each character's emote voice sounding (`Sound::emote`; a card in the menus, a player in a match).
+    emotes: [u64; 4],
 }
 
 /// A [`Track`] sounding: its play id, group, level (× the track's gain) and where it is (in its frames).
@@ -634,7 +636,7 @@ impl Sound {
     /// A mixer with no tables and no output, for tests that only follow plays.
     #[cfg(any(test, feature = "testing"))]
     pub fn bare() -> Self {
-        Self(Arc::new(Mutex::new(Mix { pitch: Vec::new(), pan: Vec::new(), gain: Vec::new(), stereo: Default::default(), bank_volumes: Vec::new(), voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new() })))
+        Self(Arc::new(Mutex::new(Mix { pitch: Vec::new(), pan: Vec::new(), gain: Vec::new(), stereo: Default::default(), bank_volumes: Vec::new(), voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new(), emotes: [0; 4] })))
     }
 
     /// A play that never keys on and never ends (a weather loop's stand-in), for tests.
@@ -690,7 +692,7 @@ impl Sound {
     pub fn centre_frames(&self, bank: &Arc<SoundBank>, p: sound::Play) -> u32 {
         let solo = {
             let m = self.0.lock().unwrap();
-            Mix { pitch: m.pitch.clone(), pan: m.pan.clone(), gain: m.gain.clone(), stereo: m.stereo.clone(), bank_volumes: m.bank_volumes.clone(), voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new() }
+            Mix { pitch: m.pitch.clone(), pan: m.pan.clone(), gain: m.gain.clone(), stereo: m.stereo.clone(), bank_volumes: m.bank_volumes.clone(), voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new(), emotes: [0; 4] }
         };
         let solo = Self(Arc::new(Mutex::new(solo)));
         let id = solo.centre(bank, p, false);
@@ -751,6 +753,23 @@ impl Sound {
     pub fn playing(&self, id: u64) -> bool {
         let m = self.0.lock().unwrap();
         m.playing.iter().any(|q| q.id == id) || m.voices.iter().any(|v| v.2 == id) || m.loops.iter().any(|l| l.id == id)
+    }
+
+    /// B594: an emote's voice line for character `who` (a card in the menus, a player in a match): the line that
+    /// character's last emote started is cut first, so each character sounds one emote voice at a time; the other
+    /// characters' and every other sound play on. `start` plays the line; its play id is returned.
+    pub fn emote(&self, who: usize, start: impl FnOnce(&Self) -> u64) -> u64 {
+        let last = std::mem::take(&mut self.0.lock().unwrap().emotes[who]);
+        self.stop(last);
+        let id = start(self);
+        self.0.lock().unwrap().emotes[who] = id;
+        id
+    }
+
+    /// Cuts every character's emote voice (a post-point reaction's line, B473).
+    pub fn stop_emotes(&self) {
+        let ids = std::mem::take(&mut self.0.lock().unwrap().emotes);
+        ids.into_iter().for_each(|id| self.stop(id));
     }
 
     /// Ends the play `id`: no more key-ons, its voices released.
@@ -917,7 +936,7 @@ fn mix(iso: &mut Iso) -> Mix {
     let (pan, gain) = exe::sound_tables(&elf).expect("supported disc");
     let stereo = exe::stereo_tables(&elf).expect("supported disc");
     let bank_volumes = exe::bank_volumes(&elf).expect("supported disc");
-    Mix { pitch, pan, gain, stereo, bank_volumes, voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new() }
+    Mix { pitch, pan, gain, stereo, bank_volumes, voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new(), emotes: [0; 4] }
 }
 
 #[cfg(test)]
@@ -938,6 +957,33 @@ mod tests {
             .filter(|&(c, players, court, b)| voice_bank(&mut iso, c, players, court, b).is_none())
             .collect();
         assert!(missing.is_empty(), "{missing:?}");
+    }
+
+    /// B594: a character's new emote line cuts its last one (silent within a frame or two of the release), while
+    /// another character's emote line and a non-emote sound play on.
+    #[test]
+    fn one_emote_voice_per_character() {
+        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
+            return eprintln!("no ISO, skipped");
+        };
+        let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
+        let bank = Arc::new(voice_bank(&mut iso, 2, 2, 0, false).unwrap());
+        let line = |key| sound::Play { slot: 0x16, program: 8, key, volume: 0x80, speed: 1.0 };
+        let first = sound.emote(0, |s| s.play_centre(&bank, line(0)));
+        let other = sound.emote(1, |s| s.play_centre(&bank, line(1)));
+        let shout = sound.play_centre(&bank, line(2));
+        sound.render_frame();
+        assert!([first, other, shout].iter().all(|&id| id != 0 && sound.playing(id)));
+        let second = sound.emote(0, |s| s.play_centre(&bank, line(4)));
+        for _ in 0..2 {
+            sound.render_frame();
+        }
+        assert!(!sound.playing(first), "the character's last line is cut");
+        assert!([second, other, shout].iter().all(|&id| sound.playing(id)));
+        sound.stop_emotes();
+        sound.render_frame();
+        sound.render_frame();
+        assert!(!sound.playing(second) && !sound.playing(other) && sound.playing(shout));
     }
 
     /// The court BGM and the jingles load and play: the music sounds, a jingle sounds and ends.
@@ -1385,7 +1431,7 @@ mod tests {
         let track = Arc::new(Track::read(&wav(&frames, 48_000), [4800, 19_200], Track::BGM_RMS).unwrap());
         assert_eq!((track.channels, track.rate, track.at), (2, 48_000, [4800, 19_200]));
         let bank = Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: Some(track.clone()) });
-        let mix = Mix { pitch: Vec::new(), pan: Vec::new(), gain: Vec::new(), stereo: Default::default(), bank_volumes: Vec::new(), voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new() };
+        let mix = Mix { pitch: Vec::new(), pan: Vec::new(), gain: Vec::new(), stereo: Default::default(), bank_volumes: Vec::new(), voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new(), emotes: [0; 4] };
         let sound = Sound(Arc::new(Mutex::new(mix)));
         let render = |n: usize| {
             let mut out = Vec::new();
@@ -1491,6 +1537,6 @@ mod tests {
     }
 
     fn mix_clone(m: &Mix) -> Mix {
-        Mix { pitch: m.pitch.clone(), pan: m.pan.clone(), gain: m.gain.clone(), stereo: m.stereo.clone(), bank_volumes: m.bank_volumes.clone(), voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new() }
+        Mix { pitch: m.pitch.clone(), pan: m.pan.clone(), gain: m.gain.clone(), stereo: m.stereo.clone(), bank_volumes: m.bank_volumes.clone(), voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new(), emotes: [0; 4] }
     }
 }

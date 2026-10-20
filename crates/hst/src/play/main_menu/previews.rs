@@ -1303,7 +1303,8 @@ fn buttons(
         inspect::apply(&mut p, act, &mut rigs, &d);
         let Some(s) = &sound else { continue };
         if let Some((bank, play)) = voice(act, menu.pick(*player).0, menu.pick(*player).1, &menu.mods, &mut voices.banks, Path::new(&args.iso)) {
-            voices.playing[*player] = s.play_centre(&bank, play);
+            // B594: the same motions as the emotes, so the same one voice per card: a plate emote's line is cut
+            voices.playing[*player] = s.emote(*player, |s| s.play_centre(&bank, play));
         }
     }
 }
