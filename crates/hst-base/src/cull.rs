@@ -3,6 +3,7 @@
 //! (Bevy's `DynamicSkinnedMeshBounds` over per-joint boxes, `bound`), widened by its morph targets' reach and a
 //! margin for the costume sway (`noise.rs` moves vertices off their skin); an effect's CPU-written mesh gets its box
 //! from its positions on each write (Bevy's own). Off, every such mesh is drawn (and casts) wherever it is, as before.
+//! B583: while [`Off`] is in the world (the match intro's flyover) it's off whatever the setting says.
 
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::{DynamicSkinnedMeshBounds, NoAutoAabb, NoFrustumCulling};
@@ -10,7 +11,8 @@ use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// The setting as of the last `Graphics` change (spawns read it; `apply` flips what's already spawned).
+/// Culling as last applied: the setting, unless [`Off`] holds it off (spawns read it; `apply` flips what's already
+/// spawned).
 static ON: AtomicBool = AtomicBool::new(true);
 
 /// `--cull on|off` (the browser's `?cull=off`): 0 not given, 1 off, 2 on; over settings.txt's, for this run.
@@ -33,6 +35,11 @@ fn added(mut world: bevy::ecs::world::DeferredWorld, ctx: bevy::ecs::lifecycle::
         (true, false) => {}
     }
 }
+
+/// While this resource exists every `Cullable` mesh is drawn unculled, and the match's own hide-by-the-eye passes
+/// leave what they hide shown (B583: the intro's flyover sweeps past everything; nothing may pop in or out).
+#[derive(Resource)]
+pub struct Off;
 
 pub fn plugin(app: &mut App) {
     app.add_systems(PostUpdate, (apply, unbounded).chain().before(bevy::camera::visibility::VisibilitySystems::CalculateBounds));
@@ -96,20 +103,22 @@ pub fn bound<'a>(mesh: &mut Mesh, targets: impl IntoIterator<Item = &'a [[f32; 3
     }
 }
 
-/// The setting changed: each `Cullable` mesh culled or not to match. A skinned part without per-joint bounds (an odd
-/// mod mesh) stays unculled either way.
+/// The setting changed, or [`Off`] came or went: each `Cullable` mesh culled or not to match. A skinned part without
+/// per-joint bounds (an odd mod mesh) stays unculled either way.
 fn apply(
     mut commands: Commands,
     g: Res<crate::graphics::Graphics>,
+    off: Option<Res<Off>>,
     parts: Query<(Entity, &Mesh3d, Has<SkinnedMesh>, Has<NoFrustumCulling>), With<Cullable>>,
     meshes: Res<Assets<Mesh>>,
 ) {
-    if !g.is_changed() || ON.swap(g.cull, Ordering::Relaxed) == g.cull {
+    let on = g.cull && off.is_none();
+    if ON.swap(on, Ordering::Relaxed) == on {
         return;
     }
     for (e, mesh, skinned, unculled) in &parts {
         let mut e = commands.entity(e);
-        if !g.cull {
+        if !on {
             e.try_insert(NoFrustumCulling).try_remove::<DynamicSkinnedMeshBounds>();
         } else if !skinned {
             e.try_remove::<NoFrustumCulling>();
@@ -198,5 +207,30 @@ pub fn check(
     if now >= c.next {
         info!("cull check: {} frames, {} part-frames ({} drawn), farthest vertex outside its box {:.4}", c.frames, c.parts, c.drawn, c.worst);
         c.next = now + 5.0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// B583: `Off` unculls what's spawned and what spawns meanwhile; its going culls them again.
+    #[test]
+    fn off_unculls_till_it_goes() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>().insert_resource(crate::graphics::Graphics { cull: true, ..default() }).add_systems(Update, apply);
+        set(true);
+        let mesh = Mesh3d(app.world_mut().resource_mut::<Assets<Mesh>>().add(Cuboid::default()));
+        let before = app.world_mut().spawn((mesh.clone(), Cullable)).id();
+        app.update();
+        assert!(!app.world().entity(before).contains::<NoFrustumCulling>());
+        app.insert_resource(Off);
+        app.update();
+        let during = app.world_mut().spawn((mesh, Cullable)).id();
+        app.update();
+        assert!([before, during].iter().all(|&e| app.world().entity(e).contains::<NoFrustumCulling>()));
+        app.world_mut().remove_resource::<Off>();
+        app.update();
+        assert!([before, during].iter().all(|&e| !app.world().entity(e).contains::<NoFrustumCulling>()));
     }
 }

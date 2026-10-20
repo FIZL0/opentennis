@@ -121,15 +121,16 @@ pub fn hidden(v: &View, cutaway: bool) -> bool {
     low < top
 }
 
-fn hide(g: Res<Game>, own: Option<Res<super::own_camera::OwnCam>>, d: Option<Res<super::cutaway::Director>>, mut q: Query<&mut Visibility, With<HideNearCamera>>) {
-    let vis = if hidden(&super::own_camera::shown(&g, own.as_deref()).1, d.is_some_and(|d| d.showing())) { Visibility::Hidden } else { Visibility::Inherited };
+fn hide(g: Res<Game>, own: Option<Res<super::own_camera::OwnCam>>, d: Option<Res<super::cutaway::Director>>, off: Option<Res<crate::cull::Off>>, mut q: Query<&mut Visibility, With<HideNearCamera>>) {
+    let vis = if off.is_none() && hidden(&super::own_camera::shown(&g, own.as_deref()).1, d.is_some_and(|d| d.showing())) { Visibility::Hidden } else { Visibility::Inherited };
     for mut v in &mut q {
         v.set_if_neq(vis);
     }
 }
 
-/// Runs on the drawn camera (any mode: match, cut-away, replay, own camera, `HST_EYE`) once it has moved.
-fn hide_around_eye(g: Option<Res<Game>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, mut q: Query<(Option<&mut HideAroundEye>, Option<&NearBox>, &mut Visibility), Or<(With<HideAroundEye>, With<NearBox>)>>) {
+/// Runs on the drawn camera (any mode: match, cut-away, replay, own camera, `HST_EYE`) once it has moved; hides
+/// nothing while `cull::Off` holds (the intro's flyover).
+fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, mut q: Query<(Option<&mut HideAroundEye>, Option<&NearBox>, &mut Visibility), Or<(With<HideAroundEye>, With<NearBox>)>>) {
     let (Some(g), Ok((t, proj))) = (g, camera.single()) else { return };
     let Projection::Perspective(p) = proj else { return };
     // game space is Bevy's turned a half-turn about X; the horizontal fov as `fixed_eye` sets the vertical one
@@ -138,7 +139,7 @@ fn hide_around_eye(g: Option<Res<Game>>, camera: Query<(&Transform, &Projection)
     let view = View { rot: [[0.0; 3], [0.0; 3], f.to_array()], eye: e.to_array(), fov: ((p.fov / 2.0).tan() / 0.75f32.max(1.0 / aspect)).atan() };
     let (world, r) = (&g.world.0, reach(&view));
     for (h, near, mut v) in &mut q {
-        let hidden = h.is_some_and(|mut h| {
+        let hidden = off.is_none() && h.is_some_and(|mut h| {
             let pos = h.pos;
             // the prop whose placement takes the plant's ground position to its model origin (looked up once; read
             // through `Mut` without marking it changed after that)
@@ -149,7 +150,7 @@ fn hide_around_eye(g: Option<Res<Game>>, camera: Query<(&Transform, &Projection)
                 })
             }) };
             prop.is_some_and(|i| buried_at(&view, r, &world.models, &world.props[i]))
-        }) || near.is_some_and(|b| in_front_at(&view, r, b.lo, b.hi));
+        }) || off.is_none() && near.is_some_and(|b| in_front_at(&view, r, b.lo, b.hi));
         v.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
     }
 }

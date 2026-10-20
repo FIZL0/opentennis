@@ -6,7 +6,7 @@
 //! court's music and creature sounds. A `__clear` node isn't drawn while it stands between the eye and the court
 //! (M8f5a3, `clear_view`); a gimmick creature standing in the players' room isn't drawn at all (B506,
 //! `creatures_in_play`), and a big piece of the court or its gimmicks right in front of the camera isn't drawn
-//! (M129, gs.wgsl's `GS_CLEAR`). Nothing here reads or writes the match: replays stay bit-exact.
+//! (M129, gs.wgsl's `GS_CLEAR`); neither while the intro flies over (B583, `cull::Off`). Nothing here reads or writes the match: replays stay bit-exact.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -45,7 +45,7 @@ pub fn add(app: &mut App, court: Option<Court>) {
         .add_systems(PostStartup, setup)
         .add_systems(PreUpdate, sounds)
         .add_systems(Update, (keep.after(crate::weather::apply), animate))
-        .add_systems(PostUpdate, clear_view.before(bevy::transform::TransformSystems::Propagate))
+        .add_systems(PostUpdate, (clear_view.before(bevy::transform::TransformSystems::Propagate), clear_off))
         .add_systems(PostUpdate, bare.after(bevy::ui::UiSystems::Layout).before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
 }
 
@@ -600,16 +600,36 @@ pub fn blocks(eye: Vec3, lo: Vec3, hi: Vec3) -> bool {
     })
 }
 
-/// M8f5a3: a `__clear` set piece isn't drawn while it stands between the drawn camera (any mode) and the court.
-fn clear_view(camera: Query<&Transform, With<crate::Orbit>>, pieces: Query<&ClearView>, mut vis: Query<&mut Visibility>) {
+/// M8f5a3: a `__clear` set piece isn't drawn while it stands between the drawn camera (any mode) and the court; all
+/// are while `cull::Off` holds (B583: the intro's flyover).
+fn clear_view(camera: Query<&Transform, With<crate::Orbit>>, off: Option<Res<crate::cull::Off>>, pieces: Query<&ClearView>, mut vis: Query<&mut Visibility>) {
     let Ok(t) = camera.single() else { return };
     // game space is Bevy's turned a half-turn about X
     let eye = t.translation * Vec3::new(1.0, -1.0, -1.0);
     for cv in &pieces {
-        let v = if blocks(eye, cv.lo, cv.hi) { Visibility::Hidden } else { Visibility::Inherited };
+        let v = if off.is_none() && blocks(eye, cv.lo, cv.hi) { Visibility::Hidden } else { Visibility::Inherited };
         for &e in &cv.hide {
             if let Ok(mut x) = vis.get_mut(e) {
                 x.set_if_neq(v);
+            }
+        }
+    }
+}
+
+/// B583: while `cull::Off` holds (the intro's flyover) the court's big blockers are drawn too (M129's `clear` off on
+/// every material that has it), and `clear` is back on its materials once it goes.
+fn clear_off(off: Option<Res<crate::cull::Off>>, mut materials: ResMut<Assets<GsMaterial>>, mut held: Local<Vec<AssetId<GsMaterial>>>) {
+    if off.is_some() {
+        // (each frame: a material that loads meanwhile too)
+        let new: Vec<_> = materials.iter().filter(|(_, m)| m.key.clear).map(|(id, _)| id).collect();
+        for id in new {
+            materials.get_mut(id).unwrap().key.clear = false;
+            held.push(id);
+        }
+    } else {
+        for id in std::mem::take(&mut *held) {
+            if let Some(mut m) = materials.get_mut(id) {
+                m.key.clear = true;
             }
         }
     }

@@ -142,7 +142,17 @@ pub fn plugin(app: &mut App) {
         .add_systems(PostUpdate, hide_hud.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate))
         .add_systems(RunFixedMainLoop, hold.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop))
         .add_systems(Update, show.after(crate::character::animate)) // after the match camera, as the ceremony (B246)
-        .add_systems(Update, (draw_banner, pose_banner));
+        .add_systems(Update, (draw_banner, pose_banner, uncull));
+}
+
+/// B583: nothing culled or hidden by the eye while the flyover shows (`crate::cull::Off`); the match camera's hold
+/// and banner after it cull as the match does.
+fn uncull(mut commands: Commands, intro: Option<Res<Intro>>, off: Option<Res<crate::cull::Off>>) {
+    match (intro.is_some_and(|i| i.showing()), off.is_some()) {
+        (true, false) => commands.insert_resource(crate::cull::Off),
+        (false, true) => commands.remove_resource::<crate::cull::Off>(),
+        _ => {}
+    }
 }
 
 /// The system bank for a match without the intro too (the framed hit's clank plays from it).
