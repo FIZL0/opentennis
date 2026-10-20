@@ -1,23 +1,16 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- Computer doubles partners call out again when they leave you the ball, and step aside instead of crowding a teammate who is swinging.
-- On the Controllers screen you can now drag a player card with the mouse onto another seat to swap them.
-- A custom character picked by Random now shows its own face in the match, not a stand-in.
-- The browser version starts faster with many mods installed, and a match no longer pauses at Start when a player picked Random.
-- Mods with a newer version on the store now show an Update button, and an Update all button on the Mods page and the main menu installs every update at once.
-- Switching teams after everyone has picked their character now slides the cards across, as it does before.
-- The sound words when the ball hits a player, the court, the net or a wall ("conk", "bumps", "rattle") no longer disappear behind see-through scenery.
-- Mod character textures now wrap or stop at their edges as the model file says, so no thin seam shows down the middle of a face.
-- The court flyover before a match no longer makes trees, props, scenery or players vanish or pop in as the camera sweeps past, on custom courts too.
-- Custom courts can now have their own camera flyover before the match, so indoor courts no longer fly around outside their walls.
-- In the mod store's Updates view, the Characters, Courts, Umpires and Texture packs tabs now count only the mods that have an update, not every mod in the store.
-- Character select emotes now put the racket away for moves made without one, as they do in a match.
-- In the mods browser, Refresh, Download all, Upload and the download status now sit at the top, just under the mod type tabs, so a controller reaches them without scrolling past every mod.
-- Characters with swapped face textures now show their expressions during rallies and celebrations instead of keeping a blank face.
-- A player's emote voice lines no longer pile up: a new emote (or a win / loss pose on the character select) stops that player's last line first.
-- You can now emote in the moment after a call (a fault, a net or a point) while you can still move, up until the players react.
-- Custom characters' emotes now go through all of their own voice lines, in a match and on the character select, instead of only the first few.
-- Settings → Display has a new Controller Vibration switch: turn it off and controllers stop buzzing on the player select (turning it on gives a short buzz). Matches never rumble, as in the original.
-- Computer players now follow the ball's predicted flight the way the original game does, including after it clips the net, so they chase, leave and line up for shots as they did on the PS2.
-- In doubles, every emote now plays its voice line: some of them used to stay silent.
-- The instant replay's slow motion now lands on the point it replays, not on a shot from the point before.
-- At the end of a match the players no longer flash back to their starting spots before the winners' ceremony.
+- Computer players follow the ball's predicted flight as on the PS2, including after a net cord.
+- Doubles: computer partners call out when they leave you the ball and step aside instead of crowding a swinging teammate.
+- Emotes: every one plays its voice line (doubles included), custom characters use all their lines, a new emote cuts off the last line, and moves made without a racket put it away.
+- You can emote right after a call (fault, net, point) until the players react.
+- Characters with swapped face textures show their expressions in rallies and celebrations.
+- The pre-match flyover no longer pops scenery or players in and out, and custom courts can have their own.
+- Hit words ("conk", "bumps", "rattle") no longer hide behind see-through scenery.
+- The instant replay's slow motion lands on the right point.
+- Players no longer flash back to their starting spots before the winners' ceremony.
+- Controllers screen: drag a player card with the mouse onto another seat to swap.
+- New Controller Vibration switch in Settings → Display.
+- Character select: switching teams after everyone has picked slides the cards across, and Random custom characters show their own face in the match.
+- Mods: an Update button for newer store versions and an Update all on the Mods page and main menu; the Updates view counts only mods with updates; Refresh, Download all and Upload sit at the top of the browser.
+- Custom character textures no longer show a seam down the middle of the face.
+- The browser version starts faster with many mods installed, and a match no longer pauses at Start after a Random pick.
