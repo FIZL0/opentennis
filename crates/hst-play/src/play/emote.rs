@@ -158,11 +158,23 @@ pub fn voice_keys(motion: usize) -> Option<(u8, i32, i32)> {
 }
 
 /// A voice line that cuts emote lines still sounding (B473): an emote's line its own player's last one, a post-point
-/// reaction's every player's.
+/// reaction's every player's. A clap (B586) cuts nothing and plays out.
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Line {
     Emote(usize, sound::Play),
     Reaction(usize, sound::Play),
+    Clap(usize, sound::Play),
+}
+
+/// B586: player `i`'s motion `id` has just started as its `sets`-th motion set: if the clip drawn is one of its mod's
+/// claps (an emote's or a reaction's take), its clap sound plays with it. The racket is hidden meanwhile
+/// (`CharacterData::racketless`). Looks and sound only: the take comes from the set count, no generator.
+pub(super) fn clap(g: &mut Game, i: usize, id: usize, sets: u32) {
+    // once however many figures draw the player
+    if g.data[i].drawn_clap(id, sets) && !g.lines.iter().any(|l| matches!(l, Line::Clap(k, _) if *k == i)) {
+        let play = sound::Play { slot: sound::slot::voice(i), program: crate::mods::CLAP, key: 0, volume: 0x80, speed: 1.0 };
+        g.lines.push(Line::Clap(i, play));
+    }
 }
 
 /// Plays the lines due this tick at their player, each once however often its tick runs (`heard`), cutting the emote
@@ -178,7 +190,7 @@ pub(super) fn play_lines(
     let lines = std::mem::take(&mut g.lines);
     let (Some(sound), Some(voices)) = (sound, voices) else { return };
     for line in lines {
-        let (Line::Emote(i, p) | Line::Reaction(i, p)) = line;
+        let (Line::Emote(i, p) | Line::Reaction(i, p) | Line::Clap(i, p)) = line;
         let at = g.players[i].pos;
         if !played.first(heard.tick, ("line", p, at)) {
             continue;
@@ -186,6 +198,7 @@ pub(super) fn play_lines(
         let cut = match line {
             Line::Emote(..) => i..i + 1,
             Line::Reaction(..) => 0..emotes.len(),
+            Line::Clap(..) => 0..0,
         };
         for id in emotes[cut].iter_mut().filter(|id| **id != 0) {
             sound.stop(std::mem::take(id));
@@ -521,9 +534,54 @@ mod match_tests {
                 }
                 let before = sound.plays();
                 assert!(step(&mut a).1 > 0, "{id}: flick {d} started no emote");
-                assert_eq!(sound.plays(), before + 1, "{id}: flick {d}'s emote spoke no line");
+                // and a clap take its clap (B586)
+                let g = a.world().resource::<Game>();
+                let serial = g.players[1].cmd.serial;
+                let mut motions = a.world_mut().query::<(&Figure, &character::Motion)>();
+                let m = motions.iter(a.world()).find(|(f, m)| f.0 == 1 && m.serial == serial).unwrap().1;
+                let clap = a.world().resource::<Game>().data[1].drawn_clap(m.id, m.sets) as u64;
+                assert_eq!(sound.plays(), before + 1 + clap, "{id}: flick {d}'s emote spoke no line");
             }
         }
+    }
+
+    /// B586: a mod emote whose drawn clip is a clap plays its clap sound too (a second line, on top of the emote's
+    /// own), and hides the racket. Every take is marked a clap here, so whichever one the flick draws claps. Needs the
+    /// ISO and `mods/hst-mods` (skipped without).
+    #[test]
+    fn a_clap_take_claps() {
+        const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/oob_pc12_anya");
+        if !std::path::Path::new(ISO).is_file() || !std::path::Path::new(ROOT).is_dir() {
+            return eprintln!("no ISO or mods/hst-mods, skipped");
+        }
+        let m = crate::mods::read(std::path::Path::new(ROOT)).unwrap();
+        let mut a = modded([false, true, false, false], vec![], Some(m));
+        {
+            // the drawn figures share the character data: the test's own `Figure`s stand in for them
+            let rigs: Vec<Entity> = a.world_mut().query_filtered::<Entity, With<character::Rig>>().iter(a.world()).collect();
+            for r in rigs {
+                a.world_mut().entity_mut(r).despawn();
+            }
+            let mut g = a.world_mut().resource_mut::<Game>();
+            let d = std::sync::Arc::get_mut(&mut g.data[1]).expect("nothing else shares the test's character data");
+            d.claps = MOTIONS.iter().flat_map(|&id| (0..16).map(move |k| (id, k))).collect();
+        }
+        let mut pads = vec![[IDLE; 4]; 12];
+        pads[10][1] = Pad { rx: 0x80, ry: 0, ..IDLE };
+        a.insert_resource(Replay(pads.into_iter().collect()));
+        let sound = crate::audio::Sound::test(&mut hst_data::iso::Iso::open(ISO).unwrap());
+        a.insert_resource(sound.clone());
+        a.add_plugins(heard::plugin);
+        a.add_systems(FixedUpdate, super::play_lines.after(held_ball));
+        for _ in 0..10 {
+            step(&mut a);
+        }
+        let before = sound.plays();
+        assert!(step(&mut a).1 > 0, "the flick started no emote");
+        assert_eq!(sound.plays(), before + 2, "the emote's line and its clap");
+        let f = a.world_mut().query::<(Entity, &Figure)>().iter(a.world()).find(|(_, f)| f.0 == 1).unwrap().0;
+        let m = a.world().get::<character::Motion>(f).unwrap();
+        assert!(a.world().resource::<Game>().data[1].drawn_clap(m.id, m.sets));
     }
 
     /// A mod's emote holds the player for its own clip, not the donor's: offline, and online alike whether this

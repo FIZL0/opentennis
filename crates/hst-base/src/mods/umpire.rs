@@ -148,6 +148,7 @@ pub fn load(
         takes: HashMap::new(),
         own_faces: HashMap::new(),
         racketless: Default::default(),
+        claps: Default::default(),
         feet: None,
         grip: None,
         frame_gameplay: false,

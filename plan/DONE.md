@@ -858,6 +858,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **M130** Sophie's missing animations (user 2026-10-19): compare the Sophie mod's motions against the reference video `/home/ryha/Downloads/Hot Shots Golf: Out of Bounds | All Sophie Animations(60fps) [vs7UYu0fVf8].mp4` (all her HSG:OoB animations, 60 fps), list which are missing and add them; bump the mod's mod.json version → ../opentennis-mods
 - [x] **M131** Other modded golf characters' animations (user 2026-10-19): every other golf mod gets its celebrations and disappointed moves as reaction takes, picked at build time by the mods repo's takes.py (no held poses, none that leave the shot); versions bumped → ../opentennis-mods
 - [x] **M134** Character select: once every seat has picked, swapping teams has no transition (user 2026-10-20): the cards should slide/animate to the other side like they do before all are picked (play/main_menu/).
+- [x] **B586** Clap emotes (user 2026-10-20): hide the racket while a character claps, and play a clap sound: look in each character's own game (disc and the mods' source games) for the clap SFX it uses, and play that with the emote (play/emote.rs).
 
 
 ### Shots

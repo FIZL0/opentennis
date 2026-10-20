@@ -4334,6 +4334,7 @@ fn motions(mut g: ResMut<Game>, mut q: Query<(&Figure, &mut Motion)>) {
             {
                 g.players[i].emote = t - 1;
             }
+            emote::clap(&mut g, i, c.id, m.sets);
             // a doubles team reaction: the point's losers show its `_2` face, five on from the winners'
             if c.id >= motion::id::TEAM as usize && i as i32 & 1 != g.post_winner {
                 m.face += 5;
