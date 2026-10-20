@@ -5,3 +5,4 @@
 - Mod character textures now wrap or stop at their edges as the model file says, so no thin seam shows down the middle of a face.
 - The court flyover before a match no longer makes trees, props, scenery or players vanish or pop in as the camera sweeps past, on custom courts too.
 - Custom courts can now have their own camera flyover before the match, so indoor courts no longer fly around outside their walls.
+- A player's emote voice lines no longer pile up: a new emote (or a win / loss pose on the character select) stops that player's last line first.

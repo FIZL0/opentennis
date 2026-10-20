@@ -48,8 +48,6 @@ struct Plates {
     /// the match's).
     banks: HashMap<String, Option<Arc<SoundBank>>>,
     keys: [[u8; 4]; 4],
-    /// Each card's last emote line's play id (0 for none): a new one cuts it, as in a match (B473, B500).
-    lines: [u64; 4],
 }
 
 pub(super) fn plugin(app: &mut App) {
@@ -186,13 +184,11 @@ fn play(
         // B474's mute covers these too
         if let Some(s) = sound.as_ref().filter(|_| crate::audio::EMOTE_VOICES.load(std::sync::atomic::Ordering::Relaxed)) {
             let who = menu.pick(i).0;
-            let Plates { keys, banks, lines, .. } = &mut *plates;
+            let Plates { keys, banks, .. } = &mut *plates;
             let key = &mut keys[i][dir as usize];
             if let Some((bank, play)) = voice(id, who, &menu.mods, banks, key, Path::new(&args.iso)) {
-                if lines[i] != 0 {
-                    s.stop(std::mem::take(&mut lines[i]));
-                }
-                lines[i] = s.play_centre(&bank, play);
+                // B594: one emote voice per card, its last one (a select's win / loss too) cut first
+                s.emote(i, |s| s.play_centre(&bank, play));
             }
         }
     }
