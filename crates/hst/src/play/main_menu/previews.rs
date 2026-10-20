@@ -304,6 +304,15 @@ pub(super) fn picks_drawn(menu: &Menu, loader: &mut Loader, baker: &Baker) -> bo
     })
 }
 
+/// B589: the players' picks once the select is left (the confirm, a launch waiting on [`picks_drawn`]), which the baker
+/// draws there: a Random draw is made as the player readies and the select moves on at once.
+fn picks_past_select(menu: &Menu) -> Vec<Key> {
+    match menu.screen {
+        Screen::Confirm | Screen::Playing => (0..menu.players()).map(|p| menu.pick(p)).collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// B229: the Mods page's hovered mod without a picture (`want`), whose costume 0 the baker draws on that page as the
 /// select would (the same cache: `card` reads it); `baked` counts finished drawings, so the page reads again.
 #[derive(Resource, Default)]
@@ -938,17 +947,20 @@ fn bake(
     .rev()
     .map(|w| (w, 0))
     .collect();
-    if !matches!(menu.screen, Screen::Chars | Screen::Assign | Screen::Playing) && asked.is_none() && home.is_empty() && lent.is_empty() && fresh.is_empty() && view.is_empty() && baker.job.is_none() && baker.warmed {
+    // B589: past the select (the confirm, a launch waiting in `picks_drawn`), the players' picks: a Random draw is made
+    // as the player readies and the select moves on at once, so a drawn mod never had its turn there
+    let picks = picks_past_select(&menu);
+    if !matches!(menu.screen, Screen::Chars | Screen::Assign) && asked.is_none() && home.is_empty() && lent.is_empty() && fresh.is_empty() && view.is_empty() && picks.is_empty() && baker.job.is_none() && baker.warmed {
         return;
     }
     // a hovered card without a PNG jumps the queue (the tiles on view next, then the new installs)
     let now: Vec<Key> = match menu.screen {
         Screen::Chars | Screen::Assign => view.iter().copied().chain((0..menu.players()).map(|p| menu.pick(p))).collect(),
         // a launch waits for the picks' faces (`picks_drawn`)
-        Screen::Playing => (0..menu.players()).map(|p| menu.pick(p)).collect(),
+        Screen::Playing => picks.clone(),
         Screen::Main => fresh.iter().rev().chain(home.iter().rev()).copied().collect(),
         Screen::Mods => fresh.iter().rev().chain(home.iter().rev()).copied().chain(asked).collect(),
-        Screen::Lobby | Screen::Confirm => view.iter().chain(&lent).copied().collect(),
+        Screen::Lobby | Screen::Confirm => view.iter().chain(&lent).chain(&picks).copied().collect(),
         _ => asked.into_iter().collect(),
     };
     for k in &now {
@@ -1042,7 +1054,7 @@ fn bake(
     }
     // the next key without a PNG
     while let Some(&key) = baker.queue.last() {
-        if menu.screen != Screen::Chars && Some(key) != asked && !home.contains(&key) && !lent.contains(&key) && !fresh.contains(&key) && !view.contains(&key) && baker.warmed {
+        if menu.screen != Screen::Chars && Some(key) != asked && !home.contains(&key) && !lent.contains(&key) && !fresh.contains(&key) && !view.contains(&key) && !picks.contains(&key) && baker.warmed {
             return;
         }
         let path = loader.path(key, &menu);
@@ -1535,6 +1547,39 @@ mod tests {
         forget(&path);
         assert!(!cached(&path) && !cached(&face_path(&path)));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// B589: a mod Random drew (made as the player readied, the select left at once) is drawn on the confirm and while
+    /// the launch waits, on the costume it drew.
+    #[test]
+    fn a_random_draw_is_drawn_past_the_select() {
+        let mut menu = Menu { screen: Screen::Chars, ..default() };
+        menu.mods = vec![Mod {
+            dir: PathBuf::from("mods/a"),
+            id: "a".into(),
+            name: "a".into(),
+            source: String::new(),
+            costumes: vec!["model/c00.glb".into(), "model/c01.glb".into()],
+            donor: 0,
+            hand: 1.0,
+            base: 0,
+            overrides: Vec::new(),
+            ai_row: 0,
+            texture_face: false,
+            no_face: false,
+            voice: String::new(),
+            motions: None,
+            costume_of: None,
+            skeleton: None,
+            emotes: None,
+            upscale: true,
+        }];
+        assert!(picks_past_select(&menu).is_empty(), "the select draws its own (tiles on view, the picks)");
+        (menu.players[1].random, menu.players[1].modded, menu.players[1].pick, menu.players[1].costume) = (true, true, 0, 1);
+        for screen in [Screen::Confirm, Screen::Playing] {
+            menu.screen = screen;
+            assert!(picks_past_select(&menu).contains(&(Who::Mod(0), 1)));
+        }
     }
 
     /// B571: a mod installed since the start gets its own index after the roster (the same one each frame), which the
