@@ -92,6 +92,9 @@ half-done edits). Commit as soon as a change is solid; uncommitted work can end 
 commit. `.git/MERGE_HEAD` exists → a merge is under way: wait for it, don't commit or touch the index. Anything bigger
 than a quick edit while runners are going: work in your own worktree (`git worktree add ../opentennis-<slug>`) and
 merge it into main when done. `tools/done.sh` (`git add -A`) is for the runners' task worktrees, not this checkout.
+Interactive session (the user's) that moves from adding TODOs to code work: switch into a worktree first (EnterWorktree,
+or start it with `claude -w <slug>`), commit there, merge into main when done; the master stashes uncommitted edits in
+main around its merges. Never use a runner slot (`../opentennis-slots/sN`): the runner resets those.
 
 ## If you get stuck, move on
 Never wait or loop on one obstacle. If a tool hangs, PCSX2 won't cooperate, the same fix fails twice, something
