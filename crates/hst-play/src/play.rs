@@ -1766,7 +1766,7 @@ pub fn read_input(
             continue;
         };
         let s = &mut now[slot];
-        s.stick += pad_stick(g.left_stick());
+        s.stick += if fps::on() && slot == 0 { fps::stick(g.left_stick()) } else { pad_stick(g.left_stick()) };
         for (a, d) in dirs {
             // first person: the d-pad emotes and the right stick looks
             if !fps::on() && bind.pad_pressed(g, a) {
@@ -2396,7 +2396,7 @@ fn pad_run(g: &Game, i: usize, stick: Vec2, dpad: u16) -> Vec2 {
     };
     let [x, z] = loco::pad_dir(dpad, byte(stick.x), byte(-stick.y), phase);
     if fps::on() && i == 0 {
-        return fps::turned(x, z);
+        return if phase == 1 { Vec2::ZERO } else { fps::run(stick, Vec2::new(x, z)) };
     }
     if own_camera::flipped(g, i) {
         let [x, z] = loco::turned([x, z]);
@@ -2590,8 +2590,13 @@ fn locomote(g: &mut Game, i: usize, dir: Vec2) {
     } else {
         Vec2::ZERO
     };
-    p.stride += p.vel.length() * 9.0;
+    let mut speed = 1.0;
     if fps::on() && i == 0 && p.body.running && dir != Vec2::ZERO {
+        // first person: the stick's tilt (or Shift) walks; the step and the run's playback slow with it
+        speed = dir.length().min(1.0);
+        p.pos = (Vec2::from([p.prev[0], p.prev[2]]).lerp(Vec2::from([p.pos[0], p.pos[2]]), speed)).extend(p.pos[1]).xzy().to_array();
+        p.body.pos = p.pos;
+        p.vel *= speed;
         // first person: the body turns and runs the way it moves, never side- or back-steps
         let d = dir.normalize();
         p.body.face = loco::Facing { dir: [d.x, 0.0, d.y, 0.0], way: -1, ..loco::Facing::default() };
@@ -2599,9 +2604,13 @@ fn locomote(g: &mut Game, i: usize, dir: Vec2) {
         let run = loco::run_motion(loco::base_motion(p.body.motion), 0.0, loco::dashing(&p.stats, p.body.run));
         p.body.motion = loco::with_tiredness(run, p.body.stamina);
     }
+    p.stride += p.vel.length() * 9.0;
     p.facing = yaw(p.body.face.dir);
     let m = p.body.motion;
-    set_motion(p, m, 1.0, true, None);
+    set_motion(p, m, speed, true, None);
+    if fps::on() && i == 0 {
+        p.cmd.speed = speed;
+    }
 }
 
 /// Figure yaw (0 faces −z) of a game-space facing direction (musl's atan2: it is in the state hash, and std's differs

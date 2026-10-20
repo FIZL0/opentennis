@@ -4,7 +4,7 @@
 //! the sun) casts the full shadow. ponytail: player 0 only and local only (netplay would desync on the turned stick).
 
 use std::sync::LazyLock;
-use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -23,8 +23,15 @@ pub fn on() -> bool {
 /// The look's Bevy yaw (0 looks along −z) and pitch, as f32 bits: `pad_run` reads the yaw from the sim's tick.
 static YAW: AtomicU32 = AtomicU32::new(0);
 static PITCH: AtomicU32 = AtomicU32::new(0);
+/// Shift held: the keys walk.
+static WALK: AtomicBool = AtomicBool::new(false);
 
 const SENSITIVITY: f32 = 0.0025;
+/// The left stick's round deadzone and the tilt past which it runs flat out; a lighter push walks. The keys walk at
+/// `WALK_SPEED` with Shift held.
+const STICK_DEAD: f32 = 0.15;
+const STICK_FULL: f32 = 0.85;
+const WALK_SPEED: f32 = 0.35;
 const FOV: f32 = 105.0;
 /// The right stick's full-tilt turn, radians per second.
 const STICK_TURN: f32 = 3.5;
@@ -55,11 +62,28 @@ pub fn plugin(app: &mut App) {
     }
 }
 
-/// The stick's (right, forward) turned to the look, in game space (x, z).
-pub fn turned(right: f32, fwd: f32) -> Vec2 {
-    let y = f32::from_bits(YAW.load(Relaxed));
-    let (s, c) = y.sin_cos();
-    Vec2::new(c * right - s * fwd, s * right + c * fwd)
+/// The left stick with a round deadzone instead of the original's per-axis one (which snaps a near-axis push onto the
+/// axis), its tilt kept as the speed: any angle, and a light push walks.
+pub fn stick(v: Vec2) -> Vec2 {
+    let len = v.length();
+    if len <= STICK_DEAD {
+        return Vec2::ZERO;
+    }
+    v / len * ((len - STICK_DEAD) / (STICK_FULL - STICK_DEAD)).min(1.0)
+}
+
+/// Player 0's run: the stick (right, forward), else the keys' `keys`, turned to the look, in game space (x, z); its
+/// length (≤ 1) is the speed.
+pub fn run(stick: Vec2, keys: Vec2) -> Vec2 {
+    let v = if stick != Vec2::ZERO {
+        stick
+    } else if WALK.load(Relaxed) {
+        keys * WALK_SPEED
+    } else {
+        keys
+    };
+    let (s, c) = f32::from_bits(YAW.load(Relaxed)).sin_cos();
+    Vec2::new(c * v.x - s * v.y, s * v.x + c * v.y)
 }
 
 /// First person's d-pad just pressed on pad `g`: its emote (up, down, left, right as the right stick's flicks).
@@ -81,11 +105,13 @@ fn look(
     pads: Query<&Gamepad>,
     time: Res<Time>,
     buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     eye: Res<Eye>,
     mut cursor: Query<&mut CursorOptions>,
     mut end: Local<f32>,
     mut lock: Local<bool>,
 ) {
+    WALK.store(keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]), Relaxed);
     if buttons.just_pressed(MouseButton::Middle)
         || pads
             .iter()
@@ -279,5 +305,19 @@ fn sun_sees_shadows(
         commands
             .entity(e)
             .insert(RenderLayers::from_layers(&[0, 1]));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stick_keeps_any_angle_and_walks() {
+        // 20° off forward: the original's per-axis deadzone would snap this to straight ahead
+        let v = stick(Vec2::new(20f32.to_radians().sin(), 20f32.to_radians().cos()));
+        assert!((v.x.atan2(v.y).to_degrees() - 20.0).abs() < 1e-3 && (v.length() - 1.0).abs() < 1e-6);
+        assert!((stick(Vec2::Y * 0.5).length() - 0.5).abs() < 1e-6);
+        assert_eq!(stick(Vec2::X * 0.1), Vec2::ZERO);
     }
 }
