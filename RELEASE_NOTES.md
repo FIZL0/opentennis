@@ -13,3 +13,4 @@
 - A player's emote voice lines no longer pile up: a new emote (or a win / loss pose on the character select) stops that player's last line first.
 - You can now emote in the moment after a call (a fault, a net or a point) while you can still move, up until the players react.
 - Custom characters' emotes now go through all of their own voice lines, in a match and on the character select, instead of only the first few.
+- Settings → Display has a new Controller Vibration switch: turn it off and controllers stop buzzing on the player select (turning it on gives a short buzz). Matches never rumble, as in the original.
