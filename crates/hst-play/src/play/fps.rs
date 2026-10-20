@@ -60,12 +60,19 @@ const LOCK_NEAR: f32 = 1.5;
 
 pub fn plugin(app: &mut App) {
     if on() {
-        app.add_systems(Update, look.before(super::camera))
-            .add_systems(
-                PostUpdate,
-                view.after(bevy::transform::TransformSystems::Propagate),
-            )
-            .init_resource::<Pivot>();
+        app.add_systems(
+            Update,
+            (
+                look.before(super::camera),
+                restore.after(super::camera).before(super::draw),
+            ),
+        )
+        .add_systems(
+            PostUpdate,
+            view.after(bevy::transform::TransformSystems::Propagate),
+        )
+        .init_resource::<Pivot>()
+        .init_resource::<Shot>();
     }
 }
 
@@ -174,7 +181,7 @@ fn look(
 fn view(
     g: Res<Game>,
     time: Res<Time>,
-    figures: Query<(&Figure, &GlobalTransform), Without<Camera3d>>,
+    figures: Query<(&Figure, &GlobalTransform), Without<Orbit>>,
     mut q: Query<
         (
             &mut Orbit,
@@ -182,9 +189,10 @@ fn view(
             &mut Transform,
             &mut GlobalTransform,
         ),
-        With<Camera3d>,
+        With<Orbit>,
     >,
     mut pivot: ResMut<Pivot>,
+    mut shot: ResMut<Shot>,
     mut zoom: Local<Option<(Vec3, f32)>>,
 ) {
     let Ok((mut o, mut proj, mut tf, mut global)) = q.single_mut() else {
@@ -218,8 +226,20 @@ fn view(
     (o.focus, o.radius) = (*focus, *radius);
     *tf = o.transform();
     *global = GlobalTransform::from(*tf);
+    shot.0 = Some(*tf);
     if let Projection::Perspective(p) = &mut *proj {
         p.fov = FOV.to_radians();
+    }
+}
+
+/// The camera as `view` last left it: put back over the match camera's own each frame before anything reads it (the
+/// balloons, pop-ups and markers turn to face it).
+#[derive(Resource, Default)]
+struct Shot(Option<Transform>);
+
+fn restore(shot: Res<Shot>, mut q: Query<(&mut Transform, &mut GlobalTransform), With<Orbit>>) {
+    if let (Some(s), Ok((mut tf, mut global))) = (shot.0, q.single_mut()) {
+        (*tf, *global) = (s, s.into());
     }
 }
 
