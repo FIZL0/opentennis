@@ -5,7 +5,8 @@
 //! mods are, what they are, the last action's outcome), the Show pills (Browse, Installed, Updates, My uploads,
 //! Saved; Installed and My uploads are those grids, the pages the old tab row had) with the sort and the one filter
 //! pill on their right (Select picks Game, Plays like or Hand, ✕ / L1 / R1 its value), the tiles under a heading per
-//! game (per uploader when sorted by them) and the scroll bar, the page's own words in the footer; the chosen mod's
+//! game (per uploader when sorted by them) and the scroll bar, the page's own words in the footer (B593: between the
+//! strip and the tiles); the chosen mod's
 //! column on the right (its name and uploader, costumes and hand, picture and stats card, facts, then Install / More
 //! by / Save, or an open question's box and buttons). Upload is the same frame over the installed mods. The cursor
 //! is one number (`Menu::sel`): the search box, Upload, the footer's words, the pills, then the tiles, so
@@ -640,8 +641,8 @@ pub(super) struct Lay {
     pub shows: (Option<f32>, f32, f32),
     pub search: [f32; 4],
     /// The grid's panel, its header strip (`stack`: the kind tabs over the sort and filter, on two rows), the tiles'
-    /// area (the scroll bar's lane right of it), the footer's row of pills (Upload at its right) and the room for its
-    /// words (`note`: the footer's own row left of the pills, or a row over them on a narrow panel); the chosen
+    /// area (the scroll bar's lane right of it), the footer's row of pills between them (Upload at its right) and the
+    /// room for its words (`note`: the footer's own row left of the pills, or a row over them on a narrow panel); the chosen
     /// mod's panel.
     pub card: [f32; 4],
     pub strip: [f32; 4],
@@ -693,12 +694,15 @@ pub(super) fn lay(g: &super::super::Grid) -> Lay {
     let stack = card[2] < 640.0 * PX;
     let sh = if stack { look::STRIP + PILL + ROW_GAP } else { look::STRIP } * PY;
     let strip = [card[0] + RIM * PX, card[1] + RIM * PY, card[2] - 2.0 * RIM * PX, sh];
-    let gy0 = strip[1] + sh + 2.5 * PY + PAD * PY;
-    let foot = [ix, card[1] + card[3] - (RIM + PAD) * PY - ph, iw, ph];
-    let upload = [ix + iw - UPLOAD_W * PX, foot[1], UPLOAD_W * PX, ph];
+    // B593: the footer's row sits under the strip, over the tiles (a pad reaches it without passing every mod)
+    let fy = strip[1] + sh + 2.5 * PY + PAD * PY;
     // (a narrow panel: the footer's words get a row of their own over its pills)
-    let note = if iw < 560.0 * PX { [ix, foot[1] - ROW_GAP * PY - NOTE * PY, iw, NOTE * PY] } else { foot };
-    let gh = (note[1].min(foot[1]) - (ROW_GAP + 4.0) * PY - gy0).max(20.0 * PY);
+    let narrow = iw < 560.0 * PX;
+    let foot = [ix, if narrow { fy + (NOTE + ROW_GAP) * PY } else { fy }, iw, ph];
+    let upload = [ix + iw - UPLOAD_W * PX, foot[1], UPLOAD_W * PX, ph];
+    let note = if narrow { [ix, fy, iw, NOTE * PY] } else { foot };
+    let gy0 = foot[1] + ph + (ROW_GAP + 4.0) * PY;
+    let gh = (card[1] + card[3] - (RIM + PAD) * PY - gy0).max(20.0 * PY);
     let (gx, gy) = (TILE_GAP * PX, TILE_GAP * PY);
     let gw = iw - (BAR + TILE_GAP) * PX;
     let cols = (((gw + gx) / (TILE * PX + gx)) as usize).max(2);
@@ -720,6 +724,9 @@ pub(super) fn lay_of(m: &Menu) -> Lay {
             l.strip[3] -= dy;
             for r in [&mut l.grid, &mut l.bar] {
                 (r[1], r[3]) = (r[1] - dy, r[3] + dy);
+            }
+            for r in [&mut l.foot, &mut l.note, &mut l.upload] {
+                r[1] -= dy;
             }
         }
     }
@@ -788,7 +795,8 @@ impl Lay {
 // ---------------------------------------------------------------- presses
 
 impl Menu {
-    /// Browse's move from the cursor: the search box and Upload, the pills, the tiles' grid and the footer's words.
+    /// Browse's move from the cursor: the top bar (Show tabs, search box), the panel's strip (kind tabs, sort and
+    /// filter), the footer's words and Upload under it (B593), then the tiles' grid.
     /// Returns whether it moved.
     pub(super) fn browse_move(&mut self, k: Press) -> bool {
         let v = &self.add;
@@ -804,8 +812,8 @@ impl Menu {
         let kind = k0 + kinds.iter().position(|k| *k == v.kind).unwrap_or(0);
         // a narrow panel stacks the strip: the kind tabs' row over the sort and filter's, so ↑ / ↓ pass through both
         let stacked = nk > 0 && np > ns && lay_of(self).stack;
-        // nothing remembered yet (a Show tab's index): ↑ from the tiles is the open kind tab, the strip's first stop
-        // (stacked too, over the sort's row: ↑ from the first mod is the kind, then Browse)
+        // nothing remembered yet (a Show tab's index): ↑ from the footer is the open kind tab, the strip's first stop
+        // (stacked too, over the sort's row: ↑ from the footer is the kind, then Browse)
         let strip = match v.b.pill_at {
             i if i >= np && nk > 0 => k0 + (i - np).min(nk - 1),
             i if np > ns && (i >= ns || nk == 0) => p0 + i.clamp(ns, np - 1),
@@ -824,28 +832,28 @@ impl Menu {
             Slot::Pill(i) if i < ns && k.right => if i + 1 < ns { self.sel + 1 } else { 0 },
             Slot::Pill(i) if i < ns && k.down => if np > ns { p0 + ns } else { strip },
             Slot::Search if k.left => p0 + ns - 1,
-            Slot::Search if k.down => if np > ns { p0 + np - 1 } else { tile.unwrap_or(under) },
+            Slot::Search if k.down => if np > ns { p0 + np - 1 } else if nk > 0 { strip } else { under },
             Slot::Pill(i) if k.left && i == ns && nk > 0 => k0 + nk - 1,
             Slot::Pill(i) if k.left && i > ns => self.sel - 1,
             Slot::Pill(i) if k.right && i >= ns && i + 1 < np => self.sel + 1,
             Slot::Pill(i) if k.up && i >= ns && i + 1 == np => 0,
             Slot::Pill(_) if k.up => shown,
-            Slot::Pill(i) if k.down && i >= ns => tile.unwrap_or(under),
+            Slot::Pill(i) if k.down && i >= ns => under,
             Slot::Kind(j) if k.left && j > 0 => self.sel - 1,
             Slot::Kind(j) if k.right && j + 1 < nk => self.sel + 1,
             Slot::Kind(_) if k.right && np > ns => p0 + ns,
             Slot::Kind(_) if k.up => shown,
-            Slot::Kind(_) if k.down => tile.unwrap_or(under),
+            Slot::Kind(_) if k.down => under,
             Slot::Tile(i) => match tile_step(&lines, i, k) {
                 Some(j) => t0 + j,
-                None if k.up => strip,
-                None if k.down => under,
+                None if k.up => under,
                 None => self.sel,
             },
-            // the footer: the page's words, then Upload at its right
+            // the footer, between the strip and the tiles: the page's words, then Upload at its right
             Slot::Word(i) if k.left && i > 0 => self.sel - 1,
             Slot::Word(i) if k.right => if i + 1 < nw { self.sel + 1 } else { 1 },
-            Slot::Word(_) | Slot::Upload if k.up => tile.unwrap_or(strip),
+            Slot::Word(_) | Slot::Upload if k.up => strip,
+            Slot::Word(_) | Slot::Upload if k.down => tile.unwrap_or(self.sel),
             Slot::Upload if k.left && nw > 0 => w0 + nw - 1,
             _ => self.sel,
         };
@@ -1750,14 +1758,13 @@ fn up_badge(u: &Up) -> (&'static str, [f32; 3]) {
     (t, hex(c))
 }
 
-/// The footer under a light rule: how the kind behaves online on the left, the status on the right (B471: the
+/// The footer (B593: under the panel's strip, a light rule between it and the tiles): how the kind behaves online on the left, the status on the right (B471: the
 /// downloads moved here from the top bar), then the page's words as grey pills and Upload at the far right (a
 /// narrow panel: the words in a row over the pills).
 fn footer(d: &mut Draw, m: &Menu, a: [f32; 3], l: &Lay) {
     let v = &m.add;
     let [x, y, w, h] = l.foot;
-    let top = l.note[1].min(y);
-    d.q(Tex::Solid, [0.0; 4], [x, top - (ROW_GAP / 2.0 + 2.0) * PY, w, 2.0 * PY], look::c(look::RULE), 128.0);
+    d.q(Tex::Solid, [0.0; 4], [x, y + h + ROW_GAP / 2.0 * PY, w, 2.0 * PY], look::c(look::RULE), 128.0);
     let size = 12.5 * PY;
     let gap = 6.0 * PX;
     let up = v.page == Page::Upload;

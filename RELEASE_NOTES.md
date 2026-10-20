@@ -2,3 +2,4 @@
 - Switching teams after everyone has picked their character now slides the cards across, as it does before.
 - The sound words when the ball hits a player, the court, the net or a wall ("conk", "bumps", "rattle") no longer disappear behind see-through scenery.
 - Mod character textures now wrap or stop at their edges as the model file says, so no thin seam shows down the middle of a face.
+- In the mods browser, Refresh, Download all, Upload and the download status now sit at the top, just under the mod type tabs, so a controller reaches them without scrolling past every mod.

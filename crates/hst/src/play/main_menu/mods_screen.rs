@@ -2265,8 +2265,8 @@ mod tests {
         let cols = grid::lay(&m.grid).cols;
         assert!(grid::lay(&super::super::Grid::fit(16.0 / 9.0)).cols > cols && cols >= 2, "{cols}");
         // moves, by Uploader (ann: Carol, Mia; bob: Kent; cal: Zed; Alma): ← → along, ↓ the next heading's row, off
-        // the foot the footer's words, ↑ back to the tile, ↑ off the top the strip's sort and filter (B471), ↑ from
-        // the filter the search box
+        // the foot nothing, ↑ off the top the footer's words (B593: over the tiles), ↓ back to the tile, ↑ from the
+        // footer the strip's sort and filter (B471), ↑ from the filter the search box
         let (l, r, u, d) = (Press { left: true, ..default() }, Press { right: true, ..default() }, Press { up: true, ..default() }, Press { down: true, ..default() });
         let go = |m: &mut Menu, k: Press| {
             m.mods_step(k, &mut Vec::new());
@@ -2274,10 +2274,11 @@ mod tests {
         };
         m.sel = t0 + 1;
         assert_eq!([go(&mut m, l), go(&mut m, l), go(&mut m, r), go(&mut m, d), go(&mut m, d), go(&mut m, d)], [t0, t0, t0 + 1, t0 + 2, t0 + 3, t0 + 4]);
-        assert_eq!([go(&mut m, d), go(&mut m, u)], [2, t0 + 4]);
+        assert_eq!(go(&mut m, d), t0 + 4);
         m.sel = t0 + 1;
-        // (stacked strip: ↑ from the tiles the kind tab, → the sort, ↑ the kind tab, ↓ the sort)
-        assert_eq!([go(&mut m, u), go(&mut m, r), go(&mut m, u), go(&mut m, d), go(&mut m, d)], [p0 + 7, p0 + 5, p0 + 7, p0 + 5, t0 + 1]);
+        assert_eq!([go(&mut m, u), go(&mut m, d), go(&mut m, u)], [2, t0 + 1, 2]);
+        // (stacked strip: ↑ from the footer the kind tab, → the sort, ↑ the kind tab, ↓ the sort, ↓ the footer)
+        assert_eq!([go(&mut m, u), go(&mut m, r), go(&mut m, u), go(&mut m, d), go(&mut m, d), go(&mut m, d)], [p0 + 7, p0 + 5, p0 + 7, p0 + 5, 2, t0 + 1]);
         // B471: the search box at the top bar's right: ← the last Show tab, → stays; the Show tabs' ↓ the strip;
         // Upload in the footer, ← the footer's last word
         m.sel = 0;
@@ -2830,7 +2831,8 @@ mod tests {
         assert!(modstore::newer("1.10", "1.9") && !modstore::newer("1.0", "1") && !modstore::newer("", "1") && modstore::newer("2", ""));
     }
 
-    /// The Mods screen opens on the first mod; ↑ is the open kind tab (Characters), ↑ again Browse.
+    /// The Mods screen opens on the first mod; ↑ is the footer's first word (B593: over the tiles), ↑ the open kind
+    /// tab (Characters), ↑ again Browse.
     #[test]
     fn mods_open_on_the_first_mod() {
         let e = |id: &str, kind: Kind| Entry { meta: Meta { id: id.into(), name: id.into(), kind, ..Default::default() }, rev: "main".into(), verified: true };
@@ -2839,6 +2841,8 @@ mod tests {
         m.mods_open(&mut Vec::new());
         assert_eq!(m.add.slot(m.sel), grid::Slot::Tile(0));
         m.mods_step(Press { up: true, ..default() }, &mut Vec::new());
+        assert_eq!(m.add.slot(m.sel), grid::Slot::Word(0));
+        m.mods_step(Press { up: true, ..default() }, &mut Vec::new());
         assert_eq!(m.add.slot(m.sel), grid::Slot::Kind(0));
         m.mods_step(Press { up: true, ..default() }, &mut Vec::new());
         assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(0));
@@ -2846,7 +2850,8 @@ mod tests {
     }
 
     /// The kind tabs are cursor stops in the panel's strip (touch has no L2 / R2): ← from Sort reaches the last, ✕
-    /// opens one with the cursor staying on it, → from the last is Sort again, ↑ the Show tabs, ↓ the tiles.
+    /// opens one with the cursor staying on it, → from the last is Sort again, ↑ the Show tabs, ↓ the footer, then
+    /// the tiles.
     #[test]
     fn kind_tabs_take_the_cursor() {
         let e = |id: &str, kind: Kind| Entry { meta: Meta { id: id.into(), name: id.into(), kind, ..Default::default() }, rev: "main".into(), verified: true };
@@ -2866,11 +2871,15 @@ mod tests {
         m.mods_step(ok(), &mut out);
         assert_eq!((m.add.kind, m.add.slot(m.sel)), (Kind::Court, grid::Slot::Kind(1)));
         assert_eq!(m.add.items().iter().map(|e| e.meta.id.as_str()).collect::<Vec<_>>(), ["court"]);
-        // (this view's strip is stacked: the kind tabs' row, then the sort and filter's, then the tiles)
+        // (this view's strip is stacked: the kind tabs' row, then the sort and filter's, the footer, then the tiles)
         go(&mut m, Press { down: true, ..default() });
         assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(sort));
         go(&mut m, Press { down: true, ..default() });
+        assert_eq!(m.add.slot(m.sel), grid::Slot::Word(0));
+        go(&mut m, Press { down: true, ..default() });
         assert_eq!(m.add.slot(m.sel), grid::Slot::Tile(0));
+        go(&mut m, Press { up: true, ..default() });
+        assert_eq!(m.add.slot(m.sel), grid::Slot::Word(0));
         go(&mut m, Press { up: true, ..default() });
         assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(sort), "the strip remembers the sort");
         go(&mut m, Press { up: true, ..default() });
@@ -3029,9 +3038,13 @@ mod tests {
         let names = |m: &Menu| m.add.tiles().iter().map(|e| e.meta.id.clone()).collect::<Vec<_>>();
         assert_eq!(names(&m), ["hi", "lo", "ui"], "in pack order, not A-Z");
         assert_eq!(grid::lay_of(&m).cols, 1);
-        // no sort or filter: ↑ from the top row is the kind tab, ↑ the Show tabs' Installed, ↓↓ back, ↓ the next row
+        // no sort or filter: ↑ from the top row is the footer, ↑ the kind tab, ↑ the Show tabs' Installed, ↓↓↓
+        // back, ↓ the next row
         assert_eq!(m.add.pills().len(), grid::SHOWS.len());
         m.sel = first;
+        m.mods_step(Press { up: true, ..default() }, &mut Vec::new());
+        let foot = m.sel;
+        assert!(matches!(m.add.slot(foot), grid::Slot::Word(0) | grid::Slot::Upload), "{:?}", m.add.slot(foot));
         m.mods_step(Press { up: true, ..default() }, &mut Vec::new());
         let tab = m.add.kinds_shown().iter().position(|k| *k == Kind::Textures).unwrap();
         assert_eq!(m.add.slot(m.sel), grid::Slot::Kind(tab));
@@ -3039,6 +3052,8 @@ mod tests {
         assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(grid::SHOWS.iter().position(|s| *s == grid::Show::Installed).unwrap()));
         m.mods_step(Press { down: true, ..default() }, &mut Vec::new());
         assert_eq!(m.add.slot(m.sel), grid::Slot::Kind(tab));
+        m.mods_step(Press { down: true, ..default() }, &mut Vec::new());
+        assert_eq!(m.sel, foot);
         m.mods_step(Press { down: true, ..default() }, &mut Vec::new());
         assert_eq!(m.sel, first);
         m.mods_step(Press { down: true, ..default() }, &mut Vec::new());
@@ -3341,8 +3356,8 @@ mod kind_tabs_nav {
         assert!(stacked > 0, "no aspect stacks the strip");
     }
 
-    /// One strip line (a wide panel): ↑ from the first tile, nothing remembered yet, is the open kind tab on the
-    /// strip's left (it used to jump to the sort on the right).
+    /// One strip line (a wide panel): ↑ from the first tile is the footer (B593: over the tiles), ↑ again, nothing
+    /// remembered yet, the open kind tab on the strip's left (it used to jump to the sort on the right).
     #[test]
     fn up_from_the_tiles_is_the_kind_tab() {
         let mut m = Menu { screen: Screen::Mods, grid: super::super::Grid::fit(16.0 / 9.0), ..Default::default() };
@@ -3353,6 +3368,20 @@ mod kind_tabs_nav {
         assert!(!grid::lay_of(&m).stack);
         m.sel = (0..m.add.rows()).find(|&s| m.add.slot(s) == grid::Slot::Tile(0)).unwrap();
         m.mods_step(Press { up: true, ..Default::default() }, &mut Vec::new());
+        assert_eq!(m.add.slot(m.sel), grid::Slot::Word(0));
+        m.mods_step(Press { up: true, ..Default::default() }, &mut Vec::new());
         assert_eq!(m.add.slot(m.sel), grid::Slot::Kind(0));
+    }
+
+    /// B593: the footer's row lies between the panel's strip and the tiles at every aspect, Upload in it.
+    #[test]
+    fn footer_sits_over_the_tiles() {
+        for aspect in [16.0 / 9.0, 19.5 / 9.0, 4.0 / 3.0, 9.0 / 16.0, 9.0 / 19.5] {
+            let l = grid::lay(&super::super::Grid::fit(aspect));
+            let strip_end = l.strip[1] + l.strip[3];
+            assert!(l.note[1] >= strip_end && l.foot[1] >= l.note[1], "{aspect}");
+            assert!(l.foot[1] + l.foot[3] < l.grid[1] && l.upload[1] == l.foot[1], "{aspect}");
+            assert!(l.grid[1] + l.grid[3] <= l.card[1] + l.card[3], "{aspect}");
+        }
     }
 }

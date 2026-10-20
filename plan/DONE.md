@@ -860,6 +860,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **M134** Character select: once every seat has picked, swapping teams has no transition (user 2026-10-20): the cards should slide/animate to the other side like they do before all are picked (play/main_menu/).
 - [x] **B582** Ball-hits-player sound words ("conk", "bumps", "rattle"; P25's pop-ups) drawn behind the court backgrounds/scenery (user 2026-10-20): they must draw on top like the other pop-ups. Assumed: a draw-order/depth issue in play/popups.rs or bodyhit.rs, every court.
 - [x] **B584** Modded characters (Emma and many others) have a see-through seam down the middle of the face (user 2026-10-20): the face's left/right halves don't meet, so you see through the head. Assumed: mirrored face halves whose centre-line vertices aren't welded or whose UV/skin weights split on import (../opentennis-mods rerig/extract) or a cull/winding issue on one half; fix at the source and bump each fixed mod's version.
+- [x] **B593** Mods browser footer to the top (user 2026-10-20): move the footer's row (Refresh/Download all words, pills, Upload, status) from the bottom to just under the kind tabs/characters strip at the top, still visually separate (its own rule/row), so it's reachable from the controller without scrolling past every tile; fix the cursor order to match (main_menu/mods_screen/grid.rs: footer, layout, Browse moves).
 
 
 ### Shots
