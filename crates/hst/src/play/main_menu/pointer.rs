@@ -62,6 +62,11 @@ pub(super) enum Act {
     Band(usize),
     /// A wheel notch (`true` down) away from the select columns: ↑↓, or ←→ along an open picker's row.
     Wheel(bool),
+    /// B597: the mouse drags seat `p`'s card on the controller assignment, grabbed at the first point, now at the
+    /// second (centred 640×448 units; sent while the button is held, never hit-tested).
+    Carry(usize, [f32; 2], [f32; 2]),
+    /// B597: the dragged card let go at this point: dropped on another seat it swaps with it.
+    Land(usize, [f32; 2]),
 }
 
 /// ✕.
@@ -297,6 +302,8 @@ impl Menu {
                 }
             }
             Act::Wipe(i) => self.add.wipe_to(i),
+            Act::Carry(p, grab, at) => self.carry(p, grab, at, &mut out),
+            Act::Land(p, at) => self.land(p, at, &mut out),
         }
         out
     }
@@ -350,6 +357,18 @@ pub(super) struct State {
     finger: Option<(u64, Vec2, Vec2, bool)>,
     wheel: f32,
     touched: f32,
+    /// B597: the left button went down on a card the assignment can drag: its seat, where it went down (window px),
+    /// where it was last carried to (none until it moves far enough to be a drag); its click waits for the release.
+    press: Option<(usize, Vec2, Option<Vec2>)>,
+}
+
+/// B597: how far (448-high px) the mouse moves with the button held before a card's press is a drag, not a click.
+const DRAG_CARD: f32 = 6.0;
+
+/// A point in the view (fractions, 0..1) in the menus' centred 640×448 units (`Anchor::Centre`'s inverse).
+pub(super) fn to_menu(p: Vec2, aspect: f32, k: f32) -> [f32; 2] {
+    let (share, vshare) = widescreen::menu_shares(aspect, k);
+    [(p.x * 100.0 - 50.0 * (1.0 - share)) * 6.4 / share, (p.y * 100.0 - 50.0 * (1.0 - vshare)) * 4.48 / vshare]
 }
 
 /// The mouse, fingers and wheel → `Pending`.
@@ -363,6 +382,7 @@ pub(in crate::play) fn pointer(
     time: Res<Time>,
     mut pending: ResMut<Pending>,
     mut st: Local<State>,
+    menu: Option<Res<Menu>>,
 ) {
     let Ok(win) = window.single() else { return };
     #[allow(unused_mut)]
@@ -444,7 +464,8 @@ pub(in crate::play) fn pointer(
         if c.is_some() && c != st.mouse {
             st.mouse = c;
             let a = c.and_then(|c| mouse_hover(at(c, SLOP)));
-            if a != st.hovered {
+            // B597: a card held down doesn't move the focus about as it passes over the others
+            if a != st.hovered && st.press.is_none() {
                 st.hovered = a;
                 out(a, false);
             }
@@ -452,10 +473,29 @@ pub(in crate::play) fn pointer(
         if mouse.just_pressed(MouseButton::Left)
             && let Some(c) = c
         {
-            out(at(c, SLOP).or(hits.1), true);
+            let a = at(c, SLOP);
+            // B597: a press on a card the assignment can drag waits: a drag carries it, a click is the click on release
+            match a {
+                Some(Act::Row(p, _)) if menu.as_ref().is_some_and(|m| m.draggable(p)) => st.press = Some((p, c, None)),
+                _ => out(a.or(hits.1), true),
+            }
         }
-        if mouse.just_pressed(MouseButton::Right) {
-            out(Some(press(|k| k.back = true)), true);
+    }
+    // B597: the held card: past `DRAG_CARD` it follows the mouse; let go, it lands (or, never moved, is the click)
+    let (mouse_at, on_assign) = (st.mouse, menu.as_ref().is_some_and(|m| m.screen == Screen::Assign));
+    if let Some((p, start, carried)) = st.press.as_mut() {
+        let now_at = mouse_at.unwrap_or(*start);
+        let menu_at = |c: Vec2| to_menu((c - off) / size, aspect, widescreen::menu_scale());
+        if !mouse.pressed(MouseButton::Left) {
+            if carried.is_some() {
+                out(Some(Act::Land(*p, menu_at(now_at))), true);
+            } else if on_assign {
+                out(at(*start, SLOP).or(hits.1), true);
+            }
+            st.press = None;
+        } else if *carried != Some(now_at) && (carried.is_some() || (now_at - *start).length() / size.y * 448.0 >= DRAG_CARD) {
+            *carried = Some(now_at);
+            out(Some(Act::Carry(*p, menu_at(*start), menu_at(now_at))), true);
         }
     }
     for e in wheel.read() {

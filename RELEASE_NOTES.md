@@ -1,4 +1,5 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- On the Controllers screen you can now drag a player card with the mouse onto another seat to swap them.
 - A custom character picked by Random now shows its own face in the match, not a stand-in.
 - The browser version starts faster with many mods installed, and a match no longer pauses at Start when a player picked Random.
 - Mods with a newer version on the store now show an Update button, and an Update all button on the Mods page and the main menu installs every update at once.
