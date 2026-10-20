@@ -6,3 +6,4 @@
 - The court flyover before a match no longer makes trees, props, scenery or players vanish or pop in as the camera sweeps past, on custom courts too.
 - Custom courts can now have their own camera flyover before the match, so indoor courts no longer fly around outside their walls.
 - In the mod store's Updates view, the Characters, Courts, Umpires and Texture packs tabs now count only the mods that have an update, not every mod in the store.
+- Character select emotes now put the racket away for moves made without one, as they do in a match.
