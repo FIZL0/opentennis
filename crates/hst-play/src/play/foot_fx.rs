@@ -204,7 +204,7 @@ fn steps(g: &mut Game, feet: &Feet, states: &[u8; 4]) {
 /// The player's state byte as the game's mode setter keeps it: 3 standing hit by the ball, 2 in a stroke (a press
 /// still searching, a locked swing through its follow-through, a whiff or a dive), 1 running (the stick held), else
 /// 0. It holds from the point's end to the next point (`tick` keeps it; foot_s05 has no change past the point).
-fn state(g: &Game, i: usize) -> u8 {
+pub(super) fn state(g: &Game, i: usize) -> u8 {
     let p = &g.players[i];
     if super::bodyhit::standing(g, i) {
         3

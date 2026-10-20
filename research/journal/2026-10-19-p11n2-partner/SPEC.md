@@ -337,5 +337,10 @@ What the port can check:
   - No recording of the original shows it: match_s05 never brings teammates within 1 m during a stroke. A scripted
     capture isn't required. The port lists it under *Not verified / not 1:1* in its journal.
 
+## Port findings (from the recordings, 2026-10-20)
+- The voice gate's "may call" flag is armed at the point's set-up and again on every hit by the opponents, not on a
+  hit by its own team. It is cleared after a give-way or follow call, spoken or not. Scan: 11 doubles fixtures;
+  the only counterexamples cross a point boundary.
+
 ## Open questions
 none

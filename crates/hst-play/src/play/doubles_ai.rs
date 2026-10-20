@@ -68,6 +68,9 @@ struct Mine {
     /// Singles: the point set-up ran (cleared by the serve message).
     #[serde(default)]
     set_up: bool,
+    /// Its swing turned into its miss motion since its last step (`missed`): the next step tells the partner.
+    #[serde(default)]
+    mark: bool,
 }
 
 /// The ball as the AI reads it from the ball object: y down, as the app (unlike the path, which is stored y up).
@@ -97,6 +100,8 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
         (d.frame, d.stepped) = (d.frame + 1, 0);
     }
     d.stepped |= 1 << i;
+    // the miss mark lasts until the stroke update after this step: a miss from here on is seen next frame
+    let mark = std::mem::take(&mut d.me[i].mark);
     // the stand-in's preamble: the recovery, the whiff, the press's approach run
     follow_through(&mut g.players[i], true);
     whiff_frame(g, i, true);
@@ -143,8 +148,9 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
         strong: if g.strong_hand[i] >= 0.0 { hst_sim::ai::strong::MINUS } else { hst_sim::ai::strong::PLUS },
         mate: up(g.players[mate].pos),
         opp: opp.map(|j| up(g.players[j].pos)),
-        mate_voice: 0,
-        mark: 0,
+        // the partner's movement state as it is now: its own update this frame has run only if it steps first
+        mate_voice: if singles { 0 } else { foot_fx::state(g, mate) },
+        mark: mark as u8,
         target: if singles { landing(g) } else { [0.0; 4] },
         opp_lefty: g.players[opp[0]].hand < 0.0,
     };
@@ -203,6 +209,8 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     (me.phase, me.shots) = (Some(mind.phase), g.shots);
     let struck = std::mem::take(&mut me.struck);
     if new_shot {
+        // the opponents' hit lets it call again on giving way (as the point's set-up does)
+        x.voice |= g.last_hitter >= 0 && g.last_hitter as usize & 1 != i & 1;
         // the hit message's timing draw: the reaction (or the guess walk) and the guess
         x.wait = p.ai_hold;
         (x.guess, x.from) = match p.ai_guess {
@@ -340,7 +348,7 @@ pub(super) fn heard(g: &mut Game, msg: u8) {
             // a serve that touched the net: the AI stands still for the rest of it
             msg::NEW_PATH if g.shots == 1 => x.hold = true,
             // ponytail: the original clears both as it sets the point up; the serve message comes there
-            msg::SERVE => (x.hold, x.held, m.set_up) = (false, false, false),
+            msg::SERVE => (x.hold, x.held, x.voice, m.set_up, m.mark) = (false, false, true, false, false),
             _ => {}
         }
         if msg == msg::HIT || msg == msg::NEW_PATH && g.phase == Phase::Rally {
@@ -350,6 +358,17 @@ pub(super) fn heard(g: &mut Game, msg: u8) {
 }
 
 impl Shared {
+    /// Player `i`'s swing turned into its miss motion (a cancelled lock at its contact, a press that found nothing
+    /// at its pose): its next step writes its own shot record as missed, so a partner following it takes over.
+    pub(super) fn missed(&mut self, i: usize) {
+        self.me[i].mark = true;
+    }
+
+    /// A new contact search or serve swing starts for player `i`: no miss to tell.
+    pub(super) fn unmark(&mut self, i: usize) {
+        self.me[i].mark = false;
+    }
+
     /// `heard`: the path object drops its claim (not on the reaction and the message after it) and, when `records`
     /// (not on a hit before the serve), every shot record (`record::CLEARED`); on the strike, hit, new path and serve
     /// each AI object's base handler sends its human search back to the path's start (by `players`' z) and marks the
@@ -396,6 +415,28 @@ pub(super) fn claim(g: &mut Game, i: usize) {
     if d.claim.0 < 0 || d.claim.1 < d.frame {
         d.claim = (i as i32, d.frame);
     }
+}
+
+/// The partner a stroking player `i` is kept 1 m from: its own, in a four-player match, unless `i` holds the claim
+/// (the claimant swings where it stands; the partner is the one pushed away).
+pub(super) fn stroke_mate(g: &Game, i: usize) -> Option<V3> {
+    (g.players.len() == 4 && g.doubles_ai.claim.0 != i as i32).then(|| g.players[i ^ 2].pos)
+}
+
+/// The stroke state's own per-frame position check, ahead of its countdown: a stroking player's position goes
+/// through the mover with no step (kept on court, 1 m from the partner unless it holds the claim). A non-claimant
+/// also loses the contact step's free move.
+pub(super) fn stroke_check(g: &mut Game, i: usize) {
+    if foot_fx::state(g, i) != 2 {
+        return;
+    }
+    let mate = stroke_mate(g, i);
+    let claimant = g.doubles_ai.claim.0 == i as i32;
+    let p = &mut g.players[i];
+    if !claimant && let Some(ik) = p.ik.as_mut() {
+        ik.free = false;
+    }
+    p.pos = loco::mover(p.pos, [0.0; 3], p.end, mate, false);
 }
 
 /// A human player `i` in doubles: its AI object keeps its shot record (where it will play the opponents' shot), so
@@ -504,6 +545,9 @@ pub(super) fn formations(g: &mut Game, draws: &[u32]) {
         (p.pos, p.prev, p.home, p.body.pos) = (at.pos, at.pos, at.pos, at.pos);
     }
 }
+
+#[cfg(test)]
+mod handover;
 
 #[cfg(test)]
 mod tests {

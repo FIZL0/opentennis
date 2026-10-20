@@ -61,3 +61,39 @@ replace only the suffix. `research/fn.sh` works once `context` is symlinked into
 ## Not verified / not 1:1
 - Nothing new this pass. The port's list is in SPEC.md *Verification* (the claim exemption has no recording of the
   original).
+
+## Port pass (2026-10-20)
+Ported from SPEC.md, with the decompile locked. Code is in `crates/hst-play/src/play/doubles_ai.rs`, with small hooks in
+`play.rs`. Tests are in `play/doubles_ai/handover.rs`.
+- **Voice gate:** the step passes the partner's movement state (stroke = 2, running = 1, hit by ball = 3) as it is
+  at the moment of the step.
+  - The sim never armed the "may call" flag, so call-outs never happened. Arming came from the fixtures (SPEC.md
+    *Port findings*): it re-arms at the point's set-up and on the opponents' hit.
+  - A four-bot run now gives 18 call-outs from players 0/1, none of them while the partner was stroking.
+- **Miss mark:** a whiff (a press with nothing to find) or a cancelled lock playing its miss marks the player. Its
+  next AI step takes the mark and the swing step writes its record as "missed" (HITTING). The mark is cleared by a
+  new press or a serve swing.
+- **Claim exemption:** the stroke states get a per-frame zero-step mover check, and the contact IK step and the
+  serve IK tick now pass the partner, unless this player holds the claim. A non-claimant's IK may not move its body
+  freely. A serve swing's start takes the claim.
+- **Stand-in removed:** the old `mine`/`intercept`/call-out block in `bot` could not run, because the receive/rally
+  routine always takes those phases for 2 or 4 players. It was deleted along with its helpers and two player fields.
+- **One player per ball:** an 8-minute four-bot run has 4 frames in 2 episodes where teammates are both locked. In
+  both, the partner found the ball on a later tick and took the claim; the spec says that is allowed (both can lock,
+  and the first strike cancels the rest). The test checks that the first strike cancels the other lock, and caps
+  the count.
+
+## Not verified / not 1:1
+- Claim exemption: there is only a rule test. There is no recording of the original with teammates that close
+  (match_s05 never gets them within 1 m), and it needs a scripted b479-style run.
+- Serve swing: the keep-apart is checked only in the serve IK tick, which is the app's only body move during a serve
+  swing. It is not compared against the original.
+- "May move freely" is read as the arm IK's body-move permission (`ArmIk.free`). There is no recording to confirm it.
+- Miss mark timing: the mark is taken before the app's own pre-step whiff update, so a miss is seen on the following
+  frame's step. This follows the spec's order, but it is not checked against a frame-exact recording.
+- Voice arming comes from the fixture scan, not from the spec text. It matches all 11 doubles fixtures apart from
+  cross-point cases.
+- One player per ball: statistical only (4 frames / 2 episodes against match_s05's 0 frames and 3 both-presses).
+  The ball-for-ball comparison needs the same-state doubles replay (P11k6).
+- The voice-gate glue is asserted for players 0/1 only. Players 2/3 step after their partners, so they read the
+  partner's state as already updated this frame, as the spec says.
