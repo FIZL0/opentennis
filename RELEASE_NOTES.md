@@ -1,16 +1,1 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- Computer players follow the ball's predicted flight as on the PS2, including after a net cord.
-- Doubles: computer partners call out when they leave you the ball and step aside instead of crowding a swinging teammate.
-- Emotes: every one plays its voice line (doubles included), custom characters use all their lines, a new emote cuts off the last line, and moves made without a racket put it away.
-- You can emote right after a call (fault, net, point) until the players react.
-- Characters with swapped face textures show their expressions in rallies and celebrations.
-- The pre-match flyover no longer pops scenery or players in and out, and custom courts can have their own.
-- Hit words ("conk", "bumps", "rattle") no longer hide behind see-through scenery.
-- The instant replay's slow motion lands on the right point.
-- Players no longer flash back to their starting spots before the winners' ceremony.
-- Controllers screen: drag a player card with the mouse onto another seat to swap.
-- New Controller Vibration switch in Settings → Display.
-- Character select: switching teams after everyone has picked slides the cards across, and Random custom characters show their own face in the match.
-- Mods: an Update button for newer store versions and an Update all on the Mods page and main menu; the Updates view counts only mods with updates; Refresh, Download all and Upload sit at the top of the browser.
-- Custom character textures no longer show a seam down the middle of the face.
-- The browser version starts faster with many mods installed, and a match no longer pauses at Start after a Random pick.
