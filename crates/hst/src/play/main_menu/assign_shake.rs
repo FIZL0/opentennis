@@ -42,8 +42,27 @@ struct Shakes([f32; 4]);
 #[derive(Resource, Default)]
 struct Flashes([f32; 4]);
 
+/// M138: switching Controller Vibration on buzzes the pad that switched it, as the original's Vibration option does
+/// (its small motor, a quarter second).
+const ON_BUZZ: f32 = 0.25;
+
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Shakes>().init_resource::<Flashes>().add_systems(Update, (shake, flash, slide.after(super::step), columns.after(super::step)).before(super::draw));
+    app.add_systems(Update, vibration_on.after(super::step));
+}
+
+/// M138: Controller Vibration just went from off to on: the pads that pressed a button this frame buzz.
+fn vibration_on(menu: Res<Menu>, pads: Query<(Entity, &Gamepad)>, mut rumble: MessageWriter<GamepadRumbleRequest>, mut was: Local<Option<bool>>) {
+    let on = menu.settings.0[super::PAD_VIBRATION];
+    if was.replace(on) == Some(false) && on {
+        for (e, _) in pads.iter().filter(|(_, g)| controls::readable(g) && g.get_just_pressed().next().is_some()) {
+            rumble.write(GamepadRumbleRequest::Add {
+                gamepad: e,
+                intensity: GamepadRumbleIntensity { strong_motor: 0.0, weak_motor: 1.0 },
+                duration: std::time::Duration::from_secs_f32(ON_BUZZ),
+            });
+        }
+    }
 }
 
 /// B564: a press on a seated device restarts its card's flash (and rumbles a pad, once per flash: holding a menu's
@@ -80,7 +99,7 @@ fn flash(
             if g.get_just_pressed().next().is_some()
                 && let Some(p) = seat(Dev::Pad(e))
             {
-                if flashes.0[p] <= now {
+                if flashes.0[p] <= now && menu.settings.0[super::PAD_VIBRATION] {
                     rumble.write(GamepadRumbleRequest::Add {
                         gamepad: e,
                         intensity: GamepadRumbleIntensity { strong_motor: BUZZ_STRENGTH, weak_motor: BUZZ_STRENGTH },
@@ -319,6 +338,36 @@ mod tests {
         assert_eq!((m.sel, m.held), before, "the flash moves no focus");
         app.world_mut().resource_mut::<Menu>().screen = Screen::Chars;
         assert_eq!(at(&mut app, 5.1).0, [0.0; 4], "only on the assignment");
+        // M138: Controller Vibration off: the card still flashes, the pad keeps still
+        app.world_mut().resource_mut::<Menu>().screen = Screen::Assign;
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        app.world_mut().resource_mut::<Menu>().settings.0[super::super::PAD_VIBRATION] = false;
+        press(&mut app, pad, GamepadButton::South);
+        assert_eq!(at(&mut app, 8.0), ([0.0, 0.0, 1.0, 0.0], vec![]), "vibration off");
+    }
+
+    /// M138: Controller Vibration switched on buzzes the pad that pressed (once), not the others; switching it off
+    /// or leaving it on buzzes nothing.
+    #[test]
+    fn switching_vibration_on_buzzes_the_pad() {
+        let mut app = App::new();
+        app.add_message::<GamepadRumbleRequest>();
+        let pad = app.world_mut().spawn(Gamepad::default()).id();
+        app.world_mut().spawn(Gamepad::default());
+        app.insert_resource(Menu::default());
+        app.add_systems(Update, vibration_on);
+        let step = |app: &mut App, on: bool| {
+            app.world_mut().resource_mut::<Menu>().settings.0[super::super::PAD_VIBRATION] = on;
+            let mut g = app.world_mut().get_mut::<Gamepad>(pad).unwrap();
+            g.digital_mut().reset_all();
+            g.digital_mut().press(GamepadButton::South);
+            app.update();
+            app.world_mut().resource_mut::<Messages<GamepadRumbleRequest>>().drain().map(|r| r.gamepad()).collect::<Vec<_>>()
+        };
+        assert_eq!(step(&mut app, true), vec![], "on at start");
+        assert_eq!(step(&mut app, false), vec![], "switched off");
+        assert_eq!(step(&mut app, true), vec![pad], "switched on");
+        assert_eq!(step(&mut app, true), vec![], "stays on");
     }
 
     /// A controller carried to another seat slides its chip over from the seat it left, easing to nothing in `SLIDE`.

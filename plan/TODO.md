@@ -41,7 +41,6 @@ index out of bounds: the len is 0 but the index is 0"
 ### Presentation
 
 - [~] **P17p1** Close-up debris and step sound (P17p gap): with gm+0x344 set (close-up/training) the game sprays par/tuti dirt and par/siba/run/spray water from the feet and plays step sound 0x69; done when a training/close-up mode exists and both are ported and checked against a PINE recording in that mode → `play/foot_fx.rs` · `hst-sim/src/foot.rs` | j: 2026-10-08-p17p1-replay-debris — BLOCKED: gm+0x344 is the instant replay; dive debris (clods/blades) ported bit for bit (foot_s05g/c) and drawn, step-sound gate ported; needs P0b4d to set `Feet::replay`/play the step, and a singles replay recording in the close-up camera to check the step sound
-- [ ] **M138** Controller rumble like the original (user 2026-10-20): find when the original rumbles the pads (shots, smashes, net/post hits, points… which pad, strength, duration) and rumble gamepads at the same moments in the match (presentation: by eye, must not touch the sim RNG/timing). Off switch: reuse Settings' existing Vibration toggle (touch buzz) so it also covers pad rumble, or split it if one switch reads wrong → crates/hst-play/src/play.rs · crates/hst/src/play/main_menu.rs (VIBRATION) · crates/hst/src/play/main_menu/assign_shake.rs (pad rumble already used there)
 
 ### Confirmations
 
