@@ -152,6 +152,7 @@ pub fn load(
         grip: None,
         frame_gameplay: false,
         emote_ticks: HashMap::new(),
+        voice_takes: HashMap::new(),
     }))
 }
 

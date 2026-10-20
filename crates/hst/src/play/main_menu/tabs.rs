@@ -371,7 +371,7 @@ mod tests {
             motions: None,
             costume_of: None,
             skeleton: None,
-            emotes: None,
+            emotes: None, voice_takes: None,
             upscale: true,
         }
     }

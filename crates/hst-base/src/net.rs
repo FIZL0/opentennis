@@ -3473,7 +3473,7 @@ mod tests {
     fn vanilla_lobby_has_no_mods() {
         let w = crate::mods_online::Wire {
             id: "x".into(), name: "X".into(), donor: 5, hand: 1.0, base: 5, overrides: vec![], ai_row: 5,
-            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 1, emotes: vec![], dir: None,
+            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 1, emotes: vec![], voices: vec![], dir: None,
         };
         let modded = Pick { r#mod: Some(Box::new(w)), swap: true, random: true, ..Pick::disc(5, 2) };
         let mut r = room(false);
@@ -4033,7 +4033,7 @@ mod tests {
     fn a_refused_mod_pick_keeps_the_guest() {
         let bad = crate::mods_online::Wire {
             id: "x".into(), name: "X".into(), donor: 3, hand: 1.0, base: 3, overrides: vec![("nope".into(), "1".into())], ai_row: 3,
-            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 1, emotes: vec![], dir: None,
+            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 1, emotes: vec![], voices: vec![], dir: None,
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -4242,7 +4242,7 @@ mod tests {
         let hc = crate::mods_online::hash(&court_pack);
         let wire = crate::mods_online::Wire {
             id: "x".into(), name: "X".into(), donor: 3, hand: 1.0, base: 3, overrides: vec![], ai_row: 3,
-            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: h, emotes: vec![], dir: Some(dir.clone()),
+            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: h, emotes: vec![], voices: vec![], dir: Some(dir.clone()),
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -4317,7 +4317,7 @@ mod tests {
         DECIDE_MS.store(2000, std::sync::atomic::Ordering::Relaxed);
         let wire = crate::mods_online::Wire {
             id: "x".into(), name: "X".into(), donor: 3, hand: 1.0, base: 3, overrides: vec![], ai_row: 3,
-            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 9, emotes: vec![], dir: None,
+            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 9, emotes: vec![], voices: vec![], dir: None,
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -4376,7 +4376,7 @@ mod tests {
         let h = crate::mods_online::hash(&pack);
         let wire = crate::mods_online::Wire {
             id: "x".into(), name: "X".into(), donor: 3, hand: 1.0, base: 3, overrides: vec![], ai_row: 3,
-            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: h, emotes: vec![], dir: Some(dir.clone()),
+            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: h, emotes: vec![], voices: vec![], dir: Some(dir.clone()),
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {

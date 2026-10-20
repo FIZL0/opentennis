@@ -1572,7 +1572,7 @@ mod tests {
             motions: None,
             costume_of: None,
             skeleton: None,
-            emotes: None,
+            emotes: None, voice_takes: None,
             upscale: true,
         }];
         assert!(picks_past_select(&menu).is_empty(), "the select draws its own (tiles on view, the picks)");
@@ -1604,7 +1604,7 @@ mod tests {
             motions: None,
             costume_of: None,
             skeleton: None,
-            emotes: None,
+            emotes: None, voice_takes: None,
             upscale: true,
         };
         let mut menu = Menu { screen: Screen::Mods, ..default() };
@@ -1681,7 +1681,7 @@ mod tests {
         std::fs::write(dir.join("voice/9_0.wav"), &wav).unwrap();
         let m = |voice: &str| Mod {
             dir: dir.clone(), id: "t".into(), name: "t".into(), source: String::new(), costumes: vec![], donor: 3, hand: 1.0, base: 3,
-            overrides: vec![], ai_row: 3, texture_face: false, no_face: false, voice: voice.into(), motions: None, costume_of: None, skeleton: None, emotes: None, upscale: true,
+            overrides: vec![], ai_row: 3, texture_face: false, no_face: false, voice: voice.into(), motions: None, costume_of: None, skeleton: None, emotes: None, voice_takes: None, upscale: true,
         };
         let mods = [m("voice/"), m("none/")];
         let mut banks = HashMap::new();

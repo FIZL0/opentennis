@@ -2729,7 +2729,7 @@ pub(super) fn sample(m: &mut Menu) {
     }
     if std::env::var("HST_MENU").as_deref() == Ok("lobby-ask") {
         // 2P brought a mod this machine doesn't have: the prompt
-        let w = Wire { emotes: vec![], id: "x".into(), name: "Emi".into(), donor: 1, hand: 1.0, base: 1, overrides: vec![], ai_row: 1, names: vec![], parent: vec![], rest: vec![], looks: 7, dir: None };
+        let w = Wire { emotes: vec![], voices: vec![], id: "x".into(), name: "Emi".into(), donor: 1, hand: 1.0, base: 1, overrides: vec![], ai_row: 1, names: vec![], parent: vec![], rest: vec![], looks: 7, dir: None };
         m.net.room.as_mut().unwrap().seats[1].as_mut().unwrap().pick.r#mod = Some(Box::new(w));
         m.net.ask = Some(7);
     }
@@ -2739,7 +2739,7 @@ pub(super) fn sample(m: &mut Menu) {
         let r = m.net.room.as_mut().unwrap();
         r.ping = [(peers[0].to_string(), 35), (peers[1].to_string(), 165)].into();
         if menu == "lobby" {
-            let w = Wire { emotes: vec![], id: "golf".into(), name: "Golf".into(), donor: 1, hand: 1.0, base: 1, overrides: vec![], ai_row: 1, names: vec![], parent: vec![], rest: vec![], looks: 9, dir: None };
+            let w = Wire { emotes: vec![], voices: vec![], id: "golf".into(), name: "Golf".into(), donor: 1, hand: 1.0, base: 1, overrides: vec![], ai_row: 1, names: vec![], parent: vec![], rest: vec![], looks: 9, dir: None };
             r.seats[1].as_mut().unwrap().pick.r#mod = Some(Box::new(w));
         }
         m.net.me = if m.net.hosting { "host".into() } else { peers[0].into() };
@@ -3512,7 +3512,7 @@ mod tests {
     /// A computer player on Random draws this machine's custom characters too, but not in a vanilla lobby.
     #[test]
     fn bot_random_draws_mods() {
-        let w = Wire { emotes: vec![], id: "emi".into(), name: "Emi".into(), donor: 4, hand: 1.0, base: 4, overrides: vec![], ai_row: 4, names: vec![], parent: vec![], rest: vec![], looks: 7, dir: None };
+        let w = Wire { emotes: vec![], voices: vec![], id: "emi".into(), name: "Emi".into(), donor: 4, hand: 1.0, base: 4, overrides: vec![], ai_row: 4, names: vec![], parent: vec![], rest: vec![], looks: 7, dir: None };
         let mut m = Menu { screen: Screen::Lobby, ..default() };
         sample(&mut m);
         // this machine's own (installed) mod: no skeleton carried over the wire
@@ -3528,7 +3528,7 @@ mod tests {
     /// costumes; a Random court is drawn again from the disc's.
     #[test]
     fn mods_off_puts_own_mods_on_their_donors() {
-        let w = Wire { emotes: vec![], id: "emi".into(), name: "Emi".into(), donor: 4, hand: 1.0, base: 4, overrides: vec![], ai_row: 4, names: vec![], parent: vec![], rest: vec![], looks: 7, dir: None };
+        let w = Wire { emotes: vec![], voices: vec![], id: "emi".into(), name: "Emi".into(), donor: 4, hand: 1.0, base: 4, overrides: vec![], ai_row: 4, names: vec![], parent: vec![], rest: vec![], looks: 7, dir: None };
         let mut m = Menu { screen: Screen::Lobby, ..default() };
         sample(&mut m);
         (m.net.hosting, m.net.me, m.net.go, m.seats[0]) = (true, "host".into(), Some(Go::Host), Some(super::super::Dev::Keys));
@@ -3569,7 +3569,7 @@ mod tests {
     /// name rides along with the live place and the seat's pick).
     #[test]
     fn mod_name_not_donor() {
-        let w = Wire { emotes: vec![], id: "emi".into(), name: "Emi".into(), donor: 4, hand: 1.0, base: 4, overrides: vec![], ai_row: 4, names: vec![], parent: vec![], rest: vec![], looks: 7, dir: None };
+        let w = Wire { emotes: vec![], voices: vec![], id: "emi".into(), name: "Emi".into(), donor: 4, hand: 1.0, base: 4, overrides: vec![], ai_row: 4, names: vec![], parent: vec![], rest: vec![], looks: 7, dir: None };
         // the guest with the mod, on it: its live place carries the name
         let mut a = Menu { screen: Screen::Chars, ..default() };
         a.mods = vec![crate::mods_online::for_match(&w, None)];
@@ -3613,7 +3613,7 @@ mod tests {
     #[test]
     fn remote_mod_asked_on_the_select() {
         use super::super::Dev;
-        let w = Wire { emotes: vec![], id: "emi".into(), name: "Emi".into(), donor: 4, hand: 1.0, base: 4, overrides: vec![], ai_row: 4, names: vec![], parent: vec![], rest: vec![], looks: 7, dir: None };
+        let w = Wire { emotes: vec![], voices: vec![], id: "emi".into(), name: "Emi".into(), donor: 4, hand: 1.0, base: 4, overrides: vec![], ai_row: 4, names: vec![], parent: vec![], rest: vec![], looks: 7, dir: None };
         let iso = "/nonexistent-b484/hst.iso";
         let (net, mut rx) = Net::wired();
         let mut b = Menu { screen: Screen::Chars, ..default() };
