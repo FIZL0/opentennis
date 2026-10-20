@@ -631,4 +631,84 @@ mod tests {
         let x: Vec<u32> = (0..4).map(|i| smash_side(g, i).to_bits()).collect();
         assert_eq!(x, [0xbd75_cdd6, 0xbd89_49e8, 0xbdc8_5d9e, 0xbd03_01a8]);
     }
+
+    /// P111 probe: 1P (human) rushes the net as `tools/record_ai_rally.py`'s `HST_DRIVE=1` does (holds 4 m off the
+    /// net, steers to a ball coming its way, presses ○ once per ball within 2.5 m, serving presses ○ now and then);
+    /// prints each of the bot's presses (routine, plan, contact kind, contact height over its stroke height, 1P's z).
+    /// `P111_CHARS` (2 singles, 4 doubles; default 0,1), `P111_NET` (m off the net, 4), `P111_TICKS` (5000);
+    /// `tools/check.sh -p hst-play net_rush_probe -- --ignored --nocapture` (journal 2026-10-20-p111-net-rush)
+    #[test]
+    #[ignore]
+    fn net_rush_probe() {
+        use crate::play::tick_input::{IDLE, Replay, TickPads};
+        use hst_sim::replay::Pad;
+        if !std::path::Path::new(ISO).is_file() {
+            return eprintln!("no ISO, skipped");
+        }
+        let chars: Vec<usize> = std::env::var("P111_CHARS").map_or(vec![0, 1], |s| s.split(',').map(|c| c.parse().unwrap()).collect());
+        let singles = chars.len() == 2;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+        app.insert_resource(Args { iso: ISO.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles, chars, outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 6, pads: None });
+        app.insert_resource(Pads { seats: Some([true, false, false, false]), autoplay: false, ..default() });
+        app.insert_resource(Replay(Default::default()));
+        app.init_resource::<TickPads>();
+        app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
+        app.add_systems(Startup, setup);
+        app.add_systems(FixedUpdate, (remember, crate::play::tick_input::systems(), control, simulate, motions, character::tick, played_out, held_ball).chain());
+        app.update();
+        let n = std::env::var("P111_TICKS").map_or(5000, |s| s.parse().unwrap());
+        let net: f32 = std::env::var("P111_NET").map_or(4.0, |s| s.parse().unwrap());
+        let (mut pressed_for, mut idle, mut hold) = (-1, 0, 0);
+        let mut was = [0u8; 4];
+        let (mut zs, mut lobs, mut near) = (vec![], 0, 0);
+        for _ in 0..n {
+            let g = app.world().resource::<Game>();
+            let me = g.players[0].pos;
+            let [bx, _, bz] = g.flight.ball.pos;
+            let vz = g.flight.ball.vel[2];
+            let side = if me[2] > 0.0 { 1.0 } else { -1.0 };
+            let coming = vz * side > 0.0;
+            let serving = g.phase == Phase::Serve && g.score.server == 0;
+            let (tx, tz) = if serving { (me[0], me[2]) } else if coming { (bx, if bz * side > 0.0 { bz } else { net * side }) } else { (0.0, net * side) };
+            let (dx, dz) = (tx - me[0], tz - me[2]);
+            let d = (dx * dx + dz * dz).sqrt();
+            let (sx, sy) = if d > 0.4 { (-side * dx / d, side * dz / d) } else { (0.0, 0.0) };
+            let byte = |v: f32| (128.0 + (v * 10.0).round() / 10.0 * 127.0).clamp(0.0, 255.0) as u8;
+            let mut pad = Pad { lx: byte(sx), ly: byte(sy), ..IDLE };
+            idle += 1;
+            if coming && pressed_for != g.shots && bz * side > 0.0 && ((bx - me[0]).powi(2) + (bz - me[2]).powi(2)).sqrt() < 2.5 {
+                (pressed_for, idle, hold) = (g.shots, 0, 3);
+            } else if idle > if serving { 50 } else { 120 } {
+                (idle, hold) = (0, 3);
+            }
+            if hold > 0 {
+                hold -= 1;
+                pad.buttons = Pad::CIRCLE;
+            }
+            if g.phase == Phase::Rally {
+                zs.push(me[2].abs());
+            }
+            app.world_mut().resource_mut::<Replay>().0.push_back([pad, IDLE, IDLE, IDLE]);
+            app.world_mut().run_schedule(FixedUpdate);
+            let g = app.world().resource::<Game>();
+            for i in 1..g.players.len() {
+                let x = &g.doubles_ai.me[i].rally;
+                let s = if g.players[i].ai_mind.is_some_and(|m| m.phase == Ai::Receive) { x.state } else { x.sub };
+                if s == step::SWING && was[i] != step::SWING && i & 1 == 1 {
+                    let oz = g.players[0].pos[2];
+                    let lob = matches!(x.plan, hst_sim::aim::plan::LOB | hst_sim::aim::plan::VOLLEY_LOB);
+                    if oz.abs() < 4.1 {
+                        near += 1;
+                        lobs += lob as i32;
+                    }
+                    eprintln!("p{i} {:?} shots {} plan {} kind {} over {:.2} kind_now {} opp z {:.2} me z {:.2}", g.players[i].ai_mind.map(|m| m.phase), g.shots, x.plan, x.kind, x.ball[1] - g.reaches[i].stroke_height, g.players[i].kind, oz, g.players[i].pos[2]);
+                }
+                was[i] = s;
+            }
+        }
+        zs.sort_by(f32::total_cmp);
+        eprintln!("1P |z| in rallies: median {:.2}; bot lobs with 1P inside 4.1: {lobs}/{near}", zs.get(zs.len() / 2).copied().unwrap_or(0.0));
+    }
 }
