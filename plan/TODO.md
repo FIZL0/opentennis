@@ -22,7 +22,6 @@ index out of bounds: the len is 0 but the index is 0"
 - [ ] **B589** Random characters still have no baked mod images (user 2026-10-20, after B571): a modded character picked by Random shows no baked roster/face image. Bake it the same way store-downloaded ones are.
 - [ ] **B590** Mobile web app: auto aspect still stretches under the Dynamic Island (user 2026-10-20): in landscape the picture runs past the notch/island. Honour env(safe-area-inset-*) in the web shell (web.rs / the page's viewport-fit) so the game area stays inside the safe area.
 - [ ] **P64** Web on Safari loads for a long time (user 2026-10-20), apparently on the local random characters step: profile the startup in Safari and make picking/preparing local random characters cheap (lazy, or off the load path).
-- [ ] **B591** Let players emote during the gap after a call (user 2026-10-20): after 'fault', 'net' and other calls there's a stretch between the camera change and the game's own post-point reaction where the player can still move; allow emoting there too (play/emote.rs, B472/B278 rules).
 - [ ] **B592** T-bone's emote has a weird alien-sounding voice line (user 2026-10-20): one of his emotes plays a garbled/wrong sound. Find which emote and which bank entry it plays (emote voice_keys, his mod's sound map) and give it the right line; bump his mod's version if the fix is in the mod.
 
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)

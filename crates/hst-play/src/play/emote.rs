@@ -1,10 +1,11 @@
 //! Right-stick emotes (B145, ours, layered on top): a human flicks the right stick fully up / down / left / right
 //! (keys 1–4) and their player plays one of four of the character's own motions with its voice line, standing: no
 //! run, no stroke and no swing press until the motion is out. A ball that comes meanwhile goes by unhit — that's the
-//! cost. In live play only: in a rally, waiting for a serve and serving before the toss, not mid-stroke. Never
-//! started between points (B472: the post-point time, a fault's or let's call included, and the changes of ends);
-//! one started in the rally plays on into the post-point time until the point's reaction ends it (B278), and
-//! not at all once the point has won a game or set (B363). The flick is part of the match input (`tick_input`'s right stick bytes), so replays and online play see it alike; bots never emote. Nothing here draws from the match's generators.
+//! cost. In live play only: in a rally, waiting for a serve and serving before the toss, not mid-stroke. Also in the
+//! gap after a call (a point's, a fault's or a let's), while the player can still move, until the players react
+//! (B591); never from the reaction to the next serve, nor in the changes of ends (B472). One started in the rally
+//! or the gap plays on until it's out or the point's reaction ends it (B278), and not at all once the point has won
+//! a game or set (B363). The flick is part of the match input (`tick_input`'s right stick bytes), so replays and online play see it alike; bots never emote. Nothing here draws from the match's generators.
 
 use bevy::prelude::*;
 use hst_sim::score::Event;
@@ -66,9 +67,10 @@ pub(super) fn tick(g: &mut Game, i: usize, start: Option<u8>) -> bool {
         g.players[i].emote = 0;
         return false;
     }
-    // B472: only live play starts one, never the time between points
+    // B472: not between points once the players react; B591: the gap after the call, before the reaction, is
+    // still the player's (it can move there), so a flick there starts one
     if let Some(d) = start
-        && g.phase != Phase::Post
+        && !reacting(g)
         && g.players[i].emote == 0
         && idle(g, i)
         && let Some(clip) = g.data[i].motions.get(&MOTIONS[d as usize])
@@ -92,6 +94,11 @@ pub(super) fn tick(g: &mut Game, i: usize, start: Option<u8>) -> bool {
         super::hold_ball(g);
     }
     true
+}
+
+/// The post-point time from the players' reaction on (the reaction, the placement): no new emote (B472).
+fn reacting(g: &Game) -> bool {
+    g.phase == Phase::Post && g.post.as_ref().is_none_or(|p| p.reacted)
 }
 
 /// The point over ended a game or a set (or the match): its transition, where nobody emotes (B363).
@@ -564,9 +571,10 @@ mod match_tests {
         assert_eq!((looks, stand_in), (offline, offline), "online: with the looks, as the stand-in; offline {offline}");
     }
 
-    /// B472 (B363 before it): 1P tosses and swings as the ball drops past (a whiff: a fault); the same flick in the
-    /// call's post-point time starts nothing, nor in one that won a game (the fault's post-point turned into one) or
-    /// a set; once the next serve's wait is on, it does.
+    /// B591 (B472, B363 before it): 1P tosses and swings as the ball drops past (a whiff: a fault); a flick in the
+    /// gap after the call, before the players react, emotes — not in one that won a game (the fault's post-point
+    /// turned into one) or a set; the reaction ends it, a flick from the reaction to the next serve starts nothing,
+    /// and once the next serve's wait is on, one does again.
     #[test]
     fn no_emote_between_points() {
         if !std::path::Path::new(ISO).is_file() {
@@ -587,7 +595,7 @@ mod match_tests {
         };
         let at = post + 3;
         pads[at][0] = flick;
-        for event in [Some(Event::Game), Some(Event::Set), None] {
+        for event in [Some(Event::Game), Some(Event::Set)] {
             let mut a = seated([true, false, false, false], pads.clone());
             for t in 0..=at {
                 if t == at {
@@ -598,28 +606,33 @@ mod match_tests {
             let g = a.world().resource::<Game>();
             assert_eq!((g.phase.clone(), g.players[0].emote), (Phase::Post, 0), "{event:?}");
         }
-        // the same flick held through the post-point time, then let go and flicked again in the second serve's wait
+        // the gap's flick emotes until the reaction; flicked again two ticks into the reaction, and in the second
+        // serve's wait
         let mut a = seated([true, false, false, false], pads.clone());
-        let mut serve = None;
+        let (mut reacted, mut serve) = (None, None);
         for t in 0..n {
-            let phase = a.world().resource::<Game>().phase.clone();
-            if serve.is_none() && t > at && phase == Phase::Serve {
+            let g = a.world().resource::<Game>();
+            if reacted.is_none() && g.post.as_ref().is_some_and(|p| p.reacted) {
+                reacted = Some(t);
+            }
+            if serve.is_none() && t > at && g.phase == Phase::Serve {
                 serve = Some(t);
             }
             if let Some(p) = a.world_mut().resource_mut::<Replay>().0.front_mut() {
-                p[0] = match serve {
-                    Some(s) if t == s + 2 => flick,
-                    Some(_) => IDLE,
-                    None if t >= at => flick,
-                    None => p[0],
-                };
+                if reacted.is_some_and(|r| t == r + 2) || serve.is_some_and(|s| t == s + 2) {
+                    p[0] = flick;
+                }
             }
             a.world_mut().run_schedule(FixedUpdate);
             let g = a.world().resource::<Game>();
-            if serve.is_none() {
-                assert_eq!(g.players[0].emote, 0, "emoted between points, tick {t}");
+            let emote = g.players[0].emote;
+            if t == at {
+                assert!(g.phase == Phase::Post && !g.post.as_ref().unwrap().reacted, "the flick missed the gap");
+                assert!(emote > 0, "no emote in the gap after the call");
+            } else if reacted.is_some() && serve.is_none() {
+                assert_eq!(emote, 0, "emoted after the reaction, tick {t}");
             } else if serve.is_some_and(|s| t == s + 2) {
-                assert!(g.players[0].emote > 0, "no emote waiting to serve, tick {t}");
+                assert!(emote > 0, "no emote waiting to serve, tick {t}");
                 return;
             }
         }

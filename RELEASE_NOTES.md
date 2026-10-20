@@ -8,3 +8,4 @@
 - In the mod store's Updates view, the Characters, Courts, Umpires and Texture packs tabs now count only the mods that have an update, not every mod in the store.
 - Character select emotes now put the racket away for moves made without one, as they do in a match.
 - In the mods browser, Refresh, Download all, Upload and the download status now sit at the top, just under the mod type tabs, so a controller reaches them without scrolling past every mod.
+- You can now emote in the moment after a call (a fault, a net or a point) while you can still move, up until the players react.
