@@ -310,6 +310,10 @@ impl View {
             (Page::Browse, None) => vec!["Refresh", "Download all"],
             _ => vec!["Refresh"],
         };
+        // M135: while the store has newer versions of installed mods
+        if matches!((self.page, &self.by), (Page::Installed, _) | (Page::Browse, None)) && !self.updates().is_empty() {
+            w.push("Update all");
+        }
         if self.changed && self.page != Page::Installed {
             w.push("Reload");
         }
@@ -945,6 +949,7 @@ impl Menu {
                     }
                 },
                 "All mods" => self.mods_back(out),
+                "Update all" => self.update_all(out),
                 _ => {
                     out.push(Sound(2));
                     if let Err(e) = super::reload(self.add.app.0, out) {
@@ -1771,7 +1776,14 @@ fn footer(d: &mut Draw, m: &Menu, a: [f32; 3], l: &Lay) {
         let pw = d.width(word, size) + 24.0 * PX;
         wx -= pw;
         let b = [wx, y, pw, h];
-        look::word_pill(d, b, m.sel == 2 + i && v.child.is_none(), word, size);
+        let on = m.sel == 2 + i && v.child.is_none();
+        if *word == "Update all" && !on {
+            // M135: green, to stand out from the grey ones
+            look::outlined_pill(d, b, look::c(VERIFIED), 2.0);
+            look::pill_words(d, b, word, size, WHITE);
+        } else {
+            look::word_pill(d, b, on, word, size);
+        }
         // (B208: a phone can't pick a file)
         if v.phone && *word == "Add mod" {
             rounded(d, b, h / 2.0 / PY, look::c(look::PAPER), 70.0);
@@ -2209,6 +2221,10 @@ pub(super) fn info(m: &Menu) -> String {
             "Remove all" => "Remove every mod the game installed (ones added by hand stay).".into(),
             "Remove all uploads" => "Take every mod you shared off the store (asks first).".into(),
             "Reload" => super::reload_said(v).into(),
+            "Update all" => match v.updates().len() {
+                1 => "Install the newer version of the 1 mod the store has an update for.".into(),
+                n => format!("Install the newer version of all {n} mods the store has updates for."),
+            },
             "Download all" => match &v.by {
                 Some(b) => format!("Install every mod by {} you don't have yet.", super::who(&b.author)),
                 None => "Install every mod listed here you don't have yet (the search and filters choose which).".into(),
