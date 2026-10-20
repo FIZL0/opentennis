@@ -107,7 +107,7 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, _bind: &Bindings, pads
     let n = m.players();
     let focus = m.sel.min(n - 1);
     let pending = m.lead_pending().flatten();
-    let mut sliding = Vec::new();
+    let (mut sliding, mut lifted) = (Vec::new(), Vec::new());
     for (p, card) in cards(m.grid.view, n).into_iter().enumerate() {
         let start = d.out.len();
         glow(d, card, m.flash[p]);
@@ -119,8 +119,13 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, _bind: &Bindings, pads
             q.dst[0] += m.shake[p];
             q.dst[1] -= lift;
         });
+        // B597: the card the mouse drags follows it, over the rest
+        let quads = d.out.drain(start..).collect();
+        lifted.extend(super::assign_drag::lift(d, m, p, card, quads));
     }
+    super::assign_drag::target(d, m);
     d.out.extend(sliding);
+    d.out.extend(lifted);
     keep_layout(d, m);
 }
 
