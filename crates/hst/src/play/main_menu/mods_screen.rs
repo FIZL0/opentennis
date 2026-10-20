@@ -481,7 +481,8 @@ impl View {
         mods_kind::KINDS.map(|k| match self.page {
             _ if mods_kind::coming(k).is_some() => 0,
             Page::Installed | Page::Upload => self.of_kind(k).len(),
-            Page::Browse | Page::Mine => self.entries().iter().filter(|e| e.meta.kind == k).count(),
+            // B587: Browse's under the chosen Show tab (Updates: only the mods with an update)
+            Page::Browse | Page::Mine => self.entries().iter().filter(|e| e.meta.kind == k && self.shown(e)).count(),
         })
     }
 
@@ -2257,9 +2258,12 @@ mod tests {
         m.sel = p0 + 2;
         m.mods_step(ok(), &mut out);
         assert_eq!((names(&m), m.sel), (vec!["Kent".to_string()], p0 + 2));
+        // B587: its Characters tab counts the one update, not every mod in the store
+        assert_eq!(m.add.kind_counts()[0], 1);
         m.sel = p0;
         m.mods_step(ok(), &mut out);
         assert_eq!(names(&m).len(), 5);
+        assert_eq!(m.add.kind_counts()[0], 5);
         let t0 = m.add.browse_acts();
         // more tiles a row on a 16:9 view than on 4:3
         let cols = grid::lay(&m.grid).cols;
