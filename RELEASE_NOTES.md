@@ -5,3 +5,4 @@
 - Mod character textures now wrap or stop at their edges as the model file says, so no thin seam shows down the middle of a face.
 - The court flyover before a match no longer makes trees, props, scenery or players vanish or pop in as the camera sweeps past, on custom courts too.
 - Custom courts can now have their own camera flyover before the match, so indoor courts no longer fly around outside their walls.
+- In the mod store's Updates view, the Characters, Courts, Umpires and Texture packs tabs now count only the mods that have an update, not every mod in the store.

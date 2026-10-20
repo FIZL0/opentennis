@@ -422,6 +422,11 @@ impl View {
         }
     }
 
+    /// B587: whether the chosen Show tab (Updates, Saved mods) leaves `e`, any kind (the kind tabs' counts).
+    pub(super) fn shown(&self, e: &Entry) -> bool {
+        self.passes(e, &Opt::Show(self.b.show), &[])
+    }
+
     /// Show tab `s`'s mods of the chosen kind, before search and filters (None: its list isn't loaded yet).
     fn show_count(&self, s: Show) -> Option<usize> {
         let kind = |l: &[Entry]| l.iter().filter(|e| e.meta.kind == self.kind).count();
