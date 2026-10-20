@@ -1,14 +1,12 @@
-//! First-person view for player 0 (`HST_FIRST_PERSON=1`, a fun branch): the mouse looks, the stick and keys move relative to
-//! where it looks, in any direction. The player's own head isn't drawn, but still casts its shadow: the camera's copy
-//! of each body part has the head's joints shrunk to a point, and an untouched copy on render layer 1 (seen only by
-//! the sun) casts the full shadow. ponytail: player 0 only and local only (netplay would desync on the turned stick).
+//! Third-person ball cam for player 0 (`HST_THIRD_PERSON=1`, a fun branch): the camera follows behind the player and
+//! turns toward the ball; the mouse or right stick looks, the stick and keys move relative to the camera, in any
+//! direction. ponytail: player 0 only and local only (netplay would desync on the turned stick).
 
+use std::f32::consts::{PI, TAU};
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::Relaxed};
 
-use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::input::mouse::AccumulatedMouseMotion;
-use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 
@@ -16,7 +14,7 @@ use super::{Figure, Game};
 use crate::Orbit;
 
 pub fn on() -> bool {
-    static ON: LazyLock<bool> = LazyLock::new(|| std::env::var_os("HST_FIRST_PERSON").is_some());
+    static ON: LazyLock<bool> = LazyLock::new(|| std::env::var_os("HST_THIRD_PERSON").is_some());
     *ON
 }
 
@@ -32,33 +30,36 @@ const SENSITIVITY: f32 = 0.0025;
 const STICK_DEAD: f32 = 0.15;
 const STICK_FULL: f32 = 0.85;
 const WALK_SPEED: f32 = 0.35;
-const FOV: f32 = 105.0;
+const FOV: f32 = 75.0;
 /// The right stick's full-tilt turn, radians per second.
 const STICK_TURN: f32 = 3.5;
-/// The eye over the head joint, and ahead of it along the look.
-/// How fast (per second) the eye eases toward the head's place over the body.
-const SWAY_EASE: f32 = 6.0;
-/// Ball cam: how fast it turns toward the ball (per second), the box (yaw, pitch radians) it lets the ball wander in,
-/// and how far above the middle it holds the ball.
-const LOCK_EASE: f32 = 4.0;
-const LOCK_FREE: Vec2 = Vec2::new(0.12, 0.08);
-const LOCK_ABOVE: f32 = 0.1;
-const EYE_UP: f32 = 0.08;
-const AHEAD: f32 = 0.12;
-/// While serving, the eye goes this far back along the look and up.
-const SERVE_BACK: Vec2 = Vec2::new(2.0, 0.5);
+/// The camera: pivot height over the feet, distance behind, resting pitch (looking down), and how much farther
+/// back it goes per metre the ball is over the pivot and when the ball is straight behind the player.
+const HEIGHT: f32 = 1.3;
+const DIST: f32 = 4.5;
+const PITCH_REST: f32 = -0.3;
+const HIGH_ZOOM: f32 = 0.8;
+const BEHIND_ZOOM: f32 = 4.0;
+/// The focus leads this fraction of the way toward the ball, at most `LEAD_MAX` metres.
+const LEAD: f32 = 0.25;
+const LEAD_MAX: f32 = 3.0;
+/// Eases (per second): the focus, the zoom, and the ball cam's turn.
+const FOCUS_EASE: f32 = 5.0;
+const ZOOM_EASE: f32 = 2.0;
+const LOCK_EASE: f32 = 3.0;
+/// The ball cam lets the ball wander this far (yaw, pitch radians) before it turns, and doesn't turn for a ball
+/// within this many metres (across the court) of the player.
+const LOCK_FREE: Vec2 = Vec2::new(0.15, 0.1);
+const LOCK_NEAR: f32 = 1.5;
 
 pub fn plugin(app: &mut App) {
     if on() {
-        app.add_systems(
-            Update,
-            (look.before(super::camera), headless, sun_sees_shadows),
-        )
-        .add_systems(
-            PostUpdate,
-            view.after(bevy::transform::TransformSystems::Propagate),
-        )
-        .init_resource::<Eye>();
+        app.add_systems(Update, look.before(super::camera))
+            .add_systems(
+                PostUpdate,
+                view.after(bevy::transform::TransformSystems::Propagate),
+            )
+            .init_resource::<Pivot>();
     }
 }
 
@@ -98,7 +99,9 @@ pub fn dpad_emote(g: &Gamepad) -> Option<u8> {
         .map(|d| d as u8)
 }
 
-/// Mouse or right-stick look, the cursor held in the window; the look starts toward the other end and again after a change of ends.
+/// Mouse or right-stick look, the cursor held in the window; the look starts toward the other end and again after a
+/// change of ends. Ball cam (on by default; right-stick click or middle mouse toggles it) turns the camera from behind
+/// the player toward the ball, easing, and lets the ball wander a little on the screen rather than pinning it.
 fn look(
     g: Res<Game>,
     mouse: Res<AccumulatedMouseMotion>,
@@ -106,32 +109,27 @@ fn look(
     time: Res<Time>,
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
-    eye: Res<Eye>,
+    pivot: Res<Pivot>,
     mut cursor: Query<&mut CursorOptions>,
     mut end: Local<f32>,
-    mut lock: Local<bool>,
+    mut free: Local<bool>,
 ) {
-    WALK.store(keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]), Relaxed);
+    WALK.store(
+        keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]),
+        Relaxed,
+    );
     if buttons.just_pressed(MouseButton::Middle)
         || pads
             .iter()
             .any(|p| p.just_pressed(GamepadButton::RightThumb))
     {
-        *lock = !*lock;
+        *free = !*free;
     }
     if *end != g.players[0].end {
         *end = g.players[0].end;
         // facing game +z is Bevy −z
-        YAW.store(
-            if *end > 0.0 {
-                0.0f32
-            } else {
-                std::f32::consts::PI
-            }
-            .to_bits(),
-            Relaxed,
-        );
-        PITCH.store(0.0f32.to_bits(), Relaxed);
+        YAW.store(if *end > 0.0 { 0.0f32 } else { PI }.to_bits(), Relaxed);
+        PITCH.store(PITCH_REST.to_bits(), Relaxed);
     }
     for mut c in &mut cursor {
         c.grab_mode = CursorGrabMode::Locked;
@@ -146,37 +144,33 @@ fn look(
         mouse.delta * SENSITIVITY + Vec2::new(stick.x, -stick.y) * STICK_TURN * time.delta_secs();
     let mut yaw = f32::from_bits(YAW.load(Relaxed)) - d.x;
     let mut pitch = f32::from_bits(PITCH.load(Relaxed)) - d.y;
-    if *lock {
-        // ball cam: ease toward the ball, held a little above the middle; inside a loose box round that spot the view
-        // doesn't chase it, so the ball drifts on the screen rather than sitting pinned in the centre
+    if !*free {
         let [x, y, z] = g.flight.ball.pos;
-        let to = Vec3::new(x, -y, -z) - eye.0;
-        let want_yaw = (-to.x).atan2(-to.z);
-        let want_pitch = to.y.atan2(to.xz().length()) - LOCK_ABOVE;
-        let wrap = |a: f32| {
-            (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
-        };
+        let to = Vec3::new(x, -y, -z) - pivot.0;
         let ease = |e: f32, free: f32| {
             e.signum() * (e.abs() - free).max(0.0) * (LOCK_EASE * time.delta_secs()).min(1.0)
         };
-        yaw += ease(wrap(want_yaw - yaw), LOCK_FREE.x);
-        pitch += ease(want_pitch - pitch, LOCK_FREE.y);
+        // the ball right over the player (a toss, a lob coming down on it): no direction to turn to
+        if to.xz().length() > LOCK_NEAR {
+            let want = (-to.x).atan2(-to.z);
+            yaw += ease((want - yaw + PI).rem_euclid(TAU) - PI, LOCK_FREE.x);
+        }
+        // tilt up only part of the way to a high ball: the zoom out does the rest
+        let want = PITCH_REST + to.y.atan2(to.xz().length()).max(0.0) * 0.4;
+        pitch += ease(want - pitch, LOCK_FREE.y);
     }
-    let pitch = pitch.clamp(-1.5, 1.5);
     YAW.store(yaw.to_bits(), Relaxed);
-    PITCH.store(pitch.to_bits(), Relaxed);
+    PITCH.store(pitch.clamp(-1.3, 0.6).to_bits(), Relaxed);
 }
 
-/// The eye: on player 0's head as this frame's pose leaves it (after the transforms propagate, so it never trails the
-/// body), a little ahead along the look; pulled back over the shoulder while it serves, to see the toss.
+/// The camera: behind player 0 along the look, a little above, its focus eased toward the player and led a little
+/// toward the ball; it pulls back when the ball goes high or gets behind the player, and never dips under the court.
 fn view(
     g: Res<Game>,
     time: Res<Time>,
-    head: Option<Res<Head>>,
-    joints: Query<&GlobalTransform, Without<Camera3d>>,
+    figures: Query<(&Figure, &GlobalTransform), Without<Camera3d>>,
     mut q: Query<
         (
-            Entity,
             &mut Orbit,
             &mut Projection,
             &mut Transform,
@@ -184,129 +178,48 @@ fn view(
         ),
         With<Camera3d>,
     >,
-    mut back: Local<f32>,
-    mut sway: Local<Vec3>,
-    mut eye_at: ResMut<Eye>,
-    mut commands: Commands,
+    mut pivot: ResMut<Pivot>,
+    mut zoom: Local<Option<(Vec3, f32)>>,
 ) {
-    let Ok((cam, mut o, mut proj, mut tf, mut global)) = q.single_mut() else {
+    let Ok((mut o, mut proj, mut tf, mut global)) = q.single_mut() else {
         return;
     };
-    let Some((h, body)) = head.and_then(|h| {
-        Some((
-            joints.get(h.0).ok()?.translation(),
-            joints.get(h.1).ok()?.translation(),
-        ))
-    }) else {
+    let Some(player) = figures
+        .iter()
+        .find(|(f, _)| f.0 == 0)
+        .map(|(_, t)| t.translation() + Vec3::Y * HEIGHT)
+    else {
         return;
     };
-    // the body glides between ticks; the head's sway over it is eased, so the run's bob doesn't shake the view
-    *sway = sway.lerp(h - body, (SWAY_EASE * time.delta_secs()).min(1.0));
-    let at = body + *sway;
-    let serving = g.phase == super::Phase::Serve && g.score.server == 0;
-    *back += ((serving as u8 as f32) - *back) * (4.0 * time.delta_secs()).min(1.0);
+    pivot.0 = player;
+    let dt = time.delta_secs();
+    let [x, y, z] = g.flight.ball.pos;
+    let to = Vec3::new(x, -y, -z) - player;
     o.yaw = f32::from_bits(YAW.load(Relaxed));
-    o.pitch = f32::from_bits(PITCH.load(Relaxed));
-    let flat = Vec3::new(-o.yaw.sin(), 0.0, -o.yaw.cos());
-    let eye = at
-        + Vec3::Y * EYE_UP
-        + flat * (AHEAD - *back * SERVE_BACK.x)
-        + Vec3::Y * *back * SERVE_BACK.y;
-    eye_at.0 = eye;
-    o.focus = eye - Quat::from_euler(EulerRot::YXZ, o.yaw, o.pitch, 0.0) * Vec3::Z * o.radius;
+    let fwd = Vec3::new(-o.yaw.sin(), 0.0, -o.yaw.cos());
+    let behind = (-fwd.dot(to.with_y(0.0).normalize_or_zero())).max(0.0);
+    let high = (to.y - 1.0).max(0.0);
+    let (want_focus, want_radius) = (
+        player + to.clamp_length_max(LEAD_MAX) * LEAD,
+        DIST + high * HIGH_ZOOM + behind * BEHIND_ZOOM,
+    );
+    let (focus, radius) = zoom.get_or_insert((want_focus, want_radius));
+    *focus = focus.lerp(want_focus, (FOCUS_EASE * dt).min(1.0));
+    *radius += (want_radius - *radius) * (ZOOM_EASE * dt).min(1.0);
+    // looking up lowers the camera behind the focus: keep it over the court
+    let lowest = ((focus.y - 0.4) / *radius).clamp(-1.0, 1.0).asin();
+    o.pitch = f32::from_bits(PITCH.load(Relaxed)).min(lowest);
+    (o.focus, o.radius) = (*focus, *radius);
     *tf = o.transform();
     *global = GlobalTransform::from(*tf);
-    // pulled back, the whole body shows (the shadow twins have the head)
-    let layers = if *back > 0.3 {
-        RenderLayers::from_layers(&[0, 1])
-    } else {
-        RenderLayers::layer(0)
-    };
-    commands.entity(cam).insert(layers);
     if let Projection::Perspective(p) = &mut *proj {
         p.fov = FOV.to_radians();
-        p.near = 0.05;
     }
 }
 
-/// Player 0's head joint (the eye's height).
-#[derive(Resource)]
-struct Head(Entity, Entity);
-
-/// The eye's last place (the ball cam aims from it).
+/// Player 0's middle, where the camera pivots (the ball cam aims from it).
 #[derive(Resource, Default)]
-struct Eye(Vec3);
-
-#[derive(Component)]
-struct Headless;
-
-/// Once player 0's rig is spawned: each skinned part gets a shadow-only twin, and its own head joints (the head and
-/// everything under it: face, eyes) swapped for a point at the head.
-fn headless(
-    mut commands: Commands,
-    rigs: Query<(Entity, &Figure, &crate::character::Rig, &Children), Without<Headless>>,
-    parts: Query<&SkinnedMesh>,
-) {
-    for (root, f, rig, parts_of) in &rigs {
-        if f.0 != 0 {
-            continue;
-        }
-        commands.entity(root).insert(Headless);
-        let joints = &rig.data.joints;
-        let Some(head) = ["Bip01Head", "head", "Head"]
-            .into_iter()
-            .find_map(|n| rig.data.joint(n))
-        else {
-            continue;
-        };
-        commands.insert_resource(Head(rig.joints[head], root));
-        let under_head = |mut j: usize| loop {
-            if j == head {
-                return true;
-            }
-            match joints[j].parent {
-                Some(p) => j = p,
-                None => return false,
-            }
-        };
-        let point = commands
-            .spawn((
-                Transform::from_scale(Vec3::splat(1e-4)),
-                ChildOf(rig.joints[head]),
-            ))
-            .id();
-        let hidden: Vec<Entity> = (0..joints.len())
-            .filter(|&j| under_head(j))
-            .map(|j| rig.joints[j])
-            .collect();
-        for &part in parts_of {
-            let Ok(skin) = parts.get(part) else { continue };
-            commands
-                .entity(part)
-                .clone_and_spawn()
-                .insert((RenderLayers::layer(1), NoFrustumCulling));
-            let mut skin = skin.clone();
-            for j in &mut skin.joints {
-                if hidden.contains(j) {
-                    *j = point;
-                }
-            }
-            commands.entity(part).insert(skin);
-        }
-    }
-}
-
-/// The sun casts from layer 1 (the shadow twins) as well as the usual layer 0.
-fn sun_sees_shadows(
-    mut commands: Commands,
-    lights: Query<Entity, (With<DirectionalLight>, Without<RenderLayers>)>,
-) {
-    for e in &lights {
-        commands
-            .entity(e)
-            .insert(RenderLayers::from_layers(&[0, 1]));
-    }
-}
+struct Pivot(Vec3);
 
 #[cfg(test)]
 mod tests {
@@ -315,8 +228,13 @@ mod tests {
     #[test]
     fn stick_keeps_any_angle_and_walks() {
         // 20° off forward: the original's per-axis deadzone would snap this to straight ahead
-        let v = stick(Vec2::new(20f32.to_radians().sin(), 20f32.to_radians().cos()));
-        assert!((v.x.atan2(v.y).to_degrees() - 20.0).abs() < 1e-3 && (v.length() - 1.0).abs() < 1e-6);
+        let v = stick(Vec2::new(
+            20f32.to_radians().sin(),
+            20f32.to_radians().cos(),
+        ));
+        assert!(
+            (v.x.atan2(v.y).to_degrees() - 20.0).abs() < 1e-3 && (v.length() - 1.0).abs() < 1e-6
+        );
         assert!((stick(Vec2::Y * 0.5).length() - 0.5).abs() < 1e-6);
         assert_eq!(stick(Vec2::X * 0.1), Vec2::ZERO);
     }

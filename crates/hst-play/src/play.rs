@@ -1766,7 +1766,7 @@ pub fn read_input(
             continue;
         };
         let s = &mut now[slot];
-        s.stick += if fps::on() && slot == 0 { fps::stick(g.left_stick()) } else { pad_stick(g.left_stick()) };
+        s.stick += if fps::on() { fps::stick(g.left_stick()) } else { pad_stick(g.left_stick()) };
         for (a, d) in dirs {
             // first person: the d-pad emotes and the right stick looks
             if !fps::on() && bind.pad_pressed(g, a) {
