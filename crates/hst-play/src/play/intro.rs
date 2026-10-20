@@ -189,8 +189,10 @@ fn start(
     let Some(g) = g.filter(|_| on && !window.is_empty()) else { return };
     let mut iso = Iso::open(&args.iso).expect("open iso");
     let n = g.stage as usize;
-    let dat = iso.read(&format!("COURT/{n:02}/CMN.XB")).ok().and_then(|d| {
-        let arc = Archive::parse(&d).ok()?;
+    // a court mod's own flyover (an indoor set the layout court's would leave), else the layout court's
+    let dat = court.as_ref().and_then(|c| c.0.flyover.clone()).or_else(|| {
+        let arc = iso.read(&format!("COURT/{n:02}/CMN.XB")).ok()?;
+        let arc = Archive::parse(&arc).ok()?;
         let e = arc.entries.iter().find(|e| e.name.ends_with(&format!("cam_c{n:02}_00.dat")))?;
         arc.read(e).ok()
     });

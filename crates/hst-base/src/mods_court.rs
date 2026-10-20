@@ -68,6 +68,9 @@ pub struct Court {
     pub lens_flare: Option<PathBuf>,
     /// M8f7: the people of `npcs.json` (§2b); `None` without one (a broken one is left out with its reason logged).
     pub people: Option<People>,
+    /// The manifest's `flyover`, as a camera file (`hst_sim::cutaway::intro_script`'s 40-byte records); `None`: the
+    /// layout court's.
+    pub flyover: Option<Vec<u8>>,
 }
 
 /// M8f7: `npcs.json`, checked: the models (path, turned to the camera), the people placed and the cue sounds.
@@ -225,7 +228,40 @@ pub fn read(dir: &Path) -> Result<Court, String> {
         ambience,
         lens_flare: j["lens_flare"].as_str().filter(|f| crate::modfs::plain(f)).map(|f| dir.join(f)).filter(|p| crate::modfs::is_file(p)),
         people: with_people.then(|| people(dir).map_err(|e| warn!("{e}")).ok()).flatten(),
+        flyover: flyover(&j["flyover"]).map_err(err)?,
     })
+}
+
+/// The manifest's `flyover` (an indoor set the layout court's flyover would leave): up to 20 keys `{"frames", "eye",
+/// "pitch", "yaw", "roll", "fov", "ease", "ease_out", "orbit"}` (game space m, Y down; degrees), turned into the disc's
+/// camera file records. Each key after the first moves the camera there over its `frames`; `frames` 0 cuts to a new
+/// segment (`orbit` on it: swing round the court centre instead of sliding).
+fn flyover(v: &serde_json::Value) -> Result<Option<Vec<u8>>, String> {
+    let serde_json::Value::Array(keys) = v else {
+        return if v.is_null() { Ok(None) } else { Err("`flyover` must be a list of keys".into()) };
+    };
+    if keys.is_empty() || keys.len() > 20 {
+        return Err("`flyover` must have 1 to 20 keys".into());
+    }
+    let mut out = Vec::with_capacity(40 * keys.len());
+    for (i, k) in keys.iter().enumerate() {
+        let num = |f: &str, or: Option<f32>| match &k[f] {
+            serde_json::Value::Null => or.ok_or_else(|| format!("`flyover[{i}].{f}` is missing")),
+            x => x.as_f64().map(|x| x as f32).filter(|x| x.is_finite()).ok_or_else(|| format!("`flyover[{i}].{f}` must be a number")),
+        };
+        let frames = if i == 0 { 0.0 } else { num("frames", None)? };
+        if !(0.0..=3600.0).contains(&frames) {
+            return Err(format!("`flyover[{i}].frames` must be 0..=3600"));
+        }
+        let eye = k["eye"].as_array().filter(|a| a.len() == 3).and_then(|a| a.iter().map(|x| x.as_f64().map(|x| x as f32)).collect::<Option<Vec<_>>>());
+        let eye = eye.filter(|e| e.iter().all(|x| x.is_finite())).ok_or_else(|| format!("`flyover[{i}].eye` must be three numbers"))?;
+        out.extend((frames as i16).to_le_bytes());
+        out.extend((k["orbit"].as_bool().unwrap_or(false) as i16).to_le_bytes());
+        for x in [num("ease", Some(1.0))?, num("ease_out", Some(0.0))?, eye[0], eye[1], eye[2], num("pitch", None)?, num("yaw", None)?, num("roll", Some(0.0))?, num("fov", Some(60.0))?] {
+            out.extend(x.to_le_bytes());
+        }
+    }
+    Ok(Some(out))
 }
 
 impl Court {
@@ -255,6 +291,24 @@ pub fn find(root: &Path, id: &str) -> Option<Court> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A manifest's `flyover` becomes the disc's camera file records; a key without its frames or eye is refused.
+    #[test]
+    fn reads_a_flyover() {
+        let j: serde_json::Value = serde_json::from_str(
+            r#"[{"eye":[0,-3,-10],"pitch":-10,"yaw":180,"fov":70},{"frames":120,"eye":[0,-6,-8],"pitch":-20,"yaw":200,"fov":60,"ease":0.5},
+                {"frames":0,"eye":[5,-2,0],"pitch":0,"yaw":90,"orbit":true},{"frames":90,"eye":[5,-2,4],"pitch":0,"yaw":120}]"#,
+        )
+        .unwrap();
+        let dat = flyover(&j).unwrap().unwrap();
+        assert_eq!((dat.len(), hst_sim::cutaway::intro_frames(&dat)), (160, 210));
+        // the second key: its frames, ease and eye where the disc's camera file has them
+        assert_eq!((i16::from_le_bytes([dat[40], dat[41]]), f32::from_le_bytes(dat[44..48].try_into().unwrap()), f32::from_le_bytes(dat[60..64].try_into().unwrap())), (120, 0.5, -8.0));
+        assert_eq!(i16::from_le_bytes([dat[82], dat[83]]), 1);
+        assert_eq!(flyover(&serde_json::Value::Null), Ok(None));
+        assert!(flyover(&serde_json::json!([{"eye":[0,0,0],"pitch":0,"yaw":0},{"eye":[0,0,0],"pitch":0,"yaw":0}])).unwrap_err().contains("frames"));
+        assert!(flyover(&serde_json::json!([{"eye":[0,0],"pitch":0,"yaw":0}])).unwrap_err().contains("eye"));
+    }
 
     /// A court mod reads (layout, light, fog, sounds and their loops); a broken one (layout out of range, no
     /// court.glb, fog ending before it starts, another kind) is refused with the reason; `list` keeps only court

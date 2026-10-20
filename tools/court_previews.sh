@@ -4,7 +4,7 @@
 # HST_COURT_PREVIEW=1), scaled down. The flyover is the layout court's, so the moment depends on the layout: the ones
 # in use (2026-10-15) were Get a Grip 2 (c16, c17: 4, their layout's flyover starts outside the set), Fore/OT2 4,
 # layouts 7 and 9 3 (later is the match camera under the "Start the Match!" banner), Out of Bounds c06 2.
-# A closed set the flyover never enters (Get a Grip 2's c16 TV studio and c17 training court, layout 3: by the time it
+# A closed set the flyover never enters (now: give it its own `flyover` in mod.json; before that Get a Grip 2's c16 TV studio and c17 training court, layout 3: by the time it
 # reaches the court it has handed over to the match camera) takes a fixed camera instead: @EYE is an HST_EYE view
 # (game space eye,forward,down,tan), e.g. gag_c16_tvstudio@9,-7,17,-9,6,-17,0,1,0,0.75 (high corner inside the room).
 # Needs `cargo build --release -p hst` and a Wayland/Hyprland session (tools/shot.sh); writes into the mod folders.
