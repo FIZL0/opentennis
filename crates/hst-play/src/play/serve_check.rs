@@ -251,8 +251,8 @@ mod tests {
             app.world_mut().resource_mut::<Replay>().0.push_back([IDLE; 4]);
             app.world_mut().run_schedule(FixedUpdate);
         };
-        // the bots' first fault (tick 1832 of this match)
-        for _ in 0..3000 {
+        // the bots' first fault (tick 3177 of this match)
+        for _ in 0..4000 {
             tick(&mut app);
             let g = app.world().resource::<Game>();
             if g.phase == Phase::Post && g.rally.faults == 1 {
