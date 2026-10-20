@@ -182,6 +182,23 @@ It re-rolls the net pick and clears the defer either way.
   original; kept here").
 - In the stroke-state check, a non-claimant also has its "the contact step moved freely" flag cleared before the step
   runs. The contact step sets that flag again from its own move on the frames it runs.
+- The push only happens in a four-player match, when the partner exists, and only when the mover asks for it. For
+  these three movers that means: not the claimant. The claimant is the player whose index the claim holds.
+- While the instant replay has a player's real state put aside (the replay's save and restore), the stroke-state check
+  doesn't run at all, and any push measures against the partner's put-aside position instead of where it is drawn.
+  This is replay playback only and doesn't change a match. The app's replay doesn't step the movers, so nothing to
+  port.
+- **What the app has today** (checked in `play.rs`):
+  - The run and stand moves (`locomote` through the player's mover), the approach search, the dive's step and the
+    contact step's IK tick pass the partner. The contact step passes it always, even for the claimant.
+  - **There is no stroke-state per-frame check.** On stroke frames with no IK step the app doesn't call the mover at
+    all. So a stroking player that its partner has walked into (closer than 1 m) is never pushed out. The port adds a
+    zero-step mover call on every frame the movement state is 2, before the countdown, with the partner only when the
+    player isn't the claimant. For a non-claimant it also clears the "moved freely" flag.
+  - The serve's IK tick passes no partner at all. The original's serve-swing check exempts only the claimant. The
+    server holds the claim from its swing start until the serve's hit message. So on the serve swing's frames after
+    the hit, a server closer than 1 m to its partner is pushed out. In practice the server's partner stands at the
+    net, so this almost never triggers, but the rule is: partner passed when not the claimant.
 
 ### The miss mark
 - A player's miss mark is set on the frame its swing turns into its miss motion. That happens in two cases:
@@ -205,9 +222,10 @@ It re-rolls the net pick and clears the defer either way.
     drawn;
   - otherwise there is a 25% chance (one AI-generator draw), and when it speaks, a second draw picks between the two
     call lines (bit 16 of that draw).
-- The partner's movement state is whatever the partner had when this player's AI step ran. If the players update in
-  index order (not confirmed, see *Open questions*), players 0 and 1 see their partner's state from the previous
-  frame, and players 2 and 3 see it from this frame.
+- The partner's movement state is whatever the partner had when this player's AI step ran. The players update in
+  index order, each running its AI step and then its own movement update before the next player starts (confirmed
+  from the recordings, see *Order within a frame*). So players 0 and 1 see their partner's state as the previous
+  frame left it, and players 2 and 3 see it after their partner's update on this frame.
 - The app passes 0 (standing) every frame. So it draws the 25% roll, and sometimes the line, while the partner is
   mid-swing. That shifts the AI generator from the original's.
 
@@ -224,6 +242,22 @@ It re-rolls the net pick and clears the defer either way.
 
 The claim is taken inside the press or contact search during step 2. Messages (strike, hit, new path) are sent where
 the ball event happens, and they drop the claim and the records for everyone.
+
+**This order is confirmed from the recordings.** `ai_net_s05.bin` records, at each AI call, the player's own position
+and movement state, the partner's position, and the partner's movement state as the routine read it. The scan below
+used a scratch script, not in git.
+- Within a tick, the AI calls always come in ascending player order.
+- Partner position, on ticks where the partner moved: player 2 and 3 calls see the partner's position after this
+  tick's move (1 012 of 1 026; 2 see the old position, 12 match neither). Player 0 and 1 calls see the partner's
+  position from before its move on this tick (774 of 774).
+- Partner movement state, on ticks where the partner's state changed: players 2 and 3 read the new state (74 of 75).
+  Players 0 and 1 read the old one (77 of 77).
+- The one exception (a player 2 call that read its partner's old state) wasn't looked into. It doesn't change the order.
+
+The app's `control` runs `bot` per player in index order, and `bot` runs the AI step (`doubles_ai::step`) and then
+that player's move and stroke update. So the order matches. The port reads the partner's movement state at the AI
+step, the same way `foot_fx::state` derives it from the partner's fields at that moment. The routine side is
+checked against the state field the `ai_net_s05.bin` calls carry.
 
 ## Constants
 - Keep-apart distance: 1 m. Court bounds for the push: |x| ≤ 8.685 and 1.5 ≤ |z| ≤ 17.885 (already in the mover).
@@ -291,12 +325,17 @@ What the port can check:
    assert or a test over a four-bot match) that it never runs with a plan.
 
 ## Open questions
-- The keep-apart exemption is from the decompile only: no recording shows a stroking claimant within 1 m of its
-  partner. It needs a scripted capture (point 3) if the port phase wants proof against the original and not just a
-  rule test.
-- Whether the stroke-state's per-frame keep-apart check exists in the app at all (a no-step mover call on every
-  stroke frame), or only at the contact step. The port session checks `play.rs` and adds it if missing.
-- The voice reads the partner's state "as it is when the AI runs". The app's `foot_fx::state` is derived from the
-  app's own fields, and those may be updated in a different order than the original's player loop. The original's player update order isn't confirmed (index order is assumed). The
-  port should sample the partner's state at the same point and check it against the partner state the `ai_rally_s05*`
-  fixtures record for each AI call.
+none
+
+Resolved in this pass:
+- **Player update order:** index order, AI then movement per player. Confirmed from `ai_net_s05.bin` (*Order within a
+  frame*).
+- **Is the stroke-state check in the app?** No, only at the contact step. The port adds it (*Keeping apart*, *What
+  the app has today*).
+- **Proof of the keep-apart exemption:**
+  - The decompile shows one per-call flag on the already bit-exact mover push. The three movers pass "not the
+    claimant", and every other mover passes "always".
+  - The acceptance test is a hst-play rule test (*Verification* point 3). It checks that the claimant isn't moved and
+    a non-claimant is pushed, using the existing bit-exact `mover`.
+  - No recording of the original shows it: match_s05 never brings teammates within 1 m during a stroke. A scripted
+    capture isn't required. The port lists it under *Not verified / not 1:1* in its journal.
