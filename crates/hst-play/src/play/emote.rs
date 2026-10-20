@@ -146,7 +146,7 @@ fn idle(g: &Game, i: usize) -> bool {
 /// nothing draws from the match's generators.
 fn voice(g: &mut Game, i: usize, motion: usize) {
     // B474: muted here only after the pick, so the key memory (match state) moves the same on every peer
-    if let Some(play) = line(&mut g.voices[i], i, motion, &g.data[i].voice_takes).filter(|_| crate::audio::EMOTE_VOICES.load(std::sync::atomic::Ordering::Relaxed)) {
+    if let Some(play) = line(&mut g.voices[i], i, motion, &g.data[i].voice_takes, g.players.len()).filter(|_| crate::audio::EMOTE_VOICES.load(std::sync::atomic::Ordering::Relaxed)) {
         g.lines.push(Line::Emote(i, play));
     }
 }
@@ -172,6 +172,17 @@ pub fn own_voice_keys(motion: usize, takes: impl Fn(u8) -> usize) -> Option<(u8,
         0 => (program, lo, hi),
         n => (program, 0, n as i32 - 1),
     })
+}
+
+/// The last emote take of `program` a disc voice bank has with `players` in the match (B599): the doubles banks
+/// (three or four players) hold only keys 0–1 of programs 7 and 8 and key 0 of 9 and 10, so a pick past those would
+/// stay silent; the singles banks have every take `voice_keys` lists.
+pub fn bank_last(program: u8, players: usize) -> i32 {
+    match program {
+        _ if players < 3 => i32::MAX,
+        7 | 8 => 1,
+        _ => 0,
+    }
 }
 
 /// A voice line that cuts emote lines still sounding (B473): an emote's line its own player's last one, a post-point
@@ -213,9 +224,12 @@ pub(super) fn play_lines(
     }
 }
 
-/// Player `i`'s emote line for `motion` on its voice `v`: the take after its last, over its own `takes` if a mod's.
-fn line(v: &mut sound::Voice, i: usize, motion: usize, takes: &std::collections::HashMap<u8, u8>) -> Option<sound::Play> {
-    let (program, lo, hi) = own_voice_keys(motion, |p| takes.get(&p).map_or(0, |&n| n as usize))?;
+/// Player `i`'s emote line for `motion` on its voice `v`: the take after its last, over its own `takes` if a mod's,
+/// else over the ones its disc bank has with `players` in the match (`bank_last`).
+fn line(v: &mut sound::Voice, i: usize, motion: usize, takes: &std::collections::HashMap<u8, u8>, players: usize) -> Option<sound::Play> {
+    let own = |p| takes.get(&p).map_or(0, |&n| n as usize);
+    let (program, lo, hi) = own_voice_keys(motion, own)?;
+    let hi = if own(program) == 0 { hi.min(bank_last(program, players)) } else { hi };
     let k = v.cycle(lo, hi, EMOTE_SLOT);
     v.react(i, (program, k, k, None), || 0)
 }
@@ -252,7 +266,7 @@ mod tests {
     fn emote_lines_vary() {
         for (m, program, keys) in [(id::WON_GAME, 9, &[0, 1, 0][..]), (id::LOST_GAME, 10, &[0, 1, 0]), (id::WON, 7, &[0, 1, 2, 0]), (id::LOST, 8, &[0, 1, 2, 3, 4, 0])] {
             let mut v = sound::Voice::default();
-            let got: Vec<_> = keys.iter().map(|_| line(&mut v, 1, m as usize, &Default::default()).map(|p| (p.program, p.key)).unwrap()).collect();
+            let got: Vec<_> = keys.iter().map(|_| line(&mut v, 1, m as usize, &Default::default(), 2).map(|p| (p.program, p.key)).unwrap()).collect();
             assert_eq!(got, keys.iter().map(|&k| (program, k)).collect::<Vec<_>>(), "motion {m:#x}");
             let rv = sound::reaction_voice(2, m as i32, false, false, || 0).unwrap();
             let mut fresh = sound::Voice::default();
@@ -267,7 +281,49 @@ mod tests {
         let takes = [(9, 4), (7, 5), (8, 3)].into_iter().collect();
         for (m, program, keys) in [(id::WON_GAME, 9, &[0, 1, 2, 3, 0][..]), (id::WON, 7, &[0, 1, 2, 3, 4, 0]), (id::LOST, 8, &[0, 1, 2, 0]), (id::LOST_GAME, 10, &[0, 1, 0])] {
             let mut v = sound::Voice::default();
-            let got: Vec<_> = keys.iter().map(|_| line(&mut v, 1, m as usize, &takes).map(|p| (p.program, p.key)).unwrap()).collect();
+            let got: Vec<_> = keys.iter().map(|_| line(&mut v, 1, m as usize, &takes, 2).map(|p| (p.program, p.key)).unwrap()).collect();
+            assert_eq!(got, keys.iter().map(|&k| (program, k)).collect::<Vec<_>>(), "motion {m:#x}");
+        }
+    }
+
+    /// B599: every pick of every emote, cycled round twice, sounds for every stock character on every voice bank a
+    /// match loads (singles and doubles, sets a and b, court 7's c and d); the doubles banks' fewer takes come round
+    /// in turn. Lists each character, bank and pick that stays silent.
+    #[test]
+    fn every_emote_pick_speaks() {
+        let Ok(mut iso) = hst_data::iso::Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+        let sound = crate::audio::Sound::test(&mut iso);
+        let mut silent = Vec::new();
+        for c in 0..14 {
+            for (players, court, b) in [2, 4].into_iter().flat_map(|n| [1, 7].into_iter().flat_map(move |s| [false, true].map(|b| (n, s, b)))) {
+                let bank = std::sync::Arc::new(crate::audio::voice_bank(&mut iso, c, players, court, b).expect("voice bank"));
+                for m in MOTIONS {
+                    let mut v = sound::Voice::default();
+                    for _ in 0..12 {
+                        let Some(p) = line(&mut v, 1, m, &Default::default(), players) else {
+                            silent.push(format!("c{c} players {players} court {court} set {b} motion {m:#x}: no line"));
+                            break;
+                        };
+                        let id = sound.play_at(&bank, p, [0.0; 3]);
+                        let heard = id != 0 && (0..60).any(|_| sound.render_frame().iter().any(|x| x.abs() > 1e-3));
+                        sound.stop(id);
+                        (0..20).for_each(|_| _ = sound.render_frame());
+                        if !heard {
+                            silent.push(format!("c{c} players {players} court {court} set {b} motion {m:#x}: {}:{}", p.program, p.key));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(silent.is_empty(), "silent emote picks:\n{}", silent.join("\n"));
+    }
+
+    /// B599: in doubles the emotes cycle over the doubles banks' takes.
+    #[test]
+    fn doubles_emote_lines_keep_to_the_doubles_takes() {
+        for (m, program, keys) in [(id::WON_GAME, 9, &[0, 0][..]), (id::LOST_GAME, 10, &[0, 0]), (id::WON, 7, &[0, 1, 0]), (id::LOST, 8, &[0, 1, 0])] {
+            let mut v = sound::Voice::default();
+            let got: Vec<_> = keys.iter().map(|_| line(&mut v, 1, m as usize, &Default::default(), 4).map(|p| (p.program, p.key)).unwrap()).collect();
             assert_eq!(got, keys.iter().map(|&k| (program, k)).collect::<Vec<_>>(), "motion {m:#x}");
         }
     }
