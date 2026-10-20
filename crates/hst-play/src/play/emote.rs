@@ -462,9 +462,16 @@ mod match_tests {
         }
         // the same flick as the serve comes: it goes by unhit, and the point's end doesn't cut it (B278): the
         // emote plays on into the post-point time until it's out or the reaction takes over
+        // (the flick lands half an emote before the point's end without it, so the end falls inside the emote
+        // whichever serve the bot plays)
+        let over = {
+            let mut a = app(vec![]);
+            (0..n).find(|&t| step(&mut a).4 != Phase::Rally && t > rally).expect("the point ends")
+        };
+        let flicked = over.saturating_sub(len / 2).max(rally + 2);
         let mut pads = vec![[IDLE; 4]; n];
-        pads[rally + 2][1] = flick;
-        pads[rally + 10][1] = cross;
+        pads[flicked][1] = flick;
+        pads[flicked + 8][1] = cross;
         let mut a = app(pads);
         let (mut emoted, mut ended, mut last) = (false, None, 0);
         for t in 0..n {
