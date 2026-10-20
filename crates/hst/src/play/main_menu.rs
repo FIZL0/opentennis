@@ -156,6 +156,7 @@ impl Grid {
 fn fit_grid(window: Query<&Window, With<PrimaryWindow>>, mut menu: ResMut<Menu>) {
     super::widescreen::ASPECT.store(menu.settings.3, std::sync::atomic::Ordering::Relaxed);
     super::key_hints::ON.store(menu.settings.0[KEY_HINTS], std::sync::atomic::Ordering::Relaxed);
+    super::rumble::ON.store(menu.settings.0[PAD_VIBRATION], std::sync::atomic::Ordering::Relaxed);
     legend::LAYOUT.store(menu.settings.9, std::sync::atomic::Ordering::Relaxed);
     let Ok(w) = window.single() else { return };
     let g = Grid::fit_at(super::widescreen::aspect(w), menu.settings.apply_menu_scale(w));
@@ -323,6 +324,7 @@ impl Settings {
         crate::chat::HIDDEN.store(!s.0[CHAT], std::sync::atomic::Ordering::Relaxed);
         crate::update::CHECK.store(s.0[UPDATE_CHECK], std::sync::atomic::Ordering::Relaxed);
         crate::audio::EMOTE_VOICES.store(s.0[EMOTE_VOICES], std::sync::atomic::Ordering::Relaxed);
+        crate::play::rumble::ON.store(s.0[PAD_VIBRATION], std::sync::atomic::Ordering::Relaxed);
         s
     }
 
