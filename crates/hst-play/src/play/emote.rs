@@ -212,6 +212,7 @@ const EMOTE_SLOT: usize = 2;
 mod tests {
     use super::super::tick_input::{IDLE, TickPads, decode};
     use super::*;
+    use hst_sim::motion::id;
 
     /// Pad buttons rebound to emotes (bumpers, triggers) play them; unbound, a shoulder never does.
     #[test]
@@ -272,7 +273,8 @@ mod tests {
 #[cfg(test)]
 mod match_tests {
     use super::super::tick_input::{IDLE, Replay, TickPads};
-    use super::{MOTIONS, id};
+    use super::MOTIONS;
+    use hst_sim::motion::id;
     use super::super::*;
     use crate::{Args, GameSpace};
     use hst_sim::replay::Pad;
