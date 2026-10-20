@@ -25,11 +25,14 @@ static YAW: AtomicU32 = AtomicU32::new(0);
 static PITCH: AtomicU32 = AtomicU32::new(0);
 
 const SENSITIVITY: f32 = 0.0025;
-const FOV: f32 = 90.0;
+const FOV: f32 = 105.0;
 /// The right stick's full-tilt turn, radians per second.
 const STICK_TURN: f32 = 3.5;
-/// The eye's distance ahead of the body's centre along the look, clear of the chest: looking down shows the legs.
-const AHEAD: f32 = 0.3;
+/// The eye over the head joint, and ahead of it along the look.
+const EYE_UP: f32 = 0.08;
+const AHEAD: f32 = 0.12;
+/// While serving, the eye goes this far back along the look and up.
+const SERVE_BACK: Vec2 = Vec2::new(2.0, 0.5);
 
 pub fn plugin(app: &mut App) {
     if on() {
@@ -58,7 +61,10 @@ pub fn dpad_emote(g: &Gamepad) -> Option<u8> {
     if !on() {
         return None;
     }
-    [DPadUp, DPadDown, DPadLeft, DPadRight].into_iter().position(|b| g.just_pressed(b)).map(|d| d as u8)
+    [DPadUp, DPadDown, DPadLeft, DPadRight]
+        .into_iter()
+        .position(|b| g.just_pressed(b))
+        .map(|d| d as u8)
 }
 
 /// Mouse or right-stick look, the cursor held in the window; the look starts toward the other end and again after a change of ends.
@@ -88,36 +94,67 @@ fn look(
         c.grab_mode = CursorGrabMode::Locked;
         c.visible = false;
     }
-    let stick: Vec2 = pads.iter().map(|p| p.right_stick()).filter(|v| v.length() > 0.15).sum();
-    let d = mouse.delta * SENSITIVITY + Vec2::new(stick.x, -stick.y) * STICK_TURN * time.delta_secs();
+    let stick: Vec2 = pads
+        .iter()
+        .map(|p| p.right_stick())
+        .filter(|v| v.length() > 0.15)
+        .sum();
+    let d =
+        mouse.delta * SENSITIVITY + Vec2::new(stick.x, -stick.y) * STICK_TURN * time.delta_secs();
     let yaw = f32::from_bits(YAW.load(Relaxed)) - d.x;
     let pitch = (f32::from_bits(PITCH.load(Relaxed)) - d.y).clamp(-1.5, 1.5);
     YAW.store(yaw.to_bits(), Relaxed);
     PITCH.store(pitch.to_bits(), Relaxed);
 }
 
-/// The eye: over player 0 between the last two ticks, at the head's height.
+/// The eye: on player 0's head as this frame's pose leaves it (after the transforms propagate, so it never trails the
+/// body), a little ahead along the look; pulled back over the shoulder while it serves, to see the toss.
 fn view(
     g: Res<Game>,
-    time: Res<Time<Fixed>>,
+    time: Res<Time>,
     head: Option<Res<Head>>,
-    joints: Query<&GlobalTransform>,
-    mut q: Query<(&mut Orbit, &mut Projection, &mut Transform)>,
+    joints: Query<&GlobalTransform, Without<Camera3d>>,
+    mut q: Query<
+        (
+            Entity,
+            &mut Orbit,
+            &mut Projection,
+            &mut Transform,
+            &mut GlobalTransform,
+        ),
+        With<Camera3d>,
+    >,
+    mut back: Local<f32>,
+    mut commands: Commands,
 ) {
-    let Ok((mut o, mut proj, mut tf)) = q.single_mut() else {
+    let Ok((cam, mut o, mut proj, mut tf, mut global)) = q.single_mut() else {
         return;
     };
-    let p = &g.players[0];
-    let at = Vec3::from(p.prev).lerp(Vec3::from(p.pos), time.overstep_fraction());
-    let y = head
+    let Some(at) = head
         .and_then(|h| joints.get(h.0).ok())
-        .map_or(1.55, |t| t.translation().y);
-    // game space → Bevy: (x, −y, −z)
+        .map(|t| t.translation())
+    else {
+        return;
+    };
+    let serving = g.phase == super::Phase::Serve && g.score.server == 0;
+    *back += ((serving as u8 as f32) - *back) * (4.0 * time.delta_secs()).min(1.0);
     o.yaw = f32::from_bits(YAW.load(Relaxed));
-    let eye = Vec3::new(at.x, y, -at.z) - Vec3::new(o.yaw.sin(), 0.0, o.yaw.cos()) * AHEAD;
     o.pitch = f32::from_bits(PITCH.load(Relaxed));
+    let flat = Vec3::new(-o.yaw.sin(), 0.0, -o.yaw.cos());
+    let eye = at
+        + Vec3::Y * EYE_UP
+        + flat * (AHEAD - *back * SERVE_BACK.x)
+        + Vec3::Y * *back * SERVE_BACK.y;
     o.focus = eye - Quat::from_euler(EulerRot::YXZ, o.yaw, o.pitch, 0.0) * Vec3::Z * o.radius;
     *tf = o.transform();
+    *global = GlobalTransform::from(*tf);
+    // pulled back, the whole body shows (the shadow twins have the head)
+    let layers = if *back > 0.3 {
+        RenderLayers::from_layers(&[0, 1])
+    } else {
+        RenderLayers::layer(0)
+    };
+    commands.entity(cam).insert(layers);
     if let Projection::Perspective(p) = &mut *proj {
         p.fov = FOV.to_radians();
         p.near = 0.05;
