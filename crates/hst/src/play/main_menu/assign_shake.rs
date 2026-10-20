@@ -147,9 +147,10 @@ fn column_ids(m: &Menu) -> [Option<String>; 4] {
 
 /// A player who changes sides on the select or the online lobby (□ / Tab, the host's swap) slides their whole column
 /// over from the one they left for `SLIDE`; two columns that trade places (a human and a computer one too) both do.
+/// M134: on the "everyone ready" screen too, which shows the same columns and still takes a team switch.
 fn columns(mut menu: ResMut<Menu>, time: Res<Time<Real>>, mut was: Local<Option<[Option<String>; 4]>>, mut moves: Local<[Option<([f32; 2], f32)>; 4]>) {
     let now = time.elapsed_secs();
-    let on = matches!(menu.screen, Screen::Chars | Screen::Lobby);
+    let on = matches!(menu.screen, Screen::Chars | Screen::Confirm | Screen::Lobby);
     let new = column_ids(&menu);
     if let Some(old) = was.as_ref().filter(|_| on)
         && *old != new
@@ -349,5 +350,20 @@ mod tests {
         app.update();
         let c = app.world().resource::<Menu>().cols;
         assert!(c[2][0] < -10.0 && c[1][0] > 10.0 && c[0] == [0.0; 2] && c[3] == [0.0; 2], "{c:?}");
+    }
+
+    /// M134: once everyone has picked (the confirm screen), a team switch still slides the columns over.
+    #[test]
+    fn a_side_switch_slides_once_everyone_is_ready() {
+        let mut app = App::new();
+        app.init_resource::<Time<Real>>();
+        let pad = app.world_mut().spawn(Gamepad::default()).id();
+        app.insert_resource(Menu { screen: Screen::Confirm, doubles: true, grid: super::super::Grid::fit(16.0 / 9.0), seats: [Some(Dev::Keys), Some(Dev::Pad(pad)), None, None], ..default() });
+        app.add_systems(Update, columns);
+        app.update();
+        app.world_mut().resource_mut::<Menu>().seats.swap(1, 2);
+        app.update();
+        let c = app.world().resource::<Menu>().cols;
+        assert!(c[2][0] < -10.0 && c[1][0] > 10.0, "{c:?}");
     }
 }
