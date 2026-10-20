@@ -324,10 +324,7 @@ What the port can check:
 5. **Stand-in removal.** Before deleting the `mine` / `intercept` / call-out block in `bot`, check (with a debug
    assert or a test over a four-bot match) that it never runs with a plan.
 
-## Open questions
-none
-
-Resolved in this pass:
+## Answered questions (spec pass 2)
 - **Player update order:** index order, AI then movement per player. Confirmed from `ai_net_s05.bin` (*Order within a
   frame*).
 - **Is the stroke-state check in the app?** No, only at the contact step. The port adds it (*Keeping apart*, *What
@@ -339,3 +336,6 @@ Resolved in this pass:
     a non-claimant is pushed, using the existing bit-exact `mover`.
   - No recording of the original shows it: match_s05 never brings teammates within 1 m during a stroke. A scripted
     capture isn't required. The port lists it under *Not verified / not 1:1* in its journal.
+
+## Open questions
+none

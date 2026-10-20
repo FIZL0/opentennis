@@ -51,3 +51,13 @@ replace only the suffix. `research/fn.sh` works once `context` is symlinked into
 - The instant replay's save/restore skips the stroke check and measures against the partner's saved position. This
   is replay only, nothing to port.
 - Scan scripts are in the session scratchpad, not in git. They read only the fixtures.
+
+## Spec pass 3 (2026-10-20): brief fix only
+- The spec had no open questions left, but pass 2's "Resolved in this pass" notes sat under `## Open questions`.
+  `tools/ctx.py` reads any text there besides `none` as an open question, so it kept handing out a spec phase.
+- Moved those notes to their own section, *Answered questions (spec pass 2)*. The brief now gives the port phase.
+  Nothing in the behaviour changed, and the decompile wasn't read this pass.
+
+## Not verified / not 1:1
+- Nothing new this pass. The port's list is in SPEC.md *Verification* (the claim exemption has no recording of the
+  original).
