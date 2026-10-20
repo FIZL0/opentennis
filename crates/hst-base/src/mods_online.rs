@@ -26,6 +26,8 @@ const MAX_JOINTS: usize = 512;
 /// A mod as a lobby pick carries it.
 /// The motions a right-stick flick plays (up, down, left, right): the reactions `gu_set`, `di_set`, `gu`, `di`.
 pub const EMOTES: [usize; 4] = [id::WON_GAME as usize, id::LOST_GAME as usize, id::WON as usize, id::LOST as usize];
+/// Their voice programs (`play::emote::voice_keys`).
+pub const EMOTE_PROGRAMS: [u8; 4] = [9, 10, 7, 8];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Wire {
@@ -45,6 +47,10 @@ pub struct Wire {
     /// Each emote's own clips' lengths in ticks ([`mods::emote_ticks`]): every peer holds the player that long,
     /// whether or not it draws them.
     pub emotes: Vec<(usize, Vec<u32>)>,
+    /// B596: how many voice takes it has of each emote program ([`EMOTE_PROGRAMS`], `mods::voice_takes`): every peer
+    /// cycles its emote lines over them, whether or not it has the takes.
+    #[serde(default)]
+    pub voices: Vec<(u8, u8)>,
     /// The owner's folder (never sent).
     #[serde(skip)]
     pub dir: Option<PathBuf>,
@@ -67,6 +73,7 @@ impl Wire {
             rest: sk.rest.iter().map(|r| std::array::from_fn(|k| r[k / 4][k % 4].to_bits())).collect(),
             looks,
             emotes: mods::emote_ticks(m, &EMOTES)?,
+            voices: mods::voice_takes(m).into_iter().filter(|(p, _)| EMOTE_PROGRAMS.contains(p)).collect(),
             dir: Some(m.dir.clone()),
         })
     }
@@ -95,6 +102,9 @@ impl Wire {
         // an emote holds the player at most a minute
         if self.emotes.len() > EMOTES.len() || self.emotes.iter().any(|(id, t)| !EMOTES.contains(id) || t.is_empty() || t.len() > 64 || t.iter().any(|&n| !(1..=3600).contains(&n))) {
             return bad("emotes");
+        }
+        if self.voices.len() > EMOTE_PROGRAMS.len() || self.voices.iter().any(|(p, n)| !EMOTE_PROGRAMS.contains(p) || !(1..=64).contains(n)) {
+            return bad("voices");
         }
         Ok(())
     }
@@ -128,12 +138,13 @@ pub fn for_match(w: &Wire, looks: Option<&Path>) -> Mod {
         motions: None,
         costume_of: None,
         skeleton: None,
-        emotes: None,
+        emotes: None, voice_takes: None,
         upscale: true,
     });
     (m.donor, m.hand, m.base, m.overrides, m.ai_row) = (w.donor, w.hand, w.base, w.overrides.clone(), w.ai_row);
     m.skeleton = Some(Arc::new(w.skeleton()));
     m.emotes = Some(w.emotes.clone());
+    m.voice_takes = Some(w.voices.clone());
     m
 }
 
@@ -366,6 +377,7 @@ mod tests {
             rest: vec![[0.5f32.to_bits(); 16], [(-0.1f32).to_bits(); 16]],
             looks: 1,
             emotes: vec![(EMOTES[2], vec![90, 200])],
+            voices: vec![(9, 4), (7, 5)],
             dir: None,
         }
     }
@@ -390,6 +402,8 @@ mod tests {
         bad(Wire { emotes: vec![(0, vec![90])], ..wire() });
         bad(Wire { emotes: vec![(EMOTES[0], vec![])], ..wire() });
         bad(Wire { emotes: vec![(EMOTES[0], vec![0])], ..wire() });
+        bad(Wire { voices: vec![(0, 4)], ..wire() });
+        bad(Wire { voices: vec![(9, 0)], ..wire() });
     }
 
     #[test]
@@ -397,6 +411,7 @@ mod tests {
         let m = for_match(&wire(), None);
         assert!(m.costumes.is_empty());
         assert_eq!((m.donor, m.hand, m.base, m.ai_row), (3, -1.0, 3, 3));
+        assert_eq!(mods::voice_takes(&m), [(9, 4), (7, 5)], "a stand-in's emotes don't cycle over the owner's takes");
         assert_eq!(crate::handshake::gameplay_hash(&m), crate::handshake::gameplay_hash(&for_match(&wire(), None)));
         assert_eq!(m.skeleton.unwrap().names, ["a", "b"]);
     }

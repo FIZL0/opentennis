@@ -872,6 +872,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B595** Mods standard §4b (../opentennis-mods/standard/HST-CHARACTER-STANDARD.md): texture faces now show a channel at 0.5 or more (B585), not strictly above; update the wording there
 - [x] **M137** Refresh the UI screenshots (user 2026-10-20): retake docs/screenshots/ (README + website) with the current menus and match HUD.
 - [x] **B592** T-bone's emote has a weird alien-sounding voice line (user 2026-10-20): one of his emotes plays a garbled/wrong sound. Find which emote and which bank entry it plays (emote voice_keys, his mod's sound map) and give it the right line; bump his mod's version if the fix is in the mod.
+- [x] **B596** Emotes never play a mod's voice takes past the disc's key range (user-facing find from B592): `emote::voice_keys` cycles 9/10 over keys 0–1 and 7 over 0–2, so e.g. T-Bone's 9_2/9_3 and 7_3/7_4 (voice_counts 4 and 5) are never heard on an emote, in a match or on the select plates. Cycle over the mod's own take count (same on every peer: mod data is in the online handshake) — files: crates/hst-play/src/play/emote.rs, crates/hst/src/play/main_menu/plate_emote.rs
 
 
 ### Shots

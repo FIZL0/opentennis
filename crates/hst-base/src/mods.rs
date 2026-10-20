@@ -143,6 +143,9 @@ pub struct Mod {
     /// Online: how long each emote's own clips run, from its owner's wire (`mods_online::Wire::emotes`), what every
     /// peer holds the player for; None offline (the drawn clip times it).
     pub emotes: Option<Vec<(usize, Vec<u32>)>>,
+    /// Online: how many voice takes it has of each emote program, from its owner's wire (`mods_online::Wire::voices`),
+    /// what every peer cycles its emote lines over; None offline (counted from `voice`, [`voice_takes`]).
+    pub voice_takes: Option<Vec<(u8, u8)>>,
     /// §3 `upscale` (B488): false when its textures are HD already (e.g. Hot Shots Golf Fore's), so its
     /// `textures/upscaled/` is never read nor downloaded. Absent: true.
     pub upscale: bool,
@@ -262,7 +265,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     }
     Ok(Mod {
         skeleton: None,
-        emotes: None,
+        emotes: None, voice_takes: None,
         upscale,
         costume_of,
         motions,
@@ -304,7 +307,7 @@ pub fn read_any(dir: &Path) -> Result<Mod, String> {
         motions: None,
         costume_of: None,
         skeleton: None,
-        emotes: None,
+        emotes: None, voice_takes: None,
         upscale: true,
     };
     match Kind::of_dir(dir) {
@@ -468,6 +471,26 @@ pub fn tparam_row(csv: &[u8], m: &Mod) -> Result<Vec<String>, String> {
 /// The mod's voice programs (§5), if it ships any `<program>_<key>.wav`.
 pub fn voice(m: &Mod) -> Option<crate::audio::SoundBank> {
     crate::audio::SoundBank::wavs(&m.dir.join(&m.voice))
+}
+
+/// B596: how many voice takes (`<program>_<key>.wav`) mod `m` has of each program, by program; online the owner's
+/// (`Mod::voice_takes`). A costume pack speaks its disc character's: none.
+pub fn voice_takes(m: &Mod) -> Vec<(u8, u8)> {
+    if let Some(v) = &m.voice_takes {
+        return v.clone();
+    }
+    if m.costume_of.is_some() || m.voice.is_empty() {
+        return Vec::new();
+    }
+    let mut n = std::collections::BTreeMap::<u8, u8>::new();
+    for e in crate::modfs::read_dir(&m.dir.join(&m.voice)) {
+        let name = e.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+        if let Some((p, _)) = name.strip_suffix(".wav").and_then(|s| s.split_once('_')).and_then(|(p, k)| Some((p.parse::<u8>().ok()?, k.parse::<usize>().ok()?))) {
+            let c = n.entry(p).or_default();
+            *c = c.saturating_add(1);
+        }
+    }
+    n.into_iter().collect()
 }
 
 /// A `.glb`: its document and binary chunk.
@@ -1436,7 +1459,7 @@ pub fn load_with(
         c.tracks.retain(|t| !sprung.contains(&t.node));
     }
     let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs }));
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, grip, frame_gameplay: false, emote_ticks })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, grip, frame_gameplay: false, emote_ticks, voice_takes: HashMap::new() })
 }
 
 /// `mod.json`'s `disc_racket` (§6, M1r): the disc character (0..13) whose racket it holds when it ships no

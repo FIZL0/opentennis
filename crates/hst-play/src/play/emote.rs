@@ -146,7 +146,7 @@ fn idle(g: &Game, i: usize) -> bool {
 /// nothing draws from the match's generators.
 fn voice(g: &mut Game, i: usize, motion: usize) {
     // B474: muted here only after the pick, so the key memory (match state) moves the same on every peer
-    if let Some(play) = line(&mut g.voices[i], i, motion).filter(|_| crate::audio::EMOTE_VOICES.load(std::sync::atomic::Ordering::Relaxed)) {
+    if let Some(play) = line(&mut g.voices[i], i, motion, &g.data[i].voice_takes).filter(|_| crate::audio::EMOTE_VOICES.load(std::sync::atomic::Ordering::Relaxed)) {
         g.lines.push(Line::Emote(i, play));
     }
 }
@@ -161,6 +161,16 @@ pub fn voice_keys(motion: usize) -> Option<(u8, i32, i32)> {
         7 => (7, 0, 2),
         8 => (8, 0, 4),
         _ => (program, lo, hi),
+    })
+}
+
+/// `voice_keys` for a character with `takes(program)` takes of its own (a mod's, B596): every one of them, whatever
+/// the disc's range; the disc's for a program it has none of.
+pub fn own_voice_keys(motion: usize, takes: impl Fn(u8) -> usize) -> Option<(u8, i32, i32)> {
+    let (program, lo, hi) = voice_keys(motion)?;
+    Some(match takes(program) {
+        0 => (program, lo, hi),
+        n => (program, 0, n as i32 - 1),
     })
 }
 
@@ -203,9 +213,9 @@ pub(super) fn play_lines(
     }
 }
 
-/// Player `i`'s emote line for `motion` on its voice `v`: the take after its last.
-fn line(v: &mut sound::Voice, i: usize, motion: usize) -> Option<sound::Play> {
-    let (program, lo, hi) = voice_keys(motion)?;
+/// Player `i`'s emote line for `motion` on its voice `v`: the take after its last, over its own `takes` if a mod's.
+fn line(v: &mut sound::Voice, i: usize, motion: usize, takes: &std::collections::HashMap<u8, u8>) -> Option<sound::Play> {
+    let (program, lo, hi) = own_voice_keys(motion, |p| takes.get(&p).map_or(0, |&n| n as usize))?;
     let k = v.cycle(lo, hi, EMOTE_SLOT);
     v.react(i, (program, k, k, None), || 0)
 }
@@ -242,12 +252,45 @@ mod tests {
     fn emote_lines_vary() {
         for (m, program, keys) in [(id::WON_GAME, 9, &[0, 1, 0][..]), (id::LOST_GAME, 10, &[0, 1, 0]), (id::WON, 7, &[0, 1, 2, 0]), (id::LOST, 8, &[0, 1, 2, 3, 4, 0])] {
             let mut v = sound::Voice::default();
-            let got: Vec<_> = keys.iter().map(|_| line(&mut v, 1, m as usize).map(|p| (p.program, p.key)).unwrap()).collect();
+            let got: Vec<_> = keys.iter().map(|_| line(&mut v, 1, m as usize, &Default::default()).map(|p| (p.program, p.key)).unwrap()).collect();
             assert_eq!(got, keys.iter().map(|&k| (program, k)).collect::<Vec<_>>(), "motion {m:#x}");
             let rv = sound::reaction_voice(2, m as i32, false, false, || 0).unwrap();
             let mut fresh = sound::Voice::default();
             assert_eq!(v.react(1, rv, || 3).map(|p| p.key), fresh.react(1, rv, || 3).map(|p| p.key), "motion {m:#x}");
         }
+    }
+
+    /// B596: a mod's emotes go through every take it has of their program, past the disc's keys or short of them.
+    #[test]
+    fn a_mods_emote_lines_go_through_its_own_takes() {
+        // T-Bone's counts: four of 9, five of 7, three of 8 (fewer than the disc's five), none of 10 (the disc's two)
+        let takes = [(9, 4), (7, 5), (8, 3)].into_iter().collect();
+        for (m, program, keys) in [(id::WON_GAME, 9, &[0, 1, 2, 3, 0][..]), (id::WON, 7, &[0, 1, 2, 3, 4, 0]), (id::LOST, 8, &[0, 1, 2, 0]), (id::LOST_GAME, 10, &[0, 1, 0])] {
+            let mut v = sound::Voice::default();
+            let got: Vec<_> = keys.iter().map(|_| line(&mut v, 1, m as usize, &takes).map(|p| (p.program, p.key)).unwrap()).collect();
+            assert_eq!(got, keys.iter().map(|&k| (program, k)).collect::<Vec<_>>(), "motion {m:#x}");
+        }
+    }
+
+    /// B596: a mod's emotes cycle over the takes its voice folder has, a costume pack's over its disc character's.
+    #[test]
+    fn a_mod_counts_its_own_takes() {
+        let dir = std::env::temp_dir().join(format!("hst-b596-{}", std::process::id()));
+        let voice = dir.join("voice");
+        std::fs::create_dir_all(&voice).unwrap();
+        for f in ["9_0.wav", "9_1.wav", "9_2.wav", "9_3.wav", "7_0.wav", "notes.txt"] {
+            std::fs::write(voice.join(f), b"").unwrap();
+        }
+        let mut m = crate::mods_online::for_match(&crate::mods_online::Wire { voices: vec![], ..wire() }, None);
+        (m.dir, m.voice, m.voice_takes) = (dir.clone(), "voice/".into(), None);
+        assert_eq!(crate::mods::voice_takes(&m), [(7, 1), (9, 4)]);
+        m.costume_of = Some(3);
+        assert_eq!(crate::mods::voice_takes(&m), []);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn wire() -> crate::mods_online::Wire {
+        crate::mods_online::Wire { emotes: vec![], voices: vec![], id: "x".into(), name: "X".into(), donor: 1, hand: 1.0, base: 1, overrides: vec![], ai_row: 1, names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 0, dir: None }
     }
 
     #[test]

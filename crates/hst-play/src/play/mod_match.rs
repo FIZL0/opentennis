@@ -43,6 +43,8 @@ pub(super) fn load(
         d.frame_gameplay = true;
         d.emote_ticks = m.emotes.iter().flatten().cloned().collect();
     }
+    // B596: its emotes cycle over its own takes, the owner's count online (the same on every peer)
+    d.voice_takes = mods::voice_takes(m).into_iter().collect();
     Arc::new(d)
 }
 

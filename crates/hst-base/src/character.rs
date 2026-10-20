@@ -141,6 +141,9 @@ pub struct CharacterData {
     /// An online mod's emotes: how long each of their own clips runs in ticks, from the owner's wire
     /// ([`emote_ticks`](Self::emote_ticks)).
     pub emote_ticks: HashMap<usize, Vec<u32>>,
+    /// B596: a mod's own voice takes, how many it has of each program (`mods::voice_takes`; online the owner's wire),
+    /// that its emotes cycle over; empty for a disc character.
+    pub voice_takes: HashMap<u8, u8>,
 }
 
 /// A mod's off hand on its racket (looks only). The donor's clips turn the costume's own bones, so on longer or
@@ -880,7 +883,7 @@ pub fn load_disc_with(
     // the game binds a face track to the target of the same name; others are dropped
     let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &skeleton, |name| model.morph_names.iter().position(|m| m == name), only)?;
     let binds = part_skins(&joints, &parts, meshes, bindposes);
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new() })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new(), voice_takes: HashMap::new() })
 }
 
 /// The node names of disc character `n`'s body model (costume 0; every costume shares the skeleton).
@@ -1146,6 +1149,7 @@ pub fn load_npc(
         grip: None,
         frame_gameplay: false,
         emote_ticks: HashMap::new(),
+        voice_takes: HashMap::new(),
     })
 }
 

@@ -206,24 +206,24 @@ fn play(
 }
 
 /// The emote's match voice line (`play::emote::voice_keys`), from the character's singles voice bank (set a); a mod's
-/// own `voice/` program of the same number (its takes wrap by key), a costume pack its disc character's, a mod with
-/// none silent. `key` is the card's last key for this emote: the takes come round in turn.
+/// own `voice/` program of the same number (every one of its takes, B596), a costume pack its disc character's, a mod
+/// with none silent. `key` is the card's last key for this emote: the takes come round in turn.
 fn voice(id: usize, who: Who, mods: &[crate::mods::Mod], banks: &mut HashMap<String, Option<Arc<SoundBank>>>, key: &mut u8, iso: &Path) -> Option<(Arc<SoundBank>, sound::Play)> {
-    let (program, lo, hi) = emote::voice_keys(id)?;
-    let next = if (*key as i32) < hi && *key as i32 >= lo { *key + 1 } else { lo as u8 };
+    let next = |(_, lo, hi): (u8, i32, i32)| if (*key as i32) < hi && *key as i32 >= lo { *key + 1 } else { lo as u8 };
+    let (program, ..) = emote::voice_keys(id)?;
     let c = match who {
         Who::Disc(c) => c,
         Who::Mod(i) => {
             let m = mods.get(i).filter(|m| crate::modfs::ready(&m.dir))?;
             let own = banks.entry(format!("mod {}", m.dir.join(&m.voice).display())).or_insert_with(|| crate::mods::voice(m).map(Arc::new)).clone();
             if let Some(own) = own.filter(|o| o.wav.contains_key(&(program as usize))) {
-                *key = next;
-                return Some((own, sound::Play { slot: 0x16, program, key: next, volume: 0x80, speed: 1.0 }));
+                *key = next(emote::own_voice_keys(id, |p| own.wav.get(&(p as usize)).map_or(0, Vec::len))?);
+                return Some((own, sound::Play { slot: 0x16, program, key: *key, volume: 0x80, speed: 1.0 }));
             }
             m.costume_of?
         }
     };
-    *key = next;
+    *key = next(emote::voice_keys(id)?);
     let bank = banks.entry(format!("disc {c}")).or_insert_with(|| Iso::open(iso).ok().and_then(|mut iso| crate::audio::voice_bank(&mut iso, c, 2, 0, false)).map(Arc::new)).clone()?;
     Some((bank, sound::Play { slot: 0x16, program, key: *key, volume: 0x80, speed: 1.0 }))
 }
@@ -351,6 +351,24 @@ mod tests {
         for (id, program, keys) in [(0x2e, 9, &[1, 0, 1][..]), (0x2f, 10, &[1, 0, 1]), (0x2c, 7, &[1, 2, 0, 1]), (0x2d, 8, &[1, 2, 3, 4, 0, 1])] {
             let mut key = 0;
             let got: Vec<_> = keys.iter().map(|_| voice(id, Who::Disc(2), &[], &mut banks, &mut key, iso).map(|(_, p)| (p.program, p.key)).unwrap()).collect();
+            assert_eq!(got, keys.iter().map(|&k| (program, k)).collect::<Vec<_>>(), "motion {id:#x}");
+        }
+    }
+
+    /// B596: a mod's emote voices go through all of its own takes (T-Bone: four of 9, five of 7, three of 8, past the
+    /// disc's keys or short of them). Needs the ISO and the mods repo's packaged mods in `mods/hst-mods`.
+    #[test]
+    fn a_mods_emote_voices_take_turns() {
+        let iso = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso"));
+        let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/fore_pc17_tbone"));
+        if !iso.is_file() || !dir.is_dir() {
+            return eprintln!("no ISO or mods/hst-mods, skipped");
+        }
+        let mods = [crate::mods::read(dir).unwrap()];
+        let mut banks = HashMap::new();
+        for (id, program, keys) in [(0x2e, 9, &[1, 2, 3, 0, 1][..]), (0x2c, 7, &[1, 2, 3, 4, 0]), (0x2d, 8, &[1, 2, 0, 1])] {
+            let mut key = 0;
+            let got: Vec<_> = keys.iter().map(|_| voice(id, Who::Mod(0), &mods, &mut banks, &mut key, iso).map(|(_, p)| (p.program, p.key)).unwrap()).collect();
             assert_eq!(got, keys.iter().map(|&k| (program, k)).collect::<Vec<_>>(), "motion {id:#x}");
         }
     }
