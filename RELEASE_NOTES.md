@@ -1,3 +1,3 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
 - Switching teams after everyone has picked their character now slides the cards across, as it does before.
-- Characters who clap in a celebration now put their racket away first, and you hear the clap.
+- Character select emotes now put the racket away for moves made without one, as they do in a match.
