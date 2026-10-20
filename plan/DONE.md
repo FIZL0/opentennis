@@ -868,6 +868,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B585** Get a Grip mod characters' faces don't animate (user 2026-10-20): no facial animation (blinks, mouth, emotes' expressions) in matches. Check the getagrip packs' face channels against B561's donor map (../opentennis-mods); bump each fixed mod's version.
 - [x] **B594** Emote voices overlap: in the lobby (and anywhere else emotes play, e.g. character select plates, in-match) firing a second emote while one's voice line is still playing layers both. Allow one emote sound per character at a time: a new emote stops that character's previous emote voice first (other characters' and non-emote sounds untouched). Files: crates/hst/src/play/main_menu/plate_emote.rs, crates/hst-base/src/audio.rs (Emote Voices, B474)
 - [x] **B591** Let players emote during the gap after a call (user 2026-10-20): after 'fault', 'net' and other calls there's a stretch between the camera change and the game's own post-point reaction where the player can still move; allow emoting there too (play/emote.rs, B472/B278 rules).
+- [x] **B589** Random characters still have no baked mod images (user 2026-10-20, after B571): a modded character picked by Random shows no baked roster/face image. Bake it the same way store-downloaded ones are.
 
 
 ### Shots
