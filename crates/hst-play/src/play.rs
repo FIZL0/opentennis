@@ -50,6 +50,7 @@ pub mod background;
 mod ball_shadow;
 mod smash_marker;
 mod bodyhit;
+mod fps;
 mod change_ends;
 pub mod controls;
 mod cutaway;
@@ -619,6 +620,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(key_hints::plugin);
     app.add_plugins(umpire_mod::plugin);
     app.add_plugins(no_hud::plugin);
+    app.add_plugins(fps::plugin);
     #[cfg(target_arch = "wasm32")]
     app.add_systems(Last, |g: Option<Res<Game>>| crate::web::in_match(g.is_some()));
     app.insert_resource(Time::<Fixed>::from_hz(60.0))
@@ -2392,6 +2394,9 @@ fn pad_run(g: &Game, i: usize, stick: Vec2, dpad: u16) -> Vec2 {
         3
     };
     let [x, z] = loco::pad_dir(dpad, byte(stick.x), byte(-stick.y), phase);
+    if fps::on() && i == 0 {
+        return fps::turned(x, z);
+    }
     if own_camera::flipped(g, i) {
         let [x, z] = loco::turned([x, z]);
         Vec2::new(x, z)

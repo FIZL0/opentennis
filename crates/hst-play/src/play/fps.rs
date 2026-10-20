@@ -1,0 +1,184 @@
+//! First-person view for player 0 (`HST_FIRST_PERSON=1`, a fun branch): the mouse looks, the stick and keys move relative to
+//! where it looks, in any direction. The player's own head isn't drawn, but still casts its shadow: the camera's copy
+//! of each body part has the head's joints shrunk to a point, and an untouched copy on render layer 1 (seen only by
+//! the sun) casts the full shadow. ponytail: player 0 only and local only (netplay would desync on the turned stick).
+
+use std::sync::LazyLock;
+use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
+
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::mesh::skinning::SkinnedMesh;
+use bevy::prelude::*;
+use bevy::window::{CursorGrabMode, CursorOptions};
+
+use super::{Figure, Game};
+use crate::Orbit;
+
+pub fn on() -> bool {
+    static ON: LazyLock<bool> = LazyLock::new(|| std::env::var_os("HST_FIRST_PERSON").is_some());
+    *ON
+}
+
+/// The look's Bevy yaw (0 looks along −z) and pitch, as f32 bits: `pad_run` reads the yaw from the sim's tick.
+static YAW: AtomicU32 = AtomicU32::new(0);
+static PITCH: AtomicU32 = AtomicU32::new(0);
+
+const SENSITIVITY: f32 = 0.0025;
+const FOV: f32 = 70.0;
+
+pub fn plugin(app: &mut App) {
+    if on() {
+        app.add_systems(
+            Update,
+            (
+                look.before(super::camera),
+                view.after(super::camera),
+                headless,
+                sun_sees_shadows,
+            ),
+        );
+    }
+}
+
+/// The stick's (right, forward) turned to the look, in game space (x, z).
+pub fn turned(right: f32, fwd: f32) -> Vec2 {
+    let y = f32::from_bits(YAW.load(Relaxed));
+    let (s, c) = y.sin_cos();
+    Vec2::new(c * right - s * fwd, s * right + c * fwd)
+}
+
+/// Mouse look, the cursor held in the window; the look starts toward the other end and again after a change of ends.
+fn look(
+    g: Res<Game>,
+    mouse: Res<AccumulatedMouseMotion>,
+    mut cursor: Query<&mut CursorOptions>,
+    mut end: Local<f32>,
+) {
+    if *end != g.players[0].end {
+        *end = g.players[0].end;
+        // facing game +z is Bevy −z
+        YAW.store(
+            if *end > 0.0 {
+                0.0f32
+            } else {
+                std::f32::consts::PI
+            }
+            .to_bits(),
+            Relaxed,
+        );
+        PITCH.store(0.0f32.to_bits(), Relaxed);
+    }
+    for mut c in &mut cursor {
+        c.grab_mode = CursorGrabMode::Locked;
+        c.visible = false;
+    }
+    let d = mouse.delta * SENSITIVITY;
+    let yaw = f32::from_bits(YAW.load(Relaxed)) - d.x;
+    let pitch = (f32::from_bits(PITCH.load(Relaxed)) - d.y).clamp(-1.5, 1.5);
+    YAW.store(yaw.to_bits(), Relaxed);
+    PITCH.store(pitch.to_bits(), Relaxed);
+}
+
+/// The eye: over player 0 between the last two ticks, at the head's height.
+fn view(
+    g: Res<Game>,
+    time: Res<Time<Fixed>>,
+    head: Option<Res<Head>>,
+    joints: Query<&GlobalTransform>,
+    mut q: Query<(&mut Orbit, &mut Projection, &mut Transform)>,
+) {
+    let Ok((mut o, mut proj, mut tf)) = q.single_mut() else {
+        return;
+    };
+    let p = &g.players[0];
+    let at = Vec3::from(p.prev).lerp(Vec3::from(p.pos), time.overstep_fraction());
+    let y = head
+        .and_then(|h| joints.get(h.0).ok())
+        .map_or(1.55, |t| t.translation().y);
+    // game space → Bevy: (x, −y, −z)
+    let eye = Vec3::new(at.x, y, -at.z);
+    o.yaw = f32::from_bits(YAW.load(Relaxed));
+    o.pitch = f32::from_bits(PITCH.load(Relaxed));
+    o.focus = eye - Quat::from_euler(EulerRot::YXZ, o.yaw, o.pitch, 0.0) * Vec3::Z * o.radius;
+    *tf = o.transform();
+    if let Projection::Perspective(p) = &mut *proj {
+        p.fov = FOV.to_radians();
+        p.near = 0.05;
+    }
+}
+
+/// Player 0's head joint (the eye's height).
+#[derive(Resource)]
+struct Head(Entity);
+
+#[derive(Component)]
+struct Headless;
+
+/// Once player 0's rig is spawned: each skinned part gets a shadow-only twin, and its own head joints (the head and
+/// everything under it: face, eyes) swapped for a point at the head.
+fn headless(
+    mut commands: Commands,
+    rigs: Query<(Entity, &Figure, &crate::character::Rig, &Children), Without<Headless>>,
+    parts: Query<&SkinnedMesh>,
+) {
+    for (root, f, rig, parts_of) in &rigs {
+        if f.0 != 0 {
+            continue;
+        }
+        commands.entity(root).insert(Headless);
+        let joints = &rig.data.joints;
+        let Some(head) = ["Bip01Head", "head", "Head"]
+            .into_iter()
+            .find_map(|n| rig.data.joint(n))
+        else {
+            continue;
+        };
+        commands.insert_resource(Head(rig.joints[head]));
+        let under_head = |mut j: usize| loop {
+            if j == head {
+                return true;
+            }
+            match joints[j].parent {
+                Some(p) => j = p,
+                None => return false,
+            }
+        };
+        let point = commands
+            .spawn((
+                Transform::from_scale(Vec3::splat(1e-4)),
+                ChildOf(rig.joints[head]),
+            ))
+            .id();
+        let hidden: Vec<Entity> = (0..joints.len())
+            .filter(|&j| under_head(j))
+            .map(|j| rig.joints[j])
+            .collect();
+        for &part in parts_of {
+            let Ok(skin) = parts.get(part) else { continue };
+            commands
+                .entity(part)
+                .clone_and_spawn()
+                .insert((RenderLayers::layer(1), NoFrustumCulling));
+            let mut skin = skin.clone();
+            for j in &mut skin.joints {
+                if hidden.contains(j) {
+                    *j = point;
+                }
+            }
+            commands.entity(part).insert(skin);
+        }
+    }
+}
+
+/// The sun casts from layer 1 (the shadow twins) as well as the usual layer 0.
+fn sun_sees_shadows(
+    mut commands: Commands,
+    lights: Query<Entity, (With<DirectionalLight>, Without<RenderLayers>)>,
+) {
+    for e in &lights {
+        commands
+            .entity(e)
+            .insert(RenderLayers::from_layers(&[0, 1]));
+    }
+}
