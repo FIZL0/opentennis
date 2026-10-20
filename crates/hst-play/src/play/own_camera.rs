@@ -25,7 +25,7 @@ use super::Game;
 use super::netplay::Netplay;
 
 /// This machine's own match camera.
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 pub(super) struct OwnCam {
     cam: Camera,
     prev: View,
@@ -184,6 +184,14 @@ fn glide(g: &Game, owner: usize, d: Option<&super::cutaway::Director>) -> Option
     let (from, pivot) = start(g, &to, d, to);
     let prev = if n >= hst_sim::flow::CHANGE_ENDS { from } else { at(&from, &to, pivot, n + 1) };
     Some((prev, at(&from, &to, pivot, n)))
+}
+
+impl OwnCam {
+    /// Shows the view it has now, still between ticks (the match's end held, B600).
+    pub(super) fn freeze(&mut self) {
+        self.prev = self.cam.view;
+        self.glide = None;
+    }
 }
 
 /// The views the picture blends between this frame: this machine's own camera's while the shared one shows the
