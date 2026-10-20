@@ -20,6 +20,7 @@ tools/audit.sh && tools/check.sh || exit 1
 # reports the deny-level lints here, every other lint stays off
 cargo clippy -q -p hst-sim --lib --message-format=short -- -A clippy::all 2>&1 | grep -E 'error' | head -20 | grep . &&
   { echo "CLIPPY FAILED: plain f32 arithmetic in a converted sim module (use ps2::F / vu0::Vf)"; exit 1; }
+export HST_CTX_NOCOMMIT=1  # the tick goes into the commit below
 if [ $# = 4 ]; then tools/ctx.py block "$1" "$4"; else tools/ctx.py tick "$1"; fi || exit 1
 if [ "$main" ]; then git add -- "${paths[@]}" && git commit -qm "$2" -- plan/TODO.md plan/DONE.md "${paths[@]}"
 else git add -A && git commit -qm "$2"; fi && rm -f .cleanroom && git log -1 --oneline

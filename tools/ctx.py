@@ -97,10 +97,11 @@ def _write(path, ls):
 
 def _commit(root, msg):
     """Plan edits in the shared main checkout commit at once, so the runner's master never stashes them around a merge.
-    Task worktrees commit through done.sh; mid-merge the edit stays uncommitted and the master carries it."""
+    Task worktrees commit through done.sh; mid-merge the edit stays uncommitted and the master carries it.
+    HST_CTX_NOCOMMIT=1: the caller (done.sh, todo.sh) commits it with its own change."""
     git = lambda *a: subprocess.run(['git', '-C', root, *a], capture_output=True, text=True)
     gd, cd = (git('rev-parse', '--path-format=absolute', f).stdout.strip() for f in ('--git-dir', '--git-common-dir'))
-    if gd == cd and not os.path.exists(os.path.join(gd, 'MERGE_HEAD')):
+    if gd == cd and not os.environ.get('HST_CTX_NOCOMMIT') and not os.path.exists(os.path.join(gd, 'MERGE_HEAD')):
         git('commit', '-q', '-m', f'TODO: {msg}', '--', 'plan/TODO.md', 'plan/DONE.md')
 
 

@@ -9,6 +9,7 @@
 #   tools/todo.sh the umpire label should just say the name     (or no args: it asks, so quotes/apostrophes are fine)
 #   HST_TODO_RAW=1 tools/todo.sh …                             skip the model, add the sentence as written
 set -u
+export HST_CTX_NOCOMMIT=1  # ctx.py edits go into this script's own commit
 root=$(cd "$(dirname "$(realpath "$0")")/.." && pwd)
 cd "$root"
 text="$*"
