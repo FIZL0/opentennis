@@ -22,6 +22,7 @@
 mod ceremony;
 pub(super) use ceremony::END_JINGLE;
 mod dissolve;
+mod hold;
 
 use bevy::prelude::*;
 use hst_data::{iso::Iso, xb::Archive};
@@ -417,6 +418,7 @@ impl Screen {
 
 pub fn plugin(app: &mut App) {
     dissolve::plugin(app);
+    hold::plugin(app);
     app.init_resource::<Screen>()
         .init_resource::<Serving>()
         .add_systems(PostStartup, setup.after(super::setup))
