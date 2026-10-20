@@ -363,8 +363,8 @@ pub fn disc_body(iso: &mut Iso, n: usize) -> Result<mdl::Model, String> {
     mdl::parse(&arc.read(e).map_err(|e| e.0)?).map_err(|e| e.0)
 }
 
-/// A texture face (standard §4b): the face materials show the strongest channel's whole-face texture above 0.5,
-/// else the neutral one. Each texture as (sRGB for a `StandardMaterial`, raw for the GS draws).
+/// A texture face (standard §4b): the face materials show the strongest channel's whole-face texture once it is at
+/// half strength or more, else the neutral one (the donor holds its stance and stroke faces at exactly half). Each texture as (sRGB for a `StandardMaterial`, raw for the GS draws).
 pub struct TextureFace {
     pub neutral: (Handle<Image>, Handle<Image>),
     /// Per channel: its weight in the rig's `MorphWeights` (the donor's `.MOR` tracks drive it) and its texture.
@@ -372,7 +372,7 @@ pub struct TextureFace {
 }
 
 impl TextureFace {
-    /// The texture shown at weights `w`: the first strongest channel above 0.5, else neutral.
+    /// The texture shown at weights `w`: the first strongest channel at 0.5 or more, else neutral.
     pub fn pick(&self, w: &[f32]) -> &(Handle<Image>, Handle<Image>) {
         strongest(self.channels.iter().map(|c| c.0), w).map_or(&self.neutral, |k| &self.channels[k].1)
     }
@@ -382,12 +382,12 @@ impl TextureFace {
     }
 }
 
-/// Of the channels (by weight index), the first strongest one above 0.5.
+/// Of the channels (by weight index), the first strongest one at 0.5 or more.
 fn strongest(channels: impl Iterator<Item = usize>, w: &[f32]) -> Option<usize> {
     let mut best: Option<(usize, f32)> = None;
     for (k, t) in channels.enumerate() {
         let x = w.get(t).copied().unwrap_or(0.0);
-        if x > 0.5 && best.is_none_or(|b| x > b.1) {
+        if x >= 0.5 && best.is_none_or(|b| x > b.1) {
             best = Some((k, x));
         }
     }
@@ -1599,12 +1599,13 @@ fn spawn_viewer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// The strongest channel strictly above 0.5 wins, the first on a tie; none above 0.5 is neutral.
+    /// The strongest channel at 0.5 or more wins, the first on a tie; none that strong is neutral.
     #[test]
     fn texture_face_picks_the_strongest_channel() {
-        let w = [0.9, 0.5, 0.95, 0.95, 0.2];
+        let w = [0.9, 0.5, 0.95, 0.95, 0.2, 0.49];
         assert_eq!(strongest([0, 1, 2, 3].into_iter(), &w), Some(2));
-        assert_eq!(strongest([1, 4].into_iter(), &w), None);
+        assert_eq!(strongest([1, 4].into_iter(), &w), Some(0));
+        assert_eq!(strongest([5, 4].into_iter(), &w), None);
         assert_eq!(strongest([4, 0, 9].into_iter(), &w), Some(1));
     }
 
