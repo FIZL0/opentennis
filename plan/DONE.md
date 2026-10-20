@@ -871,6 +871,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B589** Random characters still have no baked mod images (user 2026-10-20, after B571): a modded character picked by Random shows no baked roster/face image. Bake it the same way store-downloaded ones are.
 - [x] **B595** Mods standard §4b (../opentennis-mods/standard/HST-CHARACTER-STANDARD.md): texture faces now show a channel at 0.5 or more (B585), not strictly above; update the wording there
 - [x] **M137** Refresh the UI screenshots (user 2026-10-20): retake docs/screenshots/ (README + website) with the current menus and match HUD.
+- [x] **B592** T-bone's emote has a weird alien-sounding voice line (user 2026-10-20): one of his emotes plays a garbled/wrong sound. Find which emote and which bank entry it plays (emote voice_keys, his mod's sound map) and give it the right line; bump his mod's version if the fix is in the mod.
 
 
 ### Shots
