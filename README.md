@@ -22,11 +22,12 @@ Taken from the remaster running on a retail disc (the art comes from the disc; n
 | | |
 |---|---|
 | ![A rally on a grass court](docs/screenshots/rally-grass.jpg) | ![A rally on an autumn court](docs/screenshots/rally-autumn.jpg) |
-| ![Serving](docs/screenshots/serve.jpg) | ![Celebrating at sunset on the river court](docs/screenshots/closeup-sunset.jpg) |
+| ![Serving in doubles, with the score panel up](docs/screenshots/serve.jpg) | ![Celebrating at sunset on the river court](docs/screenshots/closeup-sunset.jpg) |
 | ![A mod character on a mod court](docs/screenshots/mod-castle.jpg) | ![A mod character](docs/screenshots/mod-character.jpg) |
-| ![Main menu](docs/screenshots/menu-main.jpg) | ![Character selection with mod characters](docs/screenshots/menu-chars.jpg) |
-| ![Court selection with mod courts](docs/screenshots/menu-courts.jpg) | ![Umpire selection with mod umpires](docs/screenshots/menu-umpires.jpg) |
-| ![Online lobby](docs/screenshots/menu-lobby.jpg) | ![Mod store](docs/screenshots/menu-browsemods.jpg) |
+| ![Title screen](docs/screenshots/menu-title.jpg) | ![Main menu](docs/screenshots/menu-main.jpg) |
+| ![Character selection with mod characters](docs/screenshots/menu-chars.jpg) | ![Court selection with mod courts](docs/screenshots/menu-courts.jpg) |
+| ![Umpire selection with mod umpires](docs/screenshots/menu-umpires.jpg) | ![Online lobby](docs/screenshots/menu-lobby.jpg) |
+| ![Mod store](docs/screenshots/menu-browsemods.jpg) | ![A mod court](docs/screenshots/mod-amusement.jpg) |
 
 ## You must provide the game disc
 
