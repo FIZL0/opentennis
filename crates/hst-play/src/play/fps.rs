@@ -29,6 +29,13 @@ const FOV: f32 = 105.0;
 /// The right stick's full-tilt turn, radians per second.
 const STICK_TURN: f32 = 3.5;
 /// The eye over the head joint, and ahead of it along the look.
+/// How fast (per second) the eye eases toward the head's place over the body.
+const SWAY_EASE: f32 = 6.0;
+/// Ball cam: how fast it turns toward the ball (per second), the box (yaw, pitch radians) it lets the ball wander in,
+/// and how far above the middle it holds the ball.
+const LOCK_EASE: f32 = 4.0;
+const LOCK_FREE: Vec2 = Vec2::new(0.12, 0.08);
+const LOCK_ABOVE: f32 = 0.1;
 const EYE_UP: f32 = 0.08;
 const AHEAD: f32 = 0.12;
 /// While serving, the eye goes this far back along the look and up.
@@ -38,13 +45,13 @@ pub fn plugin(app: &mut App) {
     if on() {
         app.add_systems(
             Update,
-            (
-                look.before(super::camera),
-                view.after(super::camera),
-                headless,
-                sun_sees_shadows,
-            ),
-        );
+            (look.before(super::camera), headless, sun_sees_shadows),
+        )
+        .add_systems(
+            PostUpdate,
+            view.after(bevy::transform::TransformSystems::Propagate),
+        )
+        .init_resource::<Eye>();
     }
 }
 
@@ -73,9 +80,19 @@ fn look(
     mouse: Res<AccumulatedMouseMotion>,
     pads: Query<&Gamepad>,
     time: Res<Time>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    eye: Res<Eye>,
     mut cursor: Query<&mut CursorOptions>,
     mut end: Local<f32>,
+    mut lock: Local<bool>,
 ) {
+    if buttons.just_pressed(MouseButton::Middle)
+        || pads
+            .iter()
+            .any(|p| p.just_pressed(GamepadButton::RightThumb))
+    {
+        *lock = !*lock;
+    }
     if *end != g.players[0].end {
         *end = g.players[0].end;
         // facing game +z is Bevy −z
@@ -101,8 +118,25 @@ fn look(
         .sum();
     let d =
         mouse.delta * SENSITIVITY + Vec2::new(stick.x, -stick.y) * STICK_TURN * time.delta_secs();
-    let yaw = f32::from_bits(YAW.load(Relaxed)) - d.x;
-    let pitch = (f32::from_bits(PITCH.load(Relaxed)) - d.y).clamp(-1.5, 1.5);
+    let mut yaw = f32::from_bits(YAW.load(Relaxed)) - d.x;
+    let mut pitch = f32::from_bits(PITCH.load(Relaxed)) - d.y;
+    if *lock {
+        // ball cam: ease toward the ball, held a little above the middle; inside a loose box round that spot the view
+        // doesn't chase it, so the ball drifts on the screen rather than sitting pinned in the centre
+        let [x, y, z] = g.flight.ball.pos;
+        let to = Vec3::new(x, -y, -z) - eye.0;
+        let want_yaw = (-to.x).atan2(-to.z);
+        let want_pitch = to.y.atan2(to.xz().length()) - LOCK_ABOVE;
+        let wrap = |a: f32| {
+            (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+        };
+        let ease = |e: f32, free: f32| {
+            e.signum() * (e.abs() - free).max(0.0) * (LOCK_EASE * time.delta_secs()).min(1.0)
+        };
+        yaw += ease(wrap(want_yaw - yaw), LOCK_FREE.x);
+        pitch += ease(want_pitch - pitch, LOCK_FREE.y);
+    }
+    let pitch = pitch.clamp(-1.5, 1.5);
     YAW.store(yaw.to_bits(), Relaxed);
     PITCH.store(pitch.to_bits(), Relaxed);
 }
@@ -125,17 +159,24 @@ fn view(
         With<Camera3d>,
     >,
     mut back: Local<f32>,
+    mut sway: Local<Vec3>,
+    mut eye_at: ResMut<Eye>,
     mut commands: Commands,
 ) {
     let Ok((cam, mut o, mut proj, mut tf, mut global)) = q.single_mut() else {
         return;
     };
-    let Some(at) = head
-        .and_then(|h| joints.get(h.0).ok())
-        .map(|t| t.translation())
-    else {
+    let Some((h, body)) = head.and_then(|h| {
+        Some((
+            joints.get(h.0).ok()?.translation(),
+            joints.get(h.1).ok()?.translation(),
+        ))
+    }) else {
         return;
     };
+    // the body glides between ticks; the head's sway over it is eased, so the run's bob doesn't shake the view
+    *sway = sway.lerp(h - body, (SWAY_EASE * time.delta_secs()).min(1.0));
+    let at = body + *sway;
     let serving = g.phase == super::Phase::Serve && g.score.server == 0;
     *back += ((serving as u8 as f32) - *back) * (4.0 * time.delta_secs()).min(1.0);
     o.yaw = f32::from_bits(YAW.load(Relaxed));
@@ -145,6 +186,7 @@ fn view(
         + Vec3::Y * EYE_UP
         + flat * (AHEAD - *back * SERVE_BACK.x)
         + Vec3::Y * *back * SERVE_BACK.y;
+    eye_at.0 = eye;
     o.focus = eye - Quat::from_euler(EulerRot::YXZ, o.yaw, o.pitch, 0.0) * Vec3::Z * o.radius;
     *tf = o.transform();
     *global = GlobalTransform::from(*tf);
@@ -163,7 +205,11 @@ fn view(
 
 /// Player 0's head joint (the eye's height).
 #[derive(Resource)]
-struct Head(Entity);
+struct Head(Entity, Entity);
+
+/// The eye's last place (the ball cam aims from it).
+#[derive(Resource, Default)]
+struct Eye(Vec3);
 
 #[derive(Component)]
 struct Headless;
@@ -187,7 +233,7 @@ fn headless(
         else {
             continue;
         };
-        commands.insert_resource(Head(rig.joints[head]));
+        commands.insert_resource(Head(rig.joints[head], root));
         let under_head = |mut j: usize| loop {
             if j == head {
                 return true;

@@ -2591,6 +2591,14 @@ fn locomote(g: &mut Game, i: usize, dir: Vec2) {
         Vec2::ZERO
     };
     p.stride += p.vel.length() * 9.0;
+    if fps::on() && i == 0 && p.body.running && dir != Vec2::ZERO {
+        // first person: the body turns and runs the way it moves, never side- or back-steps
+        let d = dir.normalize();
+        p.body.face = loco::Facing { dir: [d.x, 0.0, d.y, 0.0], way: -1, ..loco::Facing::default() };
+        p.body.target = p.body.face.dir;
+        let run = loco::run_motion(loco::base_motion(p.body.motion), 0.0, loco::dashing(&p.stats, p.body.run));
+        p.body.motion = loco::with_tiredness(run, p.body.stamina);
+    }
     p.facing = yaw(p.body.face.dir);
     let m = p.body.motion;
     set_motion(p, m, 1.0, true, None);
