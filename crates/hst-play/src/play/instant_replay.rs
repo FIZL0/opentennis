@@ -194,12 +194,17 @@ fn start(w: &mut World) {
     }
     let s = r.serve.take().expect("kept at the serve");
     let queue: VecDeque<_> = std::mem::take(&mut r.pads).into();
-    // the serve's state has this recorder and the replay cameras as they were then: these stay
-    let keep = (r.clone(), w.get_resource::<super::replay_camera::ReplayCamera>().cloned());
+    // the serve's state has this recorder, the replay cameras and the pacing's shots as they were then: these stay
+    // (the pacing files the point being replayed first, else the serve's copy paces it with the point before)
+    let keep = (r.clone(), w.get_resource::<super::replay_camera::ReplayCamera>().cloned(), w.get_resource::<super::replay_pace::Pace>().cloned());
     snapshot::restore(w, &s);
     w.insert_resource(keep.0);
     if let Some(c) = keep.1 {
         w.insert_resource(c);
+    }
+    if let Some(mut p) = keep.2 {
+        p.file();
+        w.insert_resource(p);
     }
     w.resource_mut::<Recorder>().serve = Some(s);
     // the serve's entry with a replay pending keeps the point's flags and counts; the tick count and the mark restart

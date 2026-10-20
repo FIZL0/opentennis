@@ -62,6 +62,15 @@ fn between(shots: &[i32], tick: i32) -> u32 {
     (lo + (hi - lo) * hst_sim::musl::powf((k - at) as f32 / n as f32, curve)) as u32
 }
 
+impl Pace {
+    /// The point's shots become the last point's (a replay of it starting before the next point files them).
+    pub(super) fn file(&mut self) {
+        if !self.shots.is_empty() {
+            self.last = std::mem::take(&mut self.shots);
+        }
+    }
+}
+
 /// Each shot leaving the racket (the rally's count going up), outside a replay; the count's reset files the point.
 fn log(g: Res<Game>, mut p: ResMut<Pace>) {
     if g.instant.replaying {
