@@ -866,6 +866,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B586** Clap emotes (user 2026-10-20): hide the racket while a character claps, and play a clap sound: look in each character's own game (disc and the mods' source games) for the clap SFX it uses, and play that with the emote (play/emote.rs).
 - [x] **B593** Mods browser footer to the top (user 2026-10-20): move the footer's row (Refresh/Download all words, pills, Upload, status) from the bottom to just under the kind tabs/characters strip at the top, still visually separate (its own rule/row), so it's reachable from the controller without scrolling past every tile; fix the cursor order to match (main_menu/mods_screen/grid.rs: footer, layout, Browse moves).
 - [x] **B585** Get a Grip mod characters' faces don't animate (user 2026-10-20): no facial animation (blinks, mouth, emotes' expressions) in matches. Check the getagrip packs' face channels against B561's donor map (../opentennis-mods); bump each fixed mod's version.
+- [x] **B592** T-bone's emote has a weird alien-sounding voice line (user 2026-10-20): one of his emotes plays a garbled/wrong sound. Find which emote and which bank entry it plays (emote voice_keys, his mod's sound map) and give it the right line; bump his mod's version if the fix is in the mod.
 
 
 ### Shots
