@@ -33,3 +33,21 @@ The spec is in [SPEC.md](SPEC.md). Status: the spec is done (`--spec`), and the 
 `research/xref.py` fails inside a `.claude/worktrees/…` checkout: it builds the `.funcs.tsv` path with
 `path.replace('.c', …)`, which also rewrites the `.c` in `.claude`. Run the main checkout's copy, or fix it to
 replace only the suffix. `research/fn.sh` works once `context` is symlinked into the worktree.
+
+## Spec pass 2 (2026-10-20): open questions answered
+- **Player update order:** confirmed from `ai_net_s05.bin`. Each player runs its AI and then its own movement update,
+  in index order:
+  - the AI calls come in ascending player order;
+  - players 2/3 see their partner's position and state after its move on that tick;
+  - players 0/1 see them from before it.
+
+  The app's `control` → `bot` does the same.
+- **Stroke-state keep-apart:** missing in the app. Only the contact step's IK tick, the run/stand mover, the
+  approach and the dive pass the partner. The serve IK tick passes none. The spec now says what the port adds.
+- **Exemption proof:**
+  - In the decompile, the push routine takes a "may push" flag. The three stroke-time movers set it to "not the
+    claimant".
+  - A rule test in the port is the acceptance. No capture is required, and the port lists that under *Not verified*.
+- The instant replay's save/restore skips the stroke check and measures against the partner's saved position. This
+  is replay only, nothing to port.
+- Scan scripts are in the session scratchpad, not in git. They read only the fixtures.
