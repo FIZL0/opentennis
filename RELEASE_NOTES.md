@@ -14,6 +14,7 @@
 - Mod characters now hold the racket's head with their other hand the way the original characters do (palm under the rim, fingers over the frame) instead of resting it behind the strings.
 - A controller whose "use it for 1P?" prompt timed out, or was turned down, now asks again on its next button press (after a turn-down, once 1P switches input), instead of staying ignored until it's unplugged.
 - Characters with several celebrations and disappointed reactions now vary them from point to point instead of repeating one.
+- Those reactions no longer include ones that stand almost still or carry the character off the screen.
 - Characters with their own reaction animations now make their own facial expressions with them, instead of borrowing another character's.
 - Characters with their own reactions put the racket away in moves where it would have gone through their body.
 - Characters with their own emotes play them for their full length, shorter or longer than before, online too, and ease into them smoothly.
