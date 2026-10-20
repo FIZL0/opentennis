@@ -16,6 +16,5 @@
 - You can now emote in the moment after a call (a fault, a net or a point) while you can still move, up until the players react.
 - Custom characters' emotes now go through all of their own voice lines, in a match and on the character select, instead of only the first few.
 - Settings → Display has a new Controller Vibration switch: turn it off and controllers stop buzzing on the player select (turning it on gives a short buzz). Matches never rumble, as in the original.
-- Controllers now rumble in a match: on your hits (harder for big shots, a light tick for a mistimed one), when the ball hits you, and when you win a point, game or match. Settings → Display → Controller Vibration turns it off.
 - Computer players now follow the ball's predicted flight the way the original game does, including after it clips the net, so they chase, leave and line up for shots as they did on the PS2.
 - In doubles, every emote now plays its voice line: some of them used to stay silent.

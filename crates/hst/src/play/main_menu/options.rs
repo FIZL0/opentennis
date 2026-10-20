@@ -188,7 +188,7 @@ fn about(o: Opt) -> &'static str {
         Chat => "Show the online lobby's and match's text chat (T, or R2/L2 on a pad), or hide it.",
         Renderer => "Auto: WebGPU when the browser has it, else WebGL2; the one in use shows in brackets, with Hardware (drawn by the graphics card) or Software (drawn by the CPU, much slower: turn on the browser's hardware acceleration). A change asks first: the page reloads into it.",
         Vibration => vibration_about(),
-        PadVibration => "Let controllers rumble: a short buzz when you pick your seat or press a button on the player select, and in a match on your hits, when the ball hits you and when you win a point.",
+        PadVibration => "Let controllers rumble: a short buzz when you pick your seat or press a button on the player select. Like the original, matches never rumble.",
         UpdateCheck => "Look for a newer version when the game starts. The main menu offers it: Update downloads and checks it, then restarts the game into it (or opens its page where the game can't replace itself).",
         FewerShadows => "At Low shadows, only the players, the umpire and what shades the court cast: fewer draws. Off: Low casts as many as High.",
         Advanced => "Switches that trade a little detail for speed on a slow device: the characters' mesh detail, fewer shadows, skipping what's off-screen.",
