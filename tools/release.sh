@@ -35,6 +35,10 @@ last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
 [ -z "$notes" ] || [ -f "$notes" ] || { echo "no such notes file: $notes" >&2; exit 1; }
 [ -f "$key" ] || { echo "no signing key at $key (minisign -G -p ~/.config/hst/release.pub -s $key)" >&2; exit 1; }
 command -v minisign >/dev/null || { echo "minisign missing: sudo pacman -S minisign" >&2; exit 1; }
+# the key's password up front, checked on a scratch file, so a typo fails now and not after the builds
+read -rsp "release key password: " pw; echo
+t=$(mktemp); trap 'rm -f "$t" "$t.minisig"' EXIT
+printf %s "$pw" | minisign -S -s "$key" -m "$t" >/dev/null 2>&1 || { echo "wrong password for $key" >&2; exit 1; }
 [ -z "$(git status --porcelain --untracked-files=no)" ] || { echo "commit first: the release is tagged at HEAD" >&2; exit 1; }
 # `gh release view` can't see drafts (they have no tag yet); the list can
 ! gh release list -L 100 --json tagName -q '.[].tagName' | grep -qx "$tag" || { echo "$tag already has a release (a draft?): delete or publish it on GitHub first" >&2; exit 1; }
@@ -72,7 +76,7 @@ cp dist/opentennis.apk "$out/opentennis-android.apk"
 env -u HST_SITE HST_COMMIT=$HST_COMMIT tools/web.sh
 tar -czf "$out/web.tar.gz" -C web .
 (cd "$out" && sha256sum opentennis-* > SHA256SUMS)
-minisign -S -s "$key" -m "$out/SHA256SUMS" -x "$out/SHA256SUMS.sig" -t "OpenTennis $tag"
+printf %s "$pw" | minisign -S -s "$key" -m "$out/SHA256SUMS" -x "$out/SHA256SUMS.sig" -t "OpenTennis $tag"
 # the game checks against the key built into it (update.rs): refuse a release it would turn down
 minisign -V -P "$(sed -n 's/^pub const PUBLIC_KEY: &str = "\(.*\)";/\1/p' crates/hst/src/update.rs)" -m "$out/SHA256SUMS" -x "$out/SHA256SUMS.sig" -q \
     || { echo "SHA256SUMS.sig doesn't match update.rs's PUBLIC_KEY: wrong key?" >&2; exit 1; }
