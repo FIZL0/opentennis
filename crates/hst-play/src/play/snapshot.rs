@@ -659,4 +659,43 @@ mod tests {
         }
         panic!("no net-touched serve by the human");
     }
+
+    /// The sounds due this tick, as `play_sounds` gets them.
+    #[derive(Resource, Default)]
+    struct Due(Vec<hst_sim::sound::Play>);
+
+    /// B598: a rally ball sent into the net mesh sounds the net (court bank program 2 key 2, `hst-sim`'s
+    /// `net_sounds_match_the_game`) on the tick it touches, and the mixer starts it.
+    #[test]
+    fn a_net_touch_sounds() {
+        if !Path::new(ISO).is_file() {
+            return;
+        }
+        let (mut app, sound) = match_app(true);
+        app.init_resource::<Due>().add_systems(FixedUpdate, (|g: Res<Game>, mut d: ResMut<Due>| d.0 = g.sounds.iter().map(|s| s.0).collect()).after(held_ball).before(play_sounds));
+        let mut sent = None;
+        for t in 0..3000 {
+            let g = app.world().resource::<Game>();
+            if sent.is_none() && g.phase == Phase::Rally && g.shots >= 1 && g.flight.bounces == 0 && g.flight.ball.pos[2].abs() > 3.0 {
+                let side = g.flight.ball.pos[2].signum();
+                let mut g = app.world_mut().resource_mut::<Game>();
+                // half a metre up, 1.5 m short of the net, heading straight into it
+                g.flight.ball.pos = [0.0, -0.5, 1.5 * side];
+                g.flight.ball.vel = [0.0, 0.0, -0.25 * side];
+                sent = Some(t);
+            }
+            let (touched, plays) = (app.world().resource::<Game>().flight.special_contacts, sound.plays());
+            run(&mut app, &[[tick_input::IDLE; 4]]);
+            let g = app.world().resource::<Game>();
+            if sent.is_some() && g.flight.special_contacts > touched {
+                assert_eq!(g.flight.landing.1.id, 2, "not the net mesh");
+                let due = &app.world().resource::<Due>().0;
+                assert!(due.iter().any(|p| (p.slot, p.program, p.key) == (0, 2, 2)), "no net sound due: {due:?}");
+                assert!(sound.plays() > plays, "the mixer started nothing");
+                return;
+            }
+            assert!(sent.is_none_or(|s| t < s + 30), "the ball never reached the net");
+        }
+        panic!("no rally to send into the net");
+    }
 }
