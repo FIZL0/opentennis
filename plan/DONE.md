@@ -864,6 +864,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **M135** Update mods (user 2026-10-20): when the store has a newer mod.json version than the installed copy, show an Update button on that mod, plus a prominent 'Update all' button on the Mods page and on the home screen (shown when any update is waiting) that queues every update (modstore.rs, main_menu/mods_screen/, main_menu).
 - [x] **B587** Mod store Update view shows wrong counts (user 2026-10-20): its sections say e.g. 'Characters 77' when 0 need updating; each section's count (and list) must show only the mods with an update.
 - [x] **B586** Clap emotes (user 2026-10-20): hide the racket while a character claps, and play a clap sound: look in each character's own game (disc and the mods' source games) for the clap SFX it uses, and play that with the emote (play/emote.rs).
+- [x] **B593** Mods browser footer to the top (user 2026-10-20): move the footer's row (Refresh/Download all words, pills, Upload, status) from the bottom to just under the kind tabs/characters strip at the top, still visually separate (its own rule/row), so it's reachable from the controller without scrolling past every tile; fix the cursor order to match (main_menu/mods_screen/grid.rs: footer, layout, Browse moves).
 
 
 ### Shots
