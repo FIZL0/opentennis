@@ -780,6 +780,32 @@ fn singles_net_and_base_match_the_game() {
 ///
 /// Each call replays bit for bit. The branches are read from the game's entry/exit records: wait 59 → 0 in the
 /// wait substate (redraw), chase on → off with the substate still 0 (arrival), the held flag set (hold).
+/// P111: a human at the net. P1 driven by the virtual pad (`HST_DRIVE=1`, holding `HST_NET` m off the net: 4, and
+/// 2.5 for `_25`), singles from slot 8 = `singles_1p_serve.p2s` (`HST_SINGLES=1`, 5000/6000 frames, tags 2,3) and
+/// doubles from slot 3 (6000 frames, tags 1,2,3 / 2,3); journal 2026-10-20-p111-net-rush. Every call replays bit for
+/// bit, and the CPUs lob P1 there: some ground-stroke press (contact kind 0) with an opponent inside 4.1 m of the net
+/// picks the lob (plan 10, △).
+#[test]
+fn net_rush_matches_the_game() {
+    let mut lobs = 0;
+    for name in ["ai_rally_singles_rush.bin", "ai_rally_singles_rush25.bin", "ai_rally_rush.bin", "ai_rally_rush25.bin"] {
+        for (tag, what) in [(1, "receive"), (2, "NET"), (3, "BASE")] {
+            if tag == 1 && name.contains("singles") {
+                continue;
+            }
+            let Some(n) = replay(name, tag) else { return eprintln!("{name} or disc missing, skipped") };
+            eprintln!("{name} {what}: calls, per substate {n:?}");
+        }
+        let d = std::fs::read(format!("{}/context/fixtures/{name}", root())).unwrap();
+        for (_, _, e, x) in calls(&d, &[2, 3]) {
+            let near = [0x500, 0x510].iter().any(|&o| f32_at(e, o + 8) != 0.0 && f32_at(e, o + 8).abs() < 4.1);
+            lobs += (u32_at(x, 0x30) == 4 && x[A + 0x9a] == 0 && x[A + 0xb2] == 10 && near) as usize;
+        }
+    }
+    eprintln!("lobs over a net player {lobs}");
+    assert!(lobs > 0);
+}
+
 #[test]
 fn singles_vpad_net_and_base_match_the_game() {
     let (mut redraw, mut arrive, mut hold) = (0, 0, 0);

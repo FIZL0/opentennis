@@ -359,6 +359,7 @@ if DRIVE:
 WIDE = os.environ.get("HST_WIDE", "0") != "0"
 WIDE_XY = tuple(map(float, os.environ["HST_WIDE"].split(":"))) if ":" in os.environ.get("HST_WIDE", "") else (1, -1)
 REACH = float(os.environ.get("HST_REACH", "2.5"))
+NET = float(os.environ.get("HST_NET", "4"))  # P111: how far off the net the driven P1 holds
 BTN = os.environ.get("HST_BTN", "circle")  # the shot button P1 presses (triangle = lob)
 # HST_SERVE=<buttons> (P11k4): serving, P1 holds the stick toward the receiver's sideline (it walks out along the
 # baseline, then the serve goes wide) and serves with these buttons in turn, e.g. circle,triangle,cross; wide serves
@@ -423,7 +424,7 @@ def drive():
     side = 1 if mz > 0 else -1
     coming = vz * side > 0
     serving = p.read8(me + 0x3ec1) == 5
-    tx, tz = (mx, mz) if serving else (bx, bz if bz * side > 0 else 4 * side) if coming else (0, 4 * side)
+    tx, tz = (mx, mz) if serving else (bx, bz if bz * side > 0 else NET * side) if coming else (0, NET * side)
     dx, dz = tx - mx, tz - mz
     d = (dx * dx + dz * dz) ** 0.5
     stick = (round(-side * dx / d, 1), round(side * dz / d, 1)) if d > 0.4 else (0, 0)  # camera behind P1
