@@ -39,9 +39,11 @@ const FOV: f32 = 75.0;
 const STICK_TURN: f32 = 3.5;
 /// The camera: pivot height over the feet, distance behind, resting pitch (looking down), and how much farther
 /// back it goes per metre the ball is over the pivot and when the ball is straight behind the player.
-const HEIGHT: f32 = 1.3;
+const HEIGHT: f32 = 1.5;
 const DIST: f32 = 4.5;
-const PITCH_REST: f32 = -0.3;
+const PITCH_REST: f32 = -0.4;
+/// The camera never goes lower than this over the court (m).
+const FLOOR: f32 = 1.8;
 const HIGH_ZOOM: f32 = 0.8;
 const BEHIND_ZOOM: f32 = 4.0;
 /// The focus leads this fraction of the way toward the ball, at most `LEAD_MAX` metres.
@@ -160,7 +162,7 @@ fn look(
             yaw += ease((want - yaw + PI).rem_euclid(TAU) - PI, LOCK_FREE.x);
         }
         // tilt up only part of the way to a high ball: the zoom out does the rest
-        let want = PITCH_REST + to.y.atan2(to.xz().length()).max(0.0) * 0.4;
+        let want = PITCH_REST + to.y.atan2(to.xz().length()).max(0.0) * 0.25;
         pitch += ease(want - pitch, LOCK_FREE.y);
     }
     YAW.store(yaw.to_bits(), Relaxed);
@@ -211,7 +213,7 @@ fn view(
     *focus = focus.lerp(want_focus, (FOCUS_EASE * dt).min(1.0));
     *radius += (want_radius - *radius) * (ZOOM_EASE * dt).min(1.0);
     // looking up lowers the camera behind the focus: keep it over the court
-    let lowest = ((focus.y - 0.4) / *radius).clamp(-1.0, 1.0).asin();
+    let lowest = ((focus.y - FLOOR) / *radius).clamp(-1.0, 1.0).asin();
     o.pitch = f32::from_bits(PITCH.load(Relaxed)).min(lowest);
     (o.focus, o.radius) = (*focus, *radius);
     *tf = o.transform();

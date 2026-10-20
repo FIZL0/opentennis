@@ -148,7 +148,8 @@ pub fn plugin(app: &mut App) {
 /// B583: nothing culled or hidden by the eye while the flyover shows (`crate::cull::Off`); the match camera's hold
 /// and banner after it cull as the match does.
 fn uncull(mut commands: Commands, intro: Option<Res<Intro>>, off: Option<Res<crate::cull::Off>>) {
-    match (intro.is_some_and(|i| i.showing()), off.is_some()) {
+    // the third-person cam looks every way: nothing culled behind the match camera's usual eye
+    match (super::fps::on() || intro.is_some_and(|i| i.showing()), off.is_some()) {
         (true, false) => commands.insert_resource(crate::cull::Off),
         (false, true) => commands.remove_resource::<crate::cull::Off>(),
         _ => {}
