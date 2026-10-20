@@ -19,7 +19,7 @@
                                  A journal with a SPEC.md makes it a clean-room port (PLAN.md): the brief says so and,
                                  in a worktree, writes .cleanroom, which locks the decompile for the session
 """
-import os, re, subprocess, sys, time
+import atexit, os, re, subprocess, sys, time
 
 TTL = 5.0  # seconds a parsed file is trusted before its mtime is checked again
 _cache = {}  # path -> (checked_at, mtime, lines)
@@ -93,6 +93,15 @@ def _write(path, ls):
         f.write('\n'.join(ls).rstrip('\n') + '\n')
     os.replace(tmp, path)
     _cache.pop(path, None)
+
+
+def _commit(root, msg):
+    """Plan edits in the shared main checkout commit at once, so the runner's master never stashes them around a merge.
+    Task worktrees commit through done.sh; mid-merge the edit stays uncommitted and the master carries it."""
+    git = lambda *a: subprocess.run(['git', '-C', root, *a], capture_output=True, text=True)
+    gd, cd = (git('rev-parse', '--path-format=absolute', f).stdout.strip() for f in ('--git-dir', '--git-common-dir'))
+    if gd == cd and not os.path.exists(os.path.join(gd, 'MERGE_HEAD')):
+        git('commit', '-q', '-m', f'TODO: {msg}', '--', 'plan/TODO.md', 'plan/DONE.md')
 
 
 def _find(ls, tid):
@@ -307,6 +316,8 @@ if __name__ == '__main__':
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
     plan_dir = os.path.join(root, 'plan')
     todo, done = os.path.join(plan_dir, 'TODO.md'), os.path.join(plan_dir, 'DONE.md')
+    if args[:1] and args[0] in ('tick', 'block', 'unblock', 'move', 'add', 'note'):
+        atexit.register(_commit, root, ' '.join(args)[:70])
     if args[:1] == ['tick'] and len(args) == 2:
         tick(todo, done, args[1], plan_dir)
         sys.exit(print(f'ticked {args[1]}, moved to plan/DONE.md'))
