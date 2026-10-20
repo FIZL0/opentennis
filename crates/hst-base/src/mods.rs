@@ -1382,7 +1382,7 @@ pub fn load_with(
             f.uv.extend(f.uv_unbound.drain(..).filter(|t| donor.contains(&t.0)).map(|(_, ticks, values)| (character::EYES, ticks, values)));
         }
     }
-    let (visual, takes, own_faces, racketless) = match &m.motions {
+    let (mut visual, mut takes, own_faces, racketless) = match &m.motions {
         Some(f) => own_motions(&m.dir.join(f), &skeleton, &motions, only, &|t| names.iter().position(|n| n == t).or_else(|| face_target(&names, t)))?,
         None => Default::default(),
     };
@@ -1407,6 +1407,12 @@ pub fn load_with(
     let binds = crate::character::part_skins(&joints, &parts, meshes, bindposes);
     let emote_ticks = emote_ticks(m, &crate::mods_online::EMOTES)?.into_iter().filter(|(id, _)| visual.contains_key(id)).collect();
     let springs = crate::spring::masses(&nodes, &joints);
+    // the springs swing their joints from rest: a clip's own keys on them are dropped. Out of Bounds keys its dynamic
+    // bones in some other space in a few clips (Sophie's sad emote: the pigtails' anchors 120° off, swung from there)
+    let sprung: HashSet<usize> = springs.iter().flat_map(|s| [s.parent, s.joint]).collect();
+    for c in visual.values_mut().chain(takes.values_mut().flatten()) {
+        c.tracks.retain(|t| !sprung.contains(&t.node));
+    }
     let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs }));
     Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, grip, frame_gameplay: false, emote_ticks })
 }
@@ -1954,6 +1960,9 @@ mod tests {
         let mut s = Stores(default(), default(), default(), default());
         let c = load(&mut iso, &m, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
         assert_eq!(c.noise.as_ref().map_or(0, |n| n.springs.len()), springs, "{name}");
+        // the springs own their joints: no clip of its own keys them (Sophie's sad emote keyed her pigtails 120° off)
+        let sprung: HashSet<usize> = c.noise.as_ref().unwrap().springs.iter().flat_map(|s| [s.parent, s.joint]).collect();
+        assert!(c.visual.values().chain(c.takes.values().flatten()).all(|clip| clip.tracks.iter().all(|t| !sprung.contains(&t.node))), "{name}: a clip keys the hair");
         use bevy::ecs::system::RunSystemOnce;
         let data = std::sync::Arc::new(c);
         let run = |whip: f32| {
@@ -2716,3 +2725,4 @@ mod tests {
         }
     }
 }
+

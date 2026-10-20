@@ -11,7 +11,7 @@ use crate::character::{Joint, Rig};
 
 /// A spring joint: the joint, its parent (the one that turns) and its §3b parameters.
 pub struct Mass {
-    joint: usize,
+    pub joint: usize,
     pub parent: usize,
     limit: f32,
     stiffness: f32,
