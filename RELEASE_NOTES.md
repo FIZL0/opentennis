@@ -1,13 +1,1 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- The start screen and the browser page tell you when a newer version is out.
-- The start screen shows your controller's confirm button (or Enter), and Back / Esc there asks whether to quit.
-- A damaged disc image or broken file is refused instead of crashing the game.
-- New Markers setting: turn off the red and yellow shot markers (online, the host's choice applies).
-- The scoreboard no longer shows an old face right after picking a character.
-- Doubles: when the ball hits a player as a teammate swings, whichever happened first counts.
-- A player who loses the point mid-swing walks off facing forward instead of sliding sideways.
-- Character select: picking for a computer player keeps its character across singles / doubles, and its emotes, poses and button hints show on its card.
-- Character select: the rosters no longer jump under the court and umpire options when a match starts.
-- Online lobbies: Back steps back one thing at a time (your pick, then your seat, then the lobby).
-- A controller that missed or declined the "use it for 1P?" prompt asks again on its next press.
-- Celebrations and reactions vary more from point to point, play smoothly, and no longer clip the racket or flip hair.
