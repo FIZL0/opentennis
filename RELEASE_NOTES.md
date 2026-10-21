@@ -13,3 +13,4 @@
 - Keyboard hints in a match now show the key that switches to the alternate camera, when the switch is available.
 - With a fixed aspect ratio (4:3, 16:9…), the menu backgrounds, title and loading screens now fill the whole window instead of leaving black bars, and the bars beside a match glow softly with the court's colours (plain black in the original look); the score and menus stay inside the picture.
 - The first launch after an update no longer risks closing straight away while it gets match graphics ready ahead of time.
+- Phone apps: held upright, the touch stick, buttons and Select/Start are now full thumb size and sit together at the bottom of the screen.

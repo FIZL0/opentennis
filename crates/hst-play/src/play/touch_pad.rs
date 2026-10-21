@@ -62,8 +62,8 @@ const KEYS: [(GamepadButton, &str); 8] = [
 ];
 const FACE: usize = 4;
 
-/// Where everything sits on a window (logical px), as `web/touch.js`'s CSS lays it out in landscape: `u` is
-/// min(7 % of the width, 12.5 % of the height).
+/// Where everything sits on a window (logical px), as `web/touch.js`'s CSS lays it out: `u` is min(7 % of the width,
+/// 12.5 % of the height) in landscape (portrait: `Layout::upright`).
 #[derive(Clone, Debug, PartialEq)]
 struct Layout {
     u: f32,
@@ -79,7 +79,11 @@ struct Layout {
 
 impl Layout {
     /// `safe`: the safe-area insets, left, top, right, bottom.
-    fn new(size: Vec2, [l, t, r, b]: [f32; 4]) -> Layout {
+    fn new(size: Vec2, safe: [f32; 4]) -> Layout {
+        if size.y > size.x {
+            return Layout::upright(size, safe);
+        }
+        let [l, t, r, b] = safe;
         let u = (size.x * 0.07).min(size.y * 0.125);
         let d = u * 1.25;
         // face buttons by their right and bottom edges' distance from the safe area's
@@ -100,6 +104,35 @@ impl Layout {
             zone: Rect::from_corners(Vec2::new(0.0, size.y * 0.18), Vec2::new(size.x * 0.45, size.y)),
             corner: Vec2::new(l + u * 0.4 + u * 1.3, size.y - b - u * 0.4 - u * 1.3),
             chat: Rect::from_corners(Vec2::new(size.x / 2.0 - u * 3.2, t + u * 0.3), Vec2::new(size.x / 2.0 - u * 2.3, t + u * 1.0)),
+        }
+    }
+
+    /// B631: a portrait window (a phone held upright), as `web/touch.js`'s portrait rules: `u` from the short side,
+    /// min(12 % of the width, 7 % of the height), thumb-sized as on its side; everything in the screen's lower part,
+    /// under the picture: the face buttons as in landscape, the shoulders and Select/Start in a row over them (4.1 u up
+    /// from the safe area's bottom), the chat button centred under Select/Start, the match's stick in the lower half.
+    fn upright(size: Vec2, [l, _, r, b]: [f32; 4]) -> Layout {
+        let u = (size.x * 0.12).min(size.y * 0.07);
+        let d = u * 1.25;
+        let face = |x: f32, y: f32| Rect::from_corners(Vec2::new(size.x - r - u * x - d, size.y - b - u * y - d), Vec2::new(size.x - r - u * x, size.y - b - u * y));
+        let row = size.y - b - u * 4.1;
+        let small = |left: f32| Rect::from_corners(Vec2::new(left, row - u * 0.7), Vec2::new(left + u * 1.5, row));
+        let chat = size.y - b - u * 3.2;
+        Layout {
+            u,
+            keys: [
+                face(1.4, 0.3),
+                face(0.2, 1.5),
+                face(2.6, 1.5),
+                face(1.4, 2.7),
+                small(l + u * 0.4),
+                small(size.x - r - u * 0.4 - u * 1.5),
+                small(size.x / 2.0 - u * 1.8),
+                small(size.x / 2.0 + u * 0.3),
+            ],
+            zone: Rect::from_corners(Vec2::new(0.0, size.y * 0.5), Vec2::new(size.x * 0.45, size.y)),
+            corner: Vec2::new(l + u * 0.4 + u * 1.3, size.y - b - u * 0.4 - u * 1.3),
+            chat: Rect::from_corners(Vec2::new(size.x / 2.0 - u * 0.45, chat - u * 0.7), Vec2::new(size.x / 2.0 + u * 0.45, chat)),
         }
     }
 
@@ -134,6 +167,10 @@ pub fn top_row(size: Vec2) -> f32 {
 }
 
 fn row_bottom(size: Vec2, safe: [f32; 4], view: Rect) -> f32 {
+    // upright the row sits low, over the face buttons (B631): nothing to clear at the top
+    if size.y > size.x {
+        return 0.0;
+    }
     let l = Layout::new(size, safe);
     let bottom = l.keys[4..].iter().fold(l.chat.max.y, |b, k| b.max(k.max.y));
     ((bottom - view.min.y) / view.height() * 100.0).max(0.0)
@@ -654,6 +691,34 @@ mod tests {
         // the shoulders sit above the stick's zone; the menus' stick circle inside the window
         assert!(l.keys[4].max.y < l.zone.min.y);
         assert!(l.corner.x - l.reach() >= 59.0 && l.corner.y + l.reach() <= SIZE.y - 21.0);
+    }
+
+    /// B631: upright, the pad is as big as on its side (sized from the short side) and all of it sits in the screen's
+    /// lower part, under the picture, as the browser's portrait rules have it.
+    #[test]
+    fn upright_pad_is_thumb_sized_and_low() {
+        let size = Vec2::new(393.0, 852.0);
+        let safe = [0.0, 59.0, 0.0, 34.0];
+        let l = Layout::new(size, safe);
+        assert_eq!(l.u, (393.0f32 * 0.12).min(852.0 * 0.07));
+        assert!(l.u > layout().u * 0.9, "{} vs {}", l.u, layout().u);
+        // ✕ at the bottom of the diamond, as in landscape
+        assert!((l.keys[0].max.x - (size.x - 1.4 * l.u)).abs() < 1e-3);
+        assert!((l.keys[0].max.y - (size.y - 34.0 - 0.3 * l.u)).abs() < 1e-3);
+        // shoulders and Select/Start in one row 4.1 u up, over the face buttons; chat centred under Select/Start
+        for k in &l.keys[4..] {
+            assert!((k.max.y - (size.y - 34.0 - 4.1 * l.u)).abs() < 1e-3 && k.max.y < l.keys[3].min.y);
+        }
+        assert!((l.chat.center().x - size.x / 2.0).abs() < 1e-3 && l.chat.min.y > l.keys[6].max.y);
+        // every button inside the window's lower half, each its own under its centre
+        for i in 0..8 {
+            assert!(l.keys[i].min.cmpge(Vec2::new(0.0, size.y / 2.0)).all() && l.keys[i].max.cmple(size).all(), "{i}");
+            assert_eq!(l.key_at(l.keys[i].center()), Some(i));
+        }
+        assert!(l.chat.min.y > size.y / 2.0 && (0..8).all(|i| l.keys[i].intersect(l.chat).is_empty()));
+        assert!(l.zone.min.y == size.y / 2.0 && l.corner.y + l.reach() <= size.y - 34.0 && l.corner.x - l.reach() >= 0.0);
+        // nothing at the top for the score panel to clear
+        assert_eq!(row_bottom(size, safe, Rect::from_corners(Vec2::new(0.0, 59.0), size - Vec2::new(0.0, 34.0))), 0.0);
     }
 
     #[test]
