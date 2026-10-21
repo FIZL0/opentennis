@@ -19,3 +19,4 @@
 - With touch controls, the score at the top of the screen now sits just below the L1/R1 buttons instead of under them.
 - The loading screen before a match keeps its shape in tall (portrait) and very wide windows: the hint panel no longer squashes, and the court picture fills the whole window without black bars.
 - Settings → Shadows has a new Original choice that draws the trees' and buildings' shadows soft, as on the PS2, instead of sharp; Original Mode uses it.
+- A ball that comes to rest on the court or on a slope or prop now ends the point straight away (as out) instead of after a long wait, a ball that has stopped stays still, and a serve that clips the net and then hits the receiver is a let again only when it touched the net.

@@ -236,7 +236,7 @@ impl Rally {
                 if same_team(server, p) {
                     self.hit_on_serve = true;
                     self.faults += 1;
-                } else if b.stopped {
+                } else if b.call == Call::Net {
                     self.hit_on_serve = true;
                     self.let_ = true;
                 }
@@ -296,6 +296,17 @@ impl Rally {
             Some(_) => Verdict { call: LET, winner: None },
         }
     }
+}
+
+/// The call of a ball that comes to rest: out, or out after the net if it touched the net first.
+pub fn rested(call: Call) -> Call {
+    if call == Call::Net { Call::NetOut } else { Call::Out }
+}
+
+/// A ball that touched the net first and has left the arena is out after the net (every court the port plays has
+/// arena limits, as the point-over check is told).
+pub fn left_arena(call: Call, pos: [f32; 3]) -> Call {
+    if call == Call::Net && outside(pos, true) { Call::NetOut } else { call }
 }
 
 /// Outside the arena (only where the court has arena limits).
