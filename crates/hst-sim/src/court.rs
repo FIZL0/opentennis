@@ -3,11 +3,14 @@
 
 use crate::ball::Material;
 use crate::mesh::{self, World};
+use crate::motion::Clock;
+use crate::pose::{self, Clip, Nodes, Skeleton};
+use crate::ps2::F;
 use crate::world::{self, IDENTITY};
 use hst_data::iso::Iso;
 use hst_data::xb::Archive;
 use hst_data::layout::category;
-use hst_data::{exe, layout, mdl, mtl};
+use hst_data::{ani, exe, layout, mdl, mtl};
 
 /// The game's collision material table as ball responses, by material id.
 pub fn materials(game: &exe::Game) -> Vec<Material> {
@@ -15,17 +18,104 @@ pub fn materials(game: &exe::Game) -> Vec<Material> {
 }
 
 /// Every node's drawing matrix: the root's `root`, each child its own placement through its parent's.
-// ponytail: the walk (local · parent) is checked against court 5's props (tests/world.rs); a prop with its own motion
-// (court 5's ball-boy cart wheels) keeps its disc pose here, the game turns those nodes
+// the walk (local · parent) is checked against court 5's props (tests/world.rs); a prop with its own motion (court 5's
+// ball-boy cart wheels) starts at its disc pose here, `Motions` turns those nodes
 fn nodes(m: &mdl::Model, root: world::M4) -> Vec<world::M4> {
-    let mut out: Vec<world::M4> = Vec::with_capacity(m.node_count);
-    for (k, parent) in m.node_parent.iter().enumerate() {
+    walk(&m.node_parent, &m.node_local, root)
+}
+
+/// `nodes` over the locals `local`.
+fn walk(parent: &[Option<usize>], local: &[world::M4], root: world::M4) -> Vec<world::M4> {
+    let mut out: Vec<world::M4> = Vec::with_capacity(parent.len());
+    for (k, parent) in parent.iter().enumerate() {
         out.push(match parent {
             None => root,
-            Some(p) => world::mat_mul(&m.node_local[k], &out[*p]),
+            Some(p) => world::mat_mul(&local[k], &out[*p]),
         });
     }
     out
+}
+
+/// A colliding structure's own motion (court 5's ball-boy carts turn their wheels with `ballboy01.ani`): motion 0 of
+/// the model's `.ani`, looping at one frame per step from the disc pose. Only structures play theirs; a prop
+/// (category 18) with a motion file stays at its disc pose, so it gets none here.
+#[derive(Clone)]
+pub struct PropMotion {
+    /// The prop it moves, in `World::props`.
+    pub prop: usize,
+    skeleton: Skeleton,
+    clip: Clip,
+    /// The node locals the motion samples into (the disc's until the first step).
+    pub nodes: Nodes,
+    /// The prop's root node matrix (its placement; it never moves).
+    root: world::M4,
+    pub clock: Clock,
+    /// Sample on the next step even if the time hasn't changed (set at bind).
+    resample: bool,
+}
+
+impl PropMotion {
+    fn new(prop: usize, m: &mdl::Model, anim: &ani::Anim, root: world::M4) -> PropMotion {
+        let skeleton = Skeleton { names: m.node_names.clone(), parent: m.node_parent.clone(), rest: m.node_local.clone() };
+        let clip = Clip::new(&skeleton, anim);
+        let nodes = Nodes::new(&skeleton);
+        PropMotion { prop, skeleton, clip, nodes, root, clock: Clock::start(1.0, true, None), resample: true }
+    }
+
+    /// The motion's length in frames.
+    pub fn length(&self) -> f32 {
+        self.clip.length
+    }
+
+    /// Every node's world matrix from the current locals.
+    pub fn world_nodes(&self) -> Vec<world::M4> {
+        walk(&self.skeleton.parent, &self.nodes.local, self.root)
+    }
+
+    /// The locals sampled at `t` frames, as a step at that time leaves them.
+    pub fn sample(&mut self, t: f32) {
+        self.nodes.sample(&self.clip, t);
+    }
+
+    /// One step: the time wrapped into the clip; sampled there unless it already was; then a frame on. Returns
+    /// whether the pose changed.
+    fn step(&mut self) -> bool {
+        let c = &mut self.clock;
+        c.time = pose::wrap(c.time, self.clip.length, c.looping);
+        let sampled = c.time != c.sampled || self.resample;
+        if sampled {
+            self.nodes.sample(&self.clip, c.time);
+            c.sampled = c.time;
+            self.resample = false;
+        }
+        c.time = (F(c.time) + c.speed).0;
+        sampled
+    }
+}
+
+/// The court's structure motions and the court draw pass that steps them.
+#[derive(Clone, Default)]
+pub struct Motions {
+    pub list: Vec<PropMotion>,
+    /// No court draw pass since the court was built: the first one steps nothing.
+    pub first: bool,
+}
+
+impl Motions {
+    /// One court draw pass (one per displayed frame while the court is shown, cut-aways, intro and replays
+    /// included). `step` is false while paused and on slow motion's in-between frames; `hidden(prop)` is a prop
+    /// the pass's visibility tests hide (it doesn't step). The first pass after the build never steps. A stepped
+    /// prop's nodes in `world` take the new pose: a sweep sees the pose sampled in the last pass before it.
+    pub fn pass(&mut self, world: &mut World, step: bool, hidden: impl Fn(usize) -> bool) {
+        if step && !self.first {
+            for m in &mut self.list {
+                if !hidden(m.prop) && m.step() {
+                    world.props[m.prop].nodes = m.world_nodes();
+                }
+            }
+        }
+        self.first = false;
+    }
 }
 
 /// A disc model as collision geometry.
@@ -77,6 +167,12 @@ pub fn umpire_chair(iso: &mut Iso, n: u32) -> Option<[f32; 3]> {
 /// Disc court `n` (1..11), hole 1: the court model at the origin and the colliding props in the game's list order
 /// and grid. An error names what on the disc couldn't be read or doesn't fit (a damaged image or pack).
 pub fn world(iso: &mut Iso, n: u32) -> Result<World, String> {
+    moving(iso, n).map(|(w, _)| w)
+}
+
+/// `world`, with the colliding structures' motions bound (at their disc pose, nothing sampled yet).
+pub fn moving(iso: &mut Iso, n: u32) -> Result<(World, Motions), String> {
+    let mut anims = std::collections::HashMap::new();
     let mut files = std::collections::HashMap::new();
     let (mut list, mut plants, mut court) = (Vec::new(), Vec::new(), None);
     for arc in ["CMN.XB", "GRD01.XB", "HOL01.XB"] {
@@ -95,6 +191,9 @@ pub fn world(iso: &mut Iso, n: u32) -> Result<World, String> {
                 list = layout::entries(&String::from_utf8_lossy(&bytes()?));
             } else if name.ends_with(&format!("plant_c{n:02}_h01_0.dat")) {
                 plants = layout::plants(&bytes()?).map_err(|err| format!("{path} {}: {err}", e.name))?;
+            } else if let Some(stem) = name.strip_suffix(".ani") {
+                let anim = ani::parse(&bytes()?).map_err(|err| format!("{path} {}: {}", e.name, err.0))?;
+                anims.insert(stem.rsplit(['/', '\\']).next().unwrap_or(stem).to_string(), anim);
             } else if let Some(stem) = name.strip_suffix(".mdl") {
                 let base = &e.name[..e.name.len() - 4];
                 let m = mdl::parse(&bytes()?).map_err(|err| format!("{path} {}: {err}", e.name))?;
@@ -127,12 +226,12 @@ pub fn world(iso: &mut Iso, n: u32) -> Result<World, String> {
             let Some(e) = layout::resolve(&list, p, 0) else { continue };
             let (m, _) = files.get(&e.stem).ok_or_else(|| format!("court {n:02}: no model {} for a placed prop", e.stem))?;
             let (at, _) = world::place(p.category, p.pos, p.yaw, p.code);
-            created.push((e.stem.clone(), world::instance(at, p.scale, &m.node_local[0], m.center, m.radius), p.scale));
+            created.push((e.stem.clone(), world::instance(at, p.scale, &m.node_local[0], m.center, m.radius), p.scale, p.category));
         }
     }
-    let (mut props, mut stems, mut spheres) = (Vec::new(), Vec::<String>::new(), Vec::new());
+    let (mut props, mut stems, mut spheres, mut motions) = (Vec::new(), Vec::<String>::new(), Vec::new(), Vec::new());
     for k in world::list_order(created.len()) {
-        let (stem, prop, scale) = &created[k];
+        let (stem, prop, scale, cat) = &created[k];
         let (m, mt) = &files[stem];
         if !m.collides(mt) {
             continue;
@@ -146,9 +245,14 @@ pub fn world(iso: &mut Iso, n: u32) -> Result<World, String> {
             }
         };
         spheres.push((props.len(), prop.center, prop.radius));
+        if *cat == category::STRUCTURE
+            && let Some(anim) = anims.get(stem)
+        {
+            motions.push(PropMotion::new(props.len(), m, anim, prop.node));
+        }
         props.push(mesh::Object { model, scale: *scale, to_model: prop.to_model, nodes: nodes(m, prop.node), center: prop.center, radius: m.radius });
     }
-    Ok(World { models, court, props, grid: world::grid(&spheres) })
+    Ok((World { models, court, props, grid: world::grid(&spheres) }, Motions { list: motions, first: true }))
 }
 
 /// A court mod's view of disc court `w` (its layout): the mod draws its own scenery, so the disc's walls, stands,
