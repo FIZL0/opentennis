@@ -75,6 +75,9 @@ pub struct Reach {
     /// Smash window (m).
     pub smash_top: f32,
     pub smash_bottom: f32,
+    /// The window's middle cell (m), as the table gives it (not worked out from top and bottom): the height a
+    /// press that finds nothing checks the path against (`smash_whiff`).
+    pub smash_middle: f32,
     /// Contact point distance in front of the body: strokes / smash.
     pub ahead: f32,
     pub smash_ahead: f32,
@@ -341,6 +344,11 @@ impl Dive {
 pub fn smash_whiff(path: &[PathPoint], ball: [f32; 3], pos: [f32; 3], middle: f32) -> bool {
     let (dx, dz) = (F(ball[0]) - pos[0], F(ball[2]) - pos[2]);
     (dz * dz).madd(dx, dx) < 4.0 && path.iter().take_while(|p| p.bounces <= 1).any(|p| middle < -F(p.pos[1]))
+}
+
+/// How many path frames `smash_whiff` looks at: the hitter's own search horizon (`grades.len()`), at least 16.
+pub fn whiff_horizon(r: &Reach) -> usize {
+    r.grades.len().max(16)
 }
 
 /// The approach run a press starts before its search (the original's stroke state, on a press while standing or

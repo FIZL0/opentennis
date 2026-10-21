@@ -932,6 +932,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 ### Shots
 - [x] **N5a** Hitting a lob off a lob isn't accurate (bug, user 2026-10-07): mid-rally, returning the opponent's lob smash, the contact search gave an illegal hit point, though anyone should be able to hit that ball. Record such a rally and match the contact search and lob response to it → `swing.rs` find_contact · `shot.rs` · `play.rs` find_contact/advance_stroke | t: swing.rs | j: 2026-10-07-n5a-lob-off-lob
 - [x] **P118** Serve bend vs stick order (T8): serve_bent tests the bend on the kind before the stick turns a topspin into a flat; the original's order there was never checked. Check it (oracle over generated toss/kind/stick/grade inputs, or a recorded special serve with the stick held), fix if it differs → crates/hst-play/src/play.rs serve_bent · crates/hst-sim/src/shot.rs special | t: hst-sim serve.rs | j: 2026-10-21-repo-audit (T8 ledger)
+- [x] **P119** Whiff details (T8): a press that finds nothing builds the smash-whiff path with character 0's timing horizon (the base reach's 28 grades, not the hitter's own count) and takes the smash window's middle as the midpoint of top and bottom instead of TParam's middle smash cell (equal on every retail character seen, not for mods). Check what the original uses for both, fix → crates/hst-play/src/play.rs whiff · crates/hst-sim/src/swing.rs smash_whiff | t: hst-sim swing.rs | j: 2026-10-21-repo-audit (T8 ledger)
 
 
 ### Players

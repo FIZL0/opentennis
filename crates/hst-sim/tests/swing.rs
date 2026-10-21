@@ -8,7 +8,7 @@ use hst_sim::ball::{Ball, COURTS, Flight, Params, Shot};
 use hst_sim::ps2::{add, mul};
 use hst_sim::replay::{Frame, frames_live};
 use hst_sim::player::{Stats, drain, mover, run_speed};
-use hst_sim::swing::{Branch, DIVE_HORIZON, PathPoint, Reach, approach, dive, search};
+use hst_sim::swing::{Branch, DIVE_HORIZON, PathPoint, Reach, approach, dive, search, smash_whiff, whiff_horizon};
 
 fn f(b: &[u8], o: usize) -> f32 {
     f32::from_le_bytes(b[o..o + 4].try_into().unwrap())
@@ -88,6 +88,7 @@ fn reach_of(fr: Frame, p: usize, ram: &[u8], obj: usize) -> Reach {
         volley_height: fr.player_f32(p, 0x13bc),
         smash_top: fr.player_f32(p, 0x13c0),
         smash_bottom: fr.player_f32(p, 0x13c8),
+        smash_middle: fr.player_f32(p, 0x13c4),
         ahead: rf(0x3050),
         smash_ahead: rf(0x38f8),
         body_low: rf(0x3054),
@@ -204,6 +205,7 @@ fn contact_search(name: &str, ram_name: &str) -> usize {
                 volley_height: fr.player_f32(p, 0x13bc),
                 smash_top: fr.player_f32(p, 0x13c0),
                 smash_bottom: fr.player_f32(p, 0x13c8),
+                smash_middle: fr.player_f32(p, 0x13c4),
                 ahead: rf(0x3050),
                 smash_ahead: rf(0x38f8),
                 body_low: rf(0x3054),
@@ -345,6 +347,7 @@ fn recorded_dives() {
                     volley_height: fr.player_f32(p, 0x13bc),
                     smash_top: fr.player_f32(p, 0x13c0),
                     smash_bottom: fr.player_f32(p, 0x13c8),
+                    smash_middle: fr.player_f32(p, 0x13c4),
                     ahead: 0.0,
                     smash_ahead: 0.0,
                     body_low: 0.0,
@@ -484,4 +487,31 @@ fn smash_flights(name: &str) -> Option<Vec<usize>> {
         flown.push(j - k - 1);
     }
     Some(flown)
+}
+
+/// A press that finds nothing looks at the hitter's own horizon (its grade count, at least 16 frames) and the
+/// table's middle smash cell, not character 0's 28 frames or the window's midpoint (P119).
+#[test]
+fn whiff_uses_own_horizon_and_middle_cell() {
+    let reach = |frames: usize| Reach {
+        base: 0.0, reach: 0.0, stroke_height: 0.0, volley_height: 0.0,
+        smash_top: 3.0, smash_bottom: 2.4, smash_middle: 2.0,
+        ahead: 0.0, smash_ahead: 0.0, body_low: 0.0, body_high: 0.0,
+        grades: vec![2; frames], hand: 1.0, dive_arm: [[[0.0; 4]; 4]; 2],
+    };
+    assert_eq!(whiff_horizon(&reach(8)), 16);
+    assert_eq!(whiff_horizon(&reach(28)), 28);
+    assert_eq!(whiff_horizon(&reach(40)), 40);
+    // y is down: the ball is low (1 m) until frame 30, then at `high`
+    let path = |high: f32| -> Vec<PathPoint> {
+        (0..40).map(|k| PathPoint { pos: [0.0, if k >= 30 { -high } else { -1.0 }, 0.0], bounces: 0 }).collect()
+    };
+    let (ball, pos) = ([0.5, -1.0, 0.5], [0.0, 0.0, 0.0]);
+    let whiff = |r: &Reach, high: f32| smash_whiff(&path(high)[..whiff_horizon(r)], ball, pos, r.smash_middle);
+    // above the middle only after frame 28: a 40-frame hitter smashes at it, a 28-frame one doesn't
+    assert!(whiff(&reach(40), 2.9));
+    assert!(!whiff(&reach(28), 2.9));
+    // between the middle cell (2.0) and the midpoint (2.7): above the middle, so a smash
+    assert!(whiff(&reach(40), 2.5));
+    assert!(!whiff(&reach(40), 2.0), "strictly above");
 }
