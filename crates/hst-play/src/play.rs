@@ -76,6 +76,7 @@ mod alt_camera;
 pub mod match_stats;
 pub mod front_end;
 pub mod word_label;
+pub mod glyph_sheet;
 pub mod legend;
 pub mod netplay;
 mod rollback;

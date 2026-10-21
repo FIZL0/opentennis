@@ -234,7 +234,7 @@ const SETS: [i32; 3] = [1, 3, 5];
 const GAMES: [i32; 3] = [2, 4, 6];
 /// Player colours: 1P pink, 2P orange, 3P blue, 4P green (`CharacterSelect2_03`'s cards, same order).
 const COLOURS: [[f32; 3]; 4] = [[128.0, 60.0, 90.0], [128.0, 80.0, 20.0], [40.0, 90.0, 128.0], [70.0, 115.0, 30.0]];
-pub(super) use super::word_label::{FONT, glyphs};
+pub(super) use super::word_label::FONT;
 
 /// P53: the Auto preset's pick for this device (`graphics::pick`), logged.
 pub(super) fn auto_graphics() -> Graphics {
@@ -2256,7 +2256,7 @@ struct Quad {
 /// The disc's text and tables the screens show.
 struct Text {
     msg: Vec<String>,
-    /// Each glyph's cell and ink span in `word.tm2`.
+    /// Each letter's pen origin and line top on the glyph sheet and its advance (`glyph_sheet`).
     glyphs: std::collections::HashMap<char, (f32, f32, f32)>,
     grades: [[u8; 5]; 14],
     /// Play style (0 all-round, 1 baseline, 2 net, 3 big server) by character.
@@ -2379,8 +2379,6 @@ fn newest(mods: &[crate::mods::Mod]) -> Vec<usize> {
 #[derive(Resource)]
 struct Sheets {
     art: Vec<Handle<Image>>,
-    /// `word.tm2`, for its glyphs.
-    font: Vec<u8>,
 }
 
 /// M113: the disc's TParam.csv, so the Mods screen can grade a mod the startup roster doesn't have ([`mod_card`]).
@@ -2414,8 +2412,7 @@ fn read_sheets(mut commands: Commands, args: Res<Args>, mut images: ResMut<Asset
         bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
         bevy::asset::RenderAssetUsages::RENDER_WORLD,
     ))];
-    let font = read(&mut iso, "MENU/MENU04.XB0", "/word.tm2");
-    art.push(super::menu_art::image(&mut images, &font, "word"));
+    art.push(super::glyph_sheet::image(&mut images));
     // Z1: read every sheet first so their replacements decode on all cores at once
     let mut sheets: Vec<(String, Vec<u8>)> = SHEETS
         .iter()
@@ -2431,7 +2428,7 @@ fn read_sheets(mut commands: Commands, args: Res<Args>, mut images: ResMut<Asset
     }
     let _pre = crate::textures::prefetch_tim2(sheets.iter().map(|s| s.1.as_slice()));
     art.extend(sheets.iter().map(|(name, d)| super::menu_art::image(&mut images, d, name)));
-    commands.insert_resource(Sheets { art, font });
+    commands.insert_resource(Sheets { art });
 }
 
 /// The menu's text tables, its sounds and the custom roster.
@@ -2445,7 +2442,7 @@ fn read_text(mut commands: Commands, args: Res<Args>, mut sheets: ResMut<Sheets>
         arc.read(e).expect("archive bytes")
     };
     let mut art = std::mem::take(&mut sheets.art);
-    let glyphs = glyphs(&sheets.font);
+    let glyphs = super::glyph_sheet::glyphs().map.clone();
     let msg = messages(&read(&mut iso, "MENU/MENU00B.XB0", "/message0.dat"));
     let (cnf, bin) = (iso.read("SYSTEM.CNF").expect("SYSTEM.CNF"), iso.read("ZZBIN/MENU.BIN").expect("MENU.BIN"));
     let grades = hst_data::exe::Menu::new(&cnf, &bin).expect("supported disc").grades();
@@ -2805,9 +2802,6 @@ const TITLES: [(&str, [f32; 3]); 11] = [
 ];
 /// Rims and outlines.
 const INK: [f32; 3] = [15.0; 3];
-/// B152: the titles' outline (the original's ring reads ~35..60 of 255 on a PCSX2 shot, the darkest blurred by the
-/// upscale).
-const RING: [f32; 3] = [20.0; 3];
 /// Gold words: play styles, names, "Ready to go!".
 const GOLD: [f32; 3] = [128.0, 112.0, 30.0];
 /// The Singles and Doubles bars' fills.
@@ -2882,21 +2876,20 @@ impl Draw<'_> {
     }
 
     fn width(&self, s: &str, size: f32) -> f32 {
-        s.chars().map(|c| self.text.glyphs.get(&c).map_or(10.0, |g| g.2 + 2.0)).sum::<f32>() * size / 32.0
+        s.chars().map(|c| self.text.glyphs.get(&c).map_or(10.0, |g| g.2)).sum::<f32>() * size / 32.0
     }
 
-    /// `s` in `word.tm2` at `size` px high from (x, y).
+    /// `s` in our font (`glyph_sheet`) at `size` px high from (x, y).
     fn text(&mut self, s: &str, x: f32, y: f32, size: f32, rgb: [f32; 3]) {
+        use super::glyph_sheet::PAD;
         let k = size / 32.0;
         let mut x = x;
         for c in s.chars() {
             match self.text.glyphs.get(&c) {
+                // the letter's whole cell, its pad round it: room for an accent, a descender, an outline
                 Some(&(u, v, w)) => {
-                    // B570: up to 2 px of the glyph's own clear cell either side, so a narrow glyph (an i) set small
-                    // still spans a pixel; a quad under a pixel wide rounds away on a low-res window
-                    let (l, r) = ((u % 32.0).min(2.0), (32.0 - u % 32.0 - w).clamp(0.0, 2.0));
-                    self.q(Tex::Font, [u - l, v, w + l + r, 32.0], [x - l * k, y, (w + l + r) * k, size], rgb, 128.0);
-                    x += (w + 2.0) * k;
+                    self.q(Tex::Font, [u - PAD, v - PAD, w + 2.0 * PAD, 32.0 + 2.0 * PAD], [x - PAD * k, y - PAD * k, (w + 2.0 * PAD) * k, (32.0 + 2.0 * PAD) * k], rgb, 128.0);
+                    x += w * k;
                 }
                 None => x += 10.0 * k,
             }
@@ -2959,24 +2952,12 @@ impl Draw<'_> {
     }
 
     /// B152: the words `f` draws, over a dark ring as the original's titles (confirm screen's court and umpire, a
-    /// PCSX2 shot): ~1.5 px round the glyphs, near black. Each glyph is stamped in [`RING`] sixteen ways round (eight
-    /// left notches between the stamps at large sizes), then
-    /// the fill on top; the glyphs are vector-set at `menu_art::K`×, so the ring stays sharp at any resolution.
+    /// PCSX2 shot): its letters taken from the glyph sheet's outlined half, the ring baked round each one.
     fn outlined(&mut self, f: impl FnOnce(&mut Self)) {
         let start = self.out.len();
         f(self);
-        let fill: Vec<Quad> = self.out.drain(start..).collect();
-        for i in 0..16 {
-            let a = i as f32 * std::f32::consts::FRAC_PI_8;
-            for q in fill.iter().filter(|q| q.tex == Tex::Font) {
-                let mut q = *q;
-                q.dst[0] += 1.5 * a.cos();
-                q.dst[1] += 1.5 * a.sin();
-                q.rgb = RING;
-                self.out.push(q);
-            }
-        }
-        self.out.extend(fill);
+        let down = super::glyph_sheet::glyphs().outlined;
+        self.out[start..].iter_mut().filter(|q| q.tex == Tex::Font).for_each(|q| q.src[1] += down);
     }
 
     /// A column of rows `pitch` px apart, the chosen one bright with the hand beside it, the rows `locked` says greyed out (B243): a faint dark pill and dim words, never the chosen

@@ -578,7 +578,7 @@ fn device_tiles(d: &mut Draw, seats: &[(&str, String)], [x, y, w, _]: [f32; 4]) 
 pub(super) fn press_hint(d: &mut Draw, tail: &str, cx: f32, y: f32, size: f32, max: f32, rgb: [f32; 3]) {
     let styles = legend::join_styles();
     if styles.is_empty() {
-        d.label("Connect a controller to join", cx, y, size, max, rgb);
+        d.label(&format!("Connect a controller{tail}"), cx, y, size, max, rgb);
         return;
     }
     let ih = size * 1.6;

@@ -152,8 +152,7 @@ fn setup(mut commands: Commands, args: Res<Args>, mut images: ResMut<Assets<Imag
         bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
         bevy::asset::RenderAssetUsages::RENDER_WORLD,
     ));
-    let font = sheet(&mut iso, "MENU/MENU04.XB0", "/word.tm2");
-    let mut art = vec![solid, super::super::menu_art::image(&mut images, &font, "word")];
+    let mut art = vec![solid, super::super::glyph_sheet::image(&mut images)];
     // `Tex::Sheet(k)` is `art[2 + k]`: the wall the Settings screens draw, M124: the faces and the stats card's letters
     // the controller assignment's cards draw (Z21: and nothing else)
     for (xb, name) in super::SHEETS {
@@ -175,7 +174,7 @@ fn setup(mut commands: Commands, args: Res<Args>, mut images: ResMut<Assets<Imag
             pc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("tparam.csv")).and_then(|e| pc.read(e).ok())
         })
         .unwrap_or_default();
-    let text = Text { msg, glyphs: super::glyphs(&font), grades, style: super::styles(&csv), hands: super::hands(&csv), ranks: Vec::new(), mods: Vec::new() };
+    let text = Text { msg, glyphs: super::super::glyph_sheet::glyphs().map.clone(), grades, style: super::styles(&csv), hands: super::hands(&csv), ranks: Vec::new(), mods: Vec::new() };
     let bank = SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd").map(Arc::new);
     commands.insert_resource(Art(art, bank, text));
     commands.insert_resource(Menu { screen: Screen::Display, ..default() });

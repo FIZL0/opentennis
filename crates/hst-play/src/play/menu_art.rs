@@ -27,7 +27,7 @@ pub fn wall_k() -> f32 {
 }
 
 pub(crate) static HEAVY: &[u8] = include_bytes!("../../../hst/assets/fonts/MPLUSRounded1c-ExtraBold.ttf");
-pub(crate) static BOLD: &[u8] = include_bytes!("../../../hst/assets/fonts/MPLUSRounded1c-Bold.ttf");
+pub static BOLD: &[u8] = include_bytes!("../../../hst/assets/fonts/MPLUSRounded1c-Bold.ttf");
 
 /// A label: its ink box on the disc sheet (x, y, w, h) and its words.
 type Label<'a> = (u16, u16, u16, u16, &'a str);
