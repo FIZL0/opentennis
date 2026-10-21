@@ -1,6 +1,7 @@
 //! The reaction voices after a point (`hst_sim::sound::reaction_voice`): on the reactions' 5th frame each player
 //! the post-point camera has in close view (`sound::reaction_view`) cheers or groans by their reaction motion. The
-//! view test takes the model's origin, its pelvis as last posed, and the player's spot.
+//! view test takes the model's origin, its pelvis as last posed, and the player's spot: its position, or for
+//! character 13 the head the last cut-away it was in predicted (`cutaway::Director::head`).
 
 use bevy::prelude::*;
 use hst_sim::sound;
@@ -15,7 +16,7 @@ pub fn plugin(app: &mut App) {
 #[derive(Resource, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct Frames(u32);
 
-fn step(mut g: ResMut<Game>, mut frames: ResMut<Frames>, posed: Option<Res<super::bodyhit::Posed>>, bones: Option<Res<super::bodyhit::Bones>>) {
+fn step(mut g: ResMut<Game>, mut frames: ResMut<Frames>, posed: Option<Res<super::bodyhit::Posed>>, bones: Option<Res<super::bodyhit::Bones>>, director: Option<Res<super::cutaway::Director>>) {
     let frames = &mut frames.0;
     if !g.post.as_ref().is_some_and(|p| p.reacted) {
         return *frames = 0;
@@ -35,9 +36,9 @@ fn step(mut g: ResMut<Game>, mut frames: ResMut<Frames>, posed: Option<Res<super
     let n = g.players.len() as u32;
     for i in 0..g.players.len() {
         let p = &g.players[i];
-        // ponytail: character 13 tests another spot of its own (no recording has it); every other character's is its position
-        let at = [p.pos[0], p.pos[1], p.pos[2], 1.0];
-        let origin = pelvis(g, i, posed.as_deref(), bones.as_deref()).unwrap_or(at);
+        let pos = [p.pos[0], p.pos[1], p.pos[2], 1.0];
+        let origin = pelvis(g, i, posed.as_deref(), bones.as_deref()).unwrap_or(pos);
+        let at = spot(g.chars.get(i).copied(), pos, director.as_deref().and_then(|d| d.head(i)));
         if !sound::reaction_view(eye, look, &view, focal, origin, at) {
             continue;
         }
@@ -49,6 +50,13 @@ fn step(mut g: ResMut<Game>, mut frames: ResMut<Frames>, posed: Option<Res<super
             g.lines.push(super::emote::Line::Reaction(i, play));
         }
     }
+}
+
+/// The view test's spot: character 13's is its head as the last cut-away it was a subject of predicted it (stale
+/// on a point it isn't one), everyone else's its position.
+fn spot(character: Option<i32>, pos: [f32; 4], head: Option<[f32; 4]>) -> [f32; 4] {
+    // ponytail: before character 13's first cut-away the game reads whatever its memory held; the position stands in
+    if character == Some(13) { head.unwrap_or(pos) } else { pos }
 }
 
 /// Player `i`'s `Bip01Pelvis` in game space as the motion player last posed it (`step` runs before this tick's
@@ -84,5 +92,13 @@ mod tests {
         let got = hst_sim::vu0::transform(&super::matrix(&v), [p[0], p[1], p[2], 1.0]);
         let want = v.local(p);
         assert!((0..3).all(|k| (got[k] - want[k]).abs() < 1e-5), "{got:?} {want:?}");
+    }
+
+    #[test]
+    fn character_13_tests_its_predicted_head() {
+        let (pos, head) = ([3.0, 0.0, -12.0, 1.0], [3.1, -1.2, -11.9, 1.0]);
+        assert_eq!(super::spot(Some(13), pos, Some(head)), head);
+        assert_eq!(super::spot(Some(13), pos, None), pos);
+        assert_eq!(super::spot(Some(12), pos, Some(head)), pos);
     }
 }
