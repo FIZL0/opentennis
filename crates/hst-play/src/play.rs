@@ -1755,6 +1755,7 @@ fn reset_positions(g: &mut Game) {
     g.serving = Serving::default();
     let s = &g.players[g.score.server as usize];
     let ball = [s.pos[0] + 0.3, -1.0, s.pos[2]];
+    let last = g.flight;
     g.flight = Flight::new(
         Ball {
             pos: ball,
@@ -1764,6 +1765,7 @@ fn reset_positions(g: &mut Game) {
         [[0.0; 4]; 4],
         [[0.0; 4]; 4],
     );
+    g.flight = last.relaunch(g.flight);
     g.prev_ball = ball;
 }
 
@@ -2023,7 +2025,9 @@ fn strike(
     // the ball launch's two uniforms (kept on the ball; nothing ported reads them)
     g.rng.shared.next();
     g.rng.shared.next();
+    let last = g.flight;
     g.flight = Flight::struck(Ball { pos: at, vel, spin }, launched.frame, launched.frame);
+    g.flight = last.relaunch(g.flight);
     ai_heard_hit(g, who, branch, vel);
     // ponytail: practice's (one player) side pick between candidates and its red-marker timeout aren't ported
     g.marks.red = (g.rules.players == 1 || g.shots > 1).then_some([target[0], target[2]]);
@@ -2116,6 +2120,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             hold_ball(g);
         } else {
             let (hand, apex) = serve::toss_points(&g.serve_data[i], toss, &player_matrix(&g.players[i]));
+            let last = g.flight;
             g.flight = Flight::new(
                 Ball {
                     pos: hand,
@@ -2125,6 +2130,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
                 rows4([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
                 rows4([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
             );
+            g.flight = last.relaunch(g.flight);
             g.shot = Shot::default();
             // a fresh path: last point's net/special count would read the toss as bounced and whiff every swing
             g.path_base = 0;
@@ -2390,6 +2396,7 @@ fn serve_call(g: &mut Game, server: usize, toss: Toss) {
 
 /// The ball is held: still, and placed on the server's motion each tick (`held_ball`).
 fn hold_ball(g: &mut Game) {
+    let last = g.flight;
     g.flight = Flight::new(
         Ball {
             pos: g.flight.ball.pos,
@@ -2399,6 +2406,7 @@ fn hold_ball(g: &mut Game) {
         [[0.0; 4]; 4],
         [[0.0; 4]; 4],
     );
+    g.flight = last.relaunch(g.flight);
 }
 
 /// Where the server holds the ball before the toss leaves the hand, as the original: in the stance (`id::SERVE_STANCE`) on
@@ -3781,6 +3789,7 @@ fn simulate(mut g: ResMut<Game>) {
     g.prev_ball = g.flight.ball.pos;
     let (shot, surface) = (g.shot, &COURTS[g.court]);
     g.flight.in_play = g.shots > 0;
+    g.flight.rally = g.phase == Phase::Rally;
     let (before, touched) = (g.flight.bounces, g.flight.special_contacts);
     g.flight.step_world(&shot, surface, &g.world.0, &g.world.1);
     if g.flight.special_contacts != touched {
@@ -3810,11 +3819,10 @@ fn simulate(mut g: ResMut<Game>) {
         return;
     }
     let f = &g.flight;
-    // ponytail: no rest detection on steep surfaces yet; the rally timeout counts as at rest
     let view = BallState {
         call: f.call,
         contacts: f.contacts,
-        stopped: f.frame > 1800,
+        stopped: f.at_rest,
         pos: f.ball.pos,
     };
     if !g

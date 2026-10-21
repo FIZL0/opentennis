@@ -271,6 +271,29 @@ pub struct Flight {
     /// The ball's last move (+0x140): the launch velocity, then each normal step's position change; kept while
     /// the ball stands or takes a plane step.
     pub last: V3,
+    /// A contact since the launch (the classification is no longer "none").
+    pub touched: bool,
+    /// Came to rest (`settle`): every later step leaves the ball as it is, until the next launch.
+    pub at_rest: bool,
+    /// The latest contact's surface normal (out of the surface, game space): the flat court's until the first
+    /// contact. A launch keeps it (`relaunch`).
+    pub normal: V4,
+    /// The match is in its rally phase: the live ball stops at the rally timeout (`REST_TIMEOUT`).
+    pub rally: bool,
+}
+
+/// A live ball still in the rally phase this many steps after its launch comes to rest on the next one.
+pub const REST_TIMEOUT: i32 = 1800;
+/// Below this speed (per frame) a ball rolling on, or not yet touching, gentle ground comes to rest.
+const REST_SPEED: f32 = 0.001;
+/// The smallest upward normal component the game's `asinf` takes past π/4 (`gentle`), found and checked
+/// against the game's own function (crates/hst-oracle/tests/libm.rs `rest_slope`).
+const GENTLE_UP: f32 = f32::from_bits(0x3f35_04f5);
+
+/// The rest check's slope test, the game's `asinf(up) > π/4`: the surface is flatter than 45°. Past ±1 the
+/// game's `asinf` answers the largest float, so those count as gentle too.
+pub fn gentle(up: f32) -> bool {
+    up >= GENTLE_UP || up < -1.0
 }
 
 /// Turns `d` by `pitch` and `yaw` (radians), keeping its length: pitch clamped to ±π/2, heading wrapped to ±π.
@@ -331,7 +354,12 @@ mod k {
 
 impl Flight {
     pub fn new(ball: Ball, spin_frame: [V4; 4], contact: [V4; 4]) -> Self {
-        Self { ball, frame: 0, bounces: 0, contacts: 0, special_contacts: 0, rolling: false, landing: ([0.0; 3], COURT), spin_frame, contact, slide: 0.0, net: true, lines: None, call: crate::judge::Call::None, line_distance: 0.0, in_play: true, model: placed(&IDENTITY, ball.pos), last: ball.vel }
+        Self { ball, frame: 0, bounces: 0, contacts: 0, special_contacts: 0, rolling: false, landing: ([0.0; 3], COURT), spin_frame, contact, slide: 0.0, net: true, lines: None, call: crate::judge::Call::None, line_distance: 0.0, in_play: true, model: placed(&IDENTITY, ball.pos), last: ball.vel, touched: false, at_rest: false, normal: INTO_GROUND, rally: false }
+    }
+
+    /// `next` launched in place of this ball: it keeps this ball's latest contact normal and rally flag.
+    pub fn relaunch(&self, next: Flight) -> Flight {
+        Flight { normal: self.normal, rally: self.rally, ..next }
     }
 
     /// A struck ball: as `new`, with the model's rotation set to the shot's spin frame (the hit sets both).
@@ -379,8 +407,12 @@ impl Flight {
 
     /// One frame of the live ball against the world mesh (`step`, with every sub-step swept through `world`).
     /// `materials` is the game's collision material table, by material id.
+    /// A ball at rest stays as it is.
     pub fn step_world(&mut self, shot: &Shot, surface: &Surface, world: &crate::mesh::World, materials: &[Material]) {
         use crate::mesh::GHOST;
+        if self.at_rest {
+            return;
+        }
         let r = shot.params.radius;
         self.advance(shot, surface, |pos, target, ghosts| {
             let ignore: &[u32] = if ghosts == 0 { &[] } else { &[GHOST] };
@@ -393,6 +425,23 @@ impl Flight {
                 (h.contact(), p, materials[h.material as usize], h.material == GHOST)
             })
         });
+        self.settle();
+    }
+
+    /// The end of a live ball's step (`step_world`, `step_plane`): it comes to rest when it is slow on gentle
+    /// ground and not bouncing, or at the rally timeout; then its call turns out (out after the net if it touched the
+    /// net first). A ball that touched the net first and has left the arena is out after the net.
+    fn settle(&mut self) {
+        use crate::judge;
+        let v = fs(self.ball.vel);
+        let speed = (v[1] * v[1]).madd(v[0], v[0]).madd(v[2], v[2]).sqrt();
+        let slow = (!self.touched || self.rolling) && speed < REST_SPEED && gentle((-F(self.normal[1])).0);
+        // the step count before this step's own
+        if slow || self.rally && self.frame - 1 > REST_TIMEOUT {
+            self.at_rest = true;
+            self.call = judge::rested(self.call);
+        }
+        self.call = judge::left_arena(self.call, self.ball.pos);
     }
 
     /// The extra step the original gives the ball when it hits a player: no acceleration, wind or curve; the step
@@ -401,6 +450,9 @@ impl Flight {
     /// such as a falling toss: then off `MISSED_NORMAL`, which stops it dead). The ball stays where it is; only its
     /// velocity (and spin, frame, counts) change. No line calls.
     pub fn step_plane(&mut self, shot: &Shot, surface: &Surface, material: Material) {
+        if self.at_rest {
+            return;
+        }
         let v = fs(self.ball.vel);
         let inv = 1.0 / (v[2] * v[2]).madd(v[0], v[0]).sqrt();
         let n: V4 = f32s([-(v[0] * inv), F(-0.0), -(v[2] * inv), F(-0.0)]);
@@ -410,6 +462,7 @@ impl Flight {
         // the original responds whether or not the sweep met the plane; on a miss its hit record keeps the normal
         // its stack held (MISSED_NORMAL) and the contact point is the step's end
         let h = crate::contact::sweep(pos, end, shot.params.radius, end, n, f32::MAX);
+        self.normal = h.map_or(MISSED_NORMAL, |h| h.normal);
         {
             let mut f = FrameFlags { plane: true, ..Default::default() };
             let d = self.respond(shot, surface, d, h.map_or(MISSED_NORMAL, |h| h.normal), material, false, &mut f);
@@ -426,6 +479,7 @@ impl Flight {
         }
         self.model = spin_model(&self.model, &self.spin_frame, self.ball.spin, 1.0, self.ball.pos);
         self.frame += 1;
+        self.settle();
     }
 
     /// The frame itself; `query(start, end, ghost touches so far)` finds the nearest contact of a sub-step: the
@@ -466,6 +520,7 @@ impl Flight {
                 break;
             };
             contacts += 1;
+            self.normal = h.normal;
             pos = crate::contact::contact_point(Some(&h), pos, target, r);
             if ghost {
                 f.ghosts += 1;
@@ -543,6 +598,7 @@ impl Flight {
             vn = [F::ZERO; 4];
         }
         self.rolling = rolling;
+        self.touched = true;
 
         // friction
         let ratio = normal_speed * s.friction / sq(vt).sqrt();

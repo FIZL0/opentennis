@@ -88,3 +88,34 @@ fn acosf() {
     };
     check("acosf", 20_000, arg, |a| libm::acosf(a[0]));
 }
+
+/// The ball's rest check asks whether the game's `asinf` of the surface's upward component passes π/4
+/// (`ball::gentle`; ps2-float's `asinf` is up to 2 ulps off the game's there, so the port keeps the game's own
+/// threshold instead): every input within 300k ulps of the threshold, then 20k draws (any finite pattern, [-8, 8],
+/// [-1, 1], just inside and past ±1), give the game's answer. Past ±1 the game's `asinf` answers the largest float.
+#[test]
+fn rest_slope() {
+    use hst_sim::ball::gentle;
+    let Some(mut ee) = Ee::game() else { return };
+    let (at, q) = (addr("asinf"), std::f32::consts::FRAC_PI_4);
+    let mut game = |x: f32| {
+        ee.call(at, &[], &[x], 100_000);
+        ee.f0() > q
+    };
+    let t = 0x3f35_04f5u32;
+    let mut bad: Vec<String> = (t - 300_000..t + 300_000).map(f32::from_bits).filter(|&x| game(x) != gentle(x)).map(|x| format!("{x:e}")).collect();
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    for _ in 0..20_000 {
+        let x = input(&mut seed);
+        let x = match rng(&mut seed) & 3 {
+            0 => x,
+            1 => x / 8.0 % 1.0,
+            2 => f32::from_bits(0x3f80_0000 + rng(&mut seed) % 64 - 32).copysign(x),
+            _ => -x / 8.0 % 1.0,
+        };
+        if game(x) != gentle(x) {
+            bad.push(format!("{x:e}"));
+        }
+    }
+    assert!(bad.is_empty(), "{} differ: {:?}", bad.len(), &bad[..bad.len().min(20)]);
+}

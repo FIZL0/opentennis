@@ -118,3 +118,177 @@ fn round1_line_calls() {
     assert!(flights.is_empty(), "{}", flights[..flights.len().min(10)].join("\n"));
     assert!(landed > 0);
 }
+
+/// The live ball object (`frames_live` recordings) as a flight and its shot, with its rest-check state: the
+/// classification (+0xa4: 0 none, 1 bounce, 2 roll, 3 at rest) and the latest contact normal (+0x210).
+fn live(b: &[u8]) -> (Flight, Shot) {
+    let (mut fl, shot) = flight(b);
+    fl.net = true;
+    fl.touched = b[0xa4] != 0;
+    fl.at_rest = b[0xa4] == 3;
+    fl.normal = std::array::from_fn(|k| f(b, 0x210 + 4 * k));
+    fl.last = v3(b, 0x140);
+    (fl, shot)
+}
+
+/// P123: every live-ball step of the `frames_live` recordings (the ball object each frame, on the recording's
+/// court) replayed through `step_world`: wherever the step comes out bit-exact (the rest of the flight is
+/// `live.rs`'s), it comes to rest exactly when the game's does, with the game's call (in, out after the net and not
+/// landed all turn out), step count and last move, and a ball at rest stays put frame after frame. Includes
+/// `p7b_c03`'s roll to rest on a prop slope (material 34, about 31°). The ball the server carries before the toss
+/// (moved by the hand, recorded velocity 0) isn't stepped. Line calls are `round1_line_calls`'s, so a landing
+/// frame's call isn't compared.
+#[test]
+fn live_ball_comes_to_rest_as_the_game() {
+    use hst_sim::{court, judge, replay::frames_live};
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let (Ok(mut iso), Ok(cnf), Ok(bin)) = (fixture::iso(), fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
+        return fixture::skip("disc absent");
+    };
+    let materials = court::materials(&Game::new(&cnf, &bin).unwrap());
+    let mut worlds = std::collections::BTreeMap::new();
+    let files = ["p7b_c03", "p7e_c03", "p7e_c07", "match_s05", "human_smash_s04", "new_recording", "p7b_c12", "p7b_c13", "1p3goodcpus2"];
+    let (mut rests, mut slopes, mut frozen, mut exact, mut inexact, mut carried) = (0, 0, 0, 0, 0, 0);
+    let mut turned = Vec::new();
+    let mut bad = Vec::new();
+    for name in files {
+        let Ok(data) = fixture::read(format!("{ctx}/fixtures/{name}.bin")) else {
+            fixture::skip(format_args!("{name}.bin absent"));
+            continue;
+        };
+        let frames = frames_live(&data);
+        let c = frames[0].global(0x422f90) as u32;
+        let world = worlds.entry(c).or_insert_with(|| court::world(&mut iso, c).unwrap());
+        for w in frames.windows(2) {
+            let (a, b) = (w[0].live_ball(), w[1].live_ball());
+            if w[1].vsync() != w[0].vsync() + 1 || i(b, 0xac) < i(a, 0xac) || i(b, 0xac) > i(a, 0xac) + 1 {
+                continue;
+            }
+            if v3(a, 0x130) == [0.0; 3] {
+                carried += (a[0xa4] != 3 && b[0xa4] == 3) as usize;
+                continue;
+            }
+            let (mut fl, shot) = live(a);
+            fl.rally = w[1].gm()[0x55] == 3;
+            fl.step_world(&shot, &COURTS[c as usize], world, &materials);
+            let want = (v3(b, 0xe0).map(f32::to_bits), v3(b, 0x130).map(f32::to_bits));
+            if (fl.ball.pos.map(f32::to_bits), fl.ball.vel.map(f32::to_bits)) != want {
+                inexact += 1;
+                continue;
+            }
+            exact += 1;
+            let v = w[1].vsync();
+            if fl.at_rest != (b[0xa4] == 3) || i(b, 0xac) != fl.frame || v3(b, 0x140).map(f32::to_bits) != fl.last.map(f32::to_bits) {
+                bad.push(format!("{name} vsync {v}: at rest {} frame {} last {:?}, game state {} frame {} last {:?}", fl.at_rest, fl.frame, fl.last, b[0xa4], i(b, 0xac), v3(b, 0x140)));
+            }
+            if (a[0xa5] == b[0xa5] || b[0xa4] == 3) && fl.call != call(b[0xa5]) {
+                bad.push(format!("{name} vsync {v}: call {:?}, game {:?} (was {:?})", fl.call, call(b[0xa5]), call(a[0xa5])));
+            }
+            if a[0xa4] == 3 {
+                frozen += 1;
+            } else if b[0xa4] == 3 {
+                rests += 1;
+                slopes += (f(b, 0x214) != -1.0) as usize;
+                let t = (call(a[0xa5]), judge::rested(call(a[0xa5])));
+                if !turned.contains(&t) {
+                    turned.push(t);
+                }
+            }
+        }
+    }
+    eprintln!("{exact} live steps bit-exact ({inexact} not, skipped), {rests} rests ({slopes} off flat ground), {frozen} frozen steps, {carried} carried rests not stepped; calls {turned:?}");
+    assert!(bad.is_empty(), "{} mismatches:\n{}", bad.len(), bad[..bad.len().min(20)].join("\n"));
+    if fixture::exists(format!("{ctx}/fixtures/p7b_c03.bin")) {
+        assert!(slopes >= 1 && rests >= 50 && frozen > 1000, "{rests} rests, {slopes} on a slope, {frozen} frozen");
+        assert!([(Call::In, Call::Out), (Call::NetOut, Call::Out), (Call::Net, Call::NetOut)].iter().all(|t| turned.contains(t)), "{turned:?}");
+    }
+}
+
+/// P123: the rally timeout, forced on `p7e_c03`'s recorded rally frames (no recording reaches it): a ball still
+/// in the rally phase 1801 steps after its launch comes to rest on its next step (1800 isn't enough, nor 1801 out
+/// of the rally phase), whatever it is doing, and stays put after; its call turns out (out after the net when it
+/// touched the net first), and the point-over check ends the point on it: out (the hitter loses) in a rally, a
+/// fault on the serve, out after the net. A ball that touched the net first and leaves the arena is out after the net.
+#[test]
+fn rally_timeout_rests_the_ball_and_ends_the_point() {
+    use hst_sim::judge::{BallState, Rally, verdict};
+    use hst_sim::{court, replay::frames_live};
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let (Ok(mut iso), Ok(cnf), Ok(bin), Ok(data)) =
+        (fixture::iso(), fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")), fixture::read(format!("{ctx}/fixtures/p7e_c03.bin")))
+    else {
+        return fixture::skip("disc or p7e_c03.bin absent");
+    };
+    let materials = court::materials(&Game::new(&cnf, &bin).unwrap());
+    let frames = frames_live(&data);
+    let c = frames[0].global(0x422f90) as u32;
+    let world = court::world(&mut iso, c).unwrap();
+    let step = |fl: &mut Flight, shot: &Shot| fl.step_world(shot, &COURTS[c as usize], &world, &materials);
+    // the first rally-phase frame in flight (not slow) with each call
+    let mut seen = Vec::new();
+    for fr in &frames {
+        let b = fr.live_ball();
+        let (fl, shot) = live(b);
+        if fr.gm()[0x55] != 3 || b[0xa4] == 3 || v3(b, 0x130)[2].abs() < 0.01 || seen.iter().any(|(_, f, _): &(u32, Flight, Shot)| f.call == fl.call) {
+            continue;
+        }
+        seen.push((fr.vsync(), fl, shot));
+    }
+    let calls: Vec<Call> = seen.iter().map(|s| s.1.call).collect();
+    assert!([Call::None, Call::In].iter().all(|c| calls.contains(c)), "{calls:?}");
+    for (v, start, shot) in seen {
+        let mut fl = start;
+        fl.rally = true;
+        fl.frame = 1800;
+        step(&mut fl, &shot);
+        assert!(!fl.at_rest, "vsync {v}: at rest after 1800 steps");
+        let mut fl = Flight { rally: false, frame: 1801, ..start };
+        step(&mut fl, &shot);
+        assert!(!fl.at_rest, "vsync {v}: at rest out of the rally phase");
+        let mut fl = Flight { rally: true, frame: 1801, ..start };
+        step(&mut fl, &shot);
+        let want = if start.call == Call::Net { Call::NetOut } else { Call::Out };
+        assert!(fl.at_rest && fl.call == want && fl.frame == 1802, "vsync {v}: {:?} → {:?} at {}", start.call, fl.call, fl.frame);
+        let rested = fl;
+        step(&mut fl, &shot);
+        assert_eq!(format!("{fl:?}"), format!("{rested:?}"), "vsync {v}: moved at rest");
+        // the point-over check: hitter 0 (serving) loses a rally ball, faults a serve
+        let view = BallState { call: fl.call, contacts: fl.contacts, stopped: fl.at_rest, pos: fl.ball.pos };
+        for shots in [1, 3] {
+            let mut r = Rally::default();
+            assert!(r.check(&view, shots, 0, 0, None, true), "vsync {v}: point not over");
+            let got = r.judge(None);
+            let want = match (fl.call, shots) {
+                (_, 1) => (verdict::FAULT, None),
+                (Call::NetOut, _) => (verdict::NET_OUT, Some(1)),
+                _ => (verdict::OUT, Some(1)),
+            };
+            assert_eq!((got.call, got.winner), want, "vsync {v}: {:?} on shot {shots}", start.call);
+        }
+        eprintln!("vsync {v}: {:?} → {:?}", start.call, fl.call);
+    }
+    // touched the net first: resting turns it out after the net, and so does leaving the arena
+    assert_eq!(hst_sim::judge::rested(Call::Net), Call::NetOut);
+    assert_eq!(hst_sim::judge::left_arena(Call::Net, [0.0, 0.0, 19.9]), Call::NetOut);
+    assert_eq!(hst_sim::judge::left_arena(Call::Net, [10.6, 0.0, 19.8]), Call::Net);
+    assert_eq!(hst_sim::judge::left_arena(Call::In, [11.0, 0.0, 0.0]), Call::In);
+}
+
+/// P123: a serve that hits a receiver is a let only if it touched the net first; otherwise the receiver simply
+/// loses the point. On the server's team it is a fault either way.
+#[test]
+fn serve_body_hit_is_a_let_only_off_the_net() {
+    use hst_sim::judge::{BallState, Rally, verdict};
+    for (call, body, want) in [
+        (Call::Net, 1, (verdict::LET, None)),
+        (Call::None, 1, (verdict::POINT, Some(0))),
+        (Call::NetOut, 1, (verdict::POINT, Some(0))),
+        (Call::Net, 2, (verdict::FAULT, None)),
+    ] {
+        let mut r = Rally::default();
+        let b = BallState { call, contacts: 0, stopped: true, pos: [0.0; 3] };
+        assert!(r.check(&b, 1, 0, 0, Some(body), true));
+        let v = r.judge(Some(body));
+        assert_eq!((v.call, v.winner), want, "{call:?} on player {body}");
+    }
+}
