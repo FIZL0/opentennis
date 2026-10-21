@@ -225,6 +225,39 @@ pub fn stroke_start(branch: u8, frames: i32, anim: i32) -> (i32, f32, Option<i32
 /// Frames before contact at which a pending swing starts.
 pub const SWING_LEAD: i32 = 8;
 
+/// Frames before contact at which a swing played `rate` times faster starts (a mod's §6 `swing_speed`, M11): the
+/// swing's contact pose is its `SWING_LEAD`th frame, reached in `SWING_LEAD / rate` frames, rounded up.
+pub fn swing_lead(rate: f32) -> i32 {
+    if rate == 1.0 { SWING_LEAD } else { (F(SWING_LEAD as f32) / rate).0.ceil() as i32 }
+}
+
+/// [`stroke_start`] for a swing played `rate` times faster (`rate` 1: exactly it). A ground stroke or volley more
+/// than [`swing_lead`] frames out turns first and its swing waits, to start at `rate` that many frames before
+/// contact; a swing with less time than that (and the smash, timed to its contact) plays at 8 / frames as any.
+pub fn paced_stroke_start(branch: u8, frames: i32, anim: i32, rate: f32) -> (i32, f32, Option<i32>) {
+    if rate == 1.0 {
+        return stroke_start(branch, frames, anim);
+    }
+    if (branch::GROUND..=branch::VOLLEY).contains(&branch) && swing_lead(rate) < frames {
+        return (if anim & 1 == 0 { id::TURN_FORE } else { id::TURN_BACK }, 1.0, Some(anim));
+    }
+    match stroke_start(branch, frames, anim) {
+        (m, _, w) if branch != branch::DIVE && frames < 1 => (m, rate, w),
+        s => s,
+    }
+}
+
+/// `frames` (a recovery after contact) at a swing `rate` times faster, rounded up; `frames` itself at rate 1.
+pub fn paced(frames: u32, rate: f32) -> u32 {
+    if rate == 1.0 { frames } else { (F(frames as f32) / rate).0.ceil() as u32 }
+}
+
+/// A whiff of a swing played `rate` times faster: the [`Whiff`] tick to start it at, so it reaches its contact pose
+/// (`WHIFF_POSE`, the swing's 8th frame one frame after the press) when the faster swing does; 0 at rate 1.
+pub fn paced_whiff(rate: f32) -> u32 {
+    WHIFF_POSE.saturating_sub(1 + paced(SWING_LEAD as u32, rate))
+}
+
 /// The miss motion for a swing that met nothing (`None`: the swing has none).
 pub fn whiff(anim: i32) -> Option<i32> {
     match anim {

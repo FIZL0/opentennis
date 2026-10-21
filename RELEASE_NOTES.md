@@ -19,3 +19,4 @@
 - With touch controls, the score at the top of the screen now sits just below the L1/R1 buttons instead of under them.
 - The loading screen before a match keeps its shape in tall (portrait) and very wide windows: the hint panel no longer squashes, and the court picture fills the whole window without black bars.
 - Settings → Shadows has a new Original choice that draws the trees' and buildings' shadows soft, as on the PS2, instead of sharp; Original Mode uses it.
+- Custom characters can now be a disc character grown bigger (taller, with longer reach), swinging faster or running slower; they play in local matches, not online yet.

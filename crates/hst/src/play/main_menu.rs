@@ -4132,6 +4132,7 @@ mod tests {
             skeleton: None,
             emotes: None, voice_takes: None,
             upscale: true,
+            build: Default::default(),
         }
     }
 
@@ -5106,6 +5107,7 @@ mod tests {
             skeleton: None,
             emotes: None, voice_takes: None,
             upscale: true,
+            build: Default::default(),
         };
         let ok = press(|p| &mut p.ok);
         let mut m = Menu { mods: vec![fake("a", 5, 2), fake("b", 9, 1)], ..default() };
@@ -5181,6 +5183,7 @@ mod tests {
             skeleton: None,
             emotes: None, voice_takes: None,
             upscale: true,
+            build: Default::default(),
         };
         // Ashley (grid 0, character 0) gets 2 + 1 more; Cody none
         let m = Menu { mods: vec![pack("x", 0, 2), pack("y", 1, 3), pack("z", 0, 1)], ..default() };
