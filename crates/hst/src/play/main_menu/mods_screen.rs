@@ -34,7 +34,7 @@ mod grid;
 mod packs;
 mod transfers;
 
-pub(super) use transfers::{layout as transfers_layout, sample as transfers_sample};
+pub(super) use transfers::{button as reload_shown, layout as transfers_layout, play_ask, sample as transfers_sample};
 
 /// B471: which of L1 / R1 (the Show tabs) do nothing on `v`: the legend dims their hint.
 pub(super) fn show_ends(v: &View) -> [bool; 2] {
@@ -144,6 +144,12 @@ pub(super) struct View {
     /// M136: a download batch that changed the mods ended: the Reload / Later popup is due once no upload is going
     /// and the screen is calm.
     due: bool,
+    /// M141: the popup is the one a Play pick put up (Reload now / Play without them), by the device that picked;
+    /// Play without them was chosen since the mods last changed (Play doesn't ask again); the footer's word count
+    /// last frame (the cursor kept on its tile as Reload comes and goes).
+    play: Option<super::Dev>,
+    without: bool,
+    words_were: usize,
     /// B373: the kind tab every page lists (`mods_kind.rs`).
     pub(super) kind: Kind,
     /// B383: the installed mods as the grid's tiles (Show → Installed; [`View::relist`]).
@@ -284,6 +290,7 @@ impl View {
     fn changed(&mut self) {
         self.changed = true;
         self.fresh = true;
+        self.without = false;
     }
 
     fn entries(&self) -> &[Entry] {
@@ -943,8 +950,11 @@ impl Menu {
         } else {
             self.screen = Screen::Main;
             self.sel = self.main_at(super::home::Row::Mods);
-            // B205: ask once per change; Later leaves the note on the Mods row
-            if std::mem::take(&mut self.add.fresh) {
+            // B205: ask once per change; Later leaves the note on the Mods row. M141: not while anything is queued
+            // or going: the popup comes up once it's all done (`transfers::offer`)
+            if !self.add.idle() {
+                self.add.due |= self.add.fresh;
+            } else if std::mem::take(&mut self.add.fresh) {
                 self.add.ask = Some(0);
             }
         }
@@ -1243,17 +1253,26 @@ impl Menu {
             self.add.ask = Some(1 - a);
             out.push(Effect::Sound(0));
         } else if k.ok && a == 0 {
-            out.push(Effect::Sound(2));
-            if let Err(e) = reload(self.add.app.0, out) {
-                // the desktop couldn't start itself again: say so on the Mods row's note and close
-                self.add.status = e;
-                self.add.ask = None;
-            }
+            self.reload_mods(out);
+        } else if k.ok && let Some(dev) = self.add.play.take() {
+            // M141: Play without them: on with the pick that asked, not asked again till the mods change
+            (self.add.ask, self.add.without) = (None, true);
+            out.extend(self.step(dev, Press { ok: true, ..Press::default() }));
         } else if k.ok {
             self.add.ask = None;
             out.push(Effect::Sound(1));
         }
         true
+    }
+
+    /// Reload (the popup's, M141's Reload Mods button's): the game starts again with the mods as they are now.
+    pub(super) fn reload_mods(&mut self, out: &mut Vec<Effect>) {
+        out.push(Effect::Sound(2));
+        if let Err(e) = reload(self.add.app.0, out) {
+            // the desktop couldn't start itself again: say so on the Mods row's note and close
+            self.add.status = e;
+            (self.add.ask, self.add.play) = (None, None);
+        }
     }
 }
 
@@ -1268,8 +1287,20 @@ pub(super) fn show_keys(m: &Menu) -> bool {
     m.add.child.is_none() && m.add.nophone.is_none() && m.add.wipe.is_none() && !m.add.empty_kind()
 }
 
-/// B420: the popup's question and its two pills: the phone apps can only close.
+/// B420: the popup's question and its two pills: the phone apps can only close. M141: a Play pick's asks to reload
+/// or play on.
 fn ask_words(v: &View) -> (&'static str, [&'static str; 2], &'static str) {
+    if v.play.is_some() {
+        return if v.app.0 {
+            (
+                "Close the game to use them?",
+                ["Close game", "Play without them"],
+                "New mods load when the game starts, and the app can't restart itself. Close game shuts it now: open it again to play with them. Play without them plays with the mods it started with.",
+            )
+        } else {
+            ("Reload now to use them?", ["Reload now", "Play without them"], "New mods load when the game starts. Reload now restarts the game with them; Play without them plays with the mods it started with.")
+        };
+    }
     if v.app.0 {
         (
             "Close the game to use them?",
@@ -1291,7 +1322,7 @@ pub(super) fn reload_said(v: &View) -> &'static str {
 }
 
 pub(super) fn reload_due(m: &Menu) -> bool {
-    m.add.changed && m.add.ask.is_none()
+    m.add.changed && m.add.ask.is_none() && m.add.idle()
 }
 
 /// The main screen's Mods picture: which installed mods are the store's (their zips' sha256), read once at startup
@@ -1946,6 +1977,7 @@ fn page(
     menu.add.refresh_stale();
     transfers::offer(&mut menu);
     menu.sel = sel;
+    transfers::hold_cursor(&mut menu);
     let on = menu.screen == Screen::Mods;
     if on && menu.add.grid() {
         browse_pictures(&mut menu, &mut shelf, &mut images);

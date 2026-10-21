@@ -1,9 +1,12 @@
 //! M136: the mod downloads and uploads under way, shown on every menu screen: a pill in the upper middle, a part per
 //! direction (the mod going now, its place in the batch, a bar for the whole batch), and once
 //! the last download of a batch that changed the mods is in and no upload is still going, the Reload / Later
-//! popup (`ask_layout`) on whichever menu screen is up, or on the next calm one.
+//! popup (`ask_layout`) on whichever menu screen is up, or on the next calm one. M141: once it's all done, a Reload
+//! Mods button in the pill's place while the new mods wait to load, and Play local / online asks again (Reload now /
+//! Play without them) if the popup was put off; nothing asks while anything is queued or going.
 
-use super::super::{Anchor, Draw, INK, Menu, Screen, Tex, WHITE};
+use super::super::pointer::{self, Act};
+use super::super::{Anchor, Dev, Draw, GOLD, INK, Menu, Screen, Tex, WHITE};
 use super::{Up, View};
 
 /// The pill's place on the 640×448 screen: centred on the title band, between the title's tab and the corner's
@@ -60,6 +63,11 @@ impl View {
         self.downloading().into_iter().chain(self.uploading()).collect()
     }
 
+    /// M141: no download queued or going and no upload: the mods are as they'll stay, so Reload may be offered.
+    pub(super) fn idle(&self) -> bool {
+        self.doing.is_empty() && self.queue.is_empty() && self.uploads().1 == 0
+    }
+
     /// An upload batch's count: `n` more queued (a new batch if none was going).
     pub(super) fn up_queued(&mut self, n: usize) {
         if self.uploads().1 == n {
@@ -76,6 +84,14 @@ pub(in crate::play::main_menu) fn sample(m: &mut Menu) {
     // `HST_TRANSFERS=ask`: the batch done instead, the popup up over the screen
     if how == "ask" {
         (v.changed, v.ask) = (true, Some(0));
+        return;
+    }
+    // M141: `done`: the batch in, the popup put off (the Reload Mods button); `play`: Play local picked since
+    if how == "done" || how == "play" {
+        v.changed = true;
+        if how == "play" {
+            (v.ask, v.play) = (Some(0), Some(Dev::Keys));
+        }
         return;
     }
     let fake = |id: &str, name: &str| {
@@ -117,7 +133,7 @@ fn calm(m: &Menu) -> bool {
 /// After the store's news each frame: a download batch that changed the mods ended (`due`), and no upload is still
 /// going: the popup comes up once the screen is calm (B205's ask, taken from leaving the Mods page).
 pub(super) fn offer(m: &mut Menu) {
-    if !m.add.due || m.add.uploads().1 > 0 || !calm(m) {
+    if !m.add.due || !m.add.idle() || !calm(m) {
         return;
     }
     m.add.due = false;
@@ -126,9 +142,41 @@ pub(super) fn offer(m: &mut Menu) {
     }
 }
 
-/// The pill over whatever menu screen is up (not in a match): a half each while both directions are going.
+/// M141: the Reload Mods button is up: everything done, mods changed since the start, the popup down, a calm screen
+/// (not the select or a lobby, where a restart would drop the players' picks).
+pub(in crate::play::main_menu) fn button(m: &Menu) -> bool {
+    m.add.changed && m.add.idle() && calm(m)
+}
+
+/// M141: Play local / Play online picked by `dev` with new mods waiting and everything done: unless Play without them
+/// was chosen since they changed, the popup asks first (Reload now / Play without them). Whether it asked.
+pub(in crate::play::main_menu) fn play_ask(m: &mut Menu, dev: Dev) -> bool {
+    let v = &mut m.add;
+    if !v.changed || v.without || !v.idle() || v.ask.is_some() {
+        return false;
+    }
+    (v.ask, v.play, v.fresh) = (Some(0), Some(dev), false);
+    true
+}
+
+/// M141: the cursor stays on its tile (or pill) of the Mods grid as the footer's Reload comes and goes with the
+/// queue; on Reload itself as it goes, the last word before it.
+pub(super) fn hold_cursor(m: &mut Menu) {
+    let n = m.add.words().len();
+    let was = std::mem::replace(&mut m.add.words_were, n);
+    if m.screen != Screen::Mods || !m.add.grid() || was == 0 || n == was || m.sel < 2 {
+        return;
+    }
+    m.sel = if m.sel >= 2 + was { m.sel + n - was } else { m.sel.min(1 + n) };
+}
+
+/// The pill over whatever menu screen is up (not in a match): a half each while both directions are going. M141:
+/// once they've all ended with mods to load, the Reload Mods button in its place.
 pub(in crate::play::main_menu) fn layout(d: &mut Draw, m: &Menu) {
     let strips = m.add.strips();
+    if strips.is_empty() && button(m) {
+        reload_button(d, m);
+    }
     if strips.is_empty() || m.screen == Screen::Playing || m.paused {
         return;
     }
@@ -139,6 +187,19 @@ pub(in crate::play::main_menu) fn layout(d: &mut Draw, m: &Menu) {
     for (k, s) in strips.iter().enumerate() {
         strip(d, s, X + 4.0 + part * k as f32, part);
     }
+    d.anchor = Anchor::Centre;
+}
+
+/// M141: "Reload Mods" (the phone apps': "Close to load mods") in the pill's place, gold under the pointer; a tap
+/// reloads.
+fn reload_button(d: &mut Draw, m: &Menu) {
+    d.anchor = Anchor::Top;
+    let rect = [X + 50.0, TOP, W - 100.0, H + 4.0];
+    let on = pointer::over(rect, Anchor::Top);
+    d.box3(rect, 9.0, [Some(INK), Some(WHITE), Some(if on { [96.0, 78.0, 24.0] } else { [24.0, 30.0, 44.0] })], 118.0);
+    let word = if m.add.app.0 { "Close to load mods" } else { "Reload Mods" };
+    d.label(word, X + W / 2.0, TOP + 5.0, 14.0, W - 120.0, if on { WHITE } else { GOLD });
+    d.hit(rect, Act::Reload);
     d.anchor = Anchor::Centre;
 }
 
@@ -226,5 +287,99 @@ mod tests {
         m.add.uploaded("m/a".into(), Up::Done("ok".into()));
         offer(&mut m);
         assert_eq!(m.add.ask, Some(0));
+    }
+
+    fn ok() -> crate::play::main_menu::Press {
+        crate::play::main_menu::Press { ok: true, ..Default::default() }
+    }
+
+    /// M141: the Reload Mods button and the main menu's Mods note wait for the queue; then the button reloads.
+    #[test]
+    fn the_reload_button_waits_for_the_queue() {
+        let mut m = Menu::default();
+        m.screen = Screen::Graphics;
+        m.add.changed = true;
+        m.add.enqueue(entry("x"), false, 1);
+        assert!(!button(&m) && !super::super::reload_due(&m), "not while a download is going");
+        m.add.finish(&entry("x").key(), &Ok("X".into()));
+        m.add.next(false, 1);
+        m.add.ups.insert("m/a".into(), Up::Queued);
+        assert!(!button(&m), "not while an upload is queued");
+        m.add.uploaded("m/a".into(), Up::Done("ok".into()));
+        assert!(button(&m) && super::super::reload_due(&m));
+        m.add.ask = Some(0);
+        assert!(!button(&m), "not under the popup");
+        (m.add.ask, m.screen) = (None, Screen::Chars);
+        assert!(!button(&m), "not over the select");
+        m.screen = Screen::Main;
+        let hits = super::super::super::pointer::tests::hits(&m).0;
+        assert!(hits.iter().any(|h| matches!(h.act, Act::Reload)));
+    }
+
+    /// M141: the Mods grid's Reload comes with the queue's end, the cursor kept on its tile.
+    #[test]
+    fn the_footers_reload_waits_for_the_queue() {
+        let mut m = Menu::default();
+        (m.screen, m.add.page) = (Screen::Mods, super::super::Page::Browse);
+        m.add.changed = true;
+        assert!(m.add.grid());
+        assert_eq!(m.add.words().last(), Some(&"Reload"));
+        hold_cursor(&mut m);
+        let tile = m.add.browse_acts() + 2;
+        m.sel = tile;
+        m.add.enqueue(entry("x"), false, 1);
+        assert!(!m.add.words().contains(&"Reload"));
+        hold_cursor(&mut m);
+        assert_eq!(m.sel, tile - 1, "the same tile");
+        m.add.finish(&entry("x").key(), &Ok("X".into()));
+        m.add.next(false, 1);
+        hold_cursor(&mut m);
+        assert_eq!(m.sel, tile);
+    }
+
+    /// M141: leaving the Mods page mid-download doesn't ask; the end of the queue does.
+    #[test]
+    fn leaving_mid_download_asks_at_the_end() {
+        let mut m = Menu::default();
+        m.screen = Screen::Mods;
+        m.add.changed();
+        m.add.enqueue(entry("x"), false, 1);
+        m.mods_back(&mut Vec::new());
+        assert_eq!((m.screen, m.add.ask), (Screen::Main, None));
+        offer(&mut m);
+        assert_eq!(m.add.ask, None);
+        m.add.finish(&entry("x").key(), &Ok("X".into()));
+        m.add.next(false, 1);
+        offer(&mut m);
+        assert_eq!(m.add.ask, Some(0));
+    }
+
+    /// M141: Play local with the popup put off asks Reload now / Play without them; Play without them goes on to the
+    /// select and Play doesn't ask again until the mods change. Nothing asks while a download is going.
+    #[test]
+    fn play_asks_again() {
+        use super::super::super::home::Row;
+        let mut m = Menu::default();
+        m.screen = Screen::Main;
+        m.sel = m.main_at(Row::Local);
+        m.add.changed = true;
+        m.add.enqueue(entry("x"), false, 1);
+        m.step(Dev::Keys, ok());
+        assert_eq!((m.screen, m.add.ask), (Screen::Chars, None), "not while queued");
+        m.add.finish(&entry("x").key(), &Ok("X".into()));
+        m.add.next(false, 1);
+        (m.screen, m.sel) = (Screen::Main, m.main_at(Row::Local));
+        m.step(Dev::Keys, ok());
+        assert_eq!((m.screen, m.add.ask), (Screen::Main, Some(0)));
+        assert_eq!(super::super::ask_words(&m.add).1, ["Reload now", "Play without them"]);
+        m.step(Dev::Keys, crate::play::main_menu::Press { down: true, ..Default::default() });
+        m.step(Dev::Keys, ok());
+        assert_eq!((m.screen, m.add.ask, m.add.play), (Screen::Chars, None, None));
+        (m.screen, m.sel) = (Screen::Main, m.main_at(Row::Local));
+        m.step(Dev::Keys, ok());
+        assert_eq!((m.screen, m.add.ask), (Screen::Chars, None), "once per change");
+        m.add.changed();
+        assert!(play_ask(&mut m, Dev::Keys));
+        assert_eq!(super::super::ask_words(&m.add).1[1], "Play without them");
     }
 }

@@ -67,6 +67,8 @@ pub(super) enum Act {
     Carry(usize, [f32; 2], [f32; 2]),
     /// B597: the dragged card let go at this point: dropped on another seat it swaps with it.
     Land(usize, [f32; 2]),
+    /// M141: the Reload Mods button in the transfers pill's place: a tap restarts the game with the new mods.
+    Reload,
 }
 
 /// ✕.
@@ -304,6 +306,8 @@ impl Menu {
             Act::Wipe(i) => self.add.wipe_to(i),
             Act::Carry(p, grab, at) => self.carry(p, grab, at, &mut out),
             Act::Land(p, at) => self.land(p, at, &mut out),
+            Act::Reload if tap && super::mods_screen::reload_shown(self) => self.reload_mods(&mut out),
+            Act::Reload => {}
         }
         out
     }
