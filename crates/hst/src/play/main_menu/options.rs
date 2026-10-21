@@ -881,7 +881,7 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         } else if listed(o) {
             // B498: a dropdown's pill: its value and a ▼ (▲ blue while its list is open)
             let shown = on && m.listing.is_some();
-            drop_pill(d, vb, &value, size, shown);
+            drop_pill(d, vb, &value, size, shown, false);
             if shown {
                 open = Some((o, r));
             }
@@ -951,12 +951,13 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
     switch_layout(d, m, hand_x);
 }
 
-/// B498: a dropdown row's value pill: white (blue with white words while open), its value and a ▼ (▲ open).
-pub(super) fn drop_pill(d: &mut Draw, b @ [x, y, w, h]: [f32; 4], value: &str, size: f32, open: bool) {
-    look::outlined_pill(d, b, look::c(if open { look::BLUE } else { look::PAPER }), 2.0);
+/// B498: a dropdown row's value pill: white (blue with white words while open; `on`, the cursor on a pill of its
+/// own: yellow), its value and a ▼ (▲ open).
+pub(super) fn drop_pill(d: &mut Draw, b @ [x, y, w, h]: [f32; 4], value: &str, size: f32, open: bool, on: bool) {
+    look::outlined_pill(d, b, look::c(if open { look::BLUE } else if on { look::YELLOW } else { look::PAPER }), 2.0);
     let ink = if open { WHITE } else { look::c(look::INK) };
     let (tw, th) = (size * 0.7, size * 0.45);
-    super::roster::triangle(d, [x + w - 12.0 * PX - tw, y + (h - th) / 2.0, tw, th], !open, if open { WHITE } else { look::c(look::MUTED) });
+    super::roster::triangle(d, [x + w - 12.0 * PX - tw, y + (h - th) / 2.0, tw, th], !open, if open { WHITE } else if on { ink } else { look::c(look::MUTED) });
     let room = w - tw - 34.0 * PX;
     let value = roster::ellipsis(d, value, size, room);
     d.centred(&value, x + 10.0 * PX + room / 2.0, y + (h - size) / 2.0, size, ink);

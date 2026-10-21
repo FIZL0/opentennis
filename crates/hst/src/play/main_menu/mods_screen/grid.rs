@@ -1640,9 +1640,10 @@ fn upload_button(d: &mut Draw, b @ [x, y, w, h]: [f32; 4], up: bool, on: bool, p
     let tw = d.width("Upload", size);
     let ax = x + (w - tw - 16.0 * PX) / 2.0 + 4.0 * PX;
     let cy = y + h / 2.0;
-    bar(d, [ax - 2.4 * PX, cy - 2.0 * PY], 6.5 * PX, 1.8 * PY, -std::f32::consts::FRAC_PI_4, ink, 128.0);
-    bar(d, [ax + 2.4 * PX, cy - 2.0 * PY], 6.5 * PX, 1.8 * PY, std::f32::consts::FRAC_PI_4, ink, 128.0);
-    d.q(Tex::Solid, [0.0; 4], [ax - 0.9 * PX, cy - 4.5 * PY, 1.8 * PX, 10.5 * PY], ink, 128.0);
+    // a solid arrowhead on a stem over a tray line
+    super::super::roster::triangle(d, [ax - 5.0 * PX, cy - 7.0 * PY, 10.0 * PX, 6.0 * PY], false, ink);
+    d.q(Tex::Solid, [0.0; 4], [ax - 1.2 * PX, cy - 1.5 * PY, 2.4 * PX, 5.0 * PY], ink, 128.0);
+    d.q(Tex::Solid, [0.0; 4], [ax - 5.5 * PX, cy + 5.0 * PY, 11.0 * PX, 2.0 * PY], ink, 128.0);
     d.text("Upload", ax + 12.0 * PX, y + (h - size) / 2.0, size, ink);
     if phone {
         d.out[n0..].iter_mut().for_each(|q| q.alpha *= 0.5);
@@ -1901,13 +1902,10 @@ fn footer(d: &mut Draw, m: &Menu, l: &Lay) {
         };
         let b = [px, py, pw, h];
         let on = m.sel == p0 + i && v.child.is_none();
-        if on {
-            look::halo(d, b);
-        }
         match p {
             Pill::Have => {
                 let now = HAVES.iter().find(|c| c.0 == v.b.have).map_or("", |c| c.1);
-                super::super::options::drop_pill(d, b, now, size, on || m.listing.is_some());
+                super::super::options::drop_pill(d, b, now, size, m.listing.is_some(), on);
                 d.hit(b, Act::Row(p0 + i, OK));
             }
             _ => {
