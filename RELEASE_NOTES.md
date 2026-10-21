@@ -3,7 +3,7 @@
 - The Stretch aspect ratio is back in Settings → Display, on every platform: the picture, menus and score use the whole screen, notch and margins included.
 - A player's emote voice now stops when the point ends and the players start reacting, instead of talking over the reaction.
 - Mods → Installed: while you search, each kind tab (Characters, Courts, Umpires, Texture packs) shows how many mods it finds, and an empty tab tells you which other kinds have matches.
-- Web app: switching between Settings tabs is now instant instead of sliding.
+- Switching between Settings tabs is now instant instead of sliding.
 - Phones: the menus, title and loading screens now fill the whole screen, under the notch, Dynamic Island and home bar, with buttons and text kept clear of them; the system bars hide while you play (swipe from an edge to bring them back).
 - The alternate camera now cuts to the close-ups after each point like the normal camera, and turns after the ball more smoothly, as in the original.
 - On the indoor court, a ball that hits a ball-boy cart's turning wheels now bounces off them where they actually are, as in the original.
@@ -16,5 +16,4 @@
 - Settings: On/Off options now switch with a single press, with nothing to confirm.
 - Turning on VSync no longer freezes the game for a while on Linux.
 - Settings pages that don't fit the window now scroll, with a scroll bar, like the Controls table.
-- Switching between Settings tabs no longer flashes the previous page's panels or text, on any window size.
 - Settings → Controls: Pause can now be rebound, and the emotes are named by what they play (Game Won, Game Lost, Point Won, Point Lost).

@@ -3680,8 +3680,7 @@ fn draw(
     }
     // concept: the local strip focused is the select itself, no slide
     let page = if menu.screen == Screen::Confirm && !menu.online() { Screen::Chars } else { menu.screen };
-    let cards = options::cards(&menu.grid, page);
-    let quads = slide.step(page, quads, time.delta_secs() * 60.0, cards);
+    let quads = slide.step(page, quads, time.delta_secs() * 60.0);
     let scale = window.single().map_or(1.0, super::widescreen::unit_px) * super::widescreen::menu_scale();
     let (share, vshare) = super::widescreen::window_menu_shares(&window);
     // the quads' parent (the view) in physical pixels

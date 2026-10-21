@@ -1166,13 +1166,6 @@ pub(super) struct Table {
     pub shown: usize,
 }
 
-/// The Settings page `s`'s cards on the screen (zoomed out as drawn): the list and side, or Controls' one table.
-pub(super) fn cards(g: &Grid, s: Screen) -> [[f32; 4]; 2] {
-    let z = zoom(g).1;
-    let [a, b] = if s == Screen::Controls { [table(g).panel, [0.0; 4]] } else { boxes(g, page(s).len()).into() };
-    [z.at(a), z.at(b)]
-}
-
 pub(super) fn table(g: &Grid) -> Table {
     let (list, side) = boxes(g, 1);
     let panel = [list[0], list[1], side[0] + side[2] - list[0], side[1] + side[3] - list[1]];
