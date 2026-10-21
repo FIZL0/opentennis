@@ -298,6 +298,8 @@ fn dev_env() {
 #[cfg_attr(target_os = "android", allow(dead_code))] // the bin's entry; the Android .so (the `hst` example) starts at `android_main`
 fn main() {
     dev_env();
+    // M140: a newer release the updater put in the user data folder runs instead (the game's own folder was read-only)
+    update::relaunch();
     handshake::set_build(BUILD_ID);
     #[cfg(target_os = "ios")]
     ios::log_to_documents(&disc::data_dir());

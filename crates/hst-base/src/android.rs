@@ -450,6 +450,31 @@ pub fn haptic() {
     });
 }
 
+/// M140: whether Google Play installed this app (`HstActivity.fromStore`): Play's rules let only Play update it.
+pub fn from_store() -> bool {
+    ask("fromStore").unwrap_or(false)
+}
+
+/// M140: hands the checked update .apk at `apk` to the system's installer (`HstActivity.install`, a `PackageInstaller`
+/// session; the player confirms, and allows installs from this app the first time). [`install_status`] says how it went.
+pub fn install_apk(apk: &std::path::Path) -> Result<(), String> {
+    let path = apk.to_string_lossy().into_owned();
+    with_env(|env, activity| {
+        let s = env.new_string(&path)?;
+        env.call_method(activity, "install", "(Ljava/lang/String;)V", &[JValue::Object(&s)]).map(drop)
+    })
+    .ok_or_else(|| "the system's installer didn't take it".into())
+}
+
+/// M140: the installer's answer once there is one: `PackageInstaller`'s status (0 installed, 3 the player said no,
+/// others a failure). The app usually ends before 0 arrives: the system replaces it.
+pub fn install_status() -> Option<i32> {
+    call("installed", "()I").filter(|&s| s != INSTALLING)
+}
+
+/// `HstActivity.installed`'s word for no answer yet.
+const INSTALLING: i32 = -99;
+
 /// B418: whether `rustls-platform-verifier` is set up (`init_tls`), so [`tls`] can check certificates the phone's way.
 static PLATFORM_TLS: AtomicBool = AtomicBool::new(false);
 

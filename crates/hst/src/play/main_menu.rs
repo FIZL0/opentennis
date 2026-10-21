@@ -77,6 +77,7 @@ mod roster;
 mod slide;
 mod splash;
 mod takeover;
+mod update_ask;
 
 /// Characters on the select screen.
 const CHARS: usize = 14;
@@ -224,9 +225,10 @@ pub(crate) fn save_graphics(iso: &str, g: Graphics) {
 /// `RENDERERS` index; web/index.html reads it from settings.txt in localStorage) and the confirm screen's last umpire
 /// pick (B191: `UMPIRES` is Random, the first-time and fallback choice) and the Menu Size (`MENU_SIZES`: 0 Auto,
 /// else tenths) and how many store downloads run at once (B339: 0 Auto, [`Settings::downloads_at_once`]) and the
-/// pads' button icons (B362: a `legend::LAYOUTS` index, 0 Auto), saved in `settings.txt`.
+/// pads' button icons (B362: a `legend::LAYOUTS` index, 0 Auto) and Updates' Always (M140: a found update installs by
+/// itself; Never is `update_check` off), saved in `settings.txt`.
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Settings([bool; 9], Graphics, Volumes, u8, Ask, u8, u8, u8, u8, u8, Ask);
+pub struct Settings([bool; 9], Graphics, Volumes, u8, Ask, u8, u8, u8, u8, u8, Ask, bool);
 /// B273: the browser's renderer setting, each as its settings.txt / web/index.html word and its Settings row's word
 /// (B316: the row's value and choices both come from here): Auto (WebGPU when the browser has an adapter), WebGPU,
 /// WebGL2.
@@ -272,7 +274,7 @@ fn default_aspect() -> u8 {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings(SETTING_DEFAULTS, Graphics::default(), Volumes::default(), default_aspect(), Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each)
+        Settings(SETTING_DEFAULTS, Graphics::default(), Volumes::default(), default_aspect(), Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false)
     }
 }
 
@@ -281,6 +283,7 @@ impl Settings {
         let mut s = Settings::default();
         let (mut downloads, mut aspect, mut wide) = (None, None, None);
         crate::mods_textures::set_order(Default::default());
+        let mut never = false;
         for (k, v) in text.lines().filter_map(|l| l.split('#').next()?.split_once('=')) {
             if crate::mods_textures::setting(k, v) {
                 // M5a: the texture packs' order, kept in `mods_textures`
@@ -288,6 +291,10 @@ impl Settings {
                 s.4 = Ask::parse(v).unwrap_or(s.4);
             } else if k.trim() == "keep_downloads" {
                 s.10 = Ask::parse(v).unwrap_or(s.10);
+            } else if k.trim() == "updates" {
+                // M140: Settings → Updates; its Never is Check for Updates off
+                never = Ask::parse(v) == Some(Ask::Never);
+                s.11 = Ask::parse(v) == Some(Ask::Always);
             } else if k.trim() == "umpire" {
                 s.6 = v.trim().parse().ok().filter(|&u| u as usize <= UMPIRES).unwrap_or(UMPIRES as u8);
             } else if k.trim() == "menu_size" {
@@ -318,15 +325,17 @@ impl Settings {
         s.0[UPSCALED_DOWNLOADS] = downloads.unwrap_or(s.0[0]);
         s.3 = aspect.or(wide).unwrap_or(s.3);
         s.2 = Volumes::parse(text);
+        s.0[UPDATE_CHECK] &= !never;
         crate::chat::HIDDEN.store(!s.0[CHAT], std::sync::atomic::Ordering::Relaxed);
         crate::update::CHECK.store(s.0[UPDATE_CHECK], std::sync::atomic::Ordering::Relaxed);
+        crate::update::ALWAYS.store(s.11, std::sync::atomic::Ordering::Relaxed);
         crate::audio::EMOTE_VOICES.store(s.0[EMOTE_VOICES], std::sync::atomic::Ordering::Relaxed);
         s
     }
 
     fn text(&self) -> String {
         let on: String = SETTING_NAMES.iter().zip(self.0).map(|(n, on)| format!("{n} = {}\n", if on { "on" } else { "off" })).collect();
-        format!("aspect = {}\n", super::widescreen::ASPECTS[self.3 as usize]) + &on + &format!("online_mods = {}\n", self.4.word()) + &format!("keep_downloads = {}\n", self.10.word()) + &self.1.text() + &self.2.text() + &self.renderer_line() + &format!("umpire = {}\n", self.6) + &format!("menu_size = {}\n", if self.7 == 0 { "auto".into() } else { format!("{}", self.7 as u32 * 10) }) + &format!("downloads_at_once = {}\n", if self.8 == 0 { "auto".into() } else { self.8.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.9 as usize].1) + &crate::mods_textures::settings_text()
+        format!("aspect = {}\n", super::widescreen::ASPECTS[self.3 as usize]) + &on + &format!("online_mods = {}\n", self.4.word()) + &format!("keep_downloads = {}\n", self.10.word()) + &self.1.text() + &self.2.text() + &self.renderer_line() + &format!("umpire = {}\n", self.6) + &format!("menu_size = {}\n", if self.7 == 0 { "auto".into() } else { format!("{}", self.7 as u32 * 10) }) + &format!("downloads_at_once = {}\n", if self.8 == 0 { "auto".into() } else { self.8.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.9 as usize].1) + &crate::mods_textures::settings_text() + &crate::update::settings_line(self.0[UPDATE_CHECK], self.11)
     }
 
     /// B339: how many store installs run at once: the setting, or on Auto 3 on desktop, 2 in a browser, 1 on a
@@ -571,6 +580,8 @@ struct Menu {
     stale: (Option<usize>, bool),
     /// ○ on the splash: the Quit the game? popup's chosen pill (0 Quit, 1 Stay).
     quit: Option<usize>,
+    /// M140: the Update? popup is up over the main menu: its chosen pill (`update_ask::CHOICES`).
+    update_ask: Option<usize>,
     /// B498: a many-choice Settings row's dropdown is open (row `sel`, `editing` set): the highlighted choice.
     listing: Option<usize>,
     /// B369: the select's favorite characters (`favorites.txt`).
@@ -656,6 +667,7 @@ impl Default for Menu {
             switch: None,
             stale: (None, false),
             quit: None,
+            update_ask: None,
             listing: None,
             favs: default(),
             names: default(),
@@ -1326,7 +1338,7 @@ impl Menu {
             return out;
         }
         let host = self.lead();
-        if self.screen == Screen::Main && (self.ask_step(k, &mut out) || self.stale_step(dev, k, &mut out)) {
+        if self.screen == Screen::Main && (self.ask_step(k, &mut out) || self.stale_step(dev, k, &mut out) || self.update_ask_step(k, &mut out)) {
             return out;
         }
         // B484: the other side's mod asked about over the select / the confirm (drawn over everything)
@@ -2285,7 +2297,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     let fresh = kept.is_none();
     // first run (no settings.txt): the Auto preset's pick for this device (P53; B351: a phone's is Phone or below it,
     // the browser on a touch screen too; a Steam Deck's its own)
-    let first = || Settings(SETTING_DEFAULTS, auto_graphics(), Volumes::default(), default_aspect(), Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each);
+    let first = || Settings(SETTING_DEFAULTS, auto_graphics(), Volumes::default(), default_aspect(), Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false);
     let saved = crate::store::read_to_string(Settings::path(&args.iso)).map(|t| {
         let mut s = Settings::parse(&t);
         // B289: an older build kept the lobby prompt's answer in the online mod cache
@@ -2352,6 +2364,9 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     };
     if screen == "main-stale" {
         menu.stale = (Some(0), true);
+    }
+    if screen == "main-update" {
+        menu.update_ask = Some(1);
     }
     if screen == "press-quit" {
         menu.quit = Some(1);
@@ -2958,7 +2973,7 @@ fn drawn<'a>(m: &Menu, text: &'a Text, bind: &Bindings, pads: &[Entity], control
     online::draw_ask_over(&mut d, m);
     takeover::layout(&mut d, m, hand_x);
     // B221: the screens with no Back row show the title tab's Back (B449: the confirm screen has its own)
-    if (matches!(m.screen, Screen::Main | Screen::Mode | Screen::Assign | Screen::Chars) || m.local_roster()) && m.picking.is_none() && m.add.ask.is_none() && m.stale.0.is_none() {
+    if (matches!(m.screen, Screen::Main | Screen::Mode | Screen::Assign | Screen::Chars) || m.local_roster()) && m.picking.is_none() && m.add.ask.is_none() && m.stale.0.is_none() && m.update_ask.is_none() {
         d.anchor = Anchor::Span;
         d.outlined(|d| d.text("<", 10.0, 5.0, 30.0, WHITE));
         d.anchor = Anchor::Centre;
@@ -3311,6 +3326,10 @@ fn step(
         if dev == Dev::Keys && std::mem::take(&mut *launching) {
             fx.push(Effect::Launch);
         }
+        // M140: a newer version found: the Update? popup, or (Always) its install
+        if dev == Dev::Keys {
+            menu.update_offer();
+        }
         if dev == Dev::Keys && let Some((u, program, key)) = voice.2.take().filter(|h| h.0 == menu.umpire) {
             fx.push(Effect::Hear(u, program, key));
         }
@@ -3331,6 +3350,9 @@ fn step(
                 Effect::SaveSettings => {
                     // applied live: the menu draws with them too
                     gfx.set_if_neq(menu.settings.1);
+                    // M140: Updates' choice, put back too when ○ undoes it
+                    crate::update::CHECK.store(menu.settings.0[UPDATE_CHECK], std::sync::atomic::Ordering::Relaxed);
+                    crate::update::ALWAYS.store(menu.settings.11, std::sync::atomic::Ordering::Relaxed);
                     if let Some(s) = &sound {
                         s.set_volumes(menu.settings.2);
                     }
@@ -3858,16 +3880,16 @@ mod tests {
 
     #[test]
     fn settings_round_trip() {
-        let s = Settings([true, false, false, true, true, true, true, true, true], Graphics::LOW, Volumes::default(), 3, Ask::Each, 0, UMPIRES as u8, 0, 4, 0, Ask::Each);
+        let s = Settings([true, false, false, true, true, true, true, true, true], Graphics::LOW, Volumes::default(), 3, Ask::Each, 0, UMPIRES as u8, 0, 4, 0, Ask::Each, true);
         assert_eq!(Settings::parse(&s.text()), s);
         // B339: Downloads at Once: Auto (3 on desktop) unless set, at most 8
         assert_eq!((s.downloads_at_once(), Settings::default().downloads_at_once()), (4, 3));
         assert_eq!((Settings::parse("downloads_at_once = 8\n").8, Settings::parse("downloads_at_once = 9\n").8), (8, 0));
         let d = Graphics::default();
-        assert_eq!(Settings::parse("music = off\nbogus = off\n"), Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each));
+        assert_eq!(Settings::parse("music = off\nbogus = off\n"), Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false));
         // a fresh file: menu music on, court music off; an old file's `music` is the match's
-        assert_eq!(Settings::parse(""), Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each));
-        assert_eq!(Settings::parse("music = on\n"), Settings([true, true, true, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each));
+        assert_eq!(Settings::parse(""), Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false));
+        assert_eq!(Settings::parse("music = on\n"), Settings([true, true, true, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false));
         // B117: an old file's widescreen on is Auto, off 4:3; `aspect` wins
         assert_eq!(Settings::parse("widescreen = on\n").3, 0);
         assert_eq!(Settings::parse("widescreen = off\n").3, 1);
@@ -3875,10 +3897,10 @@ mod tests {
         // Upscaled Downloads follows Upscaled Textures unless it's set itself
         assert!(!Settings::parse("upscaled_textures = off\n").0[UPSCALED_DOWNLOADS]);
         assert!(Settings::parse("upscaled_textures = off\nupscaled_downloads = on\n").0[UPSCALED_DOWNLOADS]);
-        assert_eq!(Settings::parse("menu_music = off\n"), Settings([true, false, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each));
+        assert_eq!(Settings::parse("menu_music = off\n"), Settings([true, false, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false));
         assert!(!Settings::default().flags().contains(&"--music".to_string()));
-        assert!(!Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each).flags().contains(&"--music".to_string()));
-        assert!(Settings([true, false, true, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each).flags().contains(&"--music".to_string()));
+        assert!(!Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false).flags().contains(&"--music".to_string()));
+        assert!(Settings([true, false, true, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false).flags().contains(&"--music".to_string()));
         // B289: the online mod answer round-trips; an unknown word keeps Ask
         let a = Settings { 4: Ask::Never, ..Settings::default() };
         assert_eq!(Settings::parse(&a.text()), a);
@@ -3890,7 +3912,7 @@ mod tests {
         assert!(!e.0[EMOTE_VOICES] && Settings::parse("").0[EMOTE_VOICES] && !Settings::parse(&e.text()).0[EMOTE_VOICES]);
         assert_eq!(Settings::parse("uncapped_fps = off\n").1, Graphics { vsync: true, ..d });
         assert_eq!(s.flags()[..1], ["--fps"]);
-        assert_eq!(Settings([false, false, true, false, true, true, true, true, true], d, Volumes::default(), 1, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each).flags()[..2], ["--no-upscale", "--music"]);
+        assert_eq!(Settings([false, false, true, false, true, true, true, true, true], d, Volumes::default(), 1, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false).flags()[..2], ["--no-upscale", "--music"]);
     }
 
     #[test]

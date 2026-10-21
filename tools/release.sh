@@ -4,8 +4,10 @@
 # iOS IPA + the Android APK (tools/build.sh all; the APK via tools/apk.sh, signed with this machine's ~/.android/debug.keystore:
 # keep that file, a phone only takes an update signed with the same key), sign SHA256SUMS with the minisign key (~/.config/hst/release.key, asks its password) and upload to GitHub:
 #   opentennis-windows-x86_64.zip  opentennis-linux-x86_64.tar.gz  opentennis-ios.ipa  opentennis-android.apk   what players download
-#   opentennis-windows-x86_64.exe  opentennis-linux-x86_64             the bare binaries the updater fetches (plan/B374.md)
+#   opentennis-windows-x86_64.exe  opentennis-linux-x86_64             the bare binaries the updater fetches (plan/B374.md;
+#                                                                      M140: the phones' updater fetches the .apk / hands on the .ipa)
 #   SHA256SUMS  SHA256SUMS.sig
+#   altstore-source.json                                               M140: the iOS app as an AltStore / SideStore source, so they update it
 #   web.tar.gz                                                         the website, which pages.yml deploys as built here
 # VERSION with a suffix (1.1.0-rc.1) is a pre-release, never Latest. notes.md is the "New in …" list (Markdown
 # bullets); without it, RELEASE_NOTES.md (kept up to date as changes land; emptied and committed after the release),
@@ -76,6 +78,17 @@ cp dist/opentennis.apk "$out/opentennis-android.apk"
 env -u HST_SITE HST_COMMIT=$HST_COMMIT tools/web.sh
 tar -czf "$out/web.tar.gz" -C web .
 (cd "$out" && sha256sum opentennis-* > SHA256SUMS)
+# M140: the AltStore / SideStore source (their v2 format): the latest release's .ipa, at a URL that always serves the
+# latest release's copy of this file
+src=https://github.com/$repo/releases/latest/download/altstore-source.json
+jq -n --arg v "$version" --arg date "$(date -u +%Y-%m-%d)" --arg ipa "https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa" \
+    --argjson size "$(stat -c %s "$out/opentennis-ios.ipa")" --arg src "$src" '{
+    name: "OpenTennis", identifier: "io.github.fizl0.hst", sourceURL: $src, website: "https://opentennis.dev/",
+    apps: [{ name: "OpenTennis", bundleIdentifier: "io.github.fizl0.hst", developerName: "FIZL0",
+             localizedDescription: "A remaster of Hot Shots Tennis (PS2). Plays from your own disc image (SCUS-97610).",
+             iconURL: "https://opentennis.dev/icon-180.png",
+             versions: [{ version: $v, date: $date, downloadURL: $ipa, size: $size, minOSVersion: "15.0" }] }],
+    news: [] }' >"$out/altstore-source.json"
 printf %s "$pw" | minisign -S -s "$key" -m "$out/SHA256SUMS" -x "$out/SHA256SUMS.sig" -t "OpenTennis $tag"
 # the game checks against the key built into it (update.rs): refuse a release it would turn down
 minisign -V -P "$(sed -n 's/^pub const PUBLIC_KEY: &str = "\(.*\)";/\1/p' crates/hst/src/update.rs)" -m "$out/SHA256SUMS" -x "$out/SHA256SUMS.sig" -q \
@@ -93,7 +106,7 @@ body=$out/notes.md
     echo "|---|---|---|"
     echo "| **Windows** 10/11 | [\`opentennis-windows-x86_64.zip\`](https://github.com/$repo/releases/download/$tag/opentennis-windows-x86_64.zip) | Unzip, then drop your ISO on \`opentennis.exe\` |"
     echo "| **Linux** / **Steam Deck** | [\`opentennis-linux-x86_64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-x86_64.tar.gz) | Unpack and open \`opentennis\`, then pick your ISO |"
-    echo "| **iPhone** / **iPad** (iOS 15+) | [\`opentennis-ios.ipa\`](https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa) | Unsigned: sign and install it yourself (AltStore, Sideloadly…), then put your ISO in Files → On My iPhone → OpenTennis. Touch controls or a controller |"
+    echo "| **iPhone** / **iPad** (iOS 15+) | [\`opentennis-ios.ipa\`](https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa) | Unsigned: sign and install it yourself (AltStore, SideStore, Sideloadly…), then put your ISO in Files → On My iPhone → OpenTennis. Touch controls or a controller. AltStore / SideStore: add the source \`https://github.com/$repo/releases/latest/download/altstore-source.json\` to get updates |"
     echo "| **Android** 8+ | [\`opentennis-android.apk\`](https://github.com/$repo/releases/download/$tag/opentennis-android.apk) | Install it (allow unknown apps), then pick your ISO on first start |"
     echo "| **Browser** | [opentennis.dev](https://opentennis.dev/) | Nothing to install |"
     echo
@@ -118,7 +131,7 @@ body=$out/notes.md
 } > "$body"
 git push -q origin HEAD
 gh release create "$tag" --target "$(git rev-parse HEAD)" --title "OpenTennis $version" \
-    --notes-file "$body" $pre $publish "$out"/opentennis-* "$out"/web.tar.gz "$out"/SHA256SUMS "$out"/SHA256SUMS.sig
+    --notes-file "$body" $pre $publish "$out"/opentennis-* "$out"/web.tar.gz "$out"/SHA256SUMS "$out"/SHA256SUMS.sig "$out"/altstore-source.json
 if [ "$notes" = RELEASE_NOTES.md ]; then
     sed -i '/^<!--/!d' RELEASE_NOTES.md
     git commit -qm "Release notes: emptied after v$version" -- RELEASE_NOTES.md && git push -q origin HEAD

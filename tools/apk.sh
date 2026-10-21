@@ -77,10 +77,12 @@ cat >"$out/AndroidManifest.xml" <<'EOF'
   <uses-permission android:name="android.permission.INTERNET"/>
   <!-- B455: mDNS (LAN lobbies) needs Wi-Fi multicast (HstActivity's MulticastLock) -->
   <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+  <!-- M140: the in-app update hands the new .apk to the system's installer (HstActivity.install) -->
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
   <application android:label="OpenTennis" android:icon="@mipmap/ic_launcher"
       android:roundIcon="@mipmap/ic_launcher_round" android:networkSecurityConfig="@xml/network_security_config" android:hasCode="true" android:extractNativeLibs="false"
       android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
-    <activity android:name="io.github.fizl0.hst.HstActivity" android:exported="true" android:screenOrientation="sensorLandscape"
+    <activity android:name="io.github.fizl0.hst.HstActivity" android:exported="true" android:screenOrientation="sensorLandscape" android:launchMode="singleTop"
         android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode"
         android:resizeableActivity="true">
       <meta-data android:name="android.app.lib_name" android:value="hst"/>
