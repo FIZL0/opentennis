@@ -1823,7 +1823,8 @@ impl Menu {
             out.push(Sound(0));
             return;
         }
-        if !self.players[p].ready && (k.prev || k.next) {
+        // a character with one costume (a mod's): L1 / R1 do nothing, silently, as its pill shows greyed
+        if !self.players[p].ready && (k.prev || k.next) && costumes > 1 {
             // M1n / B66: past a costume that failed to load or that someone else is ready on
             if let Some(c) = if k.next { next_c } else { prev_c } {
                 self.players[p].costume = c;

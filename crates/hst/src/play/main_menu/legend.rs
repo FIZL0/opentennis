@@ -129,7 +129,11 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
             let me = m.players[p];
             if !me.ready {
                 // a tile alone in its row (nothing open beside it): ↑↓ only
-                v.extend([(if m.row_open(p) { Act::Move } else { Act::UpDown }, "Character"), (Act::Costume, "Costume"), (Act::Hand, "Hand")]);
+                v.push((if m.row_open(p) { Act::Move } else { Act::UpDown }, "Character"));
+                if me.random || m.costumes(m.who(p)) > 1 {
+                    v.push((Act::Costume, "Costume"));
+                }
+                v.push((Act::Hand, "Hand"));
                 // B382: L2 / R2 jump between the grid's sections (with more than one)
                 if m.sections().len() > 1 {
                     v.push((Act::Kind, "Section"));

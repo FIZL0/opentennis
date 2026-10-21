@@ -1375,6 +1375,8 @@ fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usiz
         _ => None,
     };
     let keys = !pl.ready && (m.seats[p].is_some() || driver.is_some());
+    // a character with one costume (a mod's): the costume pill greyed, no key caps, no taps
+    let one = !pl.random && m.costumes(m.who(p)) == 1;
     let left = m.hand(text, p) < 0.0;
     let costume = [
         if pl.random { "Costume ?".to_string() } else if m.blocked(p) { "Taken".to_string() } else { format!("Costume {}", pl.costume + 1) },
@@ -1392,7 +1394,7 @@ fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usiz
     // the pair's natural widths at scale `k`, with words `i`
     let (ts, gh, icon, pad, gap) = (13.0 * PY, 16.0 * PY, 16.0 * PX, 7.0 * PX, 5.0 * PX);
     let chips = |d: &Draw, b: GamepadButton, a: &str, k: f32| match key_w(d, dev, b, a, gh * k) {
-        cw if keys && cw > 0.0 => cw + gap * k,
+        cw if keys && !(one && b != Select) && cw > 0.0 => cw + gap * k,
         _ => 0.0,
     };
     let widths = |d: &Draw, i: usize, k: f32| {
@@ -1419,7 +1421,7 @@ fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usiz
     if chips(d, LeftTrigger, &l1, k) > 0.0 {
         cx += key(d, dev, LeftTrigger, &l1, [cx, y + (ph - gh) / 2.0], gh) + gap;
     }
-    d.text(&costume[i], cx, y + (ph - ts) / 2.0, ts, if m.blocked(p) && !pl.random { [70.0; 3] } else { WHITE });
+    d.text(&costume[i], cx, y + (ph - ts) / 2.0, ts, if (m.blocked(p) && !pl.random) || one { [70.0; 3] } else { WHITE });
     cx += d.width(&costume[i], ts) + gap;
     if chips(d, RightTrigger, &r1, k) > 0.0 {
         key(d, dev, RightTrigger, &r1, [cx, y + (ph - gh) / 2.0], gh);
@@ -1437,8 +1439,10 @@ fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usiz
         key(d, dev, Select, &sel, [cx, y + (ph - gh) / 2.0], gh);
     }
     if mine && !pl.ready && !pl.random {
-        d.hit([cb[0], cb[1], cb[2] / 2.0, ph], pointer::press(|k| k.prev = true));
-        d.hit([cb[0] + cb[2] / 2.0, cb[1], cb[2] / 2.0, ph], pointer::press(|k| k.next = true));
+        if !one {
+            d.hit([cb[0], cb[1], cb[2] / 2.0, ph], pointer::press(|k| k.prev = true));
+            d.hit([cb[0] + cb[2] / 2.0, cb[1], cb[2] / 2.0, ph], pointer::press(|k| k.next = true));
+        }
         d.hit(hb, pointer::press(|k| k.hand = true));
     }
 }
