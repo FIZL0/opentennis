@@ -1613,12 +1613,12 @@ impl Menu {
                 v.status = "Starting the match...".into();
             }
             // B279: the host left the result screen after this machine: the lobby is open again
-            Event::Match(Msg::Lobby(r)) => {
+            Event::Match(_, Msg::Lobby(r)) => {
                 (v.room, v.started) = (Some(r), false);
                 v.status = "Back in the lobby.".into();
                 self.align();
             }
-            Event::Match(_) | Event::Dropped(_) | Event::Datagram(..) | Event::Pack(..) | Event::Progress(..) | Event::Chat { .. } | Event::Emote { .. } => {}
+            Event::Match(..) | Event::Dropped(_) | Event::Datagram(..) | Event::Pack(..) | Event::Progress(..) | Event::Chat { .. } | Event::Emote { .. } => {}
         }
     }
 
@@ -2456,7 +2456,7 @@ pub(super) fn poll(
                 launch(&menu, r.clone(), me.clone(), &gamepads, &args, &mut commands);
             }
             // M126: the match to rejoin is over, or can't be joined
-            if matches!(e, Event::Failed(_) | Event::Dropped(_) | Event::Match(Msg::Lobby(_))) {
+            if matches!(e, Event::Failed(_) | Event::Dropped(_) | Event::Match(_, Msg::Lobby(_))) {
                 crate::net::rejoin::forget(&args.iso);
             }
             if let Event::Pack(h, b) = &e {
@@ -4202,7 +4202,7 @@ mod tests {
         let room = Room { seats: vec![None, None], ..default() };
         let mut m = Menu { screen: Screen::Lobby, net: View { room: Some(room.clone()), me: "g".into(), started: true, ..default() }, ..default() };
         assert_eq!(m.items(), [Item::Button("Leave")]);
-        m.heard(Event::Match(Msg::Lobby(Room { ver: 7, ..room })));
+        m.heard(Event::Match("host".into(), Msg::Lobby(Room { ver: 7, ..room })));
         assert_eq!((m.net.started, m.net.room.as_ref().map(|r| r.ver)), (false, Some(7)));
         // no seat of its own in this room yet: the buttons
         assert_eq!(m.items().iter().filter(|it| **it != Item::Button("Chat")).copied().collect::<Vec<_>>(), GUEST_BUTTONS.map(Item::Button));
