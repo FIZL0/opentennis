@@ -63,9 +63,24 @@ share unless the shot is a *special* one. Special here means: the character's sp
 this shot, judged as follows (all on the launch's final class and kind, i.e. after a framed hit turned into a
 lob and after the high ground stroke turned into a volley):
 
-1. The special gate holds — exactly `shot::special` for the striking player (the hitter's own timing grade /
-   offset / toss; for rally shots: grade 1 or 2). A game-wide debug switch can force the gate on; it is off on
-   the retail disc (ignore it).
+1. The special gate holds — `shot::special` for the striking player (for rally shots: lock grade 1 or 2), but
+   judged on the striker's **latched** timing result, not read live from the player. The match keeps, per
+   player, a copy of that player's last lock grade and timing offset (in the rally/match state object, the
+   same one whose serve-side value the pull reads for the service box). Each frame the match refreshes the copy
+   from every player whose swing has just locked (the one-frame "timing result ready" flag the swing raises
+   when its countdown reaches its lock point), unless that offset is one of the "no timing" sentinels 999 or
+   9999, in which case the copy keeps its earlier value. The copies start at grade 0 / offset 0 at match
+   start (grade 0 → gate shut). The strike sets the last-hitter index to the striker before it launches, so
+   the pull reads the striker's copy.
+   In play the lock comes several frames before the contact, so the copy always equals the striker's current
+   lock grade and offset when the pull runs: a live PINE probe of a slot-5 bot game (`research/p117_latch.py`,
+   2400 frames) saw 22 of 22 hits with copy == current lock, and the 999 sentinels only on swings that never
+   made contact. So for the port the gate **is** `shot::special` of the striker's own grade/offset (rally
+   shots: grade 1 or 2); no separate state is needed. A game-wide debug switch can force the gate on; it is
+   off on the retail disc (ignore it).
+   Why the port phase's oracle never opened the gate: it set the players' own lock grade and offset, but the
+   gate reads only the latched copies, which it never touched (they sit outside the ranges it poked). An
+   oracle run must set the striker's latched copy (grade 1 or 2) — the probe script shows where it lives.
 2. The character used is the one whose tables and records launch the shot (`src`: the incoming hitter's on a
    counter, else the hitter's), the same character `shot_effect` takes its effects from and the pull's
    `angle` row uses. (Every character on the disc has its "has specials" flag set, so no character falls back
@@ -125,15 +140,13 @@ there are no side effects, so evaluating it lazily is fine.
   smash, including the off-timing ones from deep. Clean lobs heading across (any character) and clean slices
   by characters 3/8 exercise C; record some with `tools/vpad.py` if no fixture has one.
 
+## Answered (spec round 2, 2026-10-21)
+
+- **C.1, the gate inside the court pull:** it reads the striker's latched lock grade/offset copy (C.1 above),
+  which equals the live lock grade at every recorded hit; it does hold on the retail disc without the debug
+  switch (every clean lob heading across, and clean character 3/8 slices, keep unscaled margins). Port:
+  `special = shot::special(striker) && effect row non-zero`; prove it with the oracle by setting the latched copy.
+
 ## Open questions
 
-- **C.1, the special gate inside the court pull (port phase, 2026-10-21).** The function oracle disagrees with
-  "the gate is `shot::special` for the striking player". With every player's lock grade and timing offset set
-  at random, a real player block as the "table set" argument and the last-hitter index set to each player in
-  turn, the pull never keeps a clean stroke lob's margins unscaled. Poking single bytes of the player blocks,
-  the match object, the live ball, the match globals and the scratchpad changes that only through the game's
-  debug switch; with that switch set, "special = the effect row has a bend or curve" matches 20k pulls bit for
-  bit. So the effect-row half of C is right, but the gate is not the player's lock grade. What does the pull's
-  gate read in play (what the caller passes as the "table set", a flag the launch sets before the pull, or
-  something else), and can it hold on the retail disc without the debug switch? Until answered the port passes
-  `special = false`. Details: `2-PORT-PART.md`.
+none
