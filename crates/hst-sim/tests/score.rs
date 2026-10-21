@@ -3,6 +3,7 @@
 //! absent): each point's winner is read from the recorded score and fed through `Score`, which must then match
 //! the recorded points, games, sets, rotation, ends, server, receiver and court side exactly.
 
+use hst_data::fixture;
 use hst_sim::replay::{Frame, frames};
 use hst_sim::score::{Event, Rules, Score};
 
@@ -115,10 +116,10 @@ fn snapshot(f: Frame) -> ([i32; 2], [i32; 2], [i32; 2]) {
 #[test]
 fn round1_replay() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/round1.bin")) else { return eprintln!("round1.bin absent, skipped") };
+    let Ok(data) = fixture::read(format!("{dir}/round1.bin")) else { return };
     let frames = frames(&data);
     if frames.is_empty() {
-        return eprintln!("round1.bin empty, skipped");
+        return fixture::skip(format_args!("round1.bin empty, skipped"));
     }
     let f0 = frames[0];
     let r = Rules { sets: rd(f0, 0x423048), games: rd(f0, 0x423044), no_deuce: f0.global_u8(0x4230bc) != 0, one_point_games: false, players: rd(f0, 0x422fa4) };
@@ -165,7 +166,7 @@ fn round1_replay() {
 fn round1_verdicts() {
     use hst_sim::judge::{BallState, Call, Rally};
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/round1.bin")) else { return eprintln!("round1.bin absent, skipped") };
+    let Ok(data) = fixture::read(format!("{dir}/round1.bin")) else { return };
     let frames = frames(&data);
     let gm = |s: Frame, o: usize| s.gm()[o];
     let ball = |s: Frame| -> BallState {
@@ -288,7 +289,7 @@ fn rally_block_replay(name: &str, min: usize) {
     use hst_sim::judge::{BallState, Call};
     use hst_sim::replay::frames_live;
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/{name}.bin")) else { return eprintln!("{name}.bin absent, skipped") };
+    let Ok(data) = fixture::read(format!("{dir}/{name}.bin")) else { return };
     let frames = frames_live(&data);
     let ball = |s: Frame| -> BallState {
         let b = s.live_ball();
@@ -473,8 +474,8 @@ fn post_points(frames: &[Frame], t: &hst_data::exe::ScoreboardTiming) -> (usize,
 /// from (the language at 0x2ef110, the menu's umpire at 0x2ef7de), else 0 and 4 (English, umpire 4: slots 3 and 5).
 fn disc_timing(ee: Option<&[u8]>) -> Option<hst_data::exe::ScoreboardTiming> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let cnf = std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")).ok()?;
-    let bin = std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")).ok()?;
+    let cnf = fixture::read(format!("{root}/context/iso/SYSTEM.CNF")).ok()?;
+    let bin = fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")).ok()?;
     // slot 3 (no RAM fixture): umpire 2 voice a, read live
     let (voice, umpire) = ee.map_or((0, 2), |ram| (ram[0x2ef7df], ram[0x2ef7de]));
     Some(hst_data::exe::Game::new(&cnf, &bin).unwrap().scoreboard_timing(voice, umpire))
@@ -495,10 +496,10 @@ fn post_point_replay(name: &str, ee: &str, min: usize, min_changes: usize) {
     use hst_sim::flow::CHANGE_ENDS;
     use hst_sim::replay::frames_live;
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let (Ok(data), Ok(ram)) = (std::fs::read(format!("{dir}/{name}.bin")), std::fs::read(format!("{dir}/{ee}.bin"))) else {
-        return eprintln!("{name}.bin or {ee}.bin absent, skipped");
+    let (Ok(data), Ok(ram)) = (fixture::read(format!("{dir}/{name}.bin")), fixture::read(format!("{dir}/{ee}.bin"))) else {
+        return fixture::skip(format_args!("{name}.bin or {ee}.bin absent, skipped"));
     };
-    let Some(timing) = disc_timing(Some(&ram)) else { return eprintln!("disc files absent, skipped") };
+    let Some(timing) = disc_timing(Some(&ram)) else { return };
     let frames = frames_live(&data);
     let mut changes = 0;
     for k in 1..frames.len() {
@@ -529,8 +530,8 @@ fn post_point_replay(name: &str, ee: &str, min: usize, min_changes: usize) {
 fn human_post_point() {
     use hst_sim::replay::frames_live;
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let (Ok(data), Some(timing)) = (std::fs::read(format!("{dir}/new_recording.bin")), disc_timing(None)) else {
-        return eprintln!("new_recording.bin or disc files absent, skipped");
+    let (Ok(data), Some(timing)) = (fixture::read(format!("{dir}/new_recording.bin")), disc_timing(None)) else {
+        return fixture::skip(format_args!("new_recording.bin or disc files absent, skipped"));
     };
     let (checked, lines) = post_points(&frames_live(&data), &timing);
     eprintln!("new_recording: {checked} point-over phases (call line ends {lines:?})");
@@ -550,8 +551,8 @@ fn serve_placement_replay(name: &str, setups: usize) {
     use hst_sim::flow::serve_placement;
     use hst_sim::replay::frames_live;
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/{name}.bin")) else {
-        return eprintln!("{name}.bin absent, skipped");
+    let Ok(data) = fixture::read(format!("{dir}/{name}.bin")) else {
+        return fixture::skip(format_args!("{name}.bin absent, skipped"));
     };
     let frames = frames_live(&data);
     let mut placed = 0;
@@ -606,7 +607,7 @@ fn serve_calls_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/p3d4");
     let mut seen = 0;
     for name in ["call_s05", "call_s05_asis", "call_s05_other", "call_singles"] {
-        let Ok(d) = std::fs::read(format!("{root}/{name}.bin")) else { continue };
+        let Ok(d) = fixture::read(format!("{root}/{name}.bin")) else { continue };
         let u = |k: usize| u32::from_le_bytes(d[4 + 4 * k..8 + 4 * k].try_into().unwrap()) as i32;
         let (players, server, kind) = (u(0), u(1) as usize, u(2));
         let s = Score {
@@ -630,7 +631,7 @@ fn serve_calls_like_the_game() {
         seen += 1;
     }
     if seen == 0 {
-        eprintln!("context/p3d4 missing, skipped");
+        fixture::skip(format_args!("context/p3d4 missing, skipped"));
     }
 }
 
@@ -684,10 +685,10 @@ fn match_s05_match_over() {
     use hst_sim::flow::PostPoint;
     use hst_sim::replay::frames_live;
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let (Ok(data), Ok(ram)) = (std::fs::read(format!("{dir}/match_s05.bin")), std::fs::read(format!("{dir}/slot5_ee.bin"))) else {
-        return eprintln!("match_s05.bin or slot5_ee.bin absent, skipped");
+    let (Ok(data), Ok(ram)) = (fixture::read(format!("{dir}/match_s05.bin")), fixture::read(format!("{dir}/slot5_ee.bin"))) else {
+        return fixture::skip(format_args!("match_s05.bin or slot5_ee.bin absent, skipped"));
     };
-    let Some(t) = disc_timing(Some(&ram)) else { return eprintln!("disc files absent, skipped") };
+    let Some(t) = disc_timing(Some(&ram)) else { return };
     let frames = frames_live(&data);
     let k = (1..frames.len()).rev().find(|&k| frames[k].gm()[0x55] == 4 && frames[k - 1].gm()[0x55] != 4).unwrap();
     assert!(score_at(frames[k]).match_over, "the last point-over phase ends the match");

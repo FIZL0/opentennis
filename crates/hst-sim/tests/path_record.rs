@@ -12,6 +12,7 @@
 //!
 //! Skips when the recordings are absent.
 
+use hst_data::fixture;
 use hst_data::exe::Game;
 use hst_sim::ball::{Ball, COURTS, Flight, Params, Shot};
 use hst_sim::judge::{Call, Lines};
@@ -258,8 +259,8 @@ fn run(fs: &[Frame], court: usize, margin: f32, poke: &Poke, t: &mut Tally) {
 fn the_path_record_matches_the_game_frame_by_frame() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let dir = format!("{root}/context/live/p11n1");
-    let (Ok(cnf), Ok(bin)) = (std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")), std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN"))) else {
-        eprintln!("disc missing, skipped");
+    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{root}/context/iso/SYSTEM.CNF")), fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN"))) else {
+        fixture::skip(format_args!("disc missing, skipped"));
         return;
     };
     let margin = Game::new(&cnf, &bin).unwrap().line_margin();
@@ -280,11 +281,11 @@ fn the_path_record_matches_the_game_frame_by_frame() {
     let mut t = Tally::default();
     let mut found = 0;
     for (name, court, set) in cases {
-        let (Ok(main), Ok(path)) = (std::fs::read(format!("{dir}/{name}.bin")), std::fs::read(format!("{dir}/{name}.bin.path"))) else {
+        let (Ok(main), Ok(path)) = (fixture::read(format!("{dir}/{name}.bin")), fixture::read(format!("{dir}/{name}.bin.path"))) else {
             continue;
         };
         found += 1;
-        let poke = match (set, std::fs::read_to_string(format!("{dir}/{name}.bin.poke")), std::fs::read(format!("{dir}/{name}.bin.seed"))) {
+        let poke = match (set, std::fs::read_to_string(fixture::path(format!("{dir}/{name}.bin.poke"))), std::fs::read(fixture::path(format!("{dir}/{name}.bin.seed")))) {
             (Some((v, e, s)), ..) => Poke::SetPath(v, e, s),
             (None, Ok(v), Ok(seed)) => Poke::Seed(v.trim().parse().unwrap(), seed),
             _ => Poke::None,
@@ -294,7 +295,7 @@ fn the_path_record_matches_the_game_frame_by_frame() {
         eprintln!("{name}: {} failures so far", t.failures.len() - before);
     }
     if found == 0 {
-        eprintln!("recordings missing, skipped");
+        fixture::skip(format_args!("recordings missing, skipped"));
         return;
     }
     eprintln!(

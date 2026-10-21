@@ -4,7 +4,8 @@
 //! from the play's bearing and volume — `sound::stereo` into the sequence volume, the court bank's volume, the tone
 //! (resolved from the key-on's ADSR and sample address) and `Level::volume`. Skips without the recording or disc.
 
-use hst_data::{exe, iso::Iso, snd::{Bank, Level}, xb::Archive};
+use hst_data::fixture;
+use hst_data::{exe, snd::{Bank, Level}, xb::Archive};
 use hst_sim::sound::{self, Bounces};
 
 const CONTACTS: usize = 4 + 0x290 * 2 + 0x40;
@@ -66,8 +67,8 @@ impl Court {
     /// The recording `name` and the court; `None` (test skipped) without either.
     fn load(name: &str) -> Option<(Vec<u8>, Self)> {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-        let (Ok(data), Ok(mut iso)) = (std::fs::read(format!("{root}/context/fixtures/{name}")), Iso::open(format!("{root}/Hot Shots Tennis (USA).iso"))) else {
-            eprintln!("recording or disc missing, skipped");
+        let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{root}/context/fixtures/{name}")), fixture::iso()) else {
+            fixture::skip(format_args!("recording or disc missing, skipped"));
             return None;
         };
         let elf = iso.read("SCUS_976.10").unwrap();
@@ -272,8 +273,7 @@ fn swing_sounds_match_the_game() {
 fn bounce_sounds_match_the_game() {
     let Some((data, court)) = Court::load("hits_s05.bin") else { return };
     let s = samples(&data, 0x330);
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let mut iso = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")).unwrap();
+    let mut iso = fixture::iso().unwrap();
     let materials = hst_sim::court::materials(&exe::Game::new(&iso.read("SYSTEM.CNF").unwrap(), &iso.read("ZZBIN/GAME.BIN").unwrap()).unwrap());
     let bank = Bank::parse(&court.hd).unwrap();
     let i = |b: &[u8], o: usize| u(b, o) as i32;
@@ -478,9 +478,9 @@ type Reaction = (u32, usize, u8, u8);
 /// players heard on their own bank, dive shouts, whiff shouts and call-outs, each checked as `shouts_match_the_game` says.
 fn shouts(recording: &str, spu: &str) -> Option<(i32, usize, i32, usize, usize, Vec<Reaction>)> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let csv = std::fs::read_to_string(format!("{root}/context/fixtures/{spu}")).ok()?;
+    let csv = fixture::read_to_string(format!("{root}/context/fixtures/{spu}")).ok()?;
     let (data, _) = Court::load(recording)?;
-    let mut iso = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")).unwrap();
+    let mut iso = fixture::iso().unwrap();
     // the four players' banks: name, header, SPU address, sample size
     let mut banks = Vec::new();
     let rows: Vec<Vec<&str>> = csv.lines().map(|l| l.split(',').collect()).collect();
@@ -617,9 +617,8 @@ fn shouts(recording: &str, spu: &str) -> Option<(i32, usize, i32, usize, usize, 
 /// frame after: the ring is read once per frame), at the non-positional level; no other umpire word.
 #[test]
 fn umpire_calls_match_the_game() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let Some((data, court)) = Court::load("hits_s05.bin") else { return };
-    let mut iso = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")).unwrap();
+    let mut iso = fixture::iso().unwrap();
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let gaps = exe::Game::new(&cnf, &bin).unwrap().umpire_words(0, 4, 0).0;
     let bank_volume = exe::bank_volumes(&iso.read("SCUS_976.10").unwrap()).unwrap()[5];
@@ -691,9 +690,8 @@ fn umpire_calls_match_the_game() {
 /// stands and gaps are the game's random numbers, so they are checked by rule, not one for one.
 #[test]
 fn gallery_matches_the_game() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let Some((data, court)) = Court::load("hits_s05.bin") else { return };
-    let mut iso = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")).unwrap();
+    let mut iso = fixture::iso().unwrap();
     let bank_volume = exe::bank_volumes(&iso.read("SCUS_976.10").unwrap()).unwrap()[6];
     let xb = iso.read("SND/COURT/C_SND10A.XB0").unwrap();
     let arc = Archive::parse(&xb).unwrap();
@@ -790,8 +788,7 @@ fn gallery_matches_the_game() {
 /// plays: cheer keys 0/2/3 (1/4/5 on court 5), applause 0..2, groan 0..1, shouts 5 (0..2) and 6 (0..1).
 #[test]
 fn gallery_banks_have_every_call() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else { return };
+    let Ok(mut iso) = fixture::iso() else { return };
     for n in 1..=11 {
         for (xb, set) in [('A', "sg"), ('B', "dv")] {
             let data = iso.read(&format!("SND/COURT/C_SND{n:02}{xb}.XB0")).unwrap();
@@ -817,8 +814,8 @@ fn gallery_banks_have_every_call() {
 #[test]
 fn change_ends_tune_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(data), Ok(mut iso)) = (std::fs::read(format!("{root}/context/fixtures/hits_s04.bin")), Iso::open(format!("{root}/Hot Shots Tennis (USA).iso"))) else {
-        return eprintln!("recording or disc missing, skipped");
+    let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{root}/context/fixtures/hits_s04.bin")), fixture::iso()) else {
+        return fixture::skip(format_args!("recording or disc missing, skipped"));
     };
     let xb = iso.read("SND/JGL/JIG_00.XB").unwrap();
     let arc = Archive::parse(&xb).unwrap();
@@ -874,8 +871,7 @@ fn gallery_match_end() {
 /// of the pitch command), and the game keyed the net's sample nowhere else.
 #[test]
 fn net_sounds_match_the_game() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else { return eprintln!("no disc, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let materials = hst_sim::court::materials(&exe::Game::new(&iso.read("SYSTEM.CNF").unwrap(), &iso.read("ZZBIN/GAME.BIN").unwrap()).unwrap());
     let mut keys = Vec::new();
     for (name, want) in [("cord_over3", Some(2)), ("serve_let", Some(2)), ("net_low", Some(1)), ("post_back", None)] {

@@ -1,12 +1,13 @@
 //! Every court's background figures have their files: the umpire, each walking spectator and each trigger
 //! creature with a model parse as skinned models with their clips. Skips without the ISO.
 
-use hst_data::{ani, exe::Game, iso::Iso, layout, mdl, xb::Archive};
+use hst_data::fixture;
+use hst_data::{ani, exe::Game, layout, mdl, xb::Archive};
 
 #[test]
 fn every_court_figure_loads() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("no ISO, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("no ISO, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = Game::new(&cnf, &bin).unwrap();

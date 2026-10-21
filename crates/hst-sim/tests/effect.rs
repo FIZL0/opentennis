@@ -3,7 +3,8 @@
 //! morph weights and material alphas match the game's bit for bit, it ends the same frame, and its scale follows
 //! from the ball's velocity.
 
-use hst_data::{ani, iso::Iso, mdl, mor, mtl, xb::Archive};
+use hst_data::fixture;
+use hst_data::{ani, mdl, mor, mtl, xb::Archive};
 use hst_sim::effect::{Effect, impact_matrix, impact_scale};
 
 const KINDS: [&str; 6] = ["top", "slice", "flat", "lob", "drop", "smash"];
@@ -18,8 +19,8 @@ fn u(b: &[u8], o: usize) -> u32 {
 #[test]
 fn impacts_s05() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let (Ok(data), Ok(mut iso)) = (std::fs::read(format!("{dir}/effects_s05.bin")), Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso"))) else {
-        return eprintln!("effects_s05.bin or ISO absent, skipped");
+    let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{dir}/effects_s05.bin")), fixture::iso()) else {
+        return fixture::skip(format_args!("effects_s05.bin or ISO absent, skipped"));
     };
     let arc_data = iso.read("AZUMA/C_EFF/EFFCT.XB0").unwrap();
     let arc = Archive::parse(&arc_data).unwrap();
@@ -108,7 +109,7 @@ fn impacts_s05() {
 /// `impact_lob_a.MTA` drives a `Material #25` the model lacks, and the game skips it as the port does.)
 #[test]
 fn every_effect_binds() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let arc_data = iso.read("AZUMA/C_EFF/EFFCT.XB0").unwrap();
     let arc = Archive::parse(&arc_data).unwrap();
     let get = |name: &str| arc.entries.iter().find(|e| e.name.eq_ignore_ascii_case(name)).map(|e| arc.read(e).unwrap());
@@ -142,8 +143,8 @@ fn every_effect_binds() {
 fn smash_mark_s04() {
     use hst_sim::effect::{PathEntry, SmashSearch};
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(text) = std::fs::read_to_string(format!("{dir}/smash_mark_s04.txt")) else {
-        return eprintln!("smash_mark_s04.txt absent, skipped");
+    let Ok(text) = fixture::read_to_string(format!("{dir}/smash_mark_s04.txt")) else {
+        return fixture::skip(format_args!("smash_mark_s04.txt absent, skipped"));
     };
     let fl = |s: &str| f32::from_bits(u32::from_str_radix(s, 16).unwrap());
     let mut lines = text.lines().map(|l| l.split(' ').collect::<Vec<_>>());
@@ -160,7 +161,7 @@ fn smash_mark_s04() {
 /// a plain one-shot would cut the blob off at about half alpha.
 #[test]
 fn smash_mark_holds() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let data = iso.read("PCDATA/PCCG0.XB").unwrap();
     let arc = Archive::parse(&data).unwrap();
     let get = |ext: &str| arc.entries.iter().find(|e| e.name.replace('\\', "/").to_ascii_lowercase().ends_with(&format!("taguchi/other/smash_p.{ext}"))).map(|e| arc.read(e).unwrap());
@@ -189,12 +190,12 @@ fn smash_mark_goodcpus() {
     use hst_sim::effect::{PathEntry, SmashSearch};
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
     let (Ok(live), Ok(paths), Ok(marks), Ok(ram)) = (
-        std::fs::read(format!("{dir}/1p3goodcpus.bin")),
-        std::fs::read(format!("{dir}/1p3goodcpus.bin.path")),
-        std::fs::read(format!("{dir}/1p3goodcpus.bin.mark")),
-        std::fs::read(format!("{dir}/1p3goodcpus_ee.bin")),
+        fixture::read(format!("{dir}/1p3goodcpus.bin")),
+        fixture::read(format!("{dir}/1p3goodcpus.bin.path")),
+        fixture::read(format!("{dir}/1p3goodcpus.bin.mark")),
+        fixture::read(format!("{dir}/1p3goodcpus_ee.bin")),
     ) else {
-        return eprintln!("1p3goodcpus .bin/.path/.mark/_ee absent, skipped");
+        return fixture::skip(format_args!("1p3goodcpus .bin/.path/.mark/_ee absent, skipped"));
     };
     let frames = hst_sim::replay::frames_live(&live);
     // Carol's (character 6) TParam record in RAM: smash top and window middle

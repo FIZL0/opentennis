@@ -5,7 +5,8 @@
 //! (`Flight::step_plane`, material 0): it must give the hit frame's ball bit for bit — same position, the
 //! reflected velocity, spin, frames and counts — and the frame after must follow by the ordinary step.
 
-use hst_data::{exe, iso::Iso};
+use hst_data::fixture;
+use hst_data::exe;
 use hst_sim::ball::{Ball, COURTS, Flight, Params, Shot};
 
 const SAMPLE: usize = 4 + 0x60 + 0x290 + 4 * 0x140;
@@ -64,12 +65,12 @@ fn same(fl: &Flight, b: &[u8], what: &str) {
 fn ball_off_a_player_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(mut iso), Ok(cnf), Ok(bin)) = (
-        std::fs::read(format!("{root}/context/fixtures/bodyhit_s05.bin")),
-        Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")),
-        std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/context/fixtures/bodyhit_s05.bin")),
+        fixture::iso(),
+        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
     ) else {
-        return eprintln!("bodyhit_s05.bin or disc absent, skipped");
+        return fixture::skip(format_args!("bodyhit_s05.bin or disc absent, skipped"));
     };
     let (world, materials) = (hst_sim::court::world(&mut iso, 10).unwrap(), hst_sim::court::materials(&exe::Game::new(&cnf, &bin).unwrap()));
     let frames: Vec<&[u8]> = data.as_chunks::<SAMPLE>().0.iter().map(|s| s.as_slice()).collect();
@@ -94,12 +95,12 @@ fn ball_off_a_player_s05() {
 fn struck_toss_c07() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(mut iso), Ok(cnf), Ok(bin)) = (
-        std::fs::read(format!("{root}/context/fixtures/prox_c07_ball.bin")),
-        Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")),
-        std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/context/fixtures/prox_c07_ball.bin")),
+        fixture::iso(),
+        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
     ) else {
-        return eprintln!("prox_c07_ball.bin or disc absent, skipped");
+        return fixture::skip(format_args!("prox_c07_ball.bin or disc absent, skipped"));
     };
     let (world, materials) = (hst_sim::court::world(&mut iso, 7).unwrap(), hst_sim::court::materials(&exe::Game::new(&cnf, &bin).unwrap()));
     // header: creature count and addresses; a sample: vsync, globals, generator, gallery, judge, creatures, the

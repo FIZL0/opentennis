@@ -2,6 +2,7 @@
 //! missing): every change of a bot's lane, front flag or spot must be one `Formation::start`, `repick` or `hold`
 //! gives from what the frame shows, and a bot must stop walking back just as it gets inside the centre radius.
 
+use hst_data::fixture;
 use hst_sim::position::{Cue, Formation, Return, Team};
 
 const AI: usize = 0x280;
@@ -46,8 +47,8 @@ impl<'a> Frame<'a> {
 #[test]
 fn formation_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = std::fs::read(format!("{root}/context/fixtures/ai_pos_s05.bin")) else {
-        return eprintln!("ai_pos_s05.bin missing, skipped");
+    let Ok(d) = fixture::read(format!("{root}/context/fixtures/ai_pos_s05.bin")) else {
+        return fixture::skip(format_args!("ai_pos_s05.bin missing, skipped"));
     };
     // header: count, then per player its address, AI address, 0x12b0..0x12c0 and 0x13f0..0x13f8; ball, shot table
     let players: Vec<(f32, usize, u8)> =
@@ -127,8 +128,8 @@ fn formation_pick_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let mut checked = 0;
     for h in ["-1", "0"] {
-        let Ok(d) = std::fs::read_to_string(format!("{root}/context/fixtures/p3d2_formation_h{h}.jsonl")) else {
-            return eprintln!("p3d2_formation_h{h}.jsonl missing, skipped");
+        let Ok(d) = fixture::read_to_string(format!("{root}/context/fixtures/p3d2_formation_h{h}.jsonl")) else {
+            return fixture::skip(format_args!("p3d2_formation_h{h}.jsonl missing, skipped"));
         };
         for line in d.lines().skip(1) {
             let words = list(line, "words");

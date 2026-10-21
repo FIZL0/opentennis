@@ -4,13 +4,14 @@
 //! every sounding voice stepped from its key-on with our `Voice` reaches PCSX2's decoder and envelope state, and
 //! every voice's L/R volume is our `Level`. Skips without the ISO or the fixtures.
 
-use hst_data::{exe, iso::Iso, snd::{self, Bank, Level, Voice}, xb::Archive};
+use hst_data::fixture;
+use hst_data::{exe, snd::{self, Bank, Level, Voice}, xb::Archive};
 
 #[test]
 fn key_ons_pitch_and_voices_match_save_states() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("no ISO, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("no ISO, skipped"));
     };
     let table = exe::pitch_table(&iso.read("MODULES2/SG2IOPM1.IRX").unwrap()).unwrap();
     let (pan, gain) = exe::sound_tables(&iso.read("SCUS_976.10").unwrap()).unwrap();
@@ -19,7 +20,7 @@ fn key_ons_pitch_and_voices_match_save_states() {
     assert_eq!(snd::gaussian()[255], [-1, 0x1307, 0x59b3, 0x12c7]);
     let (mut tones, mut pitches, mut voices, mut levels) = (0, 0, 0, 0);
     for s in ["03", "04", "05"] {
-        let Ok(csv) = std::fs::read_to_string(format!("{dir}/spu_s{s}.csv")) else { return eprintln!("spu_s{s}.csv absent, skipped") };
+        let Ok(csv) = fixture::read_to_string(format!("{dir}/spu_s{s}.csv")) else { return };
         let rows: Vec<Vec<&str>> = csv.lines().map(|l| l.split(',').collect()).collect();
         let n = |r: &[&str], i: usize| r[i].parse::<u32>().unwrap();
         let int = |r: &[&str], i: usize| r[i].parse::<i32>().unwrap();

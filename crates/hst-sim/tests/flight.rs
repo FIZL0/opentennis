@@ -2,6 +2,7 @@
 //! `tools/record_flight.py 5`): from each reset and the ball the game had, every frame's samples, ring indices and
 //! speed match bit for bit, and the glow's life.
 
+use hst_data::fixture;
 use hst_sim::effect::{FLIGHT_COLOURS, FLIGHT_POINTS, Flight, Glow};
 
 fn f(b: &[u8], o: usize) -> f32 {
@@ -26,7 +27,7 @@ const SIZE: usize = MARK + 0x40;
 #[test]
 fn flight_s05() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/flight_s05.bin")) else { return eprintln!("flight_s05.bin absent, skipped") };
+    let Ok(data) = fixture::read(format!("{dir}/flight_s05.bin")) else { return };
     let frames: Vec<&[u8]> = data.as_chunks::<SIZE>().0.iter().map(|s| s.as_slice()).collect();
     let (mut fl, mut glow) = (Flight::default(), Glow::default());
     let (mut starts, mut glows, mut checked) = (0, 0, 0);

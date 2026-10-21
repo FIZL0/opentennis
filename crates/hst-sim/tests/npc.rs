@@ -5,6 +5,7 @@
 //! game's (record, type); every trigger creature's matrix bit-exact, and a walker's wherever it still stands where
 //! it was made (all four on court 1).
 
+use hst_data::fixture;
 use hst_data::exe::Game;
 use hst_data::iso::Iso;
 use hst_data::layout;
@@ -29,15 +30,15 @@ impl Ram {
 #[test]
 fn creatures_match_ram_on_four_courts() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("disc missing, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc missing, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = Game::new(&cnf, &bin).unwrap();
     let mut courts = Vec::new();
     for f in ["npc_c01", "npc_c02", "s03", "s05"] {
-        let Ok(ram) = std::fs::read(format!("{root}/context/ram/{f}.bin")) else {
-            eprintln!("{f}.bin missing, skipped");
+        let Ok(ram) = fixture::read(format!("{root}/context/ram/{f}.bin")) else {
+            fixture::skip(format_args!("{f}.bin missing, skipped"));
             continue;
         };
         let r = Ram(ram);
@@ -197,8 +198,8 @@ fn walkers_animate_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let mut courts = Vec::new();
     for slot in [5, 7, 10, 3] {
-        let Ok(d) = std::fs::read(format!("{root}/context/fixtures/npc_s{slot:02}.bin")) else {
-            eprintln!("npc_s{slot:02}.bin missing, skipped");
+        let Ok(d) = fixture::read(format!("{root}/context/fixtures/npc_s{slot:02}.bin")) else {
+            fixture::skip(format_args!("npc_s{slot:02}.bin missing, skipped"));
             continue;
         };
         let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -296,8 +297,8 @@ fn walkers_face_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let mut courts = Vec::new();
     for slot in [5, 7, 10, 3] {
-        let Ok(d) = std::fs::read(format!("{root}/context/fixtures/npc_s{slot:02}.bin")) else {
-            eprintln!("npc_s{slot:02}.bin missing, skipped");
+        let Ok(d) = fixture::read(format!("{root}/context/fixtures/npc_s{slot:02}.bin")) else {
+            fixture::skip(format_args!("npc_s{slot:02}.bin missing, skipped"));
             continue;
         };
         let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -352,15 +353,15 @@ fn walkers_face_like_the_game() {
 #[test]
 fn emitters_count_down_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("disc missing, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc missing, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = Game::new(&cnf, &bin).unwrap();
     let mut courts = Vec::new();
     for slot in [5, 7, 10, 3] {
-        let Ok(d) = std::fs::read(format!("{root}/context/fixtures/trig_s{slot:02}.bin")) else {
-            eprintln!("trig_s{slot:02}.bin missing, skipped");
+        let Ok(d) = fixture::read(format!("{root}/context/fixtures/trig_s{slot:02}.bin")) else {
+            fixture::skip(format_args!("trig_s{slot:02}.bin missing, skipped"));
             continue;
         };
         let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -454,15 +455,15 @@ fn emitters_count_down_like_the_game() {
 #[test]
 fn trigger_engine_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("disc missing, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc missing, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = Game::new(&cnf, &bin).unwrap();
     let mut courts = Vec::new();
     for (court, k) in [(5, 0), (8, 10), (9, 0)] {
-        let Ok(d) = std::fs::read(format!("{root}/context/fixtures/trig_c{court:02}.bin")) else {
-            eprintln!("trig_c{court:02}.bin missing, skipped");
+        let Ok(d) = fixture::read(format!("{root}/context/fixtures/trig_c{court:02}.bin")) else {
+            fixture::skip(format_args!("trig_c{court:02}.bin missing, skipped"));
             continue;
         };
         let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -539,17 +540,17 @@ fn trigger_engine_matches_the_game() {
 #[test]
 fn startled_creatures_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("disc missing, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc missing, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = Game::new(&cnf, &bin).unwrap();
     let mut courts = Vec::new();
     for court in [1, 2, 7, 8, 9, 11] {
-        let Ok(d) = std::fs::read(format!("{root}/context/fixtures/prox_c{court:02}.bin")) else {
-            eprintln!("prox_c{court:02}.bin missing, skipped");
-            continue;
-        };
+        let path = format!("{root}/context/fixtures/prox_c{court:02}.bin");
+        // courts 8 and 9 are extra: never recorded so far
+        let d = if matches!(court, 8 | 9) { std::fs::read(fixture::path(&path)) } else { fixture::read(&path) };
+        let Ok(d) = d else { continue };
         let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
         let f = |b: &[u8], o: usize| f32::from_bits(u(b, o));
         let n = u(&d, 0) as usize;
@@ -758,15 +759,15 @@ fn trigger_at(s: &[u8], o: usize, row: &hst_data::exe::TriggerRow, anchor: [f32;
 #[test]
 fn passing_ball_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("disc missing, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc missing, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = Game::new(&cnf, &bin).unwrap();
     let (row, routes) = (game.trigger(15), game.ball_routes());
     for (want, name) in ["ball_c04", "ball_c04_r1", "ball_c04_r2", "ball_c04_r3"].into_iter().enumerate() {
-        let Ok(d) = std::fs::read(format!("{root}/context/fixtures/{name}.bin")) else {
-            eprintln!("{name}.bin missing, skipped");
+        let Ok(d) = fixture::read(format!("{root}/context/fixtures/{name}.bin")) else {
+            fixture::skip(format_args!("{name}.bin missing, skipped"));
             continue;
         };
         let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -857,15 +858,15 @@ fn passing_ball_matches_the_game() {
 #[test]
 fn ball_hit_obstacles_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("disc missing, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc missing, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = Game::new(&cnf, &bin).unwrap();
     let (mut files, mut hits, mut anims, mut torn) = (0, 0, 0, 0);
     for name in ["hit_c04", "hit_c09", "hit_c10", "hit_c10b"] {
-        let Ok(d) = std::fs::read(format!("{root}/context/fixtures/{name}.bin")) else {
-            eprintln!("{name}.bin missing, skipped");
+        let Ok(d) = fixture::read(format!("{root}/context/fixtures/{name}.bin")) else {
+            fixture::skip(format_args!("{name}.bin missing, skipped"));
             continue;
         };
         files += 1;
@@ -974,9 +975,8 @@ fn ball_hit_obstacles_match_the_game() {
 /// court 9's cheer. Their draws: only the game-end roll (one each, armed or not).
 #[test]
 fn match_event_creatures() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("disc missing, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc missing, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = Game::new(&cnf, &bin).unwrap();
@@ -1073,11 +1073,11 @@ fn match_event_creatures() {
 #[test]
 fn serve_setup_keeps_and_restores_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("disc missing, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc missing, skipped"));
     };
-    let Ok(d) = std::fs::read(format!("{root}/context/fixtures/trig_replay_s05.bin")) else {
-        return eprintln!("trig_replay_s05.bin missing, skipped");
+    let Ok(d) = fixture::read(format!("{root}/context/fixtures/trig_replay_s05.bin")) else {
+        return fixture::skip(format_args!("trig_replay_s05.bin missing, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = Game::new(&cnf, &bin).unwrap();
@@ -1124,8 +1124,8 @@ fn serve_setup_keeps_and_restores_like_the_game() {
 #[test]
 fn court5_crowd_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = std::fs::read(format!("{root}/context/p14d/run1/c5.bin")) else {
-        eprintln!("c5.bin missing, skipped");
+    let Ok(d) = fixture::read(format!("{root}/context/p14d/run1/c5.bin")) else {
+        fixture::skip(format_args!("c5.bin missing, skipped"));
         return;
     };
     let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -1208,8 +1208,8 @@ fn ball_model_and_last_move_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (mut steps, mut doubles, mut still, mut new, mut struck) = (0, 0, 0, 0, 0);
     for name in ["hit_c04", "hit_c09"] {
-        let Ok(d) = std::fs::read(format!("{root}/context/fixtures/{name}.bin")) else {
-            eprintln!("{name}.bin missing, skipped");
+        let Ok(d) = fixture::read(format!("{root}/context/fixtures/{name}.bin")) else {
+            fixture::skip(format_args!("{name}.bin missing, skipped"));
             continue;
         };
         let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -1275,8 +1275,7 @@ fn ball_model_and_last_move_match_the_game() {
 /// 327.79 ... at -60 every other tick), its volume (|z| over 550, squared) loudest overhead.
 #[test]
 fn beach_plane_flies_over() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let mut iso = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")).unwrap();
+    let Ok(mut iso) = fixture::iso() else { return };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = Game::new(&cnf, &bin).unwrap();
     let (entries, plants) = court_layout(&mut iso, 2);

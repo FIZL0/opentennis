@@ -1,11 +1,12 @@
 //! Replays flight segments of a path recorded from the real game (fixture CSV, not in git:
 //! `context/fixtures/ball_path_s08.csv`, made by `research/tools/fixture_ball_path.py`). Skips when absent.
 
+use hst_data::fixture;
 use hst_sim::ball::{Ball, Params};
 
 fn load() -> Option<Vec<[f32; 6]>> {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let text = std::fs::read_to_string(format!("{dir}/ball_path_s08.csv")).ok()?;
+    let text = fixture::read_to_string(format!("{dir}/ball_path_s08.csv")).ok()?;
     Some(
         text.lines()
             .map(|l| {
@@ -19,7 +20,7 @@ fn load() -> Option<Vec<[f32; 6]>> {
 #[test]
 fn flight_matches_recorded_path() {
     let Some(path) = load() else {
-        eprintln!("fixture missing, skipped");
+        fixture::skip(format_args!("fixture missing, skipped"));
         return;
     };
     // Segments between bounces and the spin the game held during each (solved from the recording).
@@ -40,8 +41,8 @@ fn flight_matches_recorded_path() {
 #[test]
 fn flight_matches_bot_match_shots() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(text) = std::fs::read_to_string(format!("{dir}/shots_s05.csv")) else {
-        eprintln!("fixture missing, skipped");
+    let Ok(text) = fixture::read_to_string(format!("{dir}/shots_s05.csv")) else {
+        fixture::skip(format_args!("fixture missing, skipped"));
         return;
     };
     let rows: Vec<Vec<f64>> = text.lines().map(|l| l.split(',').map(|x| x.parse().unwrap()).collect()).collect();

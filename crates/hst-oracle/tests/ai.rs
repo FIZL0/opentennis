@@ -22,7 +22,7 @@ fn int(seed: &mut u64, lo: u32, hi: u32) -> i32 {
 /// `tools/record_ai_search.py` reads them), the match globals as the slot-5 dump has them, rewritten per call.
 #[test]
 fn run_frames() {
-    let Some(mut ee) = Ee::from_ram("s05.bin") else { return eprintln!("skip: no context/iso or context/ram/s05.bin") };
+    let Some(mut ee) = Ee::from_ram("s05.bin") else { return };
     let (at, p, spot, gm) = (addr("ai_run_frames"), 0x01e0_0000u32, 0x01e1_0000u32, ee.read(0x42_2f80, 4) as u32);
     let (mut seed, mut bad, n) = (0x2545_f491_4f6c_dd1du64, vec![], 20_000);
     let mut found = 0;

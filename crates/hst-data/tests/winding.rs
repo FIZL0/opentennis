@@ -2,15 +2,14 @@
 //! third vertex's UV w, checked bit-exact in `collision.rs`). Court 1's ground and props (its school fence is
 //! one-sided and must vanish from behind, B7). Skipped without the disc image.
 
-use hst_data::iso::Iso;
+use hst_data::fixture;
 use hst_data::mdl;
 use hst_data::xb::Archive;
 
 #[test]
 fn draw_winding_matches_collision() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
-        eprintln!("disc missing, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        fixture::skip(format_args!("disc missing, skipped"));
         return;
     };
     let mut checked = 0;

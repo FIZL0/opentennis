@@ -1,15 +1,16 @@
 //! Every character's models and animations on the disc parse: all `ANI2` files byte-exact to their end, all
 //! skinned models with bind-pose vertices that agree across their bone bindings. Skips without the ISO.
 
+use hst_data::fixture;
 use hst_data::{ani, iso::Iso, mdl, xb::Archive};
 
 fn iso() -> Option<Iso> {
-    Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")).ok()
+    fixture::iso().ok()
 }
 
 #[test]
 fn every_animation_parses() {
-    let Some(mut iso) = iso() else { return eprintln!("no ISO, skipped") };
+    let Some(mut iso) = iso() else { return };
     let (mut files, mut named) = (0, 0);
     for c in 0..10 {
         let data = iso.read(&format!("PCANI/PC{c:02}ANI.XB")).unwrap();
@@ -30,7 +31,7 @@ fn every_animation_parses() {
 
 #[test]
 fn character_models_skin() {
-    let Some(mut iso) = iso() else { return eprintln!("no ISO, skipped") };
+    let Some(mut iso) = iso() else { return };
     let data = iso.read("PC/PC00C00.XB").unwrap();
     let arc = Archive::parse(&data).unwrap();
     let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("pc00_t00_c00.mdl")).unwrap();
@@ -62,7 +63,7 @@ fn character_models_skin() {
 /// back-face cull).
 #[test]
 fn skinned_triangles_face_their_normals() {
-    let Some(mut iso) = iso() else { return eprintln!("no ISO, skipped") };
+    let Some(mut iso) = iso() else { return };
     for c in 0..14 {
         let data = iso.read(&format!("PC/PC{c:02}C00.XB")).unwrap();
         let arc = Archive::parse(&data).unwrap();
@@ -93,7 +94,7 @@ fn skinned_triangles_face_their_normals() {
 /// out between the lips); the skinned geometry drops it and nothing else.
 #[test]
 fn mouth_helper_triangle_is_not_drawn() {
-    let Some(mut iso) = iso() else { return eprintln!("no ISO, skipped") };
+    let Some(mut iso) = iso() else { return };
     for c in 0..14 {
         let data = iso.read(&format!("PC/PC{c:02}C00.XB")).unwrap();
         let arc = Archive::parse(&data).unwrap();

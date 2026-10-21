@@ -1,12 +1,13 @@
 //! The MENU overlay's character grades, as the original's character select shows them (Ashley, Jun and Kaito
 //! checked on screen; the table read live over PINE at the select equals the disc's, P21c). Skips without the ISO.
 
-use hst_data::{exe::Menu, iso::Iso};
+use hst_data::fixture;
+use hst_data::exe::Menu;
 
 #[test]
 fn character_grades() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("no ISO, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("no ISO, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/MENU.BIN").unwrap());
     let g = Menu::new(&cnf, &bin).unwrap().grades();

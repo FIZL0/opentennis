@@ -37,7 +37,7 @@ fn step(mut g: ResMut<Game>, mut frames: ResMut<Frames>, posed: Option<Res<super
         let p = &g.players[i];
         // ponytail: character 13 tests another spot of its own (no recording has it); every other character's is its position
         let at = [p.pos[0], p.pos[1], p.pos[2], 1.0];
-        let origin = pelvis(&g, i, posed.as_deref(), bones.as_deref()).unwrap_or(at);
+        let origin = pelvis(g, i, posed.as_deref(), bones.as_deref()).unwrap_or(at);
         if !sound::reaction_view(eye, look, &view, focal, origin, at) {
             continue;
         }

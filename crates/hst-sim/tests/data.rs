@@ -1,14 +1,15 @@
-//! The tests here skip quietly when the disc or the recordings are missing (they're never in git). A run that has to
-//! check the port against the game sets `HST_REQUIRE_DATA=1`, and this fails it when the data isn't there.
-// ponytail: checks the folders, not each fixture; a missing single recording still skips
+//! The tests here skip when the disc or the recordings are missing (they're never in git); a run that has to check
+//! the port against the game sets `HST_REQUIRE_DISC=1` (tools/check.sh does), and then every test that reads them
+//! through `hst_data::fixture` fails instead. This one fails such a run up front when the folders aren't there.
+
+use hst_data::fixture;
 
 #[test]
 fn the_game_data_is_here_when_required() {
-    if std::env::var_os("HST_REQUIRE_DATA").is_none() {
+    if !fixture::required() {
         return;
     }
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    for dir in ["context/iso/ZZBIN/GAME.BIN", "context/ram", "context/xb"] {
-        assert!(std::path::Path::new(root).join(dir).exists(), "HST_REQUIRE_DATA: no {dir}");
+    for dir in [fixture::ISO, "context/iso/ZZBIN/GAME.BIN", "context/ram", "context/xb", "context/fixtures"] {
+        assert!(fixture::path(dir).exists(), "HST_REQUIRE_DISC: no {dir}");
     }
 }

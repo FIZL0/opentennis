@@ -20,6 +20,7 @@ testing = []
 
 [dev-dependencies]
 hst-sim = { path = ".", features = ["testing"] }
+hst-data = { path = "../hst-data", features = ["testing"] }
 
 [lints.clippy]
 # ported compares keep the original's branch: `!(a < b)` is the EE's c.lt.s + bc1f, taken for NaN too, which

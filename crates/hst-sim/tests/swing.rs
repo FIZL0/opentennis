@@ -2,7 +2,8 @@
 //! contact search: same frame, branch, swing side and contact ball as the game. The players' animation-measured
 //! reach values come from the slot-5 save state's RAM (`context/fixtures/slot5_ee.bin`).
 
-use hst_data::{ani, iso::Iso, xb::Archive};
+use hst_data::fixture;
+use hst_data::{ani, xb::Archive};
 use hst_sim::ball::{Ball, COURTS, Flight, Params, Shot};
 use hst_sim::ps2::{add, mul};
 use hst_sim::replay::{Frame, frames_live};
@@ -122,8 +123,8 @@ fn goodcpus_approaches() {
 /// How many approach runs `name` holds (None when it or `ram_name` is absent); panics unless all match.
 fn approaches(name: &str, ram_name: &str) -> Option<usize> {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let (Ok(data), Ok(ram)) = (std::fs::read(format!("{dir}/{name}")), std::fs::read(format!("{dir}/{ram_name}"))) else {
-        eprintln!("{name} or {ram_name} absent, skipped");
+    let (Ok(data), Ok(ram)) = (fixture::read(format!("{dir}/{name}")), fixture::read(format!("{dir}/{ram_name}"))) else {
+        fixture::skip(format_args!("{name} or {ram_name} absent, skipped"));
         return None;
     };
     let ru = |a: usize| u32::from_le_bytes(ram[a..a + 4].try_into().unwrap()) as usize;
@@ -176,8 +177,8 @@ fn approaches(name: &str, ram_name: &str) -> Option<usize> {
 /// Every stroke decision of `name` through the contact search, with the reach from its save state's RAM (`ram_name`).
 fn contact_search(name: &str, ram_name: &str) -> usize {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let (Ok(data), Ok(ram)) = (std::fs::read(format!("{dir}/{name}")), std::fs::read(format!("{dir}/{ram_name}"))) else {
-        eprintln!("{name} or {ram_name} absent, skipped");
+    let (Ok(data), Ok(ram)) = (fixture::read(format!("{dir}/{name}")), fixture::read(format!("{dir}/{ram_name}"))) else {
+        fixture::skip(format_args!("{name} or {ram_name} absent, skipped"));
         return 0;
     };
     let ru = |a: usize| u32::from_le_bytes(ram[a..a + 4].try_into().unwrap()) as usize;
@@ -259,8 +260,8 @@ fn contact_search(name: &str, ram_name: &str) -> usize {
 #[test]
 fn recorded_dives() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("disc absent, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc absent, skipped"));
     };
     let roots: Vec<hst_sim::pose::Path> = (0..14)
         .map(|c| {
@@ -316,8 +317,8 @@ fn recorded_dives() {
     files.push("1p3goodcpus.bin".into());
     let (mut dives, mut steps, mut skipped, mut contacts, mut exact, mut dirs_exact, mut chars) = (0, 0, 0, 0, 0, 0, std::collections::BTreeSet::new());
     for file in &files {
-        let Ok(data) = std::fs::read(format!("{dir}/{file}")) else {
-            eprintln!("{file} absent, skipped");
+        let Ok(data) = fixture::read(format!("{dir}/{file}")) else {
+            fixture::skip(format_args!("{file} absent, skipped"));
             continue;
         };
         let frames = frames_live(&data);
@@ -456,8 +457,8 @@ fn goodcpus_smash_flights() {
 /// Frames each smash launched in `name` flies as the game's ball before its first bounce (None when absent).
 fn smash_flights(name: &str) -> Option<Vec<usize>> {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/{name}")) else {
-        eprintln!("{name} absent, skipped");
+    let Ok(data) = fixture::read(format!("{dir}/{name}")) else {
+        fixture::skip(format_args!("{name} absent, skipped"));
         return None;
     };
     let frames = frames_live(&data);

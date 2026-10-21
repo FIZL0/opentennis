@@ -4,6 +4,7 @@
 //! (each fixture ends with AIM_INCOMING=1 aims, singles then AIM_INCOMING=sweet ones) included, and the aim's
 //! nudge, short-only flag and held smash depth.
 
+use hst_data::fixture;
 use hst_sim::player::pad_dir;
 use hst_sim::replay::{Frame, SAMPLE_LIVE};
 use hst_sim::shot::{AimStats, Hitter, aim};
@@ -18,8 +19,8 @@ fn i32_at(b: &[u8], o: usize) -> i32 {
 fn human_aims() {
     for (name, players) in [("aim_singles.bin", 2), ("aim_doubles.bin", 4)] {
         let path = format!("{}/../../context/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
-        let Ok(data) = std::fs::read(&path) else {
-            eprintln!("skipping {name}: no recording");
+        let Ok(data) = fixture::read(&path) else {
+            fixture::skip(format_args!("skipping {name}: no recording"));
             continue;
         };
         let (mut n, mut corners, mut bad, mut slices) = (0, 0, Vec::new(), [0; 2]); // slices: incoming off-sweet, sweet
@@ -111,11 +112,11 @@ fn human_serve_aims() {
     use hst_sim::serve::{Miss, ServeData, Toss, miss_of, target};
     let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
     let (Ok(data), Ok(cnf), Ok(bin)) = (
-        std::fs::read(format!("{ctx}/fixtures/aim_serve.bin")),
-        std::fs::read(format!("{ctx}/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{ctx}/fixtures/aim_serve.bin")),
+        fixture::read(format!("{ctx}/iso/SYSTEM.CNF")),
+        fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
     ) else {
-        return eprintln!("skipping: no aim_serve.bin recording or extracted disc");
+        return fixture::skip(format_args!("skipping: no aim_serve.bin recording or extracted disc"));
     };
     let rows = hst_data::exe::Game::new(&cnf, &bin).unwrap().serve_miss();
     let (mut n, mut nudged, mut bad) = (0, 0, Vec::new());

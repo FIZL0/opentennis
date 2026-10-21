@@ -3,6 +3,7 @@
 //! jump scale, joint turns) over random contact points, positions and sides. Needs the ISO, `context/iso/` and
 //! `context/ram/` (skips without them).
 
+use hst_data::fixture;
 use hst_data::{ani, iso::Iso, mdl, xb::Archive};
 use std::f32::consts::PI;
 
@@ -86,17 +87,16 @@ fn check_table(ee: &Ee, pl: u32, a: &ServeArm, i: usize, ctx: &str) {
 
 #[test]
 fn serve_ik() {
-    let iso_path = root().join("Hot Shots Tennis (USA).iso");
-    if !iso_path.is_file() {
-        return eprintln!("skip: no ISO");
+    if !fixture::exists(fixture::ISO) {
+        return;
     }
     let (over, under) = (addr("overhead_arm_solve"), addr("underhand_arm_solve"));
     // one thread per RAM image, each with its own seed: one after another they took ~90 s
     let state = |(si, s): (usize, &str)| {
-        let mut iso = Iso::open(&iso_path).unwrap();
+        let mut iso = fixture::iso().unwrap();
         let (mut seed, mut n, mut bad, mut moved, mut jumps) = (0x9e37_79b9_7f4a_7c15u64 ^ si as u64, 0, vec![], 0, 0);
         let Some(mut ee) = Ee::from_ram(&format!("{s}.bin")) else {
-            eprintln!("skip: no context/iso or {s}.bin");
+            fixture::skip(format_args!("skip: no context/iso or {s}.bin"));
             return None;
         };
         let gm = ee.read(0x422f80, 4) as u32;
@@ -176,12 +176,12 @@ fn serve_ik() {
 #[test]
 fn serve_ik_captures() {
     use hst_sim::{player::mover, pose::ArmIk};
-    let Ok(mut iso) = Iso::open(root().join("Hot Shots Tennis (USA).iso")) else { return eprintln!("skip: no ISO") };
+    let Ok(mut iso) = fixture::iso() else { return };
     const S: usize = 4 + 0x18 + 0x40 + 0x50 + 0x2c0 + 0x20 + 0xe0 + 8 + 0x10;
     let (mut serves, mut ticks) = (0, 0);
     for (file, slot) in [("A_strong", "s03"), ("C_under", "s03"), ("D_early", "s03"), ("E1_late", "s03"), ("E2_late", "s03"), ("E3_late", "s03"), ("S5_bots", "s05")] {
-        let Ok(d) = std::fs::read(root().join(format!("context/b29/run3/{file}.bin"))) else { return eprintln!("skip: no {file}") };
-        let Some(ee) = Ee::from_ram(&format!("{slot}.bin")) else { return eprintln!("skip: no {slot}.bin") };
+        let Ok(d) = fixture::read(root().join(format!("context/b29/run3/{file}.bin"))) else { return };
+        let Some(ee) = Ee::from_ram(&format!("{slot}.bin")) else { return };
         let gm = ee.read(0x422f80, 4) as u32;
         let rows: Vec<&[u8]> = d.as_chunks::<S>().0.iter().map(|s| s.as_slice()).collect();
         let w = |r: &[u8], o: usize| u32::from_le_bytes(r[o..o + 4].try_into().unwrap());
@@ -248,15 +248,14 @@ fn serve_ik_captures() {
 fn dive_slide() {
     use hst_sim::pose::{M4, dive_arm};
     use hst_sim::swing::arm_slide;
-    let iso_path = root().join("Hot Shots Tennis (USA).iso");
-    if !iso_path.is_file() {
-        return eprintln!("skip: no ISO");
+    if !fixture::exists(fixture::ISO) {
+        return;
     }
     let slide = addr("dive_arm_slide");
     let (mut n, mut moved, mut bad) = (0, 0, vec![]);
     for (si, s) in ["s03", "s04", "s05", "s08", "s09"].into_iter().enumerate() {
-        let mut iso = Iso::open(&iso_path).unwrap();
-        let Some(mut ee) = Ee::from_ram(&format!("{s}.bin")) else { return eprintln!("skip: no context/iso or {s}.bin") };
+        let mut iso = fixture::iso().unwrap();
+        let Some(mut ee) = Ee::from_ram(&format!("{s}.bin")) else { return };
         let gm = ee.read(0x422f80, 4) as u32;
         let pls: Vec<u32> = (0..4).map(|p| ee.read(gm + 0xa8 + 4 * p, 4) as u32).collect();
         let f = |ee: &Ee, a: u32| f32::from_bits(ee.read(a, 4) as u32);

@@ -2,6 +2,7 @@
 //! `tools/record_foot.py 5`): from the ball and the hit messages, every frame's on flag, scale, fade, alpha and
 //! matrix match the game bit for bit.
 
+use hst_data::fixture;
 use hst_sim::tornado::Tornado;
 
 fn f(b: &[u8], o: usize) -> f32 {
@@ -30,11 +31,11 @@ fn key(t: &Tornado) -> (bool, i32, Vec<u32>) {
 fn tornado_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(cnf), Ok(bin)) = (
-        std::fs::read(format!("{root}/context/fixtures/foot_s05.bin")),
-        std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/context/fixtures/foot_s05.bin")),
+        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
     ) else {
-        return eprintln!("foot_s05.bin or disc absent, skipped");
+        return fixture::skip(format_args!("foot_s05.bin or disc absent, skipped"));
     };
     let fade = hst_data::exe::Game::new(&cnf, &bin).unwrap().tornado_fade();
     assert_eq!(fade, 30);
@@ -81,11 +82,11 @@ fn tornado_s05() {
 fn tornado_slowmo() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(cnf), Ok(bin)) = (
-        std::fs::read(format!("{root}/context/fixtures/tornado_slowmo.bin")),
-        std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/context/fixtures/tornado_slowmo.bin")),
+        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
     ) else {
-        return eprintln!("tornado_slowmo.bin or disc absent, skipped");
+        return fixture::skip(format_args!("tornado_slowmo.bin or disc absent, skipped"));
     };
     let floor = hst_data::exe::Game::new(&cnf, &bin).unwrap().tornado_floor();
     // per frame: vsync 4, slow-motion block 0x30, tornado 0x190, its model +0x120 (8), its UV animation 0x30, ball

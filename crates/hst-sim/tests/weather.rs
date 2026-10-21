@@ -1,4 +1,4 @@
-use hst_data::iso::Iso;
+use hst_data::fixture;
 use hst_sim::weather::{schedule, Mt, Odds, Rand, Wind};
 
 /// Slot 5's match (court 10, doubles, 4 games, 1 set): its schedule as in RAM (match object +0xd8 weathers, +0x11c
@@ -6,7 +6,7 @@ use hst_sim::weather::{schedule, Mt, Odds, Rand, Wind};
 /// 2641 calls before the match seed (research/p17k_seed_search.py walks the LCG back from the live state).
 #[test]
 fn slot5_schedule_from_the_game_generator() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let exe = hst_data::exe::Game::new(&cnf, &bin).unwrap();
     let o = exe.weather_odds(10);

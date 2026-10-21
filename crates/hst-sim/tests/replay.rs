@@ -2,12 +2,13 @@
 //! it starts on the recording's save-state frame and has one sample per vsync with no gaps, and the decoded pad
 //! the game read shows P1's inputs (the recording drives port 0; the bots' port 1 stays idle).
 
+use hst_data::fixture;
 use hst_sim::replay::frames;
 
 #[test]
 fn round1_fixture_is_frame_exact() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/round1.bin")) else { return eprintln!("round1.bin absent, skipped") };
+    let Ok(data) = fixture::read(format!("{dir}/round1.bin")) else { return };
     let frames = frames(&data);
     assert_eq!(frames[0].vsync(), 10018, "round1_SaveState.p2s frame");
     for w in frames.windows(2) {

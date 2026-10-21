@@ -1,13 +1,12 @@
 //! A disc pack (`Iso::write_pack`) opens like the ISO and reads every packed file byte for byte, its hash is the same
 //! on every import, and it is far smaller than the image. Skips without the ISO.
 
+use hst_data::fixture;
 use hst_data::iso::Iso;
-
-const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
 
 #[test]
 fn pack_reads_like_the_disc() {
-    let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let dir = std::env::temp_dir().join(format!("hst-pack-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let out = dir.join("disc.pack");
@@ -19,7 +18,7 @@ fn pack_reads_like_the_disc() {
     for n in &names {
         assert_eq!(pack.read(&n.to_lowercase()).unwrap(), iso.read(n).unwrap(), "{n}");
     }
-    let (p, i) = (std::fs::metadata(&out).unwrap().len(), std::fs::metadata(ISO).unwrap().len());
+    let (p, i) = (std::fs::metadata(&out).unwrap().len(), std::fs::metadata(fixture::path(fixture::ISO)).unwrap().len());
     assert!(p * 5 < i, "pack {p} bytes vs ISO {i}");
     // the same disc always gives the same pack (M2e: peers compare this hash)
     assert_eq!(iso.write_pack(&out, |_, _| {}).unwrap(), hash);

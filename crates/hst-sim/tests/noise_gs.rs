@@ -3,6 +3,7 @@
 //! player 0 sway by pixels. Each noise vertex is its position entries moved by `noise::deform`, carried through its
 //! bones' matrices fitted to the same frame, and must land where the GS drew it; unmoved entries must not.
 
+use hst_data::fixture;
 use hst_sim::noise;
 
 fn bits(h: &str) -> f32 {
@@ -12,8 +13,8 @@ fn bits(h: &str) -> f32 {
 #[test]
 fn skirt_sway_gs_s05() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(text) = std::fs::read_to_string(format!("{dir}/noise_gs_s05.txt")) else {
-        return eprintln!("noise_gs_s05.txt absent, skipped");
+    let Ok(text) = fixture::read_to_string(format!("{dir}/noise_gs_s05.txt")) else {
+        return fixture::skip(format_args!("noise_gs_s05.txt absent, skipped"));
     };
     let table = noise::table();
     let (mut screen, mut deformers) = ([0f64; 3], Vec::new());

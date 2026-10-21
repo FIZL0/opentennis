@@ -32,6 +32,9 @@ if [ -z "$HST_NETPLAY" ] && [[ "$*" != *netplay* && "$*" != *rollback* && "$*" !
   [[ " $* " == *" -- "* ]] || args+=(--)
   args+=(--skip play::netplay::tests::matches)
 fi
+# T5: a test whose disc or context/ recording is missing fails instead of passing without checking anything
+# (hst_data::fixture); HST_REQUIRE_DISC=0 for a checkout without them
+export HST_REQUIRE_DISC=${HST_REQUIRE_DISC-1}
 # nice: builds yield to the desktop and PCSX2
 nice -n 10 cargo test -j "$jobs" -q --message-format=short "${args[@]}" >"$log" 2>&1 9>&- && {
   echo "TESTS PASSED: $(grep -ao '[0-9]* passed' "$log" | awk '{s+=$1} END{print s+0}') tests"; exit 0; }

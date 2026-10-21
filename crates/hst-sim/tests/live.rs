@@ -5,8 +5,8 @@
 //! (court, ground around it, walls, net, net cord, the ghost material) must match exactly. Skips when the recording
 //! or the disc is absent.
 
+use hst_data::fixture;
 use hst_data::exe;
-use hst_data::iso::Iso;
 use hst_sim::ball::{Ball, COURTS, Flight, Material, Params, Shot};
 use hst_sim::court;
 
@@ -100,9 +100,9 @@ fn replay(s: &[(i32, &[u8])], poked: &[i32], court: usize, world: &hst_sim::mesh
 fn disc(court: u32) -> Option<(hst_sim::mesh::World, Vec<Material>)> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(mut iso), Ok(cnf), Ok(bin)) = (
-        Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")),
-        std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::iso(),
+        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
     ) else {
         return None;
     };
@@ -112,8 +112,8 @@ fn disc(court: u32) -> Option<(hst_sim::mesh::World, Vec<Material>)> {
 #[test]
 fn live_ball_frames_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(data), Some((world, materials))) = (std::fs::read(format!("{root}/context/live/net_s05.bin")), disc(COURT as u32)) else {
-        eprintln!("recording or disc missing, skipped");
+    let (Ok(data), Some((world, materials))) = (fixture::read(format!("{root}/context/live/net_s05.bin")), disc(COURT as u32)) else {
+        fixture::skip(format_args!("recording or disc missing, skipped"));
         return;
     };
     let r = replay(&samples(&data), &[], COURT, &world, &materials);
@@ -127,15 +127,14 @@ fn live_ball_frames_match_the_game() {
 #[test]
 fn aimed_net_cord_and_post_hits_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(dir), Some((world, materials))) = (std::fs::read_dir(format!("{root}/context/live/p15")), disc(COURT as u32)) else {
-        eprintln!("recordings or disc missing, skipped");
-        return;
+    let (Ok(dir), Some((world, materials))) = (std::fs::read_dir(fixture::path(format!("{root}/context/live/p15"))), disc(COURT as u32)) else {
+        return fixture::skip("context/live/p15 or the disc");
     };
     let mut files: Vec<_> = dir.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "bin")).collect();
     files.sort();
     let mut touches = std::collections::BTreeMap::new();
     for path in files {
-        let data = std::fs::read(&path).unwrap();
+        let data = std::fs::read(fixture::path(&path)).unwrap();
         let poke = std::fs::read_to_string(path.with_extension("bin.poke")).unwrap_or_default();
         let poked: Vec<i32> = poke.lines().filter_map(|l| l.trim().parse().ok()).collect();
         let r = replay(&samples(&data), &poked, COURT, &world, &materials);
@@ -157,8 +156,8 @@ fn aimed_net_cord_and_post_hits_match_the_game() {
 fn goodcpus_live_ball_matches_the_game() {
     use hst_sim::replay::frames_live;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(data), Some((world, materials))) = (std::fs::read(format!("{root}/context/fixtures/1p3goodcpus.bin")), disc(11)) else {
-        return eprintln!("1p3goodcpus.bin or disc missing, skipped");
+    let (Ok(data), Some((world, materials))) = (fixture::read(format!("{root}/context/fixtures/1p3goodcpus.bin")), disc(11)) else {
+        return fixture::skip(format_args!("1p3goodcpus.bin or disc missing, skipped"));
     };
     let frames = frames_live(&data);
     assert_eq!(frames[0].global(0x422f90), 11, "court");
@@ -176,8 +175,8 @@ fn goodcpus_live_ball_matches_the_game() {
 fn goodcpus2_lobs_and_fence_hits_match_the_game() {
     use hst_sim::replay::frames_live;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(data), Some((world, materials))) = (std::fs::read(format!("{root}/context/fixtures/1p3goodcpus2.bin")), disc(4)) else {
-        return eprintln!("1p3goodcpus2.bin or disc missing, skipped");
+    let (Ok(data), Some((world, materials))) = (fixture::read(format!("{root}/context/fixtures/1p3goodcpus2.bin")), disc(4)) else {
+        return fixture::skip(format_args!("1p3goodcpus2.bin or disc missing, skipped"));
     };
     let frames = frames_live(&data);
     assert_eq!(frames[0].global(0x422f90), 4, "court");
@@ -200,7 +199,7 @@ fn net_touch_words_match_the_game() {
     const SIZE: usize = 4 + 0x290 + 0xf0 + 0x720 + 0x88 + 0x60;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let Some((world, materials)) = disc(COURT as u32) else {
-        return eprintln!("disc missing, skipped");
+        return fixture::skip(format_args!("disc missing, skipped"));
     };
     // recording, overwrite vsync, the first word's texture (12 + effect kind): the net's (B85), then a wall's and an
     // object's (B134: the ruins' cloth-hung wall, CLOTH, and a wooden prop, WOOD, each the ball's first contact)
@@ -214,8 +213,8 @@ fn net_touch_words_match_the_game() {
     ];
     let mut seen = 0;
     for (name, poke, word) in cases {
-        let Ok(data) = std::fs::read(format!("{root}/context/{name}.bin")) else {
-            eprintln!("{name}.bin missing, skipped");
+        let Ok(data) = fixture::read(format!("{root}/context/{name}.bin")) else {
+            fixture::skip(format_args!("{name}.bin missing, skipped"));
             continue;
         };
         let s: Vec<(i32, &[u8], &[u8])> = data.as_chunks::<SIZE>().0.iter().map(|w| (i(w, 0), &w[4..0x294], &w[0x384..0x384 + 0x720])).collect();
@@ -256,9 +255,8 @@ fn net_touch_words_match_the_game() {
 
 #[test]
 fn every_court_builds_its_world() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("disc missing, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc missing, skipped"));
     };
     for n in 1..=11 {
         let w = court::world(&mut iso, n).unwrap();
@@ -268,9 +266,8 @@ fn every_court_builds_its_world() {
 
 #[test]
 fn a_court_mod_keeps_only_the_ground_and_net() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(mut iso) = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("disc missing, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc missing, skipped"));
     };
     // game space, Y down: the ball's centre 1 m up, radius 3.5 cm
     let (r, at) = (0.035, |x: f32, y: f32, z: f32| [x, y, z, 1.0]);
@@ -291,8 +288,8 @@ fn net_touch_keeps_the_predicted_contacts() {
     // from the live ball but keeps the court contacts the old prediction had reached: in a rally those are 2,
     // past every contact search, so a net cord that drops over goes unplayed and wins the point for the hitter.
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(data) = std::fs::read(format!("{root}/context/live/net_s05.bin")) else {
-        return eprintln!("recording missing, skipped");
+    let Ok(data) = fixture::read(format!("{root}/context/live/net_s05.bin")) else {
+        return fixture::skip(format_args!("recording missing, skipped"));
     };
     let s: Vec<&[u8]> = data.as_chunks::<SAMPLE>().0.iter().map(|s| s.as_slice()).collect();
     fn live(w: &[u8]) -> &[u8] {

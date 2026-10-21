@@ -5,7 +5,8 @@
 //! scale. Skips when the recording or the disc is absent.
 //! Also the sun-shade map built from the disc's court 10 against the game's (`context/p17l/map05.bin`, slot 5).
 
-use hst_data::{iso::Iso, layout, mdl, mtl, xb::Archive};
+use hst_data::fixture;
+use hst_data::{layout, mdl, mtl, xb::Archive};
 use hst_sim::{court, ps2};
 use hst_sim::shade::{self, Caster, Frame, Shape};
 
@@ -13,11 +14,11 @@ use hst_sim::shade::{self, Caster, Frame, Shape};
 fn ball_light_scale_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(rec), Ok(map), Ok(mut iso)) = (
-        std::fs::read_to_string(format!("{root}/context/p17t/ball05.txt")),
-        std::fs::read(format!("{root}/context/p17t/map05.bin")),
-        Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")),
+        fixture::read_to_string(format!("{root}/context/p17t/ball05.txt")),
+        fixture::read(format!("{root}/context/p17t/map05.bin")),
+        fixture::iso(),
     ) else {
-        eprintln!("recording or disc missing, skipped");
+        fixture::skip(format_args!("recording or disc missing, skipped"));
         return;
     };
     let world = court::world(&mut iso, 10).unwrap();
@@ -60,8 +61,8 @@ fn ball_light_scale_matches_the_game() {
 #[test]
 fn court10_map_near_game() {
     let (Ok(mut iso), Ok(game)) = (
-        Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")),
-        std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/p17l/map05.bin")),
+        fixture::iso(),
+        fixture::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/p17l/map05.bin")),
     ) else {
         return;
     };
@@ -115,8 +116,8 @@ fn court10_map_near_game() {
 #[test]
 fn receiver_vertices_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(txt) = std::fs::read_to_string(format!("{root}/context/p17v/rcv.txt")) else {
-        eprintln!("recording missing, skipped");
+    let Ok(txt) = fixture::read_to_string(format!("{root}/context/p17v/rcv.txt")) else {
+        fixture::skip(format_args!("recording missing, skipped"));
         return;
     };
     let hex = |s: &str| u32::from_str_radix(s, 16).unwrap();
@@ -149,8 +150,8 @@ fn receiver_vertices_match_the_game() {
 #[test]
 fn ball_shadow_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(rec), Ok(mut iso)) = (std::fs::read(format!("{root}/context/fixtures/b36_shadow.bin")), Iso::open(format!("{root}/Hot Shots Tennis (USA).iso"))) else {
-        eprintln!("recording or disc missing, skipped");
+    let (Ok(rec), Ok(mut iso)) = (fixture::read(format!("{root}/context/fixtures/b36_shadow.bin")), fixture::iso()) else {
+        fixture::skip(format_args!("recording or disc missing, skipped"));
         return;
     };
     let world = court::world(&mut iso, 10).unwrap();
@@ -188,8 +189,8 @@ fn ball_shadow_matches_the_game() {
 #[test]
 fn shadow_textures_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(txt) = std::fs::read_to_string(format!("{root}/context/p17v/pass.txt")) else {
-        eprintln!("pass.txt missing, skipped");
+    let Ok(txt) = fixture::read_to_string(format!("{root}/context/p17v/pass.txt")) else {
+        fixture::skip(format_args!("pass.txt missing, skipped"));
         return;
     };
     let (mut draws, mut n, mut bad) = (Vec::<shade::PassDraw>::new(), 0, Vec::new());
@@ -243,8 +244,8 @@ fn shadow_textures_match_the_game() {
 #[test]
 fn receiver_tiles_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(txt) = std::fs::read_to_string(format!("{root}/context/p17v/rcv_pass.txt")) else {
-        eprintln!("rcv_pass.txt missing, skipped");
+    let Ok(txt) = fixture::read_to_string(format!("{root}/context/p17v/rcv_pass.txt")) else {
+        fixture::skip(format_args!("rcv_pass.txt missing, skipped"));
         return;
     };
     let hex = |s: &str| (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect::<Vec<u8>>();
@@ -285,8 +286,8 @@ fn receiver_tiles_match_the_game() {
 #[test]
 fn ball_scale_and_outline_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(rec) = std::fs::read(format!("{root}/context/fixtures/b36b_ball.bin")) else {
-        eprintln!("recording missing, skipped");
+    let Ok(rec) = fixture::read(format!("{root}/context/fixtures/b36b_ball.bin")) else {
+        fixture::skip(format_args!("recording missing, skipped"));
         return;
     };
     let (mut grown, mut bad) = (0, Vec::new());
@@ -319,8 +320,8 @@ fn ball_scale_and_outline_match_the_game() {
 #[test]
 fn light_matrices_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(txt), Ok(mut iso)) = (std::fs::read_to_string(format!("{root}/context/p17v/rcv.txt")), Iso::open(format!("{root}/Hot Shots Tennis (USA).iso"))) else {
-        eprintln!("recording or disc missing, skipped");
+    let (Ok(txt), Ok(mut iso)) = (fixture::read_to_string(format!("{root}/context/p17v/rcv.txt")), fixture::iso()) else {
+        fixture::skip(format_args!("recording or disc missing, skipped"));
         return;
     };
     let mut models = std::collections::HashMap::new();
@@ -357,7 +358,7 @@ fn light_matrices_match_the_game() {
         .collect();
     let (built, planes): (Vec<[[u32; 4]; 4]>, Vec<shade::Planes>) = built.into_iter().unzip();
     // the planes against the game's (`context/p17v/cull.txt` `P` rows, the caster's two blocks as it left them)
-    if let Ok(cull) = std::fs::read_to_string(format!("{root}/context/p17v/cull.txt")) {
+    if let Ok(cull) = fixture::read_to_string(format!("{root}/context/p17v/cull.txt")) {
         let want: Vec<Vec<u32>> = cull.lines().filter(|l| l.starts_with("P ")).map(|l| l.split_whitespace().skip(2).map(|h| u32::from_str_radix(h, 16).unwrap()).collect()).collect();
         let got: Vec<Vec<u32>> = planes.iter().map(|p| p.as_flattened().as_flattened().iter().map(|x| x.to_bits()).collect()).collect();
         assert_eq!(got.len(), want.len());
@@ -390,8 +391,8 @@ fn light_matrices_match_the_game() {
 #[test]
 fn receiver_triangles_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(txt), Ok(mut iso)) = (std::fs::read_to_string(format!("{root}/context/p17v/cull.txt")), Iso::open(format!("{root}/Hot Shots Tennis (USA).iso"))) else {
-        eprintln!("recording or disc missing, skipped");
+    let (Ok(txt), Ok(mut iso)) = (fixture::read_to_string(format!("{root}/context/p17v/cull.txt")), fixture::iso()) else {
+        fixture::skip(format_args!("recording or disc missing, skipped"));
         return;
     };
     let d = iso.read("COURT/10/GRD01.XB").unwrap();

@@ -6,7 +6,7 @@
 //! the RAM structures and compared bit for bit with `mdl::parse`'s collision list, along with node matrices,
 //! two-sided flags and attribute maps.
 
-use hst_data::iso::Iso;
+use hst_data::fixture;
 use hst_data::mdl::{self, CollisionTri};
 use hst_data::mtl;
 use hst_data::xb::Archive;
@@ -105,9 +105,9 @@ fn objects(r: &Ram) -> Vec<u32> {
 #[test]
 fn court_10_collision_matches_ram() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(ram), Ok(mut iso)) = (std::fs::read(format!("{root}/context/ram/s05.bin")), Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")))
+    let (Ok(ram), Ok(mut iso)) = (fixture::read(format!("{root}/context/ram/s05.bin")), fixture::iso())
     else {
-        eprintln!("RAM dump or disc missing, skipped");
+        fixture::skip(format_args!("RAM dump or disc missing, skipped"));
         return;
     };
     let r = Ram(ram);

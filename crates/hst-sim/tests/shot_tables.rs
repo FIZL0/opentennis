@@ -2,19 +2,20 @@
 //! flight frames) by `research/tools/traj_inverse2.py`. Fixture `context/fixtures/shot_tables_s05.csv` and the
 //! tables under `context/xb` stay out of git; skips when absent.
 
+use hst_data::fixture;
 use hst_sim::shot::{Bounds, Table, launch, launch_frame, lookup};
 
 #[test]
 fn strokes_launch_like_the_game() {
     let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context").into());
-    let Ok(text) = std::fs::read_to_string(format!("{ctx}/fixtures/shot_tables_s05.csv")) else {
-        eprintln!("fixture missing, skipped");
+    let Ok(text) = fixture::read_to_string(format!("{ctx}/fixtures/shot_tables_s05.csv")) else {
+        fixture::skip(format_args!("fixture missing, skipped"));
         return;
     };
     let mut n = 0;
     for line in text.lines() {
         let f: Vec<&str> = line.split(',').collect();
-        let table = Table::parse(&std::fs::read(format!("{ctx}/xb/{}", f[0])).unwrap()).unwrap();
+        let table = Table::parse(&std::fs::read(fixture::path(format!("{ctx}/xb/{}", f[0]))).unwrap()).unwrap();
         let kind: i32 = f[1].parse().unwrap();
         let x: Vec<f32> = f[2..10].iter().map(|v| v.parse::<f64>().unwrap() as f32).collect();
         let (hit, target, want) = ([x[0], x[1], x[2]], [x[3], 0.0, x[4]], [x[5], x[6], x[7]]);
@@ -42,8 +43,8 @@ fn stick_turns_topspin_flat_and_slice_drop() {
     use hst_sim::replay::frames;
     use hst_sim::shot::stick_kind;
     let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context").into());
-    let Ok(data) = std::fs::read(format!("{ctx}/fixtures/round1.bin")) else {
-        eprintln!("fixture missing, skipped");
+    let Ok(data) = fixture::read(format!("{ctx}/fixtures/round1.bin")) else {
+        fixture::skip(format_args!("fixture missing, skipped"));
         return;
     };
     let word = |f: hst_sim::replay::Frame, off| f.player_f32(0, off).to_bits();
@@ -122,12 +123,12 @@ fn smashes(fixture: &str, kind: i32) -> Option<(usize, usize)> {
     use hst_sim::replay::frames_live;
     let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context").into());
     let table = |c: i32| {
-        ["A", "B"].iter().find_map(|ab| std::fs::read(format!("{ctx}/xb/TRAJ/TRAJ{c:02}{ab}.XB/data/hatsuyama/traj/tr_pc{c:02}_smsh{kind}.dat")).ok())
+        ["A", "B"].iter().find_map(|ab| std::fs::read(fixture::path(format!("{ctx}/xb/TRAJ/TRAJ{c:02}{ab}.XB/data/hatsuyama/traj/tr_pc{c:02}_smsh{kind}.dat"))).ok())
             .and_then(|b| Table::parse(&b))
     };
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{ctx}/fixtures"));
-    let (Ok(data), Some(_)) = (std::fs::read(format!("{dir}/{fixture}")), table(0)) else {
-        eprintln!("fixture missing, skipped");
+    let (Ok(data), Some(_)) = (fixture::read(format!("{dir}/{fixture}")), table(0)) else {
+        fixture::skip(format_args!("fixture missing, skipped"));
         return None;
     };
     let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -173,7 +174,7 @@ fn smashes(fixture: &str, kind: i32) -> Option<(usize, usize)> {
 fn volleys_launch_like_the_game() {
     let (seen, exact) = launches(&["match_s05.bin", "new_recording.bin", "1p3goodcpus.bin"], 2, None);
     if seen == 0 {
-        return eprintln!("fixtures missing, skipped");
+        return fixture::skip(format_args!("fixtures missing, skipped"));
     }
     eprintln!("{exact} of {seen} volleys exact");
     assert!(exact == seen && seen >= 9, "only {exact} of {seen} volleys exact");
@@ -186,7 +187,7 @@ fn volleys_launch_like_the_game() {
 fn goodcpus_lobs_launch_like_the_game() {
     let lobs = [1, 2].map(|class| launches(&["1p3goodcpus.bin"], class, Some(3)));
     if lobs[1].0 == 0 {
-        return eprintln!("1p3goodcpus.bin absent, skipped");
+        return fixture::skip(format_args!("1p3goodcpus.bin absent, skipped"));
     }
     let (seen, exact) = launches(&["1p3goodcpus.bin"], 1, None);
     assert_eq!(seen, exact, "strokes off their tables");
@@ -205,13 +206,13 @@ fn launches(fixtures: &[&str], class: u8, only: Option<i32>) -> (usize, usize) {
     let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
     let table = |c: i32, name: &str| {
         ["A", "B"].iter().find_map(|ab| {
-            std::fs::read(format!("{ctx}/xb/TRAJ/TRAJ{c:02}{ab}.XB/data/hatsuyama/traj/tr_pc{c:02}_{name}.dat")).ok()
+            std::fs::read(fixture::path(format!("{ctx}/xb/TRAJ/TRAJ{c:02}{ab}.XB/data/hatsuyama/traj/tr_pc{c:02}_{name}.dat"))).ok()
         })
         .and_then(|b| Table::parse(&b))
     };
     let (mut seen, mut exact) = (0, 0);
     for fx in fixtures {
-        let Ok(data) = std::fs::read(format!("{dir}/{fx}")) else { continue };
+        let Ok(data) = fixture::read(format!("{dir}/{fx}")) else { continue };
         assert_eq!(data.len() % SAMPLE_LIVE, 0, "{fx}: not a live-ball recording");
         for w in frames_live(&data).windows(2) {
             let (a, b) = (w[0].live_ball(), w[1].live_ball());
@@ -266,8 +267,8 @@ fn rally_spins_like_the_game() {
     use hst_sim::replay::frames_live;
     let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{ctx}/fixtures"));
-    let (Ok(cnf), Ok(bin)) = (std::fs::read(format!("{ctx}/iso/SYSTEM.CNF")), std::fs::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
-        return eprintln!("extracted disc absent, skipped");
+    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
+        return fixture::skip(format_args!("extracted disc absent, skipped"));
     };
     let game = hst_data::exe::Game::new(&cnf, &bin).unwrap();
     let src = game.shot_params();
@@ -277,7 +278,7 @@ fn rally_spins_like_the_game() {
     let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
     let (mut base, mut all, mut kinds) = (0, 0, [[0; 5]; 2]);
     for name in ["match_s05.bin", "new_recording.bin", "lob_smash_s05.bin", "human_smash_s04.bin", "1p3goodcpus.bin"] {
-        let Ok(data) = std::fs::read(format!("{dir}/{name}")) else { continue };
+        let Ok(data) = fixture::read(format!("{dir}/{name}")) else { continue };
         for w in frames_live(&data).windows(2) {
             let (a, b) = (w[0].live_ball(), w[1].live_ball());
             let class = b[0x58] as usize;
@@ -317,8 +318,8 @@ fn rally_aims_pulled_inside_like_the_game() {
     use hst_sim::replay::frames_live;
     use hst_sim::shot::Margins;
     let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context").into());
-    let (Ok(cnf), Ok(bin)) = (std::fs::read(format!("{ctx}/iso/SYSTEM.CNF")), std::fs::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
-        return eprintln!("the extracted disc absent, skipped");
+    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
+        return fixture::skip(format_args!("the extracted disc absent, skipped"));
     };
     let (lines, angle) = hst_data::exe::Game::new(&cnf, &bin).unwrap().court_margins();
     let m = Margins { lines, angle };
@@ -327,8 +328,8 @@ fn rally_aims_pulled_inside_like_the_game() {
     let i = |b: &[u8], o: usize| i32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
     for (fx, want_n, want_moved) in [("match_s05.bin", 57, 0), ("new_recording.bin", 15, 0), ("1p3goodcpus.bin", 18, 2), ("human_smash_s04.bin", 7, 1), ("lob_smash_s05.bin", 18, 0)] {
-        let Ok(data) = std::fs::read(format!("{dir}/{fx}")) else {
-            eprintln!("{fx} absent, skipped");
+        let Ok(data) = fixture::read(format!("{dir}/{fx}")) else {
+            fixture::skip(format_args!("{fx} absent, skipped"));
             continue;
         };
         let (mut n, mut moved) = (0, 0);
@@ -378,8 +379,8 @@ fn presses_start_swings_like_the_game() {
     use hst_sim::replay::frames_live;
     use hst_sim::shot::press_kind;
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(rec) = std::fs::read(format!("{dir}/p5_presses_s04.bin")) else {
-        return eprintln!("p5_presses_s04.bin absent, skipped");
+    let Ok(rec) = fixture::read(format!("{dir}/p5_presses_s04.bin")) else {
+        return fixture::skip(format_args!("p5_presses_s04.bin absent, skipped"));
     };
     let frames = frames_live(&rec);
     let word = |k: usize, off: usize| frames[k].player_f32(0, off).to_bits() as i32;

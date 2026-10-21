@@ -2,6 +2,7 @@
 //! (ticks per frame 80, sampled at least once) holds, per bound track, the weight `face::sample` gives at its last
 //! sampled time, and the key cursor. Also every `.MOR` on the disc parses and binds to its model's targets.
 
+use hst_data::fixture;
 use hst_sim::face::{length, sample};
 
 fn u(d: &[u8], a: u32) -> u32 {
@@ -17,7 +18,7 @@ fn morph_weights_ram() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
     let (mut players, mut weights) = (0, 0);
     for s in ["s03", "s04", "s05", "s08", "s09"] {
-        let Ok(ram) = std::fs::read(format!("{root}context/ram/{s}.bin")) else { return eprintln!("{s}.bin absent, skipped") };
+        let Ok(ram) = fixture::read(format!("{root}context/ram/{s}.bin")) else { return };
         // the morph player: +8 count, +0xc bindings, +0x10 ticks per frame, +0x14 length, +0x1c last sampled time,
         // +0x28 weight; a binding: +0x14 track (+0 header, +4 keys; +0xc ticks, +0x10 values), +0x20 cursor, +0x24 weight
         for a in (0..ram.len() as u32 - 0x30).step_by(4) {
@@ -54,8 +55,8 @@ fn morph_weights_ram() {
 
 #[test]
 fn every_morph_binds() {
-    use hst_data::{iso::Iso, mdl, mor, xb::Archive};
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+    use hst_data::{mdl, mor, xb::Archive};
+    let Ok(mut iso) = fixture::iso() else { return };
     let (mut files, mut tracks, mut unbound) = (0, 0, 0);
     for c in 0..10 {
         let data = iso.read(&format!("PC/PC{c:02}C00.XB")).unwrap();

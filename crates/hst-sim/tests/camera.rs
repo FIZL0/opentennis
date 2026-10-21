@@ -2,6 +2,7 @@
 //! every serve and rally frame, the port's view (eye, forward axis, field of view) follows the game's from the
 //! same players and ball.
 
+use hst_data::fixture;
 use hst_sim::camera::{Camera, Scene, View};
 
 const GM: usize = 4;
@@ -25,8 +26,8 @@ fn view(s: &[u8]) -> View {
 #[test]
 fn match_s05_camera() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/camera_s05.bin")) else {
-        return eprintln!("camera_s05.bin absent, skipped");
+    let Ok(data) = fixture::read(format!("{dir}/camera_s05.bin")) else {
+        return fixture::skip(format_args!("camera_s05.bin absent, skipped"));
     };
     let frames: Vec<&[u8]> = data.as_chunks::<SAMPLE>().0.iter().map(|s| s.as_slice()).collect();
     let (rest, base) = (view(frames[0]), hst_sim::camera::base());
@@ -67,8 +68,8 @@ fn change_ends_swing() {
     assert!((1..SWING).all(|k| swing_weight(k - 1) >= swing_weight(k)));
     for name in ["palais", "slot5"] {
         let path = format!("{}/../../context/b174/orig/{name}.txt", env!("CARGO_MANIFEST_DIR"));
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            eprintln!("no {path}, skipped");
+        let Ok(text) = fixture::read_to_string(&path) else {
+            fixture::skip(format_args!("no {path}, skipped"));
             continue;
         };
         // per line: vsync, the counter, the shown view (eye, forward, down, fov in degrees), the frame, the
