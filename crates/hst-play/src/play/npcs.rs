@@ -641,6 +641,7 @@ fn figures(
     let mut emitters = 0..g.emitters.len();
     let mut flyover = None;
     let mut surf = Vec::new();
+    let mut strike = false;
     for &f in &npcs.figures {
         let Some(k) = f else {
             if let Some(k) = emitters.next() {
@@ -710,6 +711,7 @@ fn figures(
             g.flight.step_plane(&shot, &hst_sim::ball::COURTS[g.court], material);
             g.doubles_ai.record.stop();
             g.doubles_ai.hear(&g.players, msg::STRIKE, true);
+            strike = true;
         }
         if let Ok((_, mut m)) = q.get_mut(*e) {
             // type 38 plays its second clip after a fast ball
@@ -725,6 +727,10 @@ fn figures(
         if t.ty == 8 && surf.len() < npcs.surf.loops.len() {
             surf.push(npcs.surf.tick(surf.len(), &mut roll));
         }
+    }
+    if strike {
+        // the AI's own handling of the strike (its generator, not the figures')
+        super::doubles_ai::struck(g);
     }
     (flyover, surf)
 }

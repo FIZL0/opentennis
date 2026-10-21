@@ -1041,9 +1041,12 @@ fn timing_draw(
     }
 }
 
+/// A remembered shot: hitter slot, swing branch, shot kind, special serve, the hitter's position, the velocity.
+type Memory = (i32, i32, i32, bool, [f32; 4], [f32; 4]);
+
 /// A remembered shot (0x40 bytes: hitter slot, swing branch, shot kind, the close and special-serve bytes, where
 /// the hitter stood, the target, the ball's velocity) as the AI's hit message stores it: slot −1 none.
-fn memory(a: &[u8], o: usize) -> Option<(i32, i32, i32, bool, [f32; 4], [f32; 4])> {
+fn memory(a: &[u8], o: usize) -> Option<Memory> {
     (i32_at(a, o) >= 0).then(|| (i32_at(a, o), i32_at(a, o + 4), i32_at(a, o + 8), a[o + 0xd] != 0, quad(a, o + 0x10), quad(a, o + 0x30)))
 }
 

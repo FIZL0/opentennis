@@ -83,40 +83,18 @@ fn up(v: V3) -> [f32; 4] {
     [v[0], -v[1], v[2], 0.0]
 }
 
-/// One frame of computer player `i` in the receive or rally: false (nothing done) outside them and between ends.
-pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
-    let phase = match g.phase {
-        Phase::Serve => phase::SERVE,
-        Phase::Rally => phase::RALLY,
-        Phase::Post => phase::POINT_OVER,
-        Phase::ChangeEnds(_) => return false,
-    };
+/// Computer player `i`'s body and world as its AI reads them this frame (`mark`: its miss mark), its ball-lost log
+/// taken out of `Shared` (the caller puts it back).
+fn frame(g: &mut Game, i: usize, phase: u8, mark: bool) -> (Body, World) {
     let singles = g.players.len() == 2;
-    if !matches!(g.players.len(), 2 | 4) || !matches!(mind.phase, Ai::Receive | Ai::Rally) {
-        return false;
-    }
-    let d = &mut g.doubles_ai;
-    if d.stepped & 1 << i != 0 {
-        (d.frame, d.stepped) = (d.frame + 1, 0);
-    }
-    d.stepped |= 1 << i;
-    // the miss mark lasts until the stroke update after this step: a miss from here on is seen next frame
-    let mark = std::mem::take(&mut d.me[i].mark);
-    // the stand-in's preamble: the recovery, the whiff, the press's approach run
-    follow_through(&mut g.players[i], true);
-    whiff_frame(g, i, true);
-    if let Some(dir) = g.players[i].approach {
-        locomote(g, i, dir);
-    }
     let smash_x = smash_side(g, i);
     let p = g.players[i];
     let busy = p.contact.is_some() || p.pending.is_some() || p.swing.is_some() || p.whiff.is_some() || p.dive.is_some();
     // singles: no partner (its own spot), one opponent
     let mate = if singles { i } else { i ^ 2 };
-    let human_mate = !singles && g.humans.get(mate) == Some(&true);
     let opp = if singles { [i ^ 1; 2] } else { [(i & 1) ^ 1, ((i & 1) ^ 1) + 2] };
     let r = &g.reaches[i];
-    let mut b = Body {
+    let b = Body {
         pos: up(p.pos),
         facing: [p.body.face.dir[0], -p.body.face.dir[1], p.body.face.dir[2], p.body.face.dir[3]],
         vel: [p.body.vel[0], p.body.vel[2]],
@@ -179,6 +157,39 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     if g.doubles_ai.path.stamp != w.frame {
         w.path = r.window().to_vec();
     }
+    (b, w)
+}
+
+/// One frame of computer player `i` in the receive or rally: false (nothing done) outside them and between ends.
+pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
+    let phase = match g.phase {
+        Phase::Serve => phase::SERVE,
+        Phase::Rally => phase::RALLY,
+        Phase::Post => phase::POINT_OVER,
+        Phase::ChangeEnds(_) => return false,
+    };
+    let singles = g.players.len() == 2;
+    if !matches!(g.players.len(), 2 | 4) || !matches!(mind.phase, Ai::Receive | Ai::Rally) {
+        return false;
+    }
+    let d = &mut g.doubles_ai;
+    if d.stepped & 1 << i != 0 {
+        (d.frame, d.stepped) = (d.frame + 1, 0);
+    }
+    d.stepped |= 1 << i;
+    // the miss mark lasts until the stroke update after this step: a miss from here on is seen next frame
+    let mark = std::mem::take(&mut d.me[i].mark);
+    // the stand-in's preamble: the recovery, the whiff, the press's approach run
+    follow_through(&mut g.players[i], true);
+    whiff_frame(g, i, true);
+    if let Some(dir) = g.players[i].approach {
+        locomote(g, i, dir);
+    }
+    let (mut b, mut w) = frame(g, i, phase, mark);
+    let p = g.players[i];
+    let busy = p.contact.is_some() || p.pending.is_some() || p.swing.is_some() || p.whiff.is_some() || p.dive.is_some();
+    let mate = if singles { i } else { i ^ 2 };
+    let human_mate = !singles && g.humans.get(mate) == Some(&true);
     let row = p.ai;
     let me = &mut g.doubles_ai.me[i];
     if singles && !std::mem::replace(&mut me.set_up, true) {
@@ -235,9 +246,10 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     // state (the app already drew the net repick those messages make, so theirs is dropped)
     let kept = x.mind;
     match mind.phase {
-        Ai::Receive if entered || ((new_shot || struck) && x.state != step::SWING) => x.enter_receive(&mut roll),
+        // doubles re-enters at the strike, hit and new-path messages themselves (`heard_hit`, `heard`)
+        Ai::Receive if entered || singles && (new_shot || struck) && x.state != step::SWING => x.enter_receive(&mut roll),
         // singles re-enters on the new path, not on the hit
-        Ai::Rally if entered || (((new_shot && (singles || g.shots > 1)) || struck) && x.sub != step::SWING) => {
+        Ai::Rally if entered || singles && (new_shot || struck) && x.sub != step::SWING => {
             x.enter_rally(&b, &mut w, &mut roll);
             x.mind = kept;
         }
@@ -251,6 +263,11 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     let mut received = false;
     if mind.phase == Ai::Receive {
         received = x.receive(&row, &mut b, &w, c, seen, &mut out, &mut roll);
+        if received && !singles {
+            // P11k6: doubles goes over to the rally in the same frame, on the routine's own word
+            x.enter_rally(&b, &mut w, &mut roll);
+            me.phase = Some(Ai::Rally);
+        }
     } else {
         let net = x.mind.play(row.style) == Play::Net;
         if singles {
@@ -273,8 +290,10 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     g.doubles_ai.records = w.records;
     let mut m = *mind;
     (m.net, m.net_rate, m.net_left) = (net, net_rate, net_left);
-    if received {
+    if received && singles {
         m.rally(&mut ai_roll(&mut g.rng));
+    } else if received {
+        m.phase = Ai::Rally;
     }
     g.players[i].ai_mind = Some(m);
     // the routine's dive press lets go of the stick: the dive starts from the run it was judged on (the stroke state
@@ -297,18 +316,51 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     true
 }
 
-/// The hit message to a computer player `i` that rallies: its state re-enters its wait substate (as `step` does on the new
-/// shot), which rolls the return to the centre first, ahead of the net repick and the timing draw. The roll is drawn
-/// here and kept for `step`'s re-entry. Whether it re-enters.
-pub(super) fn heard_hit(g: &mut Game, i: usize) -> bool {
+/// The hit message to computer player `i` from hitter `who`. Singles: rallying, its state re-enters its wait
+/// substate (as `step` does on the new shot), which rolls the return to the centre first, ahead of the net repick and
+/// the timing draw; the roll is drawn here and kept for `step`'s re-entry, and it says whether it re-enters. Doubles
+/// (P11k6): the re-entry and its own team's formation repick happen here (`Rally::heard_hit_doubles`), and it says
+/// false (the net repick is the re-entry's own).
+pub(super) fn heard_hit(g: &mut Game, i: usize, who: usize) -> bool {
     let singles = g.players.len() == 2;
-    let rally = g.players[i].ai_mind.is_some_and(|m| m.phase == Ai::Rally);
+    let mind = g.players[i].ai_mind;
+    let rally = mind.is_some_and(|m| m.phase == Ai::Rally);
+    if g.players.len() == 4 {
+        // the hit message reaches the AI only while it plays the point
+        if mind.is_some_and(|m| matches!(m.phase, Ai::Receive | Ai::Rally)) {
+            let (shots, at) = (g.shots, up(g.players[who].pos));
+            at_message(g, i, |x, b, w, roll| x.heard_hit_doubles(rally, shots, b, w, Some((who as i32, at)), &mut || roll()));
+        }
+        return false;
+    }
     let me = &mut g.doubles_ai.me[i];
-    if !(matches!(g.players.len(), 2 | 4) && rally && (singles || g.shots > 1) && me.rally.sub != step::SWING) {
+    if !(singles && rally && me.rally.sub != step::SWING) {
         return false;
     }
     me.early = Some(g.rng.ai.next());
     true
+}
+
+/// Doubles: a message's work on computer player `i`'s AI routine (`f`), at the message, with its body and world as
+/// they are now and the app's net pick in; the net pick and the shot records it writes go back.
+fn at_message(g: &mut Game, i: usize, f: impl FnOnce(&mut Rally, &Body, &mut World, &mut dyn FnMut() -> u32)) {
+    let phase = match g.phase {
+        Phase::Serve => phase::SERVE,
+        Phase::Rally => phase::RALLY,
+        Phase::Post => phase::POINT_OVER,
+        Phase::ChangeEnds(_) => return,
+    };
+    let Some(mut m) = g.players[i].ai_mind else { return };
+    let mark = g.doubles_ai.me[i].mark;
+    let (b, mut w) = frame(g, i, phase, mark);
+    let x = &mut g.doubles_ai.me[i].rally;
+    (x.mind.net, x.mind.net_rate, x.mind.net_left) = (m.net, m.net_rate, m.net_left);
+    let rng = &mut g.rng.ai;
+    f(x, &b, &mut w, &mut || rng.next());
+    (m.net, m.net_rate, m.net_left) = (x.mind.net, x.mind.net_rate, x.mind.net_left);
+    g.players[i].ai_mind = Some(m);
+    g.doubles_ai.me[i].lost_log = b.lost_log;
+    g.doubles_ai.records = w.records;
 }
 
 /// The ball's next landing on the app's flight (y-up), for the singles routines' shot target (`Body::target`).
@@ -355,6 +407,23 @@ pub(super) fn heard(g: &mut Game, msg: u8) {
             x.held = false;
         }
     }
+    if matches!(msg, msg::STRIKE | msg::NEW_PATH) {
+        struck(g);
+    }
+}
+
+/// Doubles (P11k6): the strike and new-path messages send each computer player in its receive or rally back to the
+/// start of its state at the message, unless it swings (`Rally::heard_strike`).
+pub(super) fn struck(g: &mut Game) {
+    if g.players.len() != 4 {
+        return;
+    }
+    for i in 0..4 {
+        let Some(phase) = g.players[i].ai_mind.map(|m| m.phase) else { continue };
+        if g.humans.get(i) != Some(&true) && matches!(phase, Ai::Receive | Ai::Rally) {
+            at_message(g, i, |x, b, w, roll| x.heard_strike(phase == Ai::Receive, b, w, &mut || roll()));
+        }
+    }
 }
 
 impl Shared {
@@ -383,7 +452,8 @@ impl Shared {
         if matches!(msg, msg::STRIKE | msg::NEW_PATH) {
             // only an AI in its receive or rally hears it
             for (m, p) in self.me.iter_mut().zip(players) {
-                m.struck = p.ai_mind.is_some_and(|x| matches!(x.phase, Ai::Receive | Ai::Rally));
+                // doubles re-enters at the message itself (`struck`)
+                m.struck = players.len() == 2 && p.ai_mind.is_some_and(|x| matches!(x.phase, Ai::Receive | Ai::Rally));
             }
         }
         if matches!(msg, msg::STRIKE | msg::HIT | msg::NEW_PATH | msg::SERVE) {
