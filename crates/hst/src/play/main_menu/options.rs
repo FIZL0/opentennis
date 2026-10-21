@@ -1101,11 +1101,12 @@ impl Table {
 /// The Controls table's column headings' row, under the strip (view units).
 const HEADS: f32 = 22.0;
 
-/// B609: the square Reset button at the right of the Controls panel's strip.
+/// B609: the Reset button at the right of the Controls panel's strip, wide enough for its mark and label.
 pub(super) fn reset_button(g: &Grid) -> [f32; 4] {
+    const W: f32 = 78.0;
     let [x, y, w, _] = table(g).panel;
     let right = x + w - (look::RIM + look::PAD) * PX;
-    [right - look::PILL * PX, y + (look::RIM + (look::STRIP - look::PILL) / 2.0) * PY, look::PILL * PX, look::PILL * PY]
+    [right - W * PX, y + (look::RIM + (look::STRIP - look::PILL) / 2.0) * PY, W * PX, look::PILL * PY]
 }
 
 /// B609: the Controls table's first action on view: where it was, moved just enough to show the chosen row.
@@ -1138,7 +1139,7 @@ impl Menu {
 }
 
 /// The Controls page (B609: one table): the Settings bar, then a panel
-/// with its name and the Reset square on its strip, the column headings under it (Action, Controller, Keyboard & mouse) over a row per action: its name, its
+/// with its name and the Reset button on its strip, the column headings under it (Action, Controller, Keyboard & mouse) over a row per action: its name, its
 /// pad buttons as the pad's own button icons (the stick that always does it beside them) and its keys as key caps,
 /// each cell rebindable (✕ on the chosen one: the next button or key pressed replaces the cell's). The rows scroll
 /// with the cursor (pad, wheel, a finger's drag) when they don't all fit, a scroll bar beside them; the footnote
@@ -1152,11 +1153,11 @@ pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings,
     let t = table(&m.grid);
     settings_bar(d, m, t.panel[0] + t.panel[2], 0.0);
     let [sx, sy, _, sh] = look::panel(d, t.panel, look::STRIP, band(m.screen));
-    // the page's name on the strip as the other pages', the Reset square at its right
+    // the page's name on the strip as the other pages', the Reset button at its right
     let ts = 20.0 * PY;
     look::bold(d, "Controls", [sx + look::PAD * PX, sy + (sh - ts) / 2.0], ts, WHITE);
     let reset = reset_button(&m.grid);
-    reset_square(d, reset, m.sel == n);
+    reset_pill(d, reset, m.sel == n);
     d.hit(reset, pointer::Act::Row(controls_cell(n, false), pointer::OK));
     // the column headings under the strip, over the label and each cell
     let (label, cells) = t.cells(t.row(0));
@@ -1231,13 +1232,16 @@ pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings,
     z.apply(d, n0);
 }
 
-/// B609: the square Reset button: the main menu's button (grey, chosen yellow) with rounded corners and a
-/// round-arrow mark.
-fn reset_square(d: &mut Draw, b @ [x, y, w, h]: [f32; 4], on: bool) {
+/// B609: the Reset button: the main menu's button (grey, chosen yellow) with rounded corners, a round-arrow mark
+/// in its left square and "Reset" beside it.
+fn reset_pill(d: &mut Draw, b @ [x, y, bw, h]: [f32; 4], on: bool) {
     let (r, t) = (7.0, 2.0);
     rounded(d, b, r, look::c(look::INK), 128.0);
-    rounded(d, [x + t * PX, y + t * PY, w - 2.0 * t * PX, h - 2.0 * t * PY], r - t, look::c(if on { look::YELLOW } else { look::GREY }), 128.0);
+    rounded(d, [x + t * PX, y + t * PY, bw - 2.0 * t * PX, h - 2.0 * t * PY], r - t, look::c(if on { look::YELLOW } else { look::GREY }), 128.0);
     let ink = if on { look::c(look::INK) } else { WHITE };
+    let w = h / PY * PX;
+    let ts = 15.0 * PY;
+    look::bold(d, "Reset", [x + w - 2.0 * PX, y + (h - ts) / 2.0], ts, ink);
     let (cx, cy) = (x + w / 2.0, y + h / 2.0);
     let (rx, ry) = (w * 0.27, h * 0.27);
     let stroke = |d: &mut Draw, [ax, ay]: [f32; 2], [bx, by]: [f32; 2]| {
