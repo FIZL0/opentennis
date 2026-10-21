@@ -440,6 +440,8 @@ fn start(argv: Vec<String>) {
     app.add_systems(Last, update::recheck);
     #[cfg(target_os = "ios")]
     app.add_systems(Last, ios::heartbeat);
+    #[cfg(target_os = "ios")]
+    app.add_systems(First, ios::orientation);
     #[cfg(target_os = "android")]
     app.add_systems(Last, android::heartbeat);
     // M108: paused in the background: silent, stopped, an online match left after a grace

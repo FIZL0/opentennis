@@ -45,11 +45,14 @@ cat > "$app/Info.plist" <<EOF
 	<key>UILaunchScreen</key><dict/>
 	<key>UIRequiresFullScreen</key><true/>
 	<key>UIStatusBarHidden</key><true/>
+	<!-- M144: portrait too; with rotation lock on the game holds its last orientation (ios.rs orientation) -->
 	<key>UISupportedInterfaceOrientations</key><array>
 		<string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortrait</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key><array>
 		<string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key><true/>
 	<key>UIFileSharingEnabled</key><true/>
