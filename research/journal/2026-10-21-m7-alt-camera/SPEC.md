@@ -45,6 +45,16 @@ When a press counts, the camera switches to the other kind:
 match: a new match starts in whichever camera the last one ended on. When the director resets at the start of each
 point, it re-applies the current camera with no glide.
 
+Second spec pass (re-read of the original's toggle, 2026-10-21) confirmed the rules above and added these details:
+
+- The game keeps a camera *kind*: normal, alternate, plus an "unturned normal" kind used only when the
+  fixed-end camera option is on (retail never turns it on in a match; our build has no such option). The toggle maps
+  normal or unturned normal → alternate, and alternate → normal. A press while there is no human to follow is
+  ignored in effect: the kind setter turns any kind into the normal camera when nobody is followed.
+- A third "follow the human" kind uses shot 7 (the related variant in *Framing*). Select never enters it or leaves it,
+  and nothing in a normal match selects it. Don't port it.
+- The remembered choice is stored as one flag: on for the alternate camera, off for either normal kind.
+
 Quirk: at power-on the original seeds that remembered choice from one random bit, so a fresh boot sometimes opens a
 match in the alternate camera. The port doesn't copy this (see *Port rules*).
 
@@ -191,7 +201,9 @@ returned on the next.
 - **Multiplayer:** whether retail follows player 1 or someone else with 2+ humans was not resolved. The port's
   one-human rule makes it moot.
 
+- **How the port settles these:** by watching PINE recordings (change of ends, a long rally ending, the fade). That
+  needs no decompile.
+
 ## Open questions
 
-none. The port session settles the items under *Not verified* by watching PINE recordings (change of ends, a long
-rally ending, the fade). That needs no decompile.
+none
