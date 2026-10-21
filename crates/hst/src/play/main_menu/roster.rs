@@ -100,6 +100,10 @@ pub(super) struct Columns {
     xs: [[f32; 2]; 4],
     /// M128: the grid's height: everything under the rail, a part row peeking under the last whole line.
     grid: f32,
+    /// B616: the footer's height (two lines with a handicap stepper that won't fit on one).
+    foot: f32,
+    /// B616: whether a card keeps its least height: its top, rail, footer and a whole row of tiles under a heading.
+    pub whole: bool,
 }
 
 /// The parts of a player's column.
@@ -133,6 +137,12 @@ const COMPACT_W: f32 = 300.0;
 /// The select's `n` player columns on `view`, the `compact` ones (online: another machine's players, the open seats)
 /// as narrow cards, the rest sharing what's left.
 pub(super) fn columns_mixed(view: [f32; 4], n: usize, compact: [bool; 4]) -> Columns {
+    columns_stepped(view, n, compact, false)
+}
+
+/// B616: [`columns_mixed`] with `stepper`, the local confirm screen's handicap stepper in each full card's footer: a
+/// footer a second line high where the card is too narrow for it on one (`handicap::Foot`).
+pub(super) fn columns_stepped(view: [f32; 4], n: usize, compact: [bool; 4], stepper: bool) -> Columns {
     let n = n.max(1);
     let [l, t, r, b] = view;
     let top = t + TOP_BAR * PY;
@@ -157,12 +167,17 @@ pub(super) fn columns_mixed(view: [f32; 4], n: usize, compact: [bool; 4]) -> Col
     let tw = ((gw - gx * (cols - 1) as f32) / cols as f32).max(1.0);
     let th = tw * PY / PX;
     let gy = TILE_GAP * PY;
-    let fixed = (BAND + 2.0 * PAD + THUMB_H + RAIL + FOOT + 3.0 * ROW_GAP) * PY;
+    let foot = match stepper {
+        true => super::handicap::Foot::of(inner).lines() as f32 * (FOOT + ROW_GAP) - ROW_GAP,
+        false => FOOT,
+    };
+    let fixed = (BAND + 2.0 * PAD + THUMB_H + RAIL + foot + 3.0 * ROW_GAP) * PY;
     // M128: the grid takes the rest; B382: room for a heading over its rows
     let room = h - fixed - (HEADING * PY + gy);
     let rows = (((room + gy) / (th + gy)) as usize).max(1);
     let grid = room.max(rows as f32 * (th + gy) - gy) + HEADING * PY + gy;
-    Columns { n, cols, rows, tile: [tw, th], gap: [gx, gy], first: [l + MARGIN * PX, top, w, h], xs, grid }
+    let whole = room >= th - 1e-3;
+    Columns { n, cols, rows, tile: [tw, th], gap: [gx, gy], first: [l + MARGIN * PX, top, w, h], xs, grid, foot: foot * PY, whole }
 }
 
 impl Columns {
@@ -188,7 +203,7 @@ impl Columns {
         let rail = next(RAIL * PY);
         let gh = self.grid_h();
         let grid = next(gh);
-        let foot = [ix, top + h - (PAD + FOOT) * PY, iw, FOOT * PY];
+        let foot = [ix, top + h - PAD * PY - self.foot, iw, self.foot];
         let bar = [ix + iw - BAR * PX, grid[1], BAR * PX, gh];
         Parts { card: [x, top, w, h], head, top: top_, preview, info, pills, rail, grid: [ix, grid[1], iw - (BAR + TILE_GAP) * PX, gh], bar, foot }
     }
@@ -451,7 +466,7 @@ pub(super) fn chars(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: 
         d.hit([mx, my, mw, 30.0 * PY], pointer::press(|k| k.page = true));
     }
     let c = player_columns(d, m, text, bind, pads);
-    super::confirm::local_foot(d, m, text);
+    super::confirm::local_foot(d, m, text, bind);
     names(d, m, &c);
 }
 
@@ -744,6 +759,10 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
 
     // the footer: where the tile is in its tab and the whole cast (B424), without the tab's name if that won't fit;
     // M128: "Ready!" in a pill at its right end
+    // B616: the local confirm screen's handicap stepper, the footer stepped down to fit it
+    if super::handicap::stepper(d, m, bind, p, at.foot, &tabs::foot(m, p), s.soft) {
+        return;
+    }
     let [fx, fy, mut fw, fh] = at.foot;
     if pl.ready {
         let (rs, rw) = (13.0 * PY, 64.0 * PX);

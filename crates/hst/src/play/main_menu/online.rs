@@ -3993,7 +3993,12 @@ mod tests {
         assert_eq!(go(Item::Seat(3), |k| k.right = true), Item::Seat(3), "the court's edge");
         assert!(matches!(go(Item::Seat(1), |k| k.down = true), Item::Set(_)), "↓ onto the strip");
         assert!(matches!(go(Item::Seat(0), |k| k.up = true), Item::Button(_) | Item::Mode), "↑ onto the bar");
-        assert_eq!(go(Item::Set(5), |k| k.right = true), Item::Button("Start"), "Start inline with the settings");
+        // B616: Start under the strip where its cells and Start won't fit one row (4:3), inline with them where they do
+        assert_eq!(go(Item::Set(5), |k| k.down = true), Item::Button("Start"), "Start under the settings");
+        let mut wide = Menu { grid: super::super::Grid::fit(16.0 / 9.0), ..m.clone() };
+        wide.sel = at(Item::Set(5));
+        wide.step(dev, Press { right: true, ..default() });
+        assert_eq!(items[wide.sel], Item::Button("Start"), "Start inline with the settings");
         // the code pill: OK copies the link
         let mut c = m.clone();
         c.sel = at(Item::Button("Code"));
@@ -4156,7 +4161,8 @@ mod tests {
         m.sel = m.items().iter().position(|i| *i == b("Copy Link")).unwrap();
         walk(&mut m, &[(r, b("Public")), (r, b("Code")), (r, Item::Mode), (l, b("Code"))]);
         m.sel = m.items().iter().position(|i| *i == set(5)).unwrap();
-        walk(&mut m, &[(r, b("Start")), (l, set(5))]);
+        // B616: at 4:3 Start is under the strip (its cells and Start don't fit one row)
+        walk(&mut m, &[(d, b("Start"))]);
         // every item reachable with the arrows, the host's and a guest's
         for guest in [false, true] {
             if guest {
