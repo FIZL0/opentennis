@@ -308,6 +308,7 @@ impl<T: 'static> EventLoop<T> {
                 MainEvent::Resume { .. } => {
                     debug!("App Resumed - is running");
                     self.running = true;
+                    // HST (M108): each lifecycle change goes to the app's hook
                     lifecycle(crate::platform::android::lifecycle::Phase::Resume);
                 },
                 MainEvent::SaveState { .. } => {
@@ -413,6 +414,7 @@ impl<T: 'static> EventLoop<T> {
     {
         let mut input_status = InputStatus::Handled;
         match event {
+            // HST (M101): a pad's motion and key events go to the pad queue, not into Touch/KeyboardInput
             InputEvent::MotionEvent(motion_event)
                 if is_pad_source(motion_event.source().into()) =>
             {

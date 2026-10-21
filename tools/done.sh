@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Wrap a task up in one call (no subagent): tools/done.sh <ID> "<commit message>" [--blocked "<why + what unblocks>" | --spec] [-- <paths>]
-# Runs tools/audit.sh (no retail addresses), the tests and the sim's float lint; passing: ticks <ID> (moves it to plan/DONE.md) or, with --blocked, marks it [~]; then commits
+# Runs tools/audit.sh (no retail addresses), tools/patches.py (third_party/ documented), the tests and the sim's float lint; passing: ticks <ID> (moves it to plan/DONE.md) or, with --blocked, marks it [~]; then commits
 # everything (in a worktree) or only plan/ + <paths> (main checkout, where other sessions' edits sit). Failing: nothing is ticked or committed.
 # --spec (clean-room ports, PLAN.md): the session wrote or questioned the task's SPEC.md; audit, commit as "<ID> spec: …"
 # without ticking, so the task stays open for its next phase (the runner may start it again the same night).
@@ -15,7 +15,7 @@ if [ "$3" = --spec ]; then
   else git add -A && git commit -qm "$1 spec: $2"; fi && rm -f .cleanroom && git log -1 --oneline
   exit
 fi
-tools/audit.sh && tools/check.sh || exit 1
+tools/audit.sh && tools/patches.py && tools/check.sh || exit 1
 # the sim's #![deny(clippy::float_arithmetic)] modules (C2: float math through ps2::F / vu0::Vf); clippy only
 # reports the deny-level lints here, every other lint stays off
 cargo clippy -q -p hst-sim --lib --message-format=short -- -A clippy::all 2>&1 | grep -E 'error' | head -20 | grep . &&

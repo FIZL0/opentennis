@@ -150,6 +150,7 @@ pub struct EventLoop<T: 'static> {
     _did_enter_background_observer: Retained<NSObject>,
     _will_terminate_observer: Retained<NSObject>,
     _did_receive_memory_warning_observer: Retained<NSObject>,
+    // HST (M91): windows made before the scene connected join it then (window.rs `scene_connected`)
     _scene_will_connect_observer: Retained<NSObject>,
 }
 

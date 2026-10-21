@@ -18,7 +18,8 @@ hst-data = { path = "../crates/hst-data" }
 [workspace]
 members = ["."]
 
-# the game's patches (../Cargo.toml), so hst-base builds as it does there
+# the game's patches (../Cargo.toml, documented in ../third_party/README.md), so hst-base builds as it does there;
+# tools/patches.py checks the two lists match
 [patch.crates-io]
 gilrs-core = { path = "../third_party/gilrs-core" }
 ggrs = { path = "../third_party/ggrs" }

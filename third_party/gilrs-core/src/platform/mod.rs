@@ -46,6 +46,7 @@ mod platform;
 #[path = "windows_wgi/mod.rs"]
 mod platform;
 
+// HST (M91): the iOS backend
 #[cfg(target_os = "ios")]
 #[path = "ios/mod.rs"]
 mod platform;
