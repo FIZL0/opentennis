@@ -1,7 +1,8 @@
 //! The slide between menu screens (B40e2): the last screen's panels slide off and fade, then the new screen's slide
 //! in from the other side. Ours, not the original's (menus need not be 1:1, user 2026-10-12): the wall and title bar
 //! (`Anchor::Span`) switch at the midpoint without moving; a forward step (a later `Screen`) moves left, back moves right.
-//! Between two Settings tabs only the page's cards move, and only a little: the tab bar and legend stay put.
+//! Between two Settings tabs only the page's cards move, and only a little: the tab bar and legend stay put, and the
+//! new cards slide in at full strength under the old ones as those slide out and fade, so the wall never shows through.
 
 use bevy::prelude::*;
 
@@ -51,17 +52,18 @@ impl Slide {
         }
         self.on = Some(screen);
         self.last = quads.clone();
+        if let Some(b) = self.band.filter(|_| self.t < 2.0 * HALF) {
+            // the old cards drawn last, over the new
+            let e = ease(self.t / (2.0 * HALF));
+            let mut out = shift(quads, self.dir * TAB_TRAVEL * (1.0 - e), 1.0, Some(b));
+            out.extend(shift(self.old.clone(), -self.dir * TAB_TRAVEL * e, 1.0 - e, Some(b)).into_iter().filter(|q| in_band(q, b)));
+            return out;
+        }
         match self.incoming() {
-            Some((dx, a)) => shift(quads, dx, a, self.band),
+            Some((dx, a)) => shift(quads, dx, a, None),
             None => {
                 let e = ease(self.t / HALF);
-                // between tabs the bar and legend are the new page's (same place, the tab lit), the old cards fading
-                let mut out = shift(self.old.clone(), -self.dir * self.travel() * e, 1.0 - e, self.band);
-                if let Some(b) = self.band {
-                    out.retain(|q| in_band(q, b));
-                    out.extend(quads.into_iter().filter(|q| !in_band(q, b)));
-                }
-                out
+                shift(self.old.clone(), -self.dir * TRAVEL * e, 1.0 - e, None)
             }
         }
     }
@@ -70,12 +72,8 @@ impl Slide {
     pub(super) fn incoming(&self) -> Option<(f32, f32)> {
         (self.t >= HALF).then(|| {
             let e = ease((self.t - HALF) / HALF);
-            (self.dir * self.travel() * (1.0 - e), e)
+            (self.dir * TRAVEL * (1.0 - e), e)
         })
-    }
-
-    fn travel(&self) -> f32 {
-        if self.band.is_some() { TAB_TRAVEL } else { TRAVEL }
     }
 }
 
@@ -112,7 +110,8 @@ mod tests {
 
     const NONE: [f32; 2] = [0.0; 2];
 
-    /// Between Settings tabs only the cards (in the band) move, and less; the bar stays the new page's.
+    /// Between Settings tabs only the cards (in the band) move, and less; the bar stays the new page's; the new cards
+    /// are whole from the first frame, the old ones over them fading.
     #[test]
     fn tabs_slide_only_the_cards() {
         let mut s = Slide::default();
@@ -123,11 +122,12 @@ mod tests {
         s.step(Screen::Display, vec![bar, card], 1.0, [50.0, 400.0]);
         let mut new_bar = bar;
         new_bar.rgb = [0.0; 3];
-        let out = (0..4).map(|_| s.step(Screen::Sound, vec![new_bar, card], 1.0, [50.0, 400.0])).last().unwrap();
+        let out = (0..8).map(|_| s.step(Screen::Sound, vec![new_bar, card], 1.0, [50.0, 400.0])).last().unwrap();
         assert!(out.contains(&new_bar) && !out.contains(&bar));
-        let c = out.iter().find(|q| q.dst[1] == 100.0).unwrap();
-        assert!(c.dst[0] < 100.0 && c.dst[0] > 100.0 - TAB_TRAVEL && c.alpha < 128.0);
-        let done = (0..13).map(|_| s.step(Screen::Sound, vec![new_bar, card], 1.0, [50.0, 400.0])).last().unwrap();
+        let [new, old] = [1, 2].map(|k| out[k]);
+        assert!(new.alpha == 128.0 && new.dst[0] > 100.0 && new.dst[0] < 100.0 + TAB_TRAVEL, "new under, whole: {new:?}");
+        assert!(old.alpha < 128.0 && old.alpha > 0.0 && old.dst[0] < 100.0 && old.dst[0] > 100.0 - TAB_TRAVEL, "old over, fading: {old:?}");
+        let done = (0..9).map(|_| s.step(Screen::Sound, vec![new_bar, card], 1.0, [50.0, 400.0])).last().unwrap();
         assert_eq!(done, vec![new_bar, card]);
     }
 
