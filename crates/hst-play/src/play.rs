@@ -1272,9 +1272,87 @@ pub fn setup(
     };
     let mut iso = Iso::open(&args.iso).expect("open iso");
     let art = balloon_art(&mut iso, &mut images);
-    let ((line_margin, margins), board, world, shot_params, umpire) = disc(&mut iso, args.stage, args.umpire);
+    let (mut game, shot_params) = new_game(&mut iso, &args, match_rng.as_deref());
+    let n = game.players.len();
+
+    let Ok(root) = root.single() else { return };
+    // the characters on court, from the disc (each loaded once)
+    let mut voices = Vec::new();
+    let mut banks = Vec::new();
+    let mut loaded: std::collections::HashMap<(usize, usize), std::sync::Arc<CharacterData>> =
+        Default::default();
+    for i in 0..n {
+        // default line-up: player 1 is Carol (character 6), then characters 1, 2, 3
+        let c = args.chars.get(i).copied().unwrap_or([6, 1, 2, 3][i]);
+        let outfit = args.outfits.get(i).copied().unwrap_or(0);
+        let modded = match_mod.as_deref().and_then(|m| m.get(i));
+        let c = modded.map_or(c, |m| m.donor);
+        let mod_data = modded.map(|m| mod_match::load(&mut iso, m, outfit, &mut meshes, &mut materials, &mut images, &mut bindposes));
+        let data = mod_data.unwrap_or_else(|| disc_character(&mut loaded, &mut iso, c, outfit, &mut meshes, &mut materials, &mut images, &mut bindposes));
+        load_player(&mut game, &mut iso, &shot_params, i, c, outfit, &data);
+        // the a/b voice pick: 70/30 at random, players of one character kept apart (`rng::voice_bank`)
+        let line_up: Vec<u32> = (0..n).map(|k| args.chars.get(k).copied().unwrap_or([6, 1, 2, 3][k]) as u32).collect();
+        let drawn = game.rng.shared.r15() % 100 >= 70;
+        banks.push(hst_sim::rng::voice_bank(&line_up, i, &banks, drawn));
+        voices.push(voice_bank(&mut iso, c, n, game.stage as u32, banks[i]).map(std::sync::Arc::new));
+        if let Some(m) = modded {
+            mod_match::apply(&mut game, i, &mut iso, m, outfit, &mut voices);
+        }
+        hand_swap::apply(&mut game, i, swap.as_deref());
+        // a CPU gets an AI object, and so does a human beside a CPU partner; making one restarts the AI generator
+        // ponytail: who is human is taken from the pads at setup
+        let cpu = |k: usize| pads.slot_of(k, n).is_none();
+        if cpu(i) || n == 4 && cpu(i ^ 2) {
+            game.rng.new_ai();
+        }
+        // the player object places itself
+        game.rng.shared.next();
+        game.serve_data.push(serve_data(&mod_match::row(&mut iso, match_mod.as_deref(), i, c), &data));
+        serve_character(&mut iso, c, game.aim_stats[i], game.serve_data.last_mut().unwrap());
+        game.data.push(data.clone());
+        skeleton_reach::apply(&mut game.reaches[i], &data);
+        let f = character::spawn(&mut commands, &data, root);
+        commands
+            .entity(f)
+            .insert((Figure(i), effects::SwingTrail::default()));
+    }
+    match_sounds(&mut commands, &mut iso, &args, &mut game, &mut voices, &mut gallery_used);
+    // the match starts (the sound manager's reseed), then its first point
+    reseed_sound(&mut game);
+    // the intro's lens flare ticks
+    if weather.is_some_and(|w| w.today().weather < 2) {
+        let ticks = Rngs::intro_ticks_on_disc(&mut iso, game.stage as u32).expect("court intro files on disc");
+        (0..ticks).for_each(|_| game.rng.flare_tick());
+    }
+    game.rng.new_point();
+    game.humans = (0..n).map(|k| pads.slot_of(k, n).is_some()).collect();
+    let draws = placement_draws(&mut game, false);
+    doubles_ai::formations(&mut game, &draws);
+    ai_setup::match_start(&mut game);
+    commands.insert_resource(game);
+    commands.insert_resource(VoiceBanks(voices));
+    load_effects(&mut commands, &mut iso, root, &args, &mut meshes, fx_materials, &mut images, &mut bindposes);
+    if let Some(a) = own_fx {
+        commands.insert_resource(a);
+    }
+    spawn_ball(&mut commands, root, &mut iso, &mut meshes, &mut materials, &mut images);
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 9000.0,
+            shadow_maps_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(4.0, 12.0, -6.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    spawn_balloons(&mut commands, &mut meshes, &mut materials, art, n);
+}
+
+/// The match before its characters: the rules, the court's data off the disc, the match's generators, the
+/// players in place for the first serve. With the shot parameters the characters' tables are read from.
+fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, ShotParams) {
+    let ((line_margin, margins), board, world, shot_params, umpire) = disc(iso, args.stage, args.umpire);
     let rules = Rules { sets: args.sets, games: args.games, ..if args.singles { SINGLES } else { DOUBLES } };
-    let reach = reach(&mut iso);
+    let reach = reach(iso);
     let mut game = Game {
         rules,
         serve_tables: default(),
@@ -1382,95 +1460,74 @@ pub fn setup(
     reset_positions(&mut game);
     game.finish.new_point(&game.score, &game.rules);
     game.emitters = emitters(
-        &mut iso,
+        iso,
         args.stage.map_or(args.court, |s| s as usize),
         rules.players as u32,
         &mut game.rng.court,
     );
-    let n = game.players.len();
+    (game, shot_params)
+}
 
-    let Ok(root) = root.single() else { return };
-    // the characters on court, from the disc (each loaded once)
-    let mut voices = Vec::new();
-    let mut banks = Vec::new();
-    let mut loaded: std::collections::HashMap<(usize, usize), std::sync::Arc<CharacterData>> =
-        Default::default();
-    for i in 0..n {
-        // default line-up: player 1 is Carol (character 6), then characters 1, 2, 3
-        let c = args.chars.get(i).copied().unwrap_or([6, 1, 2, 3][i]);
-        let outfit = args.outfits.get(i).copied().unwrap_or(0);
-        let modded = match_mod.as_deref().and_then(|m| m.get(i));
-        let c = modded.map_or(c, |m| m.donor);
-        let mod_data = modded.map(|m| mod_match::load(&mut iso, m, outfit, &mut meshes, &mut materials, &mut images, &mut bindposes));
-        let data = match mod_data.or_else(|| loaded.get(&(c, outfit)).cloned()) {
-            Some(d) => d.clone(),
-            None => {
-                let d = std::sync::Arc::new(
-                    crate::preload::load_disc(
-                        &mut iso,
-                        c,
-                        outfit,
-                        &mut meshes,
-                        &mut materials,
-                        &mut images,
-                        &mut bindposes,
-                    )
-                    .unwrap_or_else(|e| panic!("character {c}: {e}")),
-                );
-                loaded.insert((c, outfit), d.clone());
-                d
-            }
-        };
-        game.players[i].hand = character_hand(&mut iso, c);
-        game.players[i].stats = character_stats(&mut iso, c);
-        game.aim_stats.push(aim_stats(&mut iso, c));
-        game.players[i].ai = ai_params(&mut iso, c, outfit, n == 4);
-        game.players[i].ai_second = ai_second_toss(&mut iso, c);
-        game.players[i].body.stamina = game.players[i].stats.stamina;
-        game.pelvis[i] = data.pelvis.clone();
-        game.chars[i] = c as i32;
-        game.finish.power.push(popups::power(&mut iso, c));
-        game.smash_heights.push(smash_heights(&mut iso, c));
-        game.reaches.push(character_reach(&game.reach, &mut iso, c, game.players[i].hand));
-        game.serve_tables
-            .push(serve_tables(&mut iso, &shot_params, c));
-        game.specials.push(serve_specials(&mut iso, &shot_params, c));
-        game.rally_tables.push(rally_tables(&mut iso, c));
-        game.timing.push(timing::load(&mut iso, &shot_params, c));
-        game.rally_records.push(std::array::from_fn(|v| {
-            std::array::from_fn(|k| shot_params.record(v + 1, k, params::record_of(c)).try_into().unwrap())
-        }));
-        game.smash_tables.push(character_tables(&mut iso, c, "B", "smsh", "", 2));
-        game.smash_spins.push(std::array::from_fn(|k| params::spin(shot_params.record(3, k, params::record_of(c)))));
-        // the a/b voice pick: 70/30 at random, players of one character kept apart (`rng::voice_bank`)
-        let line_up: Vec<u32> = (0..n).map(|k| args.chars.get(k).copied().unwrap_or([6, 1, 2, 3][k]) as u32).collect();
-        let drawn = game.rng.shared.r15() % 100 >= 70;
-        banks.push(hst_sim::rng::voice_bank(&line_up, i, &banks, drawn));
-        voices.push(voice_bank(&mut iso, c, n, game.stage as u32, banks[i]).map(std::sync::Arc::new));
-        if let Some(m) = modded {
-            mod_match::apply(&mut game, i, &mut iso, m, outfit, &mut voices);
-        }
-        hand_swap::apply(&mut game, i, swap.as_deref());
-        // a CPU gets an AI object, and so does a human beside a CPU partner; making one restarts the AI generator
-        // ponytail: who is human is taken from the pads at setup
-        let cpu = |k: usize| pads.slot_of(k, n).is_none();
-        if cpu(i) || n == 4 && cpu(i ^ 2) {
-            game.rng.new_ai();
-        }
-        // the player object places itself
-        game.rng.shared.next();
-        game.serve_data.push(serve_data(&mod_match::row(&mut iso, match_mod.as_deref(), i, c), &data));
-        serve_character(&mut iso, c, game.aim_stats[i], game.serve_data.last_mut().unwrap());
-        game.data.push(data.clone());
-        skeleton_reach::apply(&mut game.reaches[i], &data);
-        let f = character::spawn(&mut commands, &data, root);
-        commands
-            .entity(f)
-            .insert((Figure(i), effects::SwingTrail::default()));
+/// A disc character's models and motions, loaded once a match (`loaded`) however many players are it.
+#[allow(clippy::too_many_arguments)]
+fn disc_character(
+    loaded: &mut std::collections::HashMap<(usize, usize), std::sync::Arc<CharacterData>>,
+    iso: &mut Iso,
+    c: usize,
+    outfit: usize,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+    bindposes: &mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+) -> std::sync::Arc<CharacterData> {
+    if let Some(d) = loaded.get(&(c, outfit)) {
+        return d.clone();
     }
+    let d = std::sync::Arc::new(
+        crate::preload::load_disc(iso, c, outfit, meshes, materials, images, bindposes).unwrap_or_else(|e| panic!("character {c}: {e}")),
+    );
+    loaded.insert((c, outfit), d.clone());
+    d
+}
+
+/// Player `i`'s data off the disc for character `c`: hand, stats, AI, reach, shot and serve tables.
+fn load_player(game: &mut Game, iso: &mut Iso, shot_params: &ShotParams, i: usize, c: usize, outfit: usize, data: &CharacterData) {
+    let n = game.players.len();
+    game.players[i].hand = character_hand(iso, c);
+    game.players[i].stats = character_stats(iso, c);
+    game.aim_stats.push(aim_stats(iso, c));
+    game.players[i].ai = ai_params(iso, c, outfit, n == 4);
+    game.players[i].ai_second = ai_second_toss(iso, c);
+    game.players[i].body.stamina = game.players[i].stats.stamina;
+    game.pelvis[i] = data.pelvis.clone();
+    game.chars[i] = c as i32;
+    game.finish.power.push(popups::power(iso, c));
+    game.smash_heights.push(smash_heights(iso, c));
+    game.reaches.push(character_reach(&game.reach, iso, c, game.players[i].hand));
+    game.serve_tables
+        .push(serve_tables(iso, shot_params, c));
+    game.specials.push(serve_specials(iso, shot_params, c));
+    game.rally_tables.push(rally_tables(iso, c));
+    game.timing.push(timing::load(iso, shot_params, c));
+    game.rally_records.push(std::array::from_fn(|v| {
+        std::array::from_fn(|k| shot_params.record(v + 1, k, params::record_of(c)).try_into().unwrap())
+    }));
+    game.smash_tables.push(character_tables(iso, c, "B", "smsh", "", 2));
+    game.smash_spins.push(std::array::from_fn(|k| params::spin(shot_params.record(3, k, params::record_of(c)))));
+}
+
+/// The match's sound banks: the umpire's voice, the jingles and music, the gallery, the court's effects.
+fn match_sounds(
+    commands: &mut Commands,
+    iso: &mut Iso,
+    args: &Args,
+    game: &mut Game,
+    voices: &mut Vec<Option<std::sync::Arc<SoundBank>>>,
+    gallery_used: &mut [bool; 4],
+) {
     // her voice bank in slot 5 (`VoiceBanks` holds slots 1..)
     voices.resize(4, None);
-    voices.push(umpire_bank(&mut iso, args.umpire, 0).map(std::sync::Arc::new));
+    voices.push(umpire_bank(iso, args.umpire, 0).map(std::sync::Arc::new));
     // the jingles (slot 8: `jig_00` in a match) and, with `--music`, the court's BGM (`bgmg_NN`; `bgmg_14` off the
     // 11 courts)
     let stage = game.stage as usize;
@@ -1480,103 +1537,110 @@ pub fn setup(
         "bgmg_14".into()
     };
     commands.insert_resource(MusicBanks {
-        jingles: SoundBank::load(&mut iso, "SND/JGL/JIG_00.XB", "data/sound/JINGLE/jig_00.hd")
+        jingles: SoundBank::load(iso, "SND/JGL/JIG_00.XB", "data/sound/JINGLE/jig_00.hd")
             .map(std::sync::Arc::new),
         bgm: args
             .music
-            .then(|| SoundBank::music(&mut iso, "Court", &bgm))
+            .then(|| SoundBank::music(iso, "Court", &bgm))
             .flatten()
             .map(|(b, mid)| (std::sync::Arc::new(b), mid)),
     });
     // the hit-spark table and the gallery bank (slot 6), drawn before the sound manager is made
     // the used banks live as long as the sound manager (the whole run), so a later setup skips the banks played
-    let pick = game.rng.setup_gallery(&mut gallery_used);
-    let gallery = crate::audio::gallery_bank(&mut iso, game.stage as usize, pick);
+    let pick = game.rng.setup_gallery(gallery_used);
+    let gallery = crate::audio::gallery_bank(iso, game.stage as usize, pick);
     commands.insert_resource(crate::audio::GalleryBank(gallery.map(std::sync::Arc::new)));
     // the match's court's effects (the app's start loaded the menu's court 0, which has none)
-    commands.insert_resource(crate::audio::court_bank(&mut iso, stage));
-    // the match starts (the sound manager's reseed), then its first point
-    reseed_sound(&mut game);
-    // the intro's lens flare ticks
-    if weather.is_some_and(|w| w.today().weather < 2) {
-        let ticks = Rngs::intro_ticks_on_disc(&mut iso, game.stage as u32).expect("court intro files on disc");
-        (0..ticks).for_each(|_| game.rng.flare_tick());
-    }
-    game.rng.new_point();
-    game.humans = (0..n).map(|k| pads.slot_of(k, n).is_some()).collect();
-    let draws = placement_draws(&mut game, false);
-    doubles_ai::formations(&mut game, &draws);
-    ai_setup::match_start(&mut game);
-    commands.insert_resource(game);
-    commands.insert_resource(VoiceBanks(voices));
+    commands.insert_resource(crate::audio::court_bank(iso, stage));
+}
+
+/// The hit, spark, trail, flight, marker and bounce effects.
+#[allow(clippy::too_many_arguments)]
+fn load_effects(
+    commands: &mut Commands,
+    iso: &mut Iso,
+    root: Entity,
+    args: &Args,
+    meshes: &mut Assets<Mesh>,
+    fx_materials: &mut Assets<effects::Fx>,
+    images: &mut Assets<Image>,
+    bindposes: &mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
+) {
     let impacts = effects::load(
-        &mut iso,
-        &mut commands,
+        iso,
+        commands,
         root,
-        &mut meshes,
+        meshes,
         fx_materials,
-        &mut images,
-        &mut bindposes,
+        images,
+        bindposes,
     )
     .expect("hit effects");
     commands.insert_resource(impacts);
     let sparks = effects::load_sparks(
-        &mut iso,
-        &mut commands,
+        iso,
+        commands,
         root,
-        &mut meshes,
+        meshes,
         fx_materials,
-        &mut images,
+        images,
     )
     .expect("hit sparks");
     commands.insert_resource(sparks);
     let trails = effects::load_trails(
-        &mut iso,
-        &mut commands,
+        iso,
+        commands,
         root,
-        &mut meshes,
+        meshes,
         fx_materials,
-        &mut images,
+        images,
     )
     .expect("swing trails");
     commands.insert_resource(trails);
     let flight = effects::load_flight(
-        &mut iso,
-        &mut commands,
+        iso,
+        commands,
         root,
-        &mut meshes,
+        meshes,
         fx_materials,
-        &mut images,
+        images,
     )
     .expect("ball flight");
     commands.insert_resource(flight);
     let stage = args.stage.map_or(args.court, |s| s as usize);
     let marks = effects::load_marks(
-        &mut iso,
-        &mut commands,
+        iso,
+        commands,
         root,
-        &mut meshes,
+        meshes,
         fx_materials,
-        &mut images,
-        &mut bindposes,
+        images,
+        bindposes,
     )
     .expect("landing markers");
     commands.insert_resource(marks);
     let bounce = effects::load_bounce(
-        &mut iso,
+        iso,
         stage,
-        &mut commands,
+        commands,
         root,
-        &mut meshes,
+        meshes,
         fx_materials,
-        &mut images,
-        &mut bindposes,
+        images,
+        bindposes,
     )
     .expect("bounce effects");
     commands.insert_resource(bounce);
-    if let Some(a) = own_fx {
-        commands.insert_resource(a);
-    }
+}
+
+fn spawn_ball(
+    commands: &mut Commands,
+    root: Entity,
+    iso: &mut Iso,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+) {
     // the game's ball (`ball1.mdl`, radius 0.0325) and its shadow (`ballshadow.mdl`); their scales, and the outline,
     // are ball_shadow's
     let game_xb = iso.read("CMN/GAME.XB").expect("ball archive on disc");
@@ -1588,7 +1652,7 @@ pub fn setup(
                 Visibility::default(),
             ))
             .id();
-        for (_, parts) in crate::models(&game_xb, |n| n.ends_with(name), &mut images) {
+        for (_, parts) in crate::models(&game_xb, |n| n.ends_with(name), images) {
             for (mesh, material) in parts {
                 commands.entity(e).with_child((
                     Mesh3d(meshes.add(mesh)),
@@ -1602,14 +1666,9 @@ pub fn setup(
     let ball = part("ball1.mdl", BallView(false));
     part("ballshadow.mdl", BallView(true));
     commands.entity(ball).insert(crate::shade::Ball);
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 9000.0,
-            shadow_maps_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(4.0, 12.0, -6.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
+}
+
+fn spawn_balloons(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>, art: [Handle<Image>; 4], n: usize) {
     // one balloon billboard per player (world space, turned to the camera every frame)
     let quad = meshes.add(Rectangle::new(1.0, 1.0));
     for i in 0..n {

@@ -1638,7 +1638,19 @@ impl Trigger {
     /// the sounds started.
     fn callback(&mut self, row: &TriggerRow, msg: u8, near: &mut Near, roll: &mut impl FnMut() -> u32) -> Vec<i32> {
         let mut sounds = Vec::new();
-        let u = |r: u32| (F(TWO_POW_M32) * ps2::utof(r)).0;
+        match self.ty {
+            0 | 1 | 5 | 27..=29 | 31 | 32 | 39 => self.wildlife(row, msg, near),
+            14 | 21 | 38 | 43 | 48 => self.obstacles(row, msg, near, &mut sounds),
+            15 | 34 | 37 => self.props(row, msg, near, roll, &mut sounds),
+            2 | 6 | 19 | 33 => self.court_shows(row, msg, near, roll, &mut sounds),
+            22 | 40 | 44 => self.gallery(row, msg, near, roll, &mut sounds),
+            _ => {}
+        }
+        sounds
+    }
+
+    /// Types 0, 1, 5, 31, 32, 39 and 27–29: startled by a body or the ball nearby.
+    fn wildlife(&mut self, row: &TriggerRow, msg: u8, near: &mut Near) {
         let pos = self.pos();
         let within = |r: f32| near.pos.iter().map(|&p| F(dist2(minus(p, pos))).sqrt().0 < r).collect::<Vec<_>>();
         let ty = self.ty as usize;
@@ -1681,7 +1693,7 @@ impl Trigger {
             (27..=29, call::TICK) => {
                 self.struck = false;
                 if self.startled {
-                    return sounds;
+                    return;
                 }
                 let last = near.pos.len().wrapping_sub(1);
                 for (i, near_by) in within(4.0).into_iter().enumerate() {
@@ -1700,15 +1712,25 @@ impl Trigger {
                 (self.on, self.moving, self.world, self.animating) = (true, false, self.home, false);
                 (self.pitch, self.yaw) = heading(self.home[2]);
             }
+            _ => {}
+        }
+    }
+
+    /// Types 14, 21, 38, 43 and 48: hit or brushed by players and the ball.
+    fn obstacles(&mut self, row: &TriggerRow, msg: u8, near: &mut Near, sounds: &mut Vec<i32>) {
+        let pos = self.pos();
+        let within = |r: f32| near.pos.iter().map(|&p| F(dist2(minus(p, pos))).sqrt().0 < r).collect::<Vec<_>>();
+        let ty = self.ty as usize;
+        match (self.ty, msg) {
             // ball-hit obstacles: a player's box (14, 21) starts the animation and sound; the ball's does at its
             // speed, and tells the match (message 0x14); once until the reset
             (14 | 21, call::TICK) => {
                 self.struck = false;
                 if self.startled {
-                    return sounds;
+                    return;
                 }
                 let e = obstacle_extents(self.ty);
-                let Some(i) = near.boxes.iter().position(|a| boxes_overlap(a, &self.world, e)) else { return sounds };
+                let Some(i) = near.boxes.iter().position(|a| boxes_overlap(a, &self.world, e)) else { return };
                 let ball = i + 1 == near.boxes.len();
                 if !ball || row.hit_kmh <= near.kmh {
                     self.restart_anim();
@@ -1720,10 +1742,10 @@ impl Trigger {
             // turns to face a ball of 20 km/h or more (its other animation above the row's speed)
             (38 | 43, call::TICK) => {
                 self.struck = false;
-                let Some(&[.., ball]) = near.boxes.last() else { return sounds };
+                let Some(&[.., ball]) = near.boxes.last() else { return };
                 let e = if ty == 38 { [0.18, 0.8, 0.18] } else { [0.15, 1.3, 0.15] };
                 if self.startled || !ball_in(ball, pos, e) {
-                    return sounds;
+                    return;
                 }
                 if ty == 43 && row.hit_kmh <= near.kmh {
                     self.restart_anim();
@@ -1778,6 +1800,14 @@ impl Trigger {
                 self.restart_anim();
                 self.scrub = (0, self.frame as i32);
             }
+            _ => {}
+        }
+    }
+
+    /// Types 34, 37 and 15: idle animations on their own countdowns, and the change of ends' roll-off.
+    fn props(&mut self, row: &TriggerRow, msg: u8, near: &mut Near, roll: &mut impl FnMut() -> u32, sounds: &mut Vec<i32>) {
+        let u = |r: u32| (F(TWO_POW_M32) * ps2::utof(r)).0;
+        match (self.ty, msg) {
             (34, 2) if !self.animating => {
                 self.counter -= 1;
                 if self.counter < 0 {
@@ -1844,38 +1874,15 @@ impl Trigger {
                     (self.playing, self.on, self.done) = (false, false, true);
                 }
             }
-            // the reset: in the deciding set its idle countdown, turned to the court centre where it stands, and the
-            // gallery's manager paused (`Near::paused`); else the manager resumed and its call's countdown (a voiced
-            // one only)
-            (44, call::RESET) => {
-                (self.on, self.animating) = (near.deciding, false);
-                near.paused = near.deciding;
-                if self.on {
-                    self.counter = (F(row.idle.0 as f32) * F(1.0).msub(row.idle.1, u(roll()))).0 as i32;
-                    self.world = walker_facing(self.home[3], 0.0);
-                } else if self.voice.1 != 0 {
-                    self.gap = (F(self.voice.1 as f32) * F(1.0).msub(row.idle.1, u(roll()))).0 as i32;
-                }
-            }
-            (44, 2) if self.on => {
-                // deciding set only, unrecorded: presentation on the court generator (reseeded each point from
-                // `rand()`), so it can't move the match; PLAN asks it only to look right
-                self.gap -= 1;
-                if self.gap < 0 && self.voice.0 != -1 {
-                    sounds.push(row.sound);
-                    self.gap = (F(self.voice.1 as f32) * F(1.0).msub(row.idle.1, u(roll()))).0 as i32;
-                }
-                if !self.animating {
-                    self.counter -= 1;
-                    if self.counter < 0 {
-                        self.animating = true;
-                        self.restart_anim();
-                    }
-                } else if self.len <= self.frame {
-                    self.counter = jitter(row.idle, roll) as i32;
-                    self.animating = false;
-                }
-            }
+            _ => {}
+        }
+    }
+
+    /// Types 2, 6, 19 and 33: the courts' landing mark, flyover and armed sounds.
+    fn court_shows(&mut self, row: &TriggerRow, msg: u8, near: &mut Near, roll: &mut impl FnMut() -> u32, sounds: &mut Vec<i32>) {
+        let pos = self.pos();
+        let ty = self.ty as usize;
+        match (self.ty, msg) {
             // court 1: where the point's first bounce landed (in the court, no body hit), shown facing the camera
             // after a game or set won on a plain call with a named point
             (2, call::TICK) => {
@@ -1962,6 +1969,46 @@ impl Trigger {
                 }
                 self.counter += 1;
             }
+            _ => {}
+        }
+    }
+
+    /// Types 44, 22 and 40: the gallery's deciding-set stands, pauses and cheers.
+    fn gallery(&mut self, row: &TriggerRow, msg: u8, near: &mut Near, roll: &mut impl FnMut() -> u32, sounds: &mut Vec<i32>) {
+        let u = |r: u32| (F(TWO_POW_M32) * ps2::utof(r)).0;
+        match (self.ty, msg) {
+            // the reset: in the deciding set its idle countdown, turned to the court centre where it stands, and the
+            // gallery's manager paused (`Near::paused`); else the manager resumed and its call's countdown (a voiced
+            // one only)
+            (44, call::RESET) => {
+                (self.on, self.animating) = (near.deciding, false);
+                near.paused = near.deciding;
+                if self.on {
+                    self.counter = (F(row.idle.0 as f32) * F(1.0).msub(row.idle.1, u(roll()))).0 as i32;
+                    self.world = walker_facing(self.home[3], 0.0);
+                } else if self.voice.1 != 0 {
+                    self.gap = (F(self.voice.1 as f32) * F(1.0).msub(row.idle.1, u(roll()))).0 as i32;
+                }
+            }
+            (44, 2) if self.on => {
+                // deciding set only, unrecorded: presentation on the court generator (reseeded each point from
+                // `rand()`), so it can't move the match; PLAN asks it only to look right
+                self.gap -= 1;
+                if self.gap < 0 && self.voice.0 != -1 {
+                    sounds.push(row.sound);
+                    self.gap = (F(self.voice.1 as f32) * F(1.0).msub(row.idle.1, u(roll()))).0 as i32;
+                }
+                if !self.animating {
+                    self.counter -= 1;
+                    if self.counter < 0 {
+                        self.animating = true;
+                        self.restart_anim();
+                    }
+                } else if self.len <= self.frame {
+                    self.counter = jitter(row.idle, roll) as i32;
+                    self.animating = false;
+                }
+            }
             // court 6's: in the deciding set it stands (its head following the ball) and the gallery's manager pauses
             // ponytail: the head's look-at is not drawn
             (22, call::RESET) => {
@@ -1986,7 +2033,6 @@ impl Trigger {
             }
             _ => {}
         }
-        sounds
     }
 }
 

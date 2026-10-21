@@ -311,6 +311,11 @@ pub(super) fn hold_triggers(npcs: Option<Res<Npcs>>, mut q: Query<&mut Motion>) 
     }
 }
 
+/// A point in homogeneous coordinates.
+fn at(p: [f32; 3]) -> [f32; 4] {
+    [p[0], p[1], p[2], 1.0]
+}
+
 fn step(
     mut g: ResMut<Game>,
     npcs: Option<ResMut<Npcs>>,
@@ -350,7 +355,6 @@ fn step(
             commands.entity(part).insert(bevy::camera::visibility::NoFrustumCulling);
         }
     }
-    let at = |p: [f32; 3]| [p[0], p[1], p[2], 1.0];
     npcs.near.pos = g.players.iter().map(|p| at(p.pos)).chain([at(g.flight.ball.pos)]).collect();
     // the ball-hit obstacles' boxes: the players' model matrices (up, facing; the side row's sign doesn't matter to
     // the test) and the ball's
@@ -373,6 +377,78 @@ fn step(
     let side = if 0.0 <= g.players.get(g.post_winner as usize).map_or(0.0, |p| p.pos[2]) { 6.4 } else { -6.4 };
     match_news(&mut npcs.near, &g);
     let g = &mut *g;
+    let (cheer, mut heard) = point_news(npcs, g, &mut turn, motion, players, serve, ends, side);
+    if let Some((e, a)) = &mut npcs.umpire {
+        let motion = turned(motion, other_side.contains(*e));
+        if let Ok((rig, mut m)) = q.get_mut(*e) {
+            let len = rig.data.motions.get(&(motion as usize)).map_or(0.0, |c| c.length);
+            if motion != npcs.motion {
+                *a = Anim::default();
+            }
+            if motion != 0 || over {
+                a.set(a.next, len);
+                a.next = hst_sim::ps2::add(a.next, 1.0);
+                // the idle (playing on once the match is over) loops back to frame 16, 14 for umpire 3; a turn holds
+                // its last frame
+                if motion == 0 && len <= a.frame {
+                    a.set(if umpire_id == 3 { 14.0 } else { 16.0 }, len);
+                }
+            }
+            // ponytail: her texture animation (TAF) is not drawn
+            show(&mut m, motion as usize, a.frame, false);
+        }
+    }
+    npcs.motion = motion;
+    walk(npcs, g, &mut turn, &mut q, &globals, players, cheer, side);
+    let (flyover, surf) = figures(npcs, g, &mut heard, &mut turn, &mut shown, &mut q, &children, &mats, &mut materials);
+    let (Some(audio), Some(Some(bank))) = (audio, bank.map(|b| b.0.clone())) else { return };
+    let play = |key: i32, volume: i32| sound::Play { slot: 0, program: 7, key: key as u8, volume, speed: 1.0 };
+    // each once however often its tick runs (`heard`)
+    for (s, ty, at) in heard {
+        if !once.first(ticks.tick, ("creature", s, ty, at)) {
+            continue;
+        }
+        let t = npcs.triggers.iter().find(|(_, t, _)| t.ty == ty).map(|(_, t, _)| t);
+        match (ty, t) {
+            // 19's sweep: from its bearing at its volume
+            (19, Some(t)) => _ = audio.play_toward(&bank, play(s, t.volume), t.bearing),
+            // the flyover's volume is set straight from its |z| (no distance falloff), panned by its bearing
+            (6, Some(t)) => once.flyover = Some(audio.play_toward(&bank, play(s, t.volume), sound::place(at).0)),
+            _ => _ = audio.play_at(&bank, play(s, 0x80), at),
+        }
+    }
+    // B261: the surf loops, started once (their spawn), re-levelled and re-panned while they sound
+    // ponytail: the game also restarts them when an instant replay restarts (no replay restart here)
+    if once.fresh {
+        if ambience.surf.is_empty() && !surf.is_empty() {
+            ambience.surf = surf.iter().map(|&(volume, angle)| audio.play_toward(&bank, play(npcs.surf.key, volume), angle)).collect();
+        }
+        for (&id, (volume, angle)) in ambience.surf.iter().zip(surf) {
+            audio.turn(id, volume, angle);
+        }
+        // courts 1's and 7's chime (3, 30; 49 on no court) every 14400 ticks of match time; 30 and 49 ring it 1, 2,
+        // 3, 4 times in turn
+        for (_, t, row) in npcs.triggers.iter().filter(|(_, t, _)| matches!(t.ty, 3 | 30 | 49)) {
+            ambience.chime(t.ty, row.sound, g.match_stats.frames, |key| audio.play_centre(&bank, play(key, 0x40)), |id| audio.playing(id));
+        }
+    }
+    // the flyover's sound follows it, re-panned and fading with |z| only; its reset stops it (as of the last tick heard)
+    match (once.flyover, flyover) {
+        _ if !once.fresh => {}
+        (Some(id), Some((true, volume, at))) => audio.turn(id, volume, sound::place(at).0),
+        (Some(id), _) => {
+            audio.stop(id);
+            once.flyover = None;
+        }
+        _ => {}
+    }
+}
+
+/// The point's news to the creatures: a decided point (cheers, the walkers' reaction, the trigger creatures'
+/// message), the scoreboard's pause over, the next serve, the change of ends. The walkers who cheer, and what the
+/// creatures said (to be heard once).
+#[allow(clippy::too_many_arguments)]
+fn point_news(npcs: &mut Npcs, g: &mut Game, turn: &mut Query<&mut Transform, With<character::Rig>>, motion: u8, players: u32, serve: bool, ends: bool, side: f32) -> ([bool; 6], Vec<(i32, u8, [f32; 3])>) {
     let rng = &mut g.rng.court;
     let mut roll = || rng.next();
     // a decided point: some cheering, the gallery's applause, then the walkers react
@@ -416,7 +492,7 @@ fn step(
     if decided {
         for (e, w, home) in &mut npcs.walkers {
             w.react();
-            face(&mut turn, *e, *home, side);
+            face(turn, *e, *home, side);
         }
         npcs.decided = true;
         for (_, t, row) in &mut npcs.triggers {
@@ -446,7 +522,7 @@ fn step(
         npcs.cheers.clear();
         for (e, w, home) in &mut npcs.walkers {
             // the serve placement turns them back to the court centre
-            face(&mut turn, *e, *home, 0.0);
+            face(turn, *e, *home, 0.0);
             // a new point after a decided one resets the walker (counter 0 with any player count): the cheer loop
             // only ends when the idle loops restart
             w.new_point(true);
@@ -482,27 +558,23 @@ fn step(
         }
     }
     npcs.ends = ends;
-    if let Some((e, a)) = &mut npcs.umpire {
-        let motion = turned(motion, other_side.contains(*e));
-        if let Ok((rig, mut m)) = q.get_mut(*e) {
-            let len = rig.data.motions.get(&(motion as usize)).map_or(0.0, |c| c.length);
-            if motion != npcs.motion {
-                *a = Anim::default();
-            }
-            if motion != 0 || over {
-                a.set(a.next, len);
-                a.next = hst_sim::ps2::add(a.next, 1.0);
-                // the idle (playing on once the match is over) loops back to frame 16, 14 for umpire 3; a turn holds
-                // its last frame
-                if motion == 0 && len <= a.frame {
-                    a.set(if umpire_id == 3 { 14.0 } else { 16.0 }, len);
-                }
-            }
-            // ponytail: her texture animation (TAF) is not drawn
-            show(&mut m, motion as usize, a.frame, false);
-        }
-    }
-    npcs.motion = motion;
+    (cheer, heard)
+}
+
+/// The crowd's and the walkers' moves, then the gallery's manager.
+#[allow(clippy::too_many_arguments)]
+fn walk(
+    npcs: &mut Npcs,
+    g: &mut Game,
+    turn: &mut Query<&mut Transform, With<character::Rig>>,
+    q: &mut Query<(&character::Rig, &mut Motion)>,
+    globals: &Query<&GlobalTransform>,
+    players: u32,
+    cheer: [bool; 6],
+    side: f32,
+) {
+    let rng = &mut g.rng.court;
+    let mut roll = || rng.next();
     npcs.crowd.iter_mut().for_each(|(c, _)| c.step());
     // the walkers' moves: what they dodge (players, ball, each other) and the court's world they bump into; none in
     // the rain (the original skips their whole tick then)
@@ -548,6 +620,24 @@ fn step(
         npcs.cheers.step(&mut roll);
         npcs.tick += 1;
     }
+}
+
+/// The court's figures in their order: an emitter's turn, or a trigger creature's tick (moved, shown, faded, its
+/// sounds, a ball strike). The flyover's state and the surf loops' levels, for their sounds.
+#[allow(clippy::too_many_arguments)]
+fn figures(
+    npcs: &mut Npcs,
+    g: &mut Game,
+    heard: &mut Vec<(i32, u8, [f32; 3])>,
+    turn: &mut Query<&mut Transform, With<character::Rig>>,
+    shown: &mut Query<&mut Visibility, With<character::Rig>>,
+    q: &mut Query<(&character::Rig, &mut Motion)>,
+    children: &Query<&Children>,
+    mats: &Query<&MeshMaterial3d<crate::gs::GsMaterial>>,
+    materials: &mut Assets<crate::gs::GsMaterial>,
+) -> (Option<(bool, i32, [f32; 3])>, Vec<(i32, i32)>) {
+    let rng = &mut g.rng.court;
+    let mut roll = || rng.next();
     let mut emitters = 0..g.emitters.len();
     let mut flyover = None;
     let mut surf = Vec::new();
@@ -636,47 +726,7 @@ fn step(
             surf.push(npcs.surf.tick(surf.len(), &mut roll));
         }
     }
-    let (Some(audio), Some(Some(bank))) = (audio, bank.map(|b| b.0.clone())) else { return };
-    let play = |key: i32, volume: i32| sound::Play { slot: 0, program: 7, key: key as u8, volume, speed: 1.0 };
-    // each once however often its tick runs (`heard`)
-    for (s, ty, at) in heard {
-        if !once.first(ticks.tick, ("creature", s, ty, at)) {
-            continue;
-        }
-        let t = npcs.triggers.iter().find(|(_, t, _)| t.ty == ty).map(|(_, t, _)| t);
-        match (ty, t) {
-            // 19's sweep: from its bearing at its volume
-            (19, Some(t)) => _ = audio.play_toward(&bank, play(s, t.volume), t.bearing),
-            // the flyover's volume is set straight from its |z| (no distance falloff), panned by its bearing
-            (6, Some(t)) => once.flyover = Some(audio.play_toward(&bank, play(s, t.volume), sound::place(at).0)),
-            _ => _ = audio.play_at(&bank, play(s, 0x80), at),
-        }
-    }
-    // B261: the surf loops, started once (their spawn), re-levelled and re-panned while they sound
-    // ponytail: the game also restarts them when an instant replay restarts (no replay restart here)
-    if once.fresh {
-        if ambience.surf.is_empty() && !surf.is_empty() {
-            ambience.surf = surf.iter().map(|&(volume, angle)| audio.play_toward(&bank, play(npcs.surf.key, volume), angle)).collect();
-        }
-        for (&id, (volume, angle)) in ambience.surf.iter().zip(surf) {
-            audio.turn(id, volume, angle);
-        }
-        // courts 1's and 7's chime (3, 30; 49 on no court) every 14400 ticks of match time; 30 and 49 ring it 1, 2,
-        // 3, 4 times in turn
-        for (_, t, row) in npcs.triggers.iter().filter(|(_, t, _)| matches!(t.ty, 3 | 30 | 49)) {
-            ambience.chime(t.ty, row.sound, g.match_stats.frames, |key| audio.play_centre(&bank, play(key, 0x40)), |id| audio.playing(id));
-        }
-    }
-    // the flyover's sound follows it, re-panned and fading with |z| only; its reset stops it (as of the last tick heard)
-    match (once.flyover, flyover) {
-        _ if !once.fresh => {}
-        (Some(id), Some((true, volume, at))) => audio.turn(id, volume, sound::place(at).0),
-        (Some(id), _) => {
-            audio.stop(id);
-            once.flyover = None;
-        }
-        _ => {}
-    }
+    (flyover, surf)
 }
 
 /// What the match-event creatures hear about the point (`npc::Near`): a game or set won short of the match, a named
