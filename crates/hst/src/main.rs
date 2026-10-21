@@ -160,7 +160,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
                     eprintln!("hst: can't open {iso}");
                     std::process::exit(2);
                 };
-                let o = hst_data::texhash::Overrides::scan(std::path::Path::new(&iso).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(".".as_ref()));
+                let o = hst_data::texhash::Overrides::scan(&store::dir(&iso));
                 let n = o.dump(&mut iso_);
                 println!("wrote {n} disc textures to {} (edit or upscale them into a texture pack or mods/texture-replacements)", o.root.join("mods/textures-src").display());
                 std::process::exit(0);
@@ -314,6 +314,9 @@ fn main() {
     // B374: where the game's file is, before an update swaps it; a Windows update's leftover opentennis.exe.old goes
     update::cleanup();
     disc::resolve(&mut argv);
+    // M143: settings, mods and the rest in the per-user folder, the ones beside the disc brought over once
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    store::init(&argv[0]);
     start(argv);
 }
 

@@ -1,4 +1,5 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Settings, controls, favourites, names and mods are now kept in your own user folder (~/.local/share/hst, %APPDATA%\hst or ~/Library/Application Support/hst) instead of beside the disc image, so moving the disc or keeping it on read-only media no longer loses them; the old files are brought over on the first start.
 - Settings → Display no longer has the Controller Vibration switch.
 - Mods with a newer version on the store now show an Update button, and an Update all button on the Mods page and the main menu installs every update at once.
 - Switching teams after everyone has picked their character now slides the cards across, as it does before.

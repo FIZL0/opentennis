@@ -8,7 +8,7 @@ secs=$1 dir=$2; shift 2
 mkdir -p "$dir"
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1} HST_BG=1 HST_MENU=chars HST_SELECT=0,1,2,3 HST_STRESS=$secs
 bin=${HST_BIN:-${CARGO_TARGET_DIR:-target}/release/hst}
-env "$@" "$bin" "Hot Shots Tennis (USA).iso" > "$dir/log.txt" 2>&1 &
+env HST_DATA="$PWD" "$@" "$bin" "Hot Shots Tennis (USA).iso" > "$dir/log.txt" 2>&1 &
 pid=$!
 tools/vram_watch.sh $pid "$dir/vram.txt" ${HST_VRAM_GB:-3} &
 wait $pid; code=$?

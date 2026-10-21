@@ -5,7 +5,7 @@
 #   dist/ios/opentennis-ios.ipa  unsigned (M91): the player signs it (AltStore, Sideloadly…); the ISO goes in its Files folder.
 #                         Needs the iOS SDK once: tools/ios-sdk.py Xcode_*.xip (see tools/ios-build.sh)
 #   dist/opentennis.apk   Android (tools/apk.sh: SDK/NDK setup there); the player picks the ISO on first launch.
-# mods/ and settings.txt live beside the ISO, not the binary. No game data goes into dist/.
+# mods/ and settings.txt live in the per-user data folder (~/.local/share/hst, %APPDATA%\hst), not beside the binary. No game data goes into dist/.
 # Windows is cross-compiled with MinGW. One-time setup (Arch):
 #   sudo pacman -S rustup mingw-w64-gcc     # rustup replaces the `rust` package
 #   rustup default stable && rustup target add x86_64-pc-windows-gnu

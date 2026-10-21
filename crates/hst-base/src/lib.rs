@@ -54,16 +54,156 @@ pub mod widescreen;
 
 use bevy::prelude::*;
 
-/// settings.txt, controls.txt and online.txt: files beside the disc, or in the browser its localStorage.
+/// Everything the game saves (settings, controls, online, hints, names, favorites, pipelines.json, mods-store.json,
+/// mods-wishlist.txt, hf-token.txt, mods/, mods-online/, cache/): on desktop one per-user folder ([`store::dir`]), in the
+/// browser its localStorage, on the phones the app's own folder beside the disc.
 pub mod store {
+    use std::path::{Path, PathBuf};
+    use std::sync::OnceLock;
+
     #[cfg(not(target_arch = "wasm32"))]
     pub use std::fs::{read_to_string, write};
     #[cfg(target_arch = "wasm32")]
     pub use crate::web::{read_to_string, write};
 
-    /// settings.txt beside the disc (`main_menu::Settings::path`).
-    pub fn settings(iso: &str) -> std::path::PathBuf {
-        std::path::Path::new(iso).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(".".as_ref()).join("settings.txt")
+    /// The per-user folder, once [`init`] has run (the desktop game's start-up). Without it (tests, tools, the phones,
+    /// the browser) files stay where they always were: beside the disc.
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+
+    /// Desktop start-up: from now on the game's files live in [`crate::disc::data_dir`] (`$XDG_DATA_HOME/hst`,
+    /// `%APPDATA%\hst`, `~/Library/Application Support/hst`), so a launch from the desktop doesn't write into `$HOME`
+    /// or `/`, a disc on read-only media keeps its settings and moving the disc keeps them. The first run brings the
+    /// old ones over ([`migrate`]). `HST_DATA=<dir>` uses that folder instead, as it is (`tools/shot.sh` keeps a
+    /// shot's files beside its disc).
+    #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
+    pub fn init(iso: &str) {
+        if let Some(d) = std::env::var_os("HST_DATA").filter(|d| !d.is_empty()) {
+            let _ = DIR.set(d.into());
+            return;
+        }
+        let dir = crate::disc::data_dir();
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("can't make {}: {e}", dir.display());
+        }
+        migrate(beside(iso), &dir);
+        migrate(Path::new("."), &dir);
+        let _ = DIR.set(dir);
+    }
+
+    /// The files and folders a saved game is made of, by name.
+    const SAVED: [&str; 14] = [
+        "settings.txt",
+        "controls.txt",
+        "online.txt",
+        "hints.txt",
+        "names.txt",
+        "favorites.txt",
+        "rejoin.txt",
+        "pipelines.json",
+        "mods-store.json",
+        "mods-wishlist.txt",
+        "hf-token.txt",
+        "mods",
+        "mods-online",
+        "cache",
+    ];
+
+    /// Brings what an older build saved in `from` (beside the disc, or the working folder for the store's files) over
+    /// to `to`: each one `to` doesn't have yet, copied (the old copies stay for an older build of the game).
+    pub fn migrate(from: &Path, to: &Path) {
+        let same = |a: &Path, b: &Path| a.canonicalize().ok().zip(b.canonicalize().ok()).is_some_and(|(a, b)| a == b);
+        if same(from, to) {
+            return;
+        }
+        for name in SAVED {
+            let (old, new) = (from.join(name), to.join(name));
+            if !old.exists() || new.exists() {
+                continue;
+            }
+            let link = std::fs::symlink_metadata(&old).is_ok_and(|m| m.file_type().is_symlink());
+            let copied = match () {
+                // a linked folder (mods/ on another drive) is linked again, not copied
+                #[cfg(unix)]
+                _ if link => old.canonicalize().and_then(|t| std::os::unix::fs::symlink(t, &new)),
+                _ if old.is_dir() && !link => copy_dir(&old, &new),
+                _ => std::fs::copy(&old, &new).map(drop),
+            };
+            match copied {
+                Ok(()) => eprintln!("brought {} over to {}", old.display(), new.display()),
+                Err(e) => eprintln!("can't bring {} over to {}: {e}", old.display(), new.display()),
+            }
+        }
+    }
+
+    fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(to)?;
+        for e in std::fs::read_dir(from)? {
+            let e = e?;
+            let (a, b) = (e.path(), to.join(e.file_name()));
+            if e.file_type()?.is_dir() { copy_dir(&a, &b)? } else { std::fs::copy(&a, &b).map(drop)? }
+        }
+        Ok(())
+    }
+
+    /// The disc's folder (`.` for a bare file name).
+    fn beside(iso: &str) -> &Path {
+        Path::new(iso).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(".".as_ref())
+    }
+
+    /// The folder the game's files for disc `iso` go in: the per-user one, else beside the disc.
+    pub fn dir(iso: &str) -> PathBuf {
+        DIR.get().cloned().unwrap_or_else(|| beside(iso).into())
+    }
+
+    /// `name` in [`dir`].
+    pub fn path(iso: &str, name: &str) -> PathBuf {
+        dir(iso).join(name)
+    }
+
+    /// A file the game keeps without a disc at hand (the mod store's): in the per-user folder; else the working
+    /// folder as before (the browser's localStorage key, the phones' app folder), a scratch folder in tests.
+    pub fn file(name: &str) -> PathBuf {
+        if let Some(d) = DIR.get() {
+            return d.join(name);
+        }
+        #[cfg(all(any(test, feature = "testing"), not(target_arch = "wasm32")))]
+        {
+            let d = std::env::temp_dir().join(format!("hst-store-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&d);
+            return d.join(name);
+        }
+        #[allow(unreachable_code)]
+        PathBuf::from(name)
+    }
+
+    /// settings.txt (`main_menu::Settings::path`).
+    pub fn settings(iso: &str) -> PathBuf {
+        path(iso, "settings.txt")
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn migrate_copies_what_is_missing() {
+            let t = std::env::temp_dir().join(format!("hst-migrate-{}", std::process::id()));
+            let (old, new) = (t.join("old"), t.join("new"));
+            let _ = std::fs::remove_dir_all(&t);
+            std::fs::create_dir_all(old.join("mods/a")).unwrap();
+            std::fs::create_dir_all(&new).unwrap();
+            std::fs::write(old.join("settings.txt"), "music = on").unwrap();
+            std::fs::write(old.join("mods/a/mod.json"), "{}").unwrap();
+            std::fs::write(old.join("controls.txt"), "old").unwrap();
+            std::fs::write(new.join("controls.txt"), "new").unwrap();
+            std::fs::write(old.join("other.txt"), "").unwrap();
+            super::migrate(&old, &new);
+            assert_eq!(std::fs::read_to_string(new.join("settings.txt")).unwrap(), "music = on");
+            assert!(old.join("settings.txt").exists() && old.join("mods/a/mod.json").exists(), "the old copies stay");
+            assert!(new.join("mods/a/mod.json").exists());
+            assert_eq!(std::fs::read_to_string(new.join("controls.txt")).unwrap(), "new", "newer files stay");
+            assert!(!new.join("other.txt").exists());
+            super::migrate(&new, &new);
+            let _ = std::fs::remove_dir_all(&t);
+        }
     }
 }
 
