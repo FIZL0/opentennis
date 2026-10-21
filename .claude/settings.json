@@ -41,6 +41,16 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/tools/worktree-gc.sh >/dev/null 2>&1 || true"
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {
