@@ -4,14 +4,14 @@
 // build (window.hstWebGL2, stubbed to record its call) and not stop; after it, keep running without a reload; a stray
 // rejection of the same kind likewise; any other unhandled rejection must still stop the game with its message.
 // Headless chromium. Prints PASS/FAIL per case; exits 1 on any FAIL.
-// Usage: node tools/web_pop_error_scope.mjs
+// Usage: node research/journal/2026-10-15-b452-webgpu-pop-error-scope/scripts/web_pop_error_scope.mjs
 import { spawn } from 'node:child_process';
 import { readFileSync, mkdtempSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../../../../web/index.html', import.meta.url), 'utf8');
 const markup = html.slice(html.indexOf('<div id="boot">'), html.indexOf('</div></div>', html.indexOf('<div id="boot">')) + 12);
 const from = html.lastIndexOf('<script>', html.indexOf('// Boot status'));
 const boot = html.slice(from, html.indexOf('</script>', from) + 9);

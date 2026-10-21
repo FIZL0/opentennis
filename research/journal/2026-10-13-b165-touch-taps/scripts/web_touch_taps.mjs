@@ -2,7 +2,7 @@
 // page and a stand-in game that polls `getGamepads()` only every 200 ms (a busy phone). With the stick held:
 // a 20 ms tap on ✕ between two polls must still be seen down by one, the stick must stay tilted through it, and two
 // fingers on ✕ must keep it down until both lift. Prints PASS/FAIL per check; exits 1 on any FAIL.
-// Usage: node tools/web_touch_taps.mjs
+// Usage: node research/journal/2026-10-13-b165-touch-taps/scripts/web_touch_taps.mjs
 import { spawn } from 'node:child_process';
 import { readFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,7 +33,7 @@ await send('Emulation.setDeviceMetricsOverride', { width: 844, height: 390, devi
 await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
 // a classic script on the blank page (touch.js has no imports); no fullscreen on the first tap, which would move the
 // buttons
-await evaluate('document.documentElement.requestFullscreen = undefined;' + readFileSync(new URL('../web/touch.js', import.meta.url), 'utf8') + `
+await evaluate('document.documentElement.requestFullscreen = undefined;' + readFileSync(new URL('../../../../web/touch.js', import.meta.url), 'utf8') + `
 window.polls = [];
 window.poller = setInterval(() => { const g = navigator.getGamepads().find(g => g?.index === 16);
   polls.push(g ? [g.buttons[0].pressed, g.axes[0]] : null); }, 200);`);

@@ -4,13 +4,13 @@
 // click on it is counted once by `hstChatTaps` and presses no pad button, a tap raises the keyboard (`hstChatKeys`, B531: even when the game took
 // the tap before the finger lifted); hidden again it counts nothing. Screenshots
 // of both layouts go to DIR (default context/B312). Prints PASS/FAIL per check; exits 1 on any FAIL.
-// Usage: node tools/web_chat_button.mjs [DIR]
+// Usage: node research/journal/2026-10-14-touch-chat-button/scripts/web_chat_button.mjs [DIR]
 import { spawn } from 'node:child_process';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const out = process.argv[2] ?? new URL('../context/B312', import.meta.url).pathname;
+const out = process.argv[2] ?? new URL('../../../../context/B312', import.meta.url).pathname;
 mkdirSync(out, { recursive: true });
 const CDP = process.env.HST_CDP_PORT ?? 9336;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -39,7 +39,7 @@ const check = (name, ok, detail) => { failed ||= !ok; console.log(`${ok ? 'PASS'
 await send('Emulation.setDeviceMetricsOverride', { width: 844, height: 390, deviceScaleFactor: 2, mobile: true });
 await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
 await evaluate('document.documentElement.requestFullscreen = undefined; document.body.style.background = "#264";'
-  + readFileSync(new URL('../web/touch.js', import.meta.url), 'utf8'));
+  + readFileSync(new URL('../../../../web/touch.js', import.meta.url), 'utf8'));
 await sleep(300);
 const chat = '#touch [data-chat]';
 check('hidden until the game shows it', await evaluate(`document.querySelector('${chat}').offsetParent === null`));

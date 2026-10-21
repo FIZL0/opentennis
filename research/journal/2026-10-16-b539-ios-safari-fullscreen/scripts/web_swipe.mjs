@@ -3,7 +3,7 @@
 // shows nothing changes; once the game is up the page scrolls (taller than the screen), #swipe shows at the top, a
 // scroll hides it and isn't undone by the page's size keeping (B333), a tap closes it, and a home-screen start
 // (`standalone` true) or another phone gets none of it. Only the page's side: whether Safari really hides its bars on
-// that scroll needs an iPhone. Prints PASS/FAIL per check; exits 1 on any FAIL. Usage: node tools/web_swipe.mjs
+// that scroll needs an iPhone. Prints PASS/FAIL per check; exits 1 on any FAIL. Usage: node research/journal/2026-10-16-b539-ios-safari-fullscreen/scripts/web_swipe.mjs
 import { spawn } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,7 @@ import { join } from 'node:path';
 
 const CDP = process.env.HST_CDP_PORT ?? 9338, PORT = process.env.WEB_PORT ?? 8768;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const web = spawn('python3', ['-m', 'http.server', '-b', '127.0.0.1', '-d', new URL('../web', import.meta.url).pathname, `${PORT}`], { stdio: 'ignore' });
+const web = spawn('python3', ['-m', 'http.server', '-b', '127.0.0.1', '-d', new URL('../../../../web', import.meta.url).pathname, `${PORT}`], { stdio: 'ignore' });
 const chrome = spawn('chromium', ['--headless=new', '--mute-audio', `--remote-debugging-port=${CDP}`,
   `--user-data-dir=${mkdtempSync(join(tmpdir(), 'hst-swipe-'))}`, '--window-size=844,390', 'about:blank'], { stdio: 'ignore' });
 process.on('exit', () => { chrome.kill(); web.kill(); });

@@ -45,7 +45,7 @@ def journal(name, tid):
         return next((d for d in named if mentions(d)), named[0])
     if ref := [d for d in dirs if mentions(d)]:
         return ref[0]
-    for i in range(len(tid) - 1, 1, -1):  # parent task: b24d → b24, p17s2 → p17s → p17
+    for i in range(len(tid) - 1, len(re.match(r'[a-z]\d+', tid)[0]) - 1, -1):  # parent: b24d → b24, p17s2 → p17s → p17
         if named := own(tid[:i]):
             return named[0]
     return None

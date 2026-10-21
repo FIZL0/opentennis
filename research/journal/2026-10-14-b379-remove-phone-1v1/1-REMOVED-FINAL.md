@@ -13,8 +13,8 @@ B118's two-players-on-one-phone mode is gone from every build:
   camera is online-only again; `step` still steps without a lockstep (the B315 test drives it that way).
 - **Touch controls** (`web/touch.js`): the far pad (gamepad 17, turned 180°), its CSS (`.far`, `.duo`), the portrait
   orientation lock, `hstTouchPads`. One pad (`touch = side(16)`); the vibration setting now reaches the page through
-  `hstTouchBuzz(on)` (`web::touch_buzz`). `tools/web_duo.mjs` deleted; the duo checks in `tools/web_touch_taps.mjs`
-  dropped; `tools/web_vibrate.mjs` calls `hstTouchBuzz`.
+  `hstTouchBuzz(on)` (`web::touch_buzz`). `tools/web_duo.mjs` deleted; the duo checks in `research/journal/2026-10-13-b165-touch-taps/scripts/web_touch_taps.mjs`
+  dropped; `research/journal/2026-10-14-phone-vibration/scripts/web_vibrate.mjs` calls `hstTouchBuzz`.
 - Kept: the Mobile settings tab and Vibration (B118/B329), not part of the 1v1.
 - B308/B309 (1v1 split screen / sideways HUD fixes) noted obsolete; `plan/HUMAN.md`'s B310 ask now says "play a match".
 
@@ -23,7 +23,7 @@ B118's two-players-on-one-phone mode is gone from every build:
   for a few rounds after the tab-out). It fails the same way on the code before this change (3 of 3 runs with
   B379's edits reverted, real-time sleeps under load from the parallel run); with the change it passed 1 of 3.
   Not touched here.
-- `node tools/web_touch_taps.mjs`, `node tools/web_vibrate.mjs`: all PASS.
+- `node research/journal/2026-10-13-b165-touch-taps/scripts/web_touch_taps.mjs`, `node research/journal/2026-10-14-phone-vibration/scripts/web_vibrate.mjs`: all PASS.
 - `cargo check -p hst --target wasm32-unknown-unknown`: builds, no warnings in the touched files.
 
 ## Not verified / not 1:1

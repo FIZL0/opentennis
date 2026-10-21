@@ -12,7 +12,7 @@
 - **Phone apps.** Nothing raised the system keyboard for chat at all: `osk::system_keyboard` set `ime_enabled` only for
   the menus' text popups / Join by Code (and forced it off otherwise).
 - **Browser, upright.** B313's `.touch button.small { bottom … !important }` also caught the chat button, which sat on
-  top of Select and Start (tools/web_chat_button.mjs failed its portrait checks on main).
+  top of Select and Start (research/journal/2026-10-14-touch-chat-button/scripts/web_chat_button.mjs failed its portrait checks on main).
 
 ## Changes
 - `chat.rs`: `BUTTON` = chat on (in a room, not hidden), the box open or not. The pad's bubble asks with `ASK = 3`:
@@ -23,13 +23,13 @@
 - `osk.rs`: the apps' system keyboard is also up while `chat::OPEN` (menus and matches; `Menu` always exists), and
   `chat::RAISE` puts it down for a frame and up again like a tap on the popup's field.
 - `web/touch.js`: a touch that *landed* on the bubble raises the keyboard on its lift, whatever the game did in between;
-  portrait spot fixed (centred under Select/Start). `tools/web_chat_button.mjs` checks the hide-before-lift case.
+  portrait spot fixed (centred under Select/Start). `research/journal/2026-10-14-touch-chat-button/scripts/web_chat_button.mjs` checks the hide-before-lift case.
 - `web/index.html`: `hstChatArm` — a finger landing on the lobby's Chat button (game: `online::chat_arm`, hit-tested
   with `pointer::touch_act`, only with the box closed) makes its `touchend` raise the keyboard; `hstChatKeys` takes the
   input away again after 700 ms if the game didn't open the box (the finger slid off).
 
 ## Checks
-- `node tools/web_chat_button.mjs context/B531`: all PASS (portrait now too), incl. the new "game took the tap before the
+- `node research/journal/2026-10-14-touch-chat-button/scripts/web_chat_button.mjs context/B531`: all PASS (portrait now too), incl. the new "game took the tap before the
   finger lifted" case. Screenshot of the upright layout looked right.
 - `tools/check.sh -p hst-base chat`, `-p hst osk`, `-p hst-play touch_pad`: pass. `cargo check -p hst --target
   wasm32-unknown-unknown --features ship` clean.

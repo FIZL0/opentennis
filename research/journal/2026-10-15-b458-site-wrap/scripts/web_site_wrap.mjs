@@ -4,17 +4,17 @@
 // edge, no sideways scroll) and no text may be cut off (an element narrower than its own content with overflow
 // hidden). The storage legend must take more than one line at 320 px. Screenshots of Settings & files go to DIR
 // (default context/B458). Prints PASS/FAIL per check; exits 1 on any FAIL.
-// Usage: node tools/web_site_wrap.mjs [DIR]
+// Usage: node research/journal/2026-10-15-b458-site-wrap/scripts/web_site_wrap.mjs [DIR]
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const out = process.argv[2] ?? new URL('../context/B458', import.meta.url).pathname;
+const out = process.argv[2] ?? new URL('../../../../context/B458', import.meta.url).pathname;
 mkdirSync(out, { recursive: true });
 const CDP = process.env.HST_CDP_PORT ?? 9337, PORT = process.env.WEB_PORT ?? 8767;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const web = spawn('python3', ['-m', 'http.server', '-b', '127.0.0.1', '-d', new URL('../web', import.meta.url).pathname, `${PORT}`], { stdio: 'ignore' });
+const web = spawn('python3', ['-m', 'http.server', '-b', '127.0.0.1', '-d', new URL('../../../../web', import.meta.url).pathname, `${PORT}`], { stdio: 'ignore' });
 const chrome = spawn('chromium', ['--headless=new', '--mute-audio', `--remote-debugging-port=${CDP}`,
   `--user-data-dir=${mkdtempSync(join(tmpdir(), 'hst-site-'))}`, '--window-size=1024,800', 'about:blank'], { stdio: 'ignore' });
 process.on('exit', () => { chrome.kill(); web.kill(); });

@@ -3,14 +3,14 @@
 // and with it deleted from FileSystemFileHandle (Safari before 26 / iOS 18, the worker's sync access handle). Each
 // run writes a 3 MB file in nested folders, a text file, then rewrites the text file shorter, all at once, and
 // reads them back. Prints PASS/FAIL per run; exits 1 on any FAIL.
-// Usage: node tools/web_opfs_write.mjs
+// Usage: node research/journal/2026-10-14-ios-opfs-write/scripts/web_opfs_write.mjs
 import { spawn } from 'node:child_process';
 import { readFileSync, mkdtempSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const web = new URL('../web/', import.meta.url);
+const web = new URL('../../../../web/', import.meta.url);
 const html = readFileSync(new URL('index.html', web), 'utf8');
 const helper = html.slice(html.indexOf('\nlet writer;'), html.indexOf('\n};\n', html.indexOf('const writeFile')) + 3);
 const page = `<script type="module">

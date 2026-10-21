@@ -15,7 +15,7 @@ error." It logs a `console.warn` (the warning stays in Web Inspector). Every oth
 before, including the game's own panics, which arrive with an error object.
 
 ## Check
-`node tools/web_script_error.mjs [webkit]` takes the boot markup and script out of index.html and loads them with a
+`node research/journal/2026-10-14-safari-share-script-error/scripts/web_script_error.mjs [webkit]` takes the boot markup and script out of index.html and loads them with a
 script that throws, once from another origin (port) and once from the same origin, in headless Chromium and in the
 system WebKitGTK MiniBrowser. Playwright's bundled WebKit build can't start here: libicudata.so.66 is missing.
 - before (HEAD's index.html): cross-origin → FAIL "The game stopped: Script error." in both browsers (the bug).

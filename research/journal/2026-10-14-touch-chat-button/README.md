@@ -15,10 +15,10 @@ and nothing like the on-screen pad's buttons. Now it's a button on the page's pa
   before, the box opened and a second tap was needed).
 - On wasm the Bevy label is never shown; native touch builds keep it (they have no page pad).
 
-Check: `node tools/web_chat_button.mjs [DIR]` (headless chromium, touch.js alone): hidden until shown, size/style
+Check: `node research/journal/2026-10-14-touch-chat-button/scripts/web_chat_button.mjs [DIR]` (headless chromium, touch.js alone): hidden until shown, size/style
 equal to Start, icon only, placed as above in both orientations, no overlap with any control, a tap counted once,
 presses no pad button, raises the keyboard hook, a click counts, hidden counts nothing. 18/18 PASS. Screenshots in
-`context/B312/chat-{landscape,portrait}.png`. `tools/web_touch_taps.mjs` and `tools/web_vibrate.mjs` still pass.
+`context/B312/chat-{landscape,portrait}.png`. `research/journal/2026-10-13-b165-touch-taps/scripts/web_touch_taps.mjs` and `research/journal/2026-10-14-phone-vibration/scripts/web_vibrate.mjs` still pass.
 
 ## Not verified / not 1:1
 

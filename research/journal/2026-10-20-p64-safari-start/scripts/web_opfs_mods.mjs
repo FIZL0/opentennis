@@ -3,7 +3,7 @@
 // Safari's engine and OPFS on Linux), the old one-file-at-a-time walk against the parallel one. A fresh profile gets a
 // copy of a native mods folder written into OPFS first: the same tree, manifests and pictures whole, every other file
 // a 1-byte stand-in (a listing only asks its size; FULL=1 copies those whole too, for playing them). Prints each run's milliseconds and whether both saw the same
-// files. Needs WAYLAND_DISPLAY or DISPLAY. Usage: node tools/web_opfs_mods.mjs [MODS] [OUT] [runs]
+// files. Needs WAYLAND_DISPLAY or DISPLAY. Usage: node research/journal/2026-10-20-p64-safari-start/scripts/web_opfs_mods.mjs [MODS] [OUT] [runs]
 // (MODS defaults to ~/.local/share/hst/mods, OUT to context/p64; OUT/profile keeps the OPFS copy between runs: with
 // WEB_PORT=8766 and PROFILE=OUT/profile, tools/web_webkit.mjs then starts the game with those mods installed.)
 import { spawn } from 'node:child_process';
@@ -83,7 +83,7 @@ try {
 </script>`;
 
 // the current listing, cut out of index.html between its P64 markers
-const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../../../../web/index.html', import.meta.url), 'utf8');
 const body = /\/\/ P64 listing\n([\s\S]*?)\n\s*\/\/ P64 listing end/.exec(html)?.[1];
 if (!body) throw new Error('index.html has no P64 listing markers');
 

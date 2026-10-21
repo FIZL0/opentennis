@@ -4,13 +4,13 @@
 // for it doesn't also close it. Copy's own tap puts the text on the clipboard and closes the card; Share shows only
 // where the browser has navigator.share and is handed the link; Done and a tap beside the card close it. Screenshots go
 // to DIR (default context/B464). Prints PASS/FAIL per check; exits 1 on any FAIL.
-// Usage: node tools/web_copy_sheet.mjs [DIR]
+// Usage: node research/journal/2026-10-15-ios-copy-link/scripts/web_copy_sheet.mjs [DIR]
 import { spawn } from 'node:child_process';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const out = process.argv[2] ?? new URL('../context/B464', import.meta.url).pathname;
+const out = process.argv[2] ?? new URL('../../../../context/B464', import.meta.url).pathname;
 mkdirSync(out, { recursive: true });
 const CDP = process.env.HST_CDP_PORT ?? 9337;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -37,7 +37,7 @@ let failed = false;
 const check = (name, ok, detail) => { failed ||= !ok; console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok ? '' : `: ${JSON.stringify(detail)}`}`); };
 
 // the card's pieces of index.html
-const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../../../../web/index.html', import.meta.url), 'utf8');
 const div = html.match(/<div id="copysheet"[^]*?<\/div><\/div>/)[0];
 const js = html.match(/ {2}\/\/ B464: Copy Link[^]*?(?=\n {2}\/\/ a LAN answer)/)[0];
 // a secure origin (navigator.clipboard), granted the clipboard as a tap would on a phone
@@ -49,7 +49,7 @@ const style = html.match(/<style>([^]*?)<\/style>/)[1];
 await evaluate(`document.head.innerHTML = '<meta name="viewport" content="width=device-width, initial-scale=1">';
   document.head.append(Object.assign(document.createElement('style'), { textContent: ${JSON.stringify(style)} }));
   document.body.innerHTML = '<canvas width="844" height="390" style="background:#264"></canvas>' + ${JSON.stringify(div)};`);
-await evaluate(readFileSync(new URL('../web/touch.js', import.meta.url), 'utf8'));
+await evaluate(readFileSync(new URL('../../../../web/touch.js', import.meta.url), 'utf8'));
 await evaluate(`(() => { ${js} })()`);
 await sleep(300);
 const LINK = 'https://opentennis.example/?code=TEST-LOBBY-42';

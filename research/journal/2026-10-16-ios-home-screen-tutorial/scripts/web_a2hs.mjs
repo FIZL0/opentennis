@@ -3,17 +3,17 @@
 // on iPhone and iPad Safari only: not in Chrome/Firefox for iOS, an in-app view, a desktop or Android browser, the
 // home-screen app (navigator.standalone), or after Got it. Screenshots of the iPhone/iPad ones go to DIR (default
 // context/M123). Prints PASS/FAIL per check; exits 1 on any FAIL.
-// Usage: node tools/web_a2hs.mjs [DIR]
+// Usage: node research/journal/2026-10-16-ios-home-screen-tutorial/scripts/web_a2hs.mjs [DIR]
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const out = process.argv[2] ?? new URL('../context/M123', import.meta.url).pathname;
+const out = process.argv[2] ?? new URL('../../../../context/M123', import.meta.url).pathname;
 mkdirSync(out, { recursive: true });
 const CDP = process.env.HST_CDP_PORT ?? 9338, PORT = process.env.WEB_PORT ?? 8768;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const web = spawn('python3', ['-m', 'http.server', '-b', '127.0.0.1', '-d', new URL('../web', import.meta.url).pathname, `${PORT}`], { stdio: 'ignore' });
+const web = spawn('python3', ['-m', 'http.server', '-b', '127.0.0.1', '-d', new URL('../../../../web', import.meta.url).pathname, `${PORT}`], { stdio: 'ignore' });
 const chrome = spawn('chromium', ['--headless=new', '--mute-audio', `--remote-debugging-port=${CDP}`,
   `--user-data-dir=${mkdtempSync(join(tmpdir(), 'hst-a2hs-'))}`, '--window-size=1024,800', 'about:blank'], { stdio: 'ignore' });
 process.on('exit', () => { chrome.kill(); web.kill(); });

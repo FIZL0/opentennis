@@ -1,7 +1,7 @@
 // B329's check of web/touch.js's press buzz alone (no game, no disc, no server): headless chromium with touch, the
 // script on a blank page, `navigator.vibrate` recorded. A tap on ✕ buzzes (15 ms) with Vibration on and not with it
 // off; then as an iPhone (no `navigator.vibrate`) the page says `none` to the setting's text. Prints PASS/FAIL per check; exits 1 on any FAIL.
-// Usage: node tools/web_vibrate.mjs
+// Usage: node research/journal/2026-10-14-phone-vibration/scripts/web_vibrate.mjs
 import { spawn } from 'node:child_process';
 import { readFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -32,7 +32,7 @@ const check = (name, ok, detail) => { failed ||= !ok; console.log(`${ok ? 'PASS'
 
 await send('Emulation.setDeviceMetricsOverride', { width: 844, height: 390, deviceScaleFactor: 2, mobile: true });
 await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
-const touchJs = readFileSync(new URL('../web/touch.js', import.meta.url), 'utf8');
+const touchJs = readFileSync(new URL('../../../../web/touch.js', import.meta.url), 'utf8');
 const tapCross = async fid => {
   const c = await evaluate(`(() => { const r = document.querySelector('[data-b="cross"]').getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);

@@ -18,7 +18,7 @@ our side (the game creates no device or instance of its own; only Bevy's one).
 - `fail()` treats "Instance dropped" like B244's validation errors (WebGL2 build) if it reaches there another way.
 
 ## Verified
-`node tools/web_pop_error_scope.mjs` (headless chromium, the page's boot script with a stand-in GPUDevice whose
+`node research/journal/2026-10-15-b452-webgpu-pop-error-scope/scripts/web_pop_error_scope.mjs` (headless chromium, the page's boot script with a stand-in GPUDevice whose
 popErrorScope rejects like Chrome's): before first frame → WebGL2 fallback, not stopped; after → running, no reload;
 stray rejection → running; another rejection → still stops with its message. Run against the previous index.html the
 first three FAIL with exactly the user's "The game stopped: Instance dropped in popErrorScope". `web_script_error.mjs`
