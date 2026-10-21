@@ -485,3 +485,114 @@ fn smash_flights(name: &str) -> Option<Vec<usize>> {
     }
     Some(flown)
 }
+
+/// Dives a blocked move cuts short (research/journal/2026-10-21-p121-dive-early-end: P1 dives on purpose and, on
+/// the dive's first frame, the recorder moves it next to the sideline, net or back clamp along its direction, the
+/// new point written to `p121_blocked.bin.pokes`). From there the body and the dive counter follow the game bit
+/// for bit: a slide blocked on its next frame or halfway ends at once and the counter jumps past the slide into
+/// the receive motion's root path (from its time 5); one blocked in the root phase stops moving there.
+#[test]
+fn blocked_dives() {
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let (Ok(data), Ok(pokes)) = (fixture::read(format!("{dir}/p121_blocked.bin")), fixture::read(format!("{dir}/p121_blocked.bin.pokes"))) else {
+        return fixture::skip(format_args!("p121_blocked.bin absent, skipped"));
+    };
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc absent, skipped"));
+    };
+    let frames = frames_live(&data);
+    // P1's character: the one whose TParam record its copy (+0x13a8..) equals
+    let pc = String::from_utf8_lossy(&{
+        let x = iso.read("PCDATA/PCDATA.XB").unwrap();
+        let arc = Archive::parse(&x).unwrap();
+        let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("tparam.csv")).unwrap();
+        arc.read(e).unwrap()
+    })
+    .into_owned();
+    let rec: Vec<u32> = (0x13a8..0x13c8).step_by(4).map(|o| frames[0].player_f32(0, o).to_bits()).collect();
+    let c = (0..14)
+        .find(|n| {
+            let s = hst_sim::player::ReachStats::from_tparam(pc.lines().find(|l| l.starts_with(&format!("{n},"))).unwrap());
+            [s.serve_scatter, s.base, s.reach, s.under_min, s.stroke_height, s.volley_height].iter().map(|v| v.to_bits()).eq(rec[..6].iter().copied())
+        })
+        .expect("P1's character");
+    let root = {
+        let xb = iso.read(&format!("PCANI/PC{c:02}ANI.XB")).unwrap();
+        let arc = Archive::parse(&xb).unwrap();
+        let stem = ani::motion_name(51, c).unwrap().to_ascii_lowercase();
+        let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&format!("{stem}.ani2"))).unwrap();
+        hst_sim::pose::Path::new(&ani::parse(&arc.read(e).unwrap()).unwrap()).unwrap()
+    };
+    let (mut cut, mut root_stops, mut steps) = (0, 0, 0);
+    for line in String::from_utf8_lossy(&pokes).lines() {
+        let w: Vec<&str> = line.split(' ').collect();
+        let (vsync, moved) = (w[0].parse::<u32>().unwrap(), [w[1].parse::<f64>().unwrap() as f32, w[2].parse::<f64>().unwrap() as f32]);
+        let k = frames.iter().position(|f| f.vsync() == vsync).unwrap();
+        let (a, fr) = (frames[k - 1], frames[k]);
+        let at = format!("vsync {vsync}");
+        assert!(p_u8(fr, 0, 0x3f58) == 1 && p_i32(fr, 0, 0x3f88) == 1, "{at}: not a dive's first frame");
+        let reach = Reach {
+            base: fr.player_f32(0, 0x13ac),
+            reach: fr.player_f32(0, 0x13b0),
+            stroke_height: fr.player_f32(0, 0x13b8),
+            volley_height: fr.player_f32(0, 0x13bc),
+            smash_top: fr.player_f32(0, 0x13c0),
+            smash_bottom: fr.player_f32(0, 0x13c8),
+            ahead: 0.0,
+            smash_ahead: 0.0,
+            body_low: 0.0,
+            body_high: 0.0,
+            grades: vec![],
+            hand: 1.0,
+            dive_arm: [[[0.0; 4]; 4]; 2],
+        };
+        let pos = [fr.player_f32(0, 0x3f60), fr.player_f32(0, 0x3f64), fr.player_f32(0, 0x3f68)];
+        let end = if pos[2] < 0.0 { 1.0 } else { -1.0 };
+        let path: Vec<PathPoint> = frames[k..k + DIVE_HORIZON]
+            .iter()
+            .map(|f| {
+                let b = f.live_ball();
+                PathPoint { pos: v3(b, 0xe0), bounces: i(b, 0x224) }
+            })
+            .collect();
+        let face = [a.player_f32(0, 0x3d60), a.player_f32(0, 0x3d68)];
+        let vel = [fr.player_f32(0, 0x3e00), fr.player_f32(0, 0x3e08)];
+        let mut d = dive(&reach, &path, pos, end, face, vel).unwrap_or_else(|| panic!("{at}: no dive"));
+        assert_eq!(d.frame as i32, p_i32(fr, 0, 0x3f84) - 50, "{at}");
+        // the game's direction and slide (the recorded path is ulps off its predicted one)
+        d.dir = [fr.player_f32(0, 0x3e60), fr.player_f32(0, 0x3e68)];
+        d.slide = fr.player_f32(0, 0x3f80);
+        let mate = |n: usize| Some(frames[k + n - 1].player_pos(2));
+        let step = |d: &mut hst_sim::swing::Dive, at_: [f32; 2], n: usize| {
+            d.step(at_, |t| root.at(t)[2], |m| {
+                let q = mover([at_[0], 0.0, at_[1]], [m[0], 0.0, m[1]], end, mate(n), false);
+                [q[0], q[2]]
+            })
+        };
+        // the search frame, before the move
+        assert_eq!(step(&mut d, [pos[0], pos[2]], 0), Some([fr.player_pos(0)[0], fr.player_pos(0)[2]]), "{at} frame 0");
+        d.moved_to(moved);
+        let mut at_ = moved;
+        let mut n = 1;
+        let mut slide_cut = false;
+        // through the frame that ends the dive (it clears the dive flag)
+        while p_u8(frames[k + n - 1], 0, 0x3f58) == 1 {
+            let tick = d.tick;
+            at_ = step(&mut d, at_, n).unwrap_or_else(|| panic!("{at}: dive over early, frame {n}"));
+            let f = frames[k + n];
+            assert_eq!(at_, [f.player_pos(0)[0], f.player_pos(0)[2]], "{at} frame {n} (tick {tick})");
+            assert_eq!(d.tick as i32, p_i32(f, 0, 0x3f88), "{at} frame {n}: the dive counter");
+            assert_eq!(d.restarted(), d.cut() && tick <= d.frame && d.tick == d.frame + 2, "{at} frame {n}");
+            slide_cut |= d.cut() && tick <= d.frame;
+            steps += 1;
+            n += 1;
+        }
+        assert_eq!(step(&mut d, at_, n), None, "{at}: dive runs on");
+        cut += slide_cut as usize;
+        root_stops += (d.cut() && !slide_cut) as usize;
+        let how = if slide_cut { "cut in the slide" } else if d.cut() { "stopped in the root phase" } else { "never blocked" };
+        eprintln!("{at}: k {} {how}, {n} frames", d.frame);
+    }
+    eprintln!("{cut} slides cut, {root_stops} root phases stopped, {steps} frames");
+    assert!(cut >= 1 && root_stops >= 1);
+}
