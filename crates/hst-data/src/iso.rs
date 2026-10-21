@@ -40,10 +40,24 @@ pub struct Iso {
 /// Pack layout: magic, u64 hash, u32 count, per file (u16 name length, name, u64 offset, u32 size), then the data.
 const PACK_MAGIC: &[u8; 8] = b"HSTPACK1";
 
+/// Pack hashes of the retail copies we know are good (B612). The hash covers the pack's index and packed files, so it
+/// is the same whatever tool ripped the disc and however the image lays its files out; a bad rip or another version
+/// gives another hash. Players who have a good copy that's refused report its hash (shown in the error) to add here.
+/// Changing `packed` changes every hash: re-import a known copy and update this list with it.
+pub const KNOWN_PACKS: &[(u64, &str)] = &[(0xd89b_5d23_0259_faef, "SCUS-97610 US 1.00")];
+
 /// What a pack leaves out: the FMV movies (217 MB), the IOP driver modules and the movie overlay — nothing the
 /// remaster reads. Everything else on the disc (≈ 170 MB) goes in, so a later port that reads a new file still finds it.
 fn packed(path: &str) -> bool {
     !(path.starts_with("A/") || path.starts_with("MODULES/") || path.starts_with("IRX/") || path == "ZZBIN/MOVIE.BIN")
+}
+
+/// The error for a disc whose pack hash isn't a known retail copy: says so and shows the hash to report.
+pub fn unknown_pack(hash: u64) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("unrecognised disc contents (bad rip or different version), pack hash {hash:016x}; if your disc is a good copy, report this hash so it can be added"),
+    )
 }
 
 impl Iso {
@@ -96,14 +110,17 @@ impl Iso {
     pub fn write_pack(&mut self, out: &Path, progress: impl FnMut(usize, usize)) -> io::Result<u64> {
         let part = out.with_extension("part");
         let mut w = BufWriter::new(File::create(&part)?);
-        let hash = self.write_pack_to(&mut w, progress)?;
+        let hash = self.write_pack_to(&mut w, progress).inspect_err(|_| {
+            let _ = std::fs::remove_file(&part);
+        })?;
         let f = w.into_inner().map_err(|e| e.into_error())?;
         f.sync_all()?;
         std::fs::rename(&part, out)?;
         Ok(hash)
     }
 
-    /// `write_pack` into any writer (the browser's OPFS file); the caller makes it durable.
+    /// `write_pack` into any writer (the browser's OPFS file); the caller makes it durable. A pack whose hash isn't in
+    /// `KNOWN_PACKS` is an `InvalidData` error naming the hash (`unknown_pack`); what was written is then garbage.
     pub fn write_pack_to(&mut self, w: &mut (impl Write + Seek), mut progress: impl FnMut(usize, usize)) -> io::Result<u64> {
         let invalid = |e: crate::xb::Error| io::Error::new(io::ErrorKind::InvalidData, e.0);
         let (cnf, bin) = (self.read("SYSTEM.CNF")?, self.read("ZZBIN/GAME.BIN")?);
@@ -132,6 +149,9 @@ impl Iso {
             progress(i + 1, names.len());
         }
         let hash = h.finish();
+        if !KNOWN_PACKS.iter().any(|&(k, _)| k == hash) {
+            return Err(unknown_pack(hash));
+        }
         w.seek(SeekFrom::Start(8))?;
         w.write_all(&hash.to_le_bytes())?;
         w.flush()?;
