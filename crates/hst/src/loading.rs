@@ -2,7 +2,7 @@
 //! 640×448 BMP) full screen, the HST logo panel and a white pane from `Loading.tm2` (`MENU/MENU00B.XB0`) sliced
 //! nine ways, one hint (`MENU/WALL/WALLnn.XB0` → `L_txtNN.tm2`, 512×256, text and pictures baked in) on the pane, and
 //! "Now Loading..." bottom right. Rects are the original's, on its 640×448 screen; the screen is the centred 4:3
-//! picture (`widescreen.rs`), the court picture fills the window's width. Shown only while the port loads (`mode.rs`).
+//! picture (`widescreen.rs`), the court picture covers the window at 4:3. Shown only while the port loads (`mode.rs`).
 //! M117: a court mod's own picture (`mods_court::LOADING`, any size) stands in for its layout court's, covering the
 //! window at its own aspect (cropped, never stretched); a mod without one shows the layout court's.
 //!
@@ -117,6 +117,20 @@ fn covering(w: f32, h: f32) -> Node {
     Node { width: Val::Vw(100.0), min_width: Val::Vh(100.0 * aspect), aspect_ratio: Some(aspect), flex_shrink: 0.0, ..default() }
 }
 
+/// B606: the 640×448 screen, the largest centred 4:3 box in the window: as wide as the window but at most 4/3 of its
+/// height, and as tall as 3/4 of its width but at most the window's, so it scales uniformly at any aspect (a box at
+/// 100% height and a 4:3 aspect squashed when a portrait window's max width cut it).
+fn screen_43() -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        width: Val::Vw(100.0),
+        max_width: Val::Vh(400.0 / 3.0),
+        height: Val::Vw(75.0),
+        max_height: Val::Vh(100.0),
+        ..default()
+    }
+}
+
 /// A piece of `Loading.tm2`: source rect, destination rect on the 640×448 screen, alpha.
 type Piece = ([f32; 4], [f32; 4], f32);
 
@@ -183,14 +197,15 @@ pub fn cover(iso: String, court: usize, picture: Option<std::path::PathBuf>) -> 
             ..default()
         });
         world.entity_mut(root).with_children(|p| {
-            // the court picture fills the window's width (cropped top and bottom when wider than 4:3)
+            // the court picture covers the window at 4:3 (B606: cropped top and bottom when wider, sides when taller;
+            // stretched, as its 640×448 pixels would otherwise keep their own shape and leave bars)
             if let Some((node, own)) = own {
                 p.spawn((ImageNode::new(own), node));
             } else if let Some(back) = back {
-                p.spawn((ImageNode::new(back), Node { width: Val::Percent(100.0), aspect_ratio: Some(4.0 / 3.0), flex_shrink: 0.0, ..default() }));
+                p.spawn((ImageNode { image_mode: NodeImageMode::Stretch, ..ImageNode::new(back) }, covering(4.0, 3.0)));
             }
             // the 640×448 screen as a centred 4:3 picture, as the HUD (`widescreen.rs`)
-            let screen = Node { position_type: PositionType::Absolute, height: Val::Percent(100.0), aspect_ratio: Some(4.0 / 3.0), max_width: Val::Percent(100.0), ..default() };
+            let screen = screen_43();
             p.spawn(screen).with_children(|s| {
                 let Some(art) = art else { return };
                 let piece = |s: &mut ChildSpawner, (src, dst, a): Piece| {
