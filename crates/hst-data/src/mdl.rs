@@ -241,6 +241,24 @@ impl Model {
         (verts, tris, morph)
     }
 
+    /// [`Model::skin_packet`]'s drawn vertices as their position entries: each a node, the entry's position in that
+    /// node's space (pre-weighted) and its weight, so a pose can place them (Σ [p, w] · node); same vertex order.
+    pub fn skin_entries(&self, pk: &Packet) -> Vec<Vec<(usize, [f32; 3], f32)>> {
+        let n = pk.bones.len().saturating_sub(1).min(pk.uvs.len());
+        (0..n)
+            .map(|v| {
+                let (a, b) = (pk.bones[v] as usize, (pk.bones[v + 1] as usize).min(pk.vertices.len()));
+                (a..b)
+                    .map(|e| {
+                        let flags = pk.entry_flags.get(e).copied().unwrap_or(0);
+                        let node = pk.palette.get(((flags >> 3) & 7) as usize).copied().unwrap_or(pk.palette.first().copied().unwrap_or(0));
+                        (node, pk.vertices[e].pos, pk.entry_weight.get(e).copied().unwrap_or(1.0))
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
     /// The triangles the game collides with: those whose material has an attribute map.
     /// Whether the game treats the model as a collision object: some static batch has an attribute-mapped material.
     pub fn collides(&self, mtl: &crate::mtl::Mtl) -> bool {

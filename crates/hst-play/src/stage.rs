@@ -189,3 +189,169 @@ pub fn point_clouds(rng: &mut hst_sim::rng::Rngs, game: usize) {
     s.made = w;
     s.draws = Some((w, rng.new_point_clouds(s.made_count(w))));
 }
+
+/// What sorts a material's packets into one drawn mesh of a court model: the primitive's shading bits, the `.UVA`
+/// track, the UV swap and the unlit flag (`main.rs` builds one mesh per key, [`mesh`] over its packets in order).
+pub fn batch_key(p: &mdl::Packet, uv_track: Option<usize>) -> (u8, Option<usize>, bool, u8) {
+    (p.prim & 0x70, uv_track, p.uv_swap, p.flags & 2)
+}
+
+/// One vertex of a [`mesh`] as its entries: a node (None: the model's own space), the position in that node's space
+/// and the weight the node's translation gets (1 for a rigid packet's vertex).
+type Source = Vec<(Option<usize>, Vec3, f32)>;
+
+/// [`mesh`]'s vertices over these packets, as their sources (same order).
+fn sources<'a>(packets: impl Iterator<Item = &'a mdl::Packet>, model: &mdl::Model) -> Vec<Source> {
+    let mut out = Vec::new();
+    for pk in packets {
+        if pk.palette.len() > 1 {
+            out.extend(model.skin_entries(pk).into_iter().map(|v| v.into_iter().map(|(n, p, w)| (Some(n), Vec3::from(p), w)).collect()));
+            continue;
+        }
+        let node = pk.palette.first().copied().filter(|&n| n < model.node_bind.len());
+        out.extend(pk.vertices.iter().map(|v| vec![(node, Vec3::from(v.pos), 1.0)]));
+    }
+    out
+}
+
+/// A source posed by node matrices `nodes` (model space).
+fn posed(source: &Source, nodes: &[Mat4]) -> Vec3 {
+    source.iter().fold(Vec3::ZERO, |acc, &(n, p, w)| match n.and_then(|n| nodes.get(n)) {
+        Some(m) => acc + m.transform_vector3(p) + w * m.w_axis.truncate(),
+        None => acc + p,
+    })
+}
+
+/// P135: a placed structure that plays its own motion (court 5's ball-boy carts turn their wheels, court 6's horses):
+/// its own copies of the model's meshes, their vertices re-posed from the motion's nodes whenever a step changes them.
+#[derive(Component)]
+pub struct PropPose {
+    motion: hst_sim::court::Motions,
+    meshes: Vec<(crate::vertex_patch::Patched, Vec<Source>)>,
+}
+
+/// A posed copy of a court model's drawn `parts` (`tags`: each draw's material and first packet, `uv_track` its
+/// packets' `.UVA` tracks), spawned under `root` at `t` (as `main.rs` spawns any prop) with `motion` (one of
+/// `court::drawn`'s). Each copy is bounded by the box its vertices fill over every frame of the motion. None when the
+/// parts don't match the model's packets.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_posed(
+    commands: &mut Commands,
+    root: Entity,
+    t: Transform,
+    motion: hst_sim::court::Motions,
+    model: &mdl::Model,
+    uv_track: impl Fn(usize, usize) -> Option<usize>,
+    tags: &[(usize, usize)],
+    parts: &[(Handle<Mesh>, Handle<gs::GsMaterial>)],
+    meshes: &mut Assets<Mesh>,
+) -> Option<(Entity, Vec<(Handle<Mesh>, Handle<gs::GsMaterial>)>)> {
+    let m = motion.list.first()?;
+    // the node matrices at every frame the clock can show
+    let frames: Vec<Vec<Mat4>> = (0..m.length().max(1.0) as i32)
+        .map(|f| {
+            let mut m = m.clone();
+            m.sample(f as f32);
+            m.world_nodes().iter().map(Mat4::from_cols_array_2d).collect()
+        })
+        .collect();
+    let mut own: Vec<(Handle<Mesh>, Handle<Mesh>, crate::vertex_patch::Patched, Vec<Source>, bevy::camera::primitives::Aabb)> = Vec::new();
+    let mut out = Vec::new();
+    for ((shared, mat), &(mi, first)) in parts.iter().zip(tags) {
+        if let Some((_, copy, ..)) = own.iter().find(|o| &o.0 == shared) {
+            out.push((copy.clone(), mat.clone()));
+            continue;
+        }
+        let packets = model.materials.get(mi)?;
+        let key = |pi: usize| batch_key(&packets[pi], uv_track(mi, pi));
+        let k = key(first);
+        let src = sources((0..packets.len()).filter(|&pi| key(pi) == k).map(|pi| &packets[pi]), model);
+        let mesh = meshes.get(shared)?.clone();
+        if mesh.count_vertices() != src.len() {
+            return None;
+        }
+        let (lo, hi) = frames.iter().flat_map(|f| src.iter().map(|s| posed(s, f))).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), p| (lo.min(p), hi.max(p)));
+        let patched = crate::vertex_patch::Patched::new(&mesh)?;
+        let copy = meshes.add(mesh);
+        let patched = patched.of(copy.id());
+        out.push((copy.clone(), mat.clone()));
+        own.push((shared.clone(), copy, patched, src, bevy::camera::primitives::Aabb::from_min_max(lo, hi)));
+    }
+    let e = commands.spawn((t, Visibility::default())).id();
+    for (m, mat) in &out {
+        let aabb = own.iter().find(|o| &o.1 == m).map(|o| o.4).unwrap_or_default();
+        commands.entity(e).with_child((Mesh3d(m.clone()), MeshMaterial3d(mat.clone()), aabb, bevy::camera::visibility::NoAutoAabb));
+    }
+    commands.entity(root).add_child(e);
+    commands.entity(e).insert(PropPose { motion, meshes: own.into_iter().map(|o| (o.2, o.3)).collect() });
+    Some((e, out))
+}
+
+pub fn plugin(app: &mut App) {
+    app.add_systems(FixedUpdate, step_props.run_if(|w: &World| !crate::play::front_end::paused(w)));
+}
+
+/// One court draw pass a match tick (pauses and slow motion's in-between frames, which run no tick, don't step): each
+/// posed structure the eye tests haven't hidden steps its motion, and the vertices it moved go to the GPU.
+fn step_props(mut props: Query<(&mut PropPose, &Visibility)>, queued: Option<ResMut<crate::vertex_patch::Queued>>) {
+    let Some(mut queued) = queued else { return };
+    let mut changed = Vec::new();
+    for (mut p, vis) in &mut props {
+        let mut nodes = None;
+        p.motion.draw_pass(true, |_| *vis == Visibility::Hidden, |m| nodes = Some(m.world_nodes()));
+        let Some(nodes) = nodes else { continue };
+        let nodes: Vec<Mat4> = nodes.iter().map(Mat4::from_cols_array_2d).collect();
+        for (patched, src) in &mut p.meshes {
+            changed.clear();
+            changed.extend(src.iter().enumerate().filter_map(|(v, s)| patched.set(v, posed(s, &nodes).to_array()).then_some(v)));
+            crate::vertex_patch::send(patched, &changed, &mut queued);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hst_data::{fixture, xb::Archive};
+
+    /// P135: court 5's four ball-boy carts and court 6's five horses (all structures) play their motions; each
+    /// posed vertex at the motion's first sample-free pose is where [`mesh`] put it, and the motion moves some.
+    #[test]
+    fn posed_props_start_at_the_drawn_mesh_and_move() {
+        let Ok(mut iso) = fixture::iso() else {
+            fixture::skip(format_args!("disc missing, skipped"));
+            return;
+        };
+        for (n, stems, count) in [(5, &["ballboy01"][..], 4), (6, &["k-horse", "k-horse2"][..], 5)] {
+            let drawn = hst_sim::court::drawn(&mut iso, n, 0);
+            assert_eq!(drawn.len(), count, "court {n}");
+            let data = iso.read(&format!("COURT/{n:02}/HOL01.XB")).unwrap();
+            assert!(Archive::parse(&data).is_ok());
+            let mut seen = 0;
+            for_models(&data, |s| stems.iter().any(|t| s.rsplit(['\\', '/']).next() == Some(&format!("{t}.mdl"))), |stem, model, _| {
+                seen += 1;
+                let (_, m) = drawn.iter().find(|(_, m)| {
+                    let w = m.list[0].world_nodes();
+                    w.len() == model.node_count && w.iter().zip(&model.node_bind).all(|(a, b)| a.as_flattened().iter().zip(b.as_flattened()).all(|(x, y)| (x - y).abs() < 1e-5))
+                }).expect("the model's motion");
+                let mut m = m.list[0].clone();
+                let bind: Vec<Mat4> = m.world_nodes().iter().map(Mat4::from_cols_array_2d).collect();
+                m.sample(m.length() / 2.0);
+                let half: Vec<Mat4> = m.world_nodes().iter().map(Mat4::from_cols_array_2d).collect();
+                let mut moved = 0;
+                for packets in &model.materials {
+                    let Some(mesh) = mesh(packets.iter(), &model) else { continue };
+                    let Some(bevy::mesh::VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!() };
+                    let src = sources(packets.iter(), &model);
+                    assert_eq!(src.len(), pos.len(), "{stem}");
+                    for (s, p) in src.iter().zip(pos) {
+                        assert!(posed(s, &bind).distance(Vec3::from(*p)) < 1e-4, "{stem}: {:?} vs {p:?}", posed(s, &bind));
+                        moved += (posed(s, &half).distance(Vec3::from(*p)) > 1e-3) as usize;
+                    }
+                }
+                assert!(moved > 0, "{stem} moves");
+            });
+            assert_eq!(seen, stems.len(), "court {n}");
+        }
+    }
+}
