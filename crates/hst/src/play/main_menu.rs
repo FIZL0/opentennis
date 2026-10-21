@@ -4004,6 +4004,35 @@ mod tests {
         assert_eq!(failed, 0);
     }
 
+    /// Upload all for mod folders, without the menus (a court or umpire mod; a character's card needs the select's
+    /// drawing, so upload those in the game). Network, writes to the store: `HST_UPLOAD="<mod dir> …"`
+    /// `HST_TOKEN=<hf-token.txt>` `HST_ISO=<iso>` `tools/check.sh -p hst store_upload -- --ignored`.
+    #[test]
+    #[ignore]
+    fn store_upload() {
+        let (Ok(list), Ok(t), Ok(iso)) = (std::env::var("HST_UPLOAD"), std::env::var("HST_TOKEN"), std::env::var("HST_ISO")) else { return };
+        let t = std::fs::read_to_string(t).unwrap();
+        let (name, token) = t.trim().split_once('\n').unwrap();
+        let ups: Vec<_> = list.split_whitespace().map(|d| (crate::mods::read_any(std::path::Path::new(d)).unwrap(), None, None)).collect();
+        let mut left = ups.len();
+        crate::modstore::publish(ups, name.trim().into(), token.trim().into(), iso);
+        let mut failed = 0;
+        while left > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            for e in crate::modstore::take() {
+                if let crate::modstore::Event::Upload(dir, up) = e {
+                    if matches!(up, crate::modstore::Up::Queued | crate::modstore::Up::Uploading) {
+                        continue;
+                    }
+                    failed += matches!(up, crate::modstore::Up::Failed(_)) as usize;
+                    eprintln!("{}: {up:?}", dir.display());
+                    left -= 1;
+                }
+            }
+        }
+        assert_eq!(failed, 0);
+    }
+
     /// A mod's △ grades: its base's where its row matches the base, the nearest disc characters' where it doesn't.
     #[test]
     fn mod_grades_follow_nearest() {
