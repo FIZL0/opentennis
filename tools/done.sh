@@ -25,6 +25,8 @@ out=$(cargo clippy -q --locked --workspace --all-targets --message-format=short 
   grep -E '^(crates|tools|third_party)/.*(error|warning)|^error' <<<"$out" | grep -v 'could not compile' | head -30
   grep -q float_arithmetic <<<"$out" && echo "plain f32 arithmetic in a converted sim module: use ps2::F / vu0::Vf"
   echo "CLIPPY FAILED (same as CI's: cargo clippy --workspace --all-targets -- -D warnings)"; exit 1; }
+# B618: the browser build too (web-only breaks and warnings: a cfg'd-out user, a field only the web side names)
+tools/webcheck.sh || exit 1
 export HST_CTX_NOCOMMIT=1  # the tick goes into the commit below
 if [ $# = 4 ]; then tools/ctx.py block "$1" "$4"; else tools/ctx.py tick "$1"; fi || exit 1
 # T6: a done task's probes (research/<id>_*.py) move into its journal's scripts/ (the main checkout commits only <paths>)

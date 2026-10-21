@@ -650,6 +650,7 @@ pub fn settings_line(check: bool, always: bool) -> String {
 /// What the main menu does about a newer version, once per one found: [`Due::Ask`] the Update? popup, [`Due::Install`]
 /// it (Always, where it installs by itself).
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // the browser's `offer` is always None
 pub enum Due {
     Ask,
     Install,

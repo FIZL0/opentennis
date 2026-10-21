@@ -13,5 +13,6 @@ pub struct Device;
 
 impl Device {
     /// Sets magnitude for strong and weak ff motors.
-    pub fn set_ff_state(&mut self, strong: u16, weak: u16, min_duration: Duration) {}
+    // HST patch (B618): unused here (Android, iOS), so `_`-named
+    pub fn set_ff_state(&mut self, _strong: u16, _weak: u16, _min_duration: Duration) {}
 }

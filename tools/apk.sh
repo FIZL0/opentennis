@@ -94,7 +94,8 @@ cat >"$out/AndroidManifest.xml" <<'EOF'
 </manifest>
 EOF
 rm -rf "$out/classes" "$out/dex" && mkdir -p "$out/classes" "$out/dex"
-javac -nowarn --release 17 -classpath "$JAR" -d "$out/classes" $(find crates/hst/android -name '*.java')
+# B618: every lint on and fatal, so a deprecated call shows here and not first in a release log
+javac -Xlint:all -Werror --release 17 -classpath "$JAR" -d "$out/classes" $(find crates/hst/android -name '*.java')
 # R8 rather than d8: the activity's classes and the verifier's whole, of the Kotlin stdlib only what they use
 (cd "$out/classes" && jar cf ../app.jar .)
 printf '%s\n' '-dontobfuscate' '-dontwarn org.jetbrains.annotations.**' '-keep class io.github.fizl0.hst.** { *; }' \

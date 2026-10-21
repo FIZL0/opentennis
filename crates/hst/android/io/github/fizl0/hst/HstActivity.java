@@ -138,11 +138,17 @@ public class HstActivity extends NativeActivity {
         try {
             String by = Build.VERSION.SDK_INT >= 30
                 ? getPackageManager().getInstallSourceInfo(getPackageName()).getInstallingPackageName()
-                : getPackageManager().getInstallerPackageName(getPackageName());
+                : installerBefore30();
             return "com.android.vending".equals(by);
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /** `fromStore` before Android 11, whose only way to ask is the call 11 deprecated. */
+    @SuppressWarnings("deprecation")
+    private String installerBefore30() {
+        return getPackageManager().getInstallerPackageName(getPackageName());
     }
 
     /** M140: the update .apk at `path` (downloaded and checked by `update.rs`) to the system's installer, as a
@@ -186,7 +192,7 @@ public class HstActivity extends NativeActivity {
         int status = i.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
         if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
             // the confirm screen (and, the first time, Android's "allow installs from this app")
-            Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
+            Intent confirm = Build.VERSION.SDK_INT >= 33 ? i.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class) : intentBefore33(i);
             if (confirm != null) {
                 startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
                 return;
@@ -194,6 +200,12 @@ public class HstActivity extends NativeActivity {
             status = PackageInstaller.STATUS_FAILURE;
         }
         installStatus = status;
+    }
+
+    /** `onNewIntent`'s confirm screen before Android 13, whose only way to read it is the call 13 deprecated. */
+    @SuppressWarnings("deprecation")
+    private static Intent intentBefore33(Intent i) {
+        return i.getParcelableExtra(Intent.EXTRA_INTENT);
     }
 
     /** A fresh process for the game: the native side's window can only be made once per process. */

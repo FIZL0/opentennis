@@ -29,6 +29,7 @@ Upstream status: none of these has been sent upstream yet (2026-10-21).
 | `ggrs` | 0.13.0 | `src/clock.rs` (new), `src/lib.rs`, `src/network/protocol.rs`, `Cargo.toml` | B494: ggrs' clock can be driven by the calling thread, so netplay's round-based tests get the same pings, resends and time sync however long a round takes. `Cargo.toml` drops the examples/tests/dev-dependencies the vendored copy doesn't ship |
 | `gilrs-core` | 0.6.8 | `src/platform/ios/` (new), `src/platform/mod.rs`, `Cargo.toml` | M91: an iOS backend over Apple's GameController framework (`objc2`) |
 | | | `src/platform/linux/gamepad.rs` | Doubles play (2026-10-06, no task id): a pad whose `/dev/input` node is read-only still works for input, without force feedback |
+| | | `src/lib.rs`, `src/platform/default/ff.rs` | B618: no unused-import / unused-variable warnings in the Android and iOS builds |
 
 Not code: the vendored `Cargo.toml.orig`/`Cargo.lock` files are upstream's and never read; `LICENSE-*` files are
 kept (gilrs-core's added from upstream's repo, which the crate package lacks).

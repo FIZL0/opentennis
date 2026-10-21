@@ -1,4 +1,5 @@
-#[macro_use]
+// HST patch (B618): the default (Android) and iOS backends log nothing
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), macro_use)]
 extern crate log;
 
 use std::fmt;
