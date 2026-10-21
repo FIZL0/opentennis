@@ -6,7 +6,7 @@
 
 use super::super::widescreen::{ASPECTS, aspect_choices};
 use super::roster::{self, PX, PY, rounded};
-use super::{legend, look, CHAT, EMOTE_VOICES, UPDATE_CHECK, VIBRATION, Draw, Effect, Grid, INK, KEY_HINTS, MENU_SIZES, Menu, Press, RENDERERS, Screen, Settings, Tex, UPSCALED_DOWNLOADS, WHITE, controls, pointer};
+use super::{legend, look, Draw, Effect, Grid, INK, MENU_SIZES, Menu, Press, RENDERERS, Screen, Settings, Tex, WHITE, controls, pointer};
 use crate::mods_online::Ask;
 use crate::graphics::{FPS, Graphics, MESHES, MSAA, SCALES, SHADOWS};
 use bevy::prelude::{KeyCode, default};
@@ -300,7 +300,7 @@ const AUTO: &str = "Auto";
 impl Settings {
     /// M140: the Updates row's choice: Never is Check for Updates off, else Ask or Always.
     fn updates(&self) -> Ask {
-        match (self.0[UPDATE_CHECK], self.11) {
+        match (self.update_check, self.updates_always) {
             (false, _) => Ask::Never,
             (true, true) => Ask::Always,
             (true, false) => Ask::Each,
@@ -309,16 +309,16 @@ impl Settings {
 
     /// Change `o` one step in direction `d`.
     pub(super) fn step(&mut self, o: Opt, d: isize) {
-        let g = &mut self.1;
+        let g = &mut self.graphics;
         // P53: setting the graphics by hand ends Auto's timing
         g.auto &= !matches!(o, Scale | Shadows | Msaa | Fps | Vsync | Original | Cull | FewerShadows | Mesh);
         match o {
             Display => g.windowed = !g.windowed,
-            Aspect => self.3 = (self.3 as isize + d).rem_euclid(aspect_choices() as isize) as u8,
-            MenuSize => self.7 = cycle(&MENU_SIZES, self.7, d),
+            Aspect => self.aspect = (self.aspect as isize + d).rem_euclid(aspect_choices() as isize) as u8,
+            MenuSize => self.menu_size = cycle(&MENU_SIZES, self.menu_size, d),
             ShowFps => g.show_fps = (g.show_fps as isize + d).rem_euclid(3) as u8,
-            KeyHints => self.0[KEY_HINTS] = !self.0[KEY_HINTS],
-            ButtonIcons => self.9 = (self.9 as isize + d).rem_euclid(super::legend::LAYOUTS.len() as isize) as u8,
+            KeyHints => self.key_hints = !self.key_hints,
+            ButtonIcons => self.button_icons = (self.button_icons as isize + d).rem_euclid(super::legend::LAYOUTS.len() as isize) as u8,
             // P53: Auto after the presets: the device's pick, timed in matches
             Preset => {
                 let names: Vec<_> = Graphics::PRESETS.iter().map(|(n, _)| *n).chain([AUTO]).collect();
@@ -334,36 +334,36 @@ impl Settings {
             Cull => g.cull = !g.cull,
             // Upscaled Downloads follows Texture Replacements (B227)
             Upscaled => {
-                self.0[0] = !self.0[0];
-                self.0[UPSCALED_DOWNLOADS] = self.0[0];
+                self.upscaled_textures = !self.upscaled_textures;
+                self.upscaled_downloads = self.upscaled_textures;
             }
             Volume(i) => {
-                let v = &mut self.2 .0[i];
+                let v = &mut self.volumes.0[i];
                 *v = (*v as isize + d).clamp(0, 10) as _;
             }
-            MenuMusic => self.0[1] = !self.0[1],
-            MatchMusic => self.0[2] = !self.0[2],
+            MenuMusic => self.menu_music = !self.menu_music,
+            MatchMusic => self.music = !self.music,
             EmoteVoices => {
-                self.0[EMOTE_VOICES] = !self.0[EMOTE_VOICES];
-                crate::audio::EMOTE_VOICES.store(self.0[EMOTE_VOICES], std::sync::atomic::Ordering::Relaxed);
+                self.emote_voices = !self.emote_voices;
+                crate::audio::EMOTE_VOICES.store(self.emote_voices, std::sync::atomic::Ordering::Relaxed);
             }
-            Downloads => self.0[UPSCALED_DOWNLOADS] = !self.0[UPSCALED_DOWNLOADS],
-            AtOnce => self.8 = (self.8 as isize + d).rem_euclid(super::max_downloads() as isize + 1) as u8,
-            KeepDownloads => self.10 = cycle(&ASK_VALUES.map(|(a, _)| a), self.10, d),
-            OnlineMods => self.4 = cycle(&ASK_VALUES.map(|(a, _)| a), self.4, d),
+            Downloads => self.upscaled_downloads = !self.upscaled_downloads,
+            AtOnce => self.downloads = (self.downloads as isize + d).rem_euclid(super::max_downloads() as isize + 1) as u8,
+            KeepDownloads => self.keep_downloads = cycle(&ASK_VALUES.map(|(a, _)| a), self.keep_downloads, d),
+            OnlineMods => self.online_mods = cycle(&ASK_VALUES.map(|(a, _)| a), self.online_mods, d),
             Chat => {
-                self.0[CHAT] = !self.0[CHAT];
-                crate::chat::HIDDEN.store(!self.0[CHAT], std::sync::atomic::Ordering::Relaxed);
+                self.chat = !self.chat;
+                crate::chat::HIDDEN.store(!self.chat, std::sync::atomic::Ordering::Relaxed);
             }
-            Renderer => self.5 = (self.5 as isize + d).rem_euclid(RENDERERS.len() as isize) as u8,
-            Vibration => self.0[VIBRATION] = !self.0[VIBRATION],
+            Renderer => self.renderer = (self.renderer as isize + d).rem_euclid(RENDERERS.len() as isize) as u8,
+            Vibration => self.vibration = !self.vibration,
             // M140: Ask / Always / Never, Never being the older Check for Updates off
             UpdateCheck => {
                 let a = cycle(&ASK_VALUES.map(|(a, _)| a), self.updates(), d);
-                self.0[UPDATE_CHECK] = a != Ask::Never;
-                crate::update::CHECK.store(self.0[UPDATE_CHECK], std::sync::atomic::Ordering::Relaxed);
-                self.11 = a == Ask::Always;
-                crate::update::ALWAYS.store(self.11, std::sync::atomic::Ordering::Relaxed);
+                self.update_check = a != Ask::Never;
+                crate::update::CHECK.store(self.update_check, std::sync::atomic::Ordering::Relaxed);
+                self.updates_always = a == Ask::Always;
+                crate::update::ALWAYS.store(self.updates_always, std::sync::atomic::Ordering::Relaxed);
             }
             FewerShadows => g.fewer_shadows = !g.fewer_shadows,
             Mesh => g.mesh = cycle(&MESHES, g.mesh, d),
@@ -373,7 +373,7 @@ impl Settings {
 
     /// Preset `n` (one of `Graphics::PRESETS`' names, or Auto: the device's pick); the window and Show FPS stay.
     fn preset(&mut self, n: &str) {
-        let g = &mut self.1;
+        let g = &mut self.graphics;
         *g = match Graphics::PRESETS.iter().find(|(m, _)| *m == n) {
             Some((_, p)) => Graphics { auto: false, ..g.keep(*p) },
             None => Graphics { windowed: g.windowed, show_fps: g.show_fps, ..super::auto_graphics() },
@@ -403,15 +403,15 @@ impl Settings {
 
     /// The value shown beside `o` (a slider's is its number).
     pub(super) fn value(&self, o: Opt) -> String {
-        let g = &self.1;
+        let g = &self.graphics;
         match o {
             _ if locked(o) => "Off".into(),
             Display => if g.windowed { "Window" } else { "Fullscreen" }.into(),
-            Aspect => ASPECTS[self.3 as usize].into(),
-            MenuSize => menu_size_name(self.7),
+            Aspect => ASPECTS[self.aspect as usize].into(),
+            MenuSize => menu_size_name(self.menu_size),
             ShowFps => SHOW_FPS_NAMES[g.show_fps.min(2) as usize].into(),
-            KeyHints => on_off(self.0[KEY_HINTS]),
-            ButtonIcons => super::legend::LAYOUTS[self.9 as usize].0.into(),
+            KeyHints => on_off(self.key_hints),
+            ButtonIcons => super::legend::LAYOUTS[self.button_icons as usize].0.into(),
             Preset if g.auto => AUTO.into(),
             Preset => g.preset().into(),
             Scale => format!("{} %", g.scale),
@@ -422,18 +422,18 @@ impl Settings {
             Original => on_off(g.original),
             Cull => on_off(g.cull),
             Mesh => format!("{} %", g.mesh),
-            Upscaled => on_off(self.0[0]),
-            Volume(i) => self.2 .0[i].to_string(),
-            MenuMusic => on_off(self.0[1]),
-            MatchMusic => on_off(self.0[2]),
-            EmoteVoices => on_off(self.0[EMOTE_VOICES]),
-            KeepDownloads => ASK_VALUES.iter().find(|(a, _)| *a == self.10).unwrap().1.into(),
-            Downloads => on_off(self.0[UPSCALED_DOWNLOADS]),
-            AtOnce => at_once_name(self.8 as usize),
-            OnlineMods => ASK_VALUES.iter().find(|(a, _)| *a == self.4).unwrap().1.into(),
-            Chat => on_off(self.0[CHAT]),
-            Renderer => RENDERERS[self.5 as usize].1.into(),
-            Vibration => on_off(self.0[VIBRATION]),
+            Upscaled => on_off(self.upscaled_textures),
+            Volume(i) => self.volumes.0[i].to_string(),
+            MenuMusic => on_off(self.menu_music),
+            MatchMusic => on_off(self.music),
+            EmoteVoices => on_off(self.emote_voices),
+            KeepDownloads => ASK_VALUES.iter().find(|(a, _)| *a == self.keep_downloads).unwrap().1.into(),
+            Downloads => on_off(self.upscaled_downloads),
+            AtOnce => at_once_name(self.downloads as usize),
+            OnlineMods => ASK_VALUES.iter().find(|(a, _)| *a == self.online_mods).unwrap().1.into(),
+            Chat => on_off(self.chat),
+            Renderer => RENDERERS[self.renderer as usize].1.into(),
+            Vibration => on_off(self.vibration),
             UpdateCheck => ASK_VALUES.iter().find(|(a, _)| *a == self.updates()).unwrap().1.into(),
             FewerShadows => on_off(g.fewer_shadows),
             Advanced => ">".into(),
@@ -475,8 +475,8 @@ impl Menu {
                 self.editing = None;
                 if self.settings != was {
                     self.settings = was;
-                    crate::chat::HIDDEN.store(!was.0[CHAT], std::sync::atomic::Ordering::Relaxed);
-                    crate::audio::EMOTE_VOICES.store(was.0[EMOTE_VOICES], std::sync::atomic::Ordering::Relaxed);
+                    crate::chat::HIDDEN.store(!was.chat, std::sync::atomic::Ordering::Relaxed);
+                    crate::audio::EMOTE_VOICES.store(was.emote_voices, std::sync::atomic::Ordering::Relaxed);
                     out.push(Effect::SaveSettings);
                 }
                 out.push(Effect::Sound(1));
@@ -527,7 +527,7 @@ impl Menu {
         } else if k.ok && o == Renderer {
             // B327: a different renderer asks first (the page reloads into it); the one in use just closes the list
             (self.listing, self.editing) = (None, None);
-            if j as u8 != self.settings.5 {
+            if j as u8 != self.settings.renderer {
                 self.switch = Some((j as u8, 0));
             }
             out.push(Effect::Sound(2));
@@ -554,7 +554,7 @@ impl Menu {
             self.switch = Some((r, 1 - c));
             out.push(Effect::Sound(0));
         } else if k.ok && c == 0 {
-            self.settings.5 = r;
+            self.settings.renderer = r;
             self.switch = None;
             out.extend([Effect::Sound(2), Effect::SaveSettings]);
         } else if k.ok || k.back {
@@ -848,7 +848,7 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
             let t = 2.0;
             let inner = [bar[0] + t * PX, bar[1] + t * PY, sw - 2.0 * t * PX, bar[3] - 2.0 * t * PY];
             rounded(d, inner, 3.0, WHITE, 128.0);
-            let fill = (inner[2] * m.settings.2 .0[k] as f32 / 10.0).max(6.0 * PX);
+            let fill = (inner[2] * m.settings.volumes.0[k] as f32 / 10.0).max(6.0 * PX);
             rounded(d, [inner[0], inner[1], fill, inner[3]], 3.0, look::c(look::BLUE), 128.0);
         }
         if editing {
@@ -886,7 +886,7 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         let ink = WHITE;
         d.label(&value, vx + vw / 2.0, vy + (vh - size) / 2.0, size, vw - 40.0 * PX, ink);
         let ends = match o {
-            Volume(k) => (m.settings.2 .0[k] > 0, m.settings.2 .0[k] < 10),
+            Volume(k) => (m.settings.volumes.0[k] > 0, m.settings.volumes.0[k] < 10),
             _ => (true, true),
         };
         if ends.0 {
@@ -1473,20 +1473,20 @@ mod tests {
     #[test]
     fn sound_sliders() {
         let mut m = Menu { screen: Screen::Sound, sel: 1, ..default() };
-        assert_eq!(m.settings.2, Volumes([10, 5, 10, 10, 5]), "music and ambience default to half");
-        m.settings.2 = Volumes([10; 5]);
+        assert_eq!(m.settings.volumes, Volumes([10, 5, 10, 10, 5]), "music and ambience default to half");
+        m.settings.volumes = Volumes([10; 5]);
         m.step(Dev::Keys, press(|k| &mut k.ok));
         assert!(m.step(Dev::Keys, press(|k| &mut k.right)).is_empty(), "at its end: no sound, no save");
-        assert_eq!(m.settings.2, Volumes([10, 10, 10, 10, 10]));
+        assert_eq!(m.settings.volumes, Volumes([10, 10, 10, 10, 10]));
         (0..12).for_each(|_| _ = m.step(Dev::Keys, press(|k| &mut k.left)));
-        assert_eq!(m.settings.2, Volumes([10, 0, 10, 10, 10]));
+        assert_eq!(m.settings.volumes, Volumes([10, 0, 10, 10, 10]));
         m.step(Dev::Keys, press(|k| &mut k.ok));
         // M111: the ambience slider, under the voices'
         (0..3).for_each(|_| _ = m.step(Dev::Keys, press(|k| &mut k.down)));
         assert_eq!(page(m.screen)[m.sel], Volume(4));
         m.step(Dev::Keys, press(|k| &mut k.ok));
         (0..3).for_each(|_| _ = m.step(Dev::Keys, press(|k| &mut k.left)));
-        assert_eq!(m.settings.2, Volumes([10, 0, 10, 10, 7]));
+        assert_eq!(m.settings.volumes, Volumes([10, 0, 10, 10, 7]));
         m.step(Dev::Keys, press(|k| &mut k.ok));
         assert_eq!(Settings::parse(&m.settings.text()), m.settings);
     }
@@ -1527,15 +1527,15 @@ mod tests {
         assert_eq!(d.outside, Some(pointer::Act::Row(1, pointer::OK)));
         assert!(super::super::legend::acts(&m, Dev::Keys).iter().any(|(_, w)| w == "Cancel"));
         m.point(Dev::Keys, pointer::Act::Row(1, pointer::OK), true);
-        assert_eq!((m.switch, m.settings.5), (None, 0));
+        assert_eq!((m.switch, m.settings.renderer), (None, 0));
         pick(&mut m, 2);
         let fx = m.point(Dev::Keys, pointer::Act::Row(0, pointer::OK), true);
-        assert!(m.switch.is_none() && m.settings.5 == 2 && fx.contains(&Effect::SaveSettings));
+        assert!(m.switch.is_none() && m.settings.renderer == 2 && fx.contains(&Effect::SaveSettings));
         assert!(m.settings.text().contains("renderer = webgl2") || !cfg!(target_arch = "wasm32"));
         assert_eq!(m.settings.value(Renderer), "WebGL2");
         // ◀ ▶ on the row neither change it nor ask
         m.step(Dev::Keys, press(|k| &mut k.right));
-        assert_eq!((m.switch, m.settings.5), (None, 2));
+        assert_eq!((m.switch, m.settings.renderer), (None, 2));
         // the popup again, on every aspect
         pick(&mut m, 0);
         assert_eq!(m.switch, Some((0, 0)));
@@ -1553,64 +1553,64 @@ mod tests {
         let d = Graphics::default();
         let mut s = Settings::default();
         s.step(Preset, 1);
-        assert_eq!(s.1, Graphics::STEAM_DECK);
+        assert_eq!(s.graphics, Graphics::STEAM_DECK);
         s.step(Preset, -1);
-        assert_eq!(s.1, d);
+        assert_eq!(s.graphics, d);
         // B412: High before Default, and the speed-up switches are part of a preset
         s.step(Preset, -1);
-        assert_eq!((s.1, s.value(Preset).as_str()), (Graphics::HIGH, "High"));
+        assert_eq!((s.graphics, s.value(Preset).as_str()), (Graphics::HIGH, "High"));
         s.step(FewerShadows, 1);
-        assert_eq!((s.1.fewer_shadows, s.value(Preset).as_str()), (true, "Custom"));
+        assert_eq!((s.graphics.fewer_shadows, s.value(Preset).as_str()), (true, "Custom"));
         s.step(Cull, 1);
         assert_eq!(s.value(Preset), "Default");
         s.step(Mesh, -1);
-        assert_eq!((s.1.mesh, s.value(Preset).as_str()), (75, "Custom"));
+        assert_eq!((s.graphics.mesh, s.value(Preset).as_str()), (75, "Custom"));
         s.step(Mesh, 1);
-        assert_eq!(s.1, d);
+        assert_eq!(s.graphics, d);
         s.step(Scale, -1);
-        assert_eq!((s.1.scale, s.value(Preset).as_str()), (85, "Custom"));
+        assert_eq!((s.graphics.scale, s.value(Preset).as_str()), (85, "Custom"));
         s.step(Display, 1);
         s.step(ShowFps, 1);
         s.step(Preset, 1);
-        assert_eq!((s.1.windowed, s.1.show_fps, s.value(Preset).as_str(), s.value(Display).as_str()), (true, 1, "High", "Window"));
-        assert!(Settings::parse(&s.text()).1.show_fps == 1 && s.flags().contains(&"--show-fps".into()));
+        assert_eq!((s.graphics.windowed, s.graphics.show_fps, s.value(Preset).as_str(), s.value(Display).as_str()), (true, 1, "High", "Window"));
+        assert!(Settings::parse(&s.text()).graphics.show_fps == 1 && s.flags().contains(&"--show-fps".into()));
         // B414: Lowest sits between Low and Phone
-        let mut l = Settings { 1: Graphics::LOW, ..Settings::default() };
+        let mut l = Settings { graphics: Graphics::LOW, ..Settings::default() };
         l.step(Preset, 1);
-        assert_eq!((l.1, l.value(Preset).as_str()), (Graphics::LOWEST, "Lowest"));
+        assert_eq!((l.graphics, l.value(Preset).as_str()), (Graphics::LOWEST, "Lowest"));
         l.step(Preset, 1);
-        assert_eq!(l.1, Graphics::PHONE);
+        assert_eq!(l.graphics, Graphics::PHONE);
         // P53: Auto after Phone (this device's pick, saved), then round to High; a graphics row by hand ends it
         l.step(Preset, 1);
-        assert!(l.1.auto && l.value(Preset) == AUTO && Settings::parse(&l.text()) == l && choices(Preset).contains(&l.value(Preset)));
+        assert!(l.graphics.auto && l.value(Preset) == AUTO && Settings::parse(&l.text()) == l && choices(Preset).contains(&l.value(Preset)));
         l.step(Scale, -1);
-        assert!(!l.1.auto && l.value(Preset) != AUTO);
+        assert!(!l.graphics.auto && l.value(Preset) != AUTO);
         l.step(Preset, 1);
-        assert_eq!((l.1.auto, l.value(Preset).as_str()), (false, "High"));
+        assert_eq!((l.graphics.auto, l.value(Preset).as_str()), (false, "High"));
         l.step(Preset, -1);
         l.step(ShowFps, 1);
-        assert!(l.1.auto && l.value(Preset) == AUTO);
+        assert!(l.graphics.auto && l.value(Preset) == AUTO);
         s.step(Original, 1);
-        assert!(s.1.original && Settings::parse(&s.text()) == s && s.flags().contains(&"--original".into()));
+        assert!(s.graphics.original && Settings::parse(&s.text()) == s && s.flags().contains(&"--original".into()));
         // B301: Key Hints, on by default, saved
         assert_eq!(s.value(KeyHints), "On");
         s.step(KeyHints, 1);
-        assert!(!s.0[KEY_HINTS] && s.text().contains("key_hints = off") && Settings::parse(&s.text()) == s);
+        assert!(!s.key_hints && s.text().contains("key_hints = off") && Settings::parse(&s.text()) == s);
         // B362: Button Icons, Auto by default, saved
         assert_eq!(s.value(ButtonIcons), "Auto");
         s.step(ButtonIcons, -1);
         assert!(s.value(ButtonIcons) == "Generic" && s.text().contains("button_icons = generic") && Settings::parse(&s.text()) == s);
         assert_eq!(choices(ButtonIcons), ["Auto", "PlayStation", "Xbox", "Switch", "Generic"]);
         s.step(Upscaled, 1);
-        assert!(!s.0[0] && !s.0[UPSCALED_DOWNLOADS]);
+        assert!(!s.upscaled_textures && !s.upscaled_downloads);
         s.step(Downloads, 1);
-        assert!(!s.0[0] && s.0[UPSCALED_DOWNLOADS]);
+        assert!(!s.upscaled_textures && s.upscaled_downloads);
         s.step(Aspect, -1);
         assert_eq!(s.value(Aspect), ASPECTS[aspect_choices() - 1]);
         // B421: Stretch is the phone apps' only; a settings.txt's Stretch reads back there (elsewhere as the default)
         assert_eq!(choices(Aspect).len(), aspect_choices());
         let mut t = s;
-        t.3 = crate::play::widescreen::STRETCH;
+        t.aspect = crate::play::widescreen::STRETCH;
         let stretch = aspect_choices() == ASPECTS.len();
         assert!(t.text().contains("aspect = Stretch") && (Settings::parse(&t.text()) == t) == stretch);
         // B339: Downloads at Once steps Auto, 1..=8 and wraps; its side panel lists the same

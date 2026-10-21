@@ -666,7 +666,7 @@ impl Menu {
                 None => "downloading its looks...",
             },
             Some(h) if self.net.ask == Some(h) => "download its looks?",
-            _ => match self.settings.4 {
+            _ => match self.settings.online_mods {
                 Ask::Never => "you'll see a stand-in",
                 Ask::Always => "its looks download once picked",
                 Ask::Each => "you'll be asked to download it",
@@ -1662,7 +1662,7 @@ impl Menu {
                 self.net.looks.insert(h, Some(d));
                 continue;
             }
-            match self.settings.4 {
+            match self.settings.online_mods {
                 Ask::Always => {
                     self.net.wanted.insert(h);
                     net.want(h, looks_id(room, h), &cache);
@@ -1702,7 +1702,7 @@ impl Menu {
             self.net.looks.insert(h, None);
         }
         // B289: kept with the settings (Settings → Online Mod Downloads changes it later)
-        self.settings.4 = remember;
+        self.settings.online_mods = remember;
         out.extend([Effect::Sound(2), Effect::SaveSettings]);
     }
 
@@ -1715,7 +1715,7 @@ impl Menu {
         }
         self.net.kept.extend(dirs);
         self.sel = 0;
-        self.settings.10 = remember;
+        self.settings.keep_downloads = remember;
         out.extend([Effect::Sound(2), Effect::SaveSettings]);
     }
 
@@ -2827,7 +2827,7 @@ pub(super) fn sample(m: &mut Menu) {
 // ponytail: asked about only back in the lobby; a match that ends out of it (the lobby closed) keeps them on Always only
 fn fetched(menu: &Menu, iso: &str) -> Vec<(PathBuf, String)> {
     let cache = mo::cache(iso);
-    let mut v: Vec<_> = menu.net.looks.values().flatten().filter(|d| menu.settings.10 != Ask::Never && d.starts_with(&cache) && !menu.net.kept.contains(*d)).filter_map(|d| Some((d.clone(), crate::mods::read_any(d).ok()?.name))).collect();
+    let mut v: Vec<_> = menu.net.looks.values().flatten().filter(|d| menu.settings.keep_downloads != Ask::Never && d.starts_with(&cache) && !menu.net.kept.contains(*d)).filter_map(|d| Some((d.clone(), crate::mods::read_any(d).ok()?.name))).collect();
     v.sort();
     v.dedup();
     v
@@ -2874,7 +2874,7 @@ fn launch(menu: &Menu, room: Room, me: String, gamepads: &Query<(Entity, &Gamepa
     }
     info!("starting the online match: {}", flags.join(" "));
     let (base, kept) = (args.clone(), menu.clone());
-    let (fetched, always) = (fetched(menu, &args.iso), menu.settings.10 == Ask::Always);
+    let (fetched, always) = (fetched(menu, &args.iso), menu.settings.keep_downloads == Ask::Always);
     commands.queue(move |w: &mut World| {
         let Some(net) = w.remove_resource::<Net>() else { return };
         let back = crate::mode::Mode::new(move |app| {
@@ -3618,7 +3618,7 @@ mod tests {
         let (net, mut rx) = Net::wired();
         let mut b = Menu { screen: Screen::Chars, ..default() };
         sample(&mut b);
-        (b.net.me, b.net.go, b.settings.4) = ("host".into(), Some(Go::Code), Ask::Each);
+        (b.net.me, b.net.go, b.settings.online_mods) = ("host".into(), Some(Go::Code), Ask::Each);
         b.seats[0] = Some(Dev::Keys);
         let r = b.net.room.as_mut().unwrap();
         r.live.clear();
@@ -3633,7 +3633,7 @@ mod tests {
         assert_eq!((b.net.ask_row, b.players[0].cursor), (1, cursor), "the prompt takes the press, not the grid");
         let out = b.step(Dev::Keys, OK);
         assert!(out.iter().any(|e| matches!(e, Effect::Online(Fx::Net(Cmd::Want(7))))), "{out:?}");
-        assert_eq!((b.net.ask, b.net.wanted.contains(&7), b.settings.4, b.mod_asking()), (None, true, Ask::Each, false));
+        assert_eq!((b.net.ask, b.net.wanted.contains(&7), b.settings.online_mods, b.mod_asking()), (None, true, Ask::Each, false));
         assert_eq!(b.remote_mod_note(1).as_deref(), Some("Emi mod: downloading its looks..."));
         // B537: how far, as its bytes come; another mod's (not wanted here) changes nothing
         b.download_progress(7, 0, 200);
@@ -3669,7 +3669,7 @@ mod tests {
         assert_eq!(b.remote_mod_note(1).as_deref(), Some("Emi mod: you'll see a stand-in"));
         // "always": fetched with no prompt, on the confirm too
         while rx.try_recv().is_ok() {}
-        (b.screen, b.settings.4) = (Screen::Confirm, Ask::Always);
+        (b.screen, b.settings.online_mods) = (Screen::Confirm, Ask::Always);
         b.net.looks.clear();
         b.settle(iso, &net);
         assert_eq!((b.net.ask, b.net.wanted.contains(&7)), (None, true));
@@ -3694,7 +3694,7 @@ mod tests {
         let (net, mut rx) = Net::wired();
         let mut b = Menu { screen: Screen::Lobby, ..default() };
         sample(&mut b);
-        (b.net.me, b.net.go, b.net.hosting, b.settings.4) = ("g".into(), Some(Go::Code), false, Ask::Always);
+        (b.net.me, b.net.go, b.net.hosting, b.settings.online_mods) = ("g".into(), Some(Go::Code), false, Ask::Always);
         let r = b.net.room.as_mut().unwrap();
         r.seats.iter_mut().flatten().for_each(|s| s.pick.r#mod = None);
         r.court_mod = Some(mo::CourtWire { dir: None, ..wire.clone() });
@@ -3712,9 +3712,9 @@ mod tests {
         assert_eq!(b.net.keep, [(dir.clone(), "Wonderland".to_string())]);
         assert!(b.lobby_asking());
         b.answer_keep(NOT_NOW, &mut Vec::new());
-        assert!(!b.lobby_asking() && b.net.kept.contains(&dir) && fetched(&b, &iso).is_empty() && b.settings.10 == Ask::Each);
+        assert!(!b.lobby_asking() && b.net.kept.contains(&dir) && fetched(&b, &iso).is_empty() && b.settings.keep_downloads == Ask::Each);
         b.net.kept.clear();
-        b.settings.10 = Ask::Never;
+        b.settings.keep_downloads = Ask::Never;
         assert!(fetched(&b, &iso).is_empty());
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -3790,7 +3790,7 @@ mod tests {
         let (net, mut rx) = Net::wired();
         let mut a = Menu { screen: Screen::Lobby, mods: vec![m.clone()], ..default() };
         sample(&mut a);
-        (a.net.me, a.net.go, a.settings.4) = ("host".into(), Some(Go::Code), Ask::Each);
+        (a.net.me, a.net.go, a.settings.online_mods) = ("host".into(), Some(Go::Code), Ask::Each);
         a.seats[0] = Some(super::super::Dev::Keys);
         (a.players[0].modded, a.players[0].pick) = (true, 0);
         let p = a.picks();

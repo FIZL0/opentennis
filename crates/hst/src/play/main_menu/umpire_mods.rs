@@ -182,9 +182,9 @@ mod tests {
         assert_eq!(m.umpire as usize, UMPIRES + 1);
         // △: Preview Voice on a mod with its own calls too
         assert!(m.step(Dev::Keys, press(|p| &mut p.card)).iter().any(|e| matches!(e, Effect::Hear(6, ..))));
-        let saved = m.settings.6;
+        let saved = m.settings.umpire;
         m.step(Dev::Keys, press(|p| &mut p.ok));
-        assert_eq!((m.umpire as usize, m.settings.6), (UMPIRES + 1, saved), "kept, not saved");
+        assert_eq!((m.umpire as usize, m.settings.umpire), (UMPIRES + 1, saved), "kept, not saved");
         let t = Text { msg: Vec::new(), glyphs: default(), grades: [[0; 5]; 14], style: [0; 14], hands: [1.0; 14], ranks: Vec::new(), mods: Vec::new() };
         assert_eq!((m.umpire_name(&t, UMPIRES + 2), m.umpire_name(&t, UMPIRES), m.umpire_donor(UMPIRES + 1)), ("Umpire 01".into(), "Random".into(), 2));
         let a = m.args(&[]);

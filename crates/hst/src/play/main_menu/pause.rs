@@ -310,9 +310,9 @@ fn after(
         }
         return;
     }
-    let [_, _, match_music, ..] = menu.settings.0;
-    widescreen::ASPECT.store(menu.settings.3, std::sync::atomic::Ordering::Relaxed);
-    super::super::key_hints::ON.store(menu.settings.0[super::KEY_HINTS], std::sync::atomic::Ordering::Relaxed);
+    let match_music = menu.settings.music;
+    widescreen::ASPECT.store(menu.settings.aspect, std::sync::atomic::Ordering::Relaxed);
+    super::super::key_hints::ON.store(menu.settings.key_hints, std::sync::atomic::Ordering::Relaxed);
     if match_music != args.music
         && let (Some(game), Some(sound), Some(mut music)) = (game, sound, music)
     {
@@ -672,7 +672,7 @@ mod tests {
         m.step(super::super::Dev::Keys, Press { ok: true, ..default() });
         m.step(super::super::Dev::Keys, Press { down: true, ..default() });
         let fx = m.step(super::super::Dev::Keys, Press { ok: true, ..default() });
-        assert!(m.settings.3 == 1 && fx.contains(&super::super::Effect::SaveSettings));
+        assert!(m.settings.aspect == 1 && fx.contains(&super::super::Effect::SaveSettings));
         m.step(super::super::Dev::Keys, Press { back: true, ..default() });
         assert_eq!(m.screen, Screen::Main);
     }
@@ -701,7 +701,7 @@ mod tests {
         app.update();
         app.world_mut().resource_mut::<PauseSettings>().open();
         app.update();
-        let was = app.world().resource::<Menu>().settings.0[1];
+        let was = app.world().resource::<Menu>().settings.menu_music;
         // the Sound tab (2), then its Menu Music row (5)
         app.world_mut().resource_mut::<super::super::pointer::Pending>().0.push((super::super::pointer::Act::Tab(2), true));
         app.update();
@@ -710,7 +710,7 @@ mod tests {
             app.world_mut().resource_mut::<super::super::pointer::Pending>().0.push((super::super::pointer::Act::Row(5, k), true));
             app.update();
         }
-        assert_eq!(app.world().resource::<Menu>().settings.0[1], !was, "Menu Music didn't change");
+        assert_eq!(app.world().resource::<Menu>().settings.menu_music, !was, "Menu Music didn't change");
         assert!(std::fs::read_to_string(dir.join("settings.txt")).is_ok(), "settings not saved");
         app.world_mut().resource_mut::<super::super::pointer::Pending>().0.push((super::super::pointer::press(|k| k.back = true), true));
         app.update();

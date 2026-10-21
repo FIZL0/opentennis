@@ -892,7 +892,7 @@ impl Menu {
             self.add.status = format!("{} is on its way already.", e.meta.name);
             return out.push(Effect::Sound(1));
         }
-        let (up, n) = (self.settings.0[super::UPSCALED_DOWNLOADS], self.settings.downloads_at_once());
+        let (up, n) = (self.settings.upscaled_downloads, self.settings.downloads_at_once());
         let queued = self.add.doing.len() >= n;
         let name = e.meta.name.clone();
         self.add.enqueue(e, up, n);
@@ -905,7 +905,7 @@ impl Menu {
     /// M135: Update all (the Mods page's footer, the main screen's card): queues every installed mod's update, any
     /// kind, that isn't on its way already.
     pub(super) fn update_all(&mut self, out: &mut Vec<Effect>) {
-        let (up, at_once) = (self.settings.0[super::UPSCALED_DOWNLOADS], self.settings.downloads_at_once());
+        let (up, at_once) = (self.settings.upscaled_downloads, self.settings.downloads_at_once());
         let todo: Vec<Entry> = self.add.updates().into_iter().filter(|e| !self.add.on_way(e)).cloned().collect();
         let n = todo.len();
         for e in todo {
@@ -924,7 +924,7 @@ impl Menu {
     /// B255: Download all on an author's list or on their heading: queues every one of `list` (`author`'s mods; B493:
     /// None, the whole store's mods on view) not installed at the same or a newer version.
     fn download_all(&mut self, author: Option<&str>, list: Vec<Entry>, out: &mut Vec<Effect>) {
-        let (up, at_once) = (self.settings.0[super::UPSCALED_DOWNLOADS], self.settings.downloads_at_once());
+        let (up, at_once) = (self.settings.upscaled_downloads, self.settings.downloads_at_once());
         let todo: Vec<Entry> = list.iter().filter(|e| !self.add.skips(e)).cloned().collect();
         let (n, skipped) = (todo.len(), list.len() - todo.len());
         for e in todo {
@@ -1859,7 +1859,7 @@ fn page(
     if menu.add.upped.1 > 0.0 {
         menu.add.upped.1 = (menu.add.upped.1 - time.delta_secs()).max(0.0);
     }
-    let (up, at_once) = (menu.settings.0[super::UPSCALED_DOWNLOADS], menu.settings.downloads_at_once());
+    let (up, at_once) = (menu.settings.upscaled_downloads, menu.settings.downloads_at_once());
     let mut sel = menu.sel;
     // (M5d: what a pack's install saves, the pack order with it)
     let menu_settings = menu.settings;
@@ -2519,7 +2519,7 @@ mod tests {
         let l = grid::lay(&m.grid);
         let c = l.laid(&grid::lines(&m.add.secs(), l.cols), 0).1[2].1;
         assert_eq!(act_at(&m, c[0] + 10.0, c[1] + 10.0), Some(Act::Tile(t0 + 2)));
-        (m.settings.8, m.add.doing) = (1, vec![e("zz", "z")]);
+        (m.settings.downloads, m.add.doing) = (1, vec![e("zz", "z")]);
         m.point(super::super::Dev::Keys, Act::Tile(t0 + 2), true);
         assert_eq!((m.sel, m.add.queue.len()), (t0 + 2, 0));
         m.point(super::super::Dev::Keys, Act::Tile(t0 + 2), true);
@@ -2570,7 +2570,7 @@ mod tests {
     #[test]
     fn downloads_side_by_side() {
         let mut m = Menu { screen: Screen::Mods, ..default() };
-        m.settings.8 = 3;
+        m.settings.downloads = 3;
         let e = |id: &str| Entry { meta: Meta { id: id.into(), name: id.to_uppercase(), author: "ann".into(), sha256: id.repeat(32), size: 1, ..Default::default() }, rev: "main".into(), verified: true };
         let list: Vec<Entry> = ["a1", "a2", "a3", "a4", "a5"].map(e).into();
         let mut out = Vec::new();
@@ -2589,7 +2589,7 @@ mod tests {
         // a mod under way isn't queued again; one at a time leaves the rest waiting
         m.install(e("a3"), &mut out);
         assert_eq!((m.add.queue.len(), m.add.status.as_str()), (1, "A3 is on its way already."));
-        m.settings.8 = 1;
+        m.settings.downloads = 1;
         for k in ["ann/a1", "ann/a3"] {
             m.add.finish(k, &Ok(String::new()));
         }
@@ -2893,7 +2893,7 @@ mod tests {
             assert_eq!(m.add.words(), ["Refresh", "Download all"], "{sort:?}");
         }
         // (something under way: Download all only queues)
-        (m.settings.8, m.add.doing) = (1, vec![e("busy", "x")]);
+        (m.settings.downloads, m.add.doing) = (1, vec![e("busy", "x")]);
         m.add.b.sort = grid::Sort::Newest;
         m.add.b.search = "m".into();
         let mut out = Vec::new();
@@ -2952,7 +2952,7 @@ mod tests {
         m.add.b.show = grid::Show::All;
         // (something under way: Download all only queues, nothing is fetched here)
         let busy = e("zz", "zed", "1");
-        (m.settings.8, m.add.doing) = (1, vec![busy.clone()]);
+        (m.settings.downloads, m.add.doing) = (1, vec![busy.clone()]);
         // Download all, the heading's fourth word
         m.sel = word(&m, "Download all");
         m.mods_step(ok(), &mut out);
@@ -3148,7 +3148,7 @@ mod tests {
         assert_eq!(m.add.by.as_ref().map(|b| (b.author.as_str(), b.from)), Some(("ann", 0)));
         m.mods_kind(Kind::Character, &mut out);
         // (something under way: Download all only queues)
-        (m.settings.8, m.add.doing) = (1, vec![m.add.store.as_ref().unwrap()[6].clone()]);
+        (m.settings.downloads, m.add.doing) = (1, vec![m.add.store.as_ref().unwrap()[6].clone()]);
         m.sel = word(&m, "Download all");
         m.mods_step(ok(), &mut out);
         assert_eq!(m.add.queue.iter().map(|e| e.meta.id.as_str()).collect::<Vec<_>>(), ["c1", "c2"]);
@@ -3491,7 +3491,7 @@ mod tests {
         // d downloading already: Update all queues a and c, under way side by side
         let mut out = Vec::new();
         m.add.doing = vec![e("d", "3", Kind::Character)];
-        m.settings.8 = 2;
+        m.settings.downloads = 2;
         m.sel = word(&m, "Update all");
         assert!(info(&m).contains("all 3 mods"), "{}", info(&m));
         m.mods_step(ok(), &mut out);

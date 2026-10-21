@@ -121,7 +121,7 @@ pub fn latest() -> Option<String> {
             (None, None) => return,
         };
         let t = std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let rt = crate::runtime();
             let api = std::env::var("HST_UPDATE_API").unwrap_or_else(|_| "https://api.github.com/repos/FIZL0/opentennis/releases/latest".into());
             loop {
                 let asked = std::time::SystemTime::now();
@@ -504,7 +504,7 @@ pub fn act() {
         (s.busy, s.job) = (true, Some((format!("Downloading {}...", f.tag), Some(0.0))));
         drop(s);
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let rt = crate::runtime();
             let shown = |got: u64, total: u64| {
                 let k = got as f32 / total.max(1) as f32;
                 STATE.lock().unwrap().job = Some((format!("Downloading {}... {} / {} MB", f.tag, got >> 20, total >> 20), Some(k.min(1.0))));
@@ -525,7 +525,7 @@ pub fn act() {
                         Err(e) => Err(e),
                     }
                 }
-                Way::Apk => apk(&rt, &files, &f.tag, &shown, &job),
+                Way::Apk => apk(rt, &files, &f.tag, &shown, &job),
                 Way::Installer(_) | Way::Page => unreachable!(),
             };
             match done {
@@ -844,7 +844,7 @@ PGdwmy/sa9Kqh1f1dYqI+JP0Iweg2dLM/mEgnRNTVfsQ9pI1u5aeusKILuRdn61QcyAsnzeOSfS5RRAE
     /// the same or an older version isn't offered.
     #[test]
     fn newer_release_swaps_and_bad_ones_keep_the_old_game() {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = crate::runtime();
         let dir = std::env::temp_dir().join(format!("hst-update-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -946,7 +946,7 @@ PGdwmy/sa9Kqh1f1dYqI+JP0Iweg2dLM/mEgnRNTVfsQ9pI1u5aeusKILuRdn61QcyAsnzeOSfS5RRAE
         assert_eq!(stale(&root, None, None).len(), 5);
 
         // the download into a folder with no game yet (`Way::Copy`): the Windows renames too
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = crate::runtime();
         let api = release("v1.12.0", SUMS, SIG);
         let files = rt.block_on(check(&api, "v1.0.0", Some("opentennis-linux-x86_64"))).unwrap().unwrap().files.unwrap();
         for (k, name) in ["opentennis", "opentennis.exe"].into_iter().enumerate() {

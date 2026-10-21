@@ -281,6 +281,20 @@ pub fn fps_log() -> bool {
     FPS_LOG.load(std::sync::atomic::Ordering::Relaxed) || std::env::var_os("HST_FPS").is_some()
 }
 
+/// Whole seconds since the Unix epoch (the page's clock in a browser): lobby listings, the store's cache, a rejoin.
+pub fn unix_secs() -> u64 {
+    web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// The one tokio runtime natively (online play, the mod store, the self-updater), built on first use. A job that
+/// blocks a thread (an install unzipping, the updater's loop) runs on its own thread through `block_on`, so it never
+/// holds up the others.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn runtime() -> &'static tokio::runtime::Runtime {
+    static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RT.get_or_init(|| tokio::runtime::Builder::new_multi_thread().enable_all().thread_name("tokio").build().unwrap())
+}
+
 /// A `play/` module's tick state for a resync (`play::snapshot::encode`): as bytes, then this machine's own entities
 /// and handles put back (`local`; the handles go as their defaults). Here so `effects` and `weather` can be one.
 pub trait Wire: Resource + Clone + serde::Serialize + serde::de::DeserializeOwned {

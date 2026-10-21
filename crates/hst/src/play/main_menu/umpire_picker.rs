@@ -136,8 +136,8 @@ pub(super) fn step(m: &mut Menu, k: Press, out: &mut Vec<Effect>) {
         m.picking = None;
         out.push(Effect::Sound(2));
         // B191: a disc pick is the next confirm screen's (and the next run's) starting choice
-        if m.settings.6 != m.umpire && m.umpire as usize <= UMPIRES {
-            m.settings.6 = m.umpire;
+        if m.settings.umpire != m.umpire && m.umpire as usize <= UMPIRES {
+            m.settings.umpire = m.umpire;
             out.push(Effect::SaveSettings);
         }
     } else if k.back {
@@ -320,7 +320,7 @@ mod tests {
         m.step(Dev::Keys, press(|p| &mut p.up));
         assert_eq!(m.umpire, 1, "↑: back where the disc row was");
         m.step(Dev::Keys, press(|p| &mut p.ok));
-        assert_eq!((m.picking, m.settings.6), (None, 1), "✕ keeps a disc umpire, saved");
+        assert_eq!((m.picking, m.settings.umpire), (None, 1), "✕ keeps a disc umpire, saved");
         m.step(Dev::Keys, press(|p| &mut p.ok));
         m.step(Dev::Keys, press(|p| &mut p.down));
         assert_eq!(m.umpire as usize, UMPIRES + 1 + page, "↓: back where the mods row was");
@@ -329,7 +329,7 @@ mod tests {
         }
         assert_eq!(m.umpire as usize, UMPIRES + 30, "R1 stops at the end");
         m.step(Dev::Keys, press(|p| &mut p.ok));
-        assert_eq!((m.umpire as usize, m.picking, m.settings.6), (UMPIRES + 30, None, 1), "✕ keeps a mod, not saved");
+        assert_eq!((m.umpire as usize, m.picking, m.settings.umpire), (UMPIRES + 30, None, 1), "✕ keeps a mod, not saved");
     }
 
     /// △ plays a call for a disc umpire and a mod with its own calls, never Random or a mod without; the legend says
