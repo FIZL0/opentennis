@@ -10,7 +10,8 @@ has an ACL on /dev/uinput).
 Commands: press <btn> <ms> · down <btn> · up <btn> · stick <l|r> <x> <y> (−1..1, y down = +1) ·
           sleep <ms> · release (everything neutral)
 Buttons (PS2 names → Xbox layout SDL sees): cross circle square triangle start l1 r1 l2 r2 l3 r3 up down left right.
-`select` is refused on purpose: PCSX2 hotkeys use Select + shoulder combos (load/save state, turbo).
+`select` is refused while a shoulder, trigger or Start is held: PCSX2 hotkeys use Select + those combos (load/save
+state, turbo); alone it reaches the game (the match's camera switch).
 Timing is wall-clock, not frame-exact — use PCSX2 input recording for frame-exact replays.
 The pad also takes rumble (FF_RUMBLE): every effect PCSX2 plays or stops on it is logged, one line each
 (`<unix time> play|stop strong=<0..65535> weak=<0..65535> ms=<length>`), to $XDG_RUNTIME_DIR/hst-vpad<N>.rumble.
@@ -56,10 +57,16 @@ def serve():
     dpad = {"up": (e.ABS_HAT0Y, -1), "down": (e.ABS_HAT0Y, 1), "left": (e.ABS_HAT0X, -1), "right": (e.ABS_HAT0X, 1)}
     trigs = {"l2": e.ABS_Z, "r2": e.ABS_RZ}
 
+    held = set()
+
     def key(name, down):
-        if name == "select":
-            print("vpad: refusing select (PCSX2 hotkey combos)", flush=True)
+        if name == "select" and down and held & {"l1", "r1", "l2", "r2", "start"}:
+            print("vpad: refusing select with a shoulder/trigger/Start held (PCSX2 hotkey combos)", flush=True)
             return
+        if name != "select" and down and "select" in held and name in ("l1", "r1", "l2", "r2", "start"):
+            print(f"vpad: refusing {name} while select is held (PCSX2 hotkey combos)", flush=True)
+            return
+        (held.add if down else held.discard)(name)
         if name in buttons:
             ui.write(e.EV_KEY, buttons[name], int(down))
         elif name in dpad:
@@ -90,8 +97,7 @@ def serve():
             time.sleep(int(p[1]) / 1000)
         elif c == "release":
             for n in list(buttons) + list(dpad) + list(trigs):
-                if n != "select":
-                    key(n, False)
+                key(n, False)
             run("stick l 0 0"); run("stick r 0 0")
         else:
             print(f"vpad: unknown command {line!r}", flush=True)
