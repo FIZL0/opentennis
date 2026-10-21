@@ -15,3 +15,4 @@
 - The first launch after an update no longer risks closing straight away while it gets match graphics ready ahead of time.
 - Phone apps: held upright, the touch stick, buttons and Select/Start are now full thumb size and sit together at the bottom of the screen.
 - Main menu in a tall or 4:3 window: the Settings preview's page buttons and the empty Mods preview's words now fit inside their picture instead of running over the title and description.
+- With a fixed aspect ratio or on a phone, the loading screen's court picture now stays edge to edge for the whole load, and the pause menu's dimming and the fade after a match cover the whole screen, bars and notch areas included.
