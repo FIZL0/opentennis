@@ -971,3 +971,304 @@ fn rally_state_tick_by_tick_on_match_s05() {
     assert_eq!(fails, 0, "{fails} of {n} ticks differ");
 }
 
+
+/// What the doubles AI's glue keeps besides `rally`'s fields: the serve timing, the quick-serve and serve-level
+/// picks, the active flag and the "its team hasn't hit yet" flag.
+#[derive(Clone, Copy, Debug)]
+struct Glue {
+    serve: i32,
+    quick: bool,
+    serve_level: u8,
+    active: bool,
+    first: bool,
+}
+
+impl Glue {
+    fn of(a: &[u8]) -> Glue {
+        Glue { serve: i32_at(a, 0x240), quick: a[0x244] != 0, serve_level: a[0x5c], active: a[0x60] != 0, first: a[0x230] != 0 }
+    }
+
+    fn put(&self, a: &mut [u8]) {
+        a[0x240..0x244].copy_from_slice(&self.serve.to_le_bytes());
+        flag(a, 0x244, self.quick);
+        a[0x5c] = self.serve_level;
+        flag(a, 0x60, self.active);
+        flag(a, 0x230, self.first);
+    }
+}
+
+/// The hit message's timing draw (`AiParams::timing`, `picks`, and on an opponent's shot `reaction` and `guess`),
+/// as the app's `ai_draw`/`ai_draw_guess` make it, into the AI's fields. `shots`: the opponents' shots when one
+/// of them hit; `dive`: the dive chance is drawn too; `lob`/`special`: the shot's; `beside_human`: the partner is
+/// a human.
+#[allow(clippy::too_many_arguments)]
+fn timing_draw(
+    row: &AiParams,
+    r: &mut Rally,
+    g: &mut Glue,
+    b: &Body,
+    receiver: bool,
+    shots: Option<&hst_sim::ai::Shots>,
+    dive: bool,
+    lob: bool,
+    special: bool,
+    roll: &mut impl FnMut() -> u32,
+) {
+    use hst_sim::ai::{Guess, Reacting};
+    use hst_sim::rally::guess;
+    let beside_human = r.mate > 0;
+    let t = row.timing(shots, receiver, g.first, beside_human, roll);
+    (r.leads, g.serve) = ([t.stroke, t.volley, t.smash], t.serve);
+    let p = row.picks(dive, roll);
+    (g.quick, g.serve_level, r.volley_level, r.return_level, r.high_level) = (p.quick_serve, p.serve_level, p.volley_level, p.return_level, p.high_level);
+    (r.body, r.low) = (p.body, p.low);
+    if let Some(d) = p.dive {
+        r.dive = d;
+    }
+    let Some(s) = shots else {
+        (r.wait, r.guess) = (0, guess::NONE);
+        return;
+    };
+    let near_net = b.pos[2].abs() <= hst_sim::lines::SERVICE_LINE;
+    r.wait = row.reaction(&t, &s.last, Reacting { lob, special_serve: special, beside_human, near_net }, roll);
+    match row.guess(&t, s.last.kind == hst_sim::shot::branch::SERVE as i32, !beside_human, roll) {
+        Some(q) => {
+            r.wait = row.guess[1];
+            r.guess = if q == Guess::Wide { guess::WIDE } else { guess::OTHER };
+            r.from = [b.pos[0], b.pos[2]];
+        }
+        None => r.guess = guess::NONE,
+    }
+}
+
+/// A remembered shot (0x40 bytes: hitter slot, swing branch, shot kind, the close and special-serve bytes, where
+/// the hitter stood, the target, the ball's velocity) as the AI's hit message stores it: slot −1 none.
+fn memory(a: &[u8], o: usize) -> Option<(i32, i32, i32, bool, [f32; 4], [f32; 4])> {
+    (i32_at(a, o) >= 0).then(|| (i32_at(a, o), i32_at(a, o + 4), i32_at(a, o + 8), a[o + 0xd] != 0, quad(a, o + 0x10), quad(a, o + 0x30)))
+}
+
+/// One recorded call of the doubles AI's update (tag 5) or message handler (tag 6) through the port, from the
+/// entry `e` (the AI, its world and the generator `mt` as they stood): what differs from the exit `x` (the AI's
+/// bytes but the shot memory, the stick and button, the shot records, the draw count). `winner`: the team that won
+/// the point, for the reaction message. `stash`: the stand scratch this AI's rally left last (read instead of the
+/// recorded one when `carried`, written back). None when the call runs the serve routine (not this glue's).
+fn glue_call(e: &[u8], x: &[u8], mt: &mut Mt, row: &AiParams, winner: i32, stash: &mut [f32; 4], carried: bool) -> Option<Vec<String>> {
+    use hst_sim::rally::{msg, step};
+    let tag = u32_at(e, 0);
+    let (state, exit_state) = (e[A + 0x54], x[A + 0x54]);
+    let mut r = rally(e, false);
+    if carried {
+        r.stash = *stash;
+    }
+    let mut g = Glue::of(&e[A..]);
+    let mut b = body(e);
+    let mut w = world(e);
+    let count = i32_at(e, 0x74).max(0) as usize;
+    let mut copy = w.path[..count.min(w.path.len())].to_vec();
+    copy.resize(count, Ball::default());
+    let mut c = PathCopy { stamp: i32_at(e, 0x70), balls: copy };
+    let mut seen: Vec<bool> = e[0x640..0x640 + SEEN].iter().map(|&v| v != 0).collect();
+    let mut out = Out { stick: quad(e, 0x20), button: None };
+    let a = &e[A..];
+    let mut h = Human { found: a[0x40] != 0, next: i32_at(a, 0x44), kind: a[0x48], min: i32_at(a, 0x4c), volley: a[0x50] != 0 };
+    let mut used = 0;
+    let (mut guessed, mut entered) = (false, false);
+    let mut roll = || {
+        used += 1;
+        mt.next()
+    };
+    if tag == 5 {
+        if !g.active {
+            out.stick = [0.0; 4];
+        }
+        match (state, exit_state) {
+            (2, _) => {
+                if r.receive(row, &mut b, &w, &mut c, &mut seen, &mut out, &mut roll) {
+                    r.enter_rally(&b, &mut w, &mut roll);
+                    entered = true;
+                }
+            }
+            (3, _) => {
+                let net = r.mind.play(row.style) == Play::Net;
+                r.rally(net, row, &mut b, &mut w, &mut c, &mut seen, &mut out, &mut roll);
+                *stash = r.stash;
+            }
+            (0 | 1, 3) => r.enter_rally(&b, &mut w, &mut roll),
+            (0, 2) => r.enter_receive(&mut roll),
+            (0, 1) => {
+                // the serve state's entry: the timing draw with the dive chance, then the count
+                timing_draw(row, &mut r, &mut g, &b, false, None, true, false, false, &mut roll);
+                r.mind.count(&mut roll);
+            }
+            _ => return None,
+        }
+    } else {
+        let id = u32_at(e, 0x14) as u8;
+        if matches!(id, msg::SERVE | msg::STRIKE | msg::HIT | msg::NEW_PATH) {
+            h.reset(b.pos[2]);
+        }
+        match id {
+            msg::STRIKE | msg::NEW_PATH => {
+                if id == msg::NEW_PATH && w.shots == 1 {
+                    r.hold = true;
+                }
+                match state {
+                    3 => r.heard_strike(false, &b, &mut w, &mut roll),
+                    2 => r.heard_strike(true, &b, &mut w, &mut roll),
+                    _ => {}
+                }
+                if id == msg::NEW_PATH && state == 3 {
+                    r.held = false;
+                }
+            }
+            msg::HIT => {
+                // the shot just played, as the handler stores it: in its own team's memory or the opponents'
+                let own = (e[A + 0xf0..A + 0x130] != x[A + 0xf0..A + 0x130]).then(|| memory(&x[A..], 0xf0)).flatten();
+                let theirs = (e[A + 0x130..A + 0x170] != x[A + 0x130..A + 0x170]).then(|| memory(&x[A..], 0x130)).flatten();
+                let hit = own.or(theirs).map(|m| (m.0, m.4));
+                r.heard_hit_doubles(state == 3, w.shots, &b, &mut w, hit, &mut roll);
+                let mut shots = None;
+                let (mut dive, mut lob, mut special) = (false, false, false);
+                if let Some((slot, branch, ..)) = own {
+                    g.first = false;
+                    r.mind.own_hit();
+                    dive = slot == b.team && branch == hst_sim::shot::branch::DIVE as i32;
+                }
+                if let Some((_, branch, kind, sp, _, vel)) = theirs {
+                    r.voice = true;
+                    let seen = |o| memory(&x[A..], o).map(|m| hst_sim::ai::Seen { kind: m.1, vel: [m.5[0], m.5[1], m.5[2]] });
+                    shots = Some(hst_sim::ai::Shots {
+                        last: hst_sim::ai::Seen { kind: branch, vel: [vel[0], vel[1], vel[2]] },
+                        before: seen(0x170),
+                        serve_before: seen(0x1f0).map(|s| s.vel),
+                    });
+                    lob = branch != hst_sim::shot::branch::SERVE as i32 && kind == hst_sim::shot::kind::LOB;
+                    special = sp;
+                }
+                timing_draw(row, &mut r, &mut g, &b, w.receiver == b.team, shots.as_ref(), dive, lob, special, &mut roll);
+                guessed = r.guess != hst_sim::rally::guess::NONE;
+            }
+            0x17 => g.active = hst_sim::rng::r15(roll()) % 100 < 50,
+            msg::REACTION => r.mind.point_result(row.style, b.team & 1 == winner, &mut roll),
+            _ => {}
+        }
+    }
+    drop(roll);
+    let mut errs = Vec::new();
+    if used != u32_at(x, 0xc) - u32_at(e, 0xc) {
+        errs.push(format!("draws {used} vs {}", u32_at(x, 0xc) - u32_at(e, 0xc)));
+    }
+    let mut got = bytes_all(e, &r, false);
+    g.put(&mut got);
+    got[0x44..0x48].copy_from_slice(&h.next.to_le_bytes());
+    flag(&mut got, 0x40, h.found);
+    flag(&mut got, 0x50, h.volley);
+    got[0x54] = exit_state;
+    // the shot memory is the app's own (`ai_seen`, `ai_serves`): taken from the exit
+    got[0xf0..0x230].copy_from_slice(&x[A + 0xf0..A + 0x230]);
+    if guessed {
+        // the guess's "from" is the AI's whole position quad: its height and w fill the gaps
+        got[0x254..0x258].copy_from_slice(&b.pos[1].to_bits().to_le_bytes());
+        got[0x25c..0x260].copy_from_slice(&b.pos[3].to_bits().to_le_bytes());
+    }
+    if exit_state == 3 && (state != 3 || entered) {
+        // the rally's entry writes its flags whole (the bytes held other states' values)
+        for o in [0x98, 0x99, 0x264, 0x265] {
+            got[o] = (got[o] != 0) as u8;
+        }
+    }
+    match (tag, state, exit_state) {
+        // the serve routine's own countdown and substate
+        (5, 1, _) => got[0xb4..0xb8].copy_from_slice(&x[A + 0xb4..A + 0xb8]),
+        (5, 0, 1) => got[0x55] = 0,
+        _ => {}
+    }
+    let want = &x[A..A + 0x280];
+    let diff: Vec<String> = (0..0x280 / 4)
+        .filter(|k| got[4 * k..4 * k + 4] != want[4 * k..4 * k + 4])
+        .map(|k| format!("+{:#x} {:08x} vs {:08x}", 4 * k, u32_at(&got, 4 * k), u32_at(want, 4 * k)))
+        .collect();
+    if !diff.is_empty() {
+        errs.push(format!("ai {}", diff.join(", ")));
+    }
+    if tag == 5 {
+        if out.stick.map(f32::to_bits) != quad(x, 0x20).map(f32::to_bits) {
+            errs.push(format!("stick {:?} vs {:?}", out.stick, quad(x, 0x20)));
+        }
+        let button = out.button.unwrap_or(u32_at(e, 0x30));
+        if button != u32_at(x, 0x30) {
+            errs.push(format!("button {button} vs {}", u32_at(x, 0x30)));
+        }
+    }
+    if records(e, &w) != x[0x580..0x640] {
+        errs.push("records".into());
+    }
+    let _ = step::WAIT;
+    Some(errs)
+}
+
+/// P11k6: the doubles AI's glue, its per-frame update (tag 5) and its message handler (tag 6), call by call over
+/// slot 5's bot-only doubles (`ai_glue_s05.bin`: `record_ai_rally.py 5 1500 … 1 5,6`, two points): each call is
+/// fed the AI, its world and the generator as they stood, and must leave the AI's bytes (all but the shot memory,
+/// which the app keeps its own way), the stick, the button, the shot records and the draw count as the game did.
+/// The serve state's frames run the serve routine (the app's serve walk and toss, proven by the replay tests) and
+/// are skipped, but for its hand-over to the rally.
+#[test]
+fn glue_matches_the_game() {
+    let Some(d) = fixture::read(format!("{}/context/fixtures/ai_glue_s05.bin", root())).ok() else { return };
+    let Some(table) = table() else { return };
+    assert_eq!(&d[..4], b"AIRL");
+    let mut mt = Mt::of(&d[8..8 + MT_SIZE]);
+    let mut drawn = 0u32;
+    let mut o = 8 + MT_SIZE;
+    let (mut n, mut skipped, mut fails) = ([0usize; 2], 0, 0);
+    let mut msgs = std::collections::BTreeMap::new();
+    let (mut score, mut winner) = ([0u32; 2], -1);
+    let mut stash = [[0.0f32; 4]; 4];
+    while o < d.len() {
+        let e = &d[o..o + u32_at(&d, o + 4) as usize];
+        o += e.len();
+        let x = &d[o..o + u32_at(&d, o + 4) as usize];
+        o += x.len();
+        let tag = u32_at(e, 0);
+        assert_eq!(u32_at(x, 0), tag | 0x100);
+        // the generator as the call finds it (every call draws, hooked or not)
+        let before = u32_at(e, 0xc);
+        assert!(before >= drawn, "draw count went back");
+        (drawn..before).for_each(|_| _ = mt.next());
+        drawn = before;
+        if !matches!(tag, 5 | 6) {
+            continue;
+        }
+        let now = [u32_at(e, 0x64), u32_at(e, 0x68)];
+        if now != score {
+            winner = if now[0] != score[0] { 0 } else { 1 };
+            score = now;
+        }
+        let row = &table[((u32_at(e, A + 0xc) - TABLE) / RECORD) as usize];
+        let mut probe = mt.clone();
+        let slot = i32_at(e, 0x348) as usize;
+        // the update's record takes the scratch below the update's own frame, not the one the stand routine reads:
+        // on this call the game read what this AI's stand left there the frame before (left alone in between); on
+        // every other call the recorded one gives the game's result (carrying it everywhere breaks a dozen calls
+        // whose slot was overwritten between frames)
+        let carried = u32_at(e, 8) == 8455 && slot == 2 && tag == 5;
+        let Some(errs) = glue_call(e, x, &mut probe, row, winner, &mut stash[slot], carried) else {
+            skipped += 1;
+            continue;
+        };
+        n[tag as usize - 5] += 1;
+        if tag == 6 {
+            *msgs.entry(u32_at(e, 0x14)).or_insert(0) += 1;
+        }
+        if !errs.is_empty() {
+            fails += 1;
+            if fails <= 20 {
+                eprintln!("v{} tag {tag} p{} msg {:#x} state {}/{}: {}", u32_at(e, 8), i32_at(e, 0x348), u32_at(e, 0x14), e[A + 0x54], e[A + 0x57], errs.join("; "));
+            }
+        }
+    }
+    eprintln!("updates {} messages {} {msgs:x?} skipped (serve routine) {skipped}", n[0], n[1]);
+    assert!(n[0] > 5000 && msgs.get(&0x15).is_some_and(|&k| k > 40), "{n:?} {msgs:?}");
+    assert_eq!(fails, 0, "{fails} of {} calls differ", n[0] + n[1]);
+}
