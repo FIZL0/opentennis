@@ -929,7 +929,7 @@ mod tests {
     /// part's shape doesn't change with the window's).
     #[test]
     fn fits_any_window_at_one_scale() {
-        for aspect in [0.4, 9.0 / 16.0, 0.75, 1.0, 4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 32.0 / 9.0] {
+        for aspect in [0.4, 9.0 / 16.0, 0.75, 1.0, 4.0 / 3.0, 1.6, 16.0 / 9.0, 21.0 / 9.0, 32.0 / 9.0] {
             for (n, code, public, chat) in [(4, true, true, true), (2, true, false, true), (4, false, false, false), (2, false, false, false)] {
                 let reach = super::super::Grid::fit(aspect).reach();
                 let g = layout(reach, Spec { n, code, public, chat });

@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn lays_out_at_any_aspect() {
         let inside = |[x, y, w, h]: [f32; 4], [l, t, ww, hh]: [f32; 4]| x >= l - 0.01 && y >= t - 0.01 && x + w <= l + ww + 0.01 && y + h <= t + hh + 0.01;
-        for aspect in [0.5, 0.75, 1.0, 4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 32.0 / 9.0] {
+        for aspect in [0.5, 0.75, 1.0, 4.0 / 3.0, 1.6, 16.0 / 9.0, 21.0 / 9.0, 32.0 / 9.0] {
             for mods in [0, 40] {
                 for doubles in [false, true] {
                     let mut m = picker(mods, aspect);

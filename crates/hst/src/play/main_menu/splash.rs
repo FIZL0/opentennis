@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn fills_inside_the_picture() {
-        for aspect in [0.5, 4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 4.0] {
+        for aspect in [0.5, 4.0 / 3.0, 1.6, 16.0 / 9.0, 21.0 / 9.0, 4.0] {
             let [x, y, w, h] = fill([568.0, 256.0], aspect);
             assert!(x >= 0.0 && y >= 0.0 && x + w <= 568.01 && y + h <= 256.01, "{aspect}");
             assert!((w / h - aspect).abs() < 1e-3);

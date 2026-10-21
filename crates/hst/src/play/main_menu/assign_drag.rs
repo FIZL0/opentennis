@@ -203,7 +203,7 @@ mod tests {
             p.ready = true;
         }
         let bind = super::super::controls::Bindings::default();
-        for a in [4.0, 16.0 / 9.0, 4.0 / 3.0, 9.0 / 16.0, 0.4] {
+        for a in [4.0, 16.0 / 9.0, 1.6, 4.0 / 3.0, 9.0 / 16.0, 0.4] {
             m.grid = super::super::Grid::fit(a);
             m.drag = None;
             let still = super::super::drawn(&m, &t, &bind, &[], 0, 0.0).out;

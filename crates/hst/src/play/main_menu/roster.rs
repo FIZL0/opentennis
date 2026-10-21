@@ -1580,7 +1580,7 @@ mod tests {
     #[test]
     fn band_and_rail_in_the_card() {
         let inside = |r: [f32; 4], c: [f32; 4]| r[0] >= c[0] - 1e-3 && r[1] >= c[1] - 1e-3 && r[0] + r[2] <= c[0] + c[2] + 1e-3 && r[1] + r[3] <= c[1] + c[3] + 1e-3;
-        for a in [0.4, 9.0 / 16.0, 4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 4.0] {
+        for a in [0.4, 9.0 / 16.0, 4.0 / 3.0, 1.6, 16.0 / 9.0, 21.0 / 9.0, 4.0] {
             let g = super::super::Grid::fit(a);
             for n in 1..=4 {
                 let c = columns(g.view, n);
@@ -1598,7 +1598,7 @@ mod tests {
     /// every column side by side inside the view, at every aspect and mix.
     #[test]
     fn compact_cards_leave_the_rest_to_the_rosters() {
-        for a in [0.4, 9.0 / 16.0, 4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 4.0] {
+        for a in [0.4, 9.0 / 16.0, 4.0 / 3.0, 1.6, 16.0 / 9.0, 21.0 / 9.0, 4.0] {
             let g = super::super::Grid::fit(a);
             let [l, _, r, _] = g.view;
             for n in 2..=4 {

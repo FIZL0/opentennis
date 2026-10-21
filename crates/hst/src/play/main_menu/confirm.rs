@@ -301,7 +301,7 @@ mod tests {
     /// Every row reachable with the arrows from Start, at any window.
     #[test]
     fn arrows_reach_every_row() {
-        for aspect in [0.5, 0.75, 1.0, 4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0] {
+        for aspect in [0.5, 0.75, 1.0, 4.0 / 3.0, 1.6, 16.0 / 9.0, 21.0 / 9.0] {
             for doubles in [false, true] {
                 let m = Menu { screen: Screen::Confirm, doubles, grid: Grid::fit(aspect), ..default() };
                 let n = rects(&m).len();

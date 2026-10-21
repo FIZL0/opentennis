@@ -3240,7 +3240,7 @@ mod tests {
         let rows: Vec<_> = m.add.packs.iter().map(|r| (r.folder.clone(), r.on)).collect();
         assert_eq!(crate::mods_textures::order_of(&rows).order, ["hi", "lo", "ui"]);
         // taps: the third row's switch turns it off, its ▲ moves it up; any aspect, all on screen
-        for aspect in [4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 9.0 / 16.0] {
+        for aspect in [4.0 / 3.0, 1.6, 16.0 / 9.0, 21.0 / 9.0, 9.0 / 16.0] {
             m.grid = super::super::Grid::fit(aspect);
             let hs = hits(&m).0;
             let slot = first + 2;
