@@ -26,5 +26,13 @@ export HST_CTX_NOCOMMIT=1  # the tick goes into the commit below
 if [ $# = 4 ]; then tools/ctx.py block "$1" "$4"; else tools/ctx.py tick "$1"; fi || exit 1
 # T6: a done task's probes (research/<id>_*.py) move into its journal's scripts/ (the main checkout commits only <paths>)
 [ $# = 2 ] && [ -z "$main" ] && { tools/probes.py "$1" || exit 1; }
+# R10: a ticked task's own journal ends -FINAL: its newest state file, if -READY/-PART, is renamed (AGENT.md, Research)
+if [ $# = 2 ]; then
+  while read -r d; do
+    f=$(ls "$d" | grep -E -- '-(FINAL|PART|READY)\.md$' | sort -V | tail -1)
+    [[ $f =~ -(READY|PART)\.md$ ]] && git mv "$d/$f" "$d/${f%-*}-FINAL.md" && echo "journal: $d/${f%-*}-FINAL.md"
+    paths+=("$d")
+  done < <(find research/journal -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -iregex ".*/[0-9]{4}-[0-9]{2}-[0-9]{2}-$1(-.*)?")
+fi
 if [ "$main" ]; then git add -- "${paths[@]}" && git commit -qm "$2" -- plan/TODO.md plan/DONE.md "${paths[@]}"
 else git add -A && git commit -qm "$2"; fi && rm -f .cleanroom && git log -1 --oneline

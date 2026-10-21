@@ -9,4 +9,4 @@ Nothing to port without that message: the panic site can't be guessed from "a JS
 (touch, resize, orientation, audio, gamepad and OPFS callbacks are all candidates), and fixing a guess goes against
 *No guessing details*. Desktop Chromium WebGPU doesn't reproduce it (no iPhone or Safari here).
 
-Iterations: [1-NEEDS-MESSAGE-READY.md](1-NEEDS-MESSAGE-READY.md)
+Iterations: [1-NEEDS-MESSAGE-FINAL.md](1-NEEDS-MESSAGE-FINAL.md)

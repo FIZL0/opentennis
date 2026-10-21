@@ -19,9 +19,11 @@ Rust/Bevy remaster of Hot Shots Tennis (SCUS-97610). Faithful: same AI, physics,
   and in the kits (`crates/game-sim`, `crates/kit-oracle`), run their tests. Never copy them back in.
 - Research: our own scripts and notes are in `research/` (in git: no game data, no decompiled code, no captures or
   screenshots); everything derived from the disc or the running game is in `context/` (git-ignored). Journal:
-  `research/journal/YYYY-MM-DD-<slug>/`, one README per task, newest iteration file says whose move it is:
-  `-FINAL` done, `-PART` agent continues, `-READY` needs the human. Put captures and images in `context/`, not
-  the journal.
+  `research/journal/YYYY-MM-DD-<slug>/` (slug starts with the lowercase task ID), one dir per task: a `README-<STATE>.md`
+  or numbered iteration files `N-<TOPIC>-<STATE>.md` (a README is optional then); the newest one's state says whose move
+  it is: `-FINAL` done, `-PART` agent continues, `-READY` needs the human. `tools/done.sh` renames a ticked task's
+  newest `-READY`/`-PART` to `-FINAL`. Older dirs with no state suffix anywhere count as `-FINAL`; the plan's checkbox
+  wins if they disagree. Put captures and images in `context/`, not the journal.
 - Gameplay ports are verified against the real game over PINE (`tools/pine.py`, launch with `tools/pcsx2-hst.sh`).
 
 ## Release notes
