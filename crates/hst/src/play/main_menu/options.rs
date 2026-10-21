@@ -1101,7 +1101,7 @@ impl Table {
 /// The Controls table's column headings' row, under the strip (view units).
 const HEADS: f32 = 22.0;
 
-/// B609: the Reset button at the right of the Controls panel's strip, wide enough for its mark and label.
+/// B609: the Reset pill at the right of the Controls panel's strip.
 pub(super) fn reset_button(g: &Grid) -> [f32; 4] {
     const W: f32 = 78.0;
     let [x, y, w, _] = table(g).panel;
@@ -1157,7 +1157,7 @@ pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings,
     let ts = 20.0 * PY;
     look::bold(d, "Controls", [sx + look::PAD * PX, sy + (sh - ts) / 2.0], ts, WHITE);
     let reset = reset_button(&m.grid);
-    reset_pill(d, reset, m.sel == n);
+    look::word_pill(d, reset, m.sel == n, "Reset", 16.0 * PY);
     d.hit(reset, pointer::Act::Row(controls_cell(n, false), pointer::OK));
     // the column headings under the strip, over the label and each cell
     let (label, cells) = t.cells(t.row(0));
@@ -1230,38 +1230,6 @@ pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings,
     };
     footnote(d, m, t.panel, foot);
     z.apply(d, n0);
-}
-
-/// B609: the Reset button: the main menu's button (grey, chosen yellow) with rounded corners, a round-arrow mark
-/// in its left square and "Reset" beside it.
-fn reset_pill(d: &mut Draw, b @ [x, y, bw, h]: [f32; 4], on: bool) {
-    let (r, t) = (7.0, 2.0);
-    rounded(d, b, r, look::c(look::INK), 128.0);
-    rounded(d, [x + t * PX, y + t * PY, bw - 2.0 * t * PX, h - 2.0 * t * PY], r - t, look::c(if on { look::YELLOW } else { look::GREY }), 128.0);
-    let ink = if on { look::c(look::INK) } else { WHITE };
-    let w = h / PY * PX;
-    let ts = 15.0 * PY;
-    look::bold(d, "Reset", [x + w - 2.0 * PX, y + (h - ts) / 2.0], ts, ink);
-    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
-    let (rx, ry) = (w * 0.27, h * 0.27);
-    let stroke = |d: &mut Draw, [ax, ay]: [f32; 2], [bx, by]: [f32; 2]| {
-        let (dx, dy) = ((bx - ax) / PX, (by - ay) / PY);
-        let len = dx.hypot(dy) + 1.6;
-        d.q(Tex::Solid, [0.0; 4], [(ax + bx) / 2.0 - len * PX / 2.0, (ay + by) / 2.0 - 1.0 * PY, len * PX, 2.0 * PY], ink, 128.0);
-        if let Some(q) = d.out.last_mut() {
-            q.angle = dy.atan2(dx);
-        }
-    };
-    // the circle, open at the top right, then the arrowhead at its start pointing on round
-    let at = |a: f32| [cx + rx * a.cos(), cy - ry * a.sin()];
-    let (a0, a1, steps) = (0.35f32, 0.35 + std::f32::consts::TAU * 0.8, 12);
-    for s in 0..steps {
-        let (p, q) = (a0 + (a1 - a0) * s as f32 / steps as f32, a0 + (a1 - a0) * (s + 1) as f32 / steps as f32);
-        stroke(d, at(p), at(q));
-    }
-    let tip = at(a0);
-    stroke(d, tip, [tip[0] - w * 0.16, tip[1] - h * 0.02]);
-    stroke(d, tip, [tip[0] + w * 0.02, tip[1] - h * 0.17]);
 }
 
 /// B291: key caps `names` in a row, centred in the pill `b` (narrower where they'd run past it): each a light cap in a
