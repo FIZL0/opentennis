@@ -19,6 +19,8 @@ pub fn log_to_documents(docs: &std::path::Path) {
     eprintln!("start: {}", memory());
     watch_memory_warnings();
     // a close with no log line and no crash report says nothing: these say which kind of end it was
+    // SAFETY: the handlers are `extern "C"` functions that live for the process; on_signal makes only
+    // async-signal-safe calls
     unsafe {
         libc::atexit(on_exit);
         for sig in [libc::SIGABRT, libc::SIGSEGV, libc::SIGBUS, libc::SIGILL, libc::SIGTRAP, libc::SIGFPE] {
@@ -42,6 +44,7 @@ extern "C" fn on_signal(sig: libc::c_int) {
         libc::SIGTRAP => b"fatal signal: SIGTRAP\n",
         _ => b"fatal signal: SIGFPE\n",
     };
+    // SAFETY: write, signal and raise are async-signal-safe; `msg` is a static byte string
     unsafe {
         libc::write(2, msg.as_ptr().cast(), msg.len());
         libc::signal(sig, libc::SIG_DFL);
@@ -59,6 +62,7 @@ unsafe extern "C" {
 
 /// The process's CPU time (all threads) in ms, for log_fps's ms/frame (iOS has no /proc).
 pub fn cpu_ms() -> f32 {
+    // SAFETY: rusage is plain integers (all-zero is valid); getrusage fills the struct we own
     let mut u: libc::rusage = unsafe { std::mem::zeroed() };
     unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) };
     let ms = |t: libc::timeval| t.tv_sec as f32 * 1e3 + t.tv_usec as f32 / 1e3;
@@ -67,6 +71,8 @@ pub fn cpu_ms() -> f32 {
 
 /// NSProcessInfo's thermal state: the phone slows the chip from "serious" on.
 pub fn thermal() -> &'static str {
+    // SAFETY: objc_msgSend cast to each message's signature as Foundation declares it (class method returning an
+    // object, an NSInteger getter)
     unsafe {
         let obj: extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
         let int: extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> isize = std::mem::transmute(objc_msgSend as *const ());
@@ -76,6 +82,8 @@ pub fn thermal() -> &'static str {
 }
 
 extern "C" fn on_exception(e: *mut std::ffi::c_void) {
+    // SAFETY: `e` is the NSException UIKit hands the handler; objc_msgSend cast to the getters' signatures, and the
+    // UTF8String read only when the string isn't nil
     let text = |obj: *mut std::ffi::c_void, sel: &std::ffi::CStr| unsafe {
         let send: extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
         let s = send(obj, sel_registerName(sel.as_ptr()));
@@ -147,6 +155,7 @@ pub fn memory() -> Memory {
 /// B538: iOS's memory warnings, logged with the memory then (the last sign before it closes the app for memory).
 fn watch_memory_warnings() {
     use objc2::runtime::AnyObject;
+    // SAFETY: the messages as NSNotificationCenter declares them; the block and observer are retained for the process
     objc2::rc::autoreleasepool(|_| unsafe {
         let name = objc2_foundation::NSString::from_str("UIApplicationDidReceiveMemoryWarningNotification");
         let block = block2::RcBlock::new(|_: std::ptr::NonNull<AnyObject>| eprintln!("iOS memory warning: {}", memory()));
@@ -207,6 +216,8 @@ extern "C" fn tick(_: *mut std::ffi::c_void) {
     use std::sync::atomic::{AtomicPtr, Ordering};
     // one generator, made on first use and kept (main thread only)
     static GENERATOR: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
+    // SAFETY: on the main thread (dispatched there); objc_msgSend cast to each UIKit message's signature, the
+    // generator retained in GENERATOR for the process
     unsafe {
         let obj: extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
         let with_style: extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void, isize) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
@@ -304,6 +315,8 @@ pub fn safe_area(window: &bevy::window::RawHandleWrapper) -> [f32; 4] {
     use std::sync::atomic::{AtomicU32, Ordering};
     static SAFE: [AtomicU32; 4] = [const { AtomicU32::new(0) }; 4];
     extern "C" fn read(view: *mut std::ffi::c_void) {
+        // SAFETY: `view` is the window's live UIView (see the dispatch below); safeAreaInsets returns UIEdgeInsets
+        // (`Insets`, four doubles) by value
         unsafe {
             let insets: extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> Insets = std::mem::transmute(objc_msgSend as *const ());
             let i = insets(view, sel_registerName(c"safeAreaInsets".as_ptr()));
@@ -350,6 +363,7 @@ extern "C" fn set_frame_rate(fps: *mut std::ffi::c_void) {
     let fps = fps as usize as f32;
     let range = if fps == 0.0 || fps > 60.0 { CAFrameRateRange { minimum: 80.0, maximum: 120.0, preferred: 120.0 } } else { CAFrameRateRange { minimum: fps, maximum: fps, preferred: fps } };
     LINK.with(|l| {
+        // SAFETY: on the main thread (dispatched there); the selector names FrameRate's own `tick:` method
         let link = l.get_or_init(|| unsafe {
             let target: objc2::rc::Retained<FrameRate> = objc2::msg_send![FrameRate::class(), new];
             let link = CADisplayLink::displayLinkWithTarget_selector(&target, objc2::sel!(tick:));

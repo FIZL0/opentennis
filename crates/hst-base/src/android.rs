@@ -63,6 +63,8 @@ pub fn log_to_files(dir: &std::path::Path) {
     crate::FPS_LOG.store(true, std::sync::atomic::Ordering::Relaxed);
     eprintln!("OpenTennis {} (build {})", env!("CARGO_PKG_VERSION"), option_env!("HST_BUILD").unwrap_or("?"));
     // a close with no log line and no crash report says nothing: these say which kind of end it was
+    // SAFETY: once, at start-up before the app's threads, so nothing reads OLD while it's written; sigaction is plain
+    // data (all-zero is valid); on_signal lives for the process and makes only async-signal-safe calls
     unsafe {
         libc::atexit(on_exit);
         for sig in [libc::SIGABRT, libc::SIGSEGV, libc::SIGBUS, libc::SIGILL, libc::SIGTRAP, libc::SIGFPE] {
@@ -79,6 +81,7 @@ extern "C" fn on_exit() {
 }
 
 /// The handlers before ours (debuggerd's, which writes the tombstone), by signal number.
+// SAFETY: sigaction is plain data; all-zero is SIG_DFL with no flags
 static mut OLD: [libc::sigaction; 32] = unsafe { std::mem::zeroed() };
 
 extern "C" fn on_signal(sig: libc::c_int, info: *mut libc::siginfo_t, ctx: *mut libc::c_void) {
@@ -92,6 +95,8 @@ extern "C" fn on_signal(sig: libc::c_int, info: *mut libc::siginfo_t, ctx: *mut 
         libc::SIGTRAP => b"fatal signal: SIGTRAP\n",
         _ => b"fatal signal: SIGFPE\n",
     };
+    // SAFETY: write is async-signal-safe; OLD was filled before this handler went in and is never written again; the
+    // old handler is called with the signature its SA_SIGINFO flag says it has
     unsafe {
         if let Some(f) = LOG.get() {
             libc::write(f.as_raw_fd(), msg.as_ptr().cast(), msg.len());
@@ -205,6 +210,7 @@ pub fn open_url(url: &str) {
     // SAFETY: as `invoke`
     let Ok(vm) = (unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()) }) else { return };
     let Ok(mut env) = vm.attach_current_thread_permanently() else { return };
+    // SAFETY: as `invoke`
     let activity = unsafe { jni::objects::JObject::from_raw(app.activity_as_ptr().cast()) };
     let r = (|| -> jni::errors::Result<()> {
         let s = env.new_string(url)?;
@@ -237,6 +243,7 @@ fn invoke<T>(name: &str, sig: &str, value: impl FnOnce(jni::objects::JValueOwned
     // SAFETY: the VM and the activity outlive the process's native code; `JObject` doesn't free what it wraps
     let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()) }.ok()?;
     let mut env = vm.attach_current_thread_permanently().ok()?;
+    // SAFETY: as above
     let activity = unsafe { jni::objects::JObject::from_raw(app.activity_as_ptr().cast()) };
     let r = env.call_method(&activity, name, sig, &[]);
     if r.is_err() {

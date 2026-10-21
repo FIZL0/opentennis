@@ -746,6 +746,7 @@ fn inverse(m: &[vu0::V4; 4]) -> [vu0::V4; 4] {
     std::array::from_fn(|i| std::array::from_fn(|j| (o[4 * i + j] * r).0))
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// One shade receiver vertex as the game's VU1 program sends it to the GS: screen X, Y (12.4 fixed point) and
 /// S, T, Q. `item` is the receiver model's matrix (court hole: y flattened), `vp` the shade camera's world →
 /// screen matrix (40°, straight down), `tex` the caster's [`tex_matrix`], `p` the model-space vertex. The (s, t, w)
@@ -871,6 +872,7 @@ pub fn receiver_tris(p: &Planes, hole: &hst_data::mdl::Model, mats: &hst_data::m
     tris
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// A vertex of the shadow texture pass: position in the 256² target (12.4 fixed point), texture coordinates (STQ
 /// with Q = 1) and alpha (0x80 opaque).
 #[derive(Clone, Copy, Debug)]
@@ -880,6 +882,7 @@ pub struct PassVertex {
     pub a: u8,
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// How a texture coordinate past the texture's edge reads: wrapped, or clamped to the texels min..=max.
 #[derive(Clone, Copy, Debug)]
 pub enum Wrap {
@@ -887,6 +890,7 @@ pub enum Wrap {
     Clamp(i32, i32),
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// A texture the pass reads: its alpha per texel (row-major, PS2 0x80 opaque), log2 width and height, wrap per axis.
 pub struct PassTexture {
     pub alpha: Vec<u8>,
@@ -894,6 +898,7 @@ pub struct PassTexture {
     pub wrap: [Wrap; 2],
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// One draw of the pass, one GS state over its triangles: solid (each triangle's last vertex alpha, flat) or
 /// textured with bilinear filtering, the texture's alpha as is (HIGHLIGHT2) or times the Gouraud vertex alpha
 /// (`modulate`). Pixels are written where the target's alpha is below 0x80 (destination alpha test) and the new
@@ -905,12 +910,16 @@ pub struct PassDraw {
     pub aref: u8,
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// Target side and the scissor every caster draw keeps inside (texels 4..=251).
 const TARGET: usize = 256;
+#[cfg(any(test, feature = "testing"))]
 const SCISSOR: [i32; 4] = [4, 4, 252, 252];
+#[cfg(any(test, feature = "testing"))]
 /// Pixels per scanline step of the software GS (its 128-bit code path).
 const LANES: i32 = 4;
 
+#[cfg(any(test, feature = "testing"))]
 /// A caster's 128² shadow texture (palette index 0..15) as the game's load pass draws it, bit for bit with PCSX2's
 /// software GS: the 256² target's alpha cleared to 0, every draw in order, the four bilinear sprites that halve the
 /// target in place (each texel the mean of its 2 × 2, 4-bit weights), and the copy of alpha's top nibble into the
@@ -936,6 +945,7 @@ pub fn pass_texture(draws: &[PassDraw]) -> Vec<u8> {
         .collect()
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// The GS's texel coordinate rounding (as PCSX2 applies it when the draw's Z is constant): S and T lose their low 9
 /// mantissa bits, more by how far their exponent is below Q's (`q`'s biased exponent; 127 for Q = 1).
 fn texel_round(st: f32, q: i32) -> f32 {
@@ -943,6 +953,7 @@ fn texel_round(st: f32, q: i32) -> f32 {
     f32::from_bits(b & !((1u32 << (9 + e.max(q) - e).min(23)) - 1))
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// Integer coordinates along a span from `left`: truncated at the span start, then per lane its truncated offset
 /// from the aligned group of [`LANES`] at or before `left` and whole truncated group steps.
 #[allow(clippy::float_arithmetic)] // PCSX2's software GS: x86 SSE singles (round to nearest), not the EE FPU
@@ -951,6 +962,7 @@ fn pass_lanes(t0: f32, d: f32, left: i32, n: i32) -> impl Iterator<Item = i32> {
     (skip..skip + n).map(move |j| (t0 as i32).wrapping_add((d * (j % LANES - skip) as f32) as i32).wrapping_add(j / LANES * step))
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// The Gouraud channel (8.7 fixed point) along a span: 16-bit lanes from the truncated start, kept ≥ 0 per group step.
 #[allow(clippy::float_arithmetic)] // PCSX2's software GS: x86 SSE singles (round to nearest), not the EE FPU
 fn pass_colour(c0: f32, d: f32, left: i32, n: i32) -> Vec<i32> {
@@ -966,6 +978,7 @@ fn pass_colour(c0: f32, d: f32, left: i32, n: i32) -> Vec<i32> {
     out
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// The bilinear alpha (4-bit weights) at 16.16 texel coordinates u, v (half texel already taken off).
 fn pass_sample(t: &PassTexture, u: i32, v: i32) -> i32 {
     let ax = |c: i32, k: usize| {
@@ -982,6 +995,7 @@ fn pass_sample(t: &PassTexture, u: i32, v: i32) -> i32 {
     r0 + (((r1 - r0) * vf) >> 4)
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// One triangle into the target: the vertices' (s, t, colour) as the GS's software setup takes them, then
 /// [`gs_tri`]'s spans sampled and written where the destination alpha test and the alpha reference pass.
 #[allow(clippy::float_arithmetic)] // PCSX2's software GS: x86 SSE singles (round to nearest), not the EE FPU
@@ -1014,6 +1028,7 @@ fn pass_tri(target: &mut [u8], d: &PassDraw, t: &[PassVertex; 3]) {
     });
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// One triangle with PCSX2's software setup: vertices (x, y, then three attributes) sorted by y, the edge and scan
 /// gradients from the cross product, spans [left, right) from ceil(edge x) at each row inside the scissor, and the
 /// attributes at the span start interpolated from the top vertex of its section, handed to `span` with the scan
@@ -1066,6 +1081,7 @@ fn gs_tri(v: [[f32; 5]; 3], scissor: [i32; 4], mut span: impl FnMut(i32, i32, i3
     }
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// A receiver vertex as the GS gets it: x, y in 12.4 relative to the tile's XYOFFSET, and S, T, Q.
 #[derive(Clone, Copy, Debug)]
 pub struct ReceiverVertex {
@@ -1073,6 +1089,7 @@ pub struct ReceiverVertex {
     pub stq: [f32; 3],
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// One draw (one GS batch) of the receiver pass: a caster's 128² shadow texture, its red through the CLUT in
 /// `alpha` and clamped at its edges, over the hole triangles it shades.
 pub struct ReceiverDraw<'a> {
@@ -1080,6 +1097,7 @@ pub struct ReceiverDraw<'a> {
     pub tris: Vec<[ReceiverVertex; 3]>,
 }
 
+#[cfg(any(test, feature = "testing"))]
 /// One 640 × 224 tile of the shade map's 1280 × 896 frame: the receiver pass's reds as PCSX2's software GS draws them.
 /// Each draw's bilinear red is added to the frame, clamped at 255 (ALPHA Cs + Cd, COLCLAMP). Before the
 /// setup the GS rounds S, T and Q (the draw's Z is constant); when Q is the same over the whole batch, S/Q and T/Q are

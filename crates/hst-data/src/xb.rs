@@ -96,11 +96,6 @@ impl<'a> Archive<'a> {
     }
 }
 
-/// Name hash the game uses to speed up lookups: 8-bit rotate-left-xor, paired with the length.
-pub fn name_hash(name: &[u8]) -> u8 {
-    name.iter().fold(0u8, |h, &c| h.rotate_left(1) ^ c)
-}
-
 fn block(d: &[u8], at: usize, decode: fn(&[u8], usize) -> Result<Vec<u8>>) -> Result<Vec<u8>> {
     let size = u32_at(d, at)? as usize;
     let packed = u32_at(d, at + 4)?;

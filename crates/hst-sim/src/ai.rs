@@ -4,7 +4,7 @@
 //! picked per player from its character and outfit (`menu_row`) and placed at match start (`Choice::new`).
 #![deny(clippy::float_arithmetic)]
 
-use crate::lines::{self, BASELINE, BOX_MIDDLE, DOUBLES_SIDELINE};
+use crate::lines::{self, BASELINE, BOX_MIDDLE};
 use crate::player::{STAMINA_FRAMES, TIRED};
 use crate::ps2::{self, F};
 use crate::rng::{coin, r15};
@@ -560,16 +560,6 @@ impl AiParams {
 }
 
 impl Guess {
-    /// The x the AI runs to while it guesses, keeping its depth: the doubles sideline on the guessed half when that
-    /// is the half the serve comes from (`ad`: the ad court serves), else the centre line. `side`: its side sign.
-    pub fn target_x(self, side: f32, ad: bool) -> f32 {
-        match (self, ad) {
-            (Guess::Wide, false) => (F(side) * DOUBLES_SIDELINE).0,
-            (Guess::Other, true) => (F(side) * -F(DOUBLES_SIDELINE)).0,
-            _ => 0.0,
-        }
-    }
-
     /// Judged when the AI first finds its contact point: the direction from where it stood at the draw (x, z) to
     /// that point, against the guessed side.
     pub fn verdict(self, side: f32, from: [f32; 2], contact: [f32; 2]) -> Verdict {

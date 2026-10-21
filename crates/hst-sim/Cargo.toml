@@ -14,6 +14,13 @@ musl = { package = "libm", version = "0.2.16" }
 # the online resync's state transfer (hst `play/snapshot.rs`)
 serde = { version = "1", features = ["derive"] }
 
+[features]
+# test-only helpers the integration tests in `tests/` call (on through the dev-dependency on this crate below)
+testing = []
+
+[dev-dependencies]
+hst-sim = { path = ".", features = ["testing"] }
+
 [lints.clippy]
 # ported compares keep the original's branch: `!(a < b)` is the EE's c.lt.s + bc1f, taken for NaN too, which
 # `a >= b` isn't; spelling every one as `partial_cmp` hides which way the game branched
