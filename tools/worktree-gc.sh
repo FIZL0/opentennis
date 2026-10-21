@@ -2,6 +2,8 @@
 # Remove leftover ../opentennis-<slug> worktrees (concept branches, finished ad-hoc work): runner.toml's on_exit runs it
 # after every slot session. A worktree goes only when nothing is lost and nobody is in it:
 #   - no process has its cwd inside it (a live session, a build);
+#   - nothing in it (or its git dir: index, HEAD log) changed in the last 12 hours: an idle session whose shell
+#     lives elsewhere, or a folder just added and not yet edited, looks unused to the cwd check;
 #   - its HEAD is on main or on origin (a concept/* branch is pushed first);
 #   - `git worktree remove` (no --force) agrees: no uncommitted or untracked files.
 # The branch itself is kept; only the folder goes. `-n` lists what it would remove.
@@ -13,6 +15,8 @@ while read -r w ref; do
   [[ $w == "$main" || $w == *-slots/* || ! -d $w ]] && continue
   busy=; for p in /proc/[0-9]*/cwd; do [[ $(readlink "$p" 2>/dev/null)/ == "$w"/* ]] && { busy=1; break; }; done
   [ "$busy" ] && continue
+  gd=$(git -C "$w" rev-parse --absolute-git-dir)
+  [ -n "$(find "$w" "$gd" -maxdepth 6 -path "$w/target" -prune -o -newermt -12hours -print -quit)" ] && continue
   b=${ref#refs/heads/}
   [[ $b == concept/* && -z $dry ]] && git -C "$w" push -q origin "$b" 2>/dev/null
   head=$(git -C "$w" rev-parse HEAD)
