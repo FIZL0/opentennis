@@ -5,13 +5,9 @@ the model weight *(*(*(+0x5c))+0xc)+0x5c (`read`). On PCSX2 copy 4 ✕ confirms.
 Usage (under tools/pcsx2.sh): p14c3f_court8.py start|read"""
 import os, struct, subprocess, sys, time, zipfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
-from pine import Pine
+from pine import Pine, state_file
 from pick import vpad
 
-STATES = "/home/ryha/Emulation/saves/ps2/states/SCUS-97610 (72326E67).%02d.p2s"
-if os.environ.get("HST_PCSX2"):
-    common = subprocess.check_output(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], text=True).strip()
-    STATES = f"{os.path.dirname(common)}-slots/pcsx2/s{os.environ['HST_PCSX2']}/PCSX2/sstates/" + os.path.basename(STATES)
 
 if sys.argv[1] == "start":
     p = Pine()
@@ -34,7 +30,7 @@ if sys.argv[1] == "start":
     time.sleep(2)
     print("court", p.read32(0x422f90))
 
-ram = zipfile.ZipFile(STATES % 8).read("eeMemory.bin")
+ram = zipfile.ZipFile(state_file(8)).read("eeMemory.bin")
 u32 = lambda a: struct.unpack_from("<I", ram, a)[0]
 f = lambda a: struct.unpack_from("<f", ram, a)[0]
 print("court", u32(0x422f90), "players", u32(0x422fa4))

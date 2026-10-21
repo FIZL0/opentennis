@@ -4,7 +4,7 @@
 import sys,struct,time,subprocess,os
 sys.path.insert(0,'tools')
 os.environ['HST_LOCKSTEP']='1'
-from pine import Pine, VSYNC
+from pine import Pine, VSYNC, pcsx2_folder
 p=Pine(step=True)
 slot,secs,tag=int(sys.argv[1]),float(sys.argv[2]),sys.argv[3]
 lim=float(sys.argv[4]) if len(sys.argv)>4 else 0.2; mx=int(sys.argv[5]) if len(sys.argv)>5 else 6
@@ -26,7 +26,7 @@ def poke_sun(v):
     n=sum(x*x for x in d)**0.5
     for i in range(3): p.write32(f+0x10+4*i,struct.unpack('<I',struct.pack('<f',d[i]/n))[0])
 def view(): return [fl(0x1e7d20+4*i) for i in range(3)]+[fl(0x1e7d30+4*i) for i in range(3)]+[fl(0x1e7d40+4*i) for i in range(3)]+[fl(0x1e7d64)]
-d=f"/home/ryha/repos/opentennis-slots/pcsx2/s{os.environ['HST_PCSX2']}/PCSX2/snaps"
+d=pcsx2_folder("Snapshots")
 odir=os.environ.get("HST_SHOTS","context/p3f5"); os.makedirs(odir,exist_ok=True)
 pid=open(f"{os.environ['XDG_RUNTIME_DIR']}/hst-pcsx2{os.environ['HST_PCSX2']}.pid").read().strip()
 t0=time.time();n=0;prev=None;last_shot=-999

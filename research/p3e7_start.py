@@ -5,13 +5,9 @@ gallery manager's marks and each walker's state from slot 8's RAM: who registere
 Usage (under tools/pcsx2.sh): p3e7_start.py [vpad commands on the confirm screen | read]"""
 import os, struct, subprocess, sys, time, zipfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
-from pine import Pine
+from pine import Pine, state_file
 from pick import vpad
 
-STATES = "/home/ryha/Emulation/saves/ps2/states/SCUS-97610 (72326E67).%02d.p2s"
-if os.environ.get("HST_PCSX2"):
-    common = subprocess.check_output(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], text=True).strip()
-    STATES = f"{os.path.dirname(common)}-slots/pcsx2/s{os.environ['HST_PCSX2']}/PCSX2/sstates/" + os.path.basename(STATES)
 p = Pine()
 def start(confirm):
     """Slot 2's character select → Ashley + the COMs' first picks → the confirm screen (`confirm`: extra presses there,
@@ -36,7 +32,7 @@ def start(confirm):
 
 if sys.argv[1:2] != ["read"]:
     start(sys.argv[1:] or ["press cross 150", "sleep 2500"])
-ram = zipfile.ZipFile(STATES % 8).read("eeMemory.bin")
+ram = zipfile.ZipFile(state_file(8)).read("eeMemory.bin")
 u32 = lambda a: struct.unpack_from("<I", ram, a)[0]
 i32 = lambda a: struct.unpack_from("<i", ram, a)[0]
 f = lambda a: struct.unpack_from("<f", ram, a)[0]
