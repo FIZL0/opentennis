@@ -1,59 +1,32 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- Outlined menu titles and labels have a thick, bold outline again, like the original.
-- Menu text uses a new, cleaner font with crisp outlines, and chat and on-screen text now use the same font.
-- The 2P join card no longer says "to join" twice when no controller is connected.
-- On the player select, the cursor of the next computer player you pick for skips a character whose outfits are all taken instead of sitting on one it can't pick.
-- Outlined menu words (titles, panel headings) now have a clean, even outline instead of a lumpy one.
-- On the player select, a player who has readied up now sees their pick held in a solid ring of their colour while the rest of their grid dims, so it is clear they are locked in.
-- The game can now update itself in place on every platform, including Android, iPhone (through SideStore, AltStore or TrollStore), Flatpak and Program Files installs. The first time it finds a new version it asks Update? (Always, Yes, No or Never), and Settings → Updates changes the answer later.
-- Settings, controls, favourites, names and mods are now kept in your own user folder (~/.local/share/hst, %APPDATA%\hst or ~/Library/Application Support/hst) instead of beside the disc image, so moving the disc or keeping it on read-only media no longer loses them; the old files are brought over on the first start.
-- Settings → Display no longer has the Controller Vibration switch.
-- On phones the picture now fills the whole screen, under the Dynamic Island, notch and rounded corners, while the menus and the match's score keep clear of them. A new Safe Area setting (Settings → Display) adjusts that: Auto, None, or a margin of 1% to 10% from every edge for a TV that crops its edges.
-- Bigger Menu Sizes no longer cut menus off: every menu fits the screen at 150%, and on a phone or tablet Auto picks a size that's comfortable to read at the screen's real size.
-- Online lobbies no longer ask you to download a custom character you already have when the other player's copy is a different version; your own copy is shown.
-- Mod downloads and uploads now show their progress at the top of every menu screen, naming the mod uploading. Once they all finish, a Reload Mods button appears there, and if you put it off, picking Local or Online asks once more (Reload now or Play without them).
-- Mod downloads and uploads now show their progress at the top of every menu screen, and when they finish the game offers to restart so the new mods load.
-- Once your mod downloads and uploads have all finished, a Reload Mods button appears at the top of the menus, and if you put off reloading, picking Local or Online asks once more (Reload now or Play without them). Nothing asks you to reload while a download or upload is still going.
-- The mod download and upload progress at the top of the menus now fills as mods download, counts every mod downloading at once, names the mod uploading now, and no longer moves your cursor on the screen you're on when the mod store list refreshes.
-- Your Hugging Face sign-in for uploading mods is now saved where only you can read it, next to your settings (in the app's private storage on Android).
-- Joining an online lobby from a different imported game disc than the host's is now refused straight away with a message saying so, instead of the match drifting out of sync later.
-- A damaged game disc image no longer crashes the game when a match loads a court whose data can't be read: the match plays on another court's layout and says what went wrong.
-- A damaged or wrong disc image now gives an error instead of crashing the game.
-- iPhone and iPad: the game now turns to portrait as well as landscape, and with rotation lock on it stays the way it was.
-- Starting a match now zooms and fades out of the player select straight into the loading screen, without the player select flashing back over the loading screen first.
-- Settings → Controls is now one scrolling table: each action's controller buttons and keyboard keys side by side in bigger rows that read on a phone, either one picked to rebind (←/→ or a tap), and Reset to defaults is a square button at the top. The same in the pause menu's settings.
-- With touch controls, the score at the top of the screen now sits just below the L1/R1 buttons instead of under them.
-- The loading screen before a match keeps its shape in tall (portrait) and very wide windows: the hint panel no longer squashes, and the court picture fills the whole window without black bars.
-- Settings → Shadows has a new Original choice that draws the trees' and buildings' shadows soft, as on the PS2, instead of sharp; Original Mode uses it.
-- In doubles, computer players now shift position as soon as their own team hits the ball and react to each shot at the moment it is played, as in the original.
-- In a match with one human player, Select (C on the keyboard) now switches to the original game's low camera behind your player, and back again with a short glide. Your player turns see-through while they hide the ball coming at them, and the game remembers your choice for the next match.
-- Set Handicap is back: on the Ready to play? screen, press △ (L on the keyboard) or tap the pill on a player's card to give them one or two leg weights. Each weight slows their running for the whole match, and they wear the weights on their calves. Online matches play without handicaps for now.
-- In singles, the computer player no longer restarts its plan and re-guesses its return position after every shot, runs up to the net along the line of its own aim instead of where the ball happened to land, and judges low balls by its own character's reach, so it moves and returns more like it does in the original.
-- A ball that comes to rest on the court or on a slope or prop now ends the point straight away (as out) instead of after a long wait, a ball that has stopped stays still, and a serve that clips the net and then hits the receiver is a let again only when it touched the net.
-- A special topspin serve you turn flat with the stick now aims inside the service box like any flat serve, as in the original, instead of keeping the curving serve's wider aim.
-- A mistimed ✕ or ○ smash from deep in the court now aims a little further inside the lines, as in the original.
-- A well-timed lob, and a well-timed slice by the players whose slices curve, now aims as close to the lines on a cross-court shot as in the original.
-- Online lobbies now support handicaps: the host presses L2 / R2 on any player's card to give them one or two leg weights, and every player's game plays the match with them.
-- In an online lobby the host can now tap a player's handicap pill to change it, on any player's card, which helps on touch screens.
-- A dive cut short by the sideline, the net or your partner now plays the rest of its animation from the right moment, as in the original.
-- Computer players now walk back into position after serving, and at the start of every point in doubles, as they do in the original; a computer server's aim is also picked at the same moment as the original's.
-- A dive now needs you to have been running just before you press, as in the original: the automatic step toward the ball after a press no longer makes a dive possible, and computer partners dive by the same rule.
-- In singles, a computer opponent returning serve now moves on to its rally play at the same moment as in the original game (once its return is really done), not as soon as it has hit the ball.
-- A computer server now hands over from its serve to the rally at the same moment as in the original: in singles it starts moving about half a second sooner after serving.
-- Switching Settings tabs now only nudges the options card instead of sliding the whole page, and the new tab slides in under the old one so the screen never flashes empty.
-- New Offbeat Rules for local matches: press Select (keyboard C) on the match confirm screen to mix in irregular bounces, slow motion, a rally that speeds up with every shot, a ghost ball that vanishes past the net, tiny or giant players, faster or slower players, and a sweet-spot mode where every hit is perfect.
-- On the Mods page, the Browse, Installed and other top tabs now count mods of every kind, not just the kind you're looking at.
-- Switching Settings tabs now only nudges the options card instead of sliding the whole page.
-- Importing a disc image now checks its contents against known good copies of the game: a bad rip or a different version is refused with a message showing its fingerprint, which you can report so a good copy can be added.
-- Custom characters with a faster swing now speed up only their ground strokes and volleys: their serves, smashes, dives and missed smashes play at the normal speed.
-- Some custom characters no longer kick a leg up into the air when walking off after a point or running.
-- Custom characters whose faces swap whole face pictures no longer shut their eyes while running about in a rally, and blink at a natural pace instead of flickering between open and closed eyes.
-- Switching Settings tabs no longer shows both pages on top of each other: the old page fades onto a dimmed panel and the new one comes in over it.
-- Each Settings page now has its own header colour (Display blue, Graphics purple, Sound red, Controls orange, Online & Mods green, Mobile teal), so you can tell them apart at a glance.
-- The Ready to play? screen now shows each player's handicap with what it does (how many weights and how much slower they run) and changes it with ‹ ›, adds an Offbeat Rules box to the bottom bar that lists the rules on and opens them, and its bottom bar now rearranges onto more rows instead of shrinking its words on narrow or tall screens.
-- Settings → Controls now matches the other pages: its name on the header, the Reset button (now labelled) in the header's corner, and the column names under it. △ resets from any row, and asks first when your controls aren't already the defaults.
-- When a controller is detected and the game asks whether to use it for 1P, the keyboard can now move between Yes and No and choose, not only dismiss it with Esc.
-- Switching a two-player local match to doubles now puts the second player on your team instead of across the net.
-- Custom characters' select pictures are drawn again to match how the game draws them now, instead of showing older pictures from the store or the mod itself. Uploading a character sends the game's current picture of it, and an updated mod shows its new picture.
-- The ball-boy carts on the indoor court now turn their ball-launcher wheels, and the horses beside the ranch court move as they do in the original.
-- After a point, the camera no longer gets stuck looking through the inside of a large set piece standing beside a custom court (such as a parked helicopter): the piece is hidden while the camera stands in it.
+- New Offbeat Rules for local matches: press Select (keyboard C) on the Ready to play? screen to mix in irregular bounces, slow motion, a rally that speeds up with every shot, a ghost ball that vanishes past the net, tiny or giant players, faster or slower players, and a sweet-spot mode where every hit is perfect.
+- Set Handicap is back: on the Ready to play? screen, give any player one or two leg weights (△ / L, ‹ ›, or tap their pill). Each weight slows their running for the whole match and shows on their calves. Works online too, set by the host.
+- In a one-player match, Select (keyboard C) switches to the original game's low camera behind your player, with a short glide; your player turns see-through when they block the ball, and the choice is remembered.
+- New Original shadow setting draws trees' and buildings' shadows soft, as on the PS2; Original Mode uses it.
+- Menus, chat and on-screen text use a new, cleaner font with a crisp, thick outline like the original.
+- Settings pages each have their own header colour, and switching tabs is a short, clean slide with no flashing or overlapping pages.
+- Settings → Controls is one scrolling table with controller buttons and keyboard keys side by side, bigger rows for phones, and a labelled Reset button that asks first.
+- New Safe Area setting (Settings → Display): on phones the picture fills the whole screen while menus and the score keep clear of notches and rounded corners; also handy for TVs that crop the edges. The Controller Vibration switch is gone.
+- Bigger menu sizes no longer cut menus off, and phones and tablets pick a comfortable size automatically.
+- The game can update itself in place on every platform, including Android, iPhone (SideStore, AltStore, TrollStore), Flatpak and Program Files installs. It asks the first time (Always, Yes, No, Never); Settings → Updates changes the answer.
+- Settings, controls, favourites, names and mods now live in your user folder (~/.local/share/hst, %APPDATA%\hst or ~/Library/Application Support/hst) instead of beside the disc image; old files are moved over on first start.
+- Importing a disc image now checks it against known good copies; a bad rip or other version is refused with a fingerprint you can report.
+- A damaged or wrong disc image gives an error instead of crashing, including when a court's data can't be read.
+- iPhone and iPad: the game now turns to portrait as well as landscape and respects rotation lock.
+- The loading screen keeps its shape in tall and very wide windows, and starting a match goes straight from the player select into it without a flash.
+- With touch controls, the score sits just below the L1/R1 buttons instead of under them.
+- Player select: a readied player's pick is held in a solid ring while their grid dims, and the cursor skips characters whose outfits are all taken.
+- Switching a two-player local match to doubles puts the second player on your team.
+- The keyboard can now answer the "use this controller for 1P?" prompt, and the 2P join card no longer says "to join" twice.
+- Mod downloads and uploads show their progress at the top of every menu, and when they're done a Reload Mods button appears; picking Local or Online asks once more if you put it off.
+- Your Hugging Face sign-in for uploading mods is saved where only you can read it.
+- The Mods page's top tabs now count mods of every kind.
+- Online lobbies no longer ask you to download a custom character you already have in a different version, and refuse a player whose game disc differs from the host's straight away instead of drifting out of sync.
+- Custom characters' select pictures match how the game draws them now, and uploads send the current picture.
+- Custom characters with a faster swing only speed up ground strokes and volleys, no longer kick a leg up when running, and those with picture-swap faces blink naturally instead of shutting or flickering their eyes.
+- Computer players play more like the original: in doubles they shift and react the moment each shot is played; in singles they keep their plan through a rally, run to the net along their own aim and judge low balls by their own reach; they walk back into position after serving, and switch from serve or return to rally play at the original's moment.
+- Shots aim as in the original: flat-turned topspin serves, mistimed deep smashes, and well-timed cross-court lobs and curving slices.
+- Dives now need you to be running just before you press (computer partners too), and a dive cut short by the sideline, net or partner finishes its animation correctly.
+- A ball that comes to rest ends the point straight away and stays still, and a net-clipping serve that hits the receiver is a let only if it touched the net.
+- The indoor court's ball-boy carts turn their wheels and the ranch court's horses move as in the original.
+- After a point, the camera no longer gets stuck inside large set pieces beside custom courts.
