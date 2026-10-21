@@ -43,6 +43,7 @@ pub mod shadow;
 pub mod spring;
 pub mod stall;
 pub mod textures;
+pub mod twin_view;
 pub mod ui_census;
 pub mod scene_census;
 pub mod ui_pool;

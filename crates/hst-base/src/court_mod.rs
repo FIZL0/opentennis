@@ -660,12 +660,14 @@ pub fn blocks(eye: Vec3, lo: Vec3, hi: Vec3) -> bool {
 
 /// M8f5a3: a `__clear` set piece isn't drawn while it stands between the drawn camera (any mode) and the court; all
 /// are while `cull::Off` holds (B583: the intro's flyover).
-fn clear_view(camera: Query<&Transform, With<crate::Orbit>>, off: Option<Res<crate::cull::Off>>, pieces: Query<&ClearView>, mut vis: Query<&mut Visibility>) {
+/// B634: with a second view on (`twin_view`), one standing in front of either eye.
+fn clear_view(camera: Query<&Transform, With<crate::Orbit>>, off: Option<Res<crate::cull::Off>>, second: Option<Res<crate::twin_view::SecondEye>>, pieces: Query<&ClearView>, mut vis: Query<&mut Visibility>) {
     let Ok(t) = camera.single() else { return };
     // game space is Bevy's turned a half-turn about X
-    let eye = t.translation * Vec3::new(1.0, -1.0, -1.0);
+    let game = |t: &Transform| t.translation * Vec3::new(1.0, -1.0, -1.0);
+    let eyes: Vec<Vec3> = std::iter::once(game(t)).chain(second.as_ref().and_then(|s| s.0.as_ref()).map(|s| game(&s.1))).collect();
     for cv in &pieces {
-        let v = if off.is_none() && blocks(eye, cv.lo, cv.hi) { Visibility::Hidden } else { Visibility::Inherited };
+        let v = if off.is_none() && eyes.iter().any(|&eye| blocks(eye, cv.lo, cv.hi)) { Visibility::Hidden } else { Visibility::Inherited };
         for &e in &cv.hide {
             if let Ok(mut x) = vis.get_mut(e) {
                 x.set_if_neq(v);

@@ -97,7 +97,7 @@ fn setup(
             depth_bias: LAST,
             ..default()
         });
-        commands.spawn((View(i, m.clone()), Mesh3d(quad.clone()), MeshMaterial3d(m), Transform::default(), Visibility::Hidden));
+        commands.spawn((View(i, m.clone()), Mesh3d(quad.clone()), MeshMaterial3d(m), Transform::default(), Visibility::Hidden, crate::twin_view::Billboard::TURNED));
     }
     commands.insert_resource(Art(tex));
 }
@@ -170,12 +170,13 @@ fn draw(
     cam: Query<&Transform, (With<crate::Orbit>, Without<View>, Without<BalloonView>)>,
     rigs: Query<(&Figure, &Rig)>,
     chain: Chain,
-    mut q: Query<(&View, &mut Transform, &mut Visibility)>,
+    mut q: Query<(Entity, &View, &mut Transform, &mut Visibility)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut second: crate::twin_view::Second,
 ) {
     let Ok(cam) = cam.single() else { return };
     let t = g.cam.view.fov.tan();
-    for (View(k, m), mut tr, mut vis) in &mut q {
+    for (e, View(k, m), mut tr, mut vis) in &mut q {
         let Some(pop) = pops.0.get(*k) else {
             *vis = Visibility::Hidden;
             continue;
@@ -184,10 +185,14 @@ fn draw(
             *vis = Visibility::Hidden;
             continue;
         };
-        let s = half_width(pop.popup.size(), (anchor - cam.translation).dot(*cam.forward()), t);
-        tr.translation = anchor;
-        tr.rotation = cam.rotation;
-        tr.scale = Vec3::new(2.0 * s, 2.0 * s, 1.0);
+        let pose = |cam: &Transform| {
+            let s = half_width(pop.popup.size(), (anchor - cam.translation).dot(*cam.forward()), t);
+            Transform { translation: anchor, rotation: cam.rotation, scale: Vec3::new(2.0 * s, 2.0 * s, 1.0) }
+        };
+        *tr = pose(cam);
+        if let Some(c) = second.eye().copied() {
+            second.pose(e, pose(&c));
+        }
         if let Some(mut mat) = materials.get_mut(m) {
             mat.base_color_texture = Some(art.0[pop.popup as usize].clone());
             mat.base_color = Color::srgba(1.0, 1.0, 1.0, pop.alpha as f32 / 128.0);
@@ -208,17 +213,22 @@ fn place_balloons(
     cam: Query<&Transform, (With<crate::Orbit>, Without<View>, Without<BalloonView>)>,
     rigs: Query<(&Figure, &Rig)>,
     chain: Chain,
-    mut q: Query<(&BalloonView, &mut Transform), Without<View>>,
+    mut q: Query<(Entity, &BalloonView, &mut Transform), Without<View>>,
+    mut second: crate::twin_view::Second,
 ) {
     let Ok(cam) = cam.single() else { return };
     let t = g.cam.view.fov.tan();
-    for (view, mut tr) in &mut q {
+    for (e, view, mut tr) in &mut q {
         let Some(anchor) = anchor(view.0, &rigs, &chain) else { continue };
-        let s = half_width(serve::BALLOON_SIZE, (anchor - cam.translation).dot(*cam.forward()), t);
-        // the balloon's quad is centred
-        tr.translation = anchor + cam.up() * s;
-        tr.rotation = cam.rotation;
-        tr.scale = Vec3::new(2.0 * s, 2.0 * s, 1.0);
+        let pose = |cam: &Transform| {
+            let s = half_width(serve::BALLOON_SIZE, (anchor - cam.translation).dot(*cam.forward()), t);
+            // the balloon's quad is centred
+            Transform { translation: anchor + cam.up() * s, rotation: cam.rotation, scale: Vec3::new(2.0 * s, 2.0 * s, 1.0) }
+        };
+        *tr = pose(cam);
+        if let Some(c) = second.eye().copied() {
+            second.pose(e, pose(&c));
+        }
     }
 }
 

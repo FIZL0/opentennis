@@ -70,7 +70,7 @@ fn setup(
         depth_bias: super::markers::LAST,
         ..default()
     });
-    commands.spawn((View(m.clone(), words), Mesh3d(quad.clone()), MeshMaterial3d(m), Transform::default(), Visibility::Hidden));
+    commands.spawn((View(m.clone(), words), Mesh3d(quad.clone()), MeshMaterial3d(m), Transform::default(), Visibility::Hidden, crate::twin_view::Billboard::TURNED));
     // the bounce words: one quad per word a point can make
     let textures: Vec<_> = (1..=15)
         .map(|k| {
@@ -82,7 +82,7 @@ fn setup(
     commands.insert_resource(Words { words: BounceWords::default(), on: false, textures });
     for i in 0..10 {
         let m = materials.add(StandardMaterial { unlit: true, alpha_mode: AlphaMode::Blend, double_sided: true, cull_mode: None, depth_bias: super::markers::LAST, ..default() });
-        commands.spawn((WordView(i, m.clone()), Mesh3d(quad.clone()), MeshMaterial3d(m), Transform::default(), Visibility::Hidden));
+        commands.spawn((WordView(i, m.clone()), Mesh3d(quad.clone()), MeshMaterial3d(m), Transform::default(), Visibility::Hidden, crate::twin_view::Billboard::TURNED));
     }
 }
 
@@ -294,24 +294,29 @@ fn draw(
     time: Res<Time<Fixed>>,
     hits: Res<Hits>,
     cam: Query<&Transform, (With<crate::Orbit>, Without<View>)>,
-    mut q: Query<(&View, &mut Transform, &mut Visibility)>,
+    mut q: Query<(Entity, &View, &mut Transform, &mut Visibility)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut second: crate::twin_view::Second,
 ) {
     let Ok(cam) = cam.single() else { return };
-    for (v, mut tr, mut vis) in &mut q {
+    for (e, v, mut tr, mut vis) in &mut q {
         let Some(p) = hits.pop else {
             *vis = Visibility::Hidden;
             continue;
         };
-        // game space ↔ world: (x, -y, -z)
-        let game = |w: Vec3| [w.x, -w.y, -w.z];
-        let world = |p: [f32; 3]| Vec3::new(p[0], -p[1], -p[2]);
-        let rows = [game(*cam.right()), game(-*cam.up()), game(*cam.forward())];
-        let depth = |at: [f32; 3]| (world(at) - cam.translation).dot(*cam.forward());
-        let (at, w, h) = p.quad(rows, depth, g.cam.view.fov.tan());
-        tr.translation = world(at);
-        tr.rotation = cam.rotation;
-        tr.scale = Vec3::new(2.0 * w, 2.0 * h, 1.0);
+        let pose = |cam: &Transform| {
+            // game space ↔ world: (x, -y, -z)
+            let game = |w: Vec3| [w.x, -w.y, -w.z];
+            let world = |p: [f32; 3]| Vec3::new(p[0], -p[1], -p[2]);
+            let rows = [game(*cam.right()), game(-*cam.up()), game(*cam.forward())];
+            let depth = |at: [f32; 3]| (world(at) - cam.translation).dot(*cam.forward());
+            let (at, w, h) = p.quad(rows, depth, g.cam.view.fov.tan());
+            Transform { translation: world(at), rotation: cam.rotation, scale: Vec3::new(2.0 * w, 2.0 * h, 1.0) }
+        };
+        *tr = pose(cam);
+        if let Some(c) = second.eye().copied() {
+            second.pose(e, pose(&c));
+        }
         if let Some(mut m) = materials.get_mut(&v.0) {
             m.base_color_texture = Some(v.1[(p.word == Word::Smack) as usize].clone());
             // between the last two ticks' alphas (a fresh pop-up starts at its own)
@@ -354,21 +359,29 @@ fn draw_words(
     g: Res<Game>,
     w: Res<Words>,
     cam: Query<&Transform, (With<crate::Orbit>, Without<WordView>)>,
-    mut q: Query<(&WordView, &mut Transform, &mut Visibility)>,
+    mut q: Query<(Entity, &WordView, &mut Transform, &mut Visibility)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut second: crate::twin_view::Second,
 ) {
     let Ok(cam) = cam.single() else { return };
     let game = |w: Vec3| [w.x, -w.y, -w.z];
     let world = |p: [f32; 3]| Vec3::new(p[0], -p[1], -p[2]);
-    let rows = [game(*cam.right()), game(-*cam.up()), game(*cam.forward())];
-    let depth = |at: [f32; 3]| (world(at) - cam.translation).dot(*cam.forward());
-    for (v, mut tr, mut vis) in &mut q {
+    let second_cam = second.eye().copied();
+    for (e, v, mut tr, mut vis) in &mut q {
         let Some(p) = w.words.pops.get(v.0) else {
             *vis = Visibility::Hidden;
             continue;
         };
-        let (at, hw, hh) = p.quad(rows, depth, g.cam.view.fov.tan());
-        (tr.translation, tr.rotation, tr.scale) = (world(at), cam.rotation, Vec3::new(2.0 * hw, 2.0 * hh, 1.0));
+        let pose = |cam: &Transform| {
+            let rows = [game(*cam.right()), game(-*cam.up()), game(*cam.forward())];
+            let depth = |at: [f32; 3]| (world(at) - cam.translation).dot(*cam.forward());
+            let (at, hw, hh) = p.quad(rows, depth, g.cam.view.fov.tan());
+            Transform { translation: world(at), rotation: cam.rotation, scale: Vec3::new(2.0 * hw, 2.0 * hh, 1.0) }
+        };
+        *tr = pose(cam);
+        if let Some(c) = second_cam {
+            second.pose(e, pose(&c));
+        }
         if let Some(mut m) = materials.get_mut(&v.1) {
             m.base_color_texture = Some(w.textures[p.effect as usize - 1].clone());
             m.base_color = Color::srgba(1.0, 1.0, 1.0, p.alpha / 128.0);

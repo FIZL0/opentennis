@@ -28,7 +28,7 @@ use crate::gs::{GsKey, GsMaterial, GsUniform, NO_FOG, Test};
 use crate::{Args, Orbit};
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, setup).add_systems(FixedUpdate, (tick, ambience)).add_systems(Update, draw);
+    app.add_systems(Startup, setup).add_systems(FixedUpdate, (tick, ambience)).add_systems(Update, draw.after(crate::play::split_view::split));
 }
 
 /// The game's effects random source: an LCG giving 15-bit draws in [0, 1).
@@ -272,7 +272,11 @@ fn setup(mut commands: Commands, args: Res<Args>, mut meshes: ResMut<Assets<Mesh
         for &test in tests {
             let key = GsKey { textured: true, modulate: true, test, blend: Some(hst_data::mtl::Blend::Normal), fog: true, cull: false, mirror: false, guard: false, clear: false };
             let m = materials.add(GsMaterial { uniform, texture: texture.clone(), key, order: 0.0 });
-            commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(m), Transform::from_rotation(Quat::from_rotation_x(PI)), NoFrustumCulling, bevy::light::NotShadowCaster));
+            let e = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(m), Transform::from_rotation(Quat::from_rotation_x(PI)), NoFrustumCulling, bevy::light::NotShadowCaster)).id();
+            // the streaks face the eye: the split view's second half gets its own (`twin_view`)
+            if name == "rain" {
+                commands.entity(e).insert(crate::twin_view::Billboard::BUILT);
+            }
         }
         views.push(mesh);
     }
@@ -467,14 +471,19 @@ fn streaks(q: &mut Quads, drops: &[(Vec3, f32)], cam: [Vec3; 4], t: f64, degrees
     }
 }
 
-fn draw(fx: Option<Res<Particles>>, w: Option<Res<Weather>>, time: Res<Time<Fixed>>, cam: Query<&Transform, With<Orbit>>, mut meshes: ResMut<Assets<Mesh>>) {
+fn draw(fx: Option<Res<Particles>>, w: Option<Res<Weather>>, time: Res<Time<Fixed>>, cam: Query<&Transform, With<Orbit>>, mut meshes: ResMut<Assets<Mesh>>, second: crate::twin_view::Second) {
     let (Some(fx), Some(w), Ok(cam)) = (fx, w, cam.single()) else { return };
     let today = w.today();
     let mut sets: Vec<Quads> = (0..fx.views.len()).map(|_| Quads::default()).collect();
+    let mut second_streaks = Quads::default();
     if fx.rain {
         let heavy = matches!(today.weather, 3 | 5);
         let t = fx.tick as f64 + time.overstep_fraction() as f64;
         streaks(&mut sets[0], &fx.drops[..DROPS[heavy as usize]], basis(cam), t, today.degrees, today.speed, if heavy { 0.42 } else { 0.32 });
+        // the split view's second half: its own streaks round its own eye
+        if let Some(cam) = second.eye() {
+            streaks(&mut second_streaks, &fx.drops[..DROPS[heavy as usize]], basis(cam), t, today.degrees, today.speed, if heavy { 0.42 } else { 0.32 });
+        }
         // each cell is 2 × 2 tiles, each showing the next of the texture's four frames; the right-hand tiles are
         // mirrored in U and the far ones in V, so the four meet edge to edge
         let base = fx.tick / FRAME;
@@ -508,6 +517,10 @@ fn draw(fx: Option<Res<Particles>>, w: Option<Res<Weather>>, time: Res<Time<Fixe
     }
     for (mesh, q) in fx.views.iter().zip(sets) {
         fill(&mut meshes, mesh, q.pos, q.uv, q.colour, q.index);
+    }
+    if let Some(h) = fx.views.first().and_then(|v| second.mesh(v)) {
+        let q = second_streaks;
+        fill(&mut meshes, h, q.pos, q.uv, q.colour, q.index);
     }
 }
 
