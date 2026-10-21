@@ -1045,6 +1045,7 @@ fn reach(iso: &mut Iso) -> Reach {
         volley_height: pair(63, 1) / 100.0,
         smash_top: pair(64, 0) / 100.0,
         smash_bottom: pair(64, 2) / 100.0,
+        smash_middle: pair(64, 1) / 100.0,
         // character 0's, as the game derives them from the skeleton at load; each player's own replaces them
         // (`skeleton_reach`)
         ahead: 0.484,
@@ -1078,6 +1079,7 @@ fn reach_of(base: &Reach, row: &[String], hand: f32) -> Reach {
         volley_height: s.volley_height,
         smash_top: s.smash[0],
         smash_bottom: s.smash[2],
+        smash_middle: s.smash[1],
         hand,
         grades: swing::timing(s.after, s.before).0,
         ..base.clone()
@@ -3057,13 +3059,13 @@ fn input_off(g: &Game) -> bool {
 /// smash when the ball is close and rises over the smash window's middle, or the ground stroke on the side the
 /// ball passes (the side of the ball's line the player stands on). At full speed, squared up to the net.
 fn whiff(g: &mut Game, i: usize, miss: bool, quiet: bool) {
+    // the hitter's own search horizon, at least 16 frames (only a mod's grade table is shorter)
     let path = if miss {
-        predicted_path(g, g.reach.grades.len())
+        predicted_path(g, swing::whiff_horizon(&g.reaches[i]))
     } else {
         Vec::new()
     };
-    // ponytail: the middle height is TParam's middle smash cell, the window's midpoint for every character seen
-    let middle = (g.reaches[i].smash_top + g.reaches[i].smash_bottom) / 2.0;
+    let middle = g.reaches[i].smash_middle;
     let pace = swing_pace(g, i);
     let (b, p) = (g.flight.ball, &mut g.players[i]);
     let base = match p.kind {

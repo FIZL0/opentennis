@@ -664,7 +664,7 @@ fn ai_dives_match_the_game() {
                 assert_eq!(a[base(p) + at(0x3fa5)], 1, "vsync {vsync} p{p}: dive not from a run");
                 let reach = Reach {
                     base: f(a, p, 0x13ac), reach: f(a, p, 0x13b0), stroke_height: f(a, p, 0x13b8), volley_height: f(a, p, 0x13bc),
-                    smash_top: 0.0, smash_bottom: 0.0, ahead: 0.0, smash_ahead: 0.0, body_low: 0.0, body_high: 0.0,
+                    smash_top: 0.0, smash_bottom: 0.0, smash_middle: 0.0, ahead: 0.0, smash_ahead: 0.0, body_low: 0.0, body_high: 0.0,
                     grades: vec![], hand: 1.0, dive_arm: [[[0.0; 4]; 4]; 2],
                 };
                 // the AI's path starts at step 5 (the search skips 0..5) with y up; bounces only pick hit or miss
