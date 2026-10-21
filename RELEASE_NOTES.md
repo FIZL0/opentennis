@@ -27,3 +27,4 @@
 - A ball that comes to rest on the court or on a slope or prop now ends the point straight away (as out) instead of after a long wait, a ball that has stopped stays still, and a serve that clips the net and then hits the receiver is a let again only when it touched the net.
 - A special topspin serve you turn flat with the stick now aims inside the service box like any flat serve, as in the original, instead of keeping the curving serve's wider aim.
 - A mistimed ✕ or ○ smash from deep in the court now aims a little further inside the lines, as in the original.
+- Computer players now walk back into position after serving, and at the start of every point in doubles, as they do in the original; a computer server's aim is also picked at the same moment as the original's.
