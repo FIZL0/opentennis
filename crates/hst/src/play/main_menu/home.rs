@@ -223,7 +223,6 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
     if let Some(sx) = store {
         mods_screen::news(d, m, [sx, TOP, STORE_W, FOOT - TOP]);
     }
-    mods_screen::ask_layout(d, m, hand_x);
     stale_layout(d, m, hand_x);
 }
 

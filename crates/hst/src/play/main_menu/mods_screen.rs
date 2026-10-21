@@ -32,6 +32,9 @@ use crate::mods::Mod;
 
 mod grid;
 mod packs;
+mod transfers;
+
+pub(super) use transfers::{layout as transfers_layout, sample as transfers_sample};
 
 /// B471: which of L1 / R1 (the Show tabs) do nothing on `v`: the legend dims their hint.
 pub(super) fn show_ends(v: &View) -> [bool; 2] {
@@ -136,6 +139,11 @@ pub(super) struct View {
     b: grid::Browse,
     /// B335: the installs since the queue was last empty: done, all (the status's "3/50").
     batch: (usize, usize),
+    /// M136: the uploads since none were last going: ended, all (the menus' upload strip, `transfers.rs`).
+    up_batch: (usize, usize),
+    /// M136: a download batch that changed the mods ended: the Reload / Later popup is due once no upload is going
+    /// and the screen is calm.
+    due: bool,
     /// B373: the kind tab every page lists (`mods_kind.rs`).
     pub(super) kind: Kind,
     /// B383: the installed mods as the grid's tiles (Show → Installed; [`View::relist`]).
@@ -359,6 +367,9 @@ impl View {
             _ => {}
         }
         let end = !matches!(u, Up::Queued | Up::Uploading);
+        if end && matches!(self.ups.get(&dir), Some(Up::Queued | Up::Uploading)) {
+            self.up_batch.0 += 1;
+        }
         self.ups.insert(dir, u);
         if end && self.uploads().1 == 0 && self.upped.0 > 0 {
             self.upped.1 = UPPED_SECS;
@@ -1025,6 +1036,7 @@ impl Menu {
             })
             .collect::<Vec<_>>();
         if !ups.is_empty() {
+            v.up_queued(ups.len());
             modstore::publish(ups, name, token, v.iso.clone());
         }
     }
@@ -1864,6 +1876,8 @@ fn page(
                 };
                 v.busy = !v.doing.is_empty();
                 v.next(up, at_once);
+                // M136: the batch's last one in: the popup asks to reload (`transfers::offer`)
+                v.due |= v.doing.is_empty() && v.fresh;
             }
             Event::Progress(key, s) => {
                 if let Some(j) = v.jobs.get_mut(&key) {
@@ -1930,6 +1944,7 @@ fn page(
     }
     // M115: the batch's last upload ended (or the read or install holding it back did)
     menu.add.refresh_stale();
+    transfers::offer(&mut menu);
     menu.sel = sel;
     let on = menu.screen == Screen::Mods;
     if on && menu.add.grid() {
