@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Carry a worktree's `context/` files into the main checkout's `context/` (T11).
 
-Usage: tools/context_sync.py [--all] [--since EPOCH] [-q]
+Usage: tools/context_sync.py [--all] [--since EPOCH] [--link] [-q]
 
 A runner slot or `git worktree add` checkout often has its own `context/` directory, not the symlink to the main
 checkout's that the runner makes for new slots. A recording made there stays there, and deleting the worktree loses
@@ -13,6 +13,9 @@ path, the first one keeps the path and the other is kept beside it as `<name>.fr
   --all          every worktree of the repo (the backlog: run it from any checkout)
   --since EPOCH  this worktree's files written at or after EPOCH also replace the main checkout's copy: pine.py
                  passes its start time when a tool exits cleanly, so a re-recording under an old name reaches main
+  --link         then replace this worktree's `context/` with a symlink to the main checkout's (a file main holds
+                 differently is kept beside it there as `<name>.from-<worktree>` first, so nothing is lost);
+                 runner.toml's on_exit runs it, since slots made before agent-runner have a real `context/`
   -q             print nothing when nothing was copied
 
 tools/done.sh runs the default form at the end of a task, and pine.py runs `--since` when a PINE tool exits. Tests
@@ -102,6 +105,7 @@ def main():
     args = sys.argv[1:]
     quiet = "-q" in args
     since = float(args[args.index("--since") + 1]) if "--since" in args else None
+    link = "--link" in args and "--all" not in args
     top = main_checkout()
     dest = os.path.join(top, "context")
     sources = [w for w in worktrees() if os.path.realpath(w) != os.path.realpath(top)] if "--all" in args else [ROOT]
@@ -126,7 +130,7 @@ def main():
                     if not same(src, dst):
                         clone(src, dst, replace=True)
                         fresh += 1
-                elif rel in made and made[rel] != name and not same(src, dst):
+                elif (link or rel in made and made[rel] != name) and not same(src, dst):
                     kept += clone(src, f"{dst}.from-{name}")
             except OSError as e:
                 failed.append(f"{src}: {e}")
@@ -136,6 +140,12 @@ def main():
         print(f"context_sync: {new} new file(s), {size / 1e9:.2f} GB, into {dest}"
               + (f"; {fresh} re-recorded file(s) replaced" if fresh else "")
               + (f"; {kept} same-name different file(s) kept as *.from-<worktree>" if kept else ""))
+    ctx = os.path.join(ROOT, "context")
+    if link and not failed and os.path.realpath(ROOT) != os.path.realpath(top) and not os.path.islink(ctx) \
+            and os.path.isdir(ctx):
+        shutil.rmtree(ctx)
+        os.symlink(dest, ctx)
+        print(f"context_sync: {ctx} is now a link to {dest}")
     sys.exit(1 if failed else 0)
 
 
