@@ -21,3 +21,4 @@
 - Settings → Shadows has a new Original choice that draws the trees' and buildings' shadows soft, as on the PS2, instead of sharp; Original Mode uses it.
 - Custom characters can now be a disc character grown bigger (taller, with longer reach), swinging faster or running slower; they play in local matches, not online yet.
 - In doubles, computer players now shift position as soon as their own team hits the ball and react to each shot at the moment it is played, as in the original.
+- In a match with one human player, Select (C on the keyboard) now switches to the original game's low camera behind your player, and back again with a short glide. Your player turns see-through while they hide the ball coming at them, and the game remembers your choice for the next match.
