@@ -617,6 +617,8 @@ mod tests {
         };
         for (tab, want) in [(FAVORITES, ("Favorites".to_string(), 0)), (HOT_SHOTS, ("Golf".to_string(), 1))] {
             let mut m = menu();
+            // a second costume, so the COM can have Mod(4) too (with it taken, the COM's cursor moves on)
+            m.mods[4].costumes.push("model/c01.glb".into());
             m.put(0, Some(Who::Mod(4)));
             m.toggle_favorite(0, &mut Vec::new());
             m.players[0].tab = tab;

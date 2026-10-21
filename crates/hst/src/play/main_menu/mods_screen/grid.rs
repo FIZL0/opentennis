@@ -2511,11 +2511,13 @@ mod tests {
             let mut d = draw();
             let end = para_roll(&mut d, s, [x, 0.0], w, 16.0, 20.0, 4, WHITE, roll);
             assert_eq!(end, 40.0, "two lines: the words, then the link");
+            // a glyph's quad has a clear margin round its letter (the outline's room), which may reach past
+            let pad = crate::play::glyph_sheet::PAD * 16.0 / 32.0 + 1e-3;
             for q in &d.out {
-                assert!(q.dst[0] >= x - 1e-3 && q.dst[0] + q.dst[2] <= x + w + 1e-3, "{:?} past the panel", q.dst);
+                assert!(q.dst[0] >= x - pad && q.dst[0] + q.dst[2] <= x + w + pad, "{:?} past the panel", q.dst);
             }
             // the link's line: where its glyphs start, how wide a span of it shows, where its last one ends
-            let link: Vec<_> = d.out.iter().filter(|q| q.dst[1] == 20.0).map(|q| q.dst).collect();
+            let link: Vec<_> = d.out.iter().filter(|q| q.dst[1] > 10.0).map(|q| q.dst).collect();
             let l = link[link.len() - 1];
             (link[0][0], l[0] + l[2] - link[0][0], l[0] + l[2])
         };

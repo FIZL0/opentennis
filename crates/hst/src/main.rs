@@ -442,6 +442,8 @@ fn start(argv: Vec<String>) {
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     let plugins = if quiet { plugins.disable::<bevy::gilrs::GilrsPlugin>() } else { plugins };
     app.add_plugins(plugins);
+    // every Text (chat, the description bar, the FPS counter) is set in the menus' own font, not Bevy's Fira Mono
+    let _ = app.world_mut().resource_mut::<Assets<Font>>().insert(AssetId::default(), Font::from_bytes(play::menu_art::BOLD.to_vec()));
     if quiet {
         seats::ignore_input(&mut app);
     }

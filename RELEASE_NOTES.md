@@ -1,4 +1,6 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Menu text uses a new, cleaner font with crisp outlines, and chat and on-screen text now use the same font.
+- The 2P join card no longer says "to join" twice when no controller is connected.
 - On the player select, the cursor of the next computer player you pick for skips a character whose outfits are all taken instead of sitting on one it can't pick.
 - Outlined menu words (titles, panel headings) now have a clean, even outline instead of a lumpy one.
 - On the player select, a player who has readied up now sees their pick held in a solid ring of their colour while the rest of their grid dims, so it is clear they are locked in.
