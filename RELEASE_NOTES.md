@@ -9,3 +9,5 @@
 - On the indoor court, a ball that hits a ball-boy cart's turning wheels now bounces off them where they actually are, as in the original.
 - Web app: a browser extension that hits an error on the page (seen with some iOS Safari extensions at launch) no longer stops the game.
 - The web app (also when added to your home screen) now checks for a new version as soon as it opens, loads it straight away, and says "Updated to …" on the main menu; coming back to it offers a new version at once.
+- The alternate camera now backs away as the ball comes past you, tilts up to keep a high ball in the picture and glides smoothly after the play, as in the original.
+- Keyboard hints in a match now show the key that switches to the alternate camera, when the switch is available.

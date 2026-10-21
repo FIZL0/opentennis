@@ -5,7 +5,7 @@
 
 use hst_data::exe::Game;
 use hst_data::fixture;
-use hst_sim::alt_cam::{Fade, Follow, GLIDE, blocks, glide_weight};
+use hst_sim::alt_cam::{Fade, Follow, GLIDE, Play, blocks, glide_weight};
 use hst_sim::camera::View;
 
 #[test]
@@ -16,9 +16,9 @@ fn behind_the_human_as_the_original() {
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let shots = Game::new(&cnf, &bin).unwrap().camera_shots();
     let mut f = Follow::new(&shots, true);
-    let mut v = f.step([3.0, 0.0, -12.25], true, [2.939, -0.086, -12.353]);
+    let mut v = f.step([3.0, 0.0, -12.25], true, [2.939, -0.086, -12.353], Play::Quiet);
     for _ in 0..60 {
-        v = f.step([3.0, 0.0, -12.25], true, [2.939, -0.086, -12.353]);
+        v = f.step([3.0, 0.0, -12.25], true, [2.939, -0.086, -12.353], Play::Quiet);
     }
     let near = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.0015);
     assert!(near(v.eye, [3.314, -5.576, -23.989]), "eye {:?}", v.eye);
@@ -30,13 +30,13 @@ fn behind_the_human_as_the_original() {
     let mut g = Follow::new(&shots, true);
     let mut w = v;
     for _ in 0..61 {
-        w = g.step([-3.0, 0.0, 12.25], false, [-2.939, -0.086, 12.353]);
+        w = g.step([-3.0, 0.0, 12.25], false, [-2.939, -0.086, 12.353], Play::Quiet);
     }
     let turned = [-v.eye[0], v.eye[1], -v.eye[2]];
     assert!(turned.iter().zip(w.eye).all(|(x, y)| (x - y).abs() < 1e-3), "far end eye {:?}", w.eye);
     // singles: shot 8, nearer and higher pitched framing
     let mut s = Follow::new(&shots, false);
-    let e = s.step([3.0, 0.0, -12.25], true, [2.939, -0.086, -12.353]).eye;
+    let e = s.step([3.0, 0.0, -12.25], true, [2.939, -0.086, -12.353], Play::Quiet).eye;
     assert!(e[2] < -12.25 && e[2] > v.eye[2], "singles eye {e:?} not between the human and the doubles eye");
 }
 
@@ -67,15 +67,14 @@ fn the_human_fades_to_half_over_5_frames() {
 }
 
 
-/// B621: shot 9 lock-step against the original through ten points of slot 4's doubles (recorded over PINE in PCSX2
-/// copy 4, 2026-10-21, Select pressed after the load, Cross tapped every second: `context/b621/alt_follow_s04.bin`, per
-/// frame vsync, the match's state, the camera director, the shot camera's view and number, four player matrices and
-/// the ball). Each run of the shot starts fresh at its first frame (the serve's set-up after a cut-away or the change
-/// of ends) and follows the human (player 0) and the ball. The turn after the ball matches through the rallies; the
-/// original's pull-back (the eye backs away along the view as the ball comes past the human, up to ~12 m) is not
-/// ported yet, so frames where it has pulled back are left out (counted, under half), and the original also tilts a
-/// little after the ball (forward's height up to 0.011 off, 0.025 on the frame a pull-back starts), so the bound is
-/// 0.03 rather than the view's rounding.
+/// B621/B628: shot 9 lock-step against the original through ten points of slot 4's doubles (recorded over PINE in
+/// PCSX2 copy 4, 2026-10-21, Select pressed after the load, Cross tapped every second: `context/b621/alt_follow_s04.bin`,
+/// per frame vsync, the match's state (its phase at +5: 2 the serve's set-up, 3 the rally, 4 after the point, 1 the
+/// change of ends; frames in it at +8), the camera director, the shot camera's view and number, four player matrices
+/// and the ball). Each run of the shot starts fresh at its first frame (the serve's set-up after a cut-away or the
+/// change of ends) and follows the human (player 0) and the ball, the eye backing away as the ball comes past them,
+/// the picture easing after the shot's view. Every frame matches to the stored views' rounding (0.001). The recording
+/// reads some game frames twice: a repeat doesn't step the camera.
 #[test]
 fn follows_through_the_rally_as_the_original() {
     const GM: usize = 4;
@@ -96,38 +95,58 @@ fn follows_through_the_rally_as_the_original() {
     let f = |s: &[u8], o: usize| f32::from_le_bytes(s[o..o + 4].try_into().unwrap());
     let v3 = |s: &[u8], o: usize| [f(s, o), f(s, o + 4), f(s, o + 8)];
     let frames: Vec<&[u8]> = data.as_chunks::<SAMPLE>().0.iter().map(|s| s.as_slice()).collect();
-    let (mut follow, mut worst, mut n, mut pulled, mut runs) = (None::<Follow>, 0.0f32, 0, 0, 0);
+    let (mut follow, mut worst, mut n, mut runs) = (None::<Follow>, 0.0f32, 0, 0);
+    // the serve struck this point: the rally phase's ball leaving the server's hand
+    let mut struck = false;
+    // the ball the camera looks at: held where the rally left it once the point is over
+    let mut held = [0.0; 3];
     for (k, s) in frames.iter().enumerate() {
+        if k > 0 && s[GM..] == frames[k - 1][GM..] {
+            continue;
+        }
+        let phase = s[GM + 5];
+        let ran = u16::from_le_bytes([s[GM + 8], s[GM + 9]]) as u32;
+        if phase == 2 {
+            struck = false;
+        } else if phase == 3 && k > 0 {
+            let (b, a) = (v3(s, BALL), v3(frames[k - 1], BALL));
+            struck |= (b[2] - a[2]).abs() > 0.05;
+        }
+        if phase != 4 {
+            held = v3(s, BALL);
+        }
+        // the change of ends' first frame: the camera still sees the ball reset to the court centre (the recorder
+        // reads it later that frame, already in the server's hand)
+        if phase == 1 && ran == 1 {
+            held = [0.0; 3];
+        }
         // the director's mode and the shot camera's shot both 9 (the first frame of a switch still has the old mode)
         // and each point's set-up starts it again
-        if s[CH + 1] != 9 || s[NUM + 4] != 9 || s[GM + 5] == 2 && frames[k - 1][GM + 5] != 2 {
+        if s[CH + 1] != 9 || s[NUM + 4] != 9 || phase == 2 && frames[k - 1][GM + 5] != 2 {
             follow = None;
             continue;
         }
         let spot = v3(s, PL + 0x30);
+        let play = Play::new(struck as u32, (phase == 3).then_some(ran));
         let v = follow
             .get_or_insert_with(|| {
                 runs += 1;
                 Follow::new(&shots, true)
             })
-            .step(spot, spot[2] < 0.0, v3(s, BALL));
+            .step(spot, spot[2] < 0.0, held, play);
         let want = View { rot: [v3(s, CAM), v3(s, CAM + 0x10), v3(s, CAM + 0x20)], eye: v3(s, CAM + 0x30), fov: f(s, CAM + 0x44) };
-        let gap = |e: [f32; 3]| (e[0] - spot[0]).hypot(e[2] - spot[2]);
-        if gap(want.eye) > gap(v.eye) + 0.05 {
-            pulled += 1;
-            continue;
-        }
         let err = (0..3)
             .map(|j| (v.eye[j] - want.eye[j]).abs())
             .chain((0..3).map(|j| (v.rot[2][j] - want.rot[2][j]).abs()))
             .fold((v.fov - want.fov).abs(), f32::max);
         if err > worst {
             worst = err;
-            eprintln!("frame {k}: err {err:.4} port eye {:?} fwd {:?} | game eye {:?} fwd {:?}", v.eye, v.rot[2], want.eye, want.rot[2]);
+            eprintln!("frame {k} (phase {phase}, {ran}): err {err:.4} port eye {:?} fwd {:?} | game eye {:?} fwd {:?}", v.eye, v.rot[2], want.eye, want.rot[2]);
         }
         n += 1;
     }
-    eprintln!("{runs} runs, {n} frames compared, {pulled} pulled back");
-    assert!(runs >= 5 && n > 1500 && pulled * 2 < n, "{runs} runs, {n} frames, {pulled} pulled back");
-    assert!(worst < 0.03, "worst error {worst}");
+    eprintln!("{runs} runs, {n} frames compared");
+    assert!(runs >= 5 && n > 2000, "{runs} runs, {n} frames");
+    assert!(worst < 0.0015, "worst error {worst}");
 }
+
