@@ -182,6 +182,7 @@ fn fit_scale(screen: Screen, aspect: f32, k: f32) -> f32 {
 /// (B117); B306: keeps the select's scroll on the shown player.
 fn fit_grid(window: Query<&Window, With<PrimaryWindow>>, mut menu: ResMut<Menu>) {
     super::widescreen::ASPECT.store(menu.settings.3, std::sync::atomic::Ordering::Relaxed);
+    super::widescreen::MARGIN.store(menu.settings.12, std::sync::atomic::Ordering::Relaxed);
     super::key_hints::ON.store(menu.settings.0[KEY_HINTS], std::sync::atomic::Ordering::Relaxed);
     legend::LAYOUT.store(menu.settings.9, std::sync::atomic::Ordering::Relaxed);
     let Ok(w) = window.single() else { return };
@@ -254,13 +255,25 @@ pub(crate) fn save_graphics(iso: &str, g: Graphics) {
 /// pads' button icons (B362: a `legend::LAYOUTS` index, 0 Auto) and Updates' Always (M140: a found update installs by
 /// itself; Never is `update_check` off), saved in `settings.txt`.
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct Settings([bool; 9], Graphics, Volumes, u8, Ask, u8, u8, u8, u8, u8, Ask, bool);
+pub struct Settings([bool; 9], Graphics, Volumes, u8, Ask, u8, u8, u8, u8, u8, Ask, bool, u8);
 /// B273: the browser's renderer setting, each as its settings.txt / web/index.html word and its Settings row's word
 /// (B316: the row's value and choices both come from here): Auto (WebGPU when the browser has an adapter), WebGPU,
 /// WebGL2.
 const RENDERERS: [(&str, &str); 3] = [("auto", "Auto"), ("webgpu", "WebGPU"), ("webgl2", "WebGL2")];
 /// The Menu Size setting's values: Auto (0), then 50% to 150% in tenths.
 const MENU_SIZES: [u8; 12] = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+/// B608: the Safe Area setting's values (`widescreen::MARGIN`): Auto (the device's), None, then margins of 1% to 10%
+/// of the screen (in halves of a per cent).
+const SAFE_AREAS: [u8; 9] = [super::widescreen::AUTO_MARGIN, super::widescreen::NO_MARGIN, 2, 4, 6, 8, 10, 14, 20];
+
+/// A `SAFE_AREAS` value as the Safe Area row and settings.txt say it.
+fn safe_area_name(m: u8) -> String {
+    match m {
+        super::widescreen::AUTO_MARGIN => "Auto".into(),
+        super::widescreen::NO_MARGIN => "None".into(),
+        m => format!("{}%", m as f32 / 2.0),
+    }
+}
 /// `music` is the match's (an older `settings.txt`'s one Music switch keeps meaning the match). Their rows are on the
 /// Settings screen's pages (`options.rs`).
 const SETTING_NAMES: [&str; 9] = ["upscaled_textures", "menu_music", "music", "upscaled_downloads", "key_hints", "chat", "vibration", "update_check", "emote_voices"];
@@ -300,7 +313,7 @@ fn default_aspect() -> u8 {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings(SETTING_DEFAULTS, Graphics::default(), Volumes::default(), default_aspect(), Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false)
+        Settings(SETTING_DEFAULTS, Graphics::default(), Volumes::default(), default_aspect(), Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false, super::widescreen::AUTO_MARGIN)
     }
 }
 
@@ -325,6 +338,8 @@ impl Settings {
                 s.6 = v.trim().parse().ok().filter(|&u| u as usize <= UMPIRES).unwrap_or(UMPIRES as u8);
             } else if k.trim() == "menu_size" {
                 s.7 = v.trim().trim_end_matches('%').parse::<u8>().ok().map(|p| p / 10).filter(|t| MENU_SIZES.contains(t)).unwrap_or(0);
+            } else if k.trim() == "safe_area" {
+                s.12 = SAFE_AREAS.iter().copied().find(|&m| safe_area_name(m).eq_ignore_ascii_case(v.trim())).unwrap_or(s.12);
             } else if k.trim() == "downloads_at_once" {
                 s.8 = v.trim().parse::<u8>().ok().filter(|&n| n as usize <= max_downloads()).unwrap_or(0);
             } else if k.trim() == "button_icons" {
@@ -361,7 +376,7 @@ impl Settings {
 
     fn text(&self) -> String {
         let on: String = SETTING_NAMES.iter().zip(self.0).map(|(n, on)| format!("{n} = {}\n", if on { "on" } else { "off" })).collect();
-        format!("aspect = {}\n", super::widescreen::ASPECTS[self.3 as usize]) + &on + &format!("online_mods = {}\n", self.4.word()) + &format!("keep_downloads = {}\n", self.10.word()) + &self.1.text() + &self.2.text() + &self.renderer_line() + &format!("umpire = {}\n", self.6) + &format!("menu_size = {}\n", if self.7 == 0 { "auto".into() } else { format!("{}", self.7 as u32 * 10) }) + &format!("downloads_at_once = {}\n", if self.8 == 0 { "auto".into() } else { self.8.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.9 as usize].1) + &crate::mods_textures::settings_text() + &crate::update::settings_line(self.0[UPDATE_CHECK], self.11)
+        format!("aspect = {}\n", super::widescreen::ASPECTS[self.3 as usize]) + &on + &format!("online_mods = {}\n", self.4.word()) + &format!("keep_downloads = {}\n", self.10.word()) + &self.1.text() + &self.2.text() + &self.renderer_line() + &format!("umpire = {}\n", self.6) + &format!("menu_size = {}\n", if self.7 == 0 { "auto".into() } else { format!("{}", self.7 as u32 * 10) }) + &format!("safe_area = {}\n", safe_area_name(self.12).to_lowercase()) + &format!("downloads_at_once = {}\n", if self.8 == 0 { "auto".into() } else { self.8.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.9 as usize].1) + &crate::mods_textures::settings_text() + &crate::update::settings_line(self.0[UPDATE_CHECK], self.11)
     }
 
     /// B339: how many store installs run at once: the setting, or on Auto 3 on desktop, 2 in a browser, 1 on a
@@ -2334,7 +2349,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     let fresh = kept.is_none();
     // first run (no settings.txt): the Auto preset's pick for this device (P53; B351: a phone's is Phone or below it,
     // the browser on a touch screen too; a Steam Deck's its own)
-    let first = || Settings(SETTING_DEFAULTS, auto_graphics(), Volumes::default(), default_aspect(), Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false);
+    let first = || Settings(SETTING_DEFAULTS, auto_graphics(), Volumes::default(), default_aspect(), Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false, super::widescreen::AUTO_MARGIN);
     let saved = crate::store::read_to_string(Settings::path(&args.iso)).map(|t| {
         let mut s = Settings::parse(&t);
         // B289: an older build kept the lobby prompt's answer in the online mod cache
@@ -3922,18 +3937,50 @@ mod tests {
         p
     }
 
+    /// B608: the Safe Area setting reads back from settings.txt; Auto unless set.
+    #[test]
+    fn safe_area_saved() {
+        assert_eq!(Settings::default().12, super::super::widescreen::AUTO_MARGIN);
+        for &m in &SAFE_AREAS {
+            let s = Settings(SETTING_DEFAULTS, Graphics::LOW, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false, m);
+            assert_eq!(Settings::parse(&s.text()).12, m, "{}", safe_area_name(m));
+        }
+        assert_eq!(SAFE_AREAS.map(safe_area_name)[..4], ["Auto", "None", "1%", "2%"]);
+        assert_eq!(Settings::parse("safe_area = 5%\n").12, 10);
+        assert_eq!(Settings::parse("safe_area = 13%\n").12, super::super::widescreen::AUTO_MARGIN);
+    }
+
+    /// B608: at any Menu Size, the screens drawn on the 640×448 screen grow only until it fills the view; the
+    /// re-laid-out ones take the size asked for; a phone's Auto is bigger than 100%, a tablet's 100%.
+    #[test]
+    fn menu_size_fits_the_view() {
+        let wide = 16.0 / 9.0;
+        let (s, v) = super::super::widescreen::menu_shares(wide, 1.0);
+        let whole = 1.0 / s.max(v);
+        for screen in [Screen::Press, Screen::Main, Screen::Online, Screen::Lobbies, Screen::Code, Screen::Extras] {
+            assert_eq!(fit_scale(screen, wide, 1.5), whole);
+            assert_eq!(fit_scale(screen, wide, 0.8), 0.8);
+        }
+        assert_eq!(fit_scale(Screen::Chars, wide, 1.5), 1.5);
+        let k = fit_scale(Screen::Display, wide, 1.5);
+        assert!(k >= whole && k <= 1.5 && options::rows_fit(&Grid::fit_at(wide, k), Screen::Display));
+        let auto = Settings::default();
+        assert!((auto.menu_scale_on(393.0, true) - 440.0 / 393.0).abs() < 1e-6 && auto.menu_scale_on(320.0, true) == 1.3);
+        assert_eq!((auto.menu_scale_on(1024.0, true), auto.menu_scale_on(393.0, false)), (1.0, 1.0));
+    }
+
     #[test]
     fn settings_round_trip() {
-        let s = Settings([true, false, false, true, true, true, true, true, true], Graphics::LOW, Volumes::default(), 3, Ask::Each, 0, UMPIRES as u8, 0, 4, 0, Ask::Each, true);
+        let s = Settings([true, false, false, true, true, true, true, true, true], Graphics::LOW, Volumes::default(), 3, Ask::Each, 0, UMPIRES as u8, 0, 4, 0, Ask::Each, true, 0);
         assert_eq!(Settings::parse(&s.text()), s);
         // B339: Downloads at Once: Auto (3 on desktop) unless set, at most 8
         assert_eq!((s.downloads_at_once(), Settings::default().downloads_at_once()), (4, 3));
         assert_eq!((Settings::parse("downloads_at_once = 8\n").8, Settings::parse("downloads_at_once = 9\n").8), (8, 0));
         let d = Graphics::default();
-        assert_eq!(Settings::parse("music = off\nbogus = off\n"), Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false));
+        assert_eq!(Settings::parse("music = off\nbogus = off\n"), Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false, 0));
         // a fresh file: menu music on, court music off; an old file's `music` is the match's
-        assert_eq!(Settings::parse(""), Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false));
-        assert_eq!(Settings::parse("music = on\n"), Settings([true, true, true, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false));
+        assert_eq!(Settings::parse(""), Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false, 0));
+        assert_eq!(Settings::parse("music = on\n"), Settings([true, true, true, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false, 0));
         // B117: an old file's widescreen on is Auto, off 4:3; `aspect` wins
         assert_eq!(Settings::parse("widescreen = on\n").3, 0);
         assert_eq!(Settings::parse("widescreen = off\n").3, 1);
@@ -3941,10 +3988,10 @@ mod tests {
         // Upscaled Downloads follows Upscaled Textures unless it's set itself
         assert!(!Settings::parse("upscaled_textures = off\n").0[UPSCALED_DOWNLOADS]);
         assert!(Settings::parse("upscaled_textures = off\nupscaled_downloads = on\n").0[UPSCALED_DOWNLOADS]);
-        assert_eq!(Settings::parse("menu_music = off\n"), Settings([true, false, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false));
+        assert_eq!(Settings::parse("menu_music = off\n"), Settings([true, false, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false, 0));
         assert!(!Settings::default().flags().contains(&"--music".to_string()));
-        assert!(!Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false).flags().contains(&"--music".to_string()));
-        assert!(Settings([true, false, true, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false).flags().contains(&"--music".to_string()));
+        assert!(!Settings([true, true, false, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false, 0).flags().contains(&"--music".to_string()));
+        assert!(Settings([true, false, true, true, true, true, true, true, true], d, Volumes::default(), 0, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false, 0).flags().contains(&"--music".to_string()));
         // B289: the online mod answer round-trips; an unknown word keeps Ask
         let a = Settings { 4: Ask::Never, ..Settings::default() };
         assert_eq!(Settings::parse(&a.text()), a);
@@ -3956,7 +4003,7 @@ mod tests {
         assert!(!e.0[EMOTE_VOICES] && Settings::parse("").0[EMOTE_VOICES] && !Settings::parse(&e.text()).0[EMOTE_VOICES]);
         assert_eq!(Settings::parse("uncapped_fps = off\n").1, Graphics { vsync: true, ..d });
         assert_eq!(s.flags()[..1], ["--fps"]);
-        assert_eq!(Settings([false, false, true, false, true, true, true, true, true], d, Volumes::default(), 1, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false).flags()[..2], ["--no-upscale", "--music"]);
+        assert_eq!(Settings([false, false, true, false, true, true, true, true, true], d, Volumes::default(), 1, Ask::Each, 0, UMPIRES as u8, 0, 0, 0, Ask::Each, false, 0).flags()[..2], ["--no-upscale", "--music"]);
     }
 
     #[test]

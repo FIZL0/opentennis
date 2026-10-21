@@ -312,6 +312,7 @@ fn after(
     }
     let [_, _, match_music, ..] = menu.settings.0;
     widescreen::ASPECT.store(menu.settings.3, std::sync::atomic::Ordering::Relaxed);
+    widescreen::MARGIN.store(menu.settings.12, std::sync::atomic::Ordering::Relaxed);
     super::super::key_hints::ON.store(menu.settings.0[super::KEY_HINTS], std::sync::atomic::Ordering::Relaxed);
     if match_music != args.music
         && let (Some(game), Some(sound), Some(mut music)) = (game, sound, music)
