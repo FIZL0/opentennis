@@ -879,6 +879,11 @@ fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p
         (None, Who::Disc(_)) if m.remote_mod_name(p).is_some() => "Mod".to_string(),
         (None, Who::Disc(_)) => "Disc character".to_string(),
     };
+    // B40g3: the host's handicap for this player
+    let what = match m.handicap_of(p) {
+        0 => what,
+        h => format!("{what} - {}", super::handicap::label(h)),
+    };
     let (fill, ink) = match f.state {
         // M122: its machine still downloading a mod: why it isn't ready
         _ if f.fetching.is_some() => (hex(0xffd23f), hex(look::INK)),

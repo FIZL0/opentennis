@@ -266,6 +266,10 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
             if m.lobby_own() {
                 v.extend([(Act::Costume, "Costume"), (Act::Hand, "Hand")]);
             }
+            // B40g3: the host's L2 / R2 on any player's card
+            if m.lobby_handicap_seat().is_some() {
+                v.push((Act::Kind, "Handicap"));
+            }
             if let Some(ok) = m.lobby_ok() {
                 v.push((Act::Ok, ok));
             }

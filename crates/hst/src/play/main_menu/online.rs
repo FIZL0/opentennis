@@ -1186,6 +1186,10 @@ impl Menu {
         if k.name && self.net.hosting && self.net.room.is_some() && self.counting() == 0 {
             return self.start(out);
         }
+        // B40g3: the host's L2 / R2 on a seat's card: its player's handicap
+        if self.lobby_handicap(k, out) {
+            return;
+        }
         // B449: the arrows go about the screen as its parts lie
         let to = pill_step(&rects, self.sel, k);
         // B396: on this machine's own seat L1 / R1 step the costume and Select the hand, sent to everyone

@@ -206,11 +206,19 @@ pub struct Pick {
     /// (`--swap-hands`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub swap: bool,
+    /// B40g3: the player's Set Handicap (0 none, 1 or 2 weights, `--handicap`). Only the host sets it
+    /// ([`Cmd::Handicap`]): the seat keeps it through its peer's new picks, and a guest's own picks come in without one.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub handicap: u8,
+}
+
+fn is_zero(h: &u8) -> bool {
+    *h == 0
 }
 
 impl Pick {
     pub fn disc(char: usize, costume: usize) -> Pick {
-        Pick { char, costume, r#mod: None, random: false, swap: false }
+        Pick { char, costume, r#mod: None, random: false, swap: false, handicap: 0 }
     }
 }
 
@@ -360,7 +368,9 @@ impl Room {
         if self.seats.get(i).is_none_or(|s| s.as_ref().is_some_and(Seat::human)) {
             return false;
         }
-        self.seats[i] = pick.map(|pick| Seat { peer: CPU.into(), pick });
+        // B40g3: a computer picked again keeps its handicap
+        let handicap = self.seats[i].as_ref().map_or(0, |s| s.pick.handicap);
+        self.seats[i] = pick.map(|pick| Seat { peer: CPU.into(), pick: Pick { handicap, ..pick } });
         self.ver += 1;
         true
     }
@@ -381,6 +391,19 @@ impl Room {
         after.swap(a, b);
         let order = |seats: &[Option<Seat>], peer: &str| seats.iter().flatten().filter(|s| s.peer == peer).map(|s| s.pick.clone()).collect::<Vec<_>>();
         [pa, pb].into_iter().flatten().filter(|p| *p != CPU).all(|p| order(&self.seats, p) == order(&after, p))
+    }
+
+    /// B40g3: the host's Set Handicap for the player in seat `i` (`h` 0..=2 weights); false (no change) for an open
+    /// seat, a level past two or the one it has.
+    fn set_handicap(&mut self, i: usize, h: u8) -> bool {
+        match self.seats.get_mut(i).and_then(Option::as_mut) {
+            Some(s) if h <= 2 && s.pick.handicap != h => {
+                s.pick.handicap = h;
+                self.ver += 1;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// B523: seats `a` and `b`'s players traded (`can_swap`); false (no change) if they can't.
@@ -445,7 +468,8 @@ impl Room {
         let rest = (0..self.seats.len()).filter(|i| !first.contains(i));
         let mut free = first.iter().copied().chain(rest).filter(|&i| self.seats[i].is_none()).collect::<Vec<_>>().into_iter();
         for pick in picks {
-            self.seats[free.next().unwrap()] = Some(Seat { peer: peer.into(), pick: pick.clone() });
+            // B40g3: the host sets handicaps, a joining peer brings none
+            self.seats[free.next().unwrap()] = Some(Seat { peer: peer.into(), pick: Pick { handicap: 0, ..pick.clone() } });
         }
         self.ver += 1;
         true
@@ -458,14 +482,15 @@ impl Room {
         // (the app picks the same one, `Menu::lobby_join_seat`)
         let held = self.seats.iter().flatten().filter(|s| s.peer == peer).count();
         if held > 0 && picks.len() == held + 1 && let Some(i) = self.seats.iter().position(Option::is_none) {
-            self.seats[i] = Some(Seat { peer: peer.into(), pick: picks[0].clone() });
+            self.seats[i] = Some(Seat { peer: peer.into(), pick: Pick { handicap: 0, ..picks[0].clone() } });
         }
         let mut held: Vec<&mut Seat> = self.seats.iter_mut().flatten().filter(|s| s.peer == peer).collect();
         if held.len() != picks.len() || picks.is_empty() {
             return false;
         }
         for (s, p) in held.iter_mut().zip(picks) {
-            s.pick = p.clone();
+            // B40g3: the seat's handicap is the host's, whatever the peer picks
+            s.pick = Pick { handicap: s.pick.handicap, ..p.clone() };
         }
         self.picking.remove(peer);
         self.ready.remove(peer);
@@ -490,7 +515,7 @@ impl Room {
         for s in self.seats.iter_mut().flatten() {
             if let Some(w) = s.pick.r#mod.take() {
                 // B520: a Random draw stays Random, the hand toggle stays
-                s.pick = Pick { random: s.pick.random, swap: s.pick.swap, ..Pick::disc(w.donor, 0) };
+                s.pick = Pick { random: s.pick.random, swap: s.pick.swap, handicap: s.pick.handicap, ..Pick::disc(w.donor, 0) };
             }
         }
         self.ver += 1;
@@ -946,6 +971,8 @@ pub enum Cmd {
     Doubles(bool),
     /// B523: the host swaps two seats' players (an open seat: moves one there), rearranging the teams.
     Swap(usize, usize),
+    /// B40g3: the host's Set Handicap (0..=2 weights) for the player in a seat, a person's or the computer's.
+    Handicap(usize, u8),
     /// B213: the host's lobby private (unlisted) or public.
     Private(bool),
     /// The host's lobby vanilla (no mods) or not.
@@ -2348,11 +2375,12 @@ impl Hosted {
                 broadcast(&self.joined, &Msg::Room(self.room.clone()));
                 cx.say(Event::Room(self.room.clone()));
             }
-            Some(c @ (Cmd::Bot(..) | Cmd::Doubles(_) | Cmd::Swap(..))) if self.starting.is_none() => {
+            Some(c @ (Cmd::Bot(..) | Cmd::Doubles(_) | Cmd::Swap(..) | Cmd::Handicap(..))) if self.starting.is_none() => {
                 let changed = match c {
                     Cmd::Bot(i, p) => self.room.bot(i, p),
                     Cmd::Doubles(d) => self.room.set_doubles(d),
                     Cmd::Swap(a, b) => self.room.swap(a, b),
+                    Cmd::Handicap(i, h) => self.room.set_handicap(i, h),
                     _ => false,
                 };
                 if changed {
@@ -3654,6 +3682,31 @@ mod tests {
         // a third local player joins: the first open seat
         assert!(r.repick("g", &[Pick::disc(3, 1), Pick::disc(5, 0), Pick::disc(7, 0)]));
         assert_eq!(r.seats.iter().map(|s| s.as_ref().map(|s| (s.peer.as_str(), s.pick.char))).collect::<Vec<_>>(), [Some(("host", 0)), Some(("g", 3)), Some(("g", 5)), Some(("g", 7))]);
+    }
+
+    /// B40g3: the host's handicaps stay on their seats through a peer's new picks, a computer's new pick, a trade of
+    /// seats and going vanilla; a guest's picks bring none, and the room carries them to every peer.
+    #[test]
+    fn handicaps_are_the_hosts_and_stay_on_their_seats() {
+        let mut r = room(true);
+        let two = Pick { handicap: 2, ..Pick::disc(0, 0) };
+        assert!(r.take("host", &[Pick::disc(0, 0)]));
+        assert!(r.take("g", &[two.clone(), Pick::disc(4, 0)]), "seated");
+        let levels = |r: &Room| r.seats.iter().map(|s| s.as_ref().map_or(9, |s| s.pick.handicap)).collect::<Vec<_>>();
+        assert_eq!(levels(&r), [0, 0, 0, 9], "a joining guest brings no handicap");
+        let v = r.ver;
+        assert!(r.set_handicap(1, 1) && r.set_handicap(0, 2) && r.ver == v + 2);
+        assert!(!r.set_handicap(1, 1) && !r.set_handicap(3, 1) && !r.set_handicap(2, 3), "no change, an open seat, past two");
+        assert!(r.repick("g", &[two, Pick::disc(5, 0)]));
+        assert_eq!(levels(&r), [2, 1, 0, 9], "the guest's own picks don't change them");
+        assert!(r.bot(3, Some(Pick::disc(6, 0))) && r.set_handicap(3, 2) && r.bot(3, Some(Pick::disc(7, 1))));
+        assert_eq!(r.seats[3].as_ref().unwrap().pick.handicap, 2, "a computer picked again keeps it");
+        assert!(r.swap(0, 3));
+        assert_eq!(levels(&r), [2, 1, 0, 2]);
+        assert!(r.set_vanilla(true) && levels(&r) == [2, 1, 0, 2]);
+        let wire: Room = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(levels(&wire), [2, 1, 0, 2]);
+        assert!(!serde_json::to_string(&Pick::disc(0, 0)).unwrap().contains("handicap"), "none: not on the wire");
     }
 
     /// Start's open seats go to random disc characters nobody holds, not always the first (Ashley).

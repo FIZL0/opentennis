@@ -1,8 +1,8 @@
 //! Online match setup (M2e): the host picks the match seed, and a joining peer's handshake (in its lobby Hello) must
 //! agree with the host's on what the lobby can't make the same, its build and its disc, else the host refuses it with
 //! a message saying what differs (M142). The rest that changes the simulation is the lobby's own: the rules, seats
-//! and picks come from the host's `Room`, a mod's gameplay data from the wire (`mods_online::Wire`); anything that
-//! still drifts shows in the desync hash.
+//! and picks (B40g3: each player's handicap with them, the host's to set) come from the host's `Room`, a mod's
+//! gameplay data from the wire (`mods_online::Wire`); anything that still drifts shows in the desync hash.
 
 use bevy::prelude::*;
 use hst_sim::rng::Seed;
