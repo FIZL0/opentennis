@@ -1,8 +1,9 @@
 # The browser build (`tools/web.sh`) on GitHub Pages: the page and the wasm only, no game data (players pick their ISO).
-# Every push to main is a beta: it replaces the rolling "Beta" release (tag `beta`, a pre-release, never Latest) with
-# Linux + Windows builds and the website (web.tar.gz) of that commit, then asks FIZL0/opentennis-beta (one workflow,
-# tools/beta-site.yml) to put that website on https://beta.opentennis.dev (secret BETA_DISPATCH_TOKEN: a fine-grained
-# token with Contents read/write on that repo; without it the beta site isn't updated).
+# Every push to main that passes ci.yml (tests, clippy, cargo-deny: the `ci` job) is a beta: it replaces the rolling
+# "Beta" release (tag `beta`, a pre-release, never Latest) with Linux + Windows builds and the website (web.tar.gz)
+# of that commit, then asks FIZL0/opentennis-beta (one workflow, tools/beta-site.yml) to put that website on
+# https://beta.opentennis.dev (secret BETA_DISPATCH_TOKEN: a fine-grained token with Contents read/write on that repo;
+# without it the beta site isn't updated).
 # Which builds go on https://opentennis.dev is the repo variable SITE_FROM:
 #   unset / main   every push to main (as before)
 #   release        only published releases (tools/release.sh): `gh variable set SITE_FROM --body release`
@@ -50,13 +51,12 @@ jobs:
           if gh release download "$TAG" -R "${{ github.repository }}" -p web.tar.gz -O - | tar xz -C web; then echo got=1 >> "$GITHUB_OUTPUT"
           elif [ "${{ inputs.prebuilt }}" = true ]; then exit 1; else rm -rf web; fi
       - if: ${{ !steps.pre.outputs.got }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      # the version and targets in rust-toolchain.toml
       - if: ${{ !steps.pre.outputs.got }}
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
+        run: rustup toolchain install
       - if: ${{ !steps.pre.outputs.got }}
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0  # v2.9.3
         with:
           workspaces: ". -> target-wasm"  # tools/web.sh builds there, not in target/
       - if: ${{ !steps.pre.outputs.got }}
@@ -64,24 +64,27 @@ jobs:
         run: |
           cargo install wasm-bindgen-cli --locked --version "$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')"
           # Ubuntu's binaryen is too old for rustc's wasm features
-          curl -sL https://github.com/WebAssembly/binaryen/releases/download/version_123/binaryen-version_123-x86_64-linux.tar.gz | tar xz
+          curl -sSfLO https://github.com/WebAssembly/binaryen/releases/download/version_123/binaryen-version_123-x86_64-linux.tar.gz
+          echo "e959f2170af4c20c552e9de3a0253704d6a9d2766e8fdb88e4d6ac4bae9388fe  binaryen-version_123-x86_64-linux.tar.gz" | sha256sum -c -
+          tar xzf binaryen-version_123-x86_64-linux.tar.gz
           echo "$PWD/binaryen-version_123/bin" >> "$GITHUB_PATH"
       - if: ${{ !steps.pre.outputs.got }}
         # M22: the online build id's commit, the same as the Linux and Windows jobs' (crates/hst/build.rs)
         run: HST_COMMIT=${GITHUB_SHA::7} tools/web.sh
         env:
           HST_SITE: ${{ github.event_name != 'release' && vars.SITE_FROM == 'release' && 'https://beta.opentennis.dev/' || '' }}
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3.0.1
         with:
           path: web
       - run: tar -czf web.tar.gz -C web .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: web
           path: web.tar.gz
   deploy:
-    needs: build
-    if: ${{ (github.event_name == 'release') == (vars.SITE_FROM == 'release') }}
+    needs: [build, ci]
+    # ci is skipped only for releases and prebuilt deploys
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.ci.result == 'success' || needs.ci.result == 'skipped') && (github.event_name == 'release') == (vars.SITE_FROM == 'release') }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -96,7 +99,14 @@ jobs:
           [ "$GITHUB_EVENT_NAME" = release ] || [ "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" -q .sha)" = "$GITHUB_SHA" ] && echo ok=1 >> "$GITHUB_OUTPUT" || echo "main moved on, skipping"
       - if: ${{ steps.fresh.outputs.ok }}
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e  # v4.0.5
+  # T4: tests, clippy and cargo-deny (ci.yml); the beta and the site deploy of a push wait for it. Releases and
+  # ship-local.sh's prebuilt deploys skip it (a release's commit was a beta first)
+  ci:
+    if: ${{ !inputs.prebuilt && github.event_name != 'release' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
   # executables are only built by Actions: tools/ship-local.sh ships the website alone
   # releases ship tools/release.sh's own builds
   linux:
@@ -105,11 +115,13 @@ jobs:
     # Steam Runtime sniper (glibc 2.31) like tools/build.sh, so it runs on every SteamOS / Steam Deck
     container: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      # rustup alone; the toolchain is rust-toolchain.toml's
       - run: |
-          curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal
+          curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain none
+          "$HOME/.cargo/bin/rustup" toolchain install
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0  # v2.9.3
       - env:
           HST_SITE: ${{ vars.SITE_FROM == 'release' && 'https://beta.opentennis.dev/' || '' }}
         # M22: the container's checkout may have no usable git: the commit for the online build id from Actions
@@ -121,7 +133,7 @@ jobs:
           cp crates/hst/icon/hst.png dist/linux/opentennis.png
           printf '[Desktop Entry]\nType=Application\nName=OpenTennis\nExec=opentennis\nIcon=opentennis\nStartupWMClass=opentennis\nCategories=Game;\n' > dist/linux/opentennis.desktop
           tar -czf opentennis-linux-x86_64.tar.gz -C dist/linux .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: linux
           path: opentennis-linux-x86_64.tar.gz
@@ -129,11 +141,9 @@ jobs:
     if: ${{ !inputs.prebuilt && github.event_name != 'release' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0  # v2.9.3
       - run: |
           sudo apt-get update -q && sudo apt-get install -yq gcc-mingw-w64-x86-64
           export HST_SITE=${{ vars.SITE_FROM == 'release' && 'https://beta.opentennis.dev/' || '' }}
@@ -142,20 +152,20 @@ jobs:
             cargo build --release -p hst --features ship --target x86_64-pc-windows-gnu
           x86_64-w64-mingw32-strip -o opentennis.exe target/x86_64-pc-windows-gnu/release/hst.exe
           zip -q opentennis-windows-x86_64.zip opentennis.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: windows
           path: opentennis-windows-x86_64.zip
   # a prebuilt run has only the website: it updates the beta site, not the release, and only when opentennis.dev
   # doesn't already show it
   beta:
-    needs: [build, linux, windows]
-    if: ${{ !cancelled() && github.event_name != 'release' && needs.build.result == 'success' && (inputs.prebuilt && vars.SITE_FROM == 'release' || !inputs.prebuilt && needs.linux.result == 'success' && needs.windows.result == 'success') }}
+    needs: [build, ci, linux, windows]
+    if: ${{ !cancelled() && github.event_name != 'release' && needs.build.result == 'success' && (inputs.prebuilt && vars.SITE_FROM == 'release' || !inputs.prebuilt && needs.ci.result == 'success' && needs.linux.result == 'success' && needs.windows.result == 'success') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           merge-multiple: true
       - env:

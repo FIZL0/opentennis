@@ -1,0 +1,39 @@
+# T4: the checks a beta waits for. Runs on pull requests and pushes to other branches by itself; pushes to main run it
+# from pages.yml (`ci` job), whose beta and site deploy only go out when it passes.
+# - tests: hst-sim and hst-data, the ones that run without the disc (CI has no ISO; most disc tests skip themselves)
+# - clippy, warnings are errors: the crates that build without Bevy (the Bevy crates' 13 warnings: T9)
+# - cargo-deny (deny.toml): RustSec advisories, licences, sources
+# No `cargo fmt --check` yet: the code isn't rustfmt-formatted and a repo-wide reformat waits for the user (plan/HUMAN.md).
+name: ci
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      # the version in rust-toolchain.toml
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0  # v2.9.3
+      # the skipped three read recordings from context/ and fail without them, instead of skipping (T5's helper)
+      - run: |
+          cargo test --locked -p hst-sim -p hst-data -- \
+            --skip match_serve_walk --skip beach_plane_flies_over --skip serve_follow_through
+      - run: cargo clippy --locked --all-targets -p hst-sim -p hst-data -p hst-oracle -p hst-gltf -- -D warnings
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - run: rustup toolchain install
+      - name: cargo-deny
+        run: |
+          v=0.20.2 f=cargo-deny-0.20.2-x86_64-unknown-linux-musl
+          curl -sSfLO "https://github.com/EmbarkStudios/cargo-deny/releases/download/$v/$f.tar.gz"
+          echo "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f  $f.tar.gz" | sha256sum -c -
+          tar xzf "$f.tar.gz"
+          "$f/cargo-deny" --color always check
