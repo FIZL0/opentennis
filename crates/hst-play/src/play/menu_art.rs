@@ -705,6 +705,93 @@ pub(crate) fn relabel(images: &mut Assets<Image>, w: usize, h: usize, rgba: &[u8
     Some(handle)
 }
 
+/// The umpire's calls' word cards (`popups`' call models), each line's words and fill (top, bottom), sampled from the
+/// disc's cards: set again at `K`× in our style over the disc card's ink, a line to an equal slice of its height;
+/// `None` with `--original` or no ink.
+pub(crate) const CALLS: [&[(&str, Call)]; 6] = [
+    &[("Let", Call { top: [49, 48, 201], bottom: [138, 137, 217], edge: [22, 20, 52] })],
+    &[("Out", CALL_RED)],
+    &[("Net", CALL_RED)],
+    &[("Fault", Call { top: [178, 177, 44], bottom: [209, 207, 107], edge: BROWN })],
+    &[("Double Fault", CALL_RED)],
+    &[("Change", Call { top: [242, 243, 108], bottom: [192, 221, 29], edge: BROWN }), ("Sides", Call { top: [62, 236, 49], bottom: [19, 166, 17], edge: BROWN })],
+];
+const BROWN: [u8; 3] = [55, 36, 22];
+const CALL_RED: Call = Call { top: [181, 26, 24], bottom: [204, 101, 101], edge: BROWN };
+
+/// A call word's fill, top to bottom, and its dark edge (a white rim goes round that).
+#[derive(Clone, Copy)]
+pub(crate) struct Call {
+    top: [u8; 3],
+    bottom: [u8; 3],
+    edge: [u8; 3],
+}
+
+pub(crate) fn call_card(images: &mut Assets<Image>, w: usize, h: usize, rgba: &[u8], lines: &[(&str, Call)]) -> Option<Handle<Image>> {
+    if OFF.load(Ordering::Relaxed) {
+        return None;
+    }
+    let ink: Vec<(usize, usize)> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| rgba[(y * w + x) * 4 + 3] > 0x20).collect();
+    let (x0, y0) = (ink.iter().map(|p| p.0).min()? as f32, ink.iter().map(|p| p.1).min()? as f32);
+    let (x1, y1) = (ink.iter().map(|p| p.0).max()? as f32 + 1.0, ink.iter().map(|p| p.1).max()? as f32 + 1.0);
+    let k = K as f32;
+    let mut out = Pixmap::new(w as u32 * K, h as u32 * K).expect("call size");
+    let font = ab_glyph::FontRef::try_from_slice(HEAVY).expect("menu font");
+    let cap = -text_path(&font, "H")?.bounds().top();
+    let paths: Vec<_> = lines.iter().map(|(words, _)| text_path(&font, words)).collect::<Option<_>>()?;
+    let tail = |p: &tiny_skia::Path| p.bounds().bottom().max(0.0);
+    // the disc's letters: stems ~0.29 of the caps' height (ours are bolder by stroking the fill), a dark edge and a
+    // white rim round it ~0.03 each
+    let (bold, edge, rim) = (0.045, 0.035, 0.03);
+    let pad = (bold + edge + rim) * 2.0;
+    let lh = (y1 - y0) * k / lines.len() as f32;
+    // one size for every line, the caps the same height: what the tallest line (one with a tail) and the widest allow
+    let sy = paths.iter().map(|p| (lh / (cap * (1.0 + pad) + tail(p))).min((x1 - x0) * k / (p.bounds().width() + cap * pad))).fold(f32::MAX, f32::min);
+    for (i, (path, (_, c))) in paths.iter().zip(lines).enumerate() {
+        let b = path.bounds();
+        let h = (cap * (1.0 + pad) + tail(path)) * sy;
+        let base = y0 * k + lh * i as f32 + (lh - h) / 2.0 + (1.0 + pad / 2.0) * cap * sy;
+        let t = Transform::from_row(sy, 0.0, 0.0, sy, (x0 + x1) / 2.0 * k - (b.left() + b.width() / 2.0) * sy, base);
+        call_word(&mut out, &path.clone().transform(t)?, cap * sy, (base - cap * sy, base), c);
+    }
+    let (w, h) = (out.width(), out.height());
+    let handle = images.add(sharp_mips(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)));
+    crate::textures::ours(handle.id(), Vec2::splat(k));
+    Some(handle)
+}
+
+/// One call word as the disc draws them: white rim, dark edge, the fill dark at the caps' top to light at the
+/// baseline, bevelled (a light inner edge up and left, a dark one down and right).
+fn call_word(out: &mut Pixmap, path: &tiny_skia::Path, cap: f32, (top, bot): (f32, f32), c: &Call) {
+    let rgb = |c: [u8; 3]| SkColor::from_rgba8(c[0], c[1], c[2], 255);
+    let mix = |a: [u8; 3], b: [u8; 3], t: f32| std::array::from_fn::<u8, 3, _>(|i| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * t) as u8);
+    let stroke = |w: f32| Stroke { width: 2.0 * w * cap, line_join: LineJoin::Round, line_cap: LineCap::Round, ..Stroke::default() };
+    let (bold, edge, rim) = (0.045, 0.035, 0.03);
+    let mut paint = Paint { anti_alias: true, ..Paint::default() };
+    // the letters fattened to the disc's weight: the outline filled and stroked
+    let fat = |pm: &mut Pixmap, paint: &Paint, t: Transform| {
+        pm.fill_path(path, paint, FillRule::Winding, t, None);
+        pm.stroke_path(path, paint, &stroke(bold), t, None);
+    };
+    for (col, w) in [([255; 3], bold + edge + rim), (c.edge, bold + edge)] {
+        paint.set_color(rgb(col));
+        out.stroke_path(path, &paint, &stroke(w), Transform::identity(), None);
+    }
+    paint.shader = LinearGradient::new(Point::from_xy(0.0, top), Point::from_xy(0.0, bot), vec![GradientStop::new(0.0, rgb(c.top)), GradientStop::new(1.0, rgb(c.bottom))], SpreadMode::Pad, Transform::identity()).expect("gradient");
+    fat(out, &paint, Transform::identity());
+    // the bevel: the letters less themselves shifted, a crescent along one side's inner edge
+    let d = 0.05 * cap;
+    for (dx, col) in [(d, mix(c.bottom, [255; 3], 0.6)), (-d, mix(c.top, c.edge, 0.45))] {
+        let mut lip = Pixmap::new(out.width(), out.height()).expect("bevel");
+        paint.shader = tiny_skia::Shader::SolidColor(rgb(col));
+        fat(&mut lip, &paint, Transform::identity());
+        paint.blend_mode = tiny_skia::BlendMode::DestinationOut;
+        fat(&mut lip, &paint, Transform::from_translate(dx, dx));
+        paint.blend_mode = tiny_skia::BlendMode::SourceOver;
+        out.draw_pixmap(0, 0, lip.as_ref(), &tiny_skia::PixmapPaint { opacity: 0.85, ..Default::default() }, Transform::identity(), None);
+    }
+}
+
 pub(crate) fn unpremultiply(p: Pixmap) -> Vec<u8> {
     p.pixels().iter().map(|c| c.demultiply()).flat_map(|c| [c.red(), c.green(), c.blue(), c.alpha()]).collect()
 }

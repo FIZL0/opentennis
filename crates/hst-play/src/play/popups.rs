@@ -548,7 +548,7 @@ fn setup_calls(
     // game space (y down) → Bevy, in front of the camera as the overlay camera saw them
     let space = commands.spawn((CallSpace, Transform::default(), Visibility::default())).id();
     let root = commands.spawn((Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::PI)), Visibility::default(), ChildOf(space))).id();
-    let models = CALL_MODELS.map(|name| {
+    let models = CALL_MODELS.into_iter().zip(super::menu_art::CALLS).map(|(name, lines)| {
         let (mut effect, shown) = crate::effects::model(&arc, &format!("azuma/inpane/mdl/{name}"), &mut commands, root, &mut meshes, &mut materials, &mut images, &mut bindposes)
             .unwrap_or_else(|e| panic!("{name}: {e}"));
         effect.hold = true;
@@ -556,10 +556,14 @@ fn setup_calls(
         for h in &shown.materials {
             if let Some(mut m) = materials.get_mut(h) {
                 m.base.depth_bias = CALL_SORT;
+                let disc = m.base.base_color_texture.as_ref().and_then(|t| images.get(t)).and_then(|i| Some((i.width() as usize, i.height() as usize, i.data.clone()?)));
+                if let Some(ours) = disc.and_then(|(w, h, px)| super::menu_art::call_card(&mut images, w, h, &px, lines)) {
+                    m.base.base_color_texture = Some(ours);
+                }
             }
         }
         (effect, shown)
-    });
+    }).collect::<Vec<_>>();
     // the sun sees the match camera's layer: the calls cast and take no shadow
     commands.entity(root).insert_recursive::<Children>((bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver));
     commands.spawn((
@@ -571,7 +575,7 @@ fn setup_calls(
         Transform::default(),
         layer,
     ));
-    commands.insert_resource(Calls { models: models.into(), playing: None, alpha: 1.0 });
+    commands.insert_resource(Calls { models, playing: None, alpha: 1.0 });
 }
 
 /// After the match's tick: start the model of a call just made (its animation's length to the flow's settle) or of
