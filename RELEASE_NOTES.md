@@ -3,6 +3,4 @@
 - Settings → Display no longer has the Controller Vibration switch.
 - In the browser on an iPhone held sideways, the picture now stays clear of the Dynamic Island, the notch and the home indicator instead of running under them.
 - Online lobbies no longer ask you to download a custom character you already have when the other player's copy is a different version; your own copy is shown.
-- Mod downloads and uploads now show their progress at the top of every menu screen, and when they finish the game offers to restart so the new mods load.
-- Once your mod downloads and uploads have all finished, a Reload Mods button appears at the top of the menus, and if you put off reloading, picking Local or Online asks once more (Reload now or Play without them). Nothing asks you to reload while a download or upload is still going.
-- The mod download and upload progress at the top of the menus now fills as mods download, counts every mod downloading at once, names the mod uploading now, and no longer moves your cursor on the screen you're on when the mod store list refreshes.
+- Mod downloads and uploads now show their progress at the top of every menu screen, naming the mod uploading. Once they all finish, a Reload Mods button appears there, and if you put it off, picking Local or Online asks once more (Reload now or Play without them).
