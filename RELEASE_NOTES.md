@@ -6,3 +6,4 @@
 - Web app: switching between Settings tabs is now instant instead of sliding.
 - Phones: the menus, title and loading screens now fill the whole screen, under the notch, Dynamic Island and home bar, with buttons and text kept clear of them; the system bars hide while you play (swipe from an edge to bring them back).
 - The alternate camera now cuts to the close-ups after each point like the normal camera, and turns after the ball more smoothly, as in the original.
+- On the indoor court, a ball that hits a ball-boy cart's turning wheels now bounces off them where they actually are, as in the original.
