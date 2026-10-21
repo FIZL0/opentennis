@@ -1,4 +1,5 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Split screen: each half is now framed as close as the one-player camera instead of fitting the whole court's width, so the players are bigger.
 - Phones held upright (and other tall windows): during play the picture now splits in two, your end on top and the other team on the bottom, each half close behind its own players so they are big instead of a far-off whole court; between points, in close-ups and replays it goes back to one picture.
 - Phones held upright and other tall windows, two players against each other on one device: the player on the bottom half now steers by what they see in their half, instead of running the wrong way.
 - In the split picture on phones held upright, the bottom half's name tags, player markers, pop-ups, hit sparks, footstep dust, rain, cheers and lens flare now face its own camera instead of showing edge-on or reading backwards.
@@ -27,6 +28,6 @@
 - Main menu in a tall or 4:3 window: the Settings preview's page buttons and the empty Mods preview's words now fit inside their picture instead of running over the title and description.
 - With a fixed aspect ratio or on a phone, the loading screen's court picture now stays edge to edge for the whole load, and the pause menu's dimming and the fade after a match cover the whole screen, bars and notch areas included.
 - On high-DPI screens such as the Steam Deck, menu and HUD text now draws at the screen's full resolution instead of slightly soft.
-- Phones and tablets: two players facing each other in singles on one device can press 1P's camera button (Select) to split the screen, so each plays from behind their own player in their own half (side by side, or one above the other on an upright screen), with the controls turned to match their half. Press it again for the shared picture; the choice is remembered.
+- Phones and tablets: two players facing each other in singles on one device can press 1P's camera button (Select) to split the screen, so each plays from behind their own player in their own half (side by side, or one above the other on an upright screen), with the controls turned to match their half. Press it again for the shared picture; every match starts on the shared picture.
 - Settings and Controllers opened from the pause menu during a match show again (they were invisible but still took clicks).
 - Phones held upright: each half of the split picture now uses the normal match camera from behind that half's team, the same view as playing alone from that end.

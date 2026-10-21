@@ -18,7 +18,7 @@
 //! (1P left), stacked on a tall one (1P on top). Each human's stick and d-pad turn with their own half's picture
 //! as they're read, before the tick's pads are recorded (`turn_sticks`), so instant replays and the tick hash
 //! replay what was played. Shown only when the plain match view would be (as above), switched only in live play,
-//! the choice kept in `split.txt`.
+//! off again at the next match's start.
 
 use bevy::camera::Viewport;
 use bevy::camera::visibility::RenderLayers;
@@ -31,7 +31,7 @@ use hst_sim::camera::{self as sim_cam, Scene, View};
 use super::own_camera::{self, OwnCam};
 use super::{Game, Pads, Phase, controls};
 use crate::twin_view::{self, SecondEye};
-use crate::{Args, Orbit};
+use crate::Orbit;
 
 /// Windows narrower than this (width over height) split.
 const TALL: f32 = 0.8;
@@ -207,26 +207,11 @@ struct TeamCams(Vec<(sim_cam::Camera, View)>);
 #[derive(Resource, Default, Clone, Copy, Debug, PartialEq)]
 pub(super) struct StickTurn(pub(super) [bool; 4]);
 
-/// `split.txt` in the per-user data folder.
-fn path(iso: &str) -> std::path::PathBuf {
-    crate::store::path(iso, "split.txt")
-}
-
-fn load(mut commands: Commands, args: Res<Args>) {
-    // `HST_SPLIT2=on`: on from the start (shots)
-    let on = crate::store::read_to_string(path(&args.iso)).is_ok_and(|t| t.trim() == "split")
-        || std::env::var("HST_SPLIT2").is_ok_and(|v| v == "on");
+/// Every match starts on the shared camera (user 2026-10-21: a landscape match shows the normal camera until 1P
+/// switches); `HST_SPLIT2=on`: split from the start (shots).
+fn load(mut commands: Commands) {
+    let on = std::env::var("HST_SPLIT2").is_ok_and(|v| v == "on");
     commands.insert_resource(Personal { on, ..default() });
-}
-
-fn save(iso: &str, on: bool) {
-    // tests never write beside the disc
-    if cfg!(test) {
-        return;
-    }
-    if let Err(e) = crate::store::write(path(iso), if on { "split\n" } else { "shared\n" }) {
-        warn!("split.txt: {e}");
-    }
 }
 
 /// The personal split can play: singles, both players human on this device, not online, a phone or tablet
@@ -264,7 +249,6 @@ fn step(
     d: Option<Res<super::cutaway::Director>>,
     gr: Option<Res<crate::graphics::Graphics>>,
     mut turn: ResMut<StickTurn>,
-    args: Res<Args>,
 ) {
     let (Some(mut p), Some(g), Some(pads)) = (p, g, pads) else { return };
     let press = std::mem::take(&mut p.press);
@@ -276,7 +260,6 @@ fn step(
     let live = matches!(g.phase, Phase::Serve | Phase::Rally) && !d.is_some_and(|d| d.showing()) && !g.instant.replaying;
     if press && live {
         p.on = !p.on;
-        save(&args.iso, p.on);
         info!("split view {}", if p.on { "on" } else { "off" });
     }
     p.showing = p.on;
@@ -342,8 +325,9 @@ fn place(w: &mut World, state: &mut Split, aspect: f32, wide: bool, order: [usiz
         let mix = |x: [f32; 3], y: [f32; 3]| Vec3::from(x).lerp(Vec3::from(y), a).to_array();
         let (eye, pitch, yaw) = super::orbit_from(mix(v0.eye, v.eye), mix(v0.rot[2], v.rot[2]));
         let fov = v0.fov + (v.fov - v0.fov) * a;
-        // as the match camera's: never less than the game's 4:3 picture across
-        let fov = 2.0 * (fov.tan() * super::SHOWN_ASPECT.max(1.0 / half)).atan();
+        // the game's 4:3 picture's height: a half is near square, so fitting its width as the match camera does
+        // would show everyone small
+        let fov = 2.0 * (fov.tan() * super::SHOWN_ASPECT).atan();
         (Transform::from_translation(eye).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)), fov)
     };
     let eyes = order.map(eye);
