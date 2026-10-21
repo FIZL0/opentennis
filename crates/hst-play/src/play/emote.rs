@@ -268,7 +268,7 @@ mod tests {
             let mut v = sound::Voice::default();
             let got: Vec<_> = keys.iter().map(|_| line(&mut v, 1, m as usize, &Default::default(), 2).map(|p| (p.program, p.key)).unwrap()).collect();
             assert_eq!(got, keys.iter().map(|&k| (program, k)).collect::<Vec<_>>(), "motion {m:#x}");
-            let rv = sound::reaction_voice(2, m as i32, false, false, || 0).unwrap();
+            let rv = sound::reaction_voice(2, m, false, false, || 0).unwrap();
             let mut fresh = sound::Voice::default();
             assert_eq!(v.react(1, rv, || 3).map(|p| p.key), fresh.react(1, rv, || 3).map(|p| p.key), "motion {m:#x}");
         }
@@ -722,10 +722,10 @@ mod match_tests {
             if serve.is_none() && t > at && g.phase == Phase::Serve {
                 serve = Some(t);
             }
-            if let Some(p) = a.world_mut().resource_mut::<Replay>().0.front_mut() {
-                if reacted.is_some_and(|r| t == r + 2) || serve.is_some_and(|s| t == s + 2) {
-                    p[0] = flick;
-                }
+            if let Some(p) = a.world_mut().resource_mut::<Replay>().0.front_mut()
+                && (reacted.is_some_and(|r| t == r + 2) || serve.is_some_and(|s| t == s + 2))
+            {
+                p[0] = flick;
             }
             a.world_mut().run_schedule(FixedUpdate);
             let g = a.world().resource::<Game>();

@@ -133,7 +133,7 @@ impl MipSteps {
             let row: &[[f32; 4]] = match &self.src {
                 Some(s) => &s[y * w..][..w],
                 None => {
-                    data[y * w * 4..][..w * 4].chunks_exact(4).zip(line.iter_mut()).for_each(|(p, o)| *o = premultiplied(p, lut));
+                    data[y * w * 4..][..w * 4].as_chunks::<4>().0.iter().zip(line.iter_mut()).for_each(|(p, o)| *o = premultiplied(p, lut));
                     &line
                 }
             };
