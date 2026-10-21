@@ -486,11 +486,8 @@ fn present_mode(
             wgpu::PresentMode::Mailbox,
             wgpu::PresentMode::Fifo,
         ][..],
-        wgpu::PresentMode::Mailbox => &[
-            wgpu::PresentMode::Mailbox,
-            wgpu::PresentMode::Immediate,
-            wgpu::PresentMode::Fifo,
-        ][..],
+        // hst: Mailbox is the game's VSync on Linux, so no tearing: Fifo, never Immediate, where it's missing
+        wgpu::PresentMode::Mailbox => &[wgpu::PresentMode::Mailbox, wgpu::PresentMode::Fifo][..],
         // Always end in FIFO to make sure it's always supported
         x => &[x, wgpu::PresentMode::Fifo][..],
     };

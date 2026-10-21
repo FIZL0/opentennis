@@ -32,20 +32,23 @@ pub(super) struct Slide {
     t: f32,
     /// +1 forward, −1 back.
     dir: f32,
-    /// Between Settings tabs: the cards' boxes (list, side); only quads starting in their y band move.
+    /// Between Settings tabs: the old page's cards' boxes (list, side); only quads starting in their y band move.
     band: Option<[[f32; 4]; 2]>,
+    /// The last frame's cards' boxes.
+    cards: [[f32; 4]; 2],
     /// Switch between Settings tabs without a slide ([`INSTANT_TABS`]).
     instant_tabs: bool,
 }
 
 impl Default for Slide {
     fn default() -> Self {
-        Slide { on: None, last: Vec::new(), old: Vec::new(), t: 2.0 * HALF, dir: 1.0, band: None, instant_tabs: INSTANT_TABS }
+        Slide { on: None, last: Vec::new(), old: Vec::new(), t: 2.0 * HALF, dir: 1.0, band: None, cards: [[0.0; 4]; 2], instant_tabs: INSTANT_TABS }
     }
 }
 
 impl Slide {
-    /// Feeds this frame's screen and quads (`dt` in 60 Hz frames) and the Settings cards' boxes; returns what to draw.
+    /// Feeds this frame's screen and quads (`dt` in 60 Hz frames) and the Settings cards' boxes (a page of one card,
+    /// Controls: the second empty); returns what to draw.
     pub(super) fn step(&mut self, screen: Screen, quads: Vec<Quad>, dt: f32, cards: [[f32; 4]; 2]) -> Vec<Quad> {
         if let Some(from) = self.on.filter(|&s| s != screen) {
             // no slide into a match (the window hides) or out of one (back to the menus)
@@ -55,17 +58,20 @@ impl Slide {
             self.t = if still || (tabs && self.instant_tabs) { 2.0 * HALF } else { 0.0 };
             self.dir = if screen as u8 > from as u8 { 1.0 } else { -1.0 };
             self.old = std::mem::take(&mut self.last);
-            self.band = (settings(from) && settings(screen)).then_some(cards);
+            self.band = (settings(from) && settings(screen)).then_some(self.cards);
         } else {
             self.t += dt;
         }
         self.on = Some(screen);
         self.last = quads.clone();
-        if let Some(boxes) = self.band.filter(|_| self.t < 2.0 * HALF) {
-            let b = [boxes[0][1], boxes[1][1] + boxes[1][3]];
+        self.cards = cards;
+        if let Some(old) = self.band.filter(|_| self.t < 2.0 * HALF) {
+            let b = [old[0][1].min(cards[0][1]), (old[0][1] + old[0][3]).max(old[1][1] + old[1][3]).max(cards[0][1] + cards[0][3]).max(cards[1][1] + cards[1][3])];
             let (mut out, new): (Vec<_>, Vec<_>) = quads.into_iter().partition(|q| q.anchor == Anchor::Span || !in_band(q, b));
+            // the blank under the page on view: the old one's cards going, the new one's coming
             let paper = look::c(look::PAPER).map(|v| v * DIM);
-            out.extend(boxes.map(|dst| Quad { tex: Tex::Solid, src: [0.0; 4], dst, rgb: paper, alpha: 128.0, tile: false, anchor: Anchor::Centre, angle: 0.0, round: [18.0 * PX; 4], rim: 0.0 }));
+            let blank = if self.incoming().is_some() { cards } else { old };
+            out.extend(blank.into_iter().filter(|r| r[2] > 0.0).map(|dst| Quad { tex: Tex::Solid, src: [0.0; 4], dst, rgb: paper, alpha: 128.0, tile: false, anchor: Anchor::Centre, angle: 0.0, round: [18.0 * PX; 4], rim: 0.0 }));
             out.extend(match self.incoming() {
                 Some((_, e)) => shift(new, self.dir * TAB_TRAVEL * (1.0 - e), e, None),
                 None => {
@@ -152,6 +158,21 @@ mod tests {
         let new = out[3];
         assert!(new.rgb == new_card.rgb && new.alpha < 128.0 && new.alpha > 0.0 && new.dst[0] > 100.0, "new coming: {new:?}");
         assert_eq!(go(5), vec![new_bar, new_card]);
+    }
+
+    /// Into a one-card page (Controls) the old page's two blanks go with it: the new card fades in over one blank.
+    #[test]
+    fn one_card_page_comes_in_over_its_own_blank() {
+        let mut s = Slide::default();
+        let mut card = quad(Anchor::Centre);
+        card.dst[1] = 100.0;
+        s.step(Screen::Display, vec![card], 1.0, CARDS);
+        let one = [[0.0, 50.0, 420.0, 350.0], [0.0; 4]];
+        let blanks = |out: &[Quad]| out.iter().filter(|q| q.rgb == look::c(look::PAPER).map(|v| v * DIM)).map(|q| q.dst).collect::<Vec<_>>();
+        let out = (0..4).map(|_| s.step(Screen::Controls, vec![card], 1.0, one)).last().unwrap();
+        assert_eq!(blanks(&out), CARDS);
+        let out = (0..8).map(|_| s.step(Screen::Controls, vec![card], 1.0, one)).last().unwrap();
+        assert_eq!(blanks(&out), [one[0]]);
     }
 
     /// B626: the web build's tabs switch at once, the bar and cards the new page's from the first frame.

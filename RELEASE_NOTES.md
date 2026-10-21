@@ -14,3 +14,6 @@
 - Mods → Browse: a new dropdown shows all mods, only installed ones, or only the ones you don't have yet (the default). The sort and filter are dropdowns too and sit beside Refresh, and download progress shows at the top of the mod card.
 - Mods → Browse in a small window: the mods fill the page, and pressing one opens its card with Install, More by and Save.
 - Settings: On/Off options now switch with a single press, with nothing to confirm.
+- Turning on VSync no longer freezes the game for a while on Linux.
+- Settings pages that don't fit the window now scroll, with a scroll bar, like the Controls table.
+- Switching to or from the Controls tab no longer flashes the previous page's panels.

@@ -191,7 +191,11 @@ impl Graphics {
             Ok("immediate") => return PresentMode::Immediate,
             _ => {}
         }
-        if self.vsync { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync }
+        match self.vsync {
+            true if MAILBOX_VSYNC => PresentMode::Mailbox,
+            true => PresentMode::AutoVsync,
+            false => PresentMode::AutoNoVsync,
+        }
     }
 
     /// G2: the shadows drawn: Original in Original Mode unless they're off, else the setting.
@@ -733,14 +737,17 @@ fn fps_counter(
 
 /// The frame limit for `limit_present`; `HST_PACE=main` (P44): sleep here instead, at the main world's frame end (the
 /// old limiter: up to a frame less input lag, uneven presents).
-fn limit(g: Res<Graphics>, mut next: Local<Option<Instant>>) {
-    LIMIT.store(g.fps, Ordering::Relaxed);
+fn limit(g: Res<Graphics>, monitors: Query<&bevy::window::Monitor>, mut next: Local<Option<Instant>>) {
+    // VSync by Mailbox doesn't wait for the display: at most its refresh rate here instead
+    let hz = monitors.iter().filter_map(|m| m.refresh_rate_millihertz).max().map_or(60, |m| (m + 500) / 1000);
+    let fps = if MAILBOX_VSYNC && g.vsync && std::env::var_os("HST_PRESENT").is_none() { if g.fps == 0 { hz } else { g.fps.min(hz) } } else { g.fps };
+    LIMIT.store(fps, Ordering::Relaxed);
     // the browser paces frames itself (and can't sleep)
-    if g.fps == 0 || cfg!(target_arch = "wasm32") || !PACE_MAIN.load(Ordering::Relaxed) {
+    if fps == 0 || cfg!(target_arch = "wasm32") || !PACE_MAIN.load(Ordering::Relaxed) {
         *next = None;
         return;
     }
-    let frame = Duration::from_secs_f64(1.0 / g.fps as f64);
+    let frame = Duration::from_secs_f64(1.0 / fps as f64);
     let now = Instant::now();
     // fell behind by more than a frame: start over from now rather than rushing to catch up
     let at = next.filter(|&t| t + frame > now).unwrap_or(now);
@@ -749,6 +756,11 @@ fn limit(g: Res<Graphics>, mut next: Local<Option<Instant>>) {
     }
     *next = Some(at + frame);
 }
+
+/// VSync on desktop Linux is Mailbox, not Fifo (no tearing either, Fifo where it's missing): Fifo's acquire blocks
+/// while the compositor withholds frames (a hidden Hyprland window took 100–220 ms a frame; user 2026-10-21: turning
+/// VSync on "froze" the game). `limit` holds it to the display's refresh rate.
+const MAILBOX_VSYNC: bool = cfg!(all(target_os = "linux", not(target_os = "android")));
 
 /// The frame limit (fps, 0 = none), from the main world's `Graphics` to the render world's `limit_present`.
 static LIMIT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);

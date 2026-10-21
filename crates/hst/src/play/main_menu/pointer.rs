@@ -643,7 +643,7 @@ pub(super) mod tests {
         assert_eq!(m.screen, Screen::Graphics);
         let v = m.settings.value(Opt::Vsync);
         let n = page(Screen::Graphics).len();
-        let [x, y, w, h] = page_row(Screen::Graphics, boxes(&m.grid, n).0, n, 5);
+        let [x, y, w, h] = page_row(Screen::Graphics, boxes(&m.grid, n).0, n, 5, 0).unwrap();
         // an On/Off row flips on each tap, anywhere on it, nothing to confirm (user 2026-10-21)
         tap(&mut m, x + w - 20.0, y + h / 2.0);
         assert_eq!((m.sel, m.editing.is_some()), (5, false));

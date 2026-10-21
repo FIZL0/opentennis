@@ -642,8 +642,9 @@ struct Menu {
     rebinding: Option<usize>,
     /// B291: the Controls page's chosen column (B609: of its one table): Keyboard & mouse (else Controller).
     keys_tab: bool,
-    /// B609: the Controls table's first action on view (`options::controls_top`).
-    controls_top: usize,
+    /// B609: the Controls table's first action on view (`options::controls_top`); a Settings page's first row
+    /// (`options::page_top`).
+    rows_top: usize,
     /// The custom roster.
     mods: Vec<crate::mods::Mod>,
     /// M8f3: the installed umpire mods, on the umpire select after the disc five (`umpire_mods`).
@@ -772,7 +773,7 @@ impl Default for Menu {
             roll: 0,
             rebinding: None,
             keys_tab: false,
-            controls_top: 0,
+            rows_top: 0,
             mods: Vec::new(),
             umpire_mods: Vec::new(),
             court_mods: Vec::new(),
@@ -1521,6 +1522,7 @@ impl Menu {
                     step_rows(k, options::page(self.screen).len(), &mut self.sel, &mut out);
                 }
                 self.step_page(k, &mut out);
+                self.rows_top = options::page_top(self);
             }
             Screen::Controls => self.controls_step(k, &mut out),
             Screen::Mode if self.hosts(dev) => {
@@ -1629,7 +1631,7 @@ impl Menu {
         } else {
             self.step_tabs(k, out);
         }
-        self.controls_top = options::controls_top(self);
+        self.rows_top = options::controls_top(self);
     }
 
     /// The controllers screen: seats, computers, Keep / Undo (`host`: the device that drives it).
@@ -3678,8 +3680,9 @@ fn draw(
     }
     // concept: the local strip focused is the select itself, no slide
     let page = if menu.screen == Screen::Confirm && !menu.online() { Screen::Chars } else { menu.screen };
-    let (list, side) = options::boxes(&menu.grid, 1);
-    let quads = slide.step(page, quads, time.delta_secs() * 60.0, [list, side]);
+    // (Controls is one card, the table)
+    let cards = if page == Screen::Controls { [options::table(&menu.grid).panel, [0.0; 4]] } else { options::boxes(&menu.grid, 1).into() };
+    let quads = slide.step(page, quads, time.delta_secs() * 60.0, cards);
     let scale = window.single().map_or(1.0, super::widescreen::unit_px) * super::widescreen::menu_scale();
     let (share, vshare) = super::widescreen::window_menu_shares(&window);
     // the quads' parent (the view) in physical pixels

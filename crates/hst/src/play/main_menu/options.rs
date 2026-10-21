@@ -618,6 +618,7 @@ impl Menu {
     pub(super) fn go_tab(&mut self, page: Screen, out: &mut Vec<Effect>) {
         self.screen = page;
         self.sel = 0;
+        self.rows_top = 0;
         // B291: Controls opens on the column of the device last used (a phone has no keyboard)
         self.keys_tab = !super::legend::MOBILE && super::legend::last_style() == super::legend::Style::Keys;
         out.push(Effect::Sound(0));
@@ -651,7 +652,9 @@ pub(super) fn boxes(g: &Grid, n: usize) -> ([f32; 4], [f32; 4]) {
 pub(super) fn rows_fit(g: &Grid, s: Screen) -> bool {
     let n = if s == Screen::Controls { controls::action_names().count() + 1 } else { page(s).len() };
     let (list, _) = boxes(g, n);
-    slot(list, n, if pinned(s) { 1.0 } else { 0.0 }, 0.0).1 >= PITCH * PY - 1e-3
+    let more = if pinned(s) { 1.0 } else { 0.0 };
+    let (shown, pitch) = rows_shown(list, n, more);
+    shown >= n as f32 + more && pitch >= PITCH * PY - 1e-3
 }
 
 /// B448: a list's foot (the footnote) and a row's pitch, mockup px.
@@ -689,20 +692,31 @@ fn zoom(g: &Grid) -> (bool, look::Zoom) {
     (portrait, look::Zoom::of(g.view, portrait))
 }
 
-/// Row `i` of `n` in the list `list` (under its strip, over its footnote): pills 46 px apart, closer when they'd run
-/// past the footnote.
-pub(super) fn row(list: [f32; 4], n: usize, i: usize) -> [f32; 4] {
-    slot(list, n, 0.0, i as f32).0
+/// The rows' room in the list `list` of `n` rows: its top and height (under the strip, over the footnote).
+fn room(list: [f32; 4], n: usize) -> (f32, f32) {
+    let top = list[1] + (look::RIM + strip(list, n) + 2.5 + look::PAD) * PY;
+    (top, list[1] + list[3] - (look::RIM + look::PAD + FOOT) * PY - top)
 }
 
-/// Row `at` (a fractional place) of `n` rows and `more` rows' room besides in the list `list`; and the pitch.
+/// How many rows' room (of `n` rows and `more` besides) shows in the list `list`, and the pitch: all of it, squeezed
+/// a little where needed; past that, as Controls' table, the rows that fit whole spread over the room and the rest
+/// scroll (user 2026-10-21).
+fn rows_shown(list: [f32; 4], n: usize, more: f32) -> (f32, f32) {
+    let (_, h) = room(list, n);
+    let want = n as f32 + more;
+    let fits = (h / (PITCH * PY) + 0.15).floor().max(1.0);
+    if fits >= want { (want, (h / want).min(PITCH * PY)) } else { (fits, h / fits) }
+}
+
+/// Row `at` (a fractional place, from the first on view) of `n` rows and `more` rows' room besides in the list
+/// `list`, a scroll bar's lane kept right of it when they don't all show; and the pitch.
 fn slot(list: [f32; 4], n: usize, more: f32, at: f32) -> ([f32; 4], f32) {
     let inset = look::RIM + look::PAD;
-    let top = list[1] + (look::RIM + strip(list, n) + 2.5 + look::PAD) * PY;
-    let room = list[1] + list[3] - (inset + FOOT) * PY - top;
-    let pitch = (room / (n as f32 + more)).min(PITCH * PY);
+    let (top, _) = room(list, n);
+    let (shown, pitch) = rows_shown(list, n, more);
+    let lane = if shown < n as f32 + more { (look::BAR + look::PAD) * PX } else { 0.0 };
     let gap = (pitch * 0.12).min(look::ROW_GAP * PY);
-    ([list[0] + inset * PX, top + pitch * at, list[2] - 2.0 * inset * PX, pitch - gap], pitch)
+    ([list[0] + inset * PX, top + pitch * at, list[2] - 2.0 * inset * PX - lane, pitch - gap], pitch)
 }
 
 /// B498: whether page `s`'s first row (Graphics' Preset) sits alone over the rest: its "Start here" label over it
@@ -711,12 +725,48 @@ fn pinned(s: Screen) -> bool {
     s == Screen::Graphics
 }
 
-/// Row `i` of page `s`'s `n` in the list `list` (B498: past a pinned first row's label and divider).
-pub(super) fn page_row(s: Screen, list: [f32; 4], n: usize, i: usize) -> [f32; 4] {
-    if !pinned(s) {
-        return row(list, n, i);
+/// Row `i`'s place on page `s`, in rows from the list's top (B498: past a pinned first row's label and divider).
+fn place(s: Screen, i: usize) -> f32 {
+    match (pinned(s), i) {
+        (false, _) => i as f32,
+        (true, 0) => 0.5,
+        (true, _) => i as f32 + 1.0,
     }
-    slot(list, n, 1.0, i as f32 + if i == 0 { 0.5 } else { 1.0 }).0
+}
+
+/// Page `s`'s `n` rows in the list `list` scrolled to row `top` first on view: how far up they've moved, in rows
+/// (never past the last row at the foot).
+fn scrolled(s: Screen, list: [f32; 4], n: usize, top: usize) -> f32 {
+    let more = if pinned(s) { 1.0 } else { 0.0 };
+    if top == 0 { 0.0 } else { place(s, top).min(n as f32 + more - rows_shown(list, n, more).0) }
+}
+
+/// Row `i` of page `s`'s `n` in the list `list`, the rows scrolled to `top` ([`page_top`]); `None` off view.
+pub(super) fn page_row(s: Screen, list: [f32; 4], n: usize, i: usize, top: usize) -> Option<[f32; 4]> {
+    let more = if pinned(s) { 1.0 } else { 0.0 };
+    let at = place(s, i) - scrolled(s, list, n, top);
+    (at >= 0.0 && at + 1.0 <= rows_shown(list, n, more).0 + 1e-3).then(|| slot(list, n, more, at).0)
+}
+
+/// The Settings page's first row on view: where it was, moved just enough to show the chosen row and no further than
+/// the last row needs (as Controls', `controls_top`).
+pub(super) fn page_top(m: &Menu) -> usize {
+    let s = m.screen;
+    let n = page(s).len();
+    if n == 0 {
+        return 0;
+    }
+    let (list, _) = boxes(&m.grid, n);
+    let shown = rows_shown(list, n, if pinned(s) { 1.0 } else { 0.0 }).0 + 1e-3;
+    let sel = m.sel.min(n.saturating_sub(1));
+    let mut top = m.rows_top.min(sel);
+    while top < sel && place(s, sel) - scrolled(s, list, n, top) + 1.0 > shown {
+        top += 1;
+    }
+    while top > 0 && place(s, n - 1) - scrolled(s, list, n, top - 1) + 1.0 <= shown {
+        top -= 1;
+    }
+    top
 }
 
 /// B498: a pinned first row's "START HERE" label over it and the dashed divider under it.
@@ -854,13 +904,22 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
     look::backdrop(d);
     let n0 = d.out.len();
     let (list, side) = chrome(d, m, opts.len(), page_name(m.screen), "Changes apply right away");
-    if pinned(m.screen) {
+    let top = page_top(m);
+    if pinned(m.screen) && top == 0 {
         pin_marks(d, list, opts.len());
+    }
+    let more = if pinned(m.screen) { 1.0 } else { 0.0 };
+    if rows_shown(list, opts.len(), more).0 < opts.len() as f32 + more {
+        // the scroll bar beside the rows, as Controls'
+        let (y, h) = room(list, opts.len());
+        let x = list[0] + list[2] - (look::RIM + look::PAD + look::BAR) * PX;
+        let on_view = (0..opts.len()).filter(|&i| page_row(m.screen, list, opts.len(), i, top).is_some()).count();
+        look::scroll_bar(d, [x, y, look::BAR * PX, h], look::c(look::BLUE), on_view, opts.len(), top, opts.len() - on_view);
     }
     let mut edit = None;
     let mut open = None;
     for (i, &o) in opts.iter().enumerate() {
-        let r @ [x, y, w, h] = page_row(m.screen, list, opts.len(), i);
+        let Some(r @ [x, y, w, h]) = page_row(m.screen, list, opts.len(), i, top) else { continue };
         let on = i == m.sel;
         let vh = (h - 10.0 * PY).min(26.0 * PY);
         // (the Renderer's value carries the renderer running and Hardware/Software: room for "Auto (WebGPU, Hardware)")
@@ -1154,7 +1213,7 @@ pub(super) fn reset_button(g: &Grid) -> [f32; 4] {
 pub(super) fn controls_top(m: &Menu) -> usize {
     let n = controls::action_names().count();
     let shown = table(&m.grid).shown.min(n);
-    let top = m.controls_top.min(n - shown);
+    let top = m.rows_top.min(n - shown);
     if m.sel < n { top.min(m.sel).max((m.sel + 1).saturating_sub(shown)) } else { top }
 }
 
@@ -1174,7 +1233,7 @@ impl Menu {
         if i < controls_cell(usize::MAX, false) {
             self.keys_tab = i % 2 == 1;
         }
-        self.controls_top = controls_top(self);
+        self.rows_top = controls_top(self);
         was
     }
 }
@@ -1416,17 +1475,17 @@ mod tests {
         // the last row on view at the foot, back up it stays till the cursor passes the top
         let t = table(&m.grid);
         assert!(t.shown < n, "{} rows on view", t.shown);
-        assert_eq!(m.controls_top, n - t.shown);
+        assert_eq!(m.rows_top, n - t.shown);
         m.step(Dev::Keys, press(|k| &mut k.up));
-        assert_eq!(m.controls_top, n - t.shown);
+        assert_eq!(m.rows_top, n - t.shown);
         for _ in 0..t.shown {
             m.step(Dev::Keys, press(|k| &mut k.up));
         }
-        assert_eq!(m.controls_top, m.sel);
+        assert_eq!(m.rows_top, m.sel);
         // the wheel steps the cursor (and so the rows) too
-        let top = m.controls_top;
+        let top = m.rows_top;
         m.point(Dev::Keys, pointer::Act::Wheel(false), true);
-        assert_eq!(m.controls_top, top - 1);
+        assert_eq!(m.rows_top, top - 1);
         // a tap on a row's Controller cell: that cell, waiting for a button
         let ([x, y, w, h], i) = cell_rect(&m, 0, false);
         tap_at(&mut m, x + w / 2.0, y + h / 2.0);
@@ -1592,7 +1651,7 @@ mod tests {
                 let hits: Vec<_> = d.hits.iter().filter(|h| matches!(h.act, pointer::Act::Row(..))).collect();
                 assert_eq!(hits.len(), n, "{a} {sel}: only the choices take the pointer");
                 let (list, side) = boxes(&m.grid, GRAPHICS.len());
-                let r = page_row(m.screen, list, GRAPHICS.len(), sel);
+                let r = page_row(m.screen, list, GRAPHICS.len(), sel, page_top(&m)).unwrap();
                 for h in &hits {
                     let [_, y, _, hh] = h.rect;
                     assert!(y >= list[1] && y + hh <= (list[1] + list[3]).max(side[1] + side[3]) && hh >= 10.0, "{a} {sel}: {:?}", h.rect);
@@ -1629,6 +1688,32 @@ mod tests {
         }
     }
 
+    /// A page whose rows don't all fit at their pitch scrolls with the cursor as Controls' table: ↓ to the last row
+    /// moves the rows up, ↑ keeps them till the cursor passes the top (user 2026-10-21).
+    #[test]
+    fn short_pages_scroll() {
+        let mut scrolled = false;
+        for a in [4.0, 21.0 / 9.0, 16.0 / 9.0, 9.0 / 16.0, 0.4] {
+            for s in TABS.map(|t| t.1).into_iter().chain([Screen::Advanced]).filter(|&s| s != Screen::Controls) {
+                let n = page(s).len();
+                let mut m = Menu { screen: s, grid: Grid::fit(a), ..default() };
+                for _ in 1..n {
+                    m.step(Dev::Keys, press(|k| &mut k.down));
+                }
+                let top = m.rows_top;
+                let list = boxes(&m.grid, n).0;
+                assert!(page_row(s, list, n, n - 1, top).is_some(), "{a} {s:?}");
+                if top > 0 {
+                    scrolled = true;
+                    assert!(page_row(s, list, n, top - 1, top).is_none());
+                    m.step(Dev::Keys, press(|k| &mut k.up));
+                    assert_eq!(m.rows_top, top, "{a} {s:?}: ↑ keeps the view");
+                }
+            }
+        }
+        assert!(scrolled, "some page scrolls somewhere");
+    }
+
     /// B294: at any aspect every page's rows sit in its list over the footnote, the side panel has room, and the
     /// busiest page draws within the pause overlay's quad pool.
     #[test]
@@ -1645,8 +1730,12 @@ mod tests {
                 let n = if s == Screen::Controls { controls::action_names().count() + 1 } else { page(s).len() };
                 let (list, side) = boxes(&grid, n);
                 assert!(side[2] >= 150.0 && side[3] >= 150.0 && list[0] + list[2] <= side[0] + side[2], "{a}: {list:?} {side:?}");
-                let r = page_row(s, list, n, n - 1);
-                assert!(r[1] + r[3] <= list[1] + list[3] - 24.0 && r[3] >= 20.0, "{a} {s:?} {r:?} {list:?}");
+                // the last row on view once the cursor's there (the rows scroll where they don't all fit)
+                if s != Screen::Controls {
+                    let top = page_top(&Menu { screen: s, sel: n - 1, grid, ..default() });
+                    let r = page_row(s, list, n, n - 1, top).unwrap();
+                    assert!(r[1] + r[3] <= list[1] + list[3] - 24.0 && r[3] >= 0.85 * PITCH * PY, "{a} {s:?} {r:?} {list:?}");
+                }
                 for sel in 0..n {
                     // B498: a dropdown row's list open too
                     let open = page(s).get(sel).is_some_and(|&o| listed(o));
