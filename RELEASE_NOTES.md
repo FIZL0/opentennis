@@ -34,3 +34,4 @@
 - Computer players now walk back into position after serving, and at the start of every point in doubles, as they do in the original; a computer server's aim is also picked at the same moment as the original's.
 - A dive now needs you to have been running just before you press, as in the original: the automatic step toward the ball after a press no longer makes a dive possible, and computer partners dive by the same rule.
 - In singles, a computer opponent returning serve now moves on to its rally play at the same moment as in the original game (once its return is really done), not as soon as it has hit the ball.
+- A computer server now hands over from its serve to the rally at the same moment as in the original: in singles it starts moving about half a second sooner after serving.

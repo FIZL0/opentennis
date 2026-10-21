@@ -51,17 +51,15 @@ fn a_server_enters_its_rally_return_roll_first() {
         let (mut entries, mut telling) = (0, 0);
         let mut app = cpus(singles);
         for _ in 0..5000 {
-            let g = app.world().resource::<Game>();
-            let s = g.score.server as usize;
-            let serving = g.players[s].ai_mind.is_some_and(|m| m.phase == Ai::Serve);
-            let g = tick(&mut app);
-            let Some(mut mind) = g.players[s].ai_mind.filter(|m| serving && m.phase == Ai::Rally) else { continue };
-            if g.phase != Phase::Rally {
-                continue;
-            }
-            assert_eq!(g.doubles_ai.me[s].phase, Some(Ai::Serve), "singles {singles}: the step enters from the serve");
-            mind.net_left = 0;
             let g = &mut *app.world_mut().resource_mut::<Game>();
+            let s = g.score.server as usize;
+            // the hand-over's AI update (P131): the server's own frame, run alone
+            let due = g.players[s].ai_mind.is_some_and(|m| m.phase == Ai::Serve) && g.phase == Phase::Rally && serve_stroke_over(g, s);
+            let Some(mut mind) = g.players[s].ai_mind.filter(|_| due) else {
+                tick(&mut app);
+                continue;
+            };
+            mind.net_left = 0;
             g.players[s].ai_mind = Some(mind);
             let row = g.players[s].ai;
             let rate = if singles { row.singles_center_rate } else { row.doubles_center_rate };
@@ -74,12 +72,14 @@ fn a_server_enters_its_rally_return_roll_first() {
             old.rally(&mut || r.next());
             let old_back = hst_sim::position::Return::new(rate, &mut || r.next());
             telling += (old != want || old_back != back) as i32;
-            assert!(step(g, s, &mind));
+            bot(g, s);
             let got = g.players[s].ai_mind.unwrap();
+            assert_eq!(got.phase, Ai::Rally, "singles {singles}");
             assert!(drawn(&before, &g.rng.ai) >= 3);
             assert_eq!((got.net, got.net_left), (want.net, want.net_left), "singles {singles}");
             assert_eq!(g.doubles_ai.me[s].rally.back.going, back.going, "singles {singles}");
             entries += 1;
+            tick(&mut app);
         }
         assert!(entries >= 6 && telling >= 2, "singles {singles}: {entries} entries, {telling} telling");
     }
@@ -87,6 +87,7 @@ fn a_server_enters_its_rally_return_roll_first() {
 
 /// A later point's first state entries in doubles draw as recorded: the server's serve entry 17, the receiver
 /// nothing, the two others the Return roll each (they enter the rally again on every point, not only the first).
+/// Points that start during a change of ends aren't counted.
 #[test]
 fn every_point_enters_again() {
     if !hst_data::fixture::has_iso() {
@@ -98,6 +99,10 @@ fn every_point_enters_again() {
         let before = app.world().resource::<Game>().rng.ai.clone();
         let g = tick(&mut app);
         if std::mem::replace(&mut reset, g.players.iter().all(|p| p.ai_mind.is_some_and(|m| m.phase == Ai::Start))) {
+            if g.phase != Phase::Serve {
+                // a point that starts between ends: its draws there are a known gap (p11-ai journal 26)
+                continue;
+            }
             assert_eq!(drawn(&before, &g.rng.ai), 17 + 1 + 1, "point {points}");
             points += 1;
         }

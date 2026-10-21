@@ -1247,13 +1247,17 @@ fn glue_call(e: &[u8], x: &[u8], mt: &mut Mt, row: &AiParams, winner: i32, stash
 /// are skipped, but for its hand-over to the rally.
 #[test]
 fn glue_matches_the_game() {
-    let Some((n, msgs)) = glue_replay("ai_glue_s05.bin") else { return };
+    let Some((n, msgs, handovers)) = glue_replay("ai_glue_s05.bin") else { return };
     assert!(n[0] > 5000 && msgs.get(&0x15).is_some_and(|&k| k > 40), "{n:?} {msgs:?}");
+    // P131: both points' servers hand over to the rally, each on the frame recovery + 1 after its serve's hit
+    assert_eq!(handovers, 2);
 }
 
 /// Replays every update and message call of a tag 5/6 recording through `glue_call` and fails on any difference:
-/// the calls replayed (updates, messages) and the messages by id. None without the recording or the disc.
-fn glue_replay(file: &str) -> Option<([usize; 2], std::collections::BTreeMap<u32, usize>)> {
+/// the calls replayed (updates, messages), the messages by id and the serve-to-rally hand-overs checked (P131: a
+/// serve-state update after its serve's hit message leaves for the rally on the frame, by v, recovery + 1 after the
+/// message, never before). None without the recording or the disc.
+fn glue_replay(file: &str) -> Option<([usize; 2], std::collections::BTreeMap<u32, usize>, usize)> {
     let d = fixture::read(format!("{}/context/fixtures/{file}", root())).ok()?;
     let table = table()?;
     assert_eq!(&d[..4], b"AIRL");
@@ -1264,6 +1268,10 @@ fn glue_replay(file: &str) -> Option<([usize; 2], std::collections::BTreeMap<u32
     let mut msgs = std::collections::BTreeMap::new();
     let (mut score, mut winner) = ([0u32; 2], -1);
     let mut stash = [[0.0f32; 4]; 4];
+    // per AI: the frame of its own serve's hit message in its serve state, and the hand-overs seen
+    let (mut hit_at, mut handovers) = ([None::<u32>; 4], 0);
+    // both recorded serves are strong overhand serves
+    let recovery = hst_sim::motion::serve_recovery(true, hst_sim::shot::kind::FLAT);
     while o < d.len() {
         let e = &d[o..o + u32_at(&d, o + 4) as usize];
         o += e.len();
@@ -1287,6 +1295,17 @@ fn glue_replay(file: &str) -> Option<([usize; 2], std::collections::BTreeMap<u32
         let row = &table[((u32_at(e, A + 0xc) - TABLE) / RECORD) as usize];
         let mut probe = mt.clone();
         let slot = i32_at(e, 0x348) as usize;
+        let (v, state, exit) = (u32_at(e, 8), e[A + 0x54], x[A + 0x54]);
+        if state != 1 {
+            hit_at[slot] = None;
+        } else if tag == 6 && u32_at(e, 0x14) == 0x15 && e[A + 0xf0..A + 0x130] != x[A + 0xf0..A + 0x130] {
+            // its own serve's hit: the one its team's shot memory takes (the serve's earlier hit message stores none)
+            hit_at[slot].get_or_insert(v);
+        } else if let Some(hit) = hit_at[slot].filter(|_| tag == 5) {
+            let due = v == hit + recovery + 1;
+            assert_eq!(exit == 3, due, "v{v} p{slot}: serve state {state} -> {exit}, its serve's hit at v{hit}");
+            handovers += due as usize;
+        }
         // the update's record takes the scratch below the update's own frame, not the one the stand routine reads:
         // on this call the game read what this AI's stand left there the frame before (left alone in between); on
         // every other call the recorded one gives the game's result (carrying it everywhere breaks a dozen calls
@@ -1309,7 +1328,7 @@ fn glue_replay(file: &str) -> Option<([usize; 2], std::collections::BTreeMap<u32
     }
     eprintln!("updates {} messages {} {msgs:x?} skipped (serve routine) {skipped}", n[0], n[1]);
     assert_eq!(fails, 0, "{fails} of {} calls differ", n[0] + n[1]);
-    Some((n, msgs))
+    Some((n, msgs, handovers))
 }
 
 /// P132: the singles AI's update in its receive state (`HST_SINGLES=1 HST_DRIVE=1 record_ai_rally.py 8 3000 … 1 5,6`,
@@ -1359,8 +1378,8 @@ fn singles_receive_goes_over_in_its_frame() {
 /// strikes it, at shot counts 1 to 4 (AIs receiving, rallying, and swinging: those keep their swing).
 #[test]
 fn strike_and_new_path_match_the_game() {
-    let Some((_, net)) = glue_replay("ai_netcord_s05.bin") else { return };
+    let Some((_, net, _)) = glue_replay("ai_netcord_s05.bin") else { return };
     assert!(net.get(&0x16).is_some_and(|&k| k >= 20), "{net:?}");
-    let Some((_, strike)) = glue_replay("ai_strike_s05.bin") else { return };
+    let Some((_, strike, _)) = glue_replay("ai_strike_s05.bin") else { return };
     assert!(strike.get(&0x14).is_some_and(|&k| k >= 40) && strike.get(&0x16).is_some_and(|&k| k >= 20), "{strike:?}");
 }
