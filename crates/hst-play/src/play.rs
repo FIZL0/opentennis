@@ -3628,8 +3628,7 @@ fn ai_roll(rng: &mut Rngs) -> impl FnMut() -> u32 + '_ {
 /// reset on its first frame (with a timing draw), the state its role gives it, the hand-over to the rally once its
 /// serve or return is played, and the point-over messages (a coin flip whether it keeps moving; an ALL-style
 /// player's net rate moved by how its pick fared).
-/// ponytail: the serve, receive and both rally routines all run `bot`'s stand-in loop until P11e/P11f port them;
-/// the mind isn't made afresh for a new match.
+/// The receive and rally routines are `doubles_ai::step`'s, the serve `bot_serve`'s; each match makes its minds afresh.
 fn ai_update(g: &mut Game, i: usize) -> hst_sim::ai::Mind {
     use hst_sim::ai::Phase as Ai;
     let partner_bot = ai_setup::net_pick(g, i);
