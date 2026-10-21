@@ -10,6 +10,8 @@
 //!
 //! B314: in the browser the window is the canvas, which starts below the screen's top safe area (an iPhone's Dynamic
 //! Island, `web/index.html`), so the view here is already the shorter rect under it: HUD and menus never reach it.
+//! B590: the page's other insets (sideways, the island at one side and the home indicator below) come in as `SAFE`
+//! like the phone apps' (`web::safe_area`), so at Auto the picture stays clear of them too.
 //!
 //! M106: the native phone apps (iOS, Android) draw edge to edge, so there the view is fitted inside the window's safe
 //! area (`SAFE`, read by `follow_safe_area`): at Auto it is the whole safe rect, a fixed ratio is the largest rect of it
@@ -84,7 +86,7 @@ fn fake_safe() -> Option<[f32; 4]> {
     })
 }
 
-/// Keeps `SAFE` to the window's safe area: the phone's own (twice a second, it changes as the phone turns), or
+/// Keeps `SAFE` to the window's safe area: the phone's own or the web page's (B590; twice a second, it changes as the phone turns), or
 /// `HST_SAFE`'s.
 fn follow_safe_area(window: Query<(&Window, Option<&bevy::window::RawHandleWrapper>), With<bevy::window::PrimaryWindow>>, mut frame: Local<u32>) {
     let Ok((w, handle)) = window.single() else { return };
@@ -105,8 +107,18 @@ fn follow_safe_area(window: Query<(&Window, Option<&bevy::window::RawHandleWrapp
     if px.is_none() {
         px = crate::android::safe_area().map(|p| p.map(|v| v / w.scale_factor()));
     }
+    #[cfg(target_arch = "wasm32")]
+    if px.is_none() {
+        px = crate::web::safe_area();
+    }
     let Some([l, t, r, b]) = px else { return };
-    let (ww, wh) = (w.width().max(1.0), w.height().max(1.0));
+    #[allow(unused_mut)]
+    let (mut ww, mut wh) = (w.width().max(1.0), w.height().max(1.0));
+    // the page's insets are CSS px, of the canvas's own box (`screen_point`)
+    #[cfg(target_arch = "wasm32")]
+    if let Some(css) = crate::web::page_size() {
+        (ww, wh) = (css.x, css.y);
+    }
     let shares = [l / ww, t / wh, r / ww, b / wh].map(|v| v.clamp(0.0, 0.45));
     let mut changed = false;
     for (a, v) in SAFE.iter().zip(shares) {
@@ -292,7 +304,7 @@ fn fit(window: Query<&Window>, mut q: Query<&mut Node, With<Screen43>>) {
 
 pub fn plugin(app: &mut App) {
     app.add_systems(PostUpdate, fit.before(bevy::ui::UiSystems::Layout));
-    if cfg!(any(target_os = "ios", target_os = "android")) || fake_safe().is_some() {
+    if cfg!(any(target_os = "ios", target_os = "android", target_arch = "wasm32")) || fake_safe().is_some() {
         app.add_systems(First, follow_safe_area);
     }
 }

@@ -524,6 +524,19 @@ if (answer) {
   document.addEventListener('visibilitychange', () => document.hidden || settle());
   settle();
 }
+// B590: the screen's safe-area insets (left, top, right, bottom, CSS px) for the game's view (widescreen.rs): sideways,
+// the Dynamic Island / notch is a side inset and the home indicator a bottom one; the game keeps its picture inside
+// them at Auto. Top is 0: the canvas already starts below it (B314). A probe resolves env() to px.
+{
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position: fixed; visibility: hidden; pointer-events: none; left: 0; top: 0; width: 0; height: 0;'
+    + 'padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px)';
+  document.documentElement.appendChild(probe);
+  window.hstSafeArea = () => {
+    const c = getComputedStyle(probe), px = v => parseFloat(v) || 0;
+    return [px(c.paddingLeft), 0, px(c.paddingRight), px(c.paddingBottom)];
+  };
+}
 </script>
 <script>
 // B539: full screen in iPhone Safari's browser tab. Pages get no Fullscreen API there (touch.js's first-tap request

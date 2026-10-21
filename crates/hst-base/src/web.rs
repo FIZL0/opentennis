@@ -480,6 +480,19 @@ pub fn page_size() -> Option<bevy::math::Vec2> {
     (x > 0.0 && y > 0.0).then(|| bevy::math::Vec2::new(x as f32, y as f32))
 }
 
+/// B590: the screen's safe-area insets around the canvas (left, top, right, bottom, CSS px): a sideways iPhone's
+/// Dynamic Island or notch at one side, its home indicator below. Top is 0, the canvas already starts under it (B314).
+/// None where the page can't say.
+pub fn safe_area() -> Option<[f32; 4]> {
+    let v = page_fn("hstSafeArea")?.call0(&JsValue::NULL).ok()?;
+    let a: js_sys::Array = v.dyn_into().ok()?;
+    let mut out = [0.0; 4];
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = a.get(i as u32).as_f64().unwrap_or(0.0) as f32;
+    }
+    Some(out)
+}
+
 /// A menu is up (B221: it takes taps itself) or a match is on: in a menu the page's on-screen pad keeps its stick to a
 /// fixed corner circle so taps elsewhere reach the menu (B244); in a match the stick follows the thumb.
 pub fn touch_menu(on: bool) {
