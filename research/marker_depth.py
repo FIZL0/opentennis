@@ -5,6 +5,7 @@ usage: marker_depth.py <slot> <out-prefix> [y]"""
 import sys, time, struct, subprocess
 sys.path.insert(0, "tools")
 from pine import Pine
+from rec import f32, u32
 
 
 def find(p):
@@ -20,12 +21,12 @@ def find(p):
 
 p = Pine(); p.load_state(int(sys.argv[1])); time.sleep(1.5)
 bm = find(p); n = p.read32(0x422fa4)
-f = lambda a: struct.unpack("<f", struct.pack("<I", p.read32(a)))[0]
+f = lambda a: f32(p.read32(a))
 print("bm", hex(bm), "players", n, "flag", p.read8(bm + 0x725), "y", [f(bm + 0x72c + 4 * k) for k in range(n)], flush=True)
 subprocess.run(["tools/screenshot.sh", f"{sys.argv[2]}_before.png"])
 y = float(sys.argv[3]) if len(sys.argv) > 3 else 5.0
 for k in range(n):
-    p.write32(bm + 0x72c + 4 * k, struct.unpack("<I", struct.pack("<f", y))[0])
+    p.write32(bm + 0x72c + 4 * k, u32(y))
 time.sleep(1.5)
 print("y now", [f(bm + 0x72c + 4 * k) for k in range(n)], flush=True)
 subprocess.run(["tools/screenshot.sh", f"{sys.argv[2]}_sunk.png"])

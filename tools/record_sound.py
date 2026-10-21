@@ -12,6 +12,7 @@ With `vel=V,x,y,z` the live ball's velocity is overwritten once right after vsyn
 B598 sends the ball into the net) and only frames from V − 30 on are written."""
 import struct, sys, time
 from pine import Pine
+from rec import u32
 
 VSYNC, GM_PTR, SND_PTR, RING, HEAD = 0x1d5780, 0x422f80, 0x312540, 0x305000, 0x304fc0
 p, want, out = Pine(step=True), int(sys.argv[2]), open(sys.argv[3], "wb")
@@ -50,7 +51,7 @@ while n < want:
     n += 1
     if vel and v == int(vel[0]):
         for k, x in enumerate(vel[1:]):
-            p.write32(ball + 0x130 + 4 * k, struct.unpack("<I", struct.pack("<f", x))[0])
+            p.write32(ball + 0x130 + 4 * k, u32(x))
         print(f"velocity written after vsync {v}", flush=True)
     if n % 1200 == 0: print(n, flush=True)
 print("done", n)

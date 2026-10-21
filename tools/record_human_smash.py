@@ -8,6 +8,7 @@ starts it for HST_PCSX2 copies). Usage: record_human_smash.py <slot> <out.bin> <
 record_p2m2.py (`hst_sim::replay::frames_live`). A PCSX2 copy runs at 1x; the user's own PCSX2: run it slowed (NominalScalar 0.25)."""
 import os, struct, sys, time
 from pine import Pine
+from rec import f32
 from vpad import FIFO
 
 VSYNC, GM_PTR = 0x1d5780, 0x422f80
@@ -16,7 +17,6 @@ PLAYER = ((0x1380, 0x200), (0x3c00, 0x400))
 TRIANGLE = 4
 
 def s32(v): return struct.unpack("<i", struct.pack("<I", v))[0]
-def f32(v): return struct.unpack("<f", struct.pack("<I", v))[0]
 
 pad = os.open(FIFO, os.O_RDWR)  # held open so each command is a line, not a reopen
 def send(*cmds): os.write(pad, ("\n".join(cmds) + "\n").encode())

@@ -6,6 +6,7 @@ is the game's own physics). Output: records of (u32 frame since shot, 0x290-byte
 distinct frame (polling can skip frames; the frame field says which). Only loads the slot; never saves."""
 import struct, sys, time
 from pine import Pine
+from rec import u32
 
 GM_PTR, BALL, SIZE = 0x422f80, 0x98, 0x290
 POS, VEL, FRAME, SPIN = 0xe0, 0x130, 0xac, 0x1a4
@@ -26,7 +27,7 @@ while n < want and time.time() < deadline:
                 x, y, z = struct.unpack_from("<3f", blk, POS)
                 t, g = 20.0, 0.0027222224 * 0.9
                 vel = (-x / t * 0.2, (-0.6 - y - 0.5 * g * t * t) / t, -z / t)
-                f2u = lambda v: struct.unpack("<I", struct.pack("<f", v))[0]
+                f2u = lambda v: u32(v)
                 for k, v in enumerate(vel):
                     p.write32(ball + VEL + 4 * k, f2u(v))
                 p.write32(ball + SPIN, 0)

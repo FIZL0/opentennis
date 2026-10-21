@@ -20,6 +20,7 @@ HST_BYTE="<sample>:<k>:<offset>:<value>;..." sets a byte of creature k after tha
 HST_REPLAY=<sample> forces an instant replay of the first point over from that sample on (as tools/record_foot.py)."""
 import os, subprocess, struct, sys, time, zipfile
 from pine import Pine, state_file
+from rec import u32
 
 VSYNC, GM_PTR, WALKER = 0x1d5780, 0x422f80, 0x1d1de0
 slot, want, out = int(sys.argv[1]), int(sys.argv[2]), open(sys.argv[3], "wb")
@@ -104,6 +105,6 @@ while n < want:
                 mx, my, mz = struct.unpack("<3f", struct.pack("<3I", *(p.read32(src + 0x60 + 4 * c) for c in range(3))))
                 x, y, z = x + mx, y + my, z + mz
             for c, val in enumerate((x + dx, y, z + dz)):
-                p.write32(walkers[k] + 0x1e0 + 4 * c, struct.unpack("<I", struct.pack("<f", val))[0])
+                p.write32(walkers[k] + 0x1e0 + 4 * c, u32(val))
     if n % 1200 == 0: print(n, flush=True)
 print("done", n)

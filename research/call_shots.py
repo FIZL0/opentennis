@@ -6,6 +6,7 @@ usage: call_shots.py <slot> <max_frames> <outdir> [calls]"""
 import sys, time, os, subprocess, struct
 sys.path.insert(0, "tools")
 from pine import Pine
+from rec import f32
 p = Pine(); p.load_state(int(sys.argv[1])); time.sleep(1)
 want, out = int(sys.argv[2]), sys.argv[3]; os.makedirs(out, exist_ok=True)
 calls = int(sys.argv[4]) if len(sys.argv) > 4 else 2
@@ -13,7 +14,7 @@ pid = open(f"{os.environ['XDG_RUNTIME_DIR']}/hst-pcsx2{os.environ.get('HST_PCSX2
 f8 = lambda: subprocess.run(["hyprctl", "dispatch", f'hl.dsp.send_shortcut({{ mods = "", key = "F8", window = "pid:{pid}" }})'], capture_output=True)
 log = open(f"{out}/calls.txt", "w")
 sb = p.read32(0x42d6c0)
-f = lambda a: struct.unpack("<f", struct.pack("<I", p.read32(a)))[0]
+f = lambda a: f32(p.read32(a))
 last, n, seen, prev, dumped = p.read32(0x1d5780), 0, 0, 0, False
 while n < want and seen <= calls:
     v = p.read32(0x1d5780)

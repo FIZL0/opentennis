@@ -18,18 +18,10 @@ and hand (player +0x12b4, f32: +1 right, −1 left)."""
 import json, os, struct, sys, time
 from evdev import InputDevice, list_devices, ecodes as e
 from pine import Pine
+from rec import match_regions
 
-# record_p2m2.py's sample layout (that file only runs as a script)
 VSYNC, GM_PTR = 0x1d5780, 0x422f80
-PAD, GLOBALS, GM, BALL = (0x2efb00, 0x90), (0x422f80, 0x180), 0x100, 0x290
-PLAYER, RALLY = ((0x1380, 0x200), (0x3c00, 0x400)), (0x3165f0, 0x50)
-def regions(p):
-    gm = p.read32(GM_PTR)
-    r = [PAD, GLOBALS, (gm, GM), (p.read32(gm + 0x98), BALL)]
-    for i in range(4):
-        pl = p.read32(gm + 0xa8 + 4 * i)
-        r += [(pl + o, n) for o, n in PLAYER]
-    return gm, r + [(p.read32(gm + 0x88), BALL), RALLY]
+regions = match_regions  # record_p2m2.py's sample layout
 
 RAW = 0x2efc10  # pad manager's raw packet buffer, port 0 at +6 (the bytes PCSX2's pad sent)
 INST = os.environ["HST_PCSX2"]

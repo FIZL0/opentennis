@@ -21,6 +21,7 @@ entries [first, end), the tip (at most PATH_TIP; first = max(0, end - PATH_TIP))
 ticked (the header is still this frame's)."""
 import struct, sys, time
 from pine import Pine
+from rec import u32
 
 VSYNC, GM_PTR, VEL = 0x1d5780, 0x422f80, 0x130
 COPY, PATH_TIP = 0x427108, 32
@@ -65,7 +66,7 @@ while n < want:
         print(f"path end/start set after vsync {v}", flush=True)
     if poke and v == int(poke[0]):
         for k, c in enumerate(poke[1:]):
-            p.write32(ball + VEL + 4 * k, struct.unpack("<I", struct.pack("<f", float(c)))[0])
+            p.write32(ball + VEL + 4 * k, u32(float(c)))
         open(sys.argv[3] + ".poke", "w").write(f"{v}\n")
         if "--reseed" in sys.argv:
             seed = bytearray(a[0x58:0x270])

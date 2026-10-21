@@ -26,13 +26,13 @@ Tail: entry records the path object's entries from its start (+0x58) to its end 
 exit records the AI's path copy 0x424e90, ai+0x3c entries."""
 import os, struct, sys, time
 from pine import Pine
+from rec import f32, u32
+from rec import R, i, lw, lbu, sw, lui, addiu, ori, sll, srl, addu, subu, sltu, slt, j, jr, li, br, assemble
 
 VSYNC, GM_PTR, MT = 0x1d5780, 0x422f80, 0x427130
 CODE, DATA, SNAP, SCRATCH, BUF, END = 0x1e02000, 0x1e00000, 0x1e01000, 0x1e10000, 0x1e30000, 0x1f80000
 PTR, CNT = DATA, DATA + 4
 D = DATA & 0xffff  # t4 = DATA >> 16 << 16 in the stubs: DATA words are at t4 + D + off (D + off < 0x8000: the offset is signed)
-R = dict(zero=0, at=1, v0=2, v1=3, a0=4, a1=5, a2=6, a3=7, t0=8, t1=9, t2=10, t3=11, t4=12, t5=13, t6=14, t7=15,
-         t8=24, t9=25, sp=29, ra=31)
 ARGS = ["a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3"]
 REC, CACHE, MAXPATH = 0x780, 0x424e90, 180
 HOOKS = {1: 0x3cf7b0, 2: 0x3d02c0, 3: 0x3d1320}
@@ -63,40 +63,6 @@ if SINGLES:
     REGIONS = [r for r in REGIONS if not (r[1][0] == "ai" and r[1][1:2] and r[1][1] in (0xe4, 0xe8, 0xec))] + [
         (0x4f0, ("ai", 4), 0x3e90, 0x10), (0x500, ("ai", 0xd4), 0x3d70, 0x10),
         (0x520, ("ai", 0xd4, 0x54, 0, 0), 0x134, 0x10)]
-
-
-def i(op, rs, rt, imm): return op << 26 | R[rs] << 21 | R[rt] << 16 | imm & 0xffff
-def lw(rt, off, rs): return i(0x23, rs, rt, off)
-def lbu(rt, off, rs): return i(0x24, rs, rt, off)
-def sw(rt, off, rs): return i(0x2b, rs, rt, off)
-def lui(rt, imm): return i(0x0f, "zero", rt, imm)
-def addiu(rt, rs, imm): return i(0x09, rs, rt, imm)
-def ori(rt, rs, imm): return i(0x0d, rs, rt, imm)
-def sll(rd, rt, sa): return R[rt] << 16 | R[rd] << 11 | sa << 6
-def srl(rd, rt, sa): return R[rt] << 16 | R[rd] << 11 | sa << 6 | 0x02
-def addu(rd, rs, rt): return R[rs] << 21 | R[rt] << 16 | R[rd] << 11 | 0x21
-def subu(rd, rs, rt): return R[rs] << 21 | R[rt] << 16 | R[rd] << 11 | 0x23
-def sltu(rd, rs, rt): return R[rs] << 21 | R[rt] << 16 | R[rd] << 11 | 0x2b
-def slt(rd, rs, rt): return R[rs] << 21 | R[rt] << 16 | R[rd] << 11 | 0x2a
-def j(a): return 0x02 << 26 | (a >> 2) & 0x3ffffff
-def jr(rs): return R[rs] << 21 | 0x08
-def li(rt, v): return [lui(rt, v >> 16), ori(rt, rt, v & 0xffff)]
-def br(op, rs, rt, label): return ("br", op, rs, rt, label)  # beq 4 / bne 5; add the delay slot yourself
-
-
-def assemble(prog):
-    at, labels = 0, {}
-    for x in prog:
-        if isinstance(x, str): labels[x] = at
-        else: at += 1
-    out = []
-    for x in prog:
-        if isinstance(x, str): continue
-        if isinstance(x, tuple):
-            _, op, rs, rt, label = x
-            x = i(op, rs, rt, labels[label] - len(out) - 1)
-        out.append(x)
-    return out
 
 
 def copyn(src, nreg, at):
@@ -226,12 +192,12 @@ gm0 = p.read32(GM_PTR)
 LINE0 = p.read32(0x403bec)
 if "HST_LINE" in os.environ:  # B57: the line-call margin (m past each line; the game's is the ball radius); a
     # negative one pulls every line in, so ordinary landings are called out and the CPUs' let-go check runs
-    p.write32(0x403bec, struct.unpack("<I", struct.pack("<f", float(os.environ["HST_LINE"])))[0])
+    p.write32(0x403bec, u32(float(os.environ["HST_LINE"])))
 # HST_LINE_FROM=<n> (P11l5): the HST_LINE margin holds only from the point's nth shot on (the game's own before), so
 # serves and the first returns land in and a rally starts; the line-call margin isn't an input of the AI routines
 LINE_FROM = int(os.environ.get("HST_LINE_FROM", "0"))
 def line():
-    v = struct.unpack("<I", struct.pack("<f", float(os.environ["HST_LINE"])))[0] if p.read32(0x423060) >= LINE_FROM else LINE0
+    v = u32(float(os.environ["HST_LINE"])) if p.read32(0x423060) >= LINE_FROM else LINE0
     if p.read32(0x403bec) != v: p.write32(0x403bec, v)
 if LINE_FROM: line()
 installed = []
@@ -267,13 +233,13 @@ for tag in tags:
 for k in range(p.read32(0x422fa4)):
     if slow != 1.0:
         pl = p.read32(gm0 + 0xa8 + 4 * k)
-        p.write32(pl + 0x1374, struct.unpack("<I", struct.pack("<f", struct.unpack("<f", struct.pack("<I", p.read32(pl + 0x1374)))[0] * slow))[0])
+        p.write32(pl + 0x1374, u32(f32(p.read32(pl + 0x1374)) * slow))
 # HST_SPEED=k:scale[,...] (P11l4): player k's speed stat (+0x1374) alone, e.g. 0:2 so a driven P1 is inside 7.4 m of
 # the net by the time the CPU aims its return (the level-3 plan-10 upgrade); only the opponent's position reaches the AI
 for spec in filter(None, os.environ.get("HST_SPEED", "").split(",")):
     k, scale = spec.split(":")
     pl = p.read32(gm0 + 0xa8 + 4 * int(k))
-    p.write32(pl + 0x1374, struct.unpack("<I", struct.pack("<f", struct.unpack("<f", struct.pack("<I", p.read32(pl + 0x1374)))[0] * float(scale)))[0])
+    p.write32(pl + 0x1374, u32(f32(p.read32(pl + 0x1374)) * float(scale)))
 # HST_AI=k:row:level[,...] (P11k4/P11l4/P11l5): player k's AI (player +0x80) takes table row `row` (+0xc; singles
 # rows are character + 14 * level, doubles +0x54) and level byte +0x10, to reach other styles' and levels' branches
 for spec in filter(None, os.environ.get("HST_AI", "").split(",")):
@@ -288,7 +254,7 @@ if "HST_MARGIN" in os.environ:
     for k in range(4):
         pl = p.read32(gm0 + 0xa8 + 4 * k)
         ai = pl and p.read32(pl + 0x80)
-        if ai: p.write32(p.read32(ai + 0xc) + 0x90, struct.unpack("<I", struct.pack("<f", float(os.environ["HST_MARGIN"])))[0])
+        if ai: p.write32(p.read32(ai + 0xc) + 0x90, u32(float(os.environ["HST_MARGIN"])))
 # HST_CHAR=k:off:value[,...] (P11k4): player k's character record (*(ai+8), the record's 0x300 region is +0xd0..)
 # float at +off takes value, e.g. 1:0xe0:0.01 shrinks the stroke height (+0xe0) so the tier searches miss a serve
 # still in the smash window; tests replaying such a fixture read the poked record from it
@@ -299,7 +265,7 @@ CHARS = []
 for spec in filter(None, os.environ.get("HST_CHAR", "").split(",")):
     k, off, v = spec.split(":")
     rec = p.read32(p.read32(p.read32(gm0 + 0xa8 + 4 * int(k)) + 0x80) + 8)
-    CHARS.append((rec + int(off, 0), p.read32(rec + int(off, 0)), struct.unpack("<I", struct.pack("<f", float(v)))[0]))
+    CHARS.append((rec + int(off, 0), p.read32(rec + int(off, 0)), u32(float(v))))
 CHAR_RALLY = os.environ.get("HST_CHAR_RALLY") == "1"
 def chars():
     rally = not CHAR_RALLY or p.read32(0x423060) >= 2
@@ -336,8 +302,8 @@ def path_stop():
         stopped = None
         return
     b = p.read32(gm0 + 0x88)
-    z = struct.unpack("<f", struct.pack("<I", p.read32(b + 0x128)))[0]
-    rz = struct.unpack("<f", struct.pack("<I", p.read32(p.read32(gm0 + 0xa8 + 4 * p.read32(0x423054)) + 0x3d78)))[0]
+    z = f32(p.read32(b + 0x128))
+    rz = f32(p.read32(p.read32(gm0 + 0xa8 + 4 * p.read32(0x423054)) + 0x3d78))
     if stopped is None and z * (1 if rz > 0 else -1) > PATH_STOP:
         path = p.read32(gm0 + 0xa4)
         p.write32(path + 0x5c, p.read32(path + 0x5c) & ~0xff)
@@ -350,7 +316,7 @@ if DRIVE:
     from vpad import FIFO
     pad = os.open(FIFO, os.O_RDWR)
     send = lambda c: os.write(pad, (c + "\n").encode())
-    f32 = lambda a: struct.unpack("<f", struct.pack("<I", p.read32(a)))[0]
+    ram_f32 = lambda a: f32(p.read32(a))
     me, ball = p.read32(gm0 + 0xa8), p.read32(gm0 + 0x88)
     held, pressed_for, idle = None, None, 0
 # HST_WIDE=1 (B57): at each return press P1 holds the stick to a far corner (alternating sides) for a few polls,
@@ -383,9 +349,9 @@ def serve(me, side):
         serves, phase, walk = serves + 1, 0, 0
     was_serving = True
     btn = SERVE[serves % len(SERVE)]
-    by = f32(ball + 0x124)  # y is down
-    mx = f32(me + 0x3d70)
-    rx = f32(p.read32(gm0 + 0xa8 + 4 * p.read32(0x423054)) + 0x3d70)
+    by = ram_f32(ball + 0x124)  # y is down
+    mx = ram_f32(me + 0x3d70)
+    rx = ram_f32(p.read32(gm0 + 0xa8 + 4 * p.read32(0x423054)) + 0x3d70)
     out = (1 if mx > 0 else -1) if abs(mx) > 0.3 else (-1 if rx > 0 else 1)
     wide = (-side * (1 if rx > 0 else -1) * SERVE_X, SERVE_Y)
     stick = (0, 0)
@@ -418,8 +384,8 @@ def drive():
     if aiming:
         aiming -= 1
         return
-    bx, bz, vz = f32(ball + 0x120), f32(ball + 0x128), f32(ball + 0x138)
-    mx, mz = f32(me + 0x3d70), f32(me + 0x3d78)
+    bx, bz, vz = ram_f32(ball + 0x120), ram_f32(ball + 0x128), ram_f32(ball + 0x138)
+    mx, mz = ram_f32(me + 0x3d70), ram_f32(me + 0x3d78)
     hit = tuple(p.read32(ball + o) for o in (0x70, 0x74, 0x78))  # a new hit point marks a new ball
     side = 1 if mz > 0 else -1
     coming = vz * side > 0
