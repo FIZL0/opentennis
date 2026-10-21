@@ -34,9 +34,9 @@ const HEAD_TURN: f32 = 1.2;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Crowd>()
-        .add_systems(PostStartup, spawn.after(super::setup).run_if(resource_exists::<MatchCourt>))
+        .add_systems(PostStartup, (spawn.after(super::setup), halves.after(spawn)).run_if(resource_exists::<MatchCourt>))
         .add_systems(FixedUpdate, cue.after(crate::character::tick).before(super::step).run_if(resource_exists::<MatchCourt>))
-        .add_systems(Update, show.after(super::super::camera).run_if(resource_exists::<MatchCourt>));
+        .add_systems(Update, show.after(super::super::camera).after(super::super::split_view::split).run_if(resource_exists::<MatchCourt>));
 }
 
 /// One of the mod's people: its place in `npcs.json`, how it follows the match, its clips and the one showing (and
@@ -47,6 +47,17 @@ struct Someone {
     role: Role,
     facing: Vec2,
     billboard: bool,
+    clips: Vec<(String, Looped)>,
+    playing: Option<(usize, f32)>,
+    head: Option<(Entity, Option<Quat>)>,
+    /// A card's copy for the split view's second half.
+    twin: Option<Twin>,
+}
+
+/// B639: a card's second instance, drawn by the split view's second half only (`twin_view::BOTTOM`) and turned to
+/// its camera, playing its own clips (the back ones by that camera) on its own nodes; hidden while there's no split.
+struct Twin {
+    root: Entity,
     clips: Vec<(String, Looped)>,
     playing: Option<(usize, f32)>,
     head: Option<(Entity, Option<Quat>)>,
@@ -157,8 +168,17 @@ fn spawn(
             Ok(n) => draws += n,
             Err(err) => warn!("court mod {}: person {i}: {err}", c.id),
         }
-        let head = (p.role == Role::Linejudge).then(|| sp.nodes.iter().find(|n| n.0.eq_ignore_ascii_case("head")).map(|n| (n.1, None))).flatten();
-        commands.entity(e).insert(Someone { index: i, role: p.role, facing: p.facing, billboard, clips: sp.clips, playing: None, head });
+        let head_of = |sp: &Spawned| (p.role == Role::Linejudge).then(|| sp.nodes.iter().find(|n| n.0.eq_ignore_ascii_case("head")).map(|n| (n.1, None))).flatten();
+        let head = head_of(&sp);
+        let twin = billboard.then(|| {
+            let root = commands.spawn((Transform::from_translation(p.pos).with_rotation(turn), Visibility::Hidden, ChildOf(root))).id();
+            let mut sp = Spawned::default();
+            if let Err(err) = crate::court_mod::scene(&mut commands, &mut store, doc, blob, root, args.singles, c.light.as_ref(), false, Some(&mut sp)) {
+                warn!("court mod {}: person {i}'s second view copy: {err}", c.id);
+            }
+            Twin { root, head: head_of(&sp), clips: sp.clips, playing: None }
+        });
+        commands.entity(e).insert(Someone { index: i, role: p.role, facing: p.facing, billboard, clips: sp.clips, playing: None, head, twin });
     }
     info!("court mod {}: {} people, {draws} draws", c.id, people.people.len());
     crowd.reacting = vec![None; people.people.len()];
@@ -225,6 +245,8 @@ fn show(
     mut people: Query<(&mut Someone, &mut Transform), Without<crate::Orbit>>,
     mut nodes: Query<&mut Transform, (Without<Someone>, Without<crate::Orbit>)>,
     mut forced: Local<Option<Option<String>>>,
+    mut shown: Query<&mut Visibility>,
+    second: crate::twin_view::Second,
 ) {
     // `HST_PEOPLE_CUE=<cue>`: everyone shows that cue (for `--shot`s)
     let forced = forced.get_or_insert_with(|| std::env::var("HST_PEOPLE_CUE").ok()).as_deref();
@@ -240,32 +262,75 @@ fn show(
             Some((cue, from, until)) if (from..until).contains(&t) => cue,
             _ => base(p.role, &g.phase, g.shots),
         };
-        let back = eye.is_some_and(|eye| behind(eye, tf.translation, p.facing));
         if let (true, Some(eye)) = (p.billboard, eye) {
             let d = eye - tf.translation;
             tf.rotation = Quat::from_rotation_y(d.x.atan2(d.z));
         }
-        let names: Vec<&str> = p.clips.iter().map(|c| c.0.as_str()).collect();
-        if let Some(k) = clip(&names, cue, back) {
-            if p.playing.is_none_or(|(at, _)| at != k) {
-                p.playing = Some((k, now));
-            }
-            let (_, since) = p.playing.unwrap();
-            let l = &p.clips[k].1;
-            if let Some((head, Some(rest))) = p.head
-                && let Ok(mut h) = nodes.get_mut(head)
-            {
-                h.rotation = rest;
-            }
-            l.pose((now - since) % l.length, &mut nodes);
+        let at = tf.translation;
+        act(&p.clips, &mut p.playing, &mut p.head, cue, eye, at, p.facing, ball, now, &mut nodes);
+        let Some(tw) = &mut p.twin else { continue };
+        // the split view's second half: the card turned to its camera, or hidden while there's none
+        let eye = second.eye().map(|c| Vec3::new(c.translation.x, -c.translation.y, -c.translation.z));
+        if let Ok(mut v) = shown.get_mut(tw.root) {
+            v.set_if_neq(if eye.is_some() { Visibility::Inherited } else { Visibility::Hidden });
         }
-        if let Some((head, rest)) = &mut p.head {
-            let Ok(mut h) = nodes.get_mut(*head) else { continue };
-            let rest = *rest.get_or_insert(h.rotation);
-            let to = ball - tf.translation;
-            let mut turn = to.x.atan2(to.z) - p.facing.x.atan2(p.facing.y);
-            turn = (turn + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-            h.rotation = Quat::from_rotation_y(turn.clamp(-HEAD_TURN, HEAD_TURN)) * rest;
+        let (Some(eye), Ok(mut root)) = (eye, nodes.get_mut(tw.root)) else { continue };
+        let d = eye - at;
+        *root = Transform::from_translation(at).with_rotation(Quat::from_rotation_y(d.x.atan2(d.z)));
+        act(&tw.clips, &mut tw.playing, &mut tw.head, cue, Some(eye), at, p.facing, ball, now, &mut nodes);
+    }
+}
+
+/// One person's `cue` clip at `now` (its back clip if the camera at `eye` is behind it) and a line judge's head after
+/// the ball, for someone standing at `at` facing `facing`.
+#[allow(clippy::too_many_arguments)]
+fn act(
+    clips: &[(String, Looped)],
+    playing: &mut Option<(usize, f32)>,
+    head: &mut Option<(Entity, Option<Quat>)>,
+    cue: &str,
+    eye: Option<Vec3>,
+    at: Vec3,
+    facing: Vec2,
+    ball: Vec3,
+    now: f32,
+    nodes: &mut Query<&mut Transform, (Without<Someone>, Without<crate::Orbit>)>,
+) {
+    let back = eye.is_some_and(|eye| behind(eye, at, facing));
+    let names: Vec<&str> = clips.iter().map(|c| c.0.as_str()).collect();
+    if let Some(k) = clip(&names, cue, back) {
+        if playing.is_none_or(|(at, _)| at != k) {
+            *playing = Some((k, now));
+        }
+        let (_, since) = playing.unwrap();
+        let l = &clips[k].1;
+        if let Some((head, Some(rest))) = *head
+            && let Ok(mut h) = nodes.get_mut(head)
+        {
+            h.rotation = rest;
+        }
+        l.pose((now - since) % l.length, nodes);
+    }
+    if let Some((head, rest)) = head {
+        let Ok(mut h) = nodes.get_mut(*head) else { return };
+        let rest = *rest.get_or_insert(h.rotation);
+        let to = ball - at;
+        let mut turn = to.x.atan2(to.z) - facing.x.atan2(facing.y);
+        turn = (turn + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        h.rotation = Quat::from_rotation_y(turn.clamp(-HEAD_TURN, HEAD_TURN)) * rest;
+    }
+}
+
+/// While the split view is on, the cards' own meshes are drawn by the top half only and their copies' by the bottom
+/// half only (`twin_view`).
+fn halves(mut commands: Commands, people: Query<(Entity, &Someone)>, children: Query<&Children>, meshes: Query<(), With<Mesh3d>>) {
+    for (e, p) in &people {
+        let Some(tw) = &p.twin else { continue };
+        for m in children.iter_descendants(e).filter(|m| meshes.contains(*m)) {
+            commands.entity(m).insert(crate::twin_view::TopHalf);
+        }
+        for m in children.iter_descendants(tw.root).filter(|m| meshes.contains(*m)) {
+            commands.entity(m).insert(bevy::camera::visibility::RenderLayers::layer(crate::twin_view::BOTTOM));
         }
     }
 }
@@ -276,6 +341,40 @@ pub(in crate::play) fn seen(world: &mut World) -> (usize, usize, bool) {
     let placed = world.query::<&Someone>().iter(world).count();
     let crowd = world.resource::<Crowd>();
     (placed, crowd.reacting.iter().filter(|r| r.is_some()).count(), crowd.sounds.is_some())
+}
+
+/// For the court mod match test: the cards, and those whose meshes are all the top half's with a copy all the
+/// bottom half's (`twin_view`), hidden while there's no split.
+#[cfg(test)]
+pub(in crate::play) fn split(world: &mut World) -> (usize, usize) {
+    use bevy::camera::visibility::RenderLayers;
+    let bottom = RenderLayers::layer(crate::twin_view::BOTTOM);
+    let mut q = world.query::<(Entity, &Someone)>();
+    let cards: Vec<_> = q.iter(world).filter(|(_, p)| p.billboard).map(|(e, p)| (e, p.twin.as_ref().map(|t| t.root))).collect();
+    let meshes = |world: &World, e: Entity| -> Vec<Entity> {
+        let mut out = vec![];
+        let mut stack = vec![e];
+        while let Some(e) = stack.pop() {
+            if world.get::<Mesh3d>(e).is_some() {
+                out.push(e);
+            }
+            stack.extend(world.get::<Children>(e).into_iter().flat_map(|c| c.iter()));
+        }
+        out
+    };
+    let ok = cards
+        .iter()
+        .filter(|(e, twin)| {
+            let Some(twin) = *twin else { return false };
+            let (own, copy) = (meshes(world, *e), meshes(world, twin));
+            !own.is_empty()
+                && own.len() == copy.len()
+                && own.iter().all(|m| world.get::<crate::twin_view::TopHalf>(*m).is_some())
+                && copy.iter().all(|m| world.get::<RenderLayers>(*m) == Some(&bottom))
+                && world.get::<Visibility>(twin) == Some(&Visibility::Hidden)
+        })
+        .count();
+    (cards.len(), ok)
 }
 
 #[cfg(test)]
