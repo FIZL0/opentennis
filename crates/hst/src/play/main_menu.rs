@@ -1208,7 +1208,7 @@ impl Menu {
     }
 
     /// The device driving the menu's 1P screens: 1P's, except on the controller assignment after it moved its own
-    /// seat there (B437: still the one that came in, until it leaves).
+    /// seat there (B437: still the one that came in, until it leaves or the controller now on 1P presses something).
     pub(super) fn lead(&self) -> Option<Dev> {
         // concept: online, 1P off its seat still works the lobby
         let seat = match self.seats[self.first_seat()] {
@@ -1639,6 +1639,12 @@ impl Menu {
         use Effect::*;
         let n = self.players();
         let seated = self.seats[..n].iter().position(|s| *s == Some(dev));
+        if host != Some(dev) && seated == Some(self.first_seat()) && k != Press::default() {
+            // a controller moved onto 1P takes the screen over at its first press (user 2026-10-21: B437 left it
+            // stuck there, not even Done working, until the one that moved it left)
+            (self.assign_lead, self.held) = (None, false);
+            return self.assign_step(dev, k, Some(dev), out);
+        }
         if host == Some(dev) {
             let p = self.sel.min(n - 1);
             self.held &= self.pickable(p);
@@ -4890,22 +4896,15 @@ mod tests {
         m.step(Dev::Keys, press(|p| &mut p.ok)); // the keyboard rejoins as 2P (1P's focus on it)
         m.sel = 0;
         assert_eq!(m.seats[..2], [Some(pa), Some(Dev::Keys)]);
-        // 1P (now the pad) focuses 2P and swaps it back up; B437: the pad drives on, its move pending, until it leaves
+        // 1P (now the pad) focuses 2P and swaps it back up; B437: the pad drives on, its move pending
         m.step(pa, press(|p| &mut p.right));
         m.step(pa, press(|p| &mut p.ok));
         m.step(pa, press(|p| &mut p.left));
         assert_eq!((&m.seats[..2], m.sel, m.lead(), m.lead_pending()), (&[Some(Dev::Keys), Some(pa)][..], 0, Some(pa), Some(Some(1))));
+        // user 2026-10-21: the keyboard, moved onto 1P, takes the screen at its first press; its Start leaves
         m.step(Dev::Keys, press(|p| &mut p.down));
-        m.step(Dev::Keys, press(|p| &mut p.page));
-        assert_eq!((&m.seats[..2], m.sel), (&[Some(Dev::Keys), Some(pa)][..], 0), "the keyboard doesn't drive yet");
-        // the pad takes itself off; an empty seat never goes to 1P
-        m.step(pa, press(|p| &mut p.ok)); // put down
-        m.step(pa, press(|p| &mut p.right));
-        m.step(pa, press(|p| &mut p.page));
-        assert_eq!((&m.seats[..2], m.lead_pending()), (&[Some(Dev::Keys), None][..], Some(None)));
-        m.step(pa, press(|p| &mut p.right));
-        assert_eq!(m.seats[0], Some(Dev::Keys));
-        m.step(pa, press(|p| &mut p.name)); // Start (✕ only selects)
+        assert_eq!((m.lead(), m.lead_pending()), (Some(Dev::Keys), None));
+        m.step(Dev::Keys, press(|p| &mut p.name));
         assert_eq!((m.screen, m.lead()), (Screen::Chars, Some(Dev::Keys)));
         assert!(m.droppable(0)); // concept: the select's 1P may leave its seat
     }

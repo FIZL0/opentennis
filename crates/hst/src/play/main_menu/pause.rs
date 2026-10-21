@@ -557,15 +557,11 @@ mod tests {
         m.step(Dev::Keys, Press { right: true, ..default() });
         assert_eq!((m.seats, m.bots, m.sel), ([Some(Dev::Pad(a)), None, Some(Dev::Keys), None], [false, true, false, true], 2));
         assert_eq!((m.lead(), m.lead_pending()), (Some(Dev::Keys), Some(Some(2))));
-        // still the keyboard's: back to 1P and over again; pad a, moved onto 1P, neither drives nor moves nor leaves
+        // still the keyboard's: back to 1P and over again
         m.step(Dev::Keys, Press { right: true, ..default() });
         assert_eq!((m.seats, m.lead_pending()), ([Some(Dev::Keys), None, Some(Dev::Pad(a)), None], None));
         m.step(Dev::Keys, Press { left: true, ..default() });
         assert_eq!(m.seats, [Some(Dev::Pad(a)), None, Some(Dev::Keys), None]);
-        for k in [Press { right: true, ..default() }, Press { back: true, ..default() }, Press { ok: true, ..default() }] {
-            m.step(Dev::Pad(a), k);
-        }
-        assert_eq!((m.screen, m.seats), (Screen::Assign, [Some(Dev::Pad(a)), None, Some(Dev::Keys), None]));
         m.sel = 1;
         assert_eq!((m.step(Dev::Keys, Press { card: true, ..default() }), m.bots[1]), (vec![], true));
         // no free human seat yet: b's ✕ does nothing; the keyboard takes itself off (□), then b takes 3P
@@ -584,6 +580,13 @@ mod tests {
         apply(m.seats, &[a, b], &mut slots);
         slots.update(&[a, b]);
         assert_eq!((slots.0, slots.keys()), ([Some(a), None, Some(b), None], None));
+        // user 2026-10-21: pad a, moved onto 1P, takes the screen at its first press and its Start is Done
+        let mut m2 = Menu { screen: Screen::Assign, doubles: true, seats: seats_now(humans, &PadSlots([None, None, Some(a), None], Some([Some(Seat::Keys), None, Some(Seat::Pad(0)), None]))), bots: humans.map(|h| !h), paused: true, ..default() };
+        m2.step(Dev::Keys, Press { ok: true, ..default() });
+        m2.step(Dev::Keys, Press { right: true, ..default() });
+        assert_eq!(m2.lead(), Some(Dev::Keys));
+        m2.step(Dev::Pad(a), Press { name: true, ..default() });
+        assert_eq!((m2.screen, m2.lead()), (Screen::Chars, Some(Dev::Pad(a))));
         // no `--pads`: 1P's pad stands for the keyboard beside it, a missing pad leaves its human seat empty
         assert_eq!(seats_now([true, true, false, false], &PadSlots([Some(b), None, None, None], None)), [Some(Dev::Pad(b)), None, None, None]);
     }
