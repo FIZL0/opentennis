@@ -403,10 +403,13 @@ fn start(argv: Vec<String>) {
     graphics::KEEP_WINDOWED.store(windowed || bg || cfg!(target_arch = "wasm32"), std::sync::atomic::Ordering::Relaxed);
     graphics::NO_AUTO.store(bg, std::sync::atomic::Ordering::Relaxed);
     let mode = gfx.window_mode();
-    // `HST_WINDOW="3840 2160"`: the window's size in physical pixels (unattended shots at a set resolution)
+    // `HST_WINDOW="3840 2160"`: the window's size in physical pixels (unattended shots at a set resolution); a third
+    // number is the scale factor (B620: `"1280 800 2.25"`, a Steam Deck whose X server reports its panel's ~216 dpi)
     let mut resolution = bevy::window::WindowResolution::default();
-    if let Some((w, h)) = std::env::var("HST_WINDOW").ok().and_then(|v| v.split_once(' ').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))) {
-        resolution = bevy::window::WindowResolution::new(w, h).with_scale_factor_override(1.0);
+    if let Some(v) = std::env::var("HST_WINDOW").ok().map(|v| v.split_whitespace().filter_map(|x| x.parse::<f32>().ok()).collect::<Vec<_>>())
+        && v.len() >= 2
+    {
+        resolution = bevy::window::WindowResolution::new(v[0] as u32, v[1] as u32).with_scale_factor_override(v.get(2).copied().unwrap_or(1.0));
     }
     // B547: the page's size from the start, not Bevy's 1280x720 until the canvas reports its own (on a DPR-3 phone the
     // render targets were made at 3840x2160 for it)

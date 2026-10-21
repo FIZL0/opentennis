@@ -433,7 +433,7 @@ mod tests {
         for p in &mut m.players {
             p.ready = true;
         }
-        for a in [4.0, 16.0 / 9.0, 4.0 / 3.0, 9.0 / 16.0, 0.4] {
+        for a in [4.0, 16.0 / 9.0, 1.6, 4.0 / 3.0, 9.0 / 16.0, 0.4] {
             m.grid = super::super::Grid::fit(a);
             let q = super::super::drawn(&m, &t, &super::super::controls::Bindings::default(), &[], 0, 0.0).out.len();
             assert!(q < super::super::pause::POOL_HERE, "{a}: {q} quads");

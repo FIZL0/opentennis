@@ -372,6 +372,11 @@ fn fixed_ratio_views() {
     // 4:3 and 16:10 on 16:9
     assert_eq!(v(1920.0, 1080.0, 1), Rect::new(240.0, 0.0, 1680.0, 1080.0));
     assert_eq!(v(1920.0, 1080.0, 3), Rect::new(96.0, 0.0, 1824.0, 1080.0));
+    // B620: a Steam Deck's 1280×800: Auto and 16:10 fill it, 16:9 bars top and bottom, the 4:3 screen 1066⅔ wide
+    assert_eq!(v(1280.0, 800.0, 0), Rect::new(0.0, 0.0, 1280.0, 800.0));
+    assert_eq!(v(1280.0, 800.0, 3), Rect::new(0.0, 0.0, 1280.0, 800.0));
+    assert_eq!(v(1280.0, 800.0, 2), Rect::new(0.0, 40.0, 1280.0, 760.0));
+    assert!((share(1.6) - 5.0 / 6.0).abs() < 1e-6 && vshare(1.6) == 1.0);
 }
 
 #[test]
@@ -431,7 +436,7 @@ fn tall_window_letterboxes() {
 #[test]
 fn legend_strip_under_the_description_bar() {
     // B325: the menus' description bar (404..436) and the legend strip (436..448) stay stacked at any aspect
-    for a in [0.4, 9.0 / 16.0, 1.0, 4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 4.0] {
+    for a in [0.4, 9.0 / 16.0, 1.0, 4.0 / 3.0, 1.6, 16.0 / 9.0, 21.0 / 9.0, 4.0] {
         let (bt, bh) = vplace(404.0, 32.0, a, Anchor::Span);
         let (lt, lh) = vplace(436.0, 12.0, a, Anchor::Span);
         assert!((bt + bh - lt).abs() < 1e-3 && (lt + lh - 100.0).abs() < 1e-3, "{a}");
