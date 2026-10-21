@@ -2249,11 +2249,12 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
         g.players[i].stance = pos[0].abs();
         strike(g, i, class::SERVE, sw.kind, target, (branch::SERVE, sw.grade, sw.offset));
         g.finish.strong = toss == Toss::Strong;
-        let pace = swing_pace(g, i);
+        // the serve stays timed as the original's, a paced mod's too (`stroke_pace`)
+        let pace = motion::stroke_pace(branch::SERVE, swing_pace(g, i));
         let p = &mut g.players[i];
         p.served = Some(0);
         p.recover = motion::paced(motion::serve_recovery(toss == Toss::Strong, sw.kind), pace);
-        // the swing plays on at speed 1 from contact (a paced mod's at its pace)
+        // the swing plays on at speed 1 from contact
         set_motion(p, motion::serve_swing(toss == Toss::Under, 1).0, pace, false, None);
         serve_ik_tick(g, i);
         g.serving = Serving::default();
@@ -2885,7 +2886,7 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
             p.contact = None;
             p.swung = true;
             p.after = Some(0);
-            p.recover = motion::paced(motion::recovery(branch, kind), pace);
+            p.recover = motion::paced(motion::recovery(branch, kind), motion::stroke_pace(branch, pace));
             p.balloon = serve::balloon(c.grade, c.offset, false).map(|b| (b, 0));
             struck = Some(c);
         } else {
@@ -3089,6 +3090,7 @@ fn whiff(g: &mut Game, i: usize, miss: bool, quiet: bool) {
     } else {
         base + other as i32
     };
+    let pace = motion::anim_pace(anim, pace);
     p.whiff = Some(motion::Whiff { tick: motion::paced_whiff(pace), ..motion::Whiff::new(anim, miss, quiet) });
     set_motion(p, anim, pace, false, None);
     p.vel = Vec2::ZERO;
@@ -3119,7 +3121,7 @@ fn swing_pace(g: &Game, i: usize) -> f32 {
 /// at its pose frame (the re-press lock and recovery run on from there).
 fn miss_contact(g: &mut Game, i: usize, c: &Contact) {
     let anim = c.swing.anim as i32;
-    let pace = swing_pace(g, i);
+    let pace = motion::anim_pace(anim, swing_pace(g, i));
     let p = &mut g.players[i];
     (p.contact, p.swing, p.ik) = (None, None, None);
     if let Some(m) = motion::whiff(anim) {
@@ -3141,7 +3143,7 @@ fn whiff_frame(g: &mut Game, i: usize, stick: bool) {
     let Some(mut w) = p.whiff else { return };
     p.prev = p.pos;
     if let Some(m) = w.step() {
-        set_motion(p, m, pace, false, None);
+        set_motion(p, m, motion::anim_pace(w.anim, pace), false, None);
         p.missed = true;
         g.doubles_ai.missed(i);
         if !w.quiet {

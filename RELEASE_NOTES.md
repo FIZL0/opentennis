@@ -39,3 +39,4 @@
 - On the Mods page, the Browse, Installed and other top tabs now count mods of every kind, not just the kind you're looking at.
 - Switching Settings tabs now only nudges the options card instead of sliding the whole page.
 - Importing a disc image now checks its contents against known good copies of the game: a bad rip or a different version is refused with a message showing its fingerprint, which you can report so a good copy can be added.
+- Custom characters with a faster swing now speed up only their ground strokes and volleys: their serves, smashes, dives and missed smashes play at the normal speed.
