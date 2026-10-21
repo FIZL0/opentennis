@@ -27,7 +27,6 @@ index out of bounds: the len is 0 but the index is 0"
 
 ### Players
 - [ ] **P120** Dive eligibility frame (T8): find_dive lets a press dive when the player runs this frame; the original reads the previous frame's locomotion state, so a press on the frame a run starts or stops can dive (or not) a frame off. Port the previous-frame state, prove with a recorded dive on a run's first/last frame (tools/vpad.py) → crates/hst-play/src/play.rs find_dive · crates/hst-sim/src/swing.rs dive | t: hst-sim swing.rs | j: 2026-10-21-repo-audit (T8 ledger)
-- [ ] **P122** Pelvis turn table bit-exact (T8): the turn's per-motion pelvis rows come from pose::first_frame (first keys, unscaled), matching the game's table within 1e-4, not bit for bit (hst-sim tests/player.rs). Either build them as the game does (its sampler, bit-exact over all 14 characters × 48 motions) or prove the turn's result never depends on the difference → crates/hst-sim/src/pose.rs first_frame · crates/hst-base/src/character.rs (pelvis rows) | t: hst-sim player.rs | j: 2026-10-21-repo-audit (T8 ledger)
 
 
 ### AI

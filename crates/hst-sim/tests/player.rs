@@ -235,20 +235,20 @@ fn match_facing() {
     }
 }
 
-/// The turn's per-motion pelvis rows computed from the disc (skeleton + each motion's first keys) agree with
-/// the game's table in slot-5 RAM and `1p3goodcpus_ee.bin` (characters 6, 11, 2, 10), and in P7b's per-character
+/// The turn's per-motion pelvis rows computed from the disc (skeleton + each motion sampled at frame 0) match
+/// the game's table bit for bit in slot-5 RAM and `1p3goodcpus_ee.bin` (characters 6, 11, 2, 10), and in P7b's per-character
 /// dumps (`p7b_cNN_pelvis.bin`) for all 14.
 #[test]
 fn pelvis_table_from_disc() {
     use hst_data::{ani, mdl, xb::Archive};
-    use hst_sim::pose::{Skeleton, first_frame};
+    use hst_sim::pose::{Clip, Skeleton, pelvis_row};
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
     let (Ok(ram), Ok(mut iso)) = (fixture::read(format!("{dir}/slot5_ee.bin")), fixture::iso()) else {
         return fixture::skip(format_args!("slot5_ee.bin or ISO absent, skipped"));
     };
     let ru = |a: usize| u32::from_le_bytes(ram[a..a + 4].try_into().unwrap()) as usize;
     let gm = ru(0x422f80);
-    let mut worst = 0.0f32;
+    let (mut rows, mut bad) = (0, 0);
     let mut tables: Vec<(usize, Vec<u8>)> = [(0, 0), (1, 2), (2, 1), (3, 5)].map(|(p, c)| (c, ram[ru(gm + 0xa8 + 4 * p) + 0x6b0..][..48 * 0x40].to_vec())).into();
     if let Ok(ram) = fixture::read(format!("{dir}/1p3goodcpus_ee.bin")) {
         let ru = |a: usize| u32::from_le_bytes(ram[a..a + 4].try_into().unwrap()) as usize;
@@ -268,15 +268,18 @@ fn pelvis_table_from_disc() {
             let stem = ani::motion_name(mo, c).unwrap().to_ascii_lowercase();
             let Some(e) = aarc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&format!("{stem}.ani2"))) else { continue };
             let a = ani::parse(&aarc.read(e).unwrap()).unwrap();
-            let row = first_frame(&sk, &a)[pelvis][2];
+            let row = pelvis_row(&sk, &Clip::new(&sk, &a), pelvis);
             let want = [f(&table, mo * 0x40 + 0x20), f(&table, mo * 0x40 + 0x28)];
-            let d = (row[0] - want[0]).abs().max((row[2] - want[1]).abs());
-            if d > 1e-3 { eprintln!("char {c} motion {mo:#x}: {:?} vs {want:?}", [row[0], row[2]]); }
-            worst = worst.max(d);
+            if row.map(f32::to_bits) != want.map(f32::to_bits) {
+                eprintln!("char {c} motion {mo:#x}: {row:?} vs {want:?}");
+                bad += 1;
+            }
+            rows += 1;
         }
     }
-    eprintln!("worst pelvis row difference {worst}");
-    assert!(worst < 1e-4);
+    eprintln!("pelvis rows {rows} checked, {bad} off");
+    assert!(rows >= 14 * 40);
+    assert_eq!(bad, 0);
 }
 
 /// A human's movement from the pad, replayed: slot 4 with P1 (player 0) driven by a scripted stick/d-pad, as Carol
@@ -393,7 +396,7 @@ fn human_pad_replay() {
 #[test]
 fn lefty_s04() {
     use hst_data::{ani, mdl, xb::Archive};
-    use hst_sim::pose::{Skeleton, first_frame};
+    use hst_sim::pose::{Clip, Skeleton, pelvis_row};
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
     let Ok(mut iso) = fixture::iso() else {
         return fixture::skip(format_args!("ISO absent, skipped"));
@@ -411,8 +414,8 @@ fn lefty_s04() {
         .map(|mo| {
             let stem = ani::motion_name(mo, c).unwrap().to_ascii_lowercase();
             aarc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&format!("{stem}.ani2"))).map_or([0.0, 1.0], |e| {
-                let r = first_frame(&sk, &ani::parse(&aarc.read(e).unwrap()).unwrap())[hip][2];
-                [r[0], r[2]]
+                let a = ani::parse(&aarc.read(e).unwrap()).unwrap();
+                pelvis_row(&sk, &Clip::new(&sk, &a), hip)
             })
         })
         .collect();

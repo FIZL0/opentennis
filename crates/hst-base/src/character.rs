@@ -1009,13 +1009,13 @@ pub fn disc_motions_counted(iso: &mut Iso, n: usize, skeleton: &Skeleton, target
         }
         let Some(e) = aarc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&format!("{stem}.ani2"))) else { continue };
         let Ok(a) = ani::parse(&aarc.read(e).map_err(|e| e.0)?) else { continue };
-        if let (Some(h), Some(row)) = (hip, pelvis.get_mut(id)) {
-            let r = hst_sim::pose::first_frame(skeleton, &a)[h][2];
-            *row = [r[0], r[2]];
-        }
         // the motion numbers 0x30.. are the team reactions (below); the files of those names are ball paths
         if id < 0x30 {
-            motions.insert(id, Clip::new(skeleton, &a));
+            let clip = Clip::new(skeleton, &a);
+            if let (Some(h), Some(row)) = (hip, pelvis.get_mut(id)) {
+                *row = hst_sim::pose::pelvis_row(skeleton, &clip, h);
+            }
+            motions.insert(id, clip);
         }
         // the smash's and the serve's root paths (their contact IK scales the jump by its height at frame 8)
         if id == 0x30 || id == 0x31 {
