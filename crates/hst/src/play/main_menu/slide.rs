@@ -19,6 +19,8 @@ const TRAVEL: f32 = 160.0;
 const TAB_TRAVEL: f32 = 24.0;
 /// The blank panel the Settings cards fade through: paper, dimmed.
 const DIM: f32 = 0.85;
+/// B626: the web build switches Settings tabs at once, no slide (user 2026-10-21: it animated badly there).
+const INSTANT_TABS: bool = cfg!(target_arch = "wasm32");
 
 #[derive(Resource)]
 pub(super) struct Slide {
@@ -32,11 +34,13 @@ pub(super) struct Slide {
     dir: f32,
     /// Between Settings tabs: the cards' boxes (list, side); only quads starting in their y band move.
     band: Option<[[f32; 4]; 2]>,
+    /// Switch between Settings tabs without a slide ([`INSTANT_TABS`]).
+    instant_tabs: bool,
 }
 
 impl Default for Slide {
     fn default() -> Self {
-        Slide { on: None, last: Vec::new(), old: Vec::new(), t: 2.0 * HALF, dir: 1.0, band: None }
+        Slide { on: None, last: Vec::new(), old: Vec::new(), t: 2.0 * HALF, dir: 1.0, band: None, instant_tabs: INSTANT_TABS }
     }
 }
 
@@ -47,7 +51,8 @@ impl Slide {
             // no slide into a match (the window hides) or out of one (back to the menus)
             // M121: nor between the online select and the lobby, one screen with the cursor moving
             let still = matches!(screen, Screen::Playing) || matches!(from, Screen::Playing) || matches!((from, screen), (Screen::Chars, Screen::Lobby) | (Screen::Lobby, Screen::Chars));
-            self.t = if still { 2.0 * HALF } else { 0.0 };
+            let tabs = settings(from) && settings(screen);
+            self.t = if still || (tabs && self.instant_tabs) { 2.0 * HALF } else { 0.0 };
             self.dir = if screen as u8 > from as u8 { 1.0 } else { -1.0 };
             self.old = std::mem::take(&mut self.last);
             self.band = (settings(from) && settings(screen)).then_some(cards);
@@ -147,6 +152,20 @@ mod tests {
         let new = out[3];
         assert!(new.rgb == new_card.rgb && new.alpha < 128.0 && new.alpha > 0.0 && new.dst[0] > 100.0, "new coming: {new:?}");
         assert_eq!(go(5), vec![new_bar, new_card]);
+    }
+
+    /// B626: the web build's tabs switch at once, the bar and cards the new page's from the first frame.
+    #[test]
+    fn web_tabs_switch_at_once() {
+        let mut s = Slide { instant_tabs: true, ..Slide::default() };
+        let mut card = quad(Anchor::Centre);
+        card.dst[1] = 100.0;
+        s.step(Screen::Display, vec![card], 1.0, CARDS);
+        let mut new_card = card;
+        new_card.rgb = [0.0; 3];
+        assert_eq!(s.step(Screen::Sound, vec![new_card], 1.0, CARDS), vec![new_card]);
+        // other screens still slide
+        assert_ne!(s.step(Screen::Main, vec![card], 1.0, NONE), vec![card]);
     }
 
     #[test]
