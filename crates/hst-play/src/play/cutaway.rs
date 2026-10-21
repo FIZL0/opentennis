@@ -25,12 +25,19 @@ pub(super) struct Director {
     shot: Option<(Shot, Frames, usize)>,
     /// The serve's first tick has shown the shot.
     held: bool,
+    /// Each player's head as last predicted for a cut-away (shown or other), kept until they are a subject again.
+    heads: [Option<[f32; 4]>; 4],
 }
 
 impl Director {
     /// A cut-away shot is on screen.
     pub(super) fn showing(&self) -> bool {
         self.shot.is_some()
+    }
+
+    /// Player `i`'s head as the last cut-away they were in predicted it (`None` before their first).
+    pub(super) fn head(&self, i: usize) -> Option<[f32; 4]> {
+        self.heads.get(i).copied().flatten()
     }
 }
 
@@ -51,6 +58,7 @@ fn setup(mut commands: Commands, args: Res<Args>) {
         roles: [0, 1],
         shot: None,
         held: false,
+        heads: [None; 4],
     });
     commands.insert_resource(super::replay_camera::ReplayCamera::new(game.camera_shots(), game.replay_cameras()));
 }
@@ -133,6 +141,11 @@ pub(super) fn step(mut g: ResMut<Game>, mut d: ResMut<Director>, q: Query<(&Figu
         let (Some(s), Some(o)) = (predicted(&g, shown, t, motion(shown)), predicted(&g, other, t, motion(other))) else {
             return;
         };
+        for (i, h) in [(shown, &s.0), (other, &o.0)] {
+            if let Some(slot) = d.heads.get_mut(i) {
+                *slot = Some(h[3]);
+            }
+        }
         let p = &g.players[shown];
         let frames = Frames {
             corner: cutaway::corner_frame([p.pos[0], 0.0, p.pos[2], 1.0]),
