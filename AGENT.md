@@ -82,6 +82,9 @@ merge into main as a normal task. Mode-off and the replay tests stay exact on th
   (ps2-oracle, see above). Timing, frame flow, VU0 and
   rendering still need PCSX2 recordings.
 - `CAPTURE FAILED` from any PINE tool means the output file is incomplete: fix PCSX2, re-record.
+- Waiting: a `run_in_background` command re-invokes you when it exits, so end the turn or do other work. Don't
+  `sleep N; cat …output` (a hook blocks it) and don't poll its output file. If you really must wait on a condition,
+  use a bounded loop (`timeout 600 bash -c 'until …; do sleep 3; done'`) that also stops when the process exits.
 - Wrap-up is one call, no subagent: `tools/done.sh <ID> "<msg>"` (tests, tick, commit) or `… --blocked "<why>"`.
   In the main checkout (shared with other sessions) add `-- <paths you changed>`; it commits only those + plan/.
   A hook blocks `git add -A/./-u` and `git commit -a` there: stage and commit your own paths
