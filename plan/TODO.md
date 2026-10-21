@@ -8,6 +8,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 
 ### Next (user priorities, in order)
 
+- [ ] **B621** **Second camera in singles** (user 2026-10-21): the second (alternate) match camera in single-player: check it against the original (PCSX2 side by side, same moments) and fix what differs; it also doesn't play the post-point cut-away angles; it should, like the default camera. → `hst-sim/src/camera.rs` · `hst-sim/src/cutaway.rs` · `play.rs` (camera)
 - [ ] **B620** **Steam Deck 1280x800 layout** (user 2026-10-21): at the Steam Deck's 16:10 resolution text and menus draw wrong. Check menus, HUD and pop-ups with `--shot` at 1280x800 (and other 16:10 sizes), fix what's misplaced/clipped/stretched; layout stays uniform-scaled for any aspect. → `hst-base/src/widescreen.rs` · `play/main_menu.rs` · `play/word_label.rs`
 - [ ] **B619** **Emote sound cut at post-point** (user 2026-10-21): when a point ends and the post-point animations start while a player is emoting, stop that player's emote sound so it doesn't play over the reaction. → `play.rs` (react/next_point, emotes) · `hst-base/src/audio.rs`
 - [ ] **M145** **Installed mods filter** (user 2026-10-21): Mods → Installed gets a filter (by kind: characters / courts / umpires / texture packs, plus a name search) so a long installed list is quick to narrow; pad and touch, any aspect ratio. → `play/main_menu/mods_screen/grid.rs` · `play/main_menu/mods_screen/packs.rs`
