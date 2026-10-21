@@ -71,7 +71,7 @@ fn ball_off_a_player_s05() {
     ) else {
         return eprintln!("bodyhit_s05.bin or disc absent, skipped");
     };
-    let (world, materials) = (hst_sim::court::world(&mut iso, 10), hst_sim::court::materials(&exe::Game::new(&cnf, &bin).unwrap()));
+    let (world, materials) = (hst_sim::court::world(&mut iso, 10).unwrap(), hst_sim::court::materials(&exe::Game::new(&cnf, &bin).unwrap()));
     let frames: Vec<&[u8]> = data.as_chunks::<SAMPLE>().0.iter().map(|s| s.as_slice()).collect();
     // the hit: a player's hit tick (+0x3b60) turns from -1
     let hit = |s: &[u8]| (0..4).any(|p| i(s, 4 + 0x60 + 0x290 + p * 0x140 + 0x20) != -1);
@@ -101,7 +101,7 @@ fn struck_toss_c07() {
     ) else {
         return eprintln!("prox_c07_ball.bin or disc absent, skipped");
     };
-    let (world, materials) = (hst_sim::court::world(&mut iso, 7), hst_sim::court::materials(&exe::Game::new(&cnf, &bin).unwrap()));
+    let (world, materials) = (hst_sim::court::world(&mut iso, 7).unwrap(), hst_sim::court::materials(&exe::Game::new(&cnf, &bin).unwrap()));
     // header: creature count and addresses; a sample: vsync, globals, generator, gallery, judge, creatures, the
     // ball's and players' positions, type flags, scrub states, then the ball's object
     let n = i(&data, 0) as usize;

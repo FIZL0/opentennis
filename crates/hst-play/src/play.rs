@@ -101,6 +101,7 @@ mod replay_pace;
 mod weather;
 pub mod no_hud;
 mod phase_code;
+mod court_load;
 pub use hst_base::widescreen;
 
 /// The original's default exhibition: one set to 4 games, deuce on.
@@ -592,6 +593,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(change_ends::plugin);
     app.add_plugins(ball_shadow::plugin);
     app.add_plugins(net_hide::plugin);
+    app.add_plugins(court_load::plugin);
     app.add_plugins(own_camera::plugin);
     app.add_plugins(foot_fx::plugin);
     app.add_plugins(instant_replay::plugin);
@@ -1142,10 +1144,7 @@ fn disc(
         (game.line_margin(), hst_sim::shot::Margins { lines, angle }),
         game.scoreboard_timing(0, umpire_n),
         (
-            match crate::mods_court::OPEN.load(std::sync::atomic::Ordering::Relaxed) {
-                true => court::open(court::world(iso, n)),
-                false => court::world(iso, n),
-            },
+            court_load::world(iso, n, crate::mods_court::OPEN.load(std::sync::atomic::Ordering::Relaxed)),
             court::materials(&game),
         ),
         params,
