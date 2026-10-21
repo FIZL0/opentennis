@@ -77,3 +77,13 @@ vu0_boot_chain 1beb00
 # Contact dive slide (a0 player: matrix +0x3d40, dive arm +0x3060/+0x30a0; a1 ball, a2 direction, a3/t0 out):
 # hst_sim::swing::arm_slide
 dive_arm_slide 3509e0
+# Rally/smash aim pull inside the court (f12 launch blend, a0 table set, a1 out vec4 = delta to add, a2 class, a3 kind,
+# t0 character group = character + 3, t1 hit vec4, t2 aim vec4): hst_sim::shot::Margins::inside (P117)
+court_pull 37f740
+# Special shot effect check (a0 table set, a1 class, a2 kind, a3 group; t0/t1/t2 out bend, curve, turn; returns
+# bend or curve non-zero): shot::special + shot::effect's row (P117)
+special_effect_check 37e240
+# Timing error setup at the swing (a0 player, a1 contact record, its height at +4, a2 side bits) and its read at the
+# launch (a0 player; a1, a2, a3 out side, depth, blend): swing::timing_error / smash_scatter, timing_launch (P117)
+timing_error_setup 35b030
+timing_error_read 35b640
