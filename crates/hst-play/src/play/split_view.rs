@@ -198,7 +198,14 @@ fn place(w: &mut World, state: &mut Split, size: Vec2, aspect: f32) {
             SplitCam,
             Camera3d::default(),
             // the main camera clears the whole picture first (`hud_gamma` leaves a camera that clears nothing as it is)
-            Camera { order: 2, clear_color: ClearColorConfig::None, ..default() },
+            // B636: and it writes its half as drawn: Bevy blends a later camera's picture onto the target by its alpha,
+            // and the players' draws leave alpha under 1 (their texels' A), which showed what lay beneath through them
+            Camera {
+                order: 2,
+                clear_color: ClearColorConfig::None,
+                output_mode: bevy::camera::CameraOutputMode::Write { blend_state: Some(bevy::render::render_resource::BlendState::REPLACE), clear_color: ClearColorConfig::None },
+                ..default()
+            },
             bevy::core_pipeline::tonemapping::Tonemapping::None,
             Projection::Perspective(PerspectiveProjection { far: 20_000.0, ..default() }),
             Transform::default(),
