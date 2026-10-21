@@ -348,6 +348,9 @@ pub struct Root;
 /// The whole window's fade to black after Continue (a `Root` too, so the pause screen leaves it up with the HUD hidden).
 #[derive(Component)]
 struct Fade;
+/// B630: the fade to black covers the whole window, the safe area's strips and a fixed Aspect Ratio's bars too, over
+/// everything but the loading screen.
+const FADE_BLEED: hst_base::widescreen::Bleed = hst_base::widescreen::Bleed { order: (1 << 20) + 0x1000, on: true };
 const POOL: usize = 400;
 
 /// The "Game, Set, Match!" model.
@@ -483,7 +486,7 @@ fn setup(
     let bank = crate::audio::SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd");
     commands.insert_resource(Art(art, bank.map(std::sync::Arc::new)));
     commands
-        .spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::NONE), GlobalZIndex(12), Fade, Root));
+        .spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::NONE), GlobalZIndex(12), Fade, Root, FADE_BLEED));
     commands
         .spawn((super::widescreen::screen_43(), GlobalZIndex(11), Root))
         .with_children(|p| {

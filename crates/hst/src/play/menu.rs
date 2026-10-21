@@ -566,7 +566,7 @@ fn setup(mut commands: Commands, args: Res<Args>, mut images: ResMut<Assets<Imag
 /// P39: the menu's quads while it's open (`pool`), none in play: UI layout walks hidden nodes too.
 fn pool(mut commands: Commands, menu: Res<Menu>, root: Query<Entity, With<Root>>, slots: Query<Entity, With<Slot>>) {
     for r in &root {
-        crate::ui_pool::keep(&mut commands, r, menu.open, slots, POOL, |i| (Slot(i), crate::ui_pool::quad()));
+        crate::ui_pool::keep(&mut commands, r, menu.open, slots, POOL, |i| (Slot(i), crate::ui_pool::quad(), super::widescreen::Bleed::default()));
     }
 }
 
@@ -722,7 +722,7 @@ fn draw(
     panel_art: Option<Res<panel::Art>>,
     colours: Option<Res<Colours>>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility)>,
+    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility, &mut super::widescreen::Bleed)>,
     mut others: Query<(Entity, &mut Visibility), Hud>,
     mut hidden: Local<Vec<(Entity, Visibility)>>,
     cursor: Option<Res<super::main_menu::cursor::Cursor>>,
@@ -771,7 +771,7 @@ fn draw(
     };
     let share = super::widescreen::window_share(&window);
     let aspect = super::widescreen::window_aspect(&window);
-    for (Slot(i), mut img, mut node, mut vis) in &mut q {
+    for (Slot(i), mut img, mut node, mut vis, mut bleed) in &mut q {
         let Some(quad) = quads.get(*i) else {
             vis.set_if_neq(Visibility::Hidden);
             continue;
@@ -813,6 +813,9 @@ fn draw(
         let (top, height) = super::widescreen::vplace(y, h, aspect, anchor);
         crate::play::widescreen::put(&mut node, left, top, width, height);
         vis.set_if_neq(Visibility::Inherited);
+        // B630: the dimmer runs on over the whole window (the safe area's strips, a fixed Aspect Ratio's bars), the
+        // top bar out to its sides; over the key legend's strip, under the loading screen
+        bleed.set_if_neq(super::widescreen::Bleed { order: (1 << 20) + 1 + *i as i32, on: [DIM, BAR].contains(&quad.tex) });
     }
 }
 

@@ -5,6 +5,9 @@
 //! the menu: `mode.rs` `warm_up`) through the pipeline cache's `prewarm_render_pipeline` (third_party/bevy_render),
 //! which hands the game's own later request for an equal descriptor that pipeline's id, compiled or on its way.
 //! A record from another GPU or backend is dropped; one no match asked for in [`KEEP`] matches is left out on save.
+//! Each recorded shader carries a hash of its source and everything it imports (P136): a pipeline whose shader changed
+//! since (a new build that moved its bindings) is left out, never compiled against its stale layout, which fails
+//! validation and quits the app.
 //! `HST_PREWARM=0` turns it off (neither recorded nor warmed).
 
 use bevy::platform::time::Instant;
@@ -16,7 +19,7 @@ use bevy::render::render_resource::{
 use bevy::mesh::VertexBufferLayout;
 use bevy::render::renderer::RenderAdapterInfo;
 use bevy::render::{Render, RenderApp, RenderSystems as R};
-use bevy::shader::{Shader, ShaderDefVal};
+use bevy::shader::{Shader, ShaderDefVal, ShaderImport, Source};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -32,8 +35,13 @@ const KEEP: u32 = 8;
 /// The most pipelines the record holds (the newest kept).
 const MAX: usize = 1000;
 
-/// The record's format; another one is dropped.
-const VERSION: u32 = 1;
+/// The record's format; another one is dropped. A shader edit needs no bump: the source hashes catch it (P136).
+/// 3 = the shaders' source hashes.
+const VERSION: u32 = 3;
+
+/// How long the feed waits for a recorded pipeline's shader (one the asset server loads, or one it imports) to load
+/// before leaving the pipeline out.
+const WAIT_MAX: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The quiet after the last newly asked-for pipeline before the record is saved.
 const SAVE_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
@@ -72,8 +80,14 @@ pub struct Warmup {
     dirty: Option<Instant>,
     /// Recorded pipelines left out: a shader not loaded.
     skipped: usize,
+    /// Recorded pipelines left out: a shader changed since.
+    stale: usize,
+    /// Since when the feed has had only pipelines whose shaders are still loading.
+    waiting: Option<Instant>,
     /// Shader paths → this run's shaders (built when a path doesn't resolve).
     shaders: HashMap<String, AssetId<Shader>>,
+    /// This run's shaders' source hashes.
+    hashes: Hashes,
 }
 
 impl Warmup {
@@ -82,20 +96,38 @@ impl Warmup {
         self.todo.len()
     }
 
-    /// Queue the next `n` recorded pipelines to compile (all left: `usize::MAX`). One whose shader isn't loaded (yet)
-    /// is skipped; it compiles when the game asks for it.
+    /// Queue the next `n` recorded pipelines to compile (all left: `usize::MAX`). One whose shader isn't there, or
+    /// changed since it was recorded, is skipped; it compiles when the game asks for it. One whose shader is still
+    /// loading waits for a later call (at most [`WAIT_MAX`]).
     pub fn feed(&mut self, server: &AssetServer, shaders: &mut Assets<Shader>, n: usize) {
         let mut out = Vec::new();
+        let mut later = Vec::new();
         while out.len() < n
             && let Some(i) = self.todo.pop_front()
         {
-            match self.record.descriptor(&self.record.pipelines[i].0, server, shaders, &mut self.shaders) {
-                Some(d) => out.push(d),
-                None => self.skipped += 1,
+            match self.record.descriptor(&self.record.pipelines[i].0, server, shaders, &mut self.shaders, &mut self.hashes) {
+                Ok(d) => out.push(d),
+                Err(Miss::Loading) => later.push(i),
+                Err(Miss::Gone) => self.skipped += 1,
+                Err(Miss::Changed) => self.stale += 1,
             }
         }
+        if out.is_empty() && !later.is_empty() && self.todo.is_empty() {
+            if self.waiting.get_or_insert_with(Instant::now).elapsed() >= WAIT_MAX {
+                self.skipped += later.len();
+                later.clear();
+            }
+        } else {
+            self.waiting = None;
+        }
+        self.todo.extend(later);
         if self.todo.is_empty() && !out.is_empty() {
-            info!("pipelines: the record fed to the pipeline cache ({} skipped: a shader not loaded) at {:.2} s", self.skipped, crate::stall::since_start());
+            info!(
+                "pipelines: the record fed to the pipeline cache ({} skipped: a shader not loaded; {} changed since) at {:.2} s",
+                self.skipped,
+                self.stale,
+                crate::stall::since_start()
+            );
         }
         if !out.is_empty() {
             self.link.warm.lock().unwrap().extend(out);
@@ -127,8 +159,76 @@ struct Layout {
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 struct Stage {
     shader: u32,
+    /// The shader's [`Hashes::get`] when recorded.
+    hash: u64,
     defs: u32,
     entry: Option<String>,
+}
+
+/// Why a recorded pipeline can't be queued (yet).
+#[derive(Debug, PartialEq)]
+enum Miss {
+    /// A shader (or one it imports) is still loading.
+    Loading,
+    /// A shader isn't in this build, or the record is damaged.
+    Gone,
+    /// A shader's source changed since it was recorded: its bindings may not fit the recorded layout.
+    Changed,
+}
+
+/// Shaders' source hashes, each over its own source and those of everything it imports, all the way down: equal
+/// across runs and platforms (FNV-1a, not std's hasher) for the same sources. Kept per shader for the run.
+#[derive(Default)]
+struct Hashes(HashMap<AssetId<Shader>, u64>);
+
+impl Hashes {
+    /// `id`'s hash; `None` while it or one of its imports isn't loaded.
+    fn get(&mut self, shaders: &Assets<Shader>, id: AssetId<Shader>) -> Option<u64> {
+        if let Some(&h) = self.0.get(&id) {
+            return Some(h);
+        }
+        let root = shaders.get(id)?;
+        let by_import: HashMap<&ShaderImport, &Shader> = shaders.iter().map(|(_, s)| (&s.import_path, s)).collect();
+        let mut h = Fnv::default();
+        let mut seen = std::collections::HashSet::from([root.import_path.clone()]);
+        let mut stack = vec![root];
+        while let Some(s) = stack.pop() {
+            match &s.source {
+                Source::Wgsl(t) | Source::Wesl(t) => h.chunk(t.as_bytes()),
+                Source::Glsl(t, stage) => {
+                    h.chunk(t.as_bytes());
+                    h.chunk(format!("{stage:?}").as_bytes());
+                }
+                Source::SpirV(b) => h.chunk(b),
+            }
+            h.chunk(format!("{:?}", s.shader_defs).as_bytes());
+            let extra = s.additional_imports.iter().map(|i| ShaderImport::Custom(i.import.clone()));
+            for import in s.imports.iter().cloned().chain(extra) {
+                if seen.insert(import.clone()) {
+                    stack.push(by_import.get(&import)?);
+                }
+            }
+        }
+        self.0.insert(id, h.0);
+        Some(h.0)
+    }
+}
+
+/// 64-bit FNV-1a, each chunk length-prefixed.
+struct Fnv(u64);
+
+impl Default for Fnv {
+    fn default() -> Self {
+        Fnv(0xcbf2_9ce4_8422_2325)
+    }
+}
+
+impl Fnv {
+    fn chunk(&mut self, bytes: &[u8]) {
+        for &b in (bytes.len() as u64).to_le_bytes().iter().chain(bytes) {
+            self.0 = (self.0 ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
@@ -162,11 +262,12 @@ fn intern<T: PartialEq>(table: &mut Vec<T>, v: T) -> u32 {
 }
 
 impl Record {
-    /// `d` as a record entry; `None` when a shader has no path.
-    fn entry(&mut self, d: &RenderPipelineDescriptor, shaders: &Assets<Shader>) -> Option<Pipeline> {
+    /// `d` as a record entry; `None` when a shader has no path (or isn't all loaded).
+    fn entry(&mut self, d: &RenderPipelineDescriptor, shaders: &Assets<Shader>, hashes: &mut Hashes) -> Option<Pipeline> {
         let mut stage = |shader: &Handle<Shader>, defs: &[ShaderDefVal], entry: &Option<std::borrow::Cow<'static, str>>| {
             let path = shaders.get(shader.id()).map(|s| s.path.clone()).filter(|p| !p.is_empty())?;
-            Some(Stage { shader: intern(&mut self.shaders, path), defs: intern(&mut self.defs, defs.to_vec()), entry: entry.as_ref().map(|e| e.to_string()) })
+            let hash = hashes.get(shaders, shader.id())?;
+            Some(Stage { shader: intern(&mut self.shaders, path), hash, defs: intern(&mut self.defs, defs.to_vec()), entry: entry.as_ref().map(|e| e.to_string()) })
         };
         let vertex = stage(&d.vertex.shader, &d.vertex.shader_defs, &d.vertex.entry_point)?;
         let fragment = match &d.fragment {
@@ -187,48 +288,47 @@ impl Record {
         })
     }
 
-    /// Entry `p` as this run's descriptor; `None` when one of its shaders isn't loaded.
-    fn descriptor(&self, p: &Pipeline, server: &AssetServer, shaders: &mut Assets<Shader>, ids: &mut HashMap<String, AssetId<Shader>>) -> Option<RenderPipelineDescriptor> {
+    /// Entry `p` as this run's descriptor, if its shaders are all there and unchanged since it was recorded.
+    fn descriptor(
+        &self,
+        p: &Pipeline,
+        server: &AssetServer,
+        shaders: &mut Assets<Shader>,
+        ids: &mut HashMap<String, AssetId<Shader>>,
+        hashes: &mut Hashes,
+    ) -> Result<RenderPipelineDescriptor, Miss> {
         let mut handle = |s: &Stage| {
-            let path = self.shaders.get(s.shader as usize)?;
-            // an asset path (`embedded://…`) through the asset server, which hands the game's own load of it this
-            // handle's asset while the pre-warmed pipeline holds it (one only `Assets` holds, it would load anew)
-            if path.contains("://") {
-                return Some(server.get_handle(path.clone()).unwrap_or_else(|| server.load(path.clone())));
+            let handle = Self::shader(self.shaders.get(s.shader as usize).ok_or(Miss::Gone)?, server, shaders, ids)?;
+            match hashes.get(shaders, handle.id()) {
+                Some(h) if h == s.hash => Ok(handle),
+                Some(_) => Err(Miss::Changed),
+                None if server.load_state(handle.id()).is_failed() => Err(Miss::Gone),
+                None => Err(Miss::Loading),
             }
-            if !ids.contains_key(path) {
-                // by path, a path two shaders share left out
-                ids.clear();
-                let mut seen = std::collections::HashSet::new();
-                let mut shared = std::collections::HashSet::new();
-                for (id, s) in shaders.iter() {
-                    if !seen.insert(s.path.clone()) {
-                        shared.insert(s.path.clone());
-                    }
-                    ids.insert(s.path.clone(), id);
-                }
-                ids.retain(|p, _| !shared.contains(p));
-            }
-            shaders.get_strong_handle(*ids.get(path)?)
         };
         let vertex_shader = handle(&p.vertex)?;
         let fragment = match &p.fragment {
             Some((s, targets)) => Some(FragmentState {
                 shader: handle(s)?,
-                shader_defs: self.defs.get(s.defs as usize)?.clone(),
+                shader_defs: self.defs.get(s.defs as usize).ok_or(Miss::Gone)?.clone(),
                 entry_point: s.entry.clone().map(Into::into),
                 targets: targets.clone(),
             }),
             None => None,
         };
-        let layout = p.layout.iter().map(|&i| self.layouts.get(i as usize).map(|l| BindGroupLayoutDescriptor { label: l.label.clone().into(), entries: l.entries.clone() })).collect::<Option<_>>()?;
-        Some(RenderPipelineDescriptor {
+        let layout = p
+            .layout
+            .iter()
+            .map(|&i| self.layouts.get(i as usize).map(|l| BindGroupLayoutDescriptor { label: l.label.clone().into(), entries: l.entries.clone() }))
+            .collect::<Option<_>>()
+            .ok_or(Miss::Gone)?;
+        Ok(RenderPipelineDescriptor {
             label: p.label.clone().map(Into::into),
             layout,
             immediate_size: p.immediate,
             vertex: VertexState {
                 shader: vertex_shader,
-                shader_defs: self.defs.get(p.vertex.defs as usize)?.clone(),
+                shader_defs: self.defs.get(p.vertex.defs as usize).ok_or(Miss::Gone)?.clone(),
                 entry_point: p.vertex.entry.clone().map(Into::into),
                 buffers: p.buffers.iter().map(|b| VertexBufferLayout { array_stride: b.stride, step_mode: b.step, attributes: b.attributes.clone() }).collect(),
             },
@@ -238,6 +338,29 @@ impl Record {
             fragment,
             zero_initialize_workgroup_memory: p.zero_init,
         })
+    }
+
+    /// This run's shader at a recorded path.
+    fn shader(path: &str, server: &AssetServer, shaders: &mut Assets<Shader>, ids: &mut HashMap<String, AssetId<Shader>>) -> Result<Handle<Shader>, Miss> {
+        // an asset path (`embedded://…`) through the asset server, which hands the game's own load of it this
+        // handle's asset while the pre-warmed pipeline holds it (one only `Assets` holds, it would load anew)
+        if path.contains("://") {
+            return Ok(server.get_handle(path.to_string()).unwrap_or_else(|| server.load(path.to_string())));
+        }
+        if !ids.contains_key(path) {
+            // by path, a path two shaders share left out
+            ids.clear();
+            let mut seen = std::collections::HashSet::new();
+            let mut shared = std::collections::HashSet::new();
+            for (id, s) in shaders.iter() {
+                if !seen.insert(s.path.clone()) {
+                    shared.insert(s.path.clone());
+                }
+                ids.insert(s.path.clone(), id);
+            }
+            ids.retain(|p, _| !shared.contains(p));
+        }
+        ids.get(path).and_then(|&id| shaders.get_strong_handle(id)).ok_or(Miss::Gone)
     }
 
     /// The record to save: the entries a match asked for within [`KEEP`] matches (the newest [`MAX`]), tables rebuilt.
@@ -296,7 +419,7 @@ fn collect<Match: Resource>(mut w: ResMut<Warmup>, args: Option<Res<crate::Args>
         }
         let last = w.record.matches;
         for d in &asked {
-            let Some(p) = w.record.entry(d, &shaders) else { continue };
+            let Some(p) = w.record.entry(d, &shaders, &mut w.hashes) else { continue };
             match w.record.pipelines.iter_mut().find(|q| q.0 == p) {
                 Some(q) => q.1 = last,
                 None => w.record.pipelines.push((p, last)),
@@ -395,16 +518,47 @@ mod tests {
         let shader = shaders.add(Shader::from_wgsl("@vertex fn vertex() {}", "test/pipelines.wgsl"));
         let mut record = Record { version: VERSION, device: "test".into(), ..default() };
         let (old, new) = (desc(&shader, "old", 1), desc(&shader, "new", 2));
-        let p = record.entry(&old, &shaders).unwrap();
+        let mut hashes = Hashes::default();
+        let p = record.entry(&old, &shaders, &mut hashes).unwrap();
         record.pipelines.push((p, 0));
         record.matches = KEEP;
-        let p = record.entry(&new, &shaders).unwrap();
+        let p = record.entry(&new, &shaders, &mut hashes).unwrap();
         record.pipelines.push((p, KEEP));
         assert_eq!(record.defs.len(), 3);
         let saved: Record = serde_json::from_str(&serde_json::to_string(&record.pruned()).unwrap()).unwrap();
         assert_eq!(saved.pipelines.len(), 1, "the old one dropped");
         assert_eq!(saved.defs.len(), 2, "its LAYER=1 defs with it");
-        let back = saved.descriptor(&saved.pipelines[0].0, &server, &mut shaders, &mut HashMap::new()).unwrap();
+        let back = saved.descriptor(&saved.pipelines[0].0, &server, &mut shaders, &mut HashMap::new(), &mut Hashes::default()).unwrap();
         assert!(back == new, "the same descriptor back");
+    }
+
+    /// A recorded pipeline whose shader, or a module it imports, changed in a later build (its bindings may have moved
+    /// under the recorded layout) is left out instead of compiled; one whose shaders are as recorded comes back.
+    #[test]
+    fn a_pipeline_whose_shader_changed_is_left_out() {
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default())).init_asset::<Shader>();
+        let w = app.world_mut();
+        let server = w.resource::<AssetServer>().clone();
+        let build = |module: &str, main: &str| {
+            let mut shaders = Assets::<Shader>::default();
+            shaders.add(Shader::from_wgsl(format!("#define_import_path test::view\n{module}"), "test/view.wgsl"));
+            let main = shaders.add(Shader::from_wgsl(format!("#import test::view::a\n{main}"), "test/main.wgsl"));
+            (shaders, main)
+        };
+        let (shaders, main) = build("@group(0) @binding(0) var<uniform> a: f32;", "@vertex fn vertex() { let x = a; }");
+        let mut record = Record { version: VERSION, device: "test".into(), ..default() };
+        let p = record.entry(&desc(&main, "p", 1), &shaders, &mut Hashes::default()).unwrap();
+        record.pipelines.push((p, 0));
+        let record: Record = serde_json::from_str(&serde_json::to_string(&record).unwrap()).unwrap();
+        let fed = |(mut shaders, _): (Assets<Shader>, Handle<Shader>)| {
+            record.descriptor(&record.pipelines[0].0, &server, &mut shaders, &mut HashMap::new(), &mut Hashes::default()).map(|_| ())
+        };
+        assert_eq!(fed(build("@group(0) @binding(0) var<uniform> a: f32;", "@vertex fn vertex() { let x = a; }")), Ok(()), "the same build");
+        assert_eq!(fed(build("@group(0) @binding(0) var<uniform> a: f32;", "@vertex fn vertex() { let y = a; }")), Err(Miss::Changed), "the shader edited");
+        assert_eq!(fed(build("@group(0) @binding(1) var<uniform> a: f32;", "@vertex fn vertex() { let x = a; }")), Err(Miss::Changed), "an import edited");
+        let mut shaders = Assets::<Shader>::default();
+        shaders.add(Shader::from_wgsl("#import test::view::a\n@vertex fn vertex() { let x = a; }", "test/main.wgsl"));
+        assert_eq!(fed((shaders, Handle::default())), Err(Miss::Loading), "an import not loaded yet");
     }
 }

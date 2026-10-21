@@ -598,7 +598,9 @@ fn draw(
     // the first team's end is game −z when its `end` is +1, world +z; it is near when the camera is on that side
     let first_near = cam
         .single()
-        .map_or(true, |c| c.translation.z * g.players[0].end >= 0.0);
+        .map_or(true, |c| c.translation.z * g.players[0].end >= 0.0)
+        // B633: split, the near team plays on the top half: its panel goes up there
+        != super::split_view::on();
     let slot = |i: usize| pads.slot_of(i, n).unwrap_or(4);
     let view = View {
         players: n,

@@ -42,15 +42,12 @@ pub fn plugin(app: &mut App) {
 struct Targets {
     scene: Handle<Image>,
     hud: Handle<Image>,
-    /// The camera putting the composite on the window (`out`): only in the view (B117's fixed aspect ratios), black
-    /// around it.
-    out: Entity,
     /// The persistence's two images: frame parity `i` mixes the scene and `last[1 - i]` into `last[i]`.
     last: [Handle<Image>; 2],
     /// B608: the HUD's camera, drawing only in the safe part of its image (`widescreen::view`).
     ui: Entity,
     /// B623: the camera drawing the copies of `widescreen::Bleed` nodes on the whole HUD image, under the HUD's camera
-    /// (on only while the view is smaller than the picture), and the root they're on.
+    /// (on only while the view is smaller than the window), and the root they're on.
     bleed: Entity,
     bleed_root: Entity,
 }
@@ -61,6 +58,10 @@ pub struct Persist;
 
 /// The composite camera's layer, so no sprite or mesh of the game's ends up on it.
 const LAYER: usize = 31;
+
+/// B629: how bright the bars beside a fixed Aspect Ratio's picture glow with its edges, at the picture's edge (it fades
+/// out away from it). 0 (the original mode: a 4:3 TV's black bars) leaves them black.
+const GLOW: f32 = 0.45;
 
 fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     // P57: no pixels on the CPU side: with Bevy's zero fill each window-sized target was uploaded at the first frame
@@ -90,9 +91,12 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let bleed_root = commands.spawn((full, UiTargetCamera(bleed), Pickable::IGNORE)).id();
     // raw like the scene image, so the mix lands in it unencoded
     let last = [(); 2].map(|_| images.add(target(TextureFormat::Rgba8Unorm)));
-    let out = commands.spawn(out::camera()).id();
-    commands.insert_resource(out::Frame { scene: scene.clone(), hud: hud.clone(), last: last.clone(), mix: None });
-    commands.insert_resource(Targets { scene, hud, out, last, ui, bleed, bleed_root });
+    // the camera putting the composite on the window (B629: all of it, a fixed aspect ratio's bars included)
+    commands.spawn(out::camera());
+    // B629: the bars' glow, averaged from the picture (`out`), filtered up smoothly
+    let glow = images.add(Image { sampler: ImageSampler::linear(), ..Image { data: None, ..Image::new_target_texture(out::GLOW_SIZE, out::GLOW_SIZE, TextureFormat::Rgba8Unorm, None) } });
+    commands.insert_resource(out::Frame { scene: scene.clone(), hud: hud.clone(), last: last.clone(), mix: None, picture: (Vec4::new(0.0, 0.0, 1.0, 1.0), 0.0), glow });
+    commands.insert_resource(Targets { scene, hud, last, ui, bleed, bleed_root });
 }
 
 /// A 3D camera drawing into the scene image.
@@ -141,9 +145,10 @@ fn encode_pbr_output(mut events: MessageReader<AssetEvent<Shader>>, mut shaders:
 }
 
 /// B547: the most device pixels per CSS px (logical px) the images get: a phone's DPR 3 drew and held 2.25× the pixels
-/// of 2 for a picture that looks the same at its pixel density (the composite upscales). Desktop windows (DPR ≤ 2)
-/// never reach it.
-const MAX_DENSITY: f32 = 2.0;
+/// of 2 for a picture that looks the same at its pixel density (the composite upscales). Phones and the browser only:
+/// a desktop window always draws at its native pixels (a Steam Deck's X server can report a 2.25 scale factor, and
+/// the cap drew its menus' text at 1138×711 and upscaled it to the 1280×800 panel).
+const MAX_DENSITY: f32 = if cfg!(any(target_os = "ios", target_os = "android", target_arch = "wasm32")) { 2.0 } else { f32::INFINITY };
 
 /// Both images at the window's physical size and scale factor, as the window target was; the scene's times the
 /// render scale setting (the composite upscales it); neither past [`MAX_DENSITY`]. The persistence's images only
@@ -158,38 +163,41 @@ fn follow_window(
     mut images: ResMut<Assets<Image>>,
     mut targets: Query<&mut RenderTarget>,
     mut cams: Query<&mut Camera>,
+    mut frame: ResMut<out::Frame>,
     device: Option<Res<bevy::render::renderer::RenderDevice>>,
 ) {
     let Ok(w) = window.single() else { return };
-    // B117: the images are the picture's size, the composite drawn only there (B608: the safe area doesn't shrink it)
+    // B117: the scene image is the picture's size (B608: the safe area doesn't shrink it); B629: the composite covers
+    // the window, the scene in the picture's rect (`picture`), the bars beside it a glow of its edges
     let phys = Vec2::new(w.physical_width() as f32, w.physical_height() as f32);
     let v = crate::widescreen::scene_view(phys);
     let (pos, vs) = (v.min.round().as_uvec2(), v.size().round().as_uvec2().max(UVec2::ONE));
-    let viewport = (vs != w.physical_size()).then(|| bevy::camera::Viewport { physical_position: pos, physical_size: vs, ..default() });
-    let key = |v: &Option<bevy::camera::Viewport>| v.as_ref().map(|v| (v.physical_position, v.physical_size));
-    if let Ok(mut cam) = cams.get_mut(t.out)
-        && key(&cam.viewport) != key(&viewport)
-    {
-        cam.viewport = viewport;
+    let rect = (pos.as_vec2() / phys.max(Vec2::ONE)).extend(0.0).extend(0.0) + Vec4::new(0.0, 0.0, vs.x as f32 / phys.x.max(1.0), vs.y as f32 / phys.y.max(1.0));
+    let picture = (rect, if g.original { 0.0 } else { GLOW });
+    if frame.picture != picture {
+        frame.picture = picture;
     }
+    let key = |v: &Option<bevy::camera::Viewport>| v.as_ref().map(|v| (v.physical_position, v.physical_size));
     let (pw, ph) = (vs.x as f32, vs.y as f32);
+    let (ww, wh) = (phys.x.max(1.0), phys.y.max(1.0));
     let size = |x: f32, y: f32| Extent3d { width: (x.round() as u32).max(1), height: (y.round() as u32).max(1), depth_or_array_layers: 1 };
     let ((scene, ks), (hud, kh)) = if g.original {
         let k = 448.0 / ph.max(1.0);
-        ((size(480.0 * pw / ph.max(1.0), 448.0), k), (size(pw * k, 448.0), k))
+        ((size(480.0 * pw / ph.max(1.0), 448.0), k), (size(ww * k, wh * k), k))
     } else {
         let cap = densest(w.scale_factor());
         let side = device.map_or(8192, |d| d.limits().max_texture_dimension_2d) as f32;
         let k = scene_scale(g.scale, cap, pw.max(ph), side);
-        ((size((pw * k).floor(), (ph * k).floor()), k), (size((pw * cap).floor(), (ph * cap).floor()), cap))
+        ((size((pw * k).floor(), (ph * k).floor()), k), (size((ww * cap).floor(), (wh * cap).floor()), cap))
     };
-    // B608: the HUD's camera draws in the view's part of its image (the whole image is still cleared each frame)
+    // B608: the HUD's camera draws in the view's part of its image (the whole image is still cleared each frame);
+    // B629: the image covers the window
     let ui = crate::widescreen::view(phys);
-    let f = Vec2::new(hud.width as f32 / pw.max(1.0), hud.height as f32 / ph.max(1.0));
-    let (at, inside) = (((ui.min - v.min) * f).round().as_uvec2(), (ui.size() * f).round().as_uvec2().max(UVec2::ONE));
+    let f = Vec2::new(hud.width as f32 / ww, hud.height as f32 / wh);
+    let (at, inside) = ((ui.min * f).round().as_uvec2(), (ui.size() * f).round().as_uvec2().max(UVec2::ONE));
     let full = UVec2::new(hud.width, hud.height);
     let ui_viewport = (inside != full).then(|| bevy::camera::Viewport { physical_position: at, physical_size: inside.min(full - at.min(full)).max(UVec2::ONE), ..default() });
-    // B623: a view inside the picture: the bleed camera clears the image and draws past the view, the HUD's over it
+    // B623: a view inside the window: the bleed camera clears the image and draws past the view, the HUD's over it
     let bleeds = ui_viewport.is_some();
     if let Ok(mut cam) = cams.get_mut(t.bleed)
         && cam.is_active != bleeds
@@ -240,7 +248,7 @@ fn follow_window(
 struct BleedCopy;
 
 /// B623: keeps a copy of each `widescreen::Bleed` node on the whole picture while its edges reach past the view: same
-/// image, tint and corners, its rect carried out to the picture's edges (`widescreen::bleed_out`). The copies go when
+/// image, tint and corners, its rect carried out to the window's edges (`widescreen::bleed_out`). The copies go when
 /// their nodes do.
 fn bleed(
     mut commands: Commands,
@@ -252,9 +260,11 @@ fn bleed(
     mut of: Local<bevy::platform::collections::HashMap<Entity, Entity>>,
 ) {
     of.retain(|node, copy| {
-        let alive = nodes.contains(*node);
-        if !alive {
-            commands.entity(*copy).despawn();
+        // B630: a copy gone with its node's mode (the mode switch takes every entity it didn't start with, the copies
+        // too, while the loading screen's cover stays) is made again
+        let alive = nodes.contains(*node) && copies.contains(*copy);
+        if !alive && let Ok(mut e) = commands.get_entity(*copy) {
+            e.despawn();
         }
         alive
     });
@@ -265,8 +275,13 @@ fn bleed(
         let rect = (|| Some([pct(node.left)?, pct(node.top)?, pct(node.width)?, pct(node.height)?]))();
         let out = rect.filter(|_| on && b.on && vis.get()).map(|r| crate::widescreen::bleed_out(r, size)).filter(|&[l, t, w, h]| l < 0.0 || t < 0.0 || l + w > 100.0 || t + h > 100.0);
         let Some(&copy) = of.get(&e) else {
-            if out.is_some() {
-                let copy = commands.spawn((BleedCopy, ImageNode::default(), BackgroundColor::default(), Node::default(), Visibility::Hidden, ZIndex(b.order), Pickable::IGNORE, ChildOf(t.bleed_root))).id();
+            if let Some(r) = out {
+                // B630: drawn from its first frame (a loading screen's cover made again under a new mode)
+                let [left, top, width, height] = crate::widescreen::view_to_window(r, size).map(Val::Percent);
+                let n = Node { position_type: PositionType::Absolute, left, top, width, height, right: Val::Auto, bottom: Val::Auto, margin: UiRect::ZERO, ..node.clone() };
+                let img = img.cloned().unwrap_or_else(|| ImageNode { color: Color::NONE, ..default() });
+                let bg = BackgroundColor(bg.map_or(Color::NONE, |b| b.0));
+                let copy = commands.spawn((BleedCopy, img, bg, n, Visibility::Inherited, ZIndex(b.order), Pickable::IGNORE, ChildOf(t.bleed_root))).id();
                 of.insert(e, copy);
             }
             continue;
@@ -278,7 +293,7 @@ fn bleed(
             }
             continue;
         };
-        let [left, top, width, height] = crate::widescreen::view_to_scene(r, size).map(Val::Percent);
+        let [left, top, width, height] = crate::widescreen::view_to_window(r, size).map(Val::Percent);
         let want = Node { position_type: PositionType::Absolute, left, top, width, height, right: Val::Auto, bottom: Val::Auto, margin: UiRect::ZERO, ..node.clone() };
         if *n != want {
             *n = want;
@@ -389,8 +404,12 @@ mod tests {
 
     #[test]
     fn density_capped_at_two() {
-        // a DPR-3 phone: two thirds of its pixels; DPR 2 and below: all
-        assert_eq!(densest(3.0), 2.0 / 3.0);
+        // a DPR-3 phone: two thirds of its pixels; DPR 2 and below, and any desktop window: all
+        if MAX_DENSITY.is_finite() {
+            assert_eq!(densest(3.0), 2.0 / 3.0);
+        } else {
+            assert_eq!(densest(2.25), 1.0);
+        }
         assert_eq!((densest(2.0), densest(1.25), densest(1.0)), (1.0, 1.0, 1.0));
     }
 
@@ -400,6 +419,29 @@ mod tests {
         assert_eq!((scene_scale(67, 1.0, 1920.0, 8192.0), scene_scale(100, 2.0 / 3.0, 1920.0, 8192.0)), (0.67, 2.0 / 3.0));
         assert_eq!((scene_scale(150, 1.0, 1280.0, 8192.0), scene_scale(200, 2.0 / 3.0, 1280.0, 8192.0)), (1.5, 4.0 / 3.0));
         assert_eq!((scene_scale(200, 1.0, 5120.0, 8192.0), scene_scale(200, 1.0, 9000.0, 8192.0)), (1.6, 1.0));
+    }
+
+    #[test]
+    fn bleed_copy_made_again_after_a_mode_switch() {
+        let mut world = World::new();
+        world.spawn((Window { resolution: bevy::window::WindowResolution::new(1280, 720), ..default() }, PrimaryWindow));
+        let bleed_cam = world.spawn(Camera { is_active: true, ..default() }).id();
+        let bleed_root = world.spawn(Node::default()).id();
+        let [scene, hud] = [Handle::default(), Handle::default()];
+        world.insert_resource(Targets { scene, hud, last: [Handle::default(), Handle::default()], ui: bleed_cam, bleed: bleed_cam, bleed_root });
+        // a backdrop past the view's sides (the loading screen's court)
+        let node = Node { left: Val::Percent(-10.0), top: Val::Percent(0.0), width: Val::Percent(120.0), height: Val::Percent(100.0), ..default() };
+        world.spawn((node, crate::widescreen::Bleed { order: 7, on: true }, InheritedVisibility::VISIBLE));
+        let copies = |w: &mut World| w.query_filtered::<(&Visibility, &ZIndex), With<BleedCopy>>().iter(w).map(|(v, z)| (*v, z.0)).collect::<Vec<_>>();
+        let run = world.register_system(bleed);
+        world.run_system(run).unwrap();
+        // shown from its first frame
+        assert_eq!(copies(&mut world), [(Visibility::Inherited, 7)]);
+        // the mode switch takes the copy; the next frame has it back
+        let copy = world.query_filtered::<Entity, With<BleedCopy>>().single(&world).unwrap();
+        world.despawn(copy);
+        world.run_system(run).unwrap();
+        assert_eq!(copies(&mut world), [(Visibility::Inherited, 7)]);
     }
 
     #[test]

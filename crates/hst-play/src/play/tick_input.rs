@@ -99,13 +99,32 @@ pub(super) fn decode(p: Pad, last: Pad) -> SlotPad {
 
 /// The local devices' source: the latched presses go out once and are spent.
 /// ponytail: a second press of the same button within one tick of the first is lost (held bits on the wire)
-fn local(mut pads: ResMut<Pads>, mut tick: ResMut<TickPads>) {
-    let now = pads.slots.each_mut().map(|s| {
+fn local(mut pads: ResMut<Pads>, mut tick: ResMut<TickPads>, g: Option<Res<super::Game>>) {
+    let mut now = pads.slots.each_mut().map(|s| {
         let p = encode(s);
         (s.shot, s.serve, s.emote) = (None, false, None);
         p
     });
+    // B635: a split picture's far-team half looks from that team's end: its humans' sticks turn to match
+    if let Some(g) = g {
+        let n = g.players.len();
+        for i in (0..n).filter(|&i| super::split_view::turned(&g, i)) {
+            if let Some(s) = pads.slot_of(i, n) {
+                now[s] = turn(now[s]);
+            }
+        }
+    }
     tick.push(now);
+}
+
+/// The left stick and the d-pad pointed the other way round (the right stick's emote flick stays).
+fn turn(p: Pad) -> Pad {
+    // the game's axis scale reads bytes past the centre one lower (`pad::axis`), so 255 − b negates it exactly; the
+    // centre stays (it reads a hair right/down, +1, whose opposite would be a stick off centre)
+    let axis = |b: u8| if b == IDLE.lx { b } else { 255 - b };
+    let d = p.buttons & DPAD;
+    let swapped = (d << 2 | d >> 2) & DPAD;
+    Pad { buttons: p.buttons & !DPAD | swapped, lx: axis(p.lx), ly: axis(p.ly), ..p }
 }
 
 /// A local slot's pad for this tick, its latched presses spent (as `local`).
@@ -158,6 +177,33 @@ mod tests {
             }
         }
         assert_eq!(decode(IDLE, last).shot, None);
+    }
+
+    /// B635: a turned pad runs the other way (the original's run direction negated, d-pad and stick alike) and
+    /// keeps its buttons and emote; centred stays centred (its hair right/down kept).
+    #[test]
+    fn a_turned_pad_runs_the_other_way() {
+        use hst_sim::player::pad_dir;
+        assert_eq!(turn(IDLE), IDLE);
+        for buttons in [0x10, 0x20 | 0x10, 0x40 | 0x80, 0x80] {
+            let p = Pad { buttons: buttons | CROSS, ..IDLE };
+            let [x, z] = pad_dir(p.buttons, p.lx, p.ly, 3);
+            let t = turn(p);
+            assert_eq!(t.buttons & !DPAD, CROSS);
+            assert_eq!(pad_dir(t.buttons, t.lx, t.ly, 3), [-x, -z], "{buttons:#x}");
+        }
+        for lx in 0..=255u8 {
+            for ly in [0u8, 1, 0x50, 0x80, 0xc0, 0xff] {
+                let p = Pad { lx, ly, rx: 0, ry: 0x80, ..IDLE };
+                let t = turn(p);
+                assert_eq!((t.rx, t.ry), (0, 0x80));
+                let ([x, z], [tx, tz]) = (pad_dir(0, p.lx, p.ly, 3), pad_dir(0, t.lx, t.ly, 3));
+                // exact off centre; a centred axis keeps its hair (+1 of 127) the same way (0x7f, in the driver's
+                // deadzone, turns into the centre)
+                let hair = if [lx, ly].iter().any(|b| (0x7f..=0x80).contains(b)) { 0.02 } else { 0.0 };
+                assert!((tx + x).abs() <= hair && (tz + z).abs() <= hair, "{lx:#x},{ly:#x}: {x},{z} → {tx},{tz}");
+            }
+        }
     }
 }
 

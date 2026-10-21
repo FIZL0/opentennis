@@ -207,6 +207,11 @@ impl OwnCam {
         self.passive
     }
 
+    /// B633: the picture is this machine's (or the shared) plain match view: no alternate camera, glide or cut-away.
+    pub(super) fn plain_view(&self) -> bool {
+        self.alt.is_none() && (self.passive || self.plain && self.glide.is_none())
+    }
+
     /// Shows the view it has now, still between ticks (the match's end held, B600).
     pub(super) fn freeze(&mut self) {
         self.prev = self.cam.view;

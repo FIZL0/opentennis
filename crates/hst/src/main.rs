@@ -486,6 +486,8 @@ fn start(argv: Vec<String>) {
     app.add_plugins(device::plugin);
     // M91a1: the iPhone's on-screen pad, kept through mode switches
     app.add_plugins(play::touch_pad::plugin);
+    // B629: the loading screen's court picture over the whole window
+    app.add_plugins(loading::plugin);
     // M101: Android's controllers, which gilrs can't read
     #[cfg(target_os = "android")]
     app.add_plugins(android_pad::plugin);
@@ -1562,8 +1564,8 @@ fn log_assets(w: &World, mut next: Local<f32>) {
 
 /// `HST_KEYS="2:Enter 9:Escape 10:ArrowDown 11:Enter 15:shot=a.png"`: at each real-time second a key is pressed for one
 /// frame (Enter, Space, Escape, Arrow*, Digit1–4, KeyK, KeyO, KeyW/A/S/D, F10) or the window saved, for unattended runs across modes (`--shot` takes one and quits).
-/// `KEY*S` holds it S seconds (`5:KeyD*3` walks 1P right).
-fn scripted_keys(mut commands: Commands, time: Res<Time<Real>>, mut keys: ResMut<ButtonInput<KeyCode>>, mut done: Local<usize>, mut pressed_at: Local<f32>, mut hold: Local<f32>) {
+/// `KEY*S` holds it S seconds (`5:KeyD*3` walks 1P right). `size=W,H` resizes the window (logical px) mid-run.
+fn scripted_keys(mut commands: Commands, mut window: Query<&mut Window, With<bevy::window::PrimaryWindow>>, time: Res<Time<Real>>, mut keys: ResMut<ButtonInput<KeyCode>>, mut done: Local<usize>, mut pressed_at: Local<f32>, mut hold: Local<f32>) {
     let script = std::env::var("HST_KEYS").unwrap_or_default();
     let steps: Vec<_> = script.split_whitespace().filter_map(|s| s.split_once(':')).collect();
     for k in [KeyCode::Enter, KeyCode::Space, KeyCode::Escape, KeyCode::ArrowUp, KeyCode::ArrowDown, KeyCode::ArrowLeft, KeyCode::ArrowRight, KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4, KeyCode::KeyK, KeyCode::KeyO, KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD, KeyCode::Tab, KeyCode::KeyQ, KeyCode::KeyE, KeyCode::F10] {
@@ -1613,6 +1615,10 @@ fn scripted_keys(mut commands: Commands, time: Res<Time<Real>>, mut keys: ResMut
         _ => {
             if let Some(path) = what.strip_prefix("shot=") {
                 commands.spawn(Screenshot::primary_window()).observe(save_to_disk(std::path::PathBuf::from(path)));
+            } else if let Some((w, h)) = what.strip_prefix("size=").and_then(|s| s.split_once(','))
+                && let (Ok(w), Ok(h), Ok(mut win)) = (w.parse::<f32>(), h.parse::<f32>(), window.single_mut())
+            {
+                win.resolution.set(w, h);
             }
             return;
         }

@@ -1,4 +1,6 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Phones held upright (and other tall windows): during play the picture now splits in two, your end on top and the other team on the bottom, each half close behind its own players so they are big instead of a far-off whole court; between points, in close-ups and replays it goes back to one picture.
+- Phones held upright and other tall windows, two players against each other on one device: the player on the bottom half now steers by what they see in their half, instead of running the wrong way.
 - The camera button now only switches cameras during play, not between points, in cut-aways, at the change of ends or in replays.
 - The Stretch aspect ratio is back in Settings → Display, on every platform: the picture, menus and score use the whole screen, notch and margins included.
 - A player's emote voice now stops when the point ends and the players start reacting, instead of talking over the reaction.
@@ -17,3 +19,9 @@
 - Turning on VSync no longer freezes the game for a while on Linux.
 - Settings pages that don't fit the window now scroll, with a scroll bar, like the Controls table.
 - Settings → Controls: Pause can now be rebound, and the emotes are named by what they play (Game Won, Game Lost, Point Won, Point Lost).
+- With a fixed aspect ratio (4:3, 16:9…), the menu backgrounds, title and loading screens now fill the whole window instead of leaving black bars, and the bars beside a match glow softly with the court's colours (plain black in the original look); the score and menus stay inside the picture.
+- The first launch after an update no longer risks closing straight away while it gets match graphics ready ahead of time.
+- Phone apps: held upright, the touch stick, buttons and Select/Start are now full thumb size and sit together at the bottom of the screen.
+- Main menu in a tall or 4:3 window: the Settings preview's page buttons and the empty Mods preview's words now fit inside their picture instead of running over the title and description.
+- With a fixed aspect ratio or on a phone, the loading screen's court picture now stays edge to edge for the whole load, and the pause menu's dimming and the fade after a match cover the whole screen, bars and notch areas included.
+- On high-DPI screens such as the Steam Deck, menu and HUD text now draws at the screen's full resolution instead of slightly soft.

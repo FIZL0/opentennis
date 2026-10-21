@@ -98,21 +98,55 @@ fn view_in(size: Vec2, aspect: u8, [l, t, r, b]: [f32; 4]) -> Rect {
     if v.width() > 0.0 && v.height() > 0.0 { v } else { scene }
 }
 
-/// B623: a UI node that runs on past the safe area to the picture's edges (a menu's wall, a bar, a backdrop), under the
-/// notch, the Dynamic Island or the home indicator, where the HUD's camera doesn't draw. Its node is in percent of the
-/// view (a root of the HUD's camera, or the child of a full-view one); `hud_gamma` draws a copy of it on the whole
-/// picture, under all of the UI, the copies stacked by `order`. While `on`, each of its edges on the view's edge is
-/// carried out to the picture's (`bleed_out`); a node already reaching past the view (the menus' own) is copied as is.
-#[derive(Component, Clone, Copy, Debug, Default)]
+/// B623: a UI node that runs on past the safe area to the window's edges (a menu's wall, a bar, a backdrop), under the
+/// notch, the Dynamic Island or the home indicator, where the HUD's camera doesn't draw; B629: and into the bars beside
+/// a fixed Aspect Ratio's picture. Its node is in percent of the view (a root of the HUD's camera, or the child of a
+/// full-view one); `hud_gamma` draws a copy of it on the whole window, under all of the UI, the copies stacked by
+/// `order`. While `on`, each of its edges on the view's edge is carried out to the window's (`bleed_out`); a node
+/// already reaching past the view (the menus' own) is copied as is.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
 pub struct Bleed {
     pub order: i32,
     pub on: bool,
 }
 
 /// B623: the rect `[left, top, width, height]` (percent of a `size` window's view) with each edge on the view's edge
-/// moved out to the picture's (`scene_view`); as it is where they're the same.
+/// moved out to the window's (B629: not just the picture's, so a fixed Aspect Ratio's bars get the walls too); as it
+/// is where they're the same.
 pub fn bleed_out(rect: [f32; 4], size: Vec2) -> [f32; 4] {
-    bleed_in(rect, view(size), scene_view(size))
+    let (v, p) = (view(size), scene_view(size));
+    bleed_bars(bleed_in(rect, v, p), v, p, Rect::from_corners(Vec2::ZERO, size))
+}
+
+/// B629: past the picture `p` (a fixed Aspect Ratio's bars around it in the window `s`) only what spans it runs on, and
+/// only along the way it spans it: the wall into every bar, a title bar or the key legend's strip out to the sides but
+/// not up or down into a letterbox's bars (a thick block there), a side card nowhere. Percent of the view `v`.
+fn bleed_bars([mut left, mut top, mut width, mut height]: [f32; 4], v: Rect, p: Rect, s: Rect) -> [f32; 4] {
+    const ON: f32 = 0.5;
+    let (vw, vh) = (v.width().max(1e-3), v.height().max(1e-3));
+    let x = |a: f32| (a - v.min.x) / vw * 100.0;
+    let y = |a: f32| (a - v.min.y) / vh * 100.0;
+    if left <= x(p.min.x) + ON && left + width >= x(p.max.x) - ON {
+        (left, width) = (left.min(x(s.min.x)), (left + width).max(x(s.max.x)) - left.min(x(s.min.x)));
+    }
+    if top <= y(p.min.y) + ON && top + height >= y(p.max.y) - ON {
+        (top, height) = (top.min(y(s.min.y)), (top + height).max(y(s.max.y)) - top.min(y(s.min.y)));
+    }
+    [left, top, width, height]
+}
+
+/// B629: the rect `[left, top, width, height]` (percent of a `size` window's view) of a picture of `aspect` covering
+/// the whole window, centred: as wide as the window and cropped top and bottom, or as tall and cropped at the sides.
+/// For a backdrop (`Bleed`) that runs on into the bars and the safe area's strips without changing shape.
+pub fn cover_window(aspect: f32, size: Vec2) -> [f32; 4] {
+    cover_in(aspect, size, view(size))
+}
+
+fn cover_in(aspect: f32, size: Vec2, v: Rect) -> [f32; 4] {
+    let w = Vec2::new(size.x.max(size.y * aspect), size.y.max(size.x / aspect.max(1e-3)));
+    let (vw, vh) = (v.width().max(1e-3), v.height().max(1e-3));
+    let at = (size - w) / 2.0 - v.min;
+    [at.x / vw * 100.0, at.y / vh * 100.0, w.x / vw * 100.0, w.y / vh * 100.0]
 }
 
 fn bleed_in([mut left, mut top, mut width, mut height]: [f32; 4], v: Rect, s: Rect) -> [f32; 4] {
@@ -120,26 +154,29 @@ fn bleed_in([mut left, mut top, mut width, mut height]: [f32; 4], v: Rect, s: Re
     const ON: f32 = 0.5;
     let (vw, vh) = (v.width().max(1e-3), v.height().max(1e-3));
     let [l, t, r, b] = [(v.min.x - s.min.x) / vw, (v.min.y - s.min.y) / vh, (s.max.x - v.max.x) / vw, (s.max.y - v.max.y) / vh].map(|e| e.max(0.0) * 100.0);
+    // B629: an edge already past the view's stays where it is if it's further out
     if left + width >= 100.0 - ON {
-        width = 100.0 + r - left;
+        width = (left + width).max(100.0 + r) - left;
     }
     if left <= ON {
-        width += left + l;
-        left = -l;
+        let to = left.min(-l);
+        width += left - to;
+        left = to;
     }
     if top + height >= 100.0 - ON {
-        height = 100.0 + b - top;
+        height = (top + height).max(100.0 + b) - top;
     }
     if top <= ON {
-        height += top + t;
-        top = -t;
+        let to = top.min(-t);
+        height += top - to;
+        top = to;
     }
     [left, top, width, height]
 }
 
-/// B623: a rect in percent of a `size` window's view → in percent of its picture (`scene_view`).
-pub fn view_to_scene([left, top, width, height]: [f32; 4], size: Vec2) -> [f32; 4] {
-    let (v, s) = (view(size), scene_view(size));
+/// B623: a rect in percent of a `size` window's view → in percent of the window (B629: the HUD's image covers it all).
+pub fn view_to_window([left, top, width, height]: [f32; 4], size: Vec2) -> [f32; 4] {
+    let (v, s) = (view(size), Rect::from_corners(Vec2::ZERO, size));
     let (sw, sh) = (s.width().max(1e-3), s.height().max(1e-3));
     let (x, y) = (v.min.x - s.min.x, v.min.y - s.min.y);
     [(x + left / 100.0 * v.width()) / sw * 100.0, (y + top / 100.0 * v.height()) / sh * 100.0, width / 100.0 * v.width() / sw * 100.0, height / 100.0 * v.height() / sh * 100.0]
@@ -230,6 +267,11 @@ pub fn view_size(w: &Window) -> Vec2 {
 pub fn aspect(w: &Window) -> f32 {
     let v = view_size(w);
     v.x / v.y.max(1.0)
+}
+
+/// B629: the whole window's width over height (what a `Bleed` backdrop covers).
+pub fn bleed_aspect(w: &Window) -> f32 {
+    w.width() / w.height().max(1.0)
 }
 
 /// The 3D picture's width over height (B608: its own rect's, wider than the HUD's view by the safe area).
@@ -549,4 +591,39 @@ fn walls_bleed_to_the_picture() {
     assert!(close(px(bleed_in([0.0, 20.0, 30.0, 10.0], v, s)), [0.0, 74.4, 279.2, 37.2]));
     // no safe area: nothing moves
     assert_eq!(bleed_in([0.0, 0.0, 100.0, 100.0], s, s), [0.0, 0.0, 100.0, 100.0]);
+    // B629: a backdrop already reaching past the view keeps its rect
+    assert_eq!(bleed_in([-20.0, -10.0, 140.0, 120.0], v, s), [-20.0, -10.0, 140.0, 120.0]);
+}
+
+#[test]
+fn walls_bleed_into_fixed_ratio_bars() {
+    // B629: a 4:3 Aspect Ratio on a 1280×720 window: the view (and the picture) 160..1120, bars either side
+    let (v, s) = (Rect::new(160.0, 0.0, 1120.0, 720.0), Rect::new(0.0, 0.0, 1280.0, 720.0));
+    // a rect in percent of the view `v` → in px
+    let px = |v: Rect, [l, t, w, h]: [f32; 4]| [v.min.x + l / 100.0 * v.width(), v.min.y + t / 100.0 * v.height(), w / 100.0 * v.width(), h / 100.0 * v.height()];
+    let close = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-2);
+    let out = |r| bleed_bars(bleed_in(r, v, v), v, v, s);
+    // the wall into both bars; a bar across the bottom out to the sides; a side card stays
+    assert!(close(px(v, out([0.0, 0.0, 99.9, 100.0])), [0.0, 0.0, 1280.0, 720.0]));
+    assert!(close(px(v, out([0.0, 90.0, 100.0, 10.0])), [0.0, 648.0, 1280.0, 72.0]));
+    assert_eq!(out([0.0, 20.0, 30.0, 10.0]), [0.0, 20.0, 30.0, 10.0]);
+    // 16:9 on a 4:3 window (letterboxed, 1024×768 → view 0..1024 × 96..672): the wall into the bars above and below,
+    // a title bar on the top edge only out to the sides (it does already), not up
+    let (v, s) = (Rect::new(0.0, 96.0, 1024.0, 672.0), Rect::new(0.0, 0.0, 1024.0, 768.0));
+    let out = |r| bleed_bars(bleed_in(r, v, v), v, v, s);
+    assert!(close(px(v, out([0.0, 0.0, 100.0, 100.0])), [0.0, 0.0, 1024.0, 768.0]));
+    assert!(close(px(v, out([0.0, 0.0, 100.0, 10.0])), [0.0, 96.0, 1024.0, 57.6]));
+    // a safe area inside the picture as well (a phone at a fixed ratio): the bar still goes under the notch first
+    let p = Rect::new(0.0, 96.0, 1024.0, 672.0);
+    let v = Rect::new(40.0, 96.0, 984.0, 672.0);
+    assert!(close(px(v, bleed_bars(bleed_in([0.0, 0.0, 100.0, 10.0], v, p), v, p, s)), [0.0, 96.0, 1024.0, 57.6]));
+    // a 4:3 backdrop covering the 1280×720 window: as wide as it, cropped top and bottom, centred
+    let v = Rect::new(160.0, 0.0, 1120.0, 720.0);
+    assert!(close(px(v, cover_in(4.0 / 3.0, Vec2::new(1280.0, 720.0), v)), [0.0, -120.0, 1280.0, 960.0]));
+    // a 21:9 window's view pillarboxed at 16:9: as wide as the window, cropped above and below
+    let v = Rect::new(200.0, 0.0, 1480.0, 720.0);
+    assert!(close(px(v, cover_in(16.0 / 9.0, Vec2::new(1680.0, 720.0), v)), [0.0, -112.5, 1680.0, 945.0]));
+    // a portrait window: as tall, cropped at the sides
+    let v = Rect::new(0.0, 0.0, 400.0, 1000.0);
+    assert!(close(px(v, cover_in(4.0 / 3.0, v.size(), v)), [-466.67, 0.0, 1333.33, 1000.0]));
 }
