@@ -10,9 +10,9 @@ use std::collections::HashMap;
 use tiny_skia::{Color as SkColor, LineJoin, Paint, Pixmap, Stroke, Transform};
 
 /// Room round each letter's line box (units): its outline and the odd accent above a capital.
-pub const PAD: f32 = 5.0;
-/// The outline's width (units): 1.5 px at a 16-px line, thicker on a title, thinner on small print.
-const RING: f32 = 3.0;
+pub const PAD: f32 = 8.0;
+/// The outline's width (units): 2 px at a 16-px line, 4 on a 32-px title, thick as the original's.
+const RING: f32 = 4.0;
 /// The outline's colour (the menus' near-black).
 const INK: u8 = 40;
 const BASELINE: f32 = 28.0;
@@ -81,7 +81,8 @@ fn sheet() -> Image {
     white.set_color(SkColor::WHITE);
     let mut ink = Paint::default();
     ink.set_color_rgba8(INK, INK, INK, 255);
-    let ring = Stroke { width: 2.0 * RING * k, line_join: LineJoin::Round, ..default() };
+    // the stroke is in the path's font units (the transform scales it with the letter)
+    let ring = Stroke { width: 2.0 * RING * k / s, line_join: LineJoin::Round, ..default() };
     for (&ch, &(x, y, _)) in &g.map {
         let Some(path) = text_path(&font, &ch.to_string()) else { continue };
         for (top, outline) in [(y, false), (y + half, true)] {

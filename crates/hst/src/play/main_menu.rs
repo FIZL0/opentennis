@@ -2957,7 +2957,10 @@ impl Draw<'_> {
         let start = self.out.len();
         f(self);
         let down = super::glyph_sheet::glyphs().outlined;
+        // the plain letters again over all the rings, so no letter's ring covers its neighbour
+        let fill: Vec<Quad> = self.out[start..].iter().filter(|q| q.tex == Tex::Font).copied().collect();
         self.out[start..].iter_mut().filter(|q| q.tex == Tex::Font).for_each(|q| q.src[1] += down);
+        self.out.extend(fill);
     }
 
     /// A column of rows `pitch` px apart, the chosen one bright with the hand beside it, the rows `locked` says greyed out (B243): a faint dark pill and dim words, never the chosen
