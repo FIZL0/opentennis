@@ -423,6 +423,45 @@ def drive():
     elif idle > (25 if serving else 60):
         idle = 0
         send(f"press {BTN} 60")
+# HST_STRIKE=<types> (P129): a court figure that the ball can strike (court 10's 43, as `record_npc.py`'s HST_POKE;
+# found by vtable 0x1d2180 and type +0x50 in the state's RAM) is moved onto the ball once a point (paused, at the
+# ball +0xe0 plus half its last move +0x140), so the ball strikes it and the AIs hear 0x14. The shot count it waits
+# for and how far the ball is past the net toward its side (m, signed by its z speed) cycle point by point, so the
+# AIs hear it receiving, rallying and swinging; the figure goes home at the next point's reset
+STRIKE = [int(t) for t in os.environ.get("HST_STRIKE", "").split(",") if t]
+if STRIKE:
+    import zipfile
+    from pine import state_file
+    ram = zipfile.ZipFile(state_file(slot)).read("eeMemory.bin")
+    figures = [a for a in range(0x100000, len(ram) - 0x60, 4)
+               if struct.unpack_from("<I", ram, a)[0] == 0x1d2180 and ram[a + 0x50] in STRIKE]
+    assert figures, f"no figure of types {STRIKE} in slot {slot}"
+    print("figures", [hex(a) for a in figures], flush=True)
+    PLANS = [(1, -2.0), (2, 3.0), (3, 8.5), (2, -4.0), (1, 6.0), (4, 9.5), (3, 1.0), (2, 10.5)]
+    strikes, struck_at = 0, None
+def strike():
+    global strikes, struck_at
+    shots, score = p.read32(0x423060), (p.read32(0x423064), p.read32(0x423068))
+    if shots == 0 or struck_at is not None and (shots < struck_at[0] or score != struck_at[1]):
+        struck_at = None
+    if shots == 0:
+        return
+    if struck_at is not None:
+        return
+    want_shots, past = PLANS[strikes % len(PLANS)]
+    b = p.read32(gm0 + 0x88)
+    z, vz = f32(p.read32(b + 0xe8)), f32(p.read32(b + 0x148))
+    if shots != want_shots or vz == 0 or z * (1 if vz > 0 else -1) < past:
+        return
+    p.pause()
+    pos = [f32(p.read32(b + 0xe0 + 4 * c)) for c in range(3)]
+    move = [f32(p.read32(b + 0x140 + 4 * c)) for c in range(3)]
+    fig = figures[strikes % len(figures)]
+    for c in range(3):
+        p.write32(fig + 0x1e0 + 4 * c, u32(pos[c] + 0.5 * move[c]))
+    p.resume()
+    print("strike", strikes, "shots", shots, "z", round(pos[2], 2), "figure", hex(fig), "vsync", p.read32(VSYNC), flush=True)
+    strikes, struck_at = strikes + 1, (shots, score)
 # HST_PROBE=1 (P11k8): 0x362090 called from the doubles NET routine (ra 0x3d0c9c) appends (vsync, a0, sp, 0, the
 # quad at a1 = the routine's uninitialised stand scratch) to PROBE..PROBE_END, kept in out + ".probe"
 PROBE, PROBE_END, PPTR = 0x1e0d000, 0x1e10000, DATA + 0x60
@@ -456,8 +495,9 @@ v0 = p.read32(VSYNC)
 chunks = []
 try:
     while p.read32(VSYNC) - v0 < want and p.read32(GM_PTR) == gm0:
-        time.sleep(0.03 if DRIVE else 0.1)
+        time.sleep(0.03 if DRIVE or STRIKE else 0.1)
         if DRIVE: drive()
+        if STRIKE: strike()
         if PATH_STOP: path_stop()
         if WINDOW: window()
         if RATE is not None: rate()
