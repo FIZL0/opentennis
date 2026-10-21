@@ -655,278 +655,8 @@ fn load(
             || only.as_deref().is_some_and(|o| !n.contains(o))
             || not.as_deref().is_some_and(|o| n.contains(o))
     };
-    let spawn = |commands: &mut Commands, parts: &[(Handle<Mesh>, Handle<gs::GsMaterial>)], t: Transform| {
-        let e = commands.spawn((t, Visibility::default())).id();
-        for (m, mat) in parts {
-            commands.entity(e).with_child((Mesh3d(m.clone()), MeshMaterial3d(mat.clone())));
-        }
-        commands.entity(root).add_child(e);
-        e
-    };
-    let add = |parts: Vec<(Mesh, Vec<gs::GsMaterial>)>, meshes: &mut Assets<Mesh>, materials: &mut Assets<gs::GsMaterial>| {
-        let mut out = Vec::new();
-        for (m, mats) in parts {
-            let m = meshes.add(m);
-            out.extend(mats.into_iter().map(|mat| (m.clone(), materials.add(mat))));
-        }
-        out
-    };
     if let Some(n) = args.stage {
-        let dir = format!("COURT/{n:02}");
-        let mut library = std::collections::HashMap::new();
-        let mut anims = std::collections::HashMap::new();
-        // the game's season is 1 in singles (hole archive SSN1/HOL01.XB, which differs by the net), 0 in doubles
-        let season = args.singles as usize;
-        let mut sky_colour = std::collections::HashMap::new();
-        let (mut hole_box, mut raw_models) = (std::collections::HashMap::new(), std::collections::HashMap::new());
-        let mut model_shapes = std::collections::HashMap::new();
-        let archives: Vec<_> = ["CMN.XB", "GRD01.XB", if args.singles { "SSN1/HOL01.XB" } else { "HOL01.XB" }]
-            .map(|name| iso.read(&format!("{dir}/{name}")).expect("court archive on disc"))
-            .into();
-        for data in &archives {
-            for_models(data, |n| n.contains("_sky"), |stem, model, mats| {
-                sky_colour.insert(stem, sky_top(&model, &mats));
-            });
-        }
-        // Z2: only the models the court below spawns are built (the archives hold every hole, season and sky variant)
-        let wanted = court_layout(&mut iso, n as usize).map(|(list, plants)| court_models(&list, &plants, season, args.singles, &sky_colour));
-        let keep = |n: &str| !skip(n) && wanted.as_ref().is_none_or(|w| w.contains(n.rsplit(['\\', '/']).next().unwrap_or(n).trim_end_matches(".mdl")));
-        for data in &archives {
-            let data = data.as_slice();
-            // the sun-shade map: the hole model's box frames it, the casters' triangles shade it
-            for_models(data, keep, |stem, model, mats| {
-                hole_box.insert(stem.clone(), shade::packet_box(&model));
-                model_shapes.insert(stem.clone(), hst_sim::shade::Shape::new(&model, &mats));
-                raw_models.insert(stem, (model, mats));
-            });
-            for (stem, parts, anim) in gs_models_anim(data, keep, &mut images) {
-                let tags: Vec<_> = parts.iter().flat_map(|(_, g, t)| std::iter::repeat_n(*t, g.len())).collect();
-                let parts = add(parts.into_iter().map(|(m, g, _)| (m, g)).collect(), &mut meshes, &mut gs_materials);
-                anims.insert(stem.clone(), (anim, tags));
-                library.insert(stem, parts);
-            }
-        }
-        // the season's fog on every court material (FGE batches use it)
-        let envir = iso.read(&format!("{dir}/CMN.XB")).ok().and_then(|d| {
-            let arc = Archive::parse(&d).ok()?;
-            arc.read(arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&format!("envir_c{n:02}.dat")))?).ok()
-        });
-        // the fogs, light, clear colour and ground shadow follow the weather (`weather::apply`)
-        let sun = shadow::Sun::read(&mut iso, n as usize);
-        let (cnf, bin) = (iso.read("SYSTEM.CNF").expect("SYSTEM.CNF"), iso.read("ZZBIN/GAME.BIN").expect("GAME.BIN"));
-        let exe = hst_data::exe::Game::new(&cnf, &bin).expect("supported disc");
-        let today = {
-            let o = exe.weather_odds(n);
-            let odds = hst_sim::weather::Odds { cloudy: o[0], cloudy_len: [o[1], o[2]], rain: o[3], rain_len: [o[4], o[5]], no_border: o[7] != 0, heavy: o[8] != 0 };
-            let ((directions, speed), (chance, kind)) = (exe.wind(n), exe.gusts(n));
-            let wind = hst_sim::weather::Wind { chance, kind, directions, speed };
-            // a match: `--games`, `--sets` (`play` keeps `Weather::game` on the games played)
-            let players = if !args.play { 1 } else if args.singles { 2 } else { 4 };
-            // the game seeds its MT19937 with a `rand()` output when it sets the match up; `HST_WEATHER_SEED` gives it
-            // directly (slot 5's was 0x28c7c4a1)
-            // the menus' `rand()` calls before the match are the confirmation screen's flame (`rng::MenuFlame`), drawing
-            // every frame it's up from P1's pick (`main_menu::flame`); a match started without the menus takes a
-            // clock-picked count of draws instead
-            // online, the host's seed (`handshake::MatchSeed`, or `hst net`'s room seed) is taken as is
-            let seed = seed.map(|s| s.0).unwrap_or_else(|| {
-                std::env::var("HST_WEATHER_SEED").ok().and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()).or_else(play::netplay::seed).map_or_else(
-                    || {
-                        play::main_menu::flame::rand().map_or_else(
-                            || hst_sim::rng::Seed::after(web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0, |d| d.subsec_micros() % 65536)),
-                            |mut rand| hst_sim::rng::Seed { shared: rand.next(), rand },
-                        )
-                    },
-                    hst_sim::rng::Seed::shared,
-                )
-            });
-            let r = seed.rand;
-            let mut mt = hst_sim::weather::Mt::new(seed.shared);
-            let schedule = hst_sim::weather::schedule(&odds, &wind, args.games, args.sets, players, || mt.next());
-            // the match goes on drawing from the same generators (with a given seed, `rand()` is taken as at boot)
-            let mut rngs = hst_sim::rng::Rngs::new(r, mt);
-            // the setup's own `rand()` calls: the lens flare, the sound manager, the clouds and the effects seed. The
-            // clouds are made only with in-season cloud models; at the setup in singles only
-            let fixed = std::env::var("HST_WEATHER").ok().and_then(|w| w.parse().ok());
-            let first = fixed.unwrap_or(schedule[0].weather);
-            let models = court_layout(&mut iso, n as usize).is_some_and(|(l, _)| l.iter().any(|e| e.dir == "cloud" && layout::in_season(&e.stem, season)));
-            let sky = Sky { weathers: schedule.map(|g| g.weather), fixed, made: first, count: cloud_count(&mut iso, n, envir.as_deref(), args.singles), rain: exe.rain_clouds().0, draws: None };
-            let (effects, draws) = rngs.setup_rand(if models && args.singles { sky.made_count(first) } else { 0 });
-            play::set_effects_seed(effects);
-            commands.insert_resource(play::MatchRng(rngs));
-            *SKY.lock().unwrap() = models.then_some(Sky { draws: Some((first, draws)), ..sky });
-            let w = weather::Weather { schedule, game: 0, fixed };
-            let today = w.today();
-            commands.insert_resource(w);
-            today
-        };
-        let mut look = weather::CourtLook {
-            envir: envir.clone().unwrap_or_default(),
-            sky: None,
-            looks: exe.weather_looks(),
-            players: exe.player_light(n),
-            bg: Default::default(),
-            skies: Default::default(),
-            holes: Default::default(),
-            decals: Default::default(),
-            acc: Vec::new(),
-            clo: Vec::new(),
-            last: None,
-            mix: None,
-        };
-        let (list, plants) = court_layout(&mut iso, n as usize).expect("court layout");
-        // the court load shifts the hole model's vertex colours in HSL by the court's and the hole's envir
-        let hole_envir = iso.read(&format!("{dir}/GRD01.XB")).ok().and_then(|d| {
-            let arc = Archive::parse(&d).ok()?;
-            arc.read(arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&format!("envir_c{n:02}_h01.dat")))?).ok()
-        });
-        let hole_hsl = envir.as_deref().zip(hole_envir.as_deref()).and_then(|(c, h)| gs::hole_hsl(c, h));
-        // the ground stands at the origin, sky/clo/acc/bg follow the camera (`backdrops`); props are placed from the
-        // plant records
-        // the entry list names every hole variant; this layout is hole 01
-        let this_hole = |e: &&layout::Entry| e.dir != "hole" || e.stem.contains("_h01");
-        // the hole's ground model is the one shadow receiver
-        // the game loads every in-season sky but draws only the first; its colour also clears the screen
-        let mut sky = None;
-        let (mut shade_frame, mut shade_casters) = (None, Vec::new());
-        for e in list.iter().filter(|e| matches!(e.dir.as_str(), "hole" | "bg")).filter(this_hole).filter(|e| layout::in_season(&e.stem, season)) {
-            if e.stem.contains("_sky") {
-                if sky.is_some() {
-                    continue;
-                }
-                sky = sky_colour.get(&e.stem).copied();
-            }
-            // the sun-shade map frames the hole model (court 7 has none)
-            if let Some(&(lo, hi)) = hole_box.get(&e.stem).filter(|_| e.dir == "hole" && n != 7) {
-                shade_frame = Some((hst_sim::shade::Frame::new(lo, hi, 1.0, [0.0; 3]), e.stem.clone()));
-            }
-            if let Some(parts) = library.get(&e.stem) {
-                if let Some(hsl) = hole_hsl.filter(|_| e.dir == "hole") {
-                    shift_colours(parts, &mut meshes, hsl);
-                }
-                let id = spawn(&mut commands, parts, Transform::default());
-                if let Some(i) = (e.dir == "bg").then(|| ["_sky", "_clo", "_acc", "_bg"].iter().position(|k| e.stem.contains(k))).flatten() {
-                    let (yaw, lift) = gs::backdrop(envir.as_deref().unwrap_or_default(), hole_envir.as_deref(), i);
-                    commands.entity(id).insert(Backdrop { yaw, lift });
-                    // B75: they stand at the eye (+ lift), so by mesh centre their blended draws could sort after the
-                    // effects and billboards, which write no Z, and cover them; the game draws them first, at the far
-                    // end of Z (GS dump, court 10). A constant keeps their order among themselves (by lift).
-                    for (_, m) in parts {
-                        if let Some(mut m) = gs_materials.get_mut(m) {
-                            m.order = BACKDROP;
-                        }
-                    }
-                }
-                let set = if e.dir == "hole" { &mut look.holes } else if e.stem.contains("_sky") { &mut look.skies } else { &mut look.bg };
-                set.extend(parts.iter().map(|(_, m)| m.id()));
-                if e.stem.contains("_acc") {
-                    look.acc.push(id);
-                } else if e.stem.contains("_clo") {
-                    look.clo.push(id);
-                }
-                // the hole model's own .UVA/.MTA play from the start (water, waterfalls)
-                if let Some((anim, tags)) = anims.remove(&e.stem).filter(|(a, _)| e.dir == "hole" && !a.is_empty()) {
-                    let parts = parts.iter().zip(tags).map(|((_, m), t)| (m.clone(), t)).collect();
-                    commands.spawn(court_anim::Playing { anim, parts });
-                }
-            }
-        }
-        look.sky = sky;
-        if let Some(sun) = sun {
-            commands.insert_resource(sun);
-        }
-        for p in &plants {
-            let Some(e) = layout::resolve(&list, p, season) else { continue };
-            if !matches!(e.dir.as_str(), "tree" | "prop" | "structure" | "billboard") {
-                continue; // creatures/gallery are animated NPCs, dmy are markers
-            }
-            let Some(parts) = library.get(&e.stem) else { continue };
-            let stem = &e.stem;
-            let s = if p.scale > 0.0 { p.scale } else { 1.0 };
-            // the world matrix the game draws it with: yaw, plus the code's tilt and extra turn (`world::place`)
-            let (m, post) = hst_sim::world::place(p.category, p.pos, p.yaw, p.code);
-            let t = if post {
-                Transform::from_translation(Vec3::from(p.pos)).with_rotation(Quat::from_rotation_y(p.yaw))
-            } else {
-                Transform::from_matrix(Mat4::from_cols_array_2d(&m))
-            }
-            .with_scale(Vec3::splat(s));
-            let shape = model_shapes.get(&e.stem).cloned().unwrap_or_default();
-            let near = matches!(e.dir.as_str(), "tree" | "prop");
-            let cast = p.code[3] != b'0' && (17..=19).contains(&p.category);
-            let e = spawn(&mut commands, parts, t);
-            // B185: the Grand Palais end houses: the match camera behind your baseline sits inside one
-            if stem.starts_with("w-house") {
-                let b = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::compute_aabb(meshes.get(m)?)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), a| (lo.min(a.min().into()), hi.max(a.max().into())));
-                commands.entity(e).insert(HideInside { lo: b.0, hi: b.1, at: t.compute_affine().inverse() });
-            }
-            // B303: trees and props that come right up in front of the lens are hidden (`net_hide::in_front`)
-            if near && !play::net_hide::picked(p.category, p.pos) {
-                let corners = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::compute_aabb(meshes.get(m)?)).flat_map(|a| (0..8).map(move |i| Vec3::from(a.center) + Vec3::from(a.half_extents) * Vec3::new([-1.0, 1.0][i & 1], [-1.0, 1.0][i >> 1 & 1], [-1.0, 1.0][i >> 2])));
-                let (lo, hi) = corners.map(|c| t.transform_point(c)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), c| (lo.min(c), hi.max(c)));
-                if lo.cmple(hi).all() {
-                    commands.entity(e).insert(play::net_hide::NearBox { lo, hi });
-                }
-            }
-            if play::net_hide::picked(p.category, p.pos) {
-                commands.entity(e).insert(play::net_hide::HideNearCamera);
-            } else if play::net_hide::tested(p.category, p.code) {
-                commands.entity(e).insert(play::net_hide::HideAroundEye { pos: p.pos, prop: None });
-            }
-            if cast {
-                commands.entity(e).insert(shadow::Caster);
-                // B351: one whose shadow can't reach the court drops it at Shadows Low
-                let (lo, hi) = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::compute_aabb(meshes.get(m)?)).flat_map(|a| (0..8).map(move |i| Vec3::from(a.center) + Vec3::from(a.half_extents) * Vec3::new([-1.0, 1.0][i & 1], [-1.0, 1.0][i >> 1 & 1], [-1.0, 1.0][i >> 2]))).map(|c| t.transform_point(c)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), c| (lo.min(c), hi.max(c)));
-                if !sun.as_ref().is_some_and(|sun| lo.cmple(hi).all() && shadow::reaches_court(lo, hi, sun.dir)) {
-                    commands.entity(e).insert(shadow::Minor);
-                }
-                if let Some(sun) = &sun {
-                    shade_casters.push(hst_sim::shade::Caster::new(&shape, p, &sun.axes));
-                }
-            }
-            // ponytail: the net's shadow is too thin for the sun's shadow map, so its triangles are flattened along
-            // the sun onto the ground (game y 0) and drawn black at the shadow's strength through the texture's
-            // alpha (`weather::apply`); not the game's shadow-texture pass (P17v7, dropped)
-            if let Some(sun) = sun.filter(|_| stem.starts_with("znet")) {
-                let mut done = std::collections::HashSet::new();
-                let decal: Vec<_> = parts.iter().filter(|(m, _)| done.insert(m.id())).filter_map(|(m, g)| {
-                    let mut mesh = meshes.get(m)?.clone();
-                    let Some(bevy::mesh::VertexAttributeValues::Float32x3(pos)) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) else { return None };
-                    for v in pos {
-                        let w = t.transform_point(Vec3::from(*v));
-                        *v = (w - sun.dir * (w.y / sun.dir.y) - Vec3::Y * 0.01).to_array();
-                    }
-                    let mut g = gs_materials.get(g)?.clone();
-                    g.key = gs::GsKey { modulate: true, test: gs::Test::Never, blend: Some(hst_data::mtl::Blend::Normal), fog: false, cull: false, ..g.key };
-                    (g.uniform.color, g.uniform.highlight, g.uniform.shadow) = (Vec4::ZERO, 0.0, 0.0);
-                    let g = gs_materials.add(g);
-                    look.decals.insert(g.id());
-                    Some((meshes.add(mesh), g))
-                }).collect();
-                spawn(&mut commands, &decal, Transform::default());
-            }
-        }
-        look.sky = sky;
-        if envir.is_some() {
-            commands.insert_resource(look);
-        }
-        if let (Some((frame, hole)), Some(_)) = (shade_frame, sun)
-            && let Some((model, mats)) = raw_models.get(&hole)
-        {
-            // B605: a court whose collision can't be read gets no shade map (the match says why, `court_load`)
-            match hst_sim::court::world(&mut iso, n) {
-                Ok(world) => commands.insert_resource(shade::build(frame, &shade_casters, model, mats, world)),
-                Err(e) => error!("court {n} shade map: {e}"),
-            }
-        }
-        // clouds: singles only (the game makes them in doubles too but neither moves nor draws them)
-        if args.singles {
-            let models: Vec<_> = list.iter().filter(|e| e.dir == "cloud" && layout::in_season(&e.stem, season)).filter_map(|e| library.get(&e.stem)).collect();
-            if !models.is_empty() {
-                let models = models.into_iter().cloned().collect();
-                // laid out from the setup's draws (`clouds`)
-                commands.insert_resource(Clouds { list: Vec::new(), degrees: today.degrees, speed: today.speed, ticks: 0.0, models, root, rain: exe.rain_clouds().1 });
-            }
-        }
+        load_court(&mut commands, &mut iso, &args, n, root, &skip, seed.map(|s| s.0), &mut images, &mut meshes, &mut gs_materials);
         // the background figures are `play::npcs`'s
         bounds = (Vec3::splat(-20.0), Vec3::splat(20.0));
     }
@@ -941,8 +671,8 @@ fn load(
                     }
                 }
             }
-            let parts = add(parts, &mut meshes, &mut gs_materials);
-            spawn(&mut commands, &parts, Transform::default());
+            let parts = add_parts(parts, &mut meshes, &mut gs_materials);
+            spawn_parts(&mut commands, root, &parts, Transform::default());
         }
     }
     if args.ball && !args.play {
@@ -976,6 +706,348 @@ fn load(
         // play mode: broadcast view from behind the near (your) baseline
         if args.play { Orbit { focus: Vec3::new(0.0, 0.0, 2.0), radius: 24.0, yaw: std::f32::consts::PI, pitch: -0.38 } } else { Orbit { focus, radius, yaw: std::env::var("HST_VIEW_YAW").ok().and_then(|y| y.parse().ok()).unwrap_or(0.6), pitch: -0.4 } },
     ));
+}
+
+/// The parts spawned under `root` as one entity at `t`.
+fn spawn_parts(commands: &mut Commands, root: Entity, parts: &[(Handle<Mesh>, Handle<gs::GsMaterial>)], t: Transform) -> Entity {
+    let e = commands.spawn((t, Visibility::default())).id();
+    for (m, mat) in parts {
+        commands.entity(e).with_child((Mesh3d(m.clone()), MeshMaterial3d(mat.clone())));
+    }
+    commands.entity(root).add_child(e);
+    e
+}
+
+/// Court `n` (`--stage`) under `root`: its models, weather and generators, plants, shade map and clouds.
+#[allow(clippy::too_many_arguments)]
+fn load_court(
+    commands: &mut Commands,
+    iso: &mut Iso,
+    args: &Args,
+    n: u32,
+    root: Entity,
+    skip: &impl Fn(&str) -> bool,
+    seed: Option<hst_sim::rng::Seed>,
+    images: &mut Assets<Image>,
+    meshes: &mut Assets<Mesh>,
+    gs_materials: &mut Assets<gs::GsMaterial>,
+) {
+    let dir = format!("COURT/{n:02}");
+    // the game's season is 1 in singles (hole archive SSN1/HOL01.XB, which differs by the net), 0 in doubles
+    let season = args.singles as usize;
+    let CourtLibrary { library, mut anims, sky_colour, hole_box, raw_models, model_shapes } =
+        court_library(iso, n, args.singles, skip, images, meshes, gs_materials);
+    // the season's fog on every court material (FGE batches use it)
+    let envir = iso.read(&format!("{dir}/CMN.XB")).ok().and_then(|d| {
+        let arc = Archive::parse(&d).ok()?;
+        arc.read(arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&format!("envir_c{n:02}.dat")))?).ok()
+    });
+    // the fogs, light, clear colour and ground shadow follow the weather (`weather::apply`)
+    let sun = shadow::Sun::read(iso, n as usize);
+    let (cnf, bin) = (iso.read("SYSTEM.CNF").expect("SYSTEM.CNF"), iso.read("ZZBIN/GAME.BIN").expect("GAME.BIN"));
+    let exe = hst_data::exe::Game::new(&cnf, &bin).expect("supported disc");
+    let today = match_weather(commands, iso, args, &exe, n, envir.as_deref(), seed);
+    let mut look = weather::CourtLook {
+        envir: envir.clone().unwrap_or_default(),
+        sky: None,
+        looks: exe.weather_looks(),
+        players: exe.player_light(n),
+        bg: Default::default(),
+        skies: Default::default(),
+        holes: Default::default(),
+        decals: Default::default(),
+        acc: Vec::new(),
+        clo: Vec::new(),
+        last: None,
+        mix: None,
+    };
+    let (list, plants) = court_layout(iso, n as usize).expect("court layout");
+    // the court load shifts the hole model's vertex colours in HSL by the court's and the hole's envir
+    let hole_envir = iso.read(&format!("{dir}/GRD01.XB")).ok().and_then(|d| {
+        let arc = Archive::parse(&d).ok()?;
+        arc.read(arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&format!("envir_c{n:02}_h01.dat")))?).ok()
+    });
+    let hole_hsl = envir.as_deref().zip(hole_envir.as_deref()).and_then(|(c, h)| gs::hole_hsl(c, h));
+    // the ground stands at the origin, sky/clo/acc/bg follow the camera (`backdrops`); props are placed from the
+    // plant records
+    // the entry list names every hole variant; this layout is hole 01
+    let this_hole = |e: &&layout::Entry| e.dir != "hole" || e.stem.contains("_h01");
+    // the hole's ground model is the one shadow receiver
+    // the game loads every in-season sky but draws only the first; its colour also clears the screen
+    let mut sky = None;
+    let (mut shade_frame, mut shade_casters) = (None, Vec::new());
+    for e in list.iter().filter(|e| matches!(e.dir.as_str(), "hole" | "bg")).filter(this_hole).filter(|e| layout::in_season(&e.stem, season)) {
+        if e.stem.contains("_sky") {
+            if sky.is_some() {
+                continue;
+            }
+            sky = sky_colour.get(&e.stem).copied();
+        }
+        // the sun-shade map frames the hole model (court 7 has none)
+        if let Some(&(lo, hi)) = hole_box.get(&e.stem).filter(|_| e.dir == "hole" && n != 7) {
+            shade_frame = Some((hst_sim::shade::Frame::new(lo, hi, 1.0, [0.0; 3]), e.stem.clone()));
+        }
+        if let Some(parts) = library.get(&e.stem) {
+            if let Some(hsl) = hole_hsl.filter(|_| e.dir == "hole") {
+                shift_colours(parts, meshes, hsl);
+            }
+            let id = spawn_parts(commands, root, parts, Transform::default());
+            if let Some(i) = (e.dir == "bg").then(|| ["_sky", "_clo", "_acc", "_bg"].iter().position(|k| e.stem.contains(k))).flatten() {
+                let (yaw, lift) = gs::backdrop(envir.as_deref().unwrap_or_default(), hole_envir.as_deref(), i);
+                commands.entity(id).insert(Backdrop { yaw, lift });
+                // B75: they stand at the eye (+ lift), so by mesh centre their blended draws could sort after the
+                // effects and billboards, which write no Z, and cover them; the game draws them first, at the far
+                // end of Z (GS dump, court 10). A constant keeps their order among themselves (by lift).
+                for (_, m) in parts {
+                    if let Some(mut m) = gs_materials.get_mut(m) {
+                        m.order = BACKDROP;
+                    }
+                }
+            }
+            let set = if e.dir == "hole" { &mut look.holes } else if e.stem.contains("_sky") { &mut look.skies } else { &mut look.bg };
+            set.extend(parts.iter().map(|(_, m)| m.id()));
+            if e.stem.contains("_acc") {
+                look.acc.push(id);
+            } else if e.stem.contains("_clo") {
+                look.clo.push(id);
+            }
+            // the hole model's own .UVA/.MTA play from the start (water, waterfalls)
+            if let Some((anim, tags)) = anims.remove(&e.stem).filter(|(a, _)| e.dir == "hole" && !a.is_empty()) {
+                let parts = parts.iter().zip(tags).map(|((_, m), t)| (m.clone(), t)).collect();
+                commands.spawn(court_anim::Playing { anim, parts });
+            }
+        }
+    }
+    look.sky = sky;
+    if let Some(sun) = sun {
+        commands.insert_resource(sun);
+    }
+    for p in &plants {
+        let Some(e) = layout::resolve(&list, p, season) else { continue };
+        if !matches!(e.dir.as_str(), "tree" | "prop" | "structure" | "billboard") {
+            continue; // creatures/gallery are animated NPCs, dmy are markers
+        }
+        let Some(parts) = library.get(&e.stem) else { continue };
+        let stem = &e.stem;
+        let s = if p.scale > 0.0 { p.scale } else { 1.0 };
+        // the world matrix the game draws it with: yaw, plus the code's tilt and extra turn (`world::place`)
+        let (m, post) = hst_sim::world::place(p.category, p.pos, p.yaw, p.code);
+        let t = if post {
+            Transform::from_translation(Vec3::from(p.pos)).with_rotation(Quat::from_rotation_y(p.yaw))
+        } else {
+            Transform::from_matrix(Mat4::from_cols_array_2d(&m))
+        }
+        .with_scale(Vec3::splat(s));
+        let shape = model_shapes.get(&e.stem).cloned().unwrap_or_default();
+        let near = matches!(e.dir.as_str(), "tree" | "prop");
+        let cast = p.code[3] != b'0' && (17..=19).contains(&p.category);
+        let e = spawn_parts(commands, root, parts, t);
+        // B185: the Grand Palais end houses: the match camera behind your baseline sits inside one
+        if stem.starts_with("w-house") {
+            let b = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::compute_aabb(meshes.get(m)?)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), a| (lo.min(a.min().into()), hi.max(a.max().into())));
+            commands.entity(e).insert(HideInside { lo: b.0, hi: b.1, at: t.compute_affine().inverse() });
+        }
+        // B303: trees and props that come right up in front of the lens are hidden (`net_hide::in_front`)
+        if near && !play::net_hide::picked(p.category, p.pos) {
+            let (lo, hi) = placed_box(parts, meshes, &t);
+            if lo.cmple(hi).all() {
+                commands.entity(e).insert(play::net_hide::NearBox { lo, hi });
+            }
+        }
+        if play::net_hide::picked(p.category, p.pos) {
+            commands.entity(e).insert(play::net_hide::HideNearCamera);
+        } else if play::net_hide::tested(p.category, p.code) {
+            commands.entity(e).insert(play::net_hide::HideAroundEye { pos: p.pos, prop: None });
+        }
+        if cast {
+            commands.entity(e).insert(shadow::Caster);
+            // B351: one whose shadow can't reach the court drops it at Shadows Low
+            let (lo, hi) = placed_box(parts, meshes, &t);
+            if !sun.as_ref().is_some_and(|sun| lo.cmple(hi).all() && shadow::reaches_court(lo, hi, sun.dir)) {
+                commands.entity(e).insert(shadow::Minor);
+            }
+            if let Some(sun) = &sun {
+                shade_casters.push(hst_sim::shade::Caster::new(&shape, p, &sun.axes));
+            }
+        }
+        // ponytail: the net's shadow is too thin for the sun's shadow map, so its triangles are flattened along
+        // the sun onto the ground (game y 0) and drawn black at the shadow's strength through the texture's
+        // alpha (`weather::apply`); not the game's shadow-texture pass (P17v7, dropped)
+        if let Some(sun) = sun.filter(|_| stem.starts_with("znet")) {
+            let decal = net_decal(parts, t, &sun, meshes, gs_materials, &mut look);
+            spawn_parts(commands, root, &decal, Transform::default());
+        }
+    }
+    look.sky = sky;
+    if envir.is_some() {
+        commands.insert_resource(look);
+    }
+    if let (Some((frame, hole)), Some(_)) = (shade_frame, sun)
+        && let Some((model, mats)) = raw_models.get(&hole)
+    {
+        // B605: a court whose collision can't be read gets no shade map (the match says why, `court_load`)
+        match hst_sim::court::world(iso, n) {
+            Ok(world) => commands.insert_resource(shade::build(frame, &shade_casters, model, mats, world)),
+            Err(e) => error!("court {n} shade map: {e}"),
+        }
+    }
+    // clouds: singles only (the game makes them in doubles too but neither moves nor draws them)
+    if args.singles {
+        let models: Vec<_> = list.iter().filter(|e| e.dir == "cloud" && layout::in_season(&e.stem, season)).filter_map(|e| library.get(&e.stem)).collect();
+        if !models.is_empty() {
+            let models = models.into_iter().cloned().collect();
+            // laid out from the setup's draws (`clouds`)
+            commands.insert_resource(Clouds { list: Vec::new(), degrees: today.degrees, speed: today.speed, ticks: 0.0, models, root, rain: exe.rain_clouds().1 });
+        }
+    }
+}
+
+/// `parts`' meshes and materials added, one handle pair per material.
+fn add_parts(parts: Vec<(Mesh, Vec<gs::GsMaterial>)>, meshes: &mut Assets<Mesh>, materials: &mut Assets<gs::GsMaterial>) -> Vec<(Handle<Mesh>, Handle<gs::GsMaterial>)> {
+    let mut out = Vec::new();
+    for (m, mats) in parts {
+        let m = meshes.add(m);
+        out.extend(mats.into_iter().map(|mat| (m.clone(), materials.add(mat))));
+    }
+    out
+}
+
+/// A court's models off its archives, built once: the drawn parts and their animations, and what the sky, the
+/// shade map and the shadows read off the raw models.
+struct CourtLibrary {
+    library: std::collections::HashMap<String, Vec<(Handle<Mesh>, Handle<gs::GsMaterial>)>>,
+    anims: std::collections::HashMap<String, (hst_sim::court_anim::CourtAnim, Vec<(usize, usize)>)>,
+    sky_colour: std::collections::HashMap<String, [f32; 3]>,
+    hole_box: std::collections::HashMap<String, ([f32; 3], [f32; 3])>,
+    raw_models: std::collections::HashMap<String, (mdl::Model, mtl::Mtl)>,
+    model_shapes: std::collections::HashMap<String, hst_sim::shade::Shape>,
+}
+
+/// Court `n`'s library: every model its layout spawns (`skip` aside), from its common, ground and hole archives.
+fn court_library(
+    iso: &mut Iso,
+    n: u32,
+    singles: bool,
+    skip: &impl Fn(&str) -> bool,
+    images: &mut Assets<Image>,
+    meshes: &mut Assets<Mesh>,
+    gs_materials: &mut Assets<gs::GsMaterial>,
+) -> CourtLibrary {
+    let dir = format!("COURT/{n:02}");
+    let season = singles as usize;
+    let mut library = std::collections::HashMap::new();
+    let mut anims = std::collections::HashMap::new();
+    let mut sky_colour = std::collections::HashMap::new();
+    let (mut hole_box, mut raw_models) = (std::collections::HashMap::new(), std::collections::HashMap::new());
+    let mut model_shapes = std::collections::HashMap::new();
+    let archives: Vec<_> = ["CMN.XB", "GRD01.XB", if singles { "SSN1/HOL01.XB" } else { "HOL01.XB" }]
+        .map(|name| iso.read(&format!("{dir}/{name}")).expect("court archive on disc"))
+        .into();
+    for data in &archives {
+        for_models(data, |n| n.contains("_sky"), |stem, model, mats| {
+            sky_colour.insert(stem, sky_top(&model, &mats));
+        });
+    }
+    // Z2: only the models the court below spawns are built (the archives hold every hole, season and sky variant)
+    let wanted = court_layout(iso, n as usize).map(|(list, plants)| court_models(&list, &plants, season, singles, &sky_colour));
+    let keep = |n: &str| !skip(n) && wanted.as_ref().is_none_or(|w| w.contains(n.rsplit(['\\', '/']).next().unwrap_or(n).trim_end_matches(".mdl")));
+    for data in &archives {
+        let data = data.as_slice();
+        // the sun-shade map: the hole model's box frames it, the casters' triangles shade it
+        for_models(data, keep, |stem, model, mats| {
+            hole_box.insert(stem.clone(), shade::packet_box(&model));
+            model_shapes.insert(stem.clone(), hst_sim::shade::Shape::new(&model, &mats));
+            raw_models.insert(stem, (model, mats));
+        });
+        for (stem, parts, anim) in gs_models_anim(data, keep, images) {
+            let tags: Vec<_> = parts.iter().flat_map(|(_, g, t)| std::iter::repeat_n(*t, g.len())).collect();
+            let parts = add_parts(parts.into_iter().map(|(m, g, _)| (m, g)).collect(), meshes, gs_materials);
+            anims.insert(stem.clone(), (anim, tags));
+            library.insert(stem, parts);
+        }
+    }
+    CourtLibrary { library, anims, sky_colour, hole_box, raw_models, model_shapes }
+}
+
+/// The match's weather schedule and generators, from court `n`'s odds and the match seed (`seed`: online, the host's);
+/// the weather of its first game.
+fn match_weather(commands: &mut Commands, iso: &mut Iso, args: &Args, exe: &hst_data::exe::Game, n: u32, envir: Option<&[u8]>, seed: Option<hst_sim::rng::Seed>) -> hst_sim::weather::Game {
+    let season = args.singles as usize;
+    let o = exe.weather_odds(n);
+    let odds = hst_sim::weather::Odds { cloudy: o[0], cloudy_len: [o[1], o[2]], rain: o[3], rain_len: [o[4], o[5]], no_border: o[7] != 0, heavy: o[8] != 0 };
+    let ((directions, speed), (chance, kind)) = (exe.wind(n), exe.gusts(n));
+    let wind = hst_sim::weather::Wind { chance, kind, directions, speed };
+    // a match: `--games`, `--sets` (`play` keeps `Weather::game` on the games played)
+    let players = if !args.play { 1 } else if args.singles { 2 } else { 4 };
+    // the game seeds its MT19937 with a `rand()` output when it sets the match up; `HST_WEATHER_SEED` gives it
+    // directly (slot 5's was 0x28c7c4a1)
+    // the menus' `rand()` calls before the match are the confirmation screen's flame (`rng::MenuFlame`), drawing
+    // every frame it's up from P1's pick (`main_menu::flame`); a match started without the menus takes a
+    // clock-picked count of draws instead
+    // online, the host's seed (`handshake::MatchSeed`, or `hst net`'s room seed) is taken as is
+    let seed = seed.unwrap_or_else(|| {
+        std::env::var("HST_WEATHER_SEED").ok().and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()).or_else(play::netplay::seed).map_or_else(
+            || {
+                play::main_menu::flame::rand().map_or_else(
+                    || hst_sim::rng::Seed::after(web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0, |d| d.subsec_micros() % 65536)),
+                    |mut rand| hst_sim::rng::Seed { shared: rand.next(), rand },
+                )
+            },
+            hst_sim::rng::Seed::shared,
+        )
+    });
+    let r = seed.rand;
+    let mut mt = hst_sim::weather::Mt::new(seed.shared);
+    let schedule = hst_sim::weather::schedule(&odds, &wind, args.games, args.sets, players, || mt.next());
+    // the match goes on drawing from the same generators (with a given seed, `rand()` is taken as at boot)
+    let mut rngs = hst_sim::rng::Rngs::new(r, mt);
+    // the setup's own `rand()` calls: the lens flare, the sound manager, the clouds and the effects seed. The
+    // clouds are made only with in-season cloud models; at the setup in singles only
+    let fixed = std::env::var("HST_WEATHER").ok().and_then(|w| w.parse().ok());
+    let first = fixed.unwrap_or(schedule[0].weather);
+    let models = court_layout(iso, n as usize).is_some_and(|(l, _)| l.iter().any(|e| e.dir == "cloud" && layout::in_season(&e.stem, season)));
+    let sky = Sky { weathers: schedule.map(|g| g.weather), fixed, made: first, count: cloud_count(iso, n, envir, args.singles), rain: exe.rain_clouds().0, draws: None };
+    let (effects, draws) = rngs.setup_rand(if models && args.singles { sky.made_count(first) } else { 0 });
+    play::set_effects_seed(effects);
+    commands.insert_resource(play::MatchRng(rngs));
+    *SKY.lock().unwrap() = models.then_some(Sky { draws: Some((first, draws)), ..sky });
+    let w = weather::Weather { schedule, game: 0, fixed };
+    let today = w.today();
+    commands.insert_resource(w);
+    today
+}
+
+/// The net's shadow decal: its triangles flattened along the sun onto the ground, drawn black through the texture's
+/// alpha (its materials go in `look.decals`).
+fn net_decal(
+    parts: &[(Handle<Mesh>, Handle<gs::GsMaterial>)],
+    t: Transform,
+    sun: &shadow::Sun,
+    meshes: &mut Assets<Mesh>,
+    gs_materials: &mut Assets<gs::GsMaterial>,
+    look: &mut weather::CourtLook,
+) -> Vec<(Handle<Mesh>, Handle<gs::GsMaterial>)> {
+    let mut done = std::collections::HashSet::new();
+    parts.iter().filter(|(m, _)| done.insert(m.id())).filter_map(|(m, g)| {
+        let mut mesh = meshes.get(m)?.clone();
+        let Some(bevy::mesh::VertexAttributeValues::Float32x3(pos)) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) else { return None };
+        for v in pos {
+            let w = t.transform_point(Vec3::from(*v));
+            *v = (w - sun.dir * (w.y / sun.dir.y) - Vec3::Y * 0.01).to_array();
+        }
+        let mut g = gs_materials.get(g)?.clone();
+        g.key = gs::GsKey { modulate: true, test: gs::Test::Never, blend: Some(hst_data::mtl::Blend::Normal), fog: false, cull: false, ..g.key };
+        (g.uniform.color, g.uniform.highlight, g.uniform.shadow) = (Vec4::ZERO, 0.0, 0.0);
+        let g = gs_materials.add(g);
+        look.decals.insert(g.id());
+        Some((meshes.add(mesh), g))
+    }).collect()
+}
+
+/// The placed box of `parts` under `t`: their meshes' boxes' corners, moved.
+fn placed_box(parts: &[(Handle<Mesh>, Handle<gs::GsMaterial>)], meshes: &Assets<Mesh>, t: &Transform) -> (Vec3, Vec3) {
+    let corners = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::compute_aabb(meshes.get(m)?)).flat_map(|a| (0..8).map(move |i| Vec3::from(a.center) + Vec3::from(a.half_extents) * Vec3::new([-1.0, 1.0][i & 1], [-1.0, 1.0][i >> 1 & 1], [-1.0, 1.0][i >> 2])));
+    corners.map(|c| t.transform_point(c)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), c| (lo.min(c), hi.max(c)))
 }
 
 /// A sky's colour where the game reads it: the top-most vertex (smallest game y, the last of equals)
