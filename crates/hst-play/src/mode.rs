@@ -7,7 +7,8 @@
 //! window keeps answering: P50) and holds it, game
 //! time paused, until the next mode's render pipelines are built and its uploads are done; the BGM stops with the old mode. Leaving a running
 //! mode, its last frame zooms up about the screen centre while it fades out over the loading screen first, as the
-//! original's menu → match handoff looks (similar, not frame-matched: user 2026-10-11).
+//! original's menu → match handoff looks (similar, not frame-matched: user 2026-10-11). B607: that frame is on screen
+//! before the loading screen goes up under it, and one captured too late is dropped, never shown over the loading screen.
 
 use bevy::ecs::component::ComponentId;
 use bevy::ecs::message::Messages;
@@ -117,17 +118,24 @@ pub struct Loading {
     idle: u32,
 }
 
-/// The running mode's last frame asked for (a screenshot), `waited` frames ago.
+/// The running mode's last frame asked for (a screenshot), `waited` frames ago, at `at`.
 #[derive(Component)]
 struct Leaving {
     waited: u32,
+    at: bevy::platform::time::Instant,
 }
 
-/// That frame over the loading screen, `t` seconds into its zoom and fade.
+/// That frame over the loading screen, `t` seconds into its zoom and fade, drawn `frames` times.
 #[derive(Component)]
 struct Snapshot {
     t: f32,
+    frames: u32,
 }
+
+/// B607: how long the last frame's capture may take before the loading screen goes up without it (frames and real
+/// time, whichever is longer: a fast display's 10 frames are too short for a big window's read-back).
+const LEAVE_FRAMES: u32 = 10;
+const LEAVE_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// The zoom and fade's length (the original's ~30 frames) and the zoom it ends at.
 const FADE: f32 = 0.5;
@@ -507,33 +515,40 @@ fn start(world: &mut World) {
     }
 }
 
-/// Before the loading screen: ask for the running mode's last frame and wait for it (10 frames at most: no window,
-/// no renderer). True while waiting.
+/// Before the loading screen: ask for the running mode's last frame and wait for it ([`LEAVE_FRAMES`] /
+/// [`LEAVE_WAIT`] at most: no window, no renderer), then until it's on screen over the running mode, so the loading
+/// screen only ever goes up under it (B607). True while waiting.
 fn leave(world: &mut World) -> bool {
-    if world.query::<&Loading>().iter(world).next().is_some() || world.query::<&Snapshot>().iter(world).next().is_some() {
+    let shown = world.query::<&Snapshot>().iter(world).next().map(|s| s.frames);
+    if world.query::<&Loading>().iter(world).next().is_some() || shown.is_some() {
         for e in world.query_filtered::<Entity, With<Leaving>>().iter(world).collect::<Vec<_>>() {
             world.despawn(e);
         }
-        return false;
+        // drawn twice: its texture is up and covers the screen (the first draw can still land without it)
+        return shown.is_some_and(|n| n < 2);
     }
     let can = world.contains_resource::<Running>() && world.query_filtered::<(), With<PrimaryWindow>>().iter(world).next().is_some();
     let mut q = world.query::<&mut Leaving>();
     match q.iter_mut(world).next() {
-        Some(mut l) if l.waited < 10 => {
+        Some(mut l) if l.waited < LEAVE_FRAMES || l.at.elapsed() < LEAVE_WAIT => {
             l.waited += 1;
             true
         }
         Some(_) => false,
         None if can => {
             use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
-            world.spawn(Leaving { waited: 0 });
-            world.spawn(Screenshot::primary_window()).observe(|ev: On<ScreenshotCaptured>, images: Option<ResMut<Assets<Image>>>, mut c: Commands| {
+            world.spawn(Leaving { waited: 0, at: bevy::platform::time::Instant::now() });
+            world.spawn(Screenshot::primary_window()).observe(|ev: On<ScreenshotCaptured>, images: Option<ResMut<Assets<Image>>>, loading: Query<(), With<Loading>>, mut c: Commands| {
                 let Some(mut images) = images else { return };
+                // B607: too late, the loading screen went up without it: the old frame would flash back over it
+                if !loading.is_empty() {
+                    return;
+                }
                 // the capture comes back CPU-only: upload it to draw it
                 let mut image = ev.image.clone();
                 image.asset_usage = bevy::asset::RenderAssetUsages::default();
                 let node = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-                c.spawn((Snapshot { t: 0.0 }, node, ImageNode::new(images.add(image)), UiTransform::default(), GlobalZIndex(i32::MAX)));
+                c.spawn((Snapshot { t: 0.0, frames: 0 }, node, ImageNode::new(images.add(image)), UiTransform::default(), GlobalZIndex(i32::MAX)));
             });
             true
         }
@@ -541,9 +556,14 @@ fn leave(world: &mut World) -> bool {
     }
 }
 
-/// The last frame zooms up about the centre and fades out (real time: game time is paused under the loading screen).
-fn zoom(time: Res<Time<Real>>, mut q: Query<(Entity, &mut Snapshot, &mut UiTransform, &mut ImageNode)>, mut c: Commands) {
+/// The last frame zooms up about the centre and fades out (real time: game time is paused under the loading screen),
+/// from when the loading screen is up under it (B607: before, the fade would show the running mode through it).
+fn zoom(time: Res<Time<Real>>, loading: Query<(), With<Loading>>, mut q: Query<(Entity, &mut Snapshot, &mut UiTransform, &mut ImageNode)>, mut c: Commands) {
     for (e, mut s, mut t, mut image) in &mut q {
+        s.frames += 1;
+        if loading.is_empty() {
+            continue;
+        }
         s.t += time.delta_secs();
         let k = (s.t / FADE).min(1.0);
         t.scale = Vec2::splat(1.0 + (ZOOM - 1.0) * k);

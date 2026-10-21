@@ -13,3 +13,4 @@
 - A damaged game disc image no longer crashes the game when a match loads a court whose data can't be read: the match plays on another court's layout and says what went wrong.
 - A damaged or wrong disc image now gives an error instead of crashing the game.
 - iPhone and iPad: the game now turns to portrait as well as landscape, and with rotation lock on it stays the way it was.
+- Starting a match now zooms and fades out of the player select straight into the loading screen, without the player select flashing back over the loading screen first.
