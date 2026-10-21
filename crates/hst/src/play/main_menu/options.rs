@@ -195,9 +195,9 @@ fn about(o: Opt) -> &'static str {
     }
 }
 
-/// B608: Stretch is gone, Auto now fills the screen everywhere (the Safe Area setting keeps the menus off the notch).
+/// B608: Auto fills the screen everywhere (the Safe Area setting keeps the menus off the notch); B624: Stretch is back.
 fn aspect_about() -> &'static str {
-    "Auto fills the screen; a fixed ratio shows the whole picture at that shape, black bars around it."
+    "Auto fills the screen; a fixed ratio shows the whole picture at that shape, black bars around it; Stretch fills the whole screen with the menus and score too, past the notch and the Safe Area margin."
 }
 
 /// B329: the Vibration row's text, by what this browser can do (`web/touch.js`).
@@ -1832,12 +1832,12 @@ mod tests {
         assert!(!s.upscaled_textures && s.upscaled_downloads);
         s.step(Aspect, -1);
         assert_eq!(s.value(Aspect), ASPECTS[aspect_choices() - 1]);
-        // B608: Stretch is no longer offered; a settings.txt's Stretch reads as the default
-        assert_eq!(choices(Aspect).len(), aspect_choices());
+        // B624: Stretch is offered on every platform (the last choice) and a settings.txt's Stretch reads back
+        assert_eq!(choices(Aspect).len(), ASPECTS.len());
+        assert_eq!(s.value(Aspect), "Stretch");
         let mut t = s;
         t.aspect = crate::play::widescreen::STRETCH;
-        let stretch = aspect_choices() == ASPECTS.len();
-        assert!(t.text().contains("aspect = Stretch") && (Settings::parse(&t.text()) == t) == stretch);
+        assert!(t.text().contains("aspect = Stretch") && Settings::parse(&t.text()) == t);
         // B339: Downloads at Once steps Auto, 1..=8 and wraps; its side panel lists the same
         assert_eq!((s.value(AtOnce), choices(AtOnce).len()), ("Auto".into(), 9));
         s.step(AtOnce, -1);

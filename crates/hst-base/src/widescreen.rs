@@ -22,21 +22,23 @@
 //! distorted: the 3D view widens to its rect and the HUD keeps its 4:3 screen in its own. `hud_gamma` draws the HUD's
 //! camera into the view's part of the picture. The touch pad keeps to the whole window (`touch_pad`), its buttons
 //! clear of the device's safe area.
+//!
+//! B624 (bringing B421's back, on every platform): Stretch is Auto with nothing inset: the HUD and menus take the whole
+//! window too, past the device's safe area and the Safe Area setting's margin. Nothing is distorted, as at Auto.
 
 use bevy::prelude::*;
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 /// The Aspect Ratio setting's choices (index in `ASPECT`): Auto fills the window (B17's widescreen).
-/// Stretch (B421) is no longer offered (`aspect_choices`, B608): a saved one reads as Auto, which now does the same.
+/// Stretch (B421, B624): the whole window for the picture, the HUD and the menus, the safe area ignored.
 pub const ASPECTS: [&str; 6] = ["Auto", "4:3", "16:9", "16:10", "21:9", "Stretch"];
 const RATIOS: [f32; 5] = [0.0, 4.0 / 3.0, 16.0 / 9.0, 16.0 / 10.0, 21.0 / 9.0];
-/// B421: the `ASPECTS` index of Stretch, past the offered ones.
+/// B421: the `ASPECTS` index of Stretch.
 pub const STRETCH: u8 = 5;
 
-/// How many of `ASPECTS` the setting offers: B608 dropped Stretch everywhere, as the picture now always fills the
-/// window and the Safe Area setting (`MARGIN`) says how far in the HUD and menus keep.
+/// How many of `ASPECTS` the setting offers: all of them, Stretch included, on every platform (B624; B608 had dropped it).
 pub fn aspect_choices() -> usize {
-    STRETCH as usize
+    ASPECTS.len()
 }
 /// The aspect ratio in force (an `ASPECTS` index): the settings' (`main_menu`), 4:3 in the original mode.
 pub static ASPECT: AtomicU8 = AtomicU8::new(0);
@@ -74,8 +76,11 @@ fn insets(safe: [f32; 4], margin: u8) -> [f32; 4] {
 }
 
 /// The picture's rect of a `size` window at `aspect`, less the insets `[l, t, r, b]` (shares of the window's width
-/// and height); the whole picture if they would leave nothing of it.
+/// and height); the whole picture if they would leave nothing of it. Stretch ignores the insets: the whole window.
 fn view_in(size: Vec2, aspect: u8, [l, t, r, b]: [f32; 4]) -> Rect {
+    if aspect == STRETCH {
+        return Rect::from_corners(Vec2::ZERO, size);
+    }
     let ratio = RATIOS.get(aspect as usize).copied().unwrap_or(0.0);
     let scene = if ratio == 0.0 || size.x < size.y || size.y <= 0.0 {
         Rect::from_corners(Vec2::ZERO, size)
@@ -391,6 +396,9 @@ fn views_in_the_safe_area() {
     let v = view_in(Vec2::new(1920.0, 1080.0), 0, insets([0.0; 4], 10));
     assert!(close(v, Rect::new(96.0, 54.0, 1824.0, 1026.0)));
     assert!(close(view_in(size, 0, insets(safe, 10)), Rect::new(59.0, 19.65, 793.0, 372.0)));
+    // B624: Stretch is the whole window, past the device's insets and any margin, upright too
+    assert_eq!(view_in(size, STRETCH, insets(safe, 10)), Rect::new(0.0, 0.0, 852.0, 393.0));
+    assert_eq!(view_in(Vec2::new(393.0, 852.0), STRETCH, [0.0, 59.0 / 852.0, 0.0, 34.0 / 852.0]), Rect::new(0.0, 0.0, 393.0, 852.0));
 }
 
 #[test]
