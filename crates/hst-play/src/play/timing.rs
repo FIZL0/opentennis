@@ -68,6 +68,9 @@ impl Timing {
 /// The timing error of player `i`'s dive `d` at its contact (the ball where it is), the lob button `lob`: its bias is
 /// its offset (`swing::dive_lock`), its error along the dive's direction.
 pub fn dive_error(g: &Game, i: usize, d: &hst_sim::swing::Dive, lob: bool) -> TimingError {
+    if g.offbeat.sweet {
+        return TimingError::default();
+    }
     let (t, p) = (&g.timing[i], &g.players[i]);
     let (_, offset) = swing::dive_lock(d.frame);
     swing::timing_error(&t.stats, 3, lob, offset, offset, -g.flight.ball.pos[1], false, false, false, d.dir, p.end)
@@ -77,6 +80,10 @@ pub fn dive_error(g: &Game, i: usize, d: &hst_sim::swing::Dive, lob: bool) -> Ti
 /// `lob`.
 // ponytail: the contact height is the ball's at the contact frame
 pub fn error(g: &Game, i: usize, c: &Contact, branch: u8, lob: bool) -> TimingError {
+    // offbeat sweet spot: no timing or height error
+    if g.offbeat.sweet {
+        return TimingError::default();
+    }
     let (t, p) = (&g.timing[i], &g.players[i]);
     let bias = t.bias.get((c.offset + SWEET_FRAME) as usize).copied().unwrap_or(0);
     let forehand = c.swing.forehand;

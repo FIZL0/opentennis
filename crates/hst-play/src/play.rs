@@ -2176,13 +2176,8 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
                         } else {
                             press.unwrap_or(0)
                         };
-                        s.swing = Some(ServeSwing {
-                            left: k as u32,
-                            frames: k as u32,
-                            offset: k as i32 - SWEET_FRAME,
-                            grade: grades[k],
-                            kind,
-                        });
+                        let (grade, offset) = offbeat::sweet(g, grades[k], k as i32 - SWEET_FRAME);
+                        s.swing = Some(ServeSwing { left: k as u32, frames: k as u32, offset, grade, kind });
                         whoosh(g, i, 0, kind);
                     }
                     None => {
@@ -2541,13 +2536,8 @@ fn find_contact(g: &Game, i: usize) -> Option<Contact> {
     let p = &g.players[i];
     let path = predicted_path(g, g.reaches[i].grades.len());
     let s = swing::search(&g.reaches[i], &path, p.pos, p.end, p.kind)?;
-    Some(Contact {
-        frames: s.frame as u32,
-        swing: s,
-        grade: g.reaches[i].grades[s.frame],
-        offset: s.frame as i32 - SWEET_FRAME,
-        cancelled: false,
-    })
+    let (grade, offset) = offbeat::sweet(g, g.reaches[i].grades[s.frame], s.frame as i32 - SWEET_FRAME);
+    Some(Contact { frames: s.frame as u32, swing: s, grade, offset, cancelled: false })
 }
 
 /// The auto-approach a press runs first (`swing::approach`): frames to run and the direction, None when nothing
@@ -2955,6 +2945,7 @@ fn dive_frame(g: &mut Game, i: usize, aim: &impl Fn(&mut Game) -> Vec2) {
         let stick = aim(g);
         let kind = hst_sim::shot::stick_kind(branch::DIVE, g.players[i].kind, [stick.x, stick.y], end);
         let (grade, offset) = swing::dive_lock(d.frame);
+        let (grade, offset) = offbeat::sweet(g, grade, offset);
         let target = aim_target(g, i, stick, branch::DIVE, kind, offset, false, 0.0);
         g.timing_error = Some(timing::dive_error(g, i, &d, g.players[i].kind == kind::LOB));
         g.mis_hit = Some(timing::mis_hit(g, i, (branch::DIVE, grade, kind), true));
@@ -4110,7 +4101,7 @@ fn draw(
         // the models face their local +z; `facing` is the stand-in yaw (0 = facing −z); left-handers mirrored
         let turn = |y: f32| Quat::from_rotation_y(y - std::f32::consts::PI);
         t.rotation = turn(p.prev_facing).slerp(turn(p.facing), a);
-        t.scale = Vec3::new(p.hand, 1.0, 1.0);
+        t.scale = Vec3::new(p.hand, 1.0, 1.0) * g.offbeat.scale();
     }
     for (v, mut t) in &mut ball {
         // the shadow: ball_shadow

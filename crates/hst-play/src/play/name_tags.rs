@@ -342,7 +342,7 @@ fn draw(
             continue;
         };
         let at = Vec3::from(p.prev).lerp(Vec3::from(p.pos), a);
-        let anchor = Vec3::new(at.x, g.reaches[tag.i].base + 0.65, -at.z);
+        let anchor = Vec3::new(at.x, (g.reaches[tag.i].base + 0.65) * g.offbeat.scale(), -at.z);
         let z = (anchor - cam.translation).dot(*cam.forward());
         let s = markers::half_width(z, t);
         tr.translation = anchor;

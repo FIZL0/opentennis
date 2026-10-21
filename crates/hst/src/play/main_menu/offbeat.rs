@@ -1,23 +1,27 @@
 //! B40g2 (concept, `concept/offbeat-rules`): the local confirm screen's Offbeat Rules. Select / − (keyboard: C) opens
-//! a box over the screen with a pill per rule (`play::offbeat`): ↑↓ choose, ✕ (or a tap) turns it on or off, ○ or
+//! a box over the screen with a pill per rule (`play::offbeat`): ↑↓ choose, ✕ (or a tap) turns it on or off (size and speed: its next choice), ○ or
 //! Select again closes it. The match gets them as `--offbeat`. Not online: the room doesn't carry them.
 
 use super::pointer::Act;
 use super::{Draw, Effect, Menu, Press, WHITE};
 
-/// Each rule's pill and help line, in `Offbeat::NAMES`' order.
-const RULES: [(&str, &str); 4] = [
-    ("Irregular bounce", "Every bounce kicks off at an angle: up to 15° flatter and 15° to either side (20° for a lob)."),
-    ("Slow motion", "The whole point plays at two-thirds speed, from the serve to the last bounce."),
-    ("Turbo rally", "Each shot after the return speeds the rally up a tenth, up to double speed."),
-    ("Ghost ball", "The ball vanishes once it crosses the net; only its bounce gives it away."),
+/// Each rule's pill, its choices' words (off first) and help line, in `Offbeat::ROWS`' order.
+const RULES: [(&str, &[&str], &str); 7] = [
+    ("Irregular bounce", ON_OFF, "Every bounce kicks off at an angle: up to 15° flatter and 15° to either side (20° for a lob)."),
+    ("Slow motion", ON_OFF, "The whole point plays at two-thirds speed, from the serve to the last bounce."),
+    ("Turbo rally", ON_OFF, "Each shot after the return speeds the rally up a tenth, up to double speed."),
+    ("Ghost ball", ON_OFF, "The ball vanishes once it crosses the net; only its bounce gives it away."),
+    ("Player size", &["Normal", "Tiny", "Big"], "Players shrink to half their height, or grow into giants. Their reach stays the same."),
+    ("Player speed", &["Normal", "Fast", "Slow"], "Everyone runs 60% faster, or a good deal slower. The computer players plan for it too."),
+    ("Sweet spot", ON_OFF, "Every hit, serve and dive lands on the sweet spot: no mistimed or mis-hit shots."),
 ];
+const ON_OFF: &[&str] = &["Off", "On"];
 
 impl Menu {
     /// The legend's word for Select on the confirm screen: the rules, and how many are on.
     pub(super) fn rules_label(&self) -> Option<&'static str> {
-        let on = (0..RULES.len()).filter(|&i| self.offbeat.get(i)).count();
-        (!self.online()).then(|| ["Rules", "Rules (1 on)", "Rules (2 on)", "Rules (3 on)", "Rules (4 on)"][on])
+        let on = (0..RULES.len()).filter(|&i| self.offbeat.get(i) > 0).count();
+        (!self.online()).then(|| ["Rules", "Rules (1 on)", "Rules (2 on)", "Rules (3 on)", "Rules (4 on)", "Rules (5 on)", "Rules (6 on)", "Rules (7 on)"][on])
     }
 
     /// The confirm screen's press with the rules box in mind: Select opens it; while it's up it takes every press.
@@ -35,7 +39,7 @@ impl Menu {
             self.rules = None;
             out.push(Effect::Sound(1));
         } else if k.ok {
-            self.offbeat.set(at, !self.offbeat.get(at));
+            self.offbeat.cycle(at);
             out.push(Effect::Sound(0));
         } else if k.up || k.down {
             let n = RULES.len();
@@ -62,21 +66,21 @@ pub(super) fn draw(d: &mut Draw, m: &Menu) {
     d.q(super::Tex::Solid, [0.0; 4], [0.0, 0.0, 640.0, 448.0], [0.0; 3], 64.0);
     d.anchor = super::Anchor::Centre;
     d.popup(Some(Act::Press(Press { back: true, ..Default::default() })));
-    let (sw, sh) = (300.0, 104.0 + 36.0 * RULES.len() as f32);
+    let (sw, sh) = (300.0, 104.0 + 32.0 * RULES.len() as f32);
     let (sx, sy) = (320.0 - sw / 2.0, 224.0 - sh / 2.0);
     d.box3([sx, sy, sw, sh], 14.0, [Some(super::INK), Some(WHITE), Some(super::CREAM)], 128.0);
     d.label("Offbeat Rules", sx + sw / 2.0, sy + 14.0, 14.0, sw - 20.0, super::BROWN);
-    for (i, (name, _)) in RULES.iter().enumerate() {
-        let rect = [sx + 10.0, sy + 40.0 + 36.0 * i as f32, sw - 20.0, 30.0];
-        let words = format!("{name}: {}", if m.offbeat.get(i) { "On" } else { "Off" });
+    for (i, (name, choices, _)) in RULES.iter().enumerate() {
+        let rect = [sx + 10.0, sy + 40.0 + 32.0 * i as f32, sw - 20.0, 27.0];
+        let words = format!("{name}: {}", choices[m.offbeat.get(i) as usize]);
         super::side_button(d, rect, &words, at == i, false);
         d.hit(rect, Act::Row(i, Press { ok: true, ..Default::default() }));
     }
-    let help = RULES[at].1;
+    let help = RULES[at].2;
     for (k, l) in super::wrap(help, 52).iter().take(2).enumerate() {
         d.label(l, sx + sw / 2.0, sy + sh - 52.0 + 12.0 * k as f32, 10.0, sw - 20.0, super::BROWN);
     }
-    let note = "Rules can be mixed; slow motion and turbo multiply.";
+    let note = "Rules can be mixed. Size and speed: press again for the next choice.";
     d.label(note, sx + sw / 2.0, sy + sh - 22.0, 9.0, sw - 20.0, super::BROWN);
 }
 

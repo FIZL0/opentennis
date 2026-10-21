@@ -101,8 +101,8 @@ pub(super) fn draw(
         }
         let p = &g.players[*i];
         let at = Vec3::from(p.prev).lerp(Vec3::from(p.pos), a);
-        // game space → world: (x, -y, -z), and the anchor's height is absolute
-        let anchor = Vec3::new(at.x, g.reaches[*i].base + 0.65, -at.z);
+        // game space → world: (x, -y, -z), and the anchor's height is absolute; offbeat sizes scale it with the player
+        let anchor = Vec3::new(at.x, (g.reaches[*i].base + 0.65) * g.offbeat.scale(), -at.z);
         let z = (anchor - cam.translation).dot(*cam.forward());
         let s = half_width(z, t);
         tr.translation = anchor;
