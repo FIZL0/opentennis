@@ -137,6 +137,7 @@ impl Menu {
             Screen::Main if self.update_ask.is_some() => self.update_ask.replace(i),
             Screen::Press if self.quit.is_some() => self.quit.replace(i),
             _ if self.switch.is_some() => self.switch.as_mut().map(|s| std::mem::replace(&mut s.1, i)),
+            _ if self.reset_ask.is_some() => self.reset_ask.replace(i),
             // B498: an open dropdown's choices
             _ if self.listing.is_some() => self.listing.replace(i),
             // B40g2 (concept): the Offbeat Rules box's rules
@@ -664,7 +665,7 @@ pub(super) mod tests {
         // B609: the banner's square resets them all instead
         c.rebinding = None;
         let [x, y, w, h] = super::super::options::reset_button(&c.grid);
-        assert!(tap(&mut c, x + w / 2.0, y + h / 2.0).contains(&Effect::ResetControls));
+        assert!(tap(&mut c, x + w / 2.0, y + h / 2.0).contains(&Effect::AskResetControls));
         assert_eq!(c.rebinding, None);
     }
 

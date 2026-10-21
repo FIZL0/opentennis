@@ -567,6 +567,23 @@ impl Menu {
         true
     }
 
+    /// The Controls page's Reset to defaults? popup, as [`Self::switch_step`]'s: Reset puts every binding back, Cancel
+    /// leaves them. Returns whether the popup was up.
+    pub(super) fn reset_step(&mut self, k: Press, out: &mut Vec<Effect>) -> bool {
+        let Some(c) = self.reset_ask else { return false };
+        if k.up || k.down {
+            self.reset_ask = Some(1 - c);
+            out.push(Effect::Sound(0));
+        } else if k.ok && c == 0 {
+            self.reset_ask = None;
+            out.extend([Effect::Sound(2), Effect::ResetControls]);
+        } else if k.ok || k.back {
+            self.reset_ask = None;
+            out.push(Effect::Sound(1));
+        }
+        true
+    }
+
     /// Any Settings page: L1 / R1 open the tab before / after it (wrapping), ○ goes back to the main menu's
     /// Settings row (closes the pause overlay); B411: on Advanced, ○ goes back to Graphics' Advanced row.
     pub(super) fn step_tabs(&mut self, k: Press, out: &mut Vec<Effect>) {
@@ -1000,10 +1017,15 @@ fn drop_list(d: &mut Draw, o: Opt, [x, y, w, h]: [f32; 4], j: usize, now: &str, 
 /// The Renderer switch's popup's pills (640×448): their tops, 40 px apart as the mods' Reload / Later popup's.
 const SWITCH_TOP: f32 = 226.0;
 
-/// B327: the Renderer switch's confirm popup over the dimmed page, as the mods' Reload / Later one
-/// (`mods_screen::ask_layout`): the renderer picked, Switch and Cancel.
+/// B327: the Renderer switch's confirm popup: the renderer picked, Switch and Cancel.
 fn switch_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
     let Some((r, c)) = m.switch else { return };
+    confirm(d, &format!("Switch to {}?", RENDERERS[r as usize].1), "The page reloads to change it.", "Switch", c, hand_x);
+}
+
+/// A confirm popup over the dimmed page, as the mods' Reload / Later one (`mods_screen::ask_layout`): `title`, `line`
+/// under it, then `yes` and Cancel (`c` chosen).
+fn confirm(d: &mut Draw, title: &str, line: &str, yes: &str, c: usize, hand_x: f32) {
     use super::super::menu::{CHOSEN, PANEL, UNCHOSEN};
     // the page's own hand goes; the popup has its own
     if let Some(i) = d.out.iter().rposition(|q| q.tex == Tex::Cursor) {
@@ -1016,10 +1038,9 @@ fn switch_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
     d.anchor = super::Anchor::Centre;
     let top = SWITCH_TOP - 70.0;
     d.box3([160.0, top, 320.0, 70.0 + 72.0 + 16.0], 16.0, [Some(INK), Some(WHITE), Some(PANEL)], 128.0);
-    let name = format!("Switch to {}?", RENDERERS[r as usize].1);
-    d.outlined(|d| d.label(&name, 320.0, SWITCH_TOP - 56.0, 22.0, 224.0, WHITE));
-    d.outlined(|d| d.label("The page reloads to change it.", 320.0, SWITCH_TOP - 32.0, 18.0, 288.0, WHITE));
-    for (k, word) in ["Switch", "Cancel"].into_iter().enumerate() {
+    d.outlined(|d| d.label(title, 320.0, SWITCH_TOP - 56.0, 22.0, 224.0, WHITE));
+    d.outlined(|d| d.label(line, 320.0, SWITCH_TOP - 32.0, 18.0, 288.0, WHITE));
+    for (k, word) in [yes, "Cancel"].into_iter().enumerate() {
         let y = SWITCH_TOP + 40.0 * k as f32;
         let on = k == c;
         d.pill_at([176.0, y, 288.0, 32.0], [INK, WHITE, if on { CHOSEN } else { UNCHOSEN }], 128.0);
@@ -1103,7 +1124,7 @@ const HEADS: f32 = 22.0;
 
 /// B609: the Reset pill at the right of the Controls panel's strip.
 pub(super) fn reset_button(g: &Grid) -> [f32; 4] {
-    const W: f32 = 78.0;
+    const W: f32 = 96.0;
     let [x, y, w, _] = table(g).panel;
     let right = x + w - (look::RIM + look::PAD) * PX;
     [right - W * PX, y + (look::RIM + (look::STRIP - look::PILL) / 2.0) * PY, W * PX, look::PILL * PY]
@@ -1144,7 +1165,7 @@ impl Menu {
 /// each cell rebindable (✕ on the chosen one: the next button or key pressed replaces the cell's). The rows scroll
 /// with the cursor (pad, wheel, a finger's drag) when they don't all fit, a scroll bar beside them; the footnote
 /// says what the chosen cell does.
-pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings, _hand_x: f32) {
+pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings, hand_x: f32) {
     let names: Vec<String> = controls::action_names().map(|n| n[..1].to_uppercase() + &n[1..].replace('_', " ")).collect();
     let n = names.len();
     let z = zoom(&m.grid).1;
@@ -1157,7 +1178,11 @@ pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings,
     let ts = 20.0 * PY;
     look::bold(d, "Controls", [sx + look::PAD * PX, sy + (sh - ts) / 2.0], ts, WHITE);
     let reset = reset_button(&m.grid);
-    look::word_pill(d, reset, m.sel == n, "Reset", 16.0 * PY);
+    // the pill with △'s pad / key art (Reset from any row), as the mods page's buttons
+    look::button(d, reset, m.sel == n);
+    let gw = look::glyph(d, 3, [reset[0] + 7.0 * PX, reset[1] + 5.0 * PY], reset[3] - 10.0 * PY);
+    let rs = 16.0 * PY;
+    d.label("Reset", reset[0] + (reset[2] + gw) / 2.0 + 3.0 * PX, reset[1] + (reset[3] - rs) / 2.0, rs, reset[2] - gw - 20.0 * PX, if m.sel == n { look::c(look::INK) } else { WHITE });
     d.hit(reset, pointer::Act::Row(controls_cell(n, false), pointer::OK));
     // the column headings under the strip, over the label and each cell
     let (label, cells) = t.cells(t.row(0));
@@ -1230,6 +1255,9 @@ pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings,
     };
     footnote(d, m, t.panel, foot);
     z.apply(d, n0);
+    if let Some(c) = m.reset_ask {
+        confirm(d, "Reset all controls?", "Every button and key goes back to its default.", "Reset", c, hand_x);
+    }
 }
 
 /// B291: key caps `names` in a row, centred in the pill `b` (narrower where they'd run past it): each a light cap in a
@@ -1362,7 +1390,7 @@ mod tests {
         m.step(Dev::Keys, press(|k| &mut k.up));
         assert_eq!(m.sel, n);
         assert!(m.step(Dev::Keys, press(|k| &mut k.left)).is_empty() && m.keys_tab);
-        assert!(m.step(Dev::Keys, press(|k| &mut k.ok)).contains(&Effect::ResetControls));
+        assert!(m.step(Dev::Keys, press(|k| &mut k.ok)).contains(&Effect::AskResetControls));
         m.step(Dev::Keys, press(|k| &mut k.up));
         assert_eq!(m.sel, n - 1);
         // the last row on view at the foot, back up it stays till the cursor passes the top
@@ -1389,7 +1417,7 @@ mod tests {
         assert_eq!((m.sel, m.keys_tab, m.rebinding), (i, true, Some(i)));
         m.rebinding = None;
         let [x, y, w, h] = reset_button(&m.grid);
-        assert!(tap_at(&mut m, x + w / 2.0, y + h / 2.0).contains(&Effect::ResetControls));
+        assert!(tap_at(&mut m, x + w / 2.0, y + h / 2.0).contains(&Effect::AskResetControls));
         assert_eq!(key_name(KeyCode::ArrowLeft), "Left");
         assert_eq!(key_name(KeyCode::Numpad4), "Num 4");
         assert_eq!(key_name(KeyCode::ShiftLeft), "L Shift");
@@ -1675,6 +1703,23 @@ mod tests {
     /// row): its list picks a renderer, and only a different one opens the popup; ◀ ▶ on the row change nothing,
     /// Cancel / ○ / a tap off it change nothing, Switch saves; while it's up it takes the presses, the legend says so,
     /// and it draws within the pause overlay's pool at any aspect.
+    #[test]
+    fn controls_reset_asks_first() {
+        let mut m = Menu { screen: Screen::Controls, sel: 2, ..default() };
+        // △ from any row asks (the effect handler opens the popup unless the bindings are already the defaults)
+        assert_eq!(m.step(Dev::Keys, press(|k| &mut k.card)), vec![Effect::AskResetControls, Effect::Sound(2)]);
+        m.reset_ask = Some(0);
+        assert_eq!(m.step(Dev::Keys, press(|k| &mut k.down)), vec![Effect::Sound(0)]);
+        assert_eq!((m.reset_ask, m.sel), (Some(1), 2));
+        assert_eq!(m.step(Dev::Keys, press(|k| &mut k.ok)), vec![Effect::Sound(1)]);
+        m.reset_ask = Some(1);
+        assert_eq!(m.step(Dev::Keys, press(|k| &mut k.back)), vec![Effect::Sound(1)]);
+        assert_eq!((m.reset_ask, m.screen), (None, Screen::Controls));
+        m.reset_ask = Some(0);
+        assert_eq!(m.step(Dev::Keys, press(|k| &mut k.ok)), vec![Effect::Sound(2), Effect::ResetControls]);
+        assert_eq!(m.reset_ask, None);
+    }
+
     #[test]
     fn renderer_asks_first() {
         let mut m = Menu { screen: Screen::Display, sel: 1, ..default() };
