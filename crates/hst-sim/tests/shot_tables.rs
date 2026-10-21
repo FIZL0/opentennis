@@ -312,7 +312,9 @@ fn rally_spins_like_the_game() {
 /// smash depth offsets +0x3ecc/+0x3ed0/+0x3edc are all zero). 1p3goodcpus (doubles) has character 10's two
 /// short angled topspins pulled in by the angle margin (vsync 19076) or onto the doubles sideline (19143), and
 /// human_smash_s04 a volley pulled in from the baseline (11267). No recorded smash reaches a line; they are
-/// covered by the hand-worked `shot::tests::inside_pulls_smashes_and_outward_topspin`.
+/// covered by the hand-worked `shot::tests::inside_pulls_smashes_and_outward_topspin`. The special (clean lob or
+/// character 3/8 slice) launches keep unscaled margins; none of them reaches a line either (the oracle's
+/// `court_pull` covers that).
 #[test]
 fn rally_aims_pulled_inside_like_the_game() {
     use hst_sim::replay::frames_live;
@@ -321,7 +323,8 @@ fn rally_aims_pulled_inside_like_the_game() {
     let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
         return fixture::skip(format_args!("the extracted disc absent, skipped"));
     };
-    let (lines, angle) = hst_data::exe::Game::new(&cnf, &bin).unwrap().court_margins();
+    let game = hst_data::exe::Game::new(&cnf, &bin).unwrap();
+    let (lines, angle) = game.court_margins();
     let m = Margins { lines, angle };
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{ctx}/fixtures"));
     let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -332,7 +335,7 @@ fn rally_aims_pulled_inside_like_the_game() {
             fixture::skip(format_args!("{fx} absent, skipped"));
             continue;
         };
-        let (mut n, mut moved) = (0, 0);
+        let (mut n, mut moved, mut specials) = (0, 0, 0);
         for w in frames_live(&data).windows(2) {
             let (a, b) = (w[0].live_ball(), w[1].live_ball());
             let class = b[0x58];
@@ -359,13 +362,18 @@ fn rally_aims_pulled_inside_like_the_game() {
             let ch = w[1].global(0x422fa8 + 4 * if counter { w[0].global(0x423058) as usize } else { p }) as usize;
             // the smash's shot mode (+0x3ed8 tenths, its sign kept by the scaling)
             let low = class == 3 && (w[1].player_f32(p, 0x3ed8).to_bits() as i32) < 0;
-            let got = m.inside(class, kind, low, w[1].global(0x422fa4) >= 3, ch, false, hit, aim);
+            // a clean lob, or a clean slice by a character with a rally-slice bend (+0x3ee8 the lock grade, +0x3fa0
+            // its offset), keeps its margins unscaled
+            let (grade, offset) = (w[1].player_f32(p, 0x3ee8).to_bits() as u8, w[1].player_f32(p, 0x3fa0).to_bits() as i32);
+            let special = hst_sim::shot::has_effect(&game.shot_effects(ch), class, kind) && hst_sim::shot::special(class, kind, false, grade, offset);
+            specials += special as usize;
+            let got = m.inside(class, kind, low, w[1].global(0x422fa4) >= 3, ch, special, hit, aim);
             let at = format!("{fx} vsync {} player {p} (character {ch}) class {class} kind {kind}: hit {hit:?} aim {aim:?}", w[1].vsync());
             assert_eq!([got[0].to_bits(), got[2].to_bits()], [target[0].to_bits(), target[2].to_bits()], "{at}: {got:?} vs {target:?}");
             n += 1;
             moved += (aim != target) as usize;
         }
-        eprintln!("{fx}: {n} unscattered launches, {moved} pulled inside");
+        eprintln!("{fx}: {n} unscattered launches, {moved} pulled inside, {specials} special");
         assert_eq!((n, moved), (want_n, want_moved), "{fx}");
     }
 }

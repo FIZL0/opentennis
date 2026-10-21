@@ -103,7 +103,7 @@ fn timed_launches_like_the_game() {
     let i = |b: &[u8], o: usize| i32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
     let (mut seen, mut scattered, mut moded, mut bad) = (0, 0, 0, vec![]);
-    let (mut dulls, mut framed, mut dives, mut awkwards, mut high_volleys) = (0, 0, 0, 0, 0);
+    let (mut dulls, mut framed, mut dives, mut awkwards, mut high_volleys, mut specials) = (0, 0, 0, 0, 0, 0);
     for (fx, ram) in FIXTURES {
         let Ok(data) = fixture::read(format!("{}/{fx}", dir())) else { continue };
         let ram = ram.and_then(|r| std::fs::read(fixture::path(format!("{}/{r}", dir()))).ok());
@@ -250,7 +250,10 @@ fn timed_launches_like_the_game() {
             let mode = table_mode(class, c, grade, kind, blend, &down2);
             let variant = if kind == 3 { lob_variant(&d.stats[ch], grade) } else { mode_variant(mode) }.filter(|&v| game.shot_variants(ch).iter().any(|x| x.class == class as usize && x.kind == kind as usize && x.uses[v] == 1));
             let aim = [0x3e90, 0x3e94, 0x3e98].map(|o| w1.player_f32(p, o));
-            let pulled = m.inside(class, kind, false, w1.global(0x422fa4) >= 3, ch, false, hit, aim);
+            // a clean lob, or a clean slice by a character with a rally-slice bend, keeps its margins unscaled
+            let special = hst_sim::shot::has_effect(&game.shot_effects(ch), class, kind) && hst_sim::shot::special(class, kind, false, grade, offset);
+            specials += special as usize;
+            let pulled = m.inside(class, kind, false, w1.global(0x422fa4) >= 3, ch, special, hit, aim);
             let sc = hst_sim::serve::scatter_along(sx, sz, hit, pulled);
             let hz = hst_sim::ps2::sub(hit[2], sc[2]);
             let (stem, bounds) = if class == 1 { ("strk", Bounds::stroke(kind, hz)) } else { ("voly", Bounds::volley(kind, hz)) };
@@ -278,8 +281,8 @@ fn timed_launches_like_the_game() {
     for b in &bad {
         eprintln!("{b}");
     }
-    eprintln!("{seen} launches, {scattered} scattered, {moded} off a variant table, {dulls} dull, {framed} framed, {dives} dives, {awkwards} awkward, {high_volleys} high-ball volleys, {} wrong", bad.len());
-    assert!(bad.is_empty() && (seen == 0 || dulls > 0 && framed > 0 && dives > 0 && awkwards > 0 && high_volleys > 0) && (seen == 0 || seen > 100), "{} of {seen} launches wrong", bad.len());
+    eprintln!("{seen} launches, {scattered} scattered, {moded} off a variant table, {dulls} dull, {framed} framed, {dives} dives, {awkwards} awkward, {high_volleys} high-ball volleys, {specials} special, {} wrong", bad.len());
+    assert!(bad.is_empty() && (seen == 0 || dulls > 0 && framed > 0 && dives > 0 && awkwards > 0 && high_volleys > 0) && (seen == 0 || seen > 100 && specials > 0), "{} of {seen} launches wrong", bad.len());
 }
 
 /// `wild_aim`'s five ways by its draws (the case draws in the top half-word, as the game's RNG gives them).

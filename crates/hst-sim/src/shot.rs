@@ -264,6 +264,17 @@ pub fn special(class: u8, kind: i32, strong: bool, grade: u8, offset: i32) -> bo
     if class == class::SERVE && strong && kind <= kind::SLICE { offset.abs() < 2 } else { grade == 1 || grade == 2 }
 }
 
+/// The character's effect row for a rally shot of (class, kind) bends or curves: a stroke slice with a rally-slice
+/// bend, a stroke lob with a lob curve (every character's). With the special gate, the court pull keeps such a
+/// shot's margins unscaled (`Margins::inside`).
+pub fn has_effect(e: &hst_data::exe::ShotEffects, class: u8, kind: i32) -> bool {
+    match (class, kind) {
+        (class::STROKE, kind::SLICE) => e.bend[2] != 0.0,
+        (class::STROKE, kind::LOB) => e.curve != 0.0,
+        _ => false,
+    }
+}
+
 /// A special shot's effect, as launched: (`Shot::bend`, `Shot::curve`, `Shot::bounce_turn`). The character's
 /// bend and curve grow with the flat distance up to a court's length (`LENGTH`); a left-hander's bend and turn
 /// are mirrored, and so is the bend of a shot hit with `flip`.

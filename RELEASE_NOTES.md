@@ -27,6 +27,7 @@
 - A ball that comes to rest on the court or on a slope or prop now ends the point straight away (as out) instead of after a long wait, a ball that has stopped stays still, and a serve that clips the net and then hits the receiver is a let again only when it touched the net.
 - A special topspin serve you turn flat with the stick now aims inside the service box like any flat serve, as in the original, instead of keeping the curving serve's wider aim.
 - A mistimed ✕ or ○ smash from deep in the court now aims a little further inside the lines, as in the original.
+- A well-timed lob, and a well-timed slice by the players whose slices curve, now aims as close to the lines on a cross-court shot as in the original.
 - Online lobbies now support handicaps: the host presses L2 / R2 on any player's card to give them one or two leg weights, and every player's game plays the match with them.
 - In an online lobby the host can now tap a player's handicap pill to change it, on any player's card, which helps on touch screens.
 - A dive cut short by the sideline, the net or your partner now plays the rest of its animation from the right moment, as in the original.

@@ -28,9 +28,10 @@ fn disc() -> Option<(Vec<u8>, Vec<u8>)> {
 const FORCE_SPECIALS: u32 = 0x41_0870;
 
 /// 20 000 pulls over random classes, kinds, blends (low, −0, 0, high), player counts, characters, hits and aims in
-/// the court, with every player's lock graded at random (+0x3ee8 grade, +0x3fa0 offset): the game's pull delta
-/// added to the aim against the port, bit for bit. The match's own state never makes a pull special (see
-/// `court_pull_forced`), so the port's `special` is false here.
+/// the court, with every player's latched lock (the match's per-player copy of the last lock grade and offset,
+/// which the special gate reads) graded at random and a random last hitter: the game's pull delta added to the aim
+/// against the port, bit for bit. A pull is special when the hitter's latched grade is clean (1 or 2) and the
+/// launching character's effect row for (class, kind) bends or curves.
 #[test]
 fn court_pull() {
     pulls(false, 0x6a09_e667_f3bc_c908);
@@ -53,6 +54,7 @@ fn pulls(forced: bool, seed: u64) {
     let (at, out, hit_at, aim_at) = (addr("court_pull"), 0x01e1_0000u32, 0x01e1_0010u32, 0x01e1_0020u32);
     let gm = ee.read(0x42_2f80, 4) as u32;
     let players: Vec<u32> = (0..4).map(|k| ee.read(gm + 0xa8 + 4 * k, 4) as u32).collect();
+    let latch = ee.read(gm + 0xb8, 4) as u32 + 0x1_0f24;
     ee.write(FORCE_SPECIALS, 1, forced as u128);
     let f = |v: f32| v.to_bits() as u128;
     let (mut seed, mut bad, n) = (seed, vec![], 20_000);
@@ -74,6 +76,13 @@ fn pulls(forced: bool, seed: u64) {
             ee.write(q + 0x3ee8, 1, int(s, 0, 3) as u128);
             ee.write(q + 0x3fa0, 4, (int(s, 0, 8) - 4) as u32 as u128);
         }
+        let lat: Vec<(u8, i32)> = (0..4).map(|_| (int(s, 0, 3) as u8, int(s, 0, 8) - 4)).collect();
+        for (k, &(grade, offset)) in lat.iter().enumerate() {
+            ee.write(latch + 4 * k as u32, 4, grade as u128);
+            ee.write(latch + 0x10 + 4 * k as u32, 4, offset as u32 as u128);
+        }
+        let hitter = int(s, 0, count as u32 - 1) as usize;
+        ee.write(0x42_3058, 4, hitter as u128);
         ee.write(0x42_2fa4, 4, count as u128);
         for (a, v) in [(hit_at, hit), (aim_at, aim)] {
             for (k, x) in v.iter().chain(&[0.0]).enumerate() {
@@ -90,7 +99,9 @@ fn pulls(forced: bool, seed: u64) {
             (1, 3) => e.curve,
             _ => 0.0,
         };
-        let (special, low, doubles) = (forced && row != 0.0, blend < 0.0, count > 2);
+        let (grade, offset) = lat[hitter];
+        let gate = forced || hst_sim::shot::special(class, kind, false, grade, offset);
+        let (special, low, doubles) = (gate && row != 0.0, blend < 0.0, count > 2);
         let pulled = m.inside(class, kind, low, doubles, ch, special, hit, aim);
         low_moved += (low && pulled != m.inside(class, kind, false, doubles, ch, special, hit, aim)) as usize;
         special_moved += (special && pulled != m.inside(class, kind, low, doubles, ch, false, hit, aim)) as usize;
@@ -102,5 +113,5 @@ fn pulls(forced: bool, seed: u64) {
         eprintln!("{b}");
     }
     eprintln!("{n} pulls, {low_moved} moved by the low margins, {special_moved} by a special's unscaled ones, {} wrong", bad.len());
-    assert!(bad.is_empty() && low_moved > 100 && (!forced || special_moved > 10), "{} of {n} wrong", bad.len());
+    assert!(bad.is_empty() && low_moved > 100 && special_moved > 10, "{} of {n} wrong", bad.len());
 }
