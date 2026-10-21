@@ -19,7 +19,6 @@
 - With touch controls, the score at the top of the screen now sits just below the L1/R1 buttons instead of under them.
 - The loading screen before a match keeps its shape in tall (portrait) and very wide windows: the hint panel no longer squashes, and the court picture fills the whole window without black bars.
 - Settings → Shadows has a new Original choice that draws the trees' and buildings' shadows soft, as on the PS2, instead of sharp; Original Mode uses it.
-- Custom characters can now be a disc character grown bigger (taller, with longer reach), swinging faster or running slower; they play in local matches, not online yet.
 - In doubles, computer players now shift position as soon as their own team hits the ball and react to each shot at the moment it is played, as in the original.
 - In a match with one human player, Select (C on the keyboard) now switches to the original game's low camera behind your player, and back again with a short glide. Your player turns see-through while they hide the ball coming at them, and the game remembers your choice for the next match.
 - Set Handicap is back: on the Ready to play? screen, press △ (L on the keyboard) or tap the pill on a player's card to give them one or two leg weights. Each weight slows their running for the whole match, and they wear the weights on their calves. Online matches play without handicaps for now.
