@@ -485,3 +485,57 @@ fn smash_flights(name: &str) -> Option<Vec<usize>> {
     }
     Some(flown)
 }
+
+/// P120: a press may dive when the player ran on the frame before it (`swing::dive_run`), not on the press frame.
+/// Slot 4 with P1 driven over the virtual pad around the edges of its runs (`tools/record_dive_frame.py 4 out 7200`,
+/// `dive_frame_s04.bin`): on every press, the game's dive check reads the locomotion state of the frame before
+/// (1 = running), holds it through the press's stroke, and the dives start from it — one where the stick was let go
+/// on the press frame itself (a run's last frame), and a press with the stick pushed on its frame from a stand (a
+/// run's first frame) can't dive. Presses during a stroke are left out: the port takes none while a dive or swing
+/// is under way, and a whiff's squares the body up (not running).
+#[test]
+fn dive_reads_the_run_before_the_press() {
+    use hst_sim::swing::dive_run;
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let Ok(d) = fixture::read(format!("{dir}/dive_frame_s04.bin")) else {
+        return fixture::skip(format_args!("dive_frame_s04.bin absent, skipped"));
+    };
+    // sample: vsync, pad (buttons, stick), the dive check's state byte, search branch, state byte (0 stand, 1 run, 2 stroke)
+    struct S { v: u32, cross: bool, lx: u8, check: u8, branch: u8, state: u8 }
+    let s: Vec<S> = d
+        .as_chunks::<76>().0.iter()
+        .map(|b| S {
+            v: u32::from_le_bytes(b[0..4].try_into().unwrap()),
+            cross: u16::from_le_bytes([b[4], b[5]]) & 0x2000 != 0,
+            lx: b[8],
+            check: b[12],
+            branch: b[21],
+            state: b[41],
+        })
+        .collect();
+    const NEUTRAL: u8 = 128;
+    let (mut presses, mut dives, mut last_frame, mut first_frame) = (0, 0, 0, 0);
+    for n in 1..s.len() {
+        let (a, b) = (&s[n - 1], &s[n]);
+        // a press from a stand or a run (one in a stroke is the stroke's business: a dive ignores it)
+        if b.v != a.v + 1 || !b.cross || a.cross || a.state == 2 {
+            continue;
+        }
+        presses += 1;
+        let ready = dive_run(false, a.state == 1, false);
+        assert_eq!(b.check == 1, ready, "vsync {}: press after state {}, check {}", b.v, a.state, b.check);
+        // held through the press's stroke
+        let held = s[n + 1..].iter().zip(&s[n..]).take_while(|(c, p)| c.v == p.v + 1 && c.state == 2 && !(c.cross && !p.cross));
+        for (c, _) in held {
+            assert_eq!(dive_run(ready, false, true), c.check == 1, "vsync {}: check moved in the stroke", c.v);
+        }
+        if b.branch == 3 {
+            assert!(ready, "vsync {}: dove without a run", b.v);
+            dives += 1;
+            last_frame += (b.lx == NEUTRAL && a.lx != NEUTRAL) as u32;
+        }
+        first_frame += (a.state == 0 && a.lx == NEUTRAL && b.lx != NEUTRAL && !ready) as u32;
+    }
+    eprintln!("{presses} presses, {dives} dives ({last_frame} on a run's last frame), {first_frame} presses on a run's first frame");
+    assert!(last_frame > 0 && first_frame > 0, "{presses} presses, {dives} dives");
+}

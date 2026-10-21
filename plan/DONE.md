@@ -947,6 +947,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **P9d** Ball trail ribbon (in P9) → `effect.rs` · `play.rs` | j: 2026-10-07-p9-hit-effects
 - [x] **P9e** Flight effects (in P9) → `effect.rs` · `play.rs` | j: 2026-10-07-p9-hit-effects
 - [x] **P9f** Bounce and smash-bounce effects (in P9) → `effect.rs` · `play.rs` bounce | j: 2026-10-07-p9-hit-effects
+- [x] **P120** Dive eligibility frame (T8): find_dive lets a press dive when the player runs this frame; the original reads the previous frame's locomotion state, so a press on the frame a run starts or stops can dive (or not) a frame off. Port the previous-frame state, prove with a recorded dive on a run's first/last frame (tools/vpad.py) → crates/hst-play/src/play.rs find_dive · crates/hst-sim/src/swing.rs dive | t: hst-sim swing.rs | j: 2026-10-21-repo-audit (T8 ledger)
 
 
 ### AI

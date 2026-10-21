@@ -39,6 +39,7 @@ mod tests {
             p.body.target = dir;
             p.body.vel = [dir[0] * 0.11, 0.0, dir[2] * 0.11];
             p.body.running = true;
+            p.dive_run = true;
         }
     }
 
