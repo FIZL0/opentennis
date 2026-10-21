@@ -252,6 +252,42 @@ extern "C" fn open_on_main(ctx: *mut std::ffi::c_void) {
     }
 }
 
+/// M140: whether some app on the phone opens `url` (`UIApplication.canOpenURL`: only for the schemes the IPA's
+/// Info.plist lists under `LSApplicationQueriesSchemes`, `tools/ios-ipa.sh`). Asked on the main thread, which may be
+/// waiting on the caller's frame: `None` until it has answered (the first call asks), then its answer.
+pub fn can_open(url: &str) -> Option<bool> {
+    static SEEN: std::sync::Mutex<Vec<(String, Option<bool>)>> = std::sync::Mutex::new(Vec::new());
+    let mut seen = SEEN.lock().unwrap();
+    if let Some((_, a)) = seen.iter().find(|(u, _)| u == url) {
+        return *a;
+    }
+    seen.push((url.to_owned(), None));
+    let ctx = Box::into_raw(Box::new((url.to_owned(), &SEEN))).cast();
+    // SAFETY: the main queue lives for the process; `can_open_on_main` takes the box back
+    unsafe { dispatch_async_f(&raw const _dispatch_main_q, ctx, can_open_on_main) };
+    None
+}
+
+type Seen = (String, &'static std::sync::Mutex<Vec<(String, Option<bool>)>>);
+
+extern "C" fn can_open_on_main(ctx: *mut std::ffi::c_void) {
+    type Id = *mut std::ffi::c_void;
+    // SAFETY: `ctx` is the box `can_open` leaked; the selectors' signatures as UIKit/Foundation declare them
+    unsafe {
+        let ask = Box::from_raw(ctx.cast::<Seen>());
+        let obj: extern "C" fn(Id, Id) -> Id = std::mem::transmute(objc_msgSend as *const ());
+        let with: extern "C" fn(Id, Id, Id) -> Id = std::mem::transmute(objc_msgSend as *const ());
+        let can: extern "C" fn(Id, Id, Id) -> bool = std::mem::transmute(objc_msgSend as *const ());
+        let s = objc2_foundation::NSString::from_str(&ask.0);
+        let u = with(objc_getClass(c"NSURL".as_ptr()), sel_registerName(c"URLWithString:".as_ptr()), objc2::rc::Retained::as_ptr(&s) as Id);
+        let app = obj(objc_getClass(c"UIApplication".as_ptr()), sel_registerName(c"sharedApplication".as_ptr()));
+        let yes = !u.is_null() && can(app, sel_registerName(c"canOpenURL:".as_ptr()), u);
+        if let Some(e) = ask.1.lock().unwrap().iter_mut().find(|(u, _)| *u == ask.0) {
+            e.1 = Some(yes);
+        }
+    }
+}
+
 /// UIKit's `UIEdgeInsets`.
 #[repr(C)]
 #[derive(Clone, Copy)]

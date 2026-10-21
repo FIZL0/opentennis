@@ -1,12 +1,17 @@
 package io.github.fizl0.hst;
 
 import android.app.NativeActivity;
+import android.app.PendingIntent;
 import android.content.Intent;
+import android.content.pm.PackageInstaller;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.view.WindowManager;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 /** The game's NativeActivity (`tools/apk.sh`), plus what the native side can't do on its own (M99): the system's file
  *  picker for the disc image, and a restart once the disc is imported. Called from `crates/hst-base/src/android.rs`. */
@@ -18,6 +23,10 @@ public class HstActivity extends NativeActivity {
     /** B455: Wi-Fi drops multicast an app hasn't asked for, so mDNS (the LAN's lobbies, `net.rs` `watch_lan`) heard
      *  nothing: held while the game is in front. */
     private WifiManager.MulticastLock lan;
+    /** M140: the update install's `PackageInstaller` status, -99 until the installer answers. */
+    private volatile int installStatus = -99;
+    /** M140: the action of the installer's answer, which comes back to this activity (singleTop: `onNewIntent`). */
+    private static final String INSTALLED = "io.github.fizl0.hst.INSTALLED";
 
     /** M106: the window reaches under the camera cutout on every Android, as it must from Android 15 on; the game keeps
      *  its picture inside the safe area itself (`android.rs` `safe_area`, `widescreen.rs`). */
@@ -93,6 +102,69 @@ public class HstActivity extends NativeActivity {
             }
         }
         picked = fd;
+    }
+
+    /** M140: whether Google Play installed the app (then only Play may update it). */
+    public boolean fromStore() {
+        try {
+            String by = Build.VERSION.SDK_INT >= 30
+                ? getPackageManager().getInstallSourceInfo(getPackageName()).getInstallingPackageName()
+                : getPackageManager().getInstallerPackageName(getPackageName());
+            return "com.android.vending".equals(by);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** M140: the update .apk at `path` (downloaded and checked by `update.rs`) to the system's installer, as a
+     *  `PackageInstaller` session; its answer arrives in `onNewIntent`, read by `installed`. Same signing key, so it
+     *  installs over this app and keeps its files. */
+    public void install(final String path) {
+        installStatus = -99;
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    PackageInstaller pi = getPackageManager().getPackageInstaller();
+                    PackageInstaller.SessionParams p = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+                    p.setAppPackageName(getPackageName());
+                    int id = pi.createSession(p);
+                    PackageInstaller.Session s = pi.openSession(id);
+                    try (InputStream in = new FileInputStream(path); OutputStream out = s.openWrite("base.apk", 0, -1)) {
+                        byte[] b = new byte[1 << 16];
+                        for (int n; (n = in.read(b)) > 0; ) out.write(b, 0, n);
+                        s.fsync(out);
+                    }
+                    Intent i = new Intent(HstActivity.this, HstActivity.class).setAction(INSTALLED);
+                    int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+                    s.commit(PendingIntent.getActivity(HstActivity.this, 0, i, flags).getIntentSender());
+                    s.close();
+                } catch (Exception e) {
+                    installStatus = PackageInstaller.STATUS_FAILURE;
+                }
+            }
+        }).start();
+    }
+
+    /** M140: the install's status since `install` (`PackageInstaller.STATUS_*`), -99 while there's none. */
+    public int installed() {
+        return installStatus;
+    }
+
+    @Override
+    protected void onNewIntent(Intent i) {
+        super.onNewIntent(i);
+        if (!INSTALLED.equals(i.getAction())) return;
+        int status = i.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
+        if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            // the confirm screen (and, the first time, Android's "allow installs from this app")
+            Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
+            if (confirm != null) {
+                startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return;
+            }
+            status = PackageInstaller.STATUS_FAILURE;
+        }
+        installStatus = status;
     }
 
     /** A fresh process for the game: the native side's window can only be made once per process. */

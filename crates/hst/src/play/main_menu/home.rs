@@ -224,6 +224,7 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
         mods_screen::news(d, m, [sx, TOP, STORE_W, FOOT - TOP]);
     }
     stale_layout(d, m, hand_x);
+    super::update_ask::layout(d, m, hand_x);
 }
 
 const STALE_TOP: f32 = 226.0;
@@ -373,6 +374,9 @@ fn preview(d: &mut Draw, m: &Menu, text: &Text, r: Row, pads: usize, [x, y, w, h
         Row::Settings => text.msg(190).to_string(),
         Row::Extras => "Donate: what building OpenTennis has taken so far, and a link to support my work on Ko-fi.".into(),
         Row::Update if cfg!(target_arch = "wasm32") => "A new version is out. Refresh loads this page again with it; your settings and mods stay.".into(),
+        // M140: a phone's install goes through its installer
+        Row::Update if crate::update::installs() && cfg!(target_os = "ios") => "A new version is out. Update hands it to your installer (SideStore, AltStore or TrollStore), which puts it over this app; your disc, settings and mods stay.".into(),
+        Row::Update if crate::update::installs() && cfg!(target_os = "android") => "A new version is out. Update downloads it, checks its signature and asks Android to install it over this app; your disc, settings and mods stay.".into(),
         Row::Update if crate::update::installs() => "A new version is out. Update downloads it, checks its signature and restarts the game into it; your settings and mods stay.".into(),
         Row::Update if cfg!(target_os = "ios") => "A new version is out. Download opens its release page: install its .ipa over this app the way you installed this one (AltStore, Sideloadly...); your disc, settings and mods stay.".into(),
         Row::Update if cfg!(target_os = "android") => "A new version is out. Download opens its release page: install its .apk over this app; your disc, settings and mods stay.".into(),
@@ -417,6 +421,8 @@ fn preview(d: &mut Draw, m: &Menu, text: &Text, r: Row, pads: usize, [x, y, w, h
             v
         }
         Row::Update if cfg!(target_arch = "wasm32") => vec![("Refresh", "Reloads this page".into()), ("Keeps", "Settings, mods, ISO".into())],
+        Row::Update if crate::update::installs() && cfg!(target_os = "ios") => vec![("Update", "Through your installer".into()), ("Keeps", "Settings, mods, ISO".into())],
+        Row::Update if crate::update::installs() && cfg!(target_os = "android") => vec![("Update", "Download, check, install".into()), ("Keeps", "Settings, mods, ISO".into())],
         Row::Update if crate::update::installs() => vec![("Update", "Download, check, restart".into()), ("Keeps", "Settings, mods, ISO".into())],
         Row::Update if cfg!(target_os = "ios") => vec![("Download", "GitHub release page".into()), ("Install", ".ipa over this app".into())],
         Row::Update if cfg!(target_os = "android") => vec![("Download", "GitHub release page".into()), ("Install", ".apk over this app".into())],
