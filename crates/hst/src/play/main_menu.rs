@@ -1373,6 +1373,8 @@ impl Menu {
                 if k.ok {
                     use home::Row;
                     match main.get(self.sel).copied().unwrap_or(Row::Local) {
+                        // M141: new mods waiting and the Reload popup put off: asks first
+                        Row::Local | Row::Online if mods_screen::play_ask(self, dev) => out.push(Sound(2)),
                         Row::Rematch => {
                             // the same setup; a random court or umpire is drawn again, as Start does
                             self.roll = std::hash::BuildHasher::hash_one(&std::hash::RandomState::new(), 0u8);

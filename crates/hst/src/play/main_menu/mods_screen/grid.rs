@@ -315,7 +315,7 @@ impl View {
         if matches!((self.page, &self.by), (Page::Installed, _) | (Page::Browse, None)) && !self.updates().is_empty() {
             w.push("Update all");
         }
-        if self.changed && self.page != Page::Installed {
+        if self.changed && self.idle() && self.page != Page::Installed {
             w.push("Reload");
         }
         w
