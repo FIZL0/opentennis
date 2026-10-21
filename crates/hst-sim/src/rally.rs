@@ -1162,9 +1162,14 @@ impl Rally {
 
     /// The formation re-pick; a new spot restarts the walk back.
     fn repick(&mut self, b: &Body, w: &World, cue: Cue, roll: &mut impl FnMut() -> u32) {
+        self.repick_as(b, w.ball[2], cue, Self::our_hit(b, w), roll);
+    }
+
+    /// `repick` with the ball's depth and whether its own team hit last given.
+    fn repick_as(&mut self, b: &Body, ball_z: f32, cue: Cue, our_hit: bool, roll: &mut impl FnMut() -> u32) {
         let mut f = Formation { lane: self.lane, front: self.front, spot: [self.spot[0], self.spot[2]] };
         let t = Team { side: b.side, formation: b.formation, lean: self.lean };
-        let moved = f.repick(&t, cue, [b.pos[0], b.pos[2]], w.ball[2], Self::our_hit(b, w));
+        let moved = f.repick(&t, cue, [b.pos[0], b.pos[2]], ball_z, our_hit);
         (self.lane, self.front, self.spot[0], self.spot[2]) = (f.lane, f.front, f.spot[0], f.spot[1]);
         if !matches!(cue, Cue::Middle) {
             self.forward = match b.formation {
@@ -2061,6 +2066,49 @@ impl Rally {
                 return;
             }
             h.min = 0;
+        }
+    }
+}
+
+impl Rally {
+    /// The doubles strike and new-path messages, at the message (not at its next update): back to the start of
+    /// its state unless it is swinging. `receiving`: its top state is the receive (else the rally).
+    pub fn heard_strike(&mut self, receiving: bool, b: &Body, w: &mut World, roll: &mut impl FnMut() -> u32) {
+        if receiving {
+            if self.state != step::SWING {
+                self.set_state(step::WAIT, roll);
+            }
+        } else if self.sub != step::SWING {
+            self.set_sub(b, w, step::WAIT, false, roll);
+        }
+    }
+
+    /// The doubles hit message's own work on the AI, ahead of its timing draw. `rallying`: its top state is the
+    /// rally; `shots`: the shot count as the message finds it (still the shot before this one); `hit`: the new
+    /// shot's hitter slot and where it stood as it hit (none for the toss). Rallying past the return it goes back
+    /// to its wait substate (the return-to-centre roll first); then its own team's hit re-picks the formation spot
+    /// (its own hit against its partner's position, its partner's from where the partner hit) with the ball where
+    /// it is now, a move rolling a new return to the centre.
+    pub fn heard_hit_doubles(
+        &mut self,
+        rallying: bool,
+        shots: i32,
+        b: &Body,
+        w: &mut World,
+        hit: Option<(i32, [f32; 4])>,
+        roll: &mut impl FnMut() -> u32,
+    ) {
+        if rallying && shots > 1 && self.sub != step::SWING {
+            self.set_sub(b, w, step::WAIT, false, roll);
+        }
+        if let Some((slot, at)) = hit
+            && slot & 1 == b.team & 1
+        {
+            let cue = if slot == b.team { Cue::Me([b.mate[0], b.mate[2]]) } else { Cue::Other([at[0], at[2]]) };
+            self.repick_as(b, w.ball[2], cue, true, roll);
+        }
+        if rallying {
+            self.held = false;
         }
     }
 }

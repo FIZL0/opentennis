@@ -3223,7 +3223,7 @@ fn ai_heard_hit(g: &mut Game, who: usize, branch: u8, vel: V3) {
         if g.humans.get(i) == Some(&true) {
             continue;
         }
-        let again = doubles_ai::heard_hit(g, i);
+        let again = doubles_ai::heard_hit(g, i, who);
         ai_heard_shot(g, i, i & 1 == who & 1, again);
         let p = &mut g.players[i];
         let shots = if i & 1 != who & 1 {
@@ -3648,7 +3648,8 @@ fn ai_update(g: &mut Game, i: usize) -> hst_sim::ai::Mind {
             false
         }
         Ai::Serve => g.phase != Phase::Serve,
-        Ai::Receive => g.shots >= 2 && p.swing.is_none() && p.contact.is_none(),
+        // doubles goes over on the receive routine's own word, in its step (P11k6)
+        Ai::Receive => g.players.len() != 4 && g.shots >= 2 && p.swing.is_none() && p.contact.is_none(),
         Ai::Rally => false,
     };
     if done {

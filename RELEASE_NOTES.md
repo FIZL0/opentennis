@@ -20,3 +20,4 @@
 - The loading screen before a match keeps its shape in tall (portrait) and very wide windows: the hint panel no longer squashes, and the court picture fills the whole window without black bars.
 - Settings → Shadows has a new Original choice that draws the trees' and buildings' shadows soft, as on the PS2, instead of sharp; Original Mode uses it.
 - Custom characters can now be a disc character grown bigger (taller, with longer reach), swinging faster or running slower; they play in local matches, not online yet.
+- In doubles, computer players now shift position as soon as their own team hits the ball and react to each shot at the moment it is played, as in the original.
