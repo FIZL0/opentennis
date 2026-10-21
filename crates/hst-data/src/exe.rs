@@ -200,11 +200,6 @@ impl<'a> Game<'a> {
         std::array::from_fn(|l| std::array::from_fn(|k| i32::from_le_bytes(self.at(0x3f_c760 + 12 * l as u32 + 4 * k as u32, 4).try_into().unwrap())))
     }
 
-    /// Metres the analog stick moves the aim point at full deflection.
-    pub fn stick_reach(&self) -> f32 {
-        self.f32(0x40_3bd0)
-    }
-
     /// The match's scripted camera shots (cut-aways after a point, court views): per shot number its 0xbc-byte
     /// record and its script of (op, value) pairs up to the end op 0x1a. The scripts are stored back to back.
     pub fn camera_shots(&self) -> Vec<CameraShot> {
