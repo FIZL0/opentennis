@@ -1,8 +1,8 @@
 //! B633/M146: split screen for humans on both teams on one machine (singles, or doubles with humans on opposite
 //! sides; never online, not in the original look). Every match starts on the normal shared camera; 1P's Select (only
 //! 1P's) switches the split on and off in live play, and the choice isn't kept (user 2026-10-21). Split, each half
-//! shows that team's own match camera (B637): the original's one-human camera behind that end, in doubles framing
-//! both of the team, so everyone plays from behind themselves. Side by side on a wide window (1P's team left),
+//! shows the original's alternate camera (`alt_camera`) low behind that team's human, so everyone plays from behind
+//! themselves. Side by side on a wide window (1P's team left),
 //! stacked on a tall one (1P's team on top). Shown only on the plain match view (serve and rally): the intro,
 //! cut-aways, calls, replays and the change of ends show the one picture as before.
 //!
@@ -21,7 +21,8 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use hst_sim::camera::{self as sim_cam, Scene, View};
+use hst_sim::alt_cam::{self, Follow};
+use hst_sim::camera::View;
 
 use super::own_camera::{self, OwnCam};
 use super::{Game, Pads, Phase, controls};
@@ -36,7 +37,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Personal>()
         .add_systems(Update, (press.run_if(|w: &World| !super::front_end::paused(w) && !super::intro::running(w)), split.after(super::camera).before(super::draw)))
         // as `own_camera::step`: on the scene the tick starts from
-        .add_systems(FixedUpdate, (step_teams, step).chain().after(super::control).before(super::simulate));
+        .add_systems(FixedUpdate, (step, step_teams).chain().after(super::control).before(super::simulate));
 }
 
 /// The picture is split top/bottom now (the score panel puts the near team's half on top, `panel`).
@@ -171,11 +172,21 @@ pub(super) struct Personal {
     showing: bool,
 }
 
-/// Each team's own match camera (team 0's first), the original's one-human camera behind that team's end as a
-/// singles match with one human there shows it, and the view it showed the tick before. Stepped every tick (cheap)
-/// so a split shows it settled however it comes on.
+/// Each team's half (team 0's first) while split: the alternate camera behind that team's human, as a match with
+/// one human shows it (`alt_camera`), and the rally ticks so far.
+// ponytail: no glide on switching and no see-through fade per half (the fade's materials are shared by both views)
 #[derive(Resource, Default)]
-struct TeamCams(Vec<(sim_cam::Camera, View)>);
+struct TeamCams(Vec<Half>, u32);
+
+struct Half {
+    /// The human it follows and their end (−z when near).
+    human: usize,
+    near: bool,
+    follow: Follow,
+    /// The view shown last tick and this tick.
+    prev: View,
+    now: View,
+}
 
 /// M146: per seat (1P..4P), whether the stick and d-pad turn round as they're read (`tick_input`).
 #[derive(Resource, Default, Clone, Copy, Debug, PartialEq)]
@@ -253,30 +264,33 @@ fn step(
     }
 }
 
-/// Steps each team's own camera on the scene the tick starts from (as `own_camera::step`).
-fn step_teams(g: Option<Res<Game>>, mut t: ResMut<TeamCams>) {
-    let Some(g) = g.filter(|g| g.players.len() >= 2) else {
+/// Steps each team's alternate camera on the scene the tick starts from, while split.
+fn step_teams(g: Option<Res<Game>>, p: Option<Res<Personal>>, pads: Option<Res<Pads>>, d: Option<Res<super::cutaway::Director>>, mut t: ResMut<TeamCams>) {
+    let (Some(g), Some(pads), Some(d)) = (g, pads, d) else { return };
+    if !p.is_some_and(|p| p.showing) {
         t.0.clear();
         return;
-    };
-    let fresh = t.0.is_empty();
-    if fresh {
-        t.0 = (0..2).map(|_| (sim_cam::Camera::from_view(g.cam.view), g.cam.view)).collect();
     }
-    let players: Vec<_> = g.players.iter().map(|p| p.pos).collect();
-    let scene = Scene { players: &players, ball: g.flight.ball.pos };
-    for (team, (cam, prev)) in t.0.iter_mut().enumerate() {
-        let turned = g.players[team].end < 0.0;
-        // a new point's placement (the shared camera's cut), its end changed, or just started: cut straight to it
-        let cut = fresh || g.cam_cut || cam.turned != turned;
-        if cut {
-            cam.cut();
-            cam.turned = turned;
-        }
-        *prev = cam.view;
-        cam.step(&scene);
-        if cut {
-            *prev = cam.view;
+    let n = g.players.len();
+    t.1 = if g.phase == Phase::Rally { t.1 + 1 } else { 0 };
+    let play = alt_cam::Play::new(g.shots.max(0) as u32, (g.phase == Phase::Rally).then_some(t.1));
+    let ball = g.flight.ball.pos;
+    for team in 0..2 {
+        // the team's first human (eligible: every team has one)
+        let Some(human) = (0..n).find(|&i| i & 1 == team && pads.slot_of(i, n).is_some()) else { return };
+        let pl = &g.players[human];
+        let (spot, near) = (pl.pos, pl.end > 0.0);
+        // a new shot for a new human or end (the change of ends) or a new point: cut straight to it
+        let fresh = t.0.get(team).is_none_or(|h| (h.human, h.near) != (human, near)) || g.cam_cut;
+        if fresh {
+            let mut follow = Follow::new(&d.shots, n == 4);
+            let now = follow.step(spot, near, ball, play);
+            let h = Half { human, near, follow, prev: now, now };
+            if team < t.0.len() { t.0[team] = h } else { t.0.push(h) }
+        } else {
+            let h = &mut t.0[team];
+            h.prev = h.now;
+            h.now = h.follow.step(spot, near, ball, play);
         }
     }
 }
@@ -295,13 +309,11 @@ fn place(w: &mut World, state: &mut Split, aspect: f32, wide: bool, order: [usiz
     };
     let t = w.resource::<TeamCams>();
     let eye = |i: usize| {
-        let (cam, v0) = &t.0[i];
-        let v = cam.view;
+        let (v0, v) = (t.0[i].prev, t.0[i].now);
         let mix = |x: [f32; 3], y: [f32; 3]| Vec3::from(x).lerp(Vec3::from(y), a).to_array();
         let (eye, pitch, yaw) = super::orbit_from(mix(v0.eye, v.eye), mix(v0.rot[2], v.rot[2]));
         let fov = v0.fov + (v.fov - v0.fov) * a;
-        // the game's 4:3 picture's height: a half is near square, so fitting its width as the match camera does
-        // would show everyone small
+        // the game's 4:3 picture's height: a half is near square, so fitting its width would show everyone small
         let fov = 2.0 * (fov.tan() * super::SHOWN_ASPECT).atan();
         (Transform::from_translation(eye).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)), fov)
     };
@@ -318,7 +330,7 @@ fn top_layers() -> RenderLayers {
 mod tests {
     use super::*;
 
-    /// M146: 2P singles with the personal split on: each player's camera looks from behind them, the stick of the one
+    /// M146: 2P singles with the split on: each player's camera looks from behind them, the stick of the one
     /// the shared camera has at the far end turns, and the match plays exactly as without it (skipped without the
     /// ISO).
     #[test]
@@ -347,7 +359,7 @@ mod tests {
             assert_eq!(p.0.len(), 2);
             for i in 0..2 {
                 let z = g.players[i].pos[2];
-                let eye = p.0[i].0.view.eye;
+                let eye = p.0[i].now.eye;
                 assert!(eye[2] * z > 0.0 && eye[2].abs() > z.abs(), "tick {tick}: player {i}'s eye {eye:?}, at z {z}");
                 // turned when its own picture's end isn't the shared camera's
                 let shared = g.cam.view.eye[2] * z > 0.0;
@@ -379,8 +391,8 @@ mod tests {
         app
     }
 
-    /// B637: in doubles with a human on each team (1P and 3P), split on, each team's own camera looks from behind that
-    /// team's end, both its players in front of the eye, and the match plays as without it (skipped without the ISO).
+    /// B637: in doubles with a human on each team (1P and 3P), split on, each half's camera looks from behind that
+    /// team's human, and the match plays as without it (skipped without the ISO).
     #[test]
     fn each_team_has_its_own_camera() {
         use super::super::*;
@@ -406,12 +418,11 @@ mod tests {
             assert_eq!(g.players.len(), 4);
             assert!(w.resource::<super::Personal>().showing);
             for team in 0..2 {
-                let (cam, _) = t.0[team];
-                assert_eq!(cam.turned, g.players[team].end < 0.0);
-                let eye = cam.view.eye;
-                for p in g.players.iter().skip(team).step_by(2) {
-                    assert!(eye[2] * p.pos[2] > 0.0 && eye[2].abs() > p.pos[2].abs(), "tick {tick}: team {team}'s eye {eye:?}, a player at {:?}", p.pos);
-                }
+                // the team's human: 1P is player 0, 3P player 1
+                let (h, z) = (&t.0[team], g.players[team].pos[2]);
+                assert_eq!(h.human, team);
+                let eye = h.now.eye;
+                assert!(eye[2] * z > 0.0 && eye[2].abs() > z.abs(), "tick {tick}: team {team}'s eye {eye:?}, its human at z {z}");
             }
         }
     }
