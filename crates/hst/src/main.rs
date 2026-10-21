@@ -898,7 +898,11 @@ fn load(
         if let (Some((frame, hole)), Some(_)) = (shade_frame, sun)
             && let Some((model, mats)) = raw_models.get(&hole)
         {
-            commands.insert_resource(shade::build(frame, &shade_casters, model, mats, hst_sim::court::world(&mut iso, n)));
+            // B605: a court whose collision can't be read gets no shade map (the match says why, `court_load`)
+            match hst_sim::court::world(&mut iso, n) {
+                Ok(world) => commands.insert_resource(shade::build(frame, &shade_casters, model, mats, world)),
+                Err(e) => error!("court {n} shade map: {e}"),
+            }
         }
         // clouds: singles only (the game makes them in doubles too but neither moves nor draws them)
         if args.singles {

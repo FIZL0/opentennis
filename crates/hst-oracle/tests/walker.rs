@@ -47,7 +47,7 @@ fn walkers_wander_like_the_game() {
     ee.write(an, 4, 0x03e0_0008);
     ee.write(an + 4, 4, 0);
     let mut iso = hst_data::iso::Iso::open(hst_oracle::root().join("Hot Shots Tennis (USA).iso")).unwrap();
-    let world = std::rc::Rc::new(hst_sim::court::world(&mut iso, 4));
+    let world = std::rc::Rc::new(hst_sim::court::world(&mut iso, 4).unwrap());
     let hooked = world.clone();
     let walls = std::rc::Rc::new(std::cell::Cell::new(0u32));
     let (world_hits, walls) = (walls.clone(), walls);

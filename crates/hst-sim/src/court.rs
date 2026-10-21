@@ -74,34 +74,48 @@ pub fn umpire_chair(iso: &mut Iso, n: u32) -> Option<[f32; 3]> {
 }
 
 /// Disc court `n` (1..11), hole 1: the court model at the origin and the colliding props in the game's list order
-/// and grid.
-pub fn world(iso: &mut Iso, n: u32) -> World {
+/// and grid. An error names what on the disc couldn't be read or doesn't fit (a damaged image or pack).
+pub fn world(iso: &mut Iso, n: u32) -> Result<World, String> {
     let mut files = std::collections::HashMap::new();
     let (mut list, mut plants, mut court) = (Vec::new(), Vec::new(), None);
     for arc in ["CMN.XB", "GRD01.XB", "HOL01.XB"] {
-        let data = iso.read(&format!("COURT/{n:02}/{arc}")).expect("court archive on disc");
-        let a = Archive::parse(&data).unwrap();
-        let read = |n: &str| a.entries.iter().find(|e| e.name.eq_ignore_ascii_case(n)).map(|e| a.read(e).unwrap());
+        let path = format!("COURT/{n:02}/{arc}");
+        let data = iso.read(&path).map_err(|e| format!("{path}: {e}"))?;
+        let a = Archive::parse(&data).map_err(|e| format!("{path}: {e}"))?;
+        // an entry by name, if the archive has it
+        let read = |name: &str| match a.entries.iter().find(|e| e.name.eq_ignore_ascii_case(name)) {
+            Some(e) => a.read(e).map(Some).map_err(|err| format!("{path} {name}: {err}")),
+            None => Ok(None),
+        };
         for e in &a.entries {
             let name = e.name.to_ascii_lowercase();
+            let bytes = || a.read(e).map_err(|err| format!("{path} {}: {err}", e.name));
             if name.ends_with(&format!("entry_c{n:02}.txt")) {
-                list = layout::entries(&String::from_utf8_lossy(&a.read(e).unwrap()));
+                list = layout::entries(&String::from_utf8_lossy(&bytes()?));
             } else if name.ends_with(&format!("plant_c{n:02}_h01_0.dat")) {
-                plants = layout::plants(&a.read(e).unwrap()).unwrap();
+                plants = layout::plants(&bytes()?).map_err(|err| format!("{path} {}: {err}", e.name))?;
             } else if let Some(stem) = name.strip_suffix(".mdl") {
                 let base = &e.name[..e.name.len() - 4];
-                let m = mdl::parse(&a.read(e).unwrap()).unwrap();
-                let mt = mtl::parse(&read(&format!("{base}.MTL")).unwrap(), read(&format!("{base}.MTI")).as_deref()).unwrap();
+                let m = mdl::parse(&bytes()?).map_err(|err| format!("{path} {}: {err}", e.name))?;
+                if m.collision.iter().any(|t| t.node >= m.node_count) {
+                    return Err(format!("{path} {}: a collision face on a node the model doesn't have", e.name));
+                }
+                let mtl_name = format!("{base}.MTL");
+                let mti = read(&format!("{base}.MTI"))?;
+                let mt = mtl::parse(&read(&mtl_name)?.ok_or_else(|| format!("{path}: no {mtl_name}"))?, mti.as_deref())
+                    .map_err(|err| format!("{path} {mtl_name}: {err}"))?;
                 if arc == "GRD01.XB" && m.collides(&mt) {
-                    assert!(court.is_none(), "one collision model in the court archive");
+                    if court.is_some() {
+                        return Err(format!("{path}: more than one collision model"));
+                    }
                     court = Some((m, mt));
                 } else {
-                    files.insert(stem.rsplit(['/', '\\']).next().unwrap().to_string(), (m, mt));
+                    files.insert(stem.rsplit(['/', '\\']).next().unwrap_or(stem).to_string(), (m, mt));
                 }
             }
         }
     }
-    let (cm, cmt) = court.expect("court collision model");
+    let (cm, cmt) = court.ok_or_else(|| format!("COURT/{n:02}/GRD01.XB: no collision model"))?;
     let mut models = vec![collision_model(&cm, &cmt)];
     // the court stands at the origin, unscaled
     let court = mesh::Object { model: 0, scale: 1.0, to_model: IDENTITY, nodes: nodes(&cm, world::mat_mul(&cm.node_local[0], &IDENTITY)), center: cm.center, radius: cm.radius };
@@ -110,7 +124,7 @@ pub fn world(iso: &mut Iso, n: u32) -> World {
     for cat in COLLIDING {
         for p in plants.iter().filter(|p| p.category == cat && p.scale != 0.0) {
             let Some(e) = layout::resolve(&list, p, 0) else { continue };
-            let (m, _) = &files[&e.stem];
+            let (m, _) = files.get(&e.stem).ok_or_else(|| format!("court {n:02}: no model {} for a placed prop", e.stem))?;
             let (at, _) = world::place(p.category, p.pos, p.yaw, p.code);
             created.push((e.stem.clone(), world::instance(at, p.scale, &m.node_local[0], m.center, m.radius), p.scale));
         }
@@ -133,7 +147,7 @@ pub fn world(iso: &mut Iso, n: u32) -> World {
         spheres.push((props.len(), prop.center, prop.radius));
         props.push(mesh::Object { model, scale: *scale, to_model: prop.to_model, nodes: nodes(m, prop.node), center: prop.center, radius: m.radius });
     }
-    World { models, court, props, grid: world::grid(&spheres) }
+    Ok(World { models, court, props, grid: world::grid(&spheres) })
 }
 
 /// A court mod's view of disc court `w` (its layout): the mod draws its own scenery, so the disc's walls, stands,

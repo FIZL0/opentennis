@@ -424,7 +424,8 @@ impl Voice {
             2
         };
         let slot = matches!(program, voice::SWEET_SHOUT | voice::STRAIN).then(|| program as usize - 1);
-        let key = self.key(0, hi, slot, || r).expect("a shout has keys");
+        // never empty: only programs 1 and 2 remember a key, and their hi is at least 1, so one is always left
+        let key = self.key(0, hi, slot, || r).unwrap_or(0);
         play(slot::voice(player), program, key as u8, FULL)
     }
 

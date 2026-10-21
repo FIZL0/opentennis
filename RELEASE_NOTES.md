@@ -4,3 +4,4 @@
 - In the browser on an iPhone held sideways, the picture now stays clear of the Dynamic Island, the notch and the home indicator instead of running under them.
 - Online lobbies no longer ask you to download a custom character you already have when the other player's copy is a different version; your own copy is shown.
 - Mod downloads and uploads now show their progress at the top of every menu screen, naming the mod uploading. Once they all finish, a Reload Mods button appears there, and if you put it off, picking Local or Online asks once more (Reload now or Play without them).
+- A damaged game disc image no longer crashes the game when a match loads a court whose data can't be read: the match plays on another court's layout and says what went wrong.

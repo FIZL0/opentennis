@@ -20,7 +20,7 @@ fn ball_light_scale_matches_the_game() {
         eprintln!("recording or disc missing, skipped");
         return;
     };
-    let world = court::world(&mut iso, 10);
+    let world = court::world(&mut iso, 10).unwrap();
     let frame = shade::Frame::new([-113.8475, -10.730181, -141.48601], [102.94255, 17.31305, 158.12808], 1.0, [0.0; 3]);
     let (mut exact, mut off, mut missed, mut bad) = (0, 0, 0, Vec::new());
     let mut last = None;
@@ -153,7 +153,7 @@ fn ball_shadow_matches_the_game() {
         eprintln!("recording or disc missing, skipped");
         return;
     };
-    let world = court::world(&mut iso, 10);
+    let world = court::world(&mut iso, 10).unwrap();
     let (mut exact, mut off, mut bad) = (0, 0, Vec::new());
     for r in rec.as_chunks::<0x80>().0 {
         let f: Vec<f32> = r[0x10..].as_chunks::<4>().0.iter().map(|&b| f32::from_le_bytes(b)).collect();

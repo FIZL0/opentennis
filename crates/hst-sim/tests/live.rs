@@ -106,7 +106,7 @@ fn disc(court: u32) -> Option<(hst_sim::mesh::World, Vec<Material>)> {
     ) else {
         return None;
     };
-    Some((court::world(&mut iso, court), court::materials(&exe::Game::new(&cnf, &bin).unwrap())))
+    Some((court::world(&mut iso, court).unwrap(), court::materials(&exe::Game::new(&cnf, &bin).unwrap())))
 }
 
 #[test]
@@ -261,7 +261,7 @@ fn every_court_builds_its_world() {
         return eprintln!("disc missing, skipped");
     };
     for n in 1..=11 {
-        let w = court::world(&mut iso, n);
+        let w = court::world(&mut iso, n).unwrap();
         assert!(!w.models[0].tris.is_empty(), "court {n} has no collision triangles");
     }
 }
@@ -275,7 +275,7 @@ fn a_court_mod_keeps_only_the_ground_and_net() {
     // game space, Y down: the ball's centre 1 m up, radius 3.5 cm
     let (r, at) = (0.035, |x: f32, y: f32, z: f32| [x, y, z, 1.0]);
     for n in 1..=11 {
-        let w = court::open(court::world(&mut iso, n));
+        let w = court::open(court::world(&mut iso, n).unwrap());
         assert!(w.sweep(at(1.0, -1.0, 5.0), at(1.0, 0.5, 5.0), r, &[]).is_some(), "court {n}: no ground");
         assert!(w.sweep(at(1.0, -0.5, 3.0), at(1.0, -0.5, -3.0), r, &[]).is_some(), "court {n}: no net");
         // out past the baselines and the sidelines: the disc's walls, stands and trees are gone
