@@ -25,6 +25,8 @@ pub fn plugin(app: &mut App) {
 struct Wind {
     tornado: Tornado,
     fade: i32,
+    /// The lowest alpha its slow-motion in-between frames draw at.
+    floor: i32,
     uv: CourtAnim,
     /// Per material its MTL colour.
     colours: Vec<[f32; 4]>,
@@ -50,7 +52,8 @@ fn setup(
     let Ok(root) = root.single() else { return };
     let mut iso = Iso::open(&args.iso).expect("open iso");
     let (cnf, bin) = (iso.read("SYSTEM.CNF").expect("SYSTEM.CNF"), iso.read("ZZBIN/GAME.BIN").expect("GAME.BIN"));
-    let fade = hst_data::exe::Game::new(&cnf, &bin).expect("game program").tornado_fade();
+    let game = hst_data::exe::Game::new(&cnf, &bin).expect("game program");
+    let (fade, floor) = (game.tornado_fade(), game.tornado_floor());
     let data = iso.read("AZUMA/C_EFF/EFFCT.XB0").expect("effect archive");
     let arc = Archive::parse(&data).expect("xb archive");
     let s = "wind2/tatumakiball";
@@ -82,6 +85,7 @@ fn setup(
     commands.insert_resource(Wind {
         tornado: Tornado::default(),
         fade,
+        floor,
         uv: CourtAnim::new(&mdl, Some(&uva), None, &mtl.materials),
         colours: mtl.materials.iter().map(|m| m.color).collect(),
         view,
@@ -138,7 +142,7 @@ fn draw(fx: Option<Res<Wind>>, g: Res<Game>, virt: Res<Time<Virtual>>, fixed: Re
     if virt.relative_speed() < 1.0 {
         let (b, v4) = (&g.flight.ball, |v: [f32; 3], w: f32| [v[0], v[1], v[2], w]);
         // ponytail: the UV scroll holds at the tick's (no time before/after kept); the scale, aim and fade move on
-        scale = tween.between(g.flight.bounces, v4(b.pos, 1.0), v4(g.flight.last, 0.0), fixed.overstep_fraction(), [0.0; 2], fx.fade, 0).0;
+        scale = tween.between(g.flight.bounces, v4(b.pos, 1.0), v4(g.flight.last, 0.0), fixed.overstep_fraction(), [0.0; 2], fx.fade, fx.floor).0;
     }
     let t = &tween;
     if let Ok((mut tr, mut v)) = q.get_mut(fx.view.root) {

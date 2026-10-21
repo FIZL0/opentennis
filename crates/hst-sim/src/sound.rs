@@ -17,8 +17,6 @@ pub mod slot {
     pub const UMPIRE: u8 = 5;
     /// The gallery (the court archive's `galsg` bank).
     pub const GALLERY: u8 = 6;
-    /// The jingles.
-    pub const JINGLES: u8 = 8;
     /// The system sound effects.
     pub const SYSTEM: u8 = 9;
 
@@ -91,8 +89,6 @@ mod umpire {
     pub const SCORE: u8 = 0;
     /// The line calls (key `verdict` − 1).
     pub const LINE: u8 = 1;
-    /// The other calls.
-    pub const CALL: u8 = 2;
 }
 
 /// The reaction motions `reaction_voice` tells apart (`motion::reaction`): the winners' `gu` and losers' `di`,
@@ -640,12 +636,6 @@ pub const CENTRE: [f32; 3] = [0.0, 0.0, -9.0];
 pub fn line_call(call: u8) -> Option<Play> {
     (call != verdict::POINT && call != verdict::ILLEGAL_HIT).then(|| play(slot::UMPIRE, umpire::LINE, call - 1, FULL))
 }
-/// The umpire's "change ends", as the change-ends phase begins.
-pub const CHANGE_ENDS_CALL: Play = play(slot::UMPIRE, umpire::CALL, 3, FULL);
-/// The umpire's tiebreak call, as the first tiebreak serve is set up (the game that made 6-all).
-pub const TIEBREAK_CALL: Play = play(slot::UMPIRE, umpire::CALL, 0, FULL);
-/// The umpire's match call, once the scoreboard has shown the match point (the match ends when it is over).
-pub const MATCH_CALL: Play = play(slot::UMPIRE, umpire::CALL, 4, FULL);
 /// The tiebreak score show's chime (court bank program 0 key 2, not placed), as its roll ends and the new points
 /// flash in (`flow::ShowState::tiebreak_chime`). Plain points and a tiebreak deuce roll without it.
 pub const TIEBREAK_CHIME: Play = play(slot::COURT, 0, 2, FULL);
