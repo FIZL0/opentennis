@@ -526,8 +526,7 @@ fn height_steps(height: f32, ideal: f32, [from, step]: [i32; 2], scale: f32) -> 
 /// before `serve::scatter_along`'s 1.5. The depth error is the timing `bias` plus the contact `height` off the
 /// ideal smash height (ground stroke thresholds), dropped on a clean `grade`; the side error is only the
 /// aim's `nudge`; each held to ±1 m. A short error counts double, then the whole depth × the reach `scale`
-/// (`smash_scale`) less the aim's `held` pull.
-// ponytail: the smash's mode blend isn't taken; its launch reads the base smash table
+/// (`smash_scale`) less the aim's `held` pull. Its mode blend is `smash_blend`.
 pub fn smash_scatter(s: &crate::player::ReachStats, grade: u8, bias: i32, height: f32, nudge: i32, scale: f32, held: f32) -> (f32, f32) {
     let depth = if grade::clean(grade) { 0 } else { bias + height_steps(height, s.smash[1], s.stroke_miss, 1.0) }.clamp(-MAX_ERROR, MAX_ERROR);
     let side = nudge.clamp(-MAX_ERROR, MAX_ERROR);
@@ -545,6 +544,33 @@ pub fn smash_scale(plain: bool, offset: i32, from_z: f32) -> f32 {
         return 1.0;
     }
     ((F(from_z.abs().clamp(1.5, BASELINE)) - 1.5) / 10.385 + 1.0).0
+}
+
+/// A smash's mode (tenths, toward its low margins): 0, or for a `plain` (not △) one off its timing (offset beyond
+/// ±1) minus a pressure from how deep the swing started (`from_z`), 0 inside 6.674 m growing to 10 at the baseline.
+pub fn smash_mode(plain: bool, offset: i32, from_z: f32) -> i32 {
+    if !plain || offset.abs() < 2 {
+        return 0;
+    }
+    let deep = (F(from_z.abs().clamp(6.4, BASELINE)) - 6.4) / 5.485;
+    -(F::ZERO + (deep * 10.0 + 0.5)).0 as i32
+}
+
+/// A smash's launch blend from its `mode`, as the strokes' (`timing_launch`) with the smash's stats: Serv POW
+/// against SM LOW POW. The mode is never positive, so only the low side scales it; a zero scale leaves −0.
+pub fn smash_blend(s: &crate::player::ReachStats, mode: i32) -> f32 {
+    let blend = (F(mode.clamp(-MAX_ERROR, MAX_ERROR) as f32) / 10.0).0;
+    let (base, add_) = (s.power[0], s.smash_low_pow);
+    let blend = if blend >= 0.0 {
+        let top = (base + add_).min(STAT_MAX);
+        if base < STAT_MAX { (blend * (F((top - base) as f32) / ((STAT_MAX - base) as f32))).0 } else { 0.0 }
+    } else if base < 1 {
+        0.0
+    } else {
+        let low = (base - add_).max(0);
+        (blend * (F((base - low) as f32) / (base as f32))).0
+    };
+    blend.clamp(-1.0, 1.0)
 }
 
 /// See `timing_error`.

@@ -85,12 +85,15 @@ pub fn error(g: &Game, i: usize, c: &Contact, branch: u8, lob: bool) -> TimingEr
 }
 
 /// Player `i`'s smash scatter (`swing::smash_scatter`) at contact `c`, `plain` (not the △ smash), from its aim's
-/// nudge and held depth (`Game::aim`).
-pub fn smash(g: &Game, i: usize, c: &Contact, plain: bool) -> (f32, f32) {
+/// nudge and held depth (`Game::aim`), and its launch blend (`swing::smash_blend`; below 0 the court pull takes
+/// the smash's low margins).
+pub fn smash(g: &Game, i: usize, c: &Contact, plain: bool) -> (f32, f32, f32) {
     let t = &g.timing[i];
     let bias = t.bias.get((c.offset + SWEET_FRAME) as usize).copied().unwrap_or(0);
-    let scale = swing::smash_scale(plain, c.offset, g.players[i].aim_from[1]);
-    swing::smash_scatter(&t.stats, c.grade, bias, -c.swing.ball[1], g.aim.nudge, scale, g.aim.held)
+    let from_z = g.players[i].aim_from[1];
+    let scale = swing::smash_scale(plain, c.offset, from_z);
+    let (sx, sz) = swing::smash_scatter(&t.stats, c.grade, bias, -c.swing.ball[1], g.aim.nudge, scale, g.aim.held);
+    (sx, sz, swing::smash_blend(&t.stats, swing::smash_mode(plain, c.offset, from_z)))
 }
 
 /// A timed launch: the scattered target, the table lookup and the variant's shot record
