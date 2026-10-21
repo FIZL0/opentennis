@@ -504,13 +504,15 @@ impl View {
         self.list.len() + self.courts.len() + self.umpires.len() + self.textures.len()
     }
 
-    /// B373: each kind tab's count on this page (by `mods_kind::KINDS`).
+    /// B373: each kind tab's count on this page (by `mods_kind::KINDS`); M145: on the grid's pages, the mods the
+    /// search finds (a name typed on one tab shows which others have it).
     fn kind_counts(&self) -> [usize; 4] {
         mods_kind::KINDS.map(|k| match self.page {
             _ if mods_kind::coming(k).is_some() => 0,
-            Page::Installed | Page::Upload => self.of_kind(k).len(),
+            Page::Upload => self.of_kind(k).len(),
+            Page::Installed => self.entries().iter().filter(|e| e.meta.kind == k && self.searched(e)).count(),
             // B587: Browse's under the chosen Show tab (Updates: only the mods with an update)
-            Page::Browse | Page::Mine => self.entries().iter().filter(|e| e.meta.kind == k && self.shown(e)).count(),
+            Page::Browse | Page::Mine => self.entries().iter().filter(|e| e.meta.kind == k && self.shown(e) && self.searched(e)).count(),
         })
     }
 
@@ -2243,6 +2245,50 @@ mod tests {
             upscale: true,
             build: Default::default(),
         }
+    }
+
+    /// M145: on Installed the kind tabs and the search narrow a long list together: the search keeps across a
+    /// switch of kind (L2 / R2 or a tap), each tab counts what it finds there, the texture packs' list is searched
+    /// too (in its order), and a tab with no match names the kinds that have some.
+    #[test]
+    fn installed_search_and_kinds() {
+        let _one = DRAWN.lock().unwrap_or_else(|e| e.into_inner());
+        let mut m = Menu { screen: Screen::Mods, ..default() };
+        m.add.list = (0..40).map(|i| a_mod(&format!("c{i}"), &format!("Player {i}"))).chain([a_mod("mario", "Mario")]).collect();
+        m.add.courts = vec![a_mod("court_a", "Mario Stadium"), a_mod("court_b", "Clay Hall")];
+        m.add.umpires = vec![a_mod("ump", "Robot")];
+        m.add.textures = vec![a_mod("hd", "HD Courts"), a_mod("mario_hd", "Mario HD"), a_mod("menu", "Menu Glow")];
+        m.add.packs = m.add.textures.iter().rev().map(|t| packs::Row { dir: t.dir.clone(), folder: t.id.clone(), name: t.name.clone(), author: String::new(), count: 1, bytes: 1, on: true }).collect();
+        installed(&mut m);
+        let names = |m: &Menu| m.add.items().iter().map(|e| e.meta.name.clone()).collect::<Vec<_>>();
+        assert_eq!(m.add.kind_counts(), [41, 2, 1, 3]);
+        assert_eq!(names(&m).len(), 41);
+        // a name typed: Characters' one match, and every tab counts its own
+        m.add.b.search = "mario".into();
+        assert_eq!(names(&m), ["Mario"]);
+        assert_eq!(m.add.kind_counts(), [1, 1, 0, 1]);
+        assert_eq!(m.add.kinds_shown().len(), 4, "a tab with no match stays");
+        let mut out = Vec::new();
+        m.mods_step(Press { kind_next: true, ..default() }, &mut out);
+        assert_eq!((m.add.kind, m.add.b.search.as_str()), (Kind::Court, "mario"));
+        assert_eq!(names(&m), ["Mario Stadium"]);
+        // Umpires: none, the other kinds named
+        m.mods_step(Press { kind_next: true, ..default() }, &mut out);
+        assert!(names(&m).is_empty());
+        assert_eq!(m.add.found_elsewhere(), "Characters 1, Courts 1, Texture packs 1");
+        // a tap on Texture packs' tab: the list in its order, searched ("hd" finds both HD packs, bottom one last)
+        let tab = super::super::pointer::tests::hits(&m).0.into_iter().find(|h| h.act == super::super::pointer::Act::Kind(3)).unwrap().rect;
+        let at = super::super::pointer::tests::act_at(&m, tab[0] + 4.0, tab[1] + 4.0).unwrap();
+        m.point(super::super::Dev::Keys, at, true);
+        assert!(m.add.packs_page());
+        assert_eq!(names(&m), ["Mario HD"]);
+        m.add.b.search = "hd".into();
+        assert_eq!(names(&m), ["Mario HD", "HD Courts"]);
+        assert!(m.add.found_elsewhere().is_empty());
+        // the search cleared: the whole list again
+        m.add.b.search.clear();
+        assert_eq!(names(&m).len(), 3);
+        assert_eq!(m.add.kind_counts(), [41, 2, 1, 3]);
     }
 
     /// B383: Installed is a grid of the installed mods (Show → Installed); ✕ on one opens Remove / Cancel in the
