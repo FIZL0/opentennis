@@ -126,6 +126,10 @@ pub(super) struct Geo {
     pub back: [f32; 4],
     pub chat: [f32; 4],
     pub start: [f32; 4],
+    /// B616: the foot's panels (one a row of cells; the strip alone in the board's layout), and whether Sets, Games
+    /// and Markers share one Match cell (`cells[2..5]` all its box: the local foot's 2×2).
+    pub panels: Vec<[f32; 4]>,
+    pub merged: bool,
 }
 
 impl Geo {
@@ -224,7 +228,7 @@ fn layout_in([l, t, r, b]: [f32; 4], spec: Spec, turned: bool) -> Geo {
     let back = [l, foot, x(BACK_W), y(FOOT_H)];
     let start = [r - x(START_W), foot, x(START_W), y(FOOT_H)];
     let chat = chat_box(back, start, spec.chat, &x, &y);
-    Geo { k, s, turned, title, pill, code, copy, public, mode, stage, court, labels, vs, plates, strip, cells, back, chat, start }
+    Geo { k, s, turned, title, pill, code, copy, public, mode, stage, court, labels, vs, plates, strip, cells, back, chat, start, panels: vec![strip], merged: false }
 }
 
 /// B544: the chat box between Leave and Start: at most [`CHAT_MAX`] wide and [`CHAT_H`] high, centred in the gap
@@ -238,37 +242,86 @@ fn chat_box(back: [f32; 4], start: [f32; 4], on: bool, x: &dyn Fn(f32) -> f32, y
     [l + (r - l - w) / 2.0, back[1] + (back[3] - h) / 2.0, w, h]
 }
 
-/// M121: the lobby's lower rows alone along the bottom of `reach`: the strip, then Leave, the chat box and Start, as
-/// wide as `reach` (at most full size, smaller only to fit its width or a fifth of a short window's height). The online
-/// select's columns go over them; `stage` is what's left above, the bar and the plates empty.
-pub(super) fn foot([l, t, r, b]: [f32; 4]) -> Geo {
-    // concept: one row, the strip's cells then Start inline (no Leave: Back leaves; chat is the overlay)
-    let rows = ROW_GAP + STRIP_H + PAD_B;
-    let foot_w = STRIP_MIN + 12.0 + INLINE_START_W;
-    let k = ((r - l) / PX / foot_w).min((b - t) / PY * 0.3 / rows).min(1.0);
-    let x = |px: f32| px * k * PX;
-    let y = |px: f32| px * k * PY;
-    let row = b - y(PAD_B) - y(STRIP_H);
-    let start = [r - x(INLINE_START_W), row, x(INLINE_START_W), y(STRIP_H)];
-    let strip = [l, row, start[0] - x(12.0) - l, y(STRIP_H)];
-    let stage = [l, t, r - l, row - y(ROW_GAP) - t];
-    let sum: f32 = GROW.iter().sum();
-    let mut at = strip[0];
-    let cells = GROW.map(|g| {
-        let w = strip[2] * g / sum;
-        at += w;
-        [at - w, strip[1], w, strip[3]]
-    });
+/// M121: the lobby's lower rows alone along the bottom of `reach`, the online select's columns over them (`stage` is
+/// what's left above, the bar and the plates empty). B616: always at the menu's size, never shrunk to fit: the first
+/// of these where every cell has the room for its words ([`FOOT_MIN`]): one row (the cells, then Start); the strip
+/// on its own row with Start under it (local: the Rules cell left of Start); two cells a row (Court | Umpire, then
+/// local Match (Sets, Games, Markers in one) | Rules, online Sets | Games and Mods | Markers) with Start across the
+/// bottom. `local`: the confirm screen's cells (Court, Umpire, Sets, Games, Markers, Rules), else the lobby's (Court,
+/// Umpire, Sets, Games, Mods, Markers).
+pub(super) fn foot([l, t, r, b]: [f32; 4], local: bool) -> Geo {
+    let (min, grow) = if local { (FOOT_MIN_LOCAL, GROW_LOCAL) } else { (FOOT_MIN, GROW) };
+    let room = (r - l) / PX;
+    let sum = |c: &[usize]| c.iter().map(|&i| min[i]).sum::<f32>();
+    let strip: Vec<usize> = (0..if local { 5 } else { 6 }).collect();
+    let all: Vec<usize> = (0..6).collect();
+    // each row's cells (by index) and whether Start ends it; the last row with none gets Start alone, full width
+    let rows: Vec<(Vec<usize>, bool)> = if sum(&all) + GAP + START_MIN <= room {
+        vec![(all, true)]
+    } else if sum(&strip) <= room && (!local || min[5] + GAP + START_MIN <= room) {
+        vec![(strip, false), (if local { vec![5] } else { vec![] }, true)]
+    } else if local {
+        vec![(vec![0, 1], false), (vec![2, 5], false), (vec![], true)]
+    } else {
+        vec![(vec![0, 1], false), (vec![2, 3], false), (vec![4, 5], false), (vec![], true)]
+    };
+    let merged = local && rows.len() == 3;
+    let n = rows.len() as f32;
+    let top = b - (PAD_B + n * STRIP_H + (n - 1.0) * ROW_GAP) * PY;
+    let stage = [l, t, r - l, top - ROW_GAP * PY - t];
     let none = [l, t, 0.0, 0.0];
-    let gone = [l, row, 0.0, 0.0];
-    Geo { k, s: 1.0, turned: false, title: none, pill: none, code: none, copy: none, public: none, mode: none, stage, court: stage, labels: [none; 2], vs: none, plates: Vec::new(), strip, cells, back: gone, chat: gone, start }
+    let mut g = Geo { k: 1.0, s: 1.0, turned: false, title: none, pill: none, code: none, copy: none, public: none, mode: none, stage, court: stage, labels: [none; 2], vs: none, plates: Vec::new(), strip: none, cells: [none; 6], back: none, chat: none, start: none, panels: Vec::new(), merged };
+    for (j, (cells, start)) in rows.iter().enumerate() {
+        let y = top + j as f32 * (STRIP_H + ROW_GAP) * PY;
+        // Start: its own width at the end of a row of cells, else the whole row
+        let sw = match (*start, cells.is_empty()) {
+            (false, _) => 0.0,
+            (true, true) => room,
+            (true, false) => START_MAX.min(START_MIN + (room - GAP - START_MIN - sum(cells)) / 2.0).max(START_MIN),
+        };
+        if *start {
+            g.start = [r - sw * PX, y, sw * PX, STRIP_H * PY];
+        }
+        if cells.is_empty() {
+            continue;
+        }
+        let w = if *start { room - sw - GAP } else { room };
+        let panel = [l, y, w * PX, STRIP_H * PY];
+        // each cell its least, the rest by the shares
+        let (least, shares) = (sum(cells), cells.iter().map(|&i| grow[i]).sum::<f32>());
+        let mut at = l;
+        for &i in cells {
+            let cw = (min[i] + (w - least).max(0.0) * grow[i] / shares) * PX;
+            g.cells[i] = [at, y, cw, STRIP_H * PY];
+            at += cw;
+        }
+        if j == 0 {
+            g.strip = panel;
+        }
+        g.panels.push(panel);
+    }
+    if merged {
+        // Match: the Sets cell's box for Games and Markers too
+        (g.cells[3], g.cells[4]) = (g.cells[2], g.cells[2]);
+    }
+    g.back = [l, g.start[1], 0.0, 0.0];
+    g.chat = g.back;
+    g
 }
 
-/// Concept: Start's width when it sits inline at the end of the strip.
-const INLINE_START_W: f32 = 260.0;
+/// B616: the least width (px at 720 lines) of each cell to show its words at the menu's size: Court (its picture and
+/// a court's name), Umpire (her face and a name), Sets, Games, Mods / Markers, Markers / Rules (with its chips); and
+/// Start's least and most beside the cells, the gap before it.
+const FOOT_MIN: [f32; 6] = [280.0, 180.0, 96.0, 96.0, 104.0, 104.0];
+const FOOT_MIN_LOCAL: [f32; 6] = [280.0, 180.0, 96.0, 96.0, 104.0, 200.0];
+/// The local cells' shares of the room past their least (Court, Umpire, Sets, Games, Markers, Rules).
+const GROW_LOCAL: [f32; 6] = [2.2, 1.6, 1.0, 1.0, 1.0, 1.6];
+const START_MIN: f32 = 220.0;
+const START_MAX: f32 = 300.0;
+const GAP: f32 = 12.0;
 
 /// The strip with only its first `n` cells, spread by their shares across all of it (the rest left zero wide at its
-/// right end): the confirm screen leaves Handicap out until handicaps work (B482, back with B40g1).
+/// right end): the online confirm screen's has no Markers.
 pub(super) fn spread(g: &mut Geo, n: usize) {
     let sum: f32 = GROW[..n].iter().sum();
     let mut at = g.strip[0];
@@ -739,17 +792,24 @@ pub(super) enum Thumb {
 
 /// The strip: its cells with the rules between them.
 pub(super) fn strip(d: &mut Draw, m: &Menu, g: &Geo, cells: &[Cell]) {
-    let [x, y, w, h] = g.strip;
-    let last = cells.len() - 1;
-    ringed(d, [x, y, w, h], g.x(12.0), g.x(2.0), RULE, Some(PANEL));
+    // B616: each row of the foot its own panel (the board's one strip on a wide window)
+    for &panel in &g.panels {
+        ringed(d, panel, g.x(12.0), g.x(2.0), RULE, Some(PANEL));
+    }
     for (k, (c, &[cx, cy, cw, ch])) in cells.iter().zip(&g.cells).enumerate() {
-        let inner = [cx + if k == 0 { g.x(2.0) } else { 0.0 }, cy + g.y(2.0), cw - if k == 0 || k == last { g.x(2.0) } else { 0.0 }, ch - g.y(4.0)];
+        // a cell with no room, or sharing an earlier one's box (the merged Match), isn't drawn
+        if cw <= 0.0 || g.cells[..k].contains(&[cx, cy, cw, ch]) {
+            continue;
+        }
+        let Some(&[px, _, pw, _]) = g.panels.iter().find(|p| p[1] == cy && p[0] <= cx + 0.01 && cx + cw <= p[0] + p[2] + 0.01) else { continue };
+        let (first, last) = (cx <= px + 0.01, cx + cw >= px + pw - 0.01);
+        let inner = [cx + if first { g.x(2.0) } else { 0.0 }, cy + g.y(2.0), cw - if first { g.x(2.0) } else { 0.0 } - if last { g.x(2.0) } else { 0.0 }, ch - g.y(4.0)];
         if c.sel {
             // concept: the lit cell is a pill of its own, rounded as the strip's ends
             rounded(d, inner, g.x(10.0), RULE, 128.0);
             ringed(d, inner, g.x(10.0), g.x(3.0), WHITE, None);
         }
-        if k > 0 {
+        if !first {
             d.q(Tex::Solid, [0.0; 4], [cx - g.x(1.0), cy + g.y(2.0), g.x(2.0), ch - g.y(4.0)], RULE, 128.0);
         }
         let mut tx = cx + g.x(14.0);

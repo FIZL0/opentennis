@@ -14,6 +14,136 @@ pub(super) fn label(h: u8) -> &'static str {
     ["No handicap", "1 weight", "2 weights"][h.min(2) as usize]
 }
 
+/// B616: what a level does to the player in the match: "runs N% slower", N from the run-speed size the match really
+/// uses (`hst_sim::player::handicap_size`); none without weights.
+pub(super) fn effect(h: u8) -> Option<String> {
+    let slower = 100 - hst_sim::player::handicap_size(h);
+    (slower != 0).then(|| format!("runs {slower}% slower"))
+}
+
+/// B616: a level's words, the level and what it does ("1 weight · runs 20% slower"), as the cards and the lobby's
+/// pills say it (`frame::dotted` draws the dot).
+pub(super) fn words(h: u8) -> String {
+    match effect(h) {
+        Some(e) => format!("{} · {e}", label(h)),
+        None => label(h).to_string(),
+    }
+}
+
+/// B616: how a card's footer holds the handicap stepper, by the card's inner width: all on one line (caption, ‹
+/// weights, words ›, its key, Ready); the stepper on a line of its own, the help line and Ready under it; the
+/// weights and ×N alone, Ready across the line under.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Foot {
+    Line,
+    Two,
+    Small,
+}
+
+/// B616: the inner widths (px at 720 lines) [`Foot::Line`] and [`Foot::Two`] need.
+const LINE_W: f32 = 520.0;
+const TWO_W: f32 = 330.0;
+
+impl Foot {
+    /// For a card `inner` units wide.
+    pub(super) fn of(inner: f32) -> Foot {
+        match inner / PX {
+            w if w >= LINE_W => Foot::Line,
+            w if w >= TWO_W => Foot::Two,
+            _ => Foot::Small,
+        }
+    }
+
+    pub(super) fn lines(self) -> usize {
+        if self == Foot::Line { 1 } else { 2 }
+    }
+}
+
+/// B616: `h` weight icons (kettlebells) of two, the rest dim, from `[x, y]` `size` high; their width.
+fn weights(d: &mut Draw, h: u8, [x, y]: [f32; 2], size: f32, rgb: [f32; 3]) -> f32 {
+    let w = size * PX / PY;
+    for i in 0..2 {
+        let (bx, alpha) = (x + i as f32 * (w + 2.0 * PX), if i < h { 128.0 } else { 40.0 });
+        rounded(d, [bx + w * 0.1, y + size * 0.3, w * 0.8, size * 0.7], w * 0.35, rgb, alpha);
+        rounded(d, [bx + w * 0.25, y, w * 0.5, size * 0.42], w * 0.2, rgb, alpha);
+        d.out.last_mut().unwrap().rim = w * 0.11;
+    }
+    2.0 * w + 2.0 * PX
+}
+
+/// B616: player `p`'s handicap stepper in their card's footer `[x, y, w, h]` on the local confirm screen (a ready
+/// card): "HANDICAP", ‹ the weights, the level and what it does › (a tap on either half steps it down / up), the
+/// button that steps it (△ / its key), Ready; stepped down to the card's width ([`Foot`]), `help` (the footer's long
+/// and short line) under it on two lines. False: no stepper on this card (the footer as before).
+pub(super) fn stepper(d: &mut Draw, m: &Menu, bind: &super::super::controls::Bindings, p: usize, [x, y, w, h]: [f32; 4], help: &[String; 2], soft: [f32; 3]) -> bool {
+    use super::roster::{key, key_w};
+    if m.online() || m.screen != Screen::Confirm || !m.players[p].ready {
+        return false;
+    }
+    let kind = Foot::of(w);
+    let lh = if kind == Foot::Line { h } else { (h - 6.0 * PY) / 2.0 };
+    let hc = m.players[p].handicap;
+    // the key of the device that steps it: the card's own, a computer's driver's (1P's)
+    let dev = match m.seats[p].or_else(|| m.lead()) {
+        Some(Dev::Pad(e)) => Some(e),
+        _ => None,
+    };
+    let name = super::legend::button_names(dev, super::legend::Act::Card, bind).first().cloned().unwrap_or_default();
+    let tri = bevy::prelude::GamepadButton::North;
+    let (ts, gh, cs) = (12.0 * PY, 15.0 * PY, 9.0 * PY);
+    // Ready: at the end of the line, or across the second
+    let (rs, rw) = (13.0 * PY, 64.0 * PX);
+    let ready = match kind {
+        Foot::Small => [x, y + lh + 6.0 * PY, w, lh],
+        _ => [x + w - rw, if kind == Foot::Line { y } else { y + lh + 6.0 * PY }, rw, lh],
+    };
+    rounded(d, ready, 10.0, hex(0xffd23f), 128.0);
+    d.centred("Ready!", ready[0] + ready[2] / 2.0, ready[1] + (lh - rs) / 2.0, rs, hex(0x0e1a2e));
+    // the stepper's room on its line
+    let right = if kind == Foot::Line { ready[0] - 8.0 * PX } else { x + w };
+    let mut cx = x;
+    if kind != Foot::Small {
+        d.text("HANDICAP", cx, y + (lh - cs) / 2.0, cs, soft);
+        cx += d.width("HANDICAP", cs) + 6.0 * PX;
+    }
+    let kw = match dev {
+        Some(_) => key_w(d, dev, tri, &name, gh),
+        None => super::roster::chip_w(d, &name, gh),
+    };
+    let words = match kind {
+        Foot::Small => format!("x{hc}"),
+        _ => words(hc),
+    };
+    // the pill as wide as its words (at most the room left of its key)
+    let (aw, wsz) = (d.width("<", ts), lh * 0.7);
+    let natural = 2.0 * (7.0 * PX + aw + 5.0 * PX) + 2.0 * wsz * PX / PY + 6.0 * PX + d.width(&words.replace('·', "  "), ts);
+    let pill = [cx, y, natural.min(right - kw - 6.0 * PX - cx).max(0.0), lh];
+    let (fill, ink) = if hc == 0 { (hex(0x31415c), hex(0xb8c4d8)) } else { (hex(0xe8743b), hex(0xffffff)) };
+    rounded(d, pill, 10.0, fill, 128.0);
+    let [px, py, pw, _] = pill;
+    d.text("<", px + 7.0 * PX, py + (lh - ts) / 2.0, ts, ink);
+    d.text(">", px + pw - 7.0 * PX - aw, py + (lh - ts) / 2.0, ts, ink);
+    let (il, ir) = (px + 7.0 * PX + aw + 5.0 * PX, px + pw - 7.0 * PX - aw - 5.0 * PX);
+    let iw = weights(d, hc, [il, py + (lh - wsz) / 2.0], wsz, ink);
+    super::frame::dotted(d, &words, il + iw + 4.0 * PX, py + (lh - ts) / 2.0, ts, (ir - il - iw - 4.0 * PX).max(0.0), ink, false);
+    // its key just after it (a keyboard's on a chip that shows on the card's light panel)
+    let at = [px + pw + 6.0 * PX, y + (lh - gh) / 2.0];
+    match dev {
+        Some(_) => key(d, dev, tri, &name, at, gh),
+        None => super::roster::chip(d, &name, at, gh, hex(0xc9bfd6)),
+    };
+    d.hit([px, py, pw / 2.0, lh], pointer::Act::Row(CONFIRM_ROWS + p, Press { card: true, kind_prev: true, ..Default::default() }));
+    d.hit([px + pw / 2.0, py, pw / 2.0, lh], pointer::Act::Row(CONFIRM_ROWS + p, Press { card: true, ..Default::default() }));
+    // the footer's help line under a stepper on a line of its own
+    if kind == Foot::Two {
+        let fw = ready[0] - 8.0 * PX - x;
+        let line = if d.width(&help[0], ts) <= fw { &help[0] } else { &help[1] };
+        let lw = d.width(line, ts).min(fw);
+        d.label(line, x + lw / 2.0, ready[1] + (lh - ts) / 2.0, ts, lw, soft);
+    }
+    true
+}
+
 impl Menu {
     /// Whether `dev`'s △ steps the handicap of the plate `sel` is on: a local match, the device's own card or a
     /// computer player's.
@@ -22,10 +152,10 @@ impl Menu {
         !self.online() && q < self.players() && (self.seats[q] == Some(dev) || self.bot(q))
     }
 
-    /// The chosen plate's player one step on: None → one weight → two → None.
-    pub(super) fn step_handicap(&mut self) {
+    /// The chosen plate's player one step on: None → one weight → two → None (`back`: the other way, B616's ‹).
+    pub(super) fn step_handicap(&mut self, back: bool) {
         let p = &mut self.players[self.sel - CONFIRM_ROWS];
-        p.handicap = (p.handicap + 1) % 3;
+        p.handicap = (p.handicap + if back { 2 } else { 1 }) % 3;
     }
 
     /// Player `p`'s handicap as the cards show it: online the room's on its seat (the host's), else the confirm
@@ -99,12 +229,17 @@ pub(super) fn pill(d: &mut Draw, m: &Menu, p: usize, [x, y, w, h]: [f32; 4]) -> 
     if !local && !host && !(m.online() && h_ > 0 && matches!(m.screen, Screen::Lobby | Screen::Chars)) {
         return w;
     }
-    let (s, words) = (12.0 * PY, label(h_));
-    let pw = d.width(words, s) + 20.0 * PX;
+    // B616: the level and what it does, as the confirm screen's stepper says it (the short level alone if that won't
+    // fit beside the card's other words)
+    let s = 12.0 * PY;
+    let long = words(h_);
+    let room = (w * 0.7).max(0.0);
+    let words = if d.width(&long, s) + 20.0 * PX <= room { long } else { label(h_).to_string() };
+    let pw = (d.width(&words, s) + 20.0 * PX).min(w.max(0.0));
     let rect = [x + w - pw, y, pw, h];
     let (fill, ink) = if h_ == 0 { (hex(0x31415c), hex(0xb8c4d8)) } else { (hex(0xe8743b), hex(0xffffff)) };
     rounded(d, rect, 10.0, fill, 128.0);
-    d.centred(words, x + w - pw / 2.0, y + (h - s) / 2.0, s, ink);
+    super::frame::dotted(d, &words, x + w - pw / 2.0, y + (h - s) / 2.0, s, pw - 12.0 * PX, ink, true);
     if local {
         d.hit(rect, pointer::Act::Row(CONFIRM_ROWS + p, Press { card: true, ..Default::default() }));
     }

@@ -7,7 +7,7 @@
 //! player back to the character select. The court and umpire selects (`court_screen`, `umpire_screen`) are as before.
 
 use super::frame::{self, Cell, Chip, Plate, Spec, Thumb};
-use super::{CHAR_NAMES, CONFIRM_ROWS, Draw, MARKS_ROW, Menu, Press, RANK_NAMES, SETS, Text, UMPIRES, Who};
+use super::{CHAR_NAMES, CONFIRM_ROWS, Draw, Grid, MARKS_ROW, Menu, Press, RANK_NAMES, SETS, Text, UMPIRES, Who};
 use super::pointer;
 use super::super::controls::Bindings;
 use bevy::prelude::{Entity, default};
@@ -16,10 +16,10 @@ impl Menu {
     pub(super) fn confirm_geo(&self) -> frame::Geo {
         if !self.online() {
             // concept: local, the confirm screen is the select's columns with the lobby's strip and Start under them
+            // B616: its cells laid out to fit their words (`frame::foot`)
             let mut g = self.lobby_foot();
             let c = self.columns();
             g.plates = (0..c.n).map(|p| c.parts(p).card).collect();
-            frame::spread(&mut g, 5);
             return g;
         }
         let mut g = frame::layout(self.grid.reach(), Spec { n: self.players(), code: false, public: false, chat: false });
@@ -50,6 +50,10 @@ pub(super) fn rects(m: &Menu) -> Vec<[f32; 4]> {
     let g = m.confirm_geo();
     let mut v = vec![g.start, g.cells[0], g.cells[2], g.cells[3], g.cells[1], g.cells[4]];
     v.extend(g.plates);
+    // B616: local, the Rules cell after the plates (`Menu::rules_row`)
+    if !m.online() {
+        v.push(g.cells[5]);
+    }
     v
 }
 
@@ -91,7 +95,7 @@ pub(super) fn draw(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &
 
 /// Concept: the local select's foot, as the online lobby's: Court, Umpire, Sets, Games inline with Start. On the
 /// select it shows what's set and how many are ready; once everyone is (the confirm screen) the arrows reach it.
-pub(super) fn local_foot(d: &mut Draw, m: &Menu, text: &Text) {
+pub(super) fn local_foot(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings) {
     let confirm = m.screen == super::Screen::Confirm;
     let g = m.confirm_geo();
     let on = |row: usize| confirm && m.picking.is_none() && m.sel == row;
@@ -103,12 +107,23 @@ pub(super) fn local_foot(d: &mut Draw, m: &Menu, text: &Text) {
             d.hit(rect, pointer::Act::Row(CONFIRM_ROWS + p, pointer::OK));
         }
     }
-    frame::strip(d, m, &g, &cells(m, text, &on));
+    let mut all_cells = Vec::from(cells(m, text, &on));
+    if g.merged {
+        // B616: Sets, Games and Markers in one Match cell (its panel: `match_panel.rs`)
+        all_cells[2] = Cell { label: "MATCH", value: super::match_panel::summary(m), arrows: false, sel: on(2) || on(3) || on(MARKS_ROW), thumb: Thumb::None };
+    }
+    all_cells.push(Cell { label: "OFFBEAT RULES", value: rules_words(m), arrows: false, sel: on(m.rules_row()), thumb: Thumb::None });
+    frame::strip(d, m, &g, &all_cells);
+    rules_cell(d, m, bind, g.cells[5], g.k);
     let n = m.players();
     let ready = (0..n).filter(|&p| m.players[p].ready).count();
     // concept: the strip takes a tap while the cards are still picked too
-    for (row, cell) in [(1, 0), (4, 1), (2, 2), (3, 3), (MARKS_ROW, 4)] {
+    let rows: &[(usize, usize)] = if g.merged { &[(1, 0), (4, 1), (2, 2)] } else { &[(1, 0), (4, 1), (2, 2), (3, 3), (MARKS_ROW, 4)] };
+    for &(row, cell) in rows {
         d.hit(g.cells[cell], pointer::Act::Row(row, pointer::OK));
+    }
+    if confirm {
+        d.hit(g.cells[5], pointer::Act::Row(m.rules_row(), pointer::OK));
     }
     let all = ready == n;
     let note = if all { "Everyone ready".to_string() } else { format!("{ready} of {n} ready") };
@@ -120,6 +135,55 @@ pub(super) fn local_foot(d: &mut Draw, m: &Menu, text: &Text) {
         }
     }
 }
+
+/// B616: the Rules cell's value: how many rules are on.
+fn rules_words(m: &Menu) -> String {
+    match m.rules_on().len() {
+        0 => "None on".into(),
+        n => format!("{n} on"),
+    }
+}
+
+/// B616: over the Rules cell `[x, y, w, h]` (as `frame::strip` drew it): the button that opens the box (Select / C)
+/// right of its caption, the rules on as chips after its value (as many as fit, then "+N").
+fn rules_cell(d: &mut Draw, m: &Menu, bind: &Bindings, [x, y, w, h]: [f32; 4], k: f32) {
+    use super::roster::{PX, PY, chip, chip_w, key, key_w};
+    if w <= 0.0 {
+        return;
+    }
+    let dev = match m.lead() {
+        Some(super::Dev::Pad(e)) => Some(e),
+        _ => None,
+    };
+    let (ls, vs) = (11.0 * k * PY, 20.0 * k * PY);
+    let top = y + (h - ls - 2.0 * k * PY - vs) / 2.0;
+    let (l, r) = (x + 14.0 * k * PX, x + w - 14.0 * k * PX);
+    let name = super::legend::button_names(dev, super::legend::Act::Hand, bind).first().cloned().unwrap_or_default();
+    let gh = 15.0 * k * PY;
+    let kx = l + d.width("OFFBEAT RULES", ls) + 6.0 * k * PX;
+    // the key only where it opens the box (on the select it's Hand)
+    let opens = matches!(m.screen, super::Screen::Confirm | super::Screen::Playing);
+    if opens && kx + key_w(d, dev, bevy::prelude::GamepadButton::Select, &name, gh) <= r {
+        key(d, dev, bevy::prelude::GamepadButton::Select, &name, [kx, top + (ls - gh) / 2.0], gh);
+    }
+    let on = m.rules_on();
+    let vy = top + ls + 2.0 * k * PY;
+    let mut cx = l + d.width(&rules_words(m), vs) + 8.0 * k * PX;
+    let ch = 16.0 * k * PY;
+    let cy = vy + (vs - ch) / 2.0;
+    for (i, words) in on.iter().enumerate() {
+        let more = format!("+{}", on.len() - i - 1);
+        let tail = if i + 1 < on.len() { chip_w(d, &more, ch) + 4.0 * k * PX } else { 0.0 };
+        if cx + chip_w(d, words, ch) + tail > r {
+            chip(d, &format!("+{}", on.len() - i), [cx, cy], ch, CAPTION_CHIP);
+            break;
+        }
+        cx += chip(d, words, [cx, cy], ch, frame::GOLD) + 4.0 * k * PX;
+    }
+}
+
+/// The Rules cell's "+N" chip.
+const CAPTION_CHIP: [f32; 3] = frame::CAPTION;
 
 /// The strip: Court, Umpire, Sets, Games, Markers (rows 1, 4, 2, 3, `MARKS_ROW`).
 fn cells(m: &Menu, text: &Text, on: &dyn Fn(usize) -> bool) -> [Cell; 5] {
@@ -221,6 +285,14 @@ fn plate(d: &mut Draw, m: &Menu, text: &Text, pads: &[Entity], p: usize, rect: [
     frame::plate(d, &plate, rect, s);
 }
 
+/// B616: whether the local select's (`stepper`: the confirm screen's) cards keep their least height over the foot
+/// on the view `aspect` wide at Menu Size `k`, one to four players (`fit_scale` lowers the size until they do).
+pub(super) fn cards_fit(aspect: f32, k: f32, stepper: bool) -> bool {
+    let [l, t, r, b] = Grid::fit_at(aspect, k).view;
+    let [_, y, _, h] = frame::foot([l + super::roster::MARGIN * super::roster::PX, t, r - super::roster::MARGIN * super::roster::PX, b], true).stage;
+    (1..=4).all(|n| super::roster::columns_stepped([l, t, r, y + h], n, [false; 4], stepper).whole)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{Grid, Screen};
@@ -248,5 +320,19 @@ mod tests {
                 assert!(seen.iter().all(|&s| s), "{aspect} {doubles}: {seen:?}");
             }
         }
+    }
+
+    /// B616: a short window's big Menu Size comes down until the cards keep a whole row of tiles over the foot (no
+    /// further than the size that fills the screen); a window with room keeps the size chosen.
+    #[test]
+    fn a_short_window_lowers_the_confirm_screens_menu_size_until_the_cards_fit() {
+        for a in [4.0 / 3.0, 16.0 / 9.0, 844.0 / 390.0] {
+            let k = super::super::fit_scale(Screen::Confirm, a, 1.5);
+            assert!(k < 1.5, "{a}: {k}");
+            let (s, v) = crate::widescreen::menu_shares(a, 1.0);
+            assert!(cards_fit(a, k, true) || (k - 1.0 / s.max(v)).abs() < 1e-4, "{a}: {k}");
+        }
+        assert_eq!(super::super::fit_scale(Screen::Confirm, 16.0 / 9.0, 1.0), 1.0);
+        assert!(cards_fit(9.0 / 16.0, 1.5, true));
     }
 }

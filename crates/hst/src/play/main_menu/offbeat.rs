@@ -16,6 +16,8 @@ const RULES: [(&str, &[&str], &str); 7] = [
     ("Sweet spot", ON_OFF, "Every hit, serve and dive lands on the sweet spot: no mistimed or mis-hit shots."),
 ];
 const ON_OFF: &[&str] = &["Off", "On"];
+/// B616: each rule's short name on the strip's Rules cell (size and speed say their choice instead).
+const CHIPS: [&str; 7] = ["Bounce", "Slow-mo", "Turbo", "Ghost", "", "", "Sweet spot"];
 
 impl Menu {
     /// The legend's word for Select on the confirm screen: the rules, and how many are on.
@@ -28,7 +30,8 @@ impl Menu {
     /// False: not the box's.
     pub(super) fn rules_step(&mut self, k: Press, out: &mut Vec<Effect>) -> bool {
         let Some(at) = self.rules else {
-            if k.hand && !self.online() {
+            // B616: ✕ on the strip's Rules cell opens it too
+            if (k.hand || k.ok && !k.name && self.sel == self.rules_row()) && !self.online() {
                 self.rules = Some(0);
                 out.push(Effect::Sound(2));
                 return true;
@@ -47,6 +50,23 @@ impl Menu {
             out.push(Effect::Sound(0));
         }
         true
+    }
+
+    /// B616: the confirm screen's row of the strip's Rules cell: after the plates' (local only).
+    pub(super) fn rules_row(&self) -> usize {
+        super::CONFIRM_ROWS + self.players()
+    }
+
+    /// B616: the rules on, as the Rules cell's chips say them (Player size and speed by their choice).
+    pub(super) fn rules_on(&self) -> Vec<&'static str> {
+        (0..RULES.len())
+            .filter_map(|i| match (i, self.offbeat.get(i)) {
+                (_, 0) => None,
+                (4, c) => Some(["Tiny", "Big"][(c as usize - 1).min(1)]),
+                (5, c) => Some(["Fast", "Slow"][(c as usize - 1).min(1)]),
+                _ => Some(CHIPS[i]),
+            })
+            .collect()
     }
 
     /// `--offbeat` for the match, none online or with every rule off.

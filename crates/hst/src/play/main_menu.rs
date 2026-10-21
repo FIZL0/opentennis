@@ -52,6 +52,7 @@ mod confirm;
 mod extras;
 mod frame;
 mod handicap;
+mod match_panel;
 mod home;
 mod look;
 mod names;
@@ -172,6 +173,14 @@ fn fit_scale(screen: Screen, aspect: f32, k: f32) -> f32 {
         s if s == Screen::Controls || !options::page(s).is_empty() => {
             let mut t = k;
             while t > whole && !options::rows_fit(&Grid::fit_at(aspect, t), s) {
+                t = (t - 0.05).max(whole);
+            }
+            t
+        }
+        // B616: the select and the confirm screen until their cards keep their least height over the strip
+        Screen::Chars | Screen::Confirm => {
+            let mut t = k;
+            while t > whole && !confirm::cards_fit(aspect, t, screen == Screen::Confirm) {
                 t = (t - 0.05).max(whole);
             }
             t
@@ -701,6 +710,8 @@ struct Menu {
     listing: Option<usize>,
     /// B40g2 (concept): the confirm screen's Offbeat Rules box is up: its chosen rule (`offbeat.rs`).
     rules: Option<usize>,
+    /// B616: the local foot's merged Match cell's panel is up (Sets, Games, Markers steppers; `match_panel.rs`).
+    match_panel: bool,
     /// B40g2 (concept): the local match's Offbeat Rules (`--offbeat`).
     offbeat: crate::play::offbeat::Offbeat,
     /// B369: the select's favorite characters (`favorites.txt`).
@@ -790,6 +801,7 @@ impl Default for Menu {
             update_ask: None,
             listing: None,
             rules: None,
+            match_panel: false,
             offbeat: default(),
             favs: default(),
             names: default(),
@@ -1037,7 +1049,10 @@ impl Menu {
             }
             false => b,
         };
-        roster::columns_mixed([l, t + band, r, b], self.players(), std::array::from_fn(|p| self.compact(p)))
+        // B616: the local confirm screen's cards carry the handicap stepper
+        let stepper = !self.online() && matches!(self.screen, Screen::Confirm | Screen::Playing);
+        let compact = std::array::from_fn(|p| self.compact(p));
+        if stepper { roster::columns_stepped([l, t + band, r, b], self.players(), compact, true) } else { roster::columns_mixed([l, t + band, r, b], self.players(), compact) }
     }
 
     /// B201: the select of an online room not started yet.
@@ -1931,7 +1946,7 @@ impl Menu {
         use Effect::*;
         // B371: Start / N is the name picker's (its own seat, ready or not)
         let own = (0..self.players()).find(|&q| self.seats[q] == Some(dev));
-        if self.rules_step(k, out) {
+        if self.rules_step(k, out) || self.match_step(k, out) {
             return;
         }
         if let Some(q) = own && self.name_step(q, dev, k, out) {
@@ -1984,7 +1999,7 @@ impl Menu {
             // doubles with more than two people here can't be singles
             out.push(Sound(1));
         } else if k.card && self.can_handicap(dev) {
-            self.step_handicap();
+            self.step_handicap(k.kind_prev);
             out.push(Sound(0));
         } else if (k.back || k.ok && self.sel >= CONFIRM_ROWS) && self.online() {
             self.go(Screen::Lobby, out);
@@ -3291,6 +3306,7 @@ fn confirm(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity]
         _ => confirm::draw(d, m, text, bind, pads),
     }
     offbeat::draw(d, m);
+    match_panel::draw(d, m);
 }
 
 /// B356: the random umpire's icon `size` across centred on `[x, y]`, round like the disc's umpire faces: their dark
@@ -4091,7 +4107,13 @@ mod tests {
             assert_eq!(fit_scale(screen, wide, 1.5), whole);
             assert_eq!(fit_scale(screen, wide, 0.8), 0.8);
         }
-        assert_eq!(fit_scale(Screen::Chars, wide, 1.5), 1.5);
+        // B616: the select and confirm screens until their cards keep a whole tile row over the strip
+        for screen in [Screen::Chars, Screen::Confirm] {
+            let k = fit_scale(screen, wide, 1.5);
+            assert!(k >= whole && k < 1.5 && confirm::cards_fit(wide, k, screen == Screen::Confirm), "{k}");
+            assert_eq!(fit_scale(screen, wide, 1.0), 1.0);
+        }
+        assert_eq!(fit_scale(Screen::Assign, wide, 1.5), 1.5);
         let k = fit_scale(Screen::Display, wide, 1.5);
         assert!(k >= whole && k <= 1.5 && options::rows_fit(&Grid::fit_at(wide, k), Screen::Display));
         let auto = Settings::default();

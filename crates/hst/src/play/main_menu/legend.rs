@@ -198,11 +198,15 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
         Screen::Confirm if host && m.rules.is_some() => {
             v.extend([(Act::UpDown, "Rule"), (Act::Ok, "On / Off"), (Act::Back, "Close")]);
         }
+        // B616: the Match cell's panel
+        Screen::Confirm if host && m.match_panel => {
+            v.extend([(Act::UpDown, "Choose"), (Act::LeftRight, "Change"), (Act::Ok, "Done"), (Act::Back, "Close")]);
+        }
         Screen::Confirm if host => {
             // B449: about the screen; ✕ on a plate sends that player back to the select
             moves(&mut v, m.confirm_axes());
             let all = m.online() || (0..m.players()).all(|p| m.players[p].ready);
-            let theirs = s >= CONFIRM_ROWS && !m.online() && !(m.seats[s - CONFIRM_ROWS] == Some(dev) || m.seats[s - CONFIRM_ROWS].is_none());
+            let theirs = s >= CONFIRM_ROWS && s < m.rules_row() && !m.online() && !(m.seats[s - CONFIRM_ROWS] == Some(dev) || m.seats[s - CONFIRM_ROWS].is_none());
             if (s != 0 || all) && !theirs {
                 v.push((Act::Ok, if s == 0 { "Start" } else if s < CONFIRM_ROWS || !m.online() { "Change" } else { "Back" }));
             }

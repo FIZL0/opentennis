@@ -42,3 +42,4 @@
 - Custom characters with a faster swing now speed up only their ground strokes and volleys: their serves, smashes, dives and missed smashes play at the normal speed.
 - Some custom characters no longer kick a leg up into the air when walking off after a point or running.
 - Custom characters whose faces swap whole face pictures no longer shut their eyes while running about in a rally, and blink at a natural pace instead of flickering between open and closed eyes.
+- The Ready to play? screen now shows each player's handicap with what it does (how many weights and how much slower they run) and changes it with ‹ ›, adds an Offbeat Rules box to the bottom bar that lists the rules on and opens them, and its bottom bar now rearranges onto more rows instead of shrinking its words on narrow or tall screens.

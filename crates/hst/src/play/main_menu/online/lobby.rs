@@ -62,7 +62,8 @@ impl Menu {
     pub(in super::super) fn lobby_foot(&self) -> frame::Geo {
         let [l, t, r, b] = self.grid.view;
         let band = super::band_h(self, r - l - 2.0 * roster::MARGIN * PX);
-        frame::foot([l + roster::MARGIN * PX, t + band, r - roster::MARGIN * PX, b])
+        // B616: local, the confirm screen's cells (Markers and Rules, no Mods)
+        frame::foot([l + roster::MARGIN * PX, t + band, r - roster::MARGIN * PX, b], !self.online())
     }
 
     /// M121: the top bar's buttons, right to left: Singles / Doubles, the code pill's place (the pill right-aligned
