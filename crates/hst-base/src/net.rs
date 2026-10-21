@@ -986,8 +986,9 @@ pub enum Event {
     /// open for the match.
     Start(Room, String),
     Failed(String),
-    /// In the match: another peer's message.
-    Match(Msg),
+    /// In the match: another peer's message, with the peer it came from (B602): a guest hears everything from
+    /// `"host"` (the host passes on other guests' messages, checked by [`from_guest`]), the host each guest's own.
+    Match(String, Msg),
     /// In the match: a peer is gone (why).
     Dropped(String),
     /// In the match: a peer's datagram (`Cmd::Datagram`), with who sent it.
@@ -2389,6 +2390,25 @@ fn back_for(room: &Room, away: &[String], name: &str, seat: Option<u8>) -> Optio
     away.iter().find(|p| had == Some(p.as_str())).or_else(|| away.iter().find(|p| room.names.get(*p).is_some_and(|n| n == name))).or(away.first()).cloned()
 }
 
+/// B602: guest `peer`'s match message as the host passes it on, or `None`: only the host says who's away, sends its
+/// state or a restart and ends the match into the lobby; a guest's pads count only for the seats it holds in `room`;
+/// its keep-alive, loaded and switched-away words are about itself whatever name it puts in them.
+fn from_guest(room: &Room, peer: &str, m: Msg) -> Option<Msg> {
+    let held = |seats: Vec<(u8, [u8; 6])>| -> Option<Vec<(u8, [u8; 6])>> {
+        let v: Vec<_> = seats.into_iter().filter(|(s, _)| room.seats.get(*s as usize).and_then(|s| s.as_ref()).is_some_and(|s| s.peer == peer)).collect();
+        (!v.is_empty()).then_some(v)
+    };
+    match m {
+        Msg::Away { .. } | Msg::Restart { .. } | Msg::State { .. } | Msg::Lobby(_) => None,
+        Msg::Pads { tick, seats } => Some(Msg::Pads { tick, seats: held(seats)? }),
+        Msg::Intro { tick, seats } => Some(Msg::Intro { tick, seats: held(seats)? }),
+        Msg::Alive(_) => Some(Msg::Alive(peer.into())),
+        Msg::Loaded(_) => Some(Msg::Loaded(peer.into())),
+        Msg::Hidden(_) => Some(Msg::Hidden(peer.into())),
+        m => m.in_match().then_some(m),
+    }
+}
+
 /// The match; back to the lobby (B196): the lobby's room, the guests still in, their messages.
 type Back = (Room, Vec<(String, Link, Conn)>, amp::UnboundedReceiver<Guest>);
 
@@ -2411,9 +2431,11 @@ async fn relay(cx: &Ctx, mut room: Room, mut joined: Vec<(String, Link, Conn)>, 
             Some(g) = guests.recv() => match g {
                 Guest::Said(peer, Msg::Chat { text, .. }) => chat(cx, &peer, &text, &room.names, &joined, &mut rates),
                 // only the host says who's away and restarts the match
-                Guest::Said(peer, m) if m.in_match() && !matches!(m, Msg::Away { .. } | Msg::Restart { .. }) => {
-                    joined.iter().filter(|(p, ..)| *p != peer).for_each(|(_, l, _)| l.send(&m));
-                    cx.say(Event::Match(m));
+                Guest::Said(peer, m) if m.in_match() => {
+                    if let Some(m) = from_guest(&room, &peer, m) {
+                        joined.iter().filter(|(p, ..)| *p != peer).for_each(|(_, l, _)| l.send(&m));
+                        cx.say(Event::Match(peer, m));
+                    }
                 }
                 Guest::Gone(peer, link) => joined.retain(|(p, l, _)| !(*p == peer && l.same(&link))),
                 Guest::In { peer, name, hand, link, conn, seat, .. } => {
@@ -2432,7 +2454,7 @@ async fn relay(cx: &Ctx, mut room: Room, mut joined: Vec<(String, Link, Conn)>, 
                             r.rejoin = true;
                             link.send(&Msg::Start(r));
                             joined.push((peer.clone(), link, conn));
-                            cx.say(Event::Match(Msg::Rejoined { old, new: peer, name }));
+                            cx.say(Event::Match("host".into(), Msg::Rejoined { old, new: peer, name }));
                         }
                         _ => refuse(&link, conn, "the match has started".into()),
                     }
@@ -2762,7 +2784,7 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
                 }
                 Ok(Msg::Lobby(r)) if playing => {
                     playing = false;
-                    cx.say(Event::Match(Msg::Lobby(r)));
+                    cx.say(Event::Match("host".into(), Msg::Lobby(r)));
                 }
                 Ok(Msg::Start(r)) => {
                     // a rejoiner (B196) gets Start without a Room first
@@ -2772,7 +2794,7 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
                 Ok(Msg::Ping(t)) => link.send(&Msg::Pong(t)),
                 Ok(Msg::Chat { from, name, text }) if seated => cx.say(Event::Chat { from, name, text }),
                 Ok(Msg::Emote { seat, dir }) if seated && !playing => cx.say(Event::Emote { seat, dir }),
-                Ok(m) if playing && m.in_match() => cx.say(Event::Match(m)),
+                Ok(m) if playing && m.in_match() => cx.say(Event::Match("host".into(), m)),
                 Ok(Msg::Refused(why)) => {
                     cx.say(Event::Failed(format!("Refused: {why}")));
                     conn.close(b"refused");
@@ -3395,6 +3417,38 @@ mod tests {
         assert_eq!(back_for(&r, &[], "Sam", Some(at("a"))), None);
     }
 
+    /// B602: the host passes on none of a guest's host-only match messages, a guest's pads only for its own seats,
+    /// and its keep-alive / loaded / switched-away words under its own name.
+    #[test]
+    fn the_host_drops_a_guests_forged_match_messages() {
+        let mut r = room(true);
+        r.take("host", &[Pick::disc(0, 0)]);
+        r.take("a", &[Pick::disc(1, 0)]);
+        r.take("b", &[Pick::disc(2, 0)]);
+        let at = |p: &str| r.seats.iter().position(|s| s.as_ref().is_some_and(|s| s.peer == p)).unwrap() as u8;
+        let (a, b, host) = (at("a"), at("b"), at("host"));
+        let pass = |m: Msg| from_guest(&r, "a", m);
+        for m in [
+            Msg::Away { who: vec!["b".into()], left: 9, ask: true },
+            Msg::State { tick: 3, data: vec![1; 8], last: true },
+            Msg::Lobby(r.clone()),
+            Msg::Restart { round: 1, tick: 3, room: r.clone(), last: [[0; 6]; 4], data: Vec::new(), end: true },
+            Msg::Pads { tick: 5, seats: vec![(b, [1; 6]), (host, [1; 6])] },
+            Msg::Intro { tick: 5, seats: vec![(9, [1; 6])] },
+            Msg::Chat { from: "a".into(), name: String::new(), text: "hi".into() },
+        ] {
+            assert_eq!(pass(m.clone()), None, "{m:?}");
+        }
+        assert_eq!(pass(Msg::Pads { tick: 5, seats: vec![(b, [1; 6]), (a, [2; 6])] }), Some(Msg::Pads { tick: 5, seats: vec![(a, [2; 6])] }));
+        assert_eq!(pass(Msg::Intro { tick: 5, seats: vec![(a, [2; 6])] }), Some(Msg::Intro { tick: 5, seats: vec![(a, [2; 6])] }));
+        assert_eq!(pass(Msg::Alive("b".into())), Some(Msg::Alive("a".into())));
+        assert_eq!(pass(Msg::Loaded("b".into())), Some(Msg::Loaded("a".into())));
+        assert_eq!(pass(Msg::Hidden("b".into())), Some(Msg::Hidden("a".into())));
+        for m in [Msg::Hash { tick: 4, hash: 7 }, Msg::Pause(true), Msg::Bye("x".into()), Msg::Resynced(4), Msg::Choose(true)] {
+            assert_eq!(pass(m.clone()), Some(m));
+        }
+    }
+
     /// B292: every person in ready doesn't count down while a seat is open; a full lobby does.
     #[test]
     fn no_autostart_with_open_seats() {
@@ -3711,7 +3765,7 @@ mod tests {
             let mut back = r.clone();
             back.back_to_lobby(&[]);
             hcmd.send(Cmd::Send(Msg::Lobby(back))).unwrap();
-            next(&gev, |e| matches!(e, Event::Match(Msg::Lobby(_)))).await;
+            next(&gev, |e| matches!(e, Event::Match(_, Msg::Lobby(_)))).await;
             gcmd.send(Cmd::Prepared(true)).unwrap();
             next(&gev, |e| matches!(e, Event::Room(r) if r.count > 0)).await;
             let Event::Start(r, _) = next(&gev, |e| matches!(e, Event::Start(..))).await else { unreachable!() };
@@ -4792,7 +4846,7 @@ mod tests {
             let mut back = r.clone();
             back.back_to_lobby(&[]);
             hcmd.send(Cmd::Send(Msg::Lobby(back))).unwrap();
-            let Event::Match(Msg::Lobby(l)) = next(&gev, |e| matches!(e, Event::Match(Msg::Lobby(_)))).await else { unreachable!() };
+            let Event::Match(_, Msg::Lobby(l)) = next(&gev, |e| matches!(e, Event::Match(_, Msg::Lobby(_)))).await else { unreachable!() };
             assert_eq!(l.open(), 2);
             gcmd.send(Cmd::Prepared(true)).unwrap();
             hcmd.send(Cmd::Start).unwrap();

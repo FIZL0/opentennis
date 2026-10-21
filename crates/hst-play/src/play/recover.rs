@@ -94,19 +94,19 @@ impl Recover {
 
     /// Any word from a peer.
     pub fn heard_from(&mut self, e: &Event) {
-        if let Event::Datagram(p, _) | Event::Match(Msg::Alive(p) | Msg::Loaded(p) | Msg::Hidden(p)) = e {
+        if let Event::Datagram(p, _) | Event::Match(_, Msg::Alive(p) | Msg::Loaded(p) | Msg::Hidden(p)) = e {
             self.quiet.insert(p.clone(), (0.0, true));
         }
         // B162: the keeper while it's away, the frame loop's keep-alive once it's back
         match e {
-            Event::Match(Msg::Hidden(p)) if !self.hidden.contains_key(p) => {
+            Event::Match(_, Msg::Hidden(p)) if !self.hidden.contains_key(p) => {
                 info!("online: {p} switched away");
                 self.hidden.insert(p.clone(), 0.0);
             }
-            Event::Match(Msg::Alive(p)) if self.hidden.remove(p).is_some() => info!("online: {p} is back"),
+            Event::Match(_, Msg::Alive(p)) if self.hidden.remove(p).is_some() => info!("online: {p} is back"),
             _ => {}
         }
-        if let Event::Match(Msg::Loaded(p)) = e {
+        if let Event::Match(_, Msg::Loaded(p)) = e {
             self.loaded.insert(p.clone());
         }
     }
@@ -138,8 +138,7 @@ pub(super) fn heard(np: &mut Netplay, m: Msg) {
             r.chosen.get_or_insert(bot);
         }
         Msg::Restart { round, tick, room, last, data, end } if !host => {
-            r.pieces.extend(data);
-            if end {
+            if super::resync::gather(&mut r.pieces, data) && end {
                 r.ready = Some((round, tick, room, last, std::mem::take(&mut r.pieces)));
             }
         }

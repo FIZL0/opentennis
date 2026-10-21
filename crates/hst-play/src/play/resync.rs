@@ -17,6 +17,21 @@ use bevy::prelude::*;
 /// Bytes of the state a message.
 pub const PIECE: usize = 48 << 10;
 
+/// B602: the most bytes of the host's state (or restart, `recover.rs`) a peer gathers; past it the pieces so far are
+/// dropped (a match state is far smaller).
+pub const STATE_MAX: usize = 32 << 20;
+
+/// B602: `data` onto the pieces heard so far; all dropped if they'd go past [`STATE_MAX`] (false).
+pub(super) fn gather(pieces: &mut Vec<u8>, data: Vec<u8>) -> bool {
+    if pieces.len() + data.len() > STATE_MAX {
+        warn!("online: the host's state is past {} MB: dropped", STATE_MAX >> 20);
+        *pieces = Vec::new();
+        return false;
+    }
+    pieces.extend(data);
+    true
+}
+
 pub struct Resync {
     /// A peer: the host's state before tick `.0`, waiting for this machine to get there.
     pub(super) pending: Option<(u32, Vec<u8>)>,
@@ -58,8 +73,7 @@ pub(super) fn ask(np: &mut Netplay) {
 pub(super) fn heard(np: &mut Netplay, m: Msg) {
     match m {
         Msg::State { tick, data, last } if np.me != "host" => {
-            np.resync.pieces.extend(data);
-            if last {
+            if gather(&mut np.resync.pieces, data) && last {
                 np.resync.pending = Some((tick, std::mem::take(&mut np.resync.pieces)));
             }
         }
