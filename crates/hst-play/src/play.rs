@@ -167,6 +167,8 @@ pub struct Player {
     pending: Option<u32>,
     /// The auto-approach's run direction (game x, z) while `pending` counts down to its one search.
     approach: Option<Vec2>,
+    /// Ran on the frame before the press (`swing::dive_run`): the dive check reads it.
+    dive_run: bool,
     contact: Option<Contact>,
     /// Frames of wind-up before contact (sets the animation clock).
     wind: u32,
@@ -2567,11 +2569,11 @@ fn approach(g: &Game, i: usize) -> Option<(usize, Vec2)> {
     .map(|(f, d)| (f, Vec2::new(d[0], d[1])))
 }
 
-/// The search's last branch: a running player whose press finds no stroke dives toward the ball.
+/// The search's last branch: a player who ran on the frame before the press (`Player::dive_run`) and whose press
+/// finds no stroke dives toward the ball.
 fn find_dive(g: &Game, i: usize) -> Option<swing::Dive> {
     let p = &g.players[i];
-    // ponytail: this frame's run stands in for the game's previous-frame locomotion state
-    if !theirs(g, i) || !p.body.running {
+    if !theirs(g, i) || !p.dive_run {
         return None;
     }
     let path = predicted_path(g, swing::DIVE_HORIZON);
@@ -3165,6 +3167,8 @@ fn control(mut g: ResMut<Game>, pads: Res<Pads>, tick: Res<tick_input::TickPads>
         .map(|i| pads.slot_of(i, g.players.len()).is_some())
         .collect();
     for i in 0..g.players.len() {
+        let p = &mut g.players[i];
+        p.dive_run = swing::dive_run(p.dive_run, p.body.running, p.pending.is_some());
         match pads.slot_of(i, g.players.len()) {
             Some(s) => {
                 ai_setup::reset_human(g, i);
