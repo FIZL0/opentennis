@@ -80,9 +80,14 @@ fn tornado_s05() {
 #[test]
 fn tornado_slowmo() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(data) = std::fs::read(format!("{root}/context/fixtures/tornado_slowmo.bin")) else {
-        return eprintln!("tornado_slowmo.bin absent, skipped");
+    let (Ok(data), Ok(cnf), Ok(bin)) = (
+        std::fs::read(format!("{root}/context/fixtures/tornado_slowmo.bin")),
+        std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")),
+        std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+    ) else {
+        return eprintln!("tornado_slowmo.bin or disc absent, skipped");
     };
+    let floor = hst_data::exe::Game::new(&cnf, &bin).unwrap().tornado_floor();
     // per frame: vsync 4, slow-motion block 0x30, tornado 0x190, its model +0x120 (8), its UV animation 0x30, ball
     const SLOW: usize = 4;
     const T: usize = SLOW + 0x30;
@@ -112,7 +117,7 @@ fn tornado_slowmo() {
         }
         let mut tor = state(prev);
         let uv = [f(&fr[T..], 0x180), f(&fr[T..], 0x17c)];
-        let (scale, time) = tor.between(i(&fr[B..], 0x224), v4(&fr[B..], 0xe0), v4(&fr[B..], 0x140), frac, uv, fade, 0);
+        let (scale, time) = tor.between(i(&fr[B..], 0x224), v4(&fr[B..], 0xe0), v4(&fr[B..], 0x140), frac, uv, fade, floor);
         // the UV animation's setter wraps a looping time into its length
         let (len, mut time) = (f(&fr[ANIM..], 0x14), time);
         if fr[ANIM + 0x28] != 0 && len != 0.0 {
