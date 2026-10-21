@@ -1005,13 +1005,25 @@ fn texture_face(
     };
     let neutral = image(j["neutral"].as_str().ok_or_else(|| err("`neutral` must be an image path".into()))?)?;
     let mut channels = Vec::new();
-    for (k, v) in j["channels"].as_object().into_iter().flatten() {
+    let mut blink = None;
+    let all = j["channels"].as_object();
+    for (k, v) in all.into_iter().flatten() {
         // null: the channel has no face of its own (a mask), it stays neutral
         let Some(p) = v.as_str() else { continue };
         let t = names.iter().position(|n| n == k).unwrap_or_else(|| {
             names.push(k.clone());
             names.len() - 1
         });
+        // B614: the textures' eyes are what reads, so an emotion's mouth only picks its face when the emotion has no
+        // eye texture (the donors' tired runs hold a mouth alone, which shut the eyes on a sad-eyed texture)
+        if let Some(e) = k.strip_suffix("_mouth")
+            && all.and_then(|a| a.get(&format!("{e}_eye"))).is_some_and(|v| v.is_string())
+        {
+            continue;
+        }
+        if k == "blink_eye" {
+            blink = Some(channels.len());
+        }
         channels.push((t, image(p)?));
     }
     let wanted: Vec<&str> = j["materials"].as_array().into_iter().flatten().filter_map(|m| m.as_str()).collect();
@@ -1027,7 +1039,7 @@ fn texture_face(
             d.texture = Some(neutral.1.clone());
         }
     }
-    Ok(character::TextureFace { neutral, channels })
+    Ok(character::TextureFace { neutral, channels, blink })
 }
 
 /// One primitive's vertices.
@@ -1933,7 +1945,7 @@ mod tests {
 
     /// Get a Grip's Emi (a texture face, §4b): her face material starts neutral, the donor's `.MOR` tracks drive
     /// face.json's channels by name, and every donor face that reaches half strength (B585: the stance and stroke
-    /// faces hold exactly half) shows its expression texture on some frame.
+    /// faces hold exactly half) shows an expression texture on some frame.
     #[test]
     fn texture_face_follows_the_donors_faces() {
         let Ok(mut iso) = hst_data::fixture::iso() else { return };
@@ -1943,11 +1955,11 @@ mod tests {
         let mut s = Stores(default(), default(), default(), default());
         let (_, c) = load_mod(&mut iso, &mut s, "getagrip_pc00_emi").unwrap();
         let f = c.texture_face.as_ref().expect("texture face");
-        assert_eq!(f.channels.len(), 9);
+        // B614: every channel is a weight, but the mouths of emotions with an eye texture pick no face
         assert_eq!(c.morph_names.len(), 9);
-        // joy_eye and joy_mouth (weights 5, 6: channels by name) share zero_face5.png: one image
-        let joy: Vec<_> = f.channels.iter().filter(|(t, _)| [5, 6].contains(t)).map(|c| c.1.0.id()).collect();
-        assert!(joy.len() == 2 && joy[0] == joy[1], "{joy:?}");
+        let picks: Vec<&str> = f.channels.iter().map(|(t, _)| c.morph_names[*t].as_str()).collect();
+        assert_eq!(picks, ["anger_eye", "blink_eye", "doki_eye", "joy_eye", "sorrow_eye"]);
+        assert_eq!(f.blink, Some(1));
         let face = c.parts.iter().filter_map(|p| s.1.get(&p.1)?.base_color_texture.clone()).filter(|t| *t == f.neutral.0).count();
         assert!(face > 0, "no part starts on the neutral face");
         assert!(c.gs.values().flatten().any(|d| d.texture.as_ref() == Some(&f.neutral.1)));

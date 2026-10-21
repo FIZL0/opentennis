@@ -374,12 +374,50 @@ pub struct TextureFace {
     pub neutral: (Handle<Image>, Handle<Image>),
     /// Per channel: its weight in the rig's `MorphWeights` (the donor's `.MOR` tracks drive it) and its texture.
     pub channels: Vec<(usize, (Handle<Image>, Handle<Image>))>,
+    /// Which of `channels` is the blink (`blink_eye`), if the face has one.
+    pub blink: Option<usize>,
+}
+
+/// The shortest a texture face holds a face before it swaps again, in seconds: two frames of the PSP sources' 30 Hz
+/// face tracks, their shortest blink (B614). HST's own blink is above half for only three 60 Hz frames, and its
+/// stance faces change with every step, which flickered on a whole-face texture.
+const FACE_HOLD: f32 = 2.0 / 30.0;
+
+/// No new blink starts within this many seconds of the last one's start: the sources' closest pair of blinks (Get a
+/// Grip's stroke recoveries, 0.83 s apart). HST restarts the stance's blink whenever a stance motion starts, i.e.
+/// after every stop and turn of a rally; a morph blink there is a faint flutter, a texture one shuts the eyes (B614).
+const BLINK_GAP: f32 = 0.8;
+
+/// What a texture face shows (a channel of [`TextureFace::channels`], or neutral) and since when, and when its last
+/// blink started (seconds of virtual time).
+#[derive(Clone, Copy, Default)]
+pub struct FaceShown {
+    channel: Option<usize>,
+    since: Option<f32>,
+    blink: Option<f32>,
 }
 
 impl TextureFace {
     /// The texture shown at weights `w`: the first strongest channel at 0.5 or more, else neutral.
     pub fn pick(&self, w: &[f32]) -> &(Handle<Image>, Handle<Image>) {
         strongest(self.channels.iter().map(|c| c.0), w).map_or(&self.neutral, |k| &self.channels[k].1)
+    }
+
+    /// The texture shown at weights `w` at time `now`, as [`Self::pick`] but paced: a face, once shown, stays for at
+    /// least [`FACE_HOLD`], and a blink that starts within [`BLINK_GAP`] of the last one's start is skipped (the next
+    /// strongest channel shows instead). `shown` carries this between frames.
+    pub fn show(&self, w: &[f32], shown: &mut FaceShown, now: f32) -> &(Handle<Image>, Handle<Image>) {
+        let blinking = shown.channel.is_some() && shown.channel == self.blink;
+        let may_blink = blinking || shown.blink.is_none_or(|b| now - b >= BLINK_GAP);
+        // a skipped blink reads past the weights, i.e. 0
+        let want = strongest(self.channels.iter().enumerate().map(|(k, c)| if !may_blink && Some(k) == self.blink { usize::MAX } else { c.0 }), w);
+        if want != shown.channel && shown.since.is_none_or(|t| now - t >= FACE_HOLD) {
+            if want.is_some() && want == self.blink {
+                shown.blink = Some(now);
+            }
+            *shown = FaceShown { channel: want, since: Some(now), ..*shown };
+        }
+        shown.channel.map_or(&self.neutral, |k| &self.channels[k].1)
     }
 
     fn holds(&self, h: &Handle<Image>) -> bool {
@@ -401,14 +439,17 @@ fn strongest(channels: impl Iterator<Item = usize>, w: &[f32]) -> Option<usize> 
 
 /// Swap every texture-face rig's face texture to the one its weights pick (after `animate` sets them).
 pub fn texture_faces(
-    rigs: Query<(&Rig, &bevy::mesh::morph::MorphWeights, &Children)>,
+    rigs: Query<(Entity, &Rig, &bevy::mesh::morph::MorphWeights, &Children)>,
     parts: Query<AnyOf<(&MeshMaterial3d<StandardMaterial>, &MeshMaterial3d<crate::gs::GsMaterial>)>>,
     mut std_materials: ResMut<Assets<StandardMaterial>>,
     mut gs: ResMut<Assets<crate::gs::GsMaterial>>,
+    time: Res<Time>,
+    mut shown: Local<HashMap<Entity, FaceShown>>,
 ) {
-    for (rig, w, children) in &rigs {
+    shown.retain(|e, _| rigs.contains(*e));
+    for (e, rig, w, children) in &rigs {
         let Some(face) = &rig.data.texture_face else { continue };
-        let (srgb, raw) = face.pick(w.weights());
+        let (srgb, raw) = face.show(w.weights(), shown.entry(e).or_default(), time.elapsed_secs());
         for (s, g) in parts.iter_many(children) {
             // only the face's draws carry a face texture; touch them only on a change
             if let Some(m) = s.filter(|m| std_materials.get(&m.0).and_then(|m| m.base_color_texture.as_ref()).is_some_and(|t| t != srgb && face.holds(t))) {
@@ -1714,6 +1755,25 @@ mod tests {
         assert_eq!(strongest([1, 4].into_iter(), &w), Some(0));
         assert_eq!(strongest([5, 4].into_iter(), &w), None);
         assert_eq!(strongest([4, 0, 9].into_iter(), &w), Some(1));
+    }
+
+    /// B614: a texture face holds each face two source frames, and a blink within 0.8 s of the last one's start is
+    /// skipped for the next strongest face.
+    #[test]
+    fn texture_face_paces_its_swaps() {
+        let face = TextureFace { neutral: default(), channels: vec![(0, default()), (1, default())], blink: Some(0) };
+        let mut shown = FaceShown::default();
+        let mut at = |w: [f32; 2], t: f32| {
+            let x = face.show(&w, &mut shown, t);
+            [&face.neutral, &face.channels[0].1, &face.channels[1].1].iter().position(|y| std::ptr::eq(x, *y)).unwrap()
+        };
+        assert_eq!(at([1.0, 0.0], 0.0), 1, "blink");
+        assert_eq!(at([0.0, 0.0], 1.0 / 60.0), 1, "held");
+        assert_eq!(at([0.0, 0.0], 4.0 / 60.0), 0, "open again");
+        assert_eq!(at([1.0, 0.0], 0.3), 0, "too soon after the last blink");
+        assert_eq!(at([1.0, 0.5], 0.3), 2, "the next strongest instead");
+        assert_eq!(at([1.0, 0.5], 0.85), 1, "blinks again");
+        assert_eq!(at([1.0, 0.0], 1.7), 1, "a held blink stays");
     }
 
     /// P51: each disc character's parts list only the joints they weight, and skin every vertex (and its per-joint

@@ -35,3 +35,4 @@
 - In singles, a computer opponent returning serve now moves on to its rally play at the same moment as in the original game (once its return is really done), not as soon as it has hit the ball.
 - A computer server now hands over from its serve to the rally at the same moment as in the original: in singles it starts moving about half a second sooner after serving.
 - Switching Settings tabs now only nudges the options card instead of sliding the whole page.
+- Custom characters whose faces swap whole face pictures no longer shut their eyes while running about in a rally, and blink at a natural pace instead of flickering between open and closed eyes.
