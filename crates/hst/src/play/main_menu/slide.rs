@@ -1,9 +1,9 @@
 //! The slide between menu screens (B40e2): the last screen's panels slide off and fade, then the new screen's slide
 //! in from the other side. Ours, not the original's (menus need not be 1:1, user 2026-10-12): the wall and title bar
 //! (`Anchor::Span`) switch at the midpoint without moving; a forward step (a later `Screen`) moves left, back moves right.
-//! Between two Settings tabs only the page's cards move, and only a little: the tab bar and legend stay put; the old
-//! cards slide out and fade onto a dimmed blank panel, then the new ones slide in over it, so only one page shows at a
-//! time and the wall never shows through (user 2026-10-21: both pages at once was too much).
+//! Between two Settings tabs nothing moves: the tab bar and legend stay put; the old cards fade onto blank paper cards,
+//! then the new ones fade in over them, so only one page shows at a time and the wall never shows through (user
+//! 2026-10-21: both pages at once was too much; a dimmed blank with the cards sliding off it read as a gray ghost).
 
 use bevy::prelude::*;
 
@@ -15,10 +15,6 @@ use super::{Quad, Screen, Tex, look};
 const HALF: f32 = 8.0;
 /// How far the panels travel (640×448 units) while fading.
 const TRAVEL: f32 = 160.0;
-/// How far a Settings tab's cards travel.
-const TAB_TRAVEL: f32 = 24.0;
-/// The blank panel the Settings cards fade through: paper, dimmed.
-const DIM: f32 = 0.85;
 /// B626: the web build switches Settings tabs at once, no slide (user 2026-10-21: it animated badly there).
 const INSTANT_TABS: bool = cfg!(target_arch = "wasm32");
 
@@ -69,15 +65,15 @@ impl Slide {
             let b = [old[0][1].min(cards[0][1]), (old[0][1] + old[0][3]).max(old[1][1] + old[1][3]).max(cards[0][1] + cards[0][3]).max(cards[1][1] + cards[1][3])];
             let (mut out, new): (Vec<_>, Vec<_>) = quads.into_iter().partition(|q| q.anchor == Anchor::Span || !in_band(q, b));
             // the blank under the page on view: the old one's cards going, the new one's coming
-            let paper = look::c(look::PAPER).map(|v| v * DIM);
+            let paper = look::c(look::PAPER);
             let blank = if self.incoming().is_some() { cards } else { old };
             out.extend(blank.into_iter().filter(|r| r[2] > 0.0).map(|dst| Quad { tex: Tex::Solid, src: [0.0; 4], dst, rgb: paper, alpha: 128.0, tile: false, anchor: Anchor::Centre, angle: 0.0, round: [18.0 * PX; 4], rim: 0.0 }));
             out.extend(match self.incoming() {
-                Some((_, e)) => shift(new, self.dir * TAB_TRAVEL * (1.0 - e), e, None),
+                Some((_, e)) => shift(new, 0.0, e, None),
                 None => {
                     let e = ease(self.t / HALF);
                     let old = self.old.iter().copied().filter(|q| q.anchor != Anchor::Span && in_band(q, b)).collect();
-                    shift(old, -self.dir * TAB_TRAVEL * e, 1.0 - e, None)
+                    shift(old, 0.0, 1.0 - e, None)
                 }
             });
             return out;
@@ -134,8 +130,8 @@ mod tests {
     const NONE: [[f32; 4]; 2] = [[0.0; 4]; 2];
     const CARDS: [[f32; 4]; 2] = [[0.0, 50.0, 300.0, 350.0], [320.0, 50.0, 100.0, 350.0]];
 
-    /// Between Settings tabs only the cards (in the band) move, and less; the bar stays the new page's; the old cards
-    /// fade onto the dimmed panels, then the new ones come in over them, never both at once.
+    /// Between Settings tabs only the cards (in the band) fade, in place; the bar stays the new page's; the old cards
+    /// fade onto the blank panels, then the new ones come in over them, never both at once.
     #[test]
     fn tabs_fade_through_a_dim_panel() {
         let mut s = Slide::default();
@@ -153,10 +149,10 @@ mod tests {
         assert_eq!(out.len(), 4);
         assert!(out[0] == new_bar && out[1].dst == CARDS[0] && out[2].dst == CARDS[1]);
         let old = out[3];
-        assert!(old.rgb == card.rgb && old.alpha < 128.0 && old.alpha > 0.0 && old.dst[0] < 100.0, "old leaving: {old:?}");
+        assert!(old.rgb == card.rgb && old.alpha < 128.0 && old.alpha > 0.0 && old.dst[0] == 100.0, "old leaving: {old:?}");
         let out = go(8);
         let new = out[3];
-        assert!(new.rgb == new_card.rgb && new.alpha < 128.0 && new.alpha > 0.0 && new.dst[0] > 100.0, "new coming: {new:?}");
+        assert!(new.rgb == new_card.rgb && new.alpha < 128.0 && new.alpha > 0.0 && new.dst[0] == 100.0, "new coming: {new:?}");
         assert_eq!(go(5), vec![new_bar, new_card]);
     }
 
@@ -168,7 +164,7 @@ mod tests {
         card.dst[1] = 100.0;
         s.step(Screen::Display, vec![card], 1.0, CARDS);
         let one = [[0.0, 50.0, 420.0, 350.0], [0.0; 4]];
-        let blanks = |out: &[Quad]| out.iter().filter(|q| q.rgb == look::c(look::PAPER).map(|v| v * DIM)).map(|q| q.dst).collect::<Vec<_>>();
+        let blanks = |out: &[Quad]| out.iter().filter(|q| q.rgb == look::c(look::PAPER)).map(|q| q.dst).collect::<Vec<_>>();
         let out = (0..4).map(|_| s.step(Screen::Controls, vec![card], 1.0, one)).last().unwrap();
         assert_eq!(blanks(&out), CARDS);
         let out = (0..8).map(|_| s.step(Screen::Controls, vec![card], 1.0, one)).last().unwrap();
