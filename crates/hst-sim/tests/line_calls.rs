@@ -204,6 +204,65 @@ fn live_ball_comes_to_rest_as_the_game() {
     }
 }
 
+/// P128: the latest contact normal (+0x210) on every live-ball step of the recordings that touch the ghost
+/// material (32, a bush's see-through faces), replayed as `live_ball_comes_to_rest_as_the_game` does: wherever
+/// the step is bit-exact, the port's normal is the game's bit for bit, and every ghost-touch step is among them.
+/// The game's per-step ghost-touch count (+0x264) never goes past 1: after the first ghost touch in a step the
+/// world sweep ignores the ghost and reports the real contact behind it, so a second ghost touch (whose normal
+/// the step would keep while skipping its response) never happens.
+#[test]
+fn live_ball_contact_normal_as_the_game() {
+    use hst_sim::{court, replay::frames_live};
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let (Ok(mut iso), Ok(cnf), Ok(bin)) = (fixture::iso(), fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
+        return fixture::skip("disc absent");
+    };
+    let materials = court::materials(&Game::new(&cnf, &bin).unwrap());
+    let mut worlds = std::collections::BTreeMap::new();
+    let (mut exact, mut inexact, mut ghosts, mut ghosts_exact) = (0, 0, 0, 0);
+    let mut bad = Vec::new();
+    for name in ["p7e_c07", "p7b_c01", "p7b_c08", "p7b_c03", "p7b_c13"] {
+        let Ok(data) = fixture::read(format!("{ctx}/fixtures/{name}.bin")) else {
+            fixture::skip(format_args!("{name}.bin absent"));
+            continue;
+        };
+        let frames = frames_live(&data);
+        for (k, fr) in frames.iter().enumerate() {
+            let g = i(fr.live_ball(), 0x264);
+            assert!((0..=1).contains(&g), "{name} frame {k}: {g} ghost touches in one step");
+            ghosts += g as usize;
+        }
+        let c = frames[0].global(0x422f90) as u32;
+        let world = worlds.entry(c).or_insert_with(|| court::world(&mut iso, c).unwrap());
+        for (k, w) in frames.windows(2).enumerate() {
+            let (a, b) = (w[0].live_ball(), w[1].live_ball());
+            if w[1].vsync() != w[0].vsync() + 1 || i(b, 0xac) < i(a, 0xac) || i(b, 0xac) > i(a, 0xac) + 1 || v3(a, 0x130) == [0.0; 3] {
+                continue;
+            }
+            let (mut fl, shot) = live(a);
+            fl.rally = w[1].gm()[0x55] == 3;
+            fl.step_world(&shot, &COURTS[c as usize], world, &materials);
+            let want = (v3(b, 0xe0).map(f32::to_bits), v3(b, 0x130).map(f32::to_bits));
+            if (fl.ball.pos.map(f32::to_bits), fl.ball.vel.map(f32::to_bits)) != want {
+                inexact += 1;
+                continue;
+            }
+            exact += 1;
+            ghosts_exact += (i(b, 0x264) == 1) as usize;
+            let normal: [f32; 4] = std::array::from_fn(|n| f(b, 0x210 + 4 * n));
+            if fl.normal.map(f32::to_bits) != normal.map(f32::to_bits) {
+                bad.push(format!("{name} frame {}: normal {:?}, game {normal:?} (ghosts {})", k + 1, fl.normal, i(b, 0x264)));
+            }
+        }
+    }
+    eprintln!("{exact} live steps bit-exact ({inexact} not, skipped); {ghosts} ghost-touch steps, {ghosts_exact} of them stepped");
+    assert!(bad.is_empty(), "{} mismatches:\n{}", bad.len(), bad[..bad.len().min(20)].join("\n"));
+    if fixture::exists(format!("{ctx}/fixtures/p7e_c07.bin")) && fixture::exists(format!("{ctx}/fixtures/p7b_c01.bin")) {
+        assert_eq!(ghosts_exact, ghosts, "ghost-touch steps not bit-exact");
+        assert!(ghosts >= 15, "{ghosts} ghost touches");
+    }
+}
+
 /// P123: the rally timeout, forced on `p7e_c03`'s recorded rally frames (no recording reaches it): a ball still
 /// in the rally phase 1801 steps after its launch comes to rest on its next step (1800 isn't enough, nor 1801 out
 /// of the rally phase), whatever it is doing, and stays put after; its call turns out (out after the net when it
