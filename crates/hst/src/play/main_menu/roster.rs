@@ -879,11 +879,6 @@ fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p
         (None, Who::Disc(_)) if m.remote_mod_name(p).is_some() => "Mod".to_string(),
         (None, Who::Disc(_)) => "Disc character".to_string(),
     };
-    // B40g3: the host's handicap for this player
-    let what = match m.handicap_of(p) {
-        0 => what,
-        h => format!("{what} - {}", super::handicap::label(h)),
-    };
     let (fill, ink) = match f.state {
         // M122: its machine still downloading a mod: why it isn't ready
         _ if f.fetching.is_some() => (hex(0xffd23f), hex(look::INK)),
@@ -896,8 +891,10 @@ fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p
     let pw = (d.width(&state, ps) + 20.0 * PX).min(iw * 0.55);
     rounded(d, [ix + iw - pw, foot_y, pw, foot_h], 15.0, fill, 128.0);
     d.label(&state, ix + iw - pw / 2.0, foot_y + (foot_h - ps) / 2.0, ps, pw - 12.0 * PX, ink);
+    // B40g3: the host's handicap for this player in a pill left of it (B611: the host's taps step it)
+    let left = super::handicap::pill(d, m, p, [ix, foot_y, iw - pw - 8.0 * PX, foot_h]);
     let ws = 13.0 * PY;
-    let what = ellipsis(d, &what, ws, iw - pw - 8.0 * PX);
+    let what = ellipsis(d, &what, ws, left.max(0.0));
     d.text(&what, ix, foot_y + (foot_h - ws) / 2.0, ws, s.soft);
 }
 

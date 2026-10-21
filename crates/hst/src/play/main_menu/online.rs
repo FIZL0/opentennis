@@ -334,6 +334,11 @@ impl Menu {
         }
     }
 
+    /// B611: seat `p`'s card's place in the lobby's items (its row), if it's in the room.
+    pub(super) fn seat_row(&self, p: usize) -> Option<usize> {
+        self.items().iter().position(|it| *it == Item::Seat(p))
+    }
+
     /// The lobby this machine would host: its players in the first seats, the rest open.
     fn room(&self) -> Room {
         let cfg = self.net.cfg.clone().unwrap_or_default();

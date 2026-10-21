@@ -40,11 +40,18 @@ impl Menu {
     /// B40g3: the taken seat whose handicap the host's L2 / R2 steps in the lobby: the one under the cursor, while
     /// the host arranges (no prompt up, no countdown, not started).
     pub(super) fn lobby_handicap_seat(&self) -> Option<usize> {
-        if !self.net.hosting || self.net.started || self.screen != Screen::Lobby || self.lobby_asking() || self.counting() > 0 {
-            return None;
-        }
-        let i = self.lobby_focus()?;
-        self.net.room.as_ref()?.seats.get(i)?.as_ref().map(|_| i)
+        self.lobby_focus().filter(|&i| self.lobby_handicaps(i))
+    }
+
+    /// B611: whether the host can step seat `i`'s handicap in the lobby now: it's taken, the host arranges (no
+    /// prompt up, no countdown, not started).
+    pub(super) fn lobby_handicaps(&self, i: usize) -> bool {
+        self.net.hosting
+            && !self.net.started
+            && self.screen == Screen::Lobby
+            && !self.lobby_asking()
+            && self.counting() == 0
+            && self.net.room.as_ref().is_some_and(|r| r.seats.get(i).is_some_and(|s| s.is_some()))
     }
 
     /// B40g3: the host's L2 / R2 on a seat's card in the lobby: its player's handicap one down / up (round None, one
@@ -69,12 +76,27 @@ impl Menu {
     }
 }
 
-/// Player `p`'s handicap pill at the right end of the card's footer `[x, y, w, h]` on the local confirm screen (a tap
-/// steps it), and online on the lobby and select while one is set; the footer width left of it.
+/// B611: what a tap on a lobby card's handicap pill presses on its seat: R2, one up.
+fn up() -> Press {
+    Press { kind_next: true, ..Default::default() }
+}
+
+/// B611: the lobby's handicap pills' taps on top of the seats' (`lobby::over` hits whole cards after the cards drew).
+pub(super) fn lift(d: &mut Draw, m: &Menu) {
+    let pill = |a: &pointer::Act| m.screen == Screen::Lobby && matches!(*a, pointer::Act::Row(_, k) if k == up());
+    let (pills, mut hits): (Vec<_>, Vec<_>) = std::mem::take(&mut d.hits).into_iter().partition(|h| pill(&h.act));
+    hits.extend(pills);
+    d.hits = hits;
+}
+
+/// Player `p`'s handicap pill at the right end of the card's footer `[x, y, w, h]` on the local confirm screen and,
+/// for the host, on each taken seat's card in the lobby (a tap steps it), and online on the lobby and select while one
+/// is set; the footer width left of it.
 pub(super) fn pill(d: &mut Draw, m: &Menu, p: usize, [x, y, w, h]: [f32; 4]) -> f32 {
     let h_ = m.handicap_of(p);
     let local = !m.online() && m.screen == Screen::Confirm && m.players[p].ready;
-    if !local && !(m.online() && h_ > 0 && matches!(m.screen, Screen::Lobby | Screen::Chars)) {
+    let host = m.online() && m.lobby_handicaps(p);
+    if !local && !host && !(m.online() && h_ > 0 && matches!(m.screen, Screen::Lobby | Screen::Chars)) {
         return w;
     }
     let (s, words) = (12.0 * PY, label(h_));
@@ -85,6 +107,9 @@ pub(super) fn pill(d: &mut Draw, m: &Menu, p: usize, [x, y, w, h]: [f32; 4]) -> 
     d.centred(words, x + w - pw / 2.0, y + (h - s) / 2.0, s, ink);
     if local {
         d.hit(rect, pointer::Act::Row(CONFIRM_ROWS + p, Press { card: true, ..Default::default() }));
+    }
+    if let Some(row) = m.seat_row(p).filter(|_| host) {
+        d.hit(rect, pointer::Act::Row(row, up()));
     }
     w - pw - 8.0 * PX
 }
@@ -119,6 +144,33 @@ mod tests {
         assert_eq!(net(m.step(Dev::Keys, r2)), Some(Cmd::Handicap(0, 1)), "the host's own");
         m.net.hosting = false;
         assert_eq!(net(m.step(Dev::Keys, r2)), None, "a guest's");
+    }
+
+    /// B611: the host's tap on a lobby card's handicap pill (a person's or the computer's, the host's own full card
+    /// or a compact one) steps that player's handicap, over the card's own hit; a guest's cards have no such pill.
+    #[test]
+    fn a_tap_on_a_lobby_pill_steps_the_handicap() {
+        use super::super::online::{Fx, Go, sample};
+        use super::super::pointer::{Act, hit_at, tests::hits};
+        use crate::net::Cmd;
+        let mut m = Menu { screen: Screen::Lobby, ..default() };
+        sample(&mut m);
+        (m.net.me, m.seats[0], m.net.go) = ("host".into(), Some(Dev::Keys), Some(Go::Host));
+        let taken: Vec<usize> = (0..4).filter(|&i| m.lobby_handicaps(i)).collect();
+        assert!(taken.len() >= 2 && taken.contains(&0), "{taken:?}");
+        for i in taken {
+            let row = m.seat_row(i).unwrap();
+            let h = hits(&m).0;
+            let pill = h.iter().find(|h| h.act == Act::Row(row, up())).unwrap_or_else(|| panic!("seat {i}: no pill"));
+            let [x, y, w, hh] = pill.rect;
+            let at = hit_at(&h, bevy::prelude::Vec2::new((x + w / 2.0) / 640.0, (y + hh / 2.0) / 448.0), 4.0 / 3.0, 1.0, 0.0);
+            assert_eq!(at, Some(pill.act), "seat {i}: the pill on top");
+            let fx = m.point(Dev::Keys, pill.act, true);
+            let net = fx.iter().find_map(|e| if let Effect::Online(Fx::Net(c)) = e { Some(c.clone()) } else { None });
+            assert_eq!(net, Some(Cmd::Handicap(i, 1)), "seat {i}");
+        }
+        m.net.hosting = false;
+        assert!(!hits(&m).0.iter().any(|h| matches!(h.act, Act::Row(_, k) if k == up())), "a guest's");
     }
 
     /// △ on a plate steps its player's handicap round (their own card or a computer's, not another person's), and
