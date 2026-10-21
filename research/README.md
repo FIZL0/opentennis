@@ -10,6 +10,7 @@ game lives in `context/`, which is git-ignored and must never be shared.
 | Path | What |
 |---|---|
 | `journal/` | Research notes per task (`YYYY-MM-DD-<slug>/N-TOPIC-STATE.md`). `-FINAL` done, `-PART` in progress, `-READY` needs the human. `TODO.md` links each item to its entry. |
+| `journal/<entry>/scripts/` | A finished task's one-off probes. While a task is open its probes sit at the top level as `research/<id>_<what>.py` (lower-case task id); `tools/done.sh` moves them into the task's journal on tick (`tools/probes.py`), so the top level keeps only reusable tools. |
 | `fn.sh <addr>` | Prints one function from the decompilation dump, e.g. `research/fn.sh 34afc0`. |
 | `xr.sh <addr>` | Lists every reference to an address from the xref dump (callers, reads, writes), e.g. `research/xr.sh 34afc0`. |
 | `mkoverlay_elf.py` | Builds one ELF per program overlay (GAME, MENU, MOVIE) from the disc's boot ELF, so Ghidra sees the overlay code at its load address. |
@@ -18,7 +19,9 @@ game lives in `context/`, which is git-ignored and must never be shared.
 | `tools/` | Python analysis scripts: format walkers (`mdlwalk`, `mtlwalk`, `mdlvif`, `vifwalk`), the PS2 FPU model (`ps2fpu`), a VU0 disassembler, ball-flight and shot-table models, and the generators for test recordings (`fixture_*.py`). |
 
 The scripts that drive the live game are in the top-level `tools/` (PINE client, recorders, virtual pad,
-screenshots).
+screenshots). Shared helpers for new scripts: `tools/rec.py` (MIPS stub assembler for hooks, fixture sample reader,
+f32/u32 casts, the match sample's regions) and `tools/pine.py`'s `state_file(slot)` / `pcsx2_folder("Snapshots")`
+(this agent's PCSX2 save states and screenshots, never a hard-coded home path).
 
 ## You need
 
