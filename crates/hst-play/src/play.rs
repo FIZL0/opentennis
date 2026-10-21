@@ -3677,7 +3677,9 @@ fn remember(mut g: ResMut<Game>) {
 fn simulate(mut g: ResMut<Game>) {
     let g2 = &mut *g;
     g2.instant.ticks += 1;
-    // ponytail: she steps first, so this tick's phase messages reach her a tick later than in the original
+    // she steps first, the scoreboard's calls come after (the game's order); a phase message the match sends
+    // below (verdict, serve, change of ends) is the next tick's phase entry in the game, which reaches her
+    // before that tick's step: the same sequence for her, only the voice is out a tick sooner (`VOICE_LAG`)
     let playing = g2.umpire_voice != 0;
     g2.umpire.step(playing, g2.flight.ball.pos);
     // the gallery and the emitters step after the walkers, in `npcs::step` (the game's order)
