@@ -798,17 +798,36 @@ const read = (q = '') => fetch('version.txt' + q, { cache: 'no-store' }).then(r 
 const loaded = await read();
 {
   const build = v => loaded && v && v !== loaded && /^[0-9a-f]{7,40}$/.test(v);
+  // B625: a launch (a home-screen web app opens the cached build, and iOS stops the service worker before its
+  // background download ends, so it never got further) asks at once, before any of the game loads, and goes
+  // straight into a newer build: a reload into the one sw.js has ready, else the caches dropped and a reload from
+  // the network. At most once per build a tab (a CDN still serving the old one can't loop it); offline, or no
+  // answer within 3 s, plays the cached one. The game then says "Updated to …" (`update.rs`).
+  const picked = v => { try { if (sessionStorage.getItem('hst-picked') === v) return true; sessionStorage.setItem('hst-picked', v); } catch {} return false; };
+  const soon = p => Promise.race([p, new Promise(r => setTimeout(() => r(''), 3000))]);
+  if (navigator.onLine !== false) {
+    const next = await soon(read('?next'));
+    const server = build(next) ? '' : await soon(read('?server'));
+    if (build(next) && !picked(next)) { location.reload(); await new Promise(() => {}); }
+    if (build(server) && !picked(server)) {
+      try { for (const k of await caches.keys()) if (k.startsWith('hst')) await caches.delete(k); } catch {}
+      location.reload();
+      await new Promise(() => {});
+    }
+  }
   let behind = 0;
-  const check = async () => {
-    const now = await read('?next');
-    if (build(now)) { window.hstLatest = now; window.hstFresh = false; dispatchEvent(new Event('hstlatest')); return; }
+  // `now`: offer the server's newer build without the wait below (a return to the page: the background download had
+  // its chance while the page was away, and a phone's service worker was likely stopped with it)
+  const check = async now => {
+    const ready = await read('?next');
+    if (build(ready)) { window.hstLatest = ready; window.hstFresh = false; dispatchEvent(new Event('hstlatest')); return; }
     // iOS Safari stops the service worker during its background download (a ~70 MB wasm), so `?next` stayed on this
     // build for good: the server's newer one is offered anyway after 3 min, and Refresh drops the caches first
     // (`hstReload`) so the reload comes from the network
     const server = await read('?server');
     if (!build(server)) { behind = 0; return; }
     behind ||= Date.now();
-    if (Date.now() - behind > 180000) { window.hstLatest = server; window.hstFresh = true; dispatchEvent(new Event('hstlatest')); }
+    if (now === true || Date.now() - behind > 180000) { window.hstLatest = server; window.hstFresh = true; dispatchEvent(new Event('hstlatest')); }
   };
   // every minute (was 10: a phone's short sessions and throttled timers never saw it), and soon after load; each
   // `?next` is a tiny read that also keeps sw.js's background download going (a phone stops an idle service worker)
@@ -817,7 +836,7 @@ const loaded = await read();
   // B581: the site page (site.js) asks at once, nothing of the game is loading behind it; its New version panel
   // shows on `hstlatest`
   window.hstCheck = check;
-  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check());
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check(true));
 }
 say('Opening this browser\'s storage…');
 // B457: a folder in memory with OPFS's calls the page and site.js use, for a browser that refuses OPFS (a Firefox
