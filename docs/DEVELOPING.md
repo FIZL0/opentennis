@@ -121,14 +121,21 @@ soon as one guest is in and ready, and the computer plays the open seats.
 
 - `crates/hst-data`: readers for the disc and its formats (ISO, XB archives, TIM2 textures, models, motions,
   layouts).
-- `crates/hst-sim`: the game logic (ball physics, collision, rules, serve, contact search, camera), engine-free.
-- `crates/hst`: the Bevy app.
+- `crates/hst-sim`: the game logic (ball physics, collision, rules, serve, contact search, computer players,
+  umpire, weather, camera), engine-free.
+- `crates/hst-oracle`: test-only; runs the original game's own functions on an emulated PS2 CPU so tests can compare
+  the ports against them.
+- `crates/hst-base`: the Bevy app's lower layer: characters, rendering, sound, settings, mods, netplay transport.
+- `crates/hst-play`: the match on top of it (setup, input, the simulation each tick, drawing, HUD, netplay).
+- `crates/hst`: the app itself: menus, game modes, start-up, self-updater.
+- `crates/hst-gltf`: exports the game's characters to `.glb` as reference rigs for modders.
 - `tools/`: scripts to drive and record the original game in PCSX2 over PINE, for verification.
 - `research/`: our reverse-engineering scripts and research journal. `research/README.md` explains how to rebuild
   the private analysis folder (decompilation, save states, recordings) from your own disc.
 
 `cargo test` runs everywhere. Tests that need the disc or recordings of the original game look in the repository
-folder and in `context/fixtures` (or `HST_FIXTURES`), and **skip themselves when those are missing**. The recordings
+folder and in `context/fixtures` (or `HST_FIXTURES`), and **skip themselves when those are missing** (with
+`HST_REQUIRE_DISC=1`, as `tools/check.sh` sets, they fail instead). The recordings
 are made from the original game and are not distributed.
 
 `fuzz/` throws random bytes at everything a stranger can hand the game (mod zips, mod files, a peer's mod pack

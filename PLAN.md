@@ -80,12 +80,14 @@ Open tasks: `plan/TODO.md` (index: `tools/ctx.py`, next: `tools/ctx.py next`). F
 
 - `iso.rs` ISO9660 reader · `xb.rs` XB archives · `tim2.rs` textures · `mdl.rs` models (+collision) · `mtl.rs`
   materials · `ani.rs` ANI2 motions · `layout.rs` court layout/plant records · `exe.rs` GAME.BIN data offsets
-  (the only place with retail offsets) · `bin/` xbdump, tm2png, mdlstat
-- tests: `characters.rs`, `collision.rs`
+  (the only place with retail offsets) · `mor.rs` face morph/UV tracks · `noi.rs` costume noise deformers · `snd.rs`
+  sound banks, SPU pitch · `texhash.rs` PCSX2 texture-replacement names · `uselog.rs` `HST_ASSET_LOG` asset-use log ·
+  `fixture.rs` test-only disc/recording access · `bin/` xbdump, tm2png, mdlstat, bankwav, noidump, texkeys, texnames
+- tests: `characters.rs`, `collision.rs`, `effects.rs`, `sound.rs`, `npcs.rs`, `texnames.rs`, … (`tests/`)
 
 `crates/hst-gltf` — exports HST's own characters (all motions, faces) to `.glb` as modding reference rigs (`hst-gltf hst context/xb DIR`); other games' extraction and mod packaging live in ../opentennis-mods
 
-README *Character mods* — links the mods repo (../opentennis-mods: standard, tutorial, extract/rerig tools); `crates/hst/hst_skeleton.json` is the game's copy of its skeleton
+`docs/DEVELOPING.md` *Character mods* — links the mods repo (../opentennis-mods: standard, tutorial, extract/rerig tools); `crates/hst/hst_skeleton.json` is the game's copy of its skeleton
 
 `crates/hst-sim/src/` — the game, bit-exact, no Bevy
 
@@ -100,7 +102,15 @@ README *Character mods* — links the mods repo (../opentennis-mods: standard, t
   bone matrices
 - match: `score.rs` score/rotation/ends · `judge.rs` line calls, verdicts (Rally) · `flow.rs` post-point timeline,
   serve placement
-- camera: `camera.rs` match camera mode 0 · `cutaway.rs` post-point cut-aways
+- camera: `camera.rs` match camera mode 0 · `cutaway.rs` post-point cut-aways, intro, replay picks · `instant.rs`
+  instant-replay decision
+- AI: `ai.rs` AIParam rows · `aim.rs` CPU shot aim · `rally.rs` doubles AI routines (receive, net, phase) ·
+  `position.rs` doubles formation · `path.rs` predicted ball path the CPUs copy
+- court life: `npc.rs` background figures · `umpire.rs` chair umpire · `weather.rs` weather/wind schedule ·
+  `clouds.rs` · `shade.rs` sun-shade map · `lines.rs` court lines · `court_anim.rs` hole UV/alpha animation
+- effects/sound: `effect.rs` effect models · `tornado.rs` wind tornado · `foot.rs` footstep dust · `bodyhit.rs` ball
+  hits a player · `surprise.rs` pop-ups · `sound.rs` positional sound, reaction voices · `face.rs` face tracks ·
+  `noise.rs` costume sway · `stats.rs` match statistics
 - `replay.rs` fixture reader · `bin/replay.rs` replay CLI · `bin/state_hash.rs` per-tick hash, same on x86_64/aarch64/wasm32 (`tests/platforms.rs`); transcendentals only via `libm` (game's) or `musl`, never std
 - tests: `ball_path flights live world` (ball) · `shot_tables swing serve` · `player motion` · `score replay` ·
   `camera cutaway` · `line_calls shot_params`
@@ -122,6 +132,11 @@ there. It never names `hst`: hooks the top fills in go through statics/generics 
   pinning (B17) · `seats.rs` pads → seats · `ui_pool.rs` overlay quad pools only while shown (P39) · `ui_census.rs`
   `HST_UI_CENSUS=1` UI node counts/changes per root · `pipelines.rs` render pipelines recorded to `pipelines.json`,
   pre-warmed from the menu (P55; the dedup is in third_party/bevy_render's `pipeline_cache.rs`) · `web.rs` `ios.rs` `android.rs` platform glue
+  (`android_pad.rs` pads) · `disc.rs` ISO import → disc pack · `jobs.rs` work off the frame (B409) · `chat.rs` lobby/match
+  chat (M20) · `device.rs` platform + last input · `vertex_patch.rs` per-frame vertex writes without touching the mesh asset
+  (B357) · `effects.rs` hit effects · `court_anim.rs` `weather.rs` `noise.rs` sim parts on court · `spring.rs` mod spring
+  bones · `inspect.rs` 3D character preview · `hud_gamma.rs` GS-style HUD blend · `mips.rs` menu art mips ·
+  `asset_use.rs` drawn-texture log (Z2) · `scene_census.rs` `stall.rs` `HST_SCENE_CENSUS`/`HST_FPS` diagnostics
 - test helpers `hst`'s tests use are `#[cfg(any(test, feature = "testing"))]` (hst's dev-dependency turns `testing` on)
 
 `crates/hst-play/src/` — the match (P61: its own crate under the menus, so a menu edit rebuilds only `hst` and a

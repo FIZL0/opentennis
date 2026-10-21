@@ -16,7 +16,7 @@ Rust/Bevy remaster of Hot Shots Tennis (SCUS-97610). Faithful: same AI, physics,
   `hst_sim::ps2`/`vu0`/`libm`/`rng` re-export it) and FIZL0/ps2-oracle (`../ps2-oracle`: the R5900 interpreter under
   `hst-oracle`), tag-pinned git dependencies shared with the decomp kits. Agents may fix and extend them when a port
   needs it (new op, missing function, wrong rounding): change it there with a test, tag a release, bump the tag here
-  and in the kits (`crates/game-sim`, `crates/kit-oracle`), run their tests. Never copy them back in.
+  and in the decomp kits (their own repos' `crates/game-sim`, `crates/kit-oracle`, not in this one), run their tests. Never copy them back in.
 - Research: our own scripts and notes are in `research/` (in git: no game data, no decompiled code, no captures or
   screenshots); everything derived from the disc or the running game is in `context/` (git-ignored). Journal:
   `research/journal/YYYY-MM-DD-<slug>/`, one README per task, newest iteration file says whose move it is:
