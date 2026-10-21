@@ -7,9 +7,8 @@ mod tests {
     use super::super::tick_input::{IDLE, Replay};
     use super::super::*;
     use crate::{Args, GameSpace};
-    use std::path::Path;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     /// A doubles match of computer players.
     fn set_up() -> App {
@@ -48,8 +47,8 @@ mod tests {
     /// Also checks that a hit cancels a dive that would reach the ball.
     #[test]
     fn a_partner_takes_the_ball_a_dive_falls_short_of() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = set_up();
         let tick = |app: &mut App| {

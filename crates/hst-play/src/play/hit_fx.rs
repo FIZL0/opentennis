@@ -4,12 +4,12 @@
 use super::*;
 use crate::{Args, GameSpace};
 
-const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+const ISO: &str = hst_data::fixture::ISO_PATH;
 
 #[test]
 fn hits_start_their_effects() {
-    if !std::path::Path::new(ISO).is_file() {
-        return eprintln!("no ISO, skipped");
+    if !hst_data::fixture::has_iso() {
+        return;
     }
     // every player a bot
     crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);

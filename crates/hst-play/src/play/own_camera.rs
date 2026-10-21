@@ -225,15 +225,15 @@ mod tests {
     use crate::{Args, GameSpace};
     use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     /// B315: with this machine's own camera on (online), a post-point cut-away still takes the
     /// picture: from its second tick on (its first only picks the shot) the picture shows the shared camera's
     /// view, the shot's (skipped without the ISO).
     #[test]
     fn a_cut_away_takes_the_own_cameras_picture() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         // every player a bot
         crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -278,8 +278,8 @@ mod tests {
     /// (it showed the shared glide, the player at the far end, and snapped round when it ended; skipped without the ISO).
     #[test]
     fn the_change_of_ends_glides_behind_the_own_player() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
         let mut app = App::new();
@@ -332,8 +332,8 @@ mod tests {
     /// one human: no own camera (skipped without the ISO).
     #[test]
     fn local_humans_on_one_team_stay_near_through_changes_of_ends() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         // the players are bots (no one presses anything); who'd be human is asked of the pads below
         crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);

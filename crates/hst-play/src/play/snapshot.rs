@@ -309,10 +309,9 @@ mod tests {
     use super::super::*;
     use super::{restore, save, state_hash};
     use crate::{Args, GameSpace};
-    use std::path::Path;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-    const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures/round1.bin");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
+    const FIXTURE: &str = "context/fixtures/round1.bin";
 
     fn app() -> App {
         let mut app = App::new();
@@ -338,7 +337,7 @@ mod tests {
     /// chimes as the new points flash in.
     #[test]
     fn tiebreak_points_sound() {
-        if !Path::new(ISO).is_file() {
+        if !hst_data::fixture::has_iso() {
             return;
         }
         let (mut app, sound) = match_app(true);
@@ -385,7 +384,7 @@ mod tests {
         app.add_plugins((cutaway::plugin, bodyhit::plugin, surprise::plugin, reaction_voices::plugin, match_stats::plugin, panel::plugin, popups::plugin, npcs::plugin, foot_fx::plugin, weather::plugin, heard::plugin));
         app.add_systems(PostStartup, setup);
         app.add_systems(FixedUpdate, (remember, effects::tick, tick_input::systems(), control, simulate, start_effects, age_balloons, motions, character::tick, played_out, held_ball).chain());
-        let mut iso = hst_data::iso::Iso::open(ISO).unwrap();
+        let mut iso = hst_data::fixture::iso().unwrap();
         let sound = crate::audio::Sound::test(&mut iso);
         app.insert_resource(crate::audio::court_bank(&mut iso, 1));
         app.insert_resource(crate::audio::GalleryBank(crate::audio::gallery_bank(&mut iso, 1, 0).map(std::sync::Arc::new)));
@@ -403,7 +402,7 @@ mod tests {
     /// with the ball coming at it, and in the serve, serving or receiving.
     #[test]
     fn a_bot_taking_over_plays_on() {
-        if !Path::new(ISO).is_file() {
+        if !hst_data::fixture::has_iso() {
             return;
         }
         for case in ["rally", "receive", "serve"] {
@@ -470,8 +469,8 @@ mod tests {
     /// the host's entities with none: no red or yellow landing marker after a resync).
     #[test]
     fn a_resync_keeps_the_local_marker_views() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = app();
         run(&mut app, &[[tick_input::IDLE; 4]; 30]);
@@ -485,8 +484,8 @@ mod tests {
 
     #[test]
     fn save_run_restore_rerun() {
-        let (Ok(data), true) = (std::fs::read(FIXTURE), Path::new(ISO).is_file()) else {
-            return eprintln!("no ISO or round1.bin, skipped");
+        let (Ok(data), true) = (hst_data::fixture::read(FIXTURE), hst_data::fixture::has_iso()) else {
+            return;
         };
         let pads: Vec<_> = hst_sim::replay::frames(&data).iter().take(1200).map(|f| [tick_input::recorded(f.pad(0)), tick_input::IDLE, tick_input::IDLE, tick_input::IDLE]).collect();
         let mut app = app();
@@ -517,13 +516,13 @@ mod tests {
     /// for tick, and ends in the same state.
     #[test]
     fn rerun_ticks_play_nothing_twice() {
-        let (Ok(data), true) = (std::fs::read(FIXTURE), Path::new(ISO).is_file()) else {
-            return eprintln!("no ISO or round1.bin, skipped");
+        let (Ok(data), true) = (hst_data::fixture::read(FIXTURE), hst_data::fixture::has_iso()) else {
+            return;
         };
         let pads: Vec<_> = hst_sim::replay::frames(&data).iter().take(900).map(|f| [tick_input::recorded(f.pad(0)), tick_input::IDLE, tick_input::IDLE, tick_input::IDLE]).collect();
         let sounding = || {
             let mut app = app();
-            let mut iso = hst_data::iso::Iso::open(ISO).unwrap();
+            let mut iso = hst_data::fixture::iso().unwrap();
             let sound = crate::audio::Sound::test(&mut iso);
             // the test's court 0 has no sounds: court 1's
             app.insert_resource(crate::audio::court_bank(&mut iso, 1));
@@ -559,8 +558,8 @@ mod tests {
     /// `context/b132`: N runs, then the stroke state on a frame of its own), and a planned approach locks.
     #[test]
     fn approach_runs_its_frames_then_locks() {
-        let (Ok(data), true) = (std::fs::read(FIXTURE), Path::new(ISO).is_file()) else {
-            return eprintln!("no ISO or round1.bin, skipped");
+        let (Ok(data), true) = (hst_data::fixture::read(FIXTURE), hst_data::fixture::has_iso()) else {
+            return;
         };
         let frames = hst_sim::replay::frames(&data);
         let mut app = app();
@@ -591,8 +590,8 @@ mod tests {
     /// CPU, runs off from 0).
     #[test]
     fn run_restarts_after_a_whiff() {
-        let (Ok(data), true) = (std::fs::read(FIXTURE), Path::new(ISO).is_file()) else {
-            return eprintln!("no ISO or round1.bin, skipped");
+        let (Ok(data), true) = (hst_data::fixture::read(FIXTURE), hst_data::fixture::has_iso()) else {
+            return;
         };
         let mut app = app();
         let mut freed = 0;
@@ -617,8 +616,8 @@ mod tests {
     /// match past its net-touched serves).
     #[test]
     fn receiver_gives_up_a_net_touched_serve() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = app();
         let mut r = 6u64;
@@ -666,7 +665,7 @@ mod tests {
     /// `net_sounds_match_the_game`) on the tick it touches, and the mixer starts it.
     #[test]
     fn a_net_touch_sounds() {
-        if !Path::new(ISO).is_file() {
+        if !hst_data::fixture::has_iso() {
             return;
         }
         let (mut app, sound) = match_app(true);

@@ -291,7 +291,7 @@ mod tests {
     /// in turn. Lists each character, bank and pick that stays silent.
     #[test]
     fn every_emote_pick_speaks() {
-        let Ok(mut iso) = hst_data::iso::Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let sound = crate::audio::Sound::test(&mut iso);
         let mut silent = Vec::new();
         for c in 0..14 {
@@ -383,7 +383,7 @@ mod match_tests {
     use crate::{Args, GameSpace};
     use hst_sim::replay::Pad;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     fn app(pads: Vec<[Pad; 4]>) -> App {
         seated([false, true, false, false], pads)
@@ -425,8 +425,8 @@ mod match_tests {
 
     #[test]
     fn an_emote_locks_then_plays_on() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let left = Pad { lx: 0, ..IDLE };
         let flick = Pad { rx: 0x80, ry: 0, ..left };
@@ -498,8 +498,8 @@ mod match_tests {
     /// all the while, then tosses as usual.
     #[test]
     fn the_server_emotes_before_the_toss() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let flick = Pad { rx: 0, ry: 0x80, ..IDLE };
         let cross = Pad { buttons: 0x2000, ..IDLE };
@@ -539,8 +539,8 @@ mod match_tests {
     /// copied in as one) is hidden for the emote's length and back for the toss.
     #[test]
     fn a_mods_ball_hides_while_it_emotes() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let flick = Pad { rx: 0, ry: 0x80, ..IDLE };
         for own_clip in [false, true] {
@@ -576,8 +576,8 @@ mod match_tests {
     /// B473: 2P's second emote cuts its first one's voice line, and a post-point reaction's line cuts the second.
     #[test]
     fn a_new_line_cuts_the_last_emote_line() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let flick = Pad { rx: 0x80, ry: 0, ..IDLE };
         let mut a = app(vec![]);
@@ -586,7 +586,7 @@ mod match_tests {
         let mut pads = vec![[IDLE; 4]; again + 2];
         (pads[at][1], pads[again][1]) = (flick, flick);
         a.insert_resource(Replay(pads.into_iter().collect()));
-        let sound = crate::audio::Sound::test(&mut hst_data::iso::Iso::open(ISO).unwrap());
+        let sound = crate::audio::Sound::test(&mut hst_data::fixture::iso().unwrap());
         a.insert_resource(sound.clone());
         a.add_plugins(heard::plugin);
         a.add_systems(FixedUpdate, super::play_lines.after(held_ball));
@@ -612,7 +612,7 @@ mod match_tests {
     #[test]
     fn a_mod_emote_speaks() {
         const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/");
-        if !std::path::Path::new(ISO).is_file() || !std::path::Path::new(ROOT).is_dir() {
+        if !hst_data::fixture::has_iso() || !std::path::Path::new(ROOT).is_dir() {
             return eprintln!("no ISO or mods/hst-mods, skipped");
         }
         for id in ["opentee2_pc10_carly", "opentee2_pc03_shu", "oob_pc12_anya"] {
@@ -623,7 +623,7 @@ mod match_tests {
                 let mut pads = vec![[IDLE; 4]; 12];
                 pads[10][1] = flick;
                 a.insert_resource(Replay(pads.into_iter().collect()));
-                let sound = crate::audio::Sound::test(&mut hst_data::iso::Iso::open(ISO).unwrap());
+                let sound = crate::audio::Sound::test(&mut hst_data::fixture::iso().unwrap());
                 a.insert_resource(sound.clone());
                 a.add_plugins(heard::plugin);
                 a.add_systems(FixedUpdate, super::play_lines.after(held_ball));
@@ -643,7 +643,7 @@ mod match_tests {
     #[test]
     fn a_mod_emote_lasts_its_own_clip() {
         const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/oob_pc12_anya");
-        if !std::path::Path::new(ISO).is_file() || !std::path::Path::new(ROOT).is_dir() {
+        if !hst_data::fixture::has_iso() || !std::path::Path::new(ROOT).is_dir() {
             return eprintln!("no ISO or mods/hst-mods, skipped");
         }
         let m = crate::mods::read(std::path::Path::new(ROOT)).unwrap();
@@ -681,8 +681,8 @@ mod match_tests {
     /// and once the next serve's wait is on, one does again.
     #[test]
     fn no_emote_between_points() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let flick = Pad { rx: 0, ry: 0x80, ..IDLE };
         let cross = Pad { buttons: 0x2000, ..IDLE };

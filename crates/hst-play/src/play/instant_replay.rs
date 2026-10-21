@@ -337,7 +337,7 @@ pub(super) mod tests {
     use super::{Decision, Recorder};
     use crate::{Args, GameSpace};
 
-    pub(in crate::play) const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    pub(in crate::play) const ISO: &str = hst_data::fixture::ISO_PATH;
 
     pub(in crate::play) fn app(human: bool) -> App {
         app_rules(human, true, 1, 1)
@@ -386,8 +386,8 @@ pub(super) mod tests {
     #[test]
     #[ignore]
     fn every_match_length_plays_out() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let lengths: Vec<(i32, i32)> = std::env::var("HST_LENGTHS").ok().map_or_else(
             || [1, 2, 3].into_iter().flat_map(|s| [2, 4, 6].map(|g| (s, g))).collect(),
@@ -413,8 +413,8 @@ pub(super) mod tests {
 
     #[test]
     fn a_bot_match_replays_its_match_point_only() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         for human in [false, true] {
             let pts = points(human);
@@ -452,8 +452,8 @@ pub(super) mod tests {
     /// where it was), counted once and not as asked.
     #[test]
     fn the_replay_ends_where_the_point_left_the_match() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = app(false);
         let (back, now) = caught_up(&mut app);
@@ -465,8 +465,8 @@ pub(super) mod tests {
     /// □ after the first point's pause asks for its replay; it plays and the match carries on from the same tick.
     #[test]
     fn square_asks_for_the_last_point() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = app(false);
         for _ in 0..60 * 60 * 5 {

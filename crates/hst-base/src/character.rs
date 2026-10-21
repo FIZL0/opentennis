@@ -1613,14 +1613,12 @@ mod tests {
         assert_eq!(strongest([4, 0, 9].into_iter(), &w), Some(1));
     }
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-
     /// P51: each disc character's parts list only the joints they weight, and skin every vertex (and its per-joint
     /// bounds) to the same rig joints and inverse binds as the whole skeleton's list did. Prints the joints listed.
     #[test]
     fn parts_list_only_their_own_joints() {
         use bevy::mesh::VertexAttributeValues as V;
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let (mut m, mut t, mut i, mut b) = (Assets::<Mesh>::default(), Assets::<StandardMaterial>::default(), Assets::<Image>::default(), Assets::<SkinnedMeshInverseBindposes>::default());
         let (mut whole, mut own) = (0, 0);
         for n in 0..14 {
@@ -1662,7 +1660,7 @@ mod tests {
     /// screen held (read live in its motion player for characters 0..7, 12 and 13).
     #[test]
     fn inspect_poses_bind_and_hold_the_games_frames() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let mut held = Vec::new();
         for n in 0..14 {
             let data = iso.read(&format!("PC/PC{n:02}C00.XB")).unwrap();
@@ -1704,7 +1702,7 @@ mod uv_tests {
     /// `_2` take five on, for the sets each character has files for (the game's face list after the first 0x30).
     #[test]
     fn team_reactions_have_faces() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         for n in 0..14 {
             let data = iso.read(&format!("PC/PC{n:02}C00.XB")).unwrap();
             let arc = Archive::parse(&data).unwrap();
@@ -1733,7 +1731,7 @@ mod uv_tests {
     /// every motion of character 3's (stance, run, strokes, whiffs, reactions); the motion setter restarts the UV clock with the face's, and it holds at the `.UVA`'s end.
     #[test]
     fn match_reactions_play_the_eyes_uva() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let mut with = Vec::new();
         for n in 0..14 {
             let data = iso.read(&format!("PC/PC{n:02}C00.XB")).unwrap();

@@ -45,9 +45,8 @@ fn over_donor(mut commands: Commands, ump: Option<Res<MatchUmpire>>, args: Res<c
 mod tests {
     use super::super::*;
     use crate::{Args, GameSpace};
-    use std::path::Path;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     /// A bot singles match on court 1 with umpire 4 heard (`snapshot.rs`'s sounding test app), with `ump` in the chair.
     fn app(ump: Option<&crate::mods_umpire::Umpire>) -> (App, crate::audio::Sound) {
@@ -62,7 +61,7 @@ mod tests {
         app.add_plugins((cutaway::plugin, bodyhit::plugin, surprise::plugin, reaction_voices::plugin, match_stats::plugin, panel::plugin, popups::plugin, npcs::plugin, foot_fx::plugin, weather::plugin, heard::plugin));
         app.add_systems(PostStartup, setup);
         app.add_systems(FixedUpdate, (remember, effects::tick, tick_input::systems(), control, simulate, start_effects, age_balloons, motions, character::tick, played_out, held_ball).chain());
-        let mut iso = hst_data::iso::Iso::open(ISO).unwrap();
+        let mut iso = hst_data::fixture::iso().unwrap();
         let sound = crate::audio::Sound::test(&mut iso);
         app.insert_resource(crate::audio::court_bank(&mut iso, 1));
         app.insert_resource(crate::audio::GalleryBank(crate::audio::gallery_bank(&mut iso, 1, 0).map(std::sync::Arc::new)));
@@ -95,8 +94,8 @@ mod tests {
     /// files it couldn't read yet (skipped without the ISO).
     #[test]
     fn an_umpire_mod_still_in_the_browsers_storage_is_heard_once_read_in() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let dir = std::env::temp_dir().join(format!("hst-umpire-lazy-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -130,8 +129,8 @@ mod tests {
     /// the first points, so the post-point timeline still runs on her word lengths (skipped without the ISO).
     #[test]
     fn an_umpire_mod_is_heard_and_never_moves_the_match() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let dir = std::env::temp_dir().join(format!("hst-umpire-match-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("voice")).unwrap();

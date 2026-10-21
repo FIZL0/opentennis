@@ -5,7 +5,7 @@
 use super::*;
 use crate::{Args, GameSpace};
 
-const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+const ISO: &str = hst_data::fixture::ISO_PATH;
 
 /// A doubles match of four computer players, set up (not started).
 fn doubles() -> App {
@@ -31,8 +31,8 @@ fn dist(a: V3, b: V3) -> f32 {
 /// partner is the same rule's.
 #[test]
 fn the_claimant_strokes_where_it_stands() {
-    if !std::path::Path::new(ISO).is_file() {
-        return eprintln!("no ISO, skipped");
+    if !hst_data::fixture::has_iso() {
+        return;
     }
     let mut app = doubles();
     let g = &mut *app.world_mut().resource_mut::<Game>();
@@ -70,8 +70,8 @@ fn the_claimant_strokes_where_it_stands() {
 /// - players 0 and 1 (stepping before their partners) never call out while the partner is in a stroke.
 #[test]
 fn one_player_per_ball_and_the_miss_mark() {
-    if !std::path::Path::new(ISO).is_file() {
-        return eprintln!("no ISO, skipped");
+    if !hst_data::fixture::has_iso() {
+        return;
     }
     let mut app = doubles();
     let (mut cancelled, mut told, mut marks, mut both, mut calls) = (None::<usize>, false, 0, 0, 0);

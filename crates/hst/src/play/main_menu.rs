@@ -5174,9 +5174,9 @@ mod tests {
         assert_eq!((flag("--chars"), flag("--swap-hands")), ("0,11".into(), "1,1".into()));
         assert!(!Menu::default().args(&[]).contains(&"--swap-hands".to_string()));
 
-        const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, match half skipped");
+        const ISO: &str = hst_data::fixture::ISO_PATH;
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let cli = crate::parse(std::iter::once(ISO.to_string()).chain(a));
         // every player a bot
@@ -5226,9 +5226,7 @@ mod tests {
     /// 2): JJ in costume 1 and 2 "Tennis Lv 4", Cody in costume 1 "Tennis Lv 5"; Carol and Will left-handed.
     #[test]
     fn com_ranks_and_hands() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("disc missing, skipped");
-        };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let pc = iso.read("PCDATA/PCDATA.XB").unwrap();
         let pc = Archive::parse(&pc).unwrap();
         let csv = |name: &str| pc.read(pc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(name)).unwrap()).unwrap();

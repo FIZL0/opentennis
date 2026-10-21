@@ -391,14 +391,14 @@ mod tests {
     use super::ReplayCamera;
     use crate::{Args, GameSpace};
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     /// The bot match's match-ending point replays on the tracking shot, the serve's shot, the winning shot's and a
     /// closing shot that holds to its end, with no cut-away during or after it.
     #[test]
     fn the_match_point_replay_cuts_and_holds_its_closing_shot() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()));
@@ -445,7 +445,7 @@ mod tests {
     /// reactions 0x2c..0x2f can face half a turn from the donor's) on its own clock.
     #[test]
     fn frames_follow_the_drawn_clip() {
-        let Ok(mut iso) = hst_data::iso::Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let (mut a, mut b, mut c, mut d) = (Assets::default(), Assets::default(), Assets::default(), Assets::default());
         let mut data = character::load_disc(&mut iso, 6, 0, &mut a, &mut b, &mut c, &mut d).unwrap();
         let mut p = Player { hand: 1.0, ..default() };

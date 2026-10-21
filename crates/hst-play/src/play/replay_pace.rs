@@ -138,9 +138,9 @@ fn the_match_point_paces_as_the_original() {
 /// within a frame or two, then each tick takes `between` + 1 frames (±1 for the clock's rounding). Needs the ISO.
 #[test]
 fn a_replay_skips_then_slows_in_frames() {
-    use super::instant_replay::tests::{ISO, app};
-    if !std::path::Path::new(ISO).is_file() {
-        return eprintln!("no ISO, skipped");
+    use super::instant_replay::tests::app;
+    if !hst_data::fixture::has_iso() {
+        return;
     }
     let mut app = app(false);
     app.add_plugins(plugin);

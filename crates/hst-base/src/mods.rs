@@ -1709,15 +1709,14 @@ mod tests {
         assert_eq!(s.2.len(), 6);
     }
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-    /// Test mods (local, `research/journal/2026-10-08-m1a-mod-loader`): `test_pc00` is HST's pc00 through
-    /// opentennis-mods `tools/rerig/rerig.py`, `test_broken` the same with `Bip01LThigh` renamed, `fore_pc00_phoebe` a packaged mod.
-    const MODS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/mods");
+    // Test mods (local, `research/journal/2026-10-08-m1a-mod-loader`): `test_pc00` is HST's pc00 through
+    // opentennis-mods `tools/rerig/rerig.py`, `test_broken` the same with `Bip01LThigh` renamed, `fore_pc00_phoebe` a packaged mod.
+    use crate::modfs::tests::test_mod;
 
     struct Stores(Assets<Mesh>, Assets<StandardMaterial>, Assets<Image>, Assets<SkinnedMeshInverseBindposes>);
 
     fn load_mod(iso: &mut Iso, s: &mut Stores, id: &str) -> Result<(Mod, CharacterData), String> {
-        let m = read(&Path::new(MODS).join(id))?;
+        let m = read(&test_mod(id))?;
         let c = load(iso, &m, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3)?;
         Ok((m, c))
     }
@@ -1732,9 +1731,9 @@ mod tests {
     /// the disc character's go; the manifest's hand, TParam overrides and face bindings come through.
     #[test]
     fn rerigged_mod_plays_forehand_and_run() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
-        if !Path::new(MODS).join("test_pc00").is_dir() {
-            return eprintln!("no context/mods/test_pc00, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        if !test_mod("test_pc00").is_dir() {
+            return hst_data::fixture::skip("no context/mods/test_pc00");
         }
         let mut s = Stores(default(), default(), default(), default());
         let (m, c) = load_mod(&mut iso, &mut s, "test_pc00").unwrap();
@@ -1786,9 +1785,9 @@ mod tests {
     /// (skipped without `context/mods/test_pc00`).
     #[test]
     fn dropped_umpires_stay_off_the_roster() {
-        let src = Path::new(MODS).join("test_pc00");
+        let src = test_mod("test_pc00");
         if !src.is_dir() {
-            return eprintln!("no context/mods/test_pc00, skipped");
+            return hst_data::fixture::skip("no context/mods/test_pc00");
         }
         let root = std::env::temp_dir().join(format!("hst-b381-{}", std::process::id()));
         for id in ["test_pc00", "hst_umpire_02_lily"] {
@@ -1808,8 +1807,8 @@ mod tests {
     /// Grip and Open Tee 2 mod in `context/mods` carries vertices on the head joint, at rest above its neck.
     #[test]
     fn psp_mods_keep_their_heads() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
-        let Ok(dir) = std::fs::read_dir(MODS) else { return eprintln!("no context/mods, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let Ok(dir) = std::fs::read_dir(hst_data::fixture::path("context/mods")) else { return hst_data::fixture::skip("no context/mods") };
         let mut s = Stores(default(), default(), default(), default());
         let mut seen = 0;
         for e in dir.flatten().filter(|e| e.file_name().to_str().is_some_and(|n| n.starts_with("getagrip_") || n.starts_with("opentee2_"))) {
@@ -1838,7 +1837,7 @@ mod tests {
     #[test]
     fn head_height_over_the_bone() {
         for (id, want) in [("getagrip_pc00_emi", 0.397), ("getagrip_pc12_suzuki", 0.393), ("fore_pc00_phoebe", 0.452)] {
-            let Ok(m) = read(&Path::new(MODS).join(id)) else { return eprintln!("no context/mods/{id}, skipped") };
+            let Ok(m) = read(&test_mod(id)) else { return hst_data::fixture::skip(format_args!("no context/mods/{id}")) };
             let h = head_height(&m, 0).unwrap();
             assert!((h - want).abs() < 0.001, "{id}: {h} vs {want}");
         }
@@ -1849,9 +1848,9 @@ mod tests {
     /// faces hold exactly half) shows its expression texture on some frame.
     #[test]
     fn texture_face_follows_the_donors_faces() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
-        if !Path::new(MODS).join("getagrip_pc00_emi").is_dir() {
-            return eprintln!("no context/mods/getagrip_pc00_emi, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        if !test_mod("getagrip_pc00_emi").is_dir() {
+            return hst_data::fixture::skip("no context/mods/getagrip_pc00_emi");
         }
         let mut s = Stores(default(), default(), default(), default());
         let (_, c) = load_mod(&mut iso, &mut s, "getagrip_pc00_emi").unwrap();
@@ -1957,7 +1956,7 @@ mod tests {
     /// every other face of her donor finds a target.
     #[test]
     fn sophie_smiles_and_winks() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let Some(r) = oob_faces_follow_the_donor(&mut iso, "oob_pc02_sophie") else { return eprintln!("no oob_pc02_sophie, skipped") };
         eprintln!("{r}");
         // B546: her surprise plays on her chu (pucker) mouth and raised-brow sorrow eyes
@@ -1969,7 +1968,7 @@ mod tests {
     /// donor face binds somewhere.
     #[test]
     fn oob_faces_all() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods");
         let mut ids: Vec<_> = std::fs::read_dir(root).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with("oob_")).collect();
         ids.sort();
@@ -1986,7 +1985,7 @@ mod tests {
     /// table): every donor face finds a target or stand-in but the faces with nothing to show it (`left`).
     #[test]
     fn golf_faces_all() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods");
         let mut ids: Vec<_> = std::fs::read_dir(root).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| ["fore_", "opentee2_", "getagrip_"].iter().any(|p| n.starts_with(p))).collect();
         ids.sort();
@@ -2016,7 +2015,7 @@ mod tests {
     /// `Body`, which her motions key).
     #[test]
     fn motions_skip_joints_a_costume_lacks() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods/fore_pc00_phoebe");
         let Ok(m) = read(&dir) else { return eprintln!("no mods/hst-mods/fore_pc00_phoebe, skipped") };
         let mut s = Stores(default(), default(), default(), default());
@@ -2038,7 +2037,7 @@ mod tests {
     }
 
     fn oob_hair_of(name: &str, springs: usize) {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods").join(name);
         let Ok(m) = read(&dir) else { return eprintln!("no mods/hst-mods/{name}, skipped") };
         let mut s = Stores(default(), default(), default(), default());
@@ -2080,7 +2079,7 @@ mod tests {
     /// everything gameplay reads (the donor's clips, as on the disc) is what it is without them.
     #[test]
     fn own_motions_are_visual_only() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         // Fore!'s Phoebe: reactions up to 3x the donor's length
         for name in ["getagrip_pc00_emi", "fore_pc00_phoebe"] {
             own_motions_of(&mut iso, name);
@@ -2091,7 +2090,7 @@ mod tests {
     /// and at least the donor's clip.
     #[test]
     fn a_mods_takes_load_beside_its_motions() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods");
         let mut dirs: Vec<_> = std::fs::read_dir(&root).into_iter().flatten().flatten().map(|e| e.path()).collect();
         dirs.sort();
@@ -2120,7 +2119,7 @@ mod tests {
     /// clips as the whole load's, and no others.
     #[test]
     fn a_card_load_has_only_its_motions() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods/fore_pc00_phoebe");
         let Ok(m) = read(&dir) else { return eprintln!("no mods/hst-mods/fore_pc00_phoebe, skipped") };
         let only = &crate::inspect::MOTIONS;
@@ -2222,9 +2221,9 @@ mod tests {
     /// whose track names no node of its own model (7) moves nothing.
     #[test]
     fn mod_eyes_follow_the_donors_uva() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
-        if !["test_pc00", "fore_pc00_phoebe"].iter().all(|m| Path::new(MODS).join(m).is_dir()) {
-            return eprintln!("no context/mods/test_pc00 or fore_pc00_phoebe, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        if !["test_pc00", "fore_pc00_phoebe"].iter().all(|m| test_mod(m).is_dir()) {
+            return hst_data::fixture::skip("no context/mods/test_pc00 or fore_pc00_phoebe");
         }
         let mut s = Stores(default(), default(), default(), default());
         let disc = character::load_disc(&mut iso, 0, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
@@ -2238,7 +2237,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("hst_m1i_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         // costumes must sit inside the mod folder (M16): copy Phoebe's in
-        std::fs::copy(Path::new(MODS).join("fore_pc00_phoebe/model/pc00_phoebe_c00.glb"), dir.join("c00.glb")).unwrap();
+        std::fs::copy(test_mod("fore_pc00_phoebe/model/pc00_phoebe_c00.glb"), dir.join("c00.glb")).unwrap();
         let glb = "c00.glb";
         let disc6 = character::load_disc(&mut iso, 6, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
         let want6: Vec<_> = pose_eyes(&disc6, 6).into_iter().filter(|o| *o != [0, 0]).collect();
@@ -2370,9 +2369,9 @@ mod tests {
     /// A packaged rerig.py mod (Fore!'s Phoebe on donor 6) plays the forehand and run without breaking up.
     #[test]
     fn packaged_mod_plays() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
-        if !Path::new(MODS).join("fore_pc00_phoebe").is_dir() {
-            return eprintln!("no context/mods/fore_pc00_phoebe, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        if !test_mod("fore_pc00_phoebe").is_dir() {
+            return hst_data::fixture::skip("no context/mods/fore_pc00_phoebe");
         }
         let mut s = Stores(default(), default(), default(), default());
         let (m, c) = load_mod(&mut iso, &mut s, "fore_pc00_phoebe").unwrap();
@@ -2389,10 +2388,10 @@ mod tests {
     /// (Get a Grip's Suzuki: HST's Suzuki's, donor Cody).
     #[test]
     fn disc_racket_is_the_named_characters() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
-        let dir = Path::new(MODS).join("getagrip_pc12_suzuki");
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let dir = test_mod("getagrip_pc12_suzuki");
         if disc_racket(&dir) != Some(13) || dir.join("racket.glb").exists() {
-            return eprintln!("no context/mods/getagrip_pc12_suzuki packaged with disc_racket 13, skipped");
+            return hst_data::fixture::skip("no context/mods/getagrip_pc12_suzuki packaged with disc_racket 13");
         }
         let mut s = Stores(default(), default(), default(), default());
         let (m, c) = load_mod(&mut iso, &mut s, "getagrip_pc12_suzuki").unwrap();
@@ -2414,11 +2413,11 @@ mod tests {
     /// `HST_FUZZ=n` runs n instead of 400).
     #[test]
     fn mutated_glbs_never_panic() {
-        let dir = Path::new(MODS).join("opentee2_pc16_lauryn");
+        let dir = test_mod("opentee2_pc16_lauryn");
         if !dir.is_dir() {
-            return eprintln!("no context/mods/opentee2_pc16_lauryn, skipped");
+            return hst_data::fixture::skip("no context/mods/opentee2_pc16_lauryn");
         }
-        let mut iso = Iso::open(ISO).ok();
+        let mut iso = Iso::open(hst_data::fixture::ISO_PATH).ok();
         let at = Path::new("t_fuzz/lauryn");
         let files = crate::modfs::tests::dir_files(&dir);
         for (n, b) in files.iter().filter(|f| !f.0.starts_with("textures/") && !f.0.starts_with("voice/")) {
@@ -2511,9 +2510,9 @@ mod tests {
     /// A model off the standard is refused, naming what is wrong.
     #[test]
     fn rejects_non_conforming_mod() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
-        if !Path::new(MODS).join("test_broken").is_dir() {
-            return eprintln!("no context/mods/test_broken, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        if !test_mod("test_broken").is_dir() {
+            return hst_data::fixture::skip("no context/mods/test_broken");
         }
         let mut s = Stores(default(), default(), default(), default());
         let e = load_mod(&mut iso, &mut s, "test_broken").err().unwrap();
@@ -2618,7 +2617,7 @@ mod tests {
     #[test]
     #[ignore]
     fn loads_every_mod() {
-        let (Ok(mut iso), Ok(root)) = (Iso::open(ISO), std::env::var("HST_MODS")) else { return eprintln!("no ISO or HST_MODS, skipped") };
+        let (Ok(mut iso), Ok(root)) = (hst_data::fixture::iso(), std::env::var("HST_MODS")) else { return eprintln!("no ISO or HST_MODS, skipped") };
         let mut dirs: Vec<_> = std::fs::read_dir(root).unwrap().flatten().map(|e| e.path()).filter(|d| d.join("mod.json").is_file()).collect();
         dirs.sort();
         let (mut bad, mut n) = (0, 0);
@@ -2653,7 +2652,7 @@ mod tests {
     #[test]
     fn own_clips_skin_the_feet_unturned() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods/fore_pc21_hubert");
-        let (Ok(mut iso), Ok(m)) = (Iso::open(ISO), read(&dir)) else { return eprintln!("no ISO or mods/hst-mods/fore_pc21_hubert, skipped") };
+        let (Ok(mut iso), Ok(m)) = (hst_data::fixture::iso(), read(&dir)) else { return eprintln!("no ISO or mods/hst-mods/fore_pc21_hubert, skipped") };
         let mut s = Stores(default(), default(), default(), default());
         let c = load(&mut iso, &m, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
         let f = c.feet.as_ref().unwrap();
@@ -2746,7 +2745,7 @@ mod tests {
     #[test]
     #[ignore]
     fn feet_self() {
-        let Ok(mut iso) = Iso::open(ISO) else { return };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let mut s = Stores(default(), default(), default(), default());
         let c = character::load_disc(&mut iso, 1, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
         let mut joints: Vec<Joint> = c.joints.iter().map(|j| Joint { name: j.name.clone(), parent: j.parent, rest: j.rest, inverse_bind: j.inverse_bind }).collect();
@@ -2770,7 +2769,7 @@ mod tests {
     #[test]
     #[ignore]
     fn feet_against_the_donor() {
-        let (Ok(mut iso), Ok(root)) = (Iso::open(ISO), std::env::var("HST_MODS")) else { return eprintln!("no ISO or HST_MODS, skipped") };
+        let (Ok(mut iso), Ok(root)) = (hst_data::fixture::iso(), std::env::var("HST_MODS")) else { return eprintln!("no ISO or HST_MODS, skipped") };
         let mut dirs: Vec<_> = std::fs::read_dir(root).unwrap().flatten().map(|e| e.path()).filter(|d| d.join("mod.json").is_file()).collect();
         dirs.sort();
         let only = std::env::var("HST_ONLY").ok();

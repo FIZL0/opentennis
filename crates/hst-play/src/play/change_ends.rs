@@ -117,7 +117,7 @@ mod tests {
     use crate::{Args, GameSpace};
     use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     /// A bot singles match plays to its first change of ends: the players stand at their new ends from the
     /// phase's first tick, the picture glides (no cut after its first tick) to the match camera, which it reaches
@@ -142,8 +142,8 @@ mod tests {
     }
 
     fn glide(stage: Option<u32>, owner: Option<usize>, chars: &[usize]) {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         // every player a bot
         crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);

@@ -343,9 +343,9 @@ mod tests {
     /// The emotes' voice lines: the match's programs (gu_set 9, di_set 10, gu 7, di 8), every take in turn (B500).
     #[test]
     fn emote_voices_take_turns() {
-        let iso = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso"));
-        if !iso.is_file() {
-            return eprintln!("no ISO, skipped");
+        let iso = Path::new(hst_data::fixture::ISO_PATH);
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut banks = HashMap::new();
         for (id, program, keys) in [(0x2e, 9, &[1, 0, 1][..]), (0x2f, 10, &[1, 0, 1]), (0x2c, 7, &[1, 2, 0, 1]), (0x2d, 8, &[1, 2, 3, 4, 0, 1])] {
@@ -359,10 +359,13 @@ mod tests {
     /// disc's keys or short of them). Needs the ISO and the mods repo's packaged mods in `mods/hst-mods`.
     #[test]
     fn a_mods_emote_voices_take_turns() {
-        let iso = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso"));
+        let iso = Path::new(hst_data::fixture::ISO_PATH);
         let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/fore_pc17_tbone"));
-        if !iso.is_file() || !dir.is_dir() {
-            return eprintln!("no ISO or mods/hst-mods, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        if !dir.is_dir() {
+            return eprintln!("no mods/hst-mods, skipped");
         }
         let mods = [crate::mods::read(dir).unwrap()];
         let mut banks = HashMap::new();

@@ -201,13 +201,11 @@ mod tests {
     use super::*;
     use crate::character;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-
     /// B502: a cut-away frames the clip drawn: a stock player's gameplay reaction as before, a mod's own reaction
     /// (0x2c..0x2f, up to half a turn from the donor's) on its own clock.
     #[test]
     fn frames_follow_the_drawn_clip() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let (mut a, mut b, mut c, mut d) = (Assets::default(), Assets::default(), Assets::default(), Assets::default());
         let mut data = character::load_disc(&mut iso, 6, 0, &mut a, &mut b, &mut c, &mut d).unwrap();
         let mut p = Player { hand: 1.0, ..default() };

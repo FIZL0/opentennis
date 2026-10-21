@@ -946,8 +946,8 @@ mod tests {
     /// the disc.
     #[test]
     fn loads_voice_banks() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let missing: Vec<_> = (0..14)
             .flat_map(|c| [2, 4].map(|players| [1, 7].map(|court| [false, true].map(|b| (c, players, court, b)))))
@@ -962,8 +962,8 @@ mod tests {
     /// another character's emote line and a non-emote sound play on.
     #[test]
     fn one_emote_voice_per_character() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
         let bank = Arc::new(voice_bank(&mut iso, 2, 2, 0, false).unwrap());
@@ -988,8 +988,8 @@ mod tests {
     /// The court BGM and the jingles load and play: the music sounds, a jingle sounds and ends.
     #[test]
     fn plays_music_and_jingles() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
         for n in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14] {
@@ -1025,8 +1025,8 @@ mod tests {
     /// load and are heard.
     #[test]
     fn match_end_sounds_are_heard() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let base = mix(&mut iso);
         // the loudest sample of one play over 2 s
@@ -1078,8 +1078,8 @@ mod tests {
     /// B576: every court's bank has the tiebreak score show's chime, and it is heard.
     #[test]
     fn tiebreak_chime_is_heard() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let base = mix(&mut iso);
         let mut courts = 0;
@@ -1103,8 +1103,8 @@ mod tests {
     /// applied).
     #[test]
     fn each_volume_silences_its_group() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let base = mix(&mut iso);
         let (bgm, mid) = SoundBank::music(&mut iso, "Court", "bgmg_01").unwrap();
@@ -1158,8 +1158,8 @@ mod tests {
     /// The first system sound renders: the voice keys on, sounds, and ends.
     #[test]
     fn plays_a_system_sound() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let bank = Arc::new(SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd").unwrap());
         let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
@@ -1178,8 +1178,8 @@ mod tests {
     /// one press: each cue cuts the one before.
     #[test]
     fn menu_cues_do_not_stack() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let bank = Arc::new(SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd").unwrap());
         let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
@@ -1205,8 +1205,8 @@ mod tests {
     /// B307: a cursor move right after a select lets the select cue play out under it; a select cuts both.
     #[test]
     fn cursor_move_keeps_select() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let bank = Arc::new(SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd").unwrap());
         let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
@@ -1229,8 +1229,8 @@ mod tests {
     /// level and end; a key past the takes wraps round them; a program without wavs is silent, or the donor's.
     #[test]
     fn plays_mod_wavs() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let dir = std::env::temp_dir().join(format!("hst-wav-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1270,8 +1270,8 @@ mod tests {
     /// as recorded, at a slower play speed, and stopped part-way (the release).
     #[test]
     fn wav_from_a_disc_take_plays_like_it() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let disc = Arc::new(voice_bank(&mut iso, 0, 2, 1, false).unwrap());
         let b = Bank::parse(&disc.hd).unwrap();
@@ -1352,8 +1352,8 @@ mod tests {
     /// next update after the pause; its voice isn't released.
     #[test]
     fn pause_holds_the_whistle() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
         let bank = court_bank(&mut iso, 10).0.unwrap();
@@ -1382,8 +1382,8 @@ mod tests {
     /// then an exponential release at shift 13, which the SPU2 takes 0.93 s (56 frames) to silence, −20 dB after 0.65 s.
     #[test]
     fn whistle_rings_out_as_the_game_releases_it() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
         let bank = court_bank(&mut iso, 10).0.unwrap();
@@ -1469,8 +1469,8 @@ mod tests {
     #[test]
     #[ignore]
     fn court_bgm_loudness() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let base = mix(&mut iso);
         let mut all = Vec::new();
@@ -1495,8 +1495,8 @@ mod tests {
     /// bearings its sweep passes through, and well under the BGM's.
     #[test]
     fn court_ambience_loudness() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let base = mix(&mut iso);
         let bank = court_bank(&mut iso, 2).0.unwrap();
@@ -1523,8 +1523,8 @@ mod tests {
     /// came clip + `VOICE_LAG` − 1 after the match call (`match_s05_match_over`).
     #[test]
     fn call_clips() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let sound = Sound::test(&mut iso);
         let bank = Arc::new(umpire_bank(&mut iso, 4, 0).unwrap());

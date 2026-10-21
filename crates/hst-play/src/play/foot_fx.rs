@@ -350,13 +350,13 @@ mod tests {
     use super::super::*;
     use crate::{Args, GameSpace};
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     /// A singles bot match's replay sounds footfalls only on its close-up closing shot, and does sound some there.
     #[test]
     fn replay_steps_sound_on_close_ups_only() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()));
