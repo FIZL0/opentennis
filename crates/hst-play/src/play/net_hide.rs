@@ -192,7 +192,7 @@ mod tests {
             (6, 91, [-2.4966, -1.63983, -16.0944], [0.162865, 0.036274, 0.985981], 0.0436609f32),
             (8, 44, [5.77494, -0.114015, -19.7535], [-0.273811, -0.108348, 0.955661], 0.176327),
         ] {
-            let w = hst_sim::court::world(&mut iso, court);
+            let w = hst_sim::court::world(&mut iso, court).unwrap();
             let v = View { rot: [[0.0; 3], [0.0; 3], fwd], eye, fov: t.atan() };
             assert!(buried(&v, &w.models, &w.props[prop]), "court {court} prop {prop}");
             let gone: Vec<_> = (0..w.props.len()).filter(|&i| buried(&match_cam, &w.models, &w.props[i])).collect();
