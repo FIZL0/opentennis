@@ -1,6 +1,7 @@
 #!/bin/bash
 # Short summary since the last run: commits, newly blocked tasks, new needs-human items.
 # First run: since today 13:00. State: context/notes/since.rev (git-ignored). -n = don't advance.
+set -e
 cd "$(dirname "$0")/.." || exit 1
 st=context/notes/since.rev
 rev=$(cat "$st" 2>/dev/null) || rev=$(git rev-list -1 --before="today 13:00" HEAD)

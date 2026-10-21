@@ -4,7 +4,7 @@
 # everything (in a worktree) or only plan/ + <paths> (main checkout, where other sessions' edits sit). Failing: nothing is ticked or committed.
 # --spec (clean-room ports, PLAN.md): the session wrote or questioned the task's SPEC.md; audit, commit as "<ID> spec: …"
 # without ticking, so the task stays open for its next phase (the runner may start it again the same night).
-cd "$(dirname "$(realpath "$0")")/.."
+cd "$(dirname "$(realpath "$0")")/.." || exit 1
 paths=(); for ((i = 1; i <= $#; i++)); do [ "${!i}" = -- ] && { paths=("${@:i+1}"); set -- "${@:1:i-1}"; break; }; done
 [ $# = 2 ] || { [ $# = 4 ] && [ "$3" = --blocked ]; } || { [ $# = 3 ] && [ "$3" = --spec ]; } || { sed -n 2,6p "$0"; exit 2; }
 main=; [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] && main=1

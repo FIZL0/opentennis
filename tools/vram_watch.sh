@@ -4,6 +4,7 @@
 # stress run can't take the desktop down (B86: a select leak once filled the card and crashed the compositor).
 pid=$1 log=$2 cap=$(( ${3:-3} * 1024 ))
 f=$(ls /sys/class/drm/card*/device/mem_info_vram_used | tail -1)
+[ -n "$f" ] || { echo "vram_watch.sh: no card exposes mem_info_vram_used (amdgpu only): not watching $pid" >&2; exit 1; }
 own() {
     # each DRM client once (fds can share one)
     awk '/^drm-client-id:/{id=$2} /^drm-memory-vram:/{v[id]=$2} END{s=0; for(i in v) s+=v[i]; print int(s/1024)}' /proc/"$pid"/fdinfo/* 2>/dev/null

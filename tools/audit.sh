@@ -5,7 +5,7 @@
 # Also: Ghidra's local names (uVar1, param_2, local_10, undefined4) in shipped code, Ghidra names on the public pages
 # (web/, docs/, README), decompiled C pasted into notes (a Ghidra name on a line ending in ; or {), and a clean-room
 # SPEC.md (PLAN.md) naming anything from the decompile: addresses, Ghidra names, struct offsets.
-cd "$(dirname "$(realpath "$0")")/.."
+cd "$(dirname "$(realpath "$0")")/.." || exit 1
 files=(':(glob)crates/*/src/**' ':!crates/hst-data/src/exe.rs' ':!crates/hst-oracle')
 hits=$(git grep -nE '\b(FUN|DAT|LAB|PTR)_[0-9a-fA-F]{6,}' -- "${files[@]}")
 if compgen -G 'context/decomp/*.funcs.tsv' >/dev/null; then

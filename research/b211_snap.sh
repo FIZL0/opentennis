@@ -1,5 +1,6 @@
 #!/bin/bash
 # B211: send vpad commands to PCSX2 copy $HST_PCSX2, then screenshot it at 1024 wide into $1.
+set -e
 out=$1; shift
 [ $# = 0 ] || tools/vpad.py send "$@"
 sleep 1

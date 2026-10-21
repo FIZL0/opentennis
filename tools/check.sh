@@ -2,7 +2,7 @@
 # Quiet `cargo test` for agents: tools/check.sh [cargo test args, e.g. -p hst-sim --test flights].
 # Passing: one line. Build error: the error lines only. Failing tests: their panic messages only.
 # Every line cut to 300 chars, at most 60 lines. Full output: context/notes/check.log.
-cd "$(dirname "$(realpath "$0")")/.."
+cd "$(dirname "$(realpath "$0")")/.." || exit 1
 log=context/notes/check.log
 mkdir -p context/notes
 # HST_CHECK_SLOTS test runs at once across main and every worktree (default 3: 30 GB RAM fits three Bevy links; more swaps), each capped to its share of the
@@ -10,7 +10,24 @@ mkdir -p context/notes
 # during links and long single-threaded tests
 n=${HST_CHECK_SLOTS:-3} jobs=$(( $(nproc) / ${HST_CHECK_SLOTS:-3} )); [ "$jobs" -ge 1 ] || jobs=1
 lock="$(git rev-parse --git-common-dir)/check.lock"
-until for i in $(seq 0 $((n - 1))); do exec 9>"$lock.$i"; flock -n 9 && break 2; done; false; do sleep 5; done
+# T7: the wait for a slot is bounded (HST_CHECK_WAIT seconds, default 3600) and gives up at once when sccache holds
+# every slot (a server started by a cargo that inherited fd 9, before the 9>&- below: it never lets go)
+grab() { for i in $(seq 0 $((n - 1))); do exec 9>"$lock.$i"; flock -n 9 && return 0; done; exec 9>&-; return 1; }
+holders() { lslocks -n -o COMMAND,PID,PATH 2>/dev/null | awk -v l="$lock." 'index($3, l) == 1 { print $1, $2, $3 }'; }
+waited=0
+until grab; do
+  h=$(holders)
+  if [ -n "$h" ] && [ "$(awk '$1 ~ /^sccache/ { print $3 }' <<<"$h" | sort -u | wc -l)" -ge "$n" ]; then
+    echo "CHECK FAILED: sccache holds every test slot lock (it inherited one from an old check.sh and never exits):"
+    echo "$h"; echo "fix: sccache --stop-server; sccache --start-server (from a shell holding no lock), then rerun"; exit 1
+  fi
+  if [ "$waited" -ge "${HST_CHECK_WAIT:-3600}" ]; then
+    echo "CHECK FAILED: no free test slot after ${waited}s (HST_CHECK_WAIT); holders (command, pid, lock):"
+    echo "${h:-(lslocks shows none)}"; exit 1
+  fi
+  [ "$waited" = 0 ] && echo "waiting for a test slot (all $n busy, up to ${HST_CHECK_WAIT:-3600}s)" >&2
+  sleep 5; waited=$((waited + 5))
+done
 export RUST_TEST_THREADS=${RUST_TEST_THREADS:-$jobs}
 # cargo never deletes stale artifacts (target/ reached 230 GB, 1.2 TB across the slots): any target dir of this
 # checkout (target/, target-wasm/, ...) past HST_TARGET_CAP_GB is started over; sccache makes the rebuild cheap.

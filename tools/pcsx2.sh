@@ -6,6 +6,9 @@ lock=${XDG_RUNTIME_DIR:-/tmp}/hst-pcsx2${HST_PCSX2:-}.lock  # HST_PCSX2=N: copy 
 flock -n -o "$lock" true 2>/dev/null || echo "waiting for PCSX2 (another agent is using it)" >&2
 # HST_PCSX2_MAX_HOLD (seconds, 1200 in runner.toml's slot_env): stop a command that holds PCSX2 longer, so a hung
 # recorder can't starve the other agents.
-flock -o "$lock" ${HST_PCSX2_MAX_HOLD:+timeout -k 10 "$HST_PCSX2_MAX_HOLD"} env HST_PCSX2_LOCKED=1 "$@"; s=$?
+# T7: bounded wait (HST_PCSX2_WAIT seconds, default 1800): on timeout flock runs nothing and exits 75
+wait=${HST_PCSX2_WAIT:-1800}
+flock -w "$wait" -E 75 -o "$lock" ${HST_PCSX2_MAX_HOLD:+timeout -k 10 "$HST_PCSX2_MAX_HOLD"} env HST_PCSX2_LOCKED=1 "$@"; s=$?
+[ "$s" = 75 ] && echo "pcsx2.sh: PCSX2 still busy after ${wait}s (HST_PCSX2_WAIT): another agent holds $lock: see lslocks | grep hst-pcsx2; nothing was run" >&2
 [ "$s" = 124 ] && echo "pcsx2.sh: stopped after holding PCSX2 for ${HST_PCSX2_MAX_HOLD}s (the parallel-run cap); split the job into shorter runs" >&2
 exit $s
