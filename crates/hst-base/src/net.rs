@@ -30,15 +30,15 @@
 //! The app talks to this through [`Net`]: commands in, [`Event`]s out; the network runs on its own tokio thread (in the browser: a task on the page's event loop, relays only).
 //! `hst net host|find|quick|join …` drives the same thing from a terminal (two machines, no menus).
 
-// the browser build keeps the lobby types (menus) without the transport
-#![cfg_attr(target_arch = "wasm32", allow(dead_code, unused_imports))]
-
 use std::sync::mpsc;
 use n0_future::time::{Duration, SystemTime};
 
+#[cfg(not(target_arch = "wasm32"))]
 use iroh::address_lookup::AddrFilter;
 use iroh::endpoint::{Connection, RecvStream, SendStream, presets};
-use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey, Signature};
+use iroh::{Endpoint, EndpointAddr, EndpointId, RelayMode, RelayUrl, SecretKey};
+#[cfg(not(target_arch = "wasm32"))]
+use iroh::Signature;
 #[cfg(not(target_arch = "wasm32"))]
 use iroh_mainline_address_lookup::DhtAddressLookup;
 use iroh::endpoint_info::UserData;
@@ -58,15 +58,19 @@ pub mod keeper;
 pub mod rejoin;
 
 pub const ALPN: &[u8] = b"hst/lobby/1";
+#[cfg(not(target_arch = "wasm32"))]
 /// The lobby list's infohash (any 20 bytes; these spell it).
 const TOPIC: &[u8; 20] = b"hst-remaster-lobby/1";
+#[cfg(not(target_arch = "wasm32"))]
 /// The listings' shared BEP 44 key (its secret is public on purpose: anyone may list; the endpoint signature inside
 /// says who wrote a listing).
 const BOARD: &[u8; 32] = b"hot-shots-tennis-remaster-lobby1";
+#[cfg(not(target_arch = "wasm32"))]
 /// The mDNS service name (`<id>._hst._udp.local`), so only our endpoints answer.
 const MDNS: &str = "hst";
 /// The LAN listing's prefix in the mDNS user data.
 const LAN_TAG: &str = "hst1";
+#[cfg(not(target_arch = "wasm32"))]
 /// How long Find listens on the LAN before it shows what it has (mDNS answers come within a second or two).
 const LAN_WAIT: Duration = Duration::from_secs(3);
 const REPUBLISH: Duration = Duration::from_secs(60);
@@ -427,6 +431,7 @@ impl Room {
         true
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     /// Seat `peer`'s picks in the first open seats; false (and no change) if they don't all fit.
     fn take(&mut self, peer: &str, picks: &[Pick]) -> bool {
         self.take_from(peer, picks, &[])
@@ -673,6 +678,7 @@ fn lan_data(l: &Listing) -> Option<UserData> {
     format!("{LAN_TAG}{json}").parse().ok()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// The listing in endpoint `id`'s mDNS user data, if it's hosting.
 fn lan_listing(id: EndpointId, data: Option<&UserData>) -> Option<Listing> {
     let l: Listing = serde_json::from_str(data?.as_ref().strip_prefix(LAN_TAG)?).ok()?;

@@ -889,7 +889,6 @@ pub mod call {
     pub const TICK: u8 = 2;
     pub const RESET: u8 = 4;
     pub const POINT: u8 = 6;
-    pub const PAUSE_OVER: u8 = 7;
     pub const GAME_END: u8 = 8;
 }
 

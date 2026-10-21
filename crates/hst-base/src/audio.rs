@@ -107,7 +107,6 @@ impl SoundBank {
     }
 
     /// A mod's voice (standard §5): `dir/<program>_<key>.wav`, keys in order; `None` if there is none.
-    #[allow(dead_code)]
     pub fn wavs(dir: &std::path::Path) -> Option<Self> {
         let mut wav: std::collections::HashMap<usize, Vec<(usize, (Arc<[i16]>, u32))>> = Default::default();
         for e in crate::modfs::read_dir(dir) {

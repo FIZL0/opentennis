@@ -9,9 +9,6 @@
 //! their `Debug` text: Rust prints an f32 as its shortest round-trip decimal, so different bits print differently
 //! (NaNs aside, which all read "NaN").
 
-// the rollback (M2d) and desync checks (M2g) are their users; only the test calls them yet
-#![cfg_attr(not(test), allow(dead_code))]
-
 use super::{Figure, Game, Pads, tick_input::TickPads};
 use crate::character::{Motion, Rig};
 use bevy::prelude::*;
@@ -85,6 +82,7 @@ impl Write for Fnv {
 
 /// The match's 64-bit state hash this tick: `Game` without its constants, the players' motions, the tick's pads.
 /// ponytail: Debug text through FNV (~0.1 ms a tick); a hand-written field walk if netplay ever measures it.
+#[cfg(test)]
 pub fn state_hash(w: &mut World) -> u64 {
     fnv(&state_text(w))
 }
