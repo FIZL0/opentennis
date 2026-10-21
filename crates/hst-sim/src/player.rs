@@ -756,9 +756,27 @@ pub struct Body {
     /// Where the body should face and where it faces.
     pub target: [f32; 4],
     pub face: Facing,
+    /// The match's handicap for this player (0 none, 1 or 2 weights, [`handicap_size`]), fixed for the match.
+    #[serde(default)]
+    pub handicap: u8,
+}
+
+/// The run-speed size percentage a handicap gives (`run_speed`'s `size`): none 100, one weight 80, two 70;
+/// anything else counts as none.
+pub fn handicap_size(handicap: u8) -> i32 {
+    match handicap {
+        1 => 80,
+        2 => 70,
+        _ => 100,
+    }
 }
 
 impl Body {
+    /// The size percentage this body runs at ([`handicap_size`]).
+    pub fn size(&self) -> i32 {
+        handicap_size(self.handicap)
+    }
+
     /// A body standing at `pos` squarely facing `forward`, with full stamina.
     pub fn new(pos: [f32; 3], forward: f32, s: &Stats) -> Self {
         let dir = [0.0, 0.0, forward, 0.0];
@@ -818,7 +836,7 @@ impl Body {
         } else {
             (0, self.stamina)
         };
-        let step = run_speed(s, run, stamina, 100);
+        let step = run_speed(s, run, stamina, self.size());
         if !keep && len <= f(2.0) * step / 3.0 {
             return ([0.0, 0.0], true);
         }
@@ -863,7 +881,7 @@ impl Body {
         } else {
             dir
         };
-        self.vel = run_velocity([dir[0], dir[1], dir[2]], run_speed(s, self.run, self.stamina, 100));
+        self.vel = run_velocity([dir[0], dir[1], dir[2]], run_speed(s, self.run, self.stamina, self.size()));
         self.pos = mover(self.pos, self.vel, sc.forward, sc.mate, sc.short);
         let t = [self.target[0], self.target[1], self.target[2]];
         if !self.face.turned && !(angle(t, sc.forward, sc.hand).abs() < THREE_QUARTERS) && current == id::TURN_BACK {

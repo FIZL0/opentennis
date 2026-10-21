@@ -53,6 +53,8 @@ struct Cli {
     swap_hands: play::hand_swap::SwapHands,
     /// `--names a,,b`: the players' names by match slot (B371, `play::name_tags`).
     names: play::name_tags::Names,
+    /// B40g1: `--handicap 0,1,2,0`: each match slot's weights (`play::handicap`).
+    handicaps: play::handicap::Handicaps,
     /// M8f3: `--umpire-mod DIR`, or `--umpire-mod-id ID` (online: the room's, if installed under `mods/`).
     umpire_mod: Option<mods_umpire::Umpire>,
     /// M8f6: `--court-mod DIR`, drawn and heard over its layout court.
@@ -71,6 +73,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
     let mut sound = None;
     let mut swap_hands = play::hand_swap::SwapHands::default();
     let mut names = play::name_tags::Names::default();
+    let mut handicaps = play::handicap::Handicaps::default();
     let mut outfits = Vec::new();
     let mut viewer_mod = None;
     let mut mod_slot = 0;
@@ -166,6 +169,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
                 std::process::exit(0);
             }
             "--swap-hands" => swap_hands = play::hand_swap::SwapHands::parse(&a.next().unwrap_or_default()),
+            "--handicap" => handicaps = play::handicap::Handicaps::parse(&a.next().unwrap_or_default()),
             "--names" => names = play::name_tags::Names::parse(&a.next().unwrap_or_default()),
             "--chars" => chars = a.next().map(|s| s.split(',').filter_map(|c| c.trim().parse().ok()).collect()).unwrap_or_default(),
             "--outfits" => outfits = a.next().map(|s| s.split(',').filter_map(|c| c.trim().parse().ok()).collect()).unwrap_or_default(),
@@ -224,7 +228,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
     // each match's flags set it afresh (the menu's next match parses its own)
     play::NO_MARKS.store(no_marks, std::sync::atomic::Ordering::Relaxed);
     let args = Args { iso, archives, shot, shot_at, radius, ball, court, stage, play, singles, chars, outfits, viewer: viewer_char.map(|c| (c, viewer_motion)), sound, music, umpire, sets, games, pads };
-    Cli { args, gfx, upscale, viewer_mod, mod_slot, slot_mods, roster, swap_hands, names, umpire_mod, court_mod }
+    Cli { args, gfx, upscale, viewer_mod, mod_slot, slot_mods, roster, swap_hands, names, handicaps, umpire_mod, court_mod }
 }
 
 // the browser build starts from `web::run` once the page has the disc pack
@@ -347,7 +351,7 @@ fn android_main(app: bevy::android::android_activity::AndroidApp) {
 
 /// The app for `argv` = disc, flags (see the module doc).
 fn start(argv: Vec<String>) {
-    let Cli { args, mut gfx, upscale, viewer_mod, mod_slot, slot_mods, roster, swap_hands, names, umpire_mod, court_mod } = parse(argv.into_iter());
+    let Cli { args, mut gfx, upscale, viewer_mod, mod_slot, slot_mods, roster, swap_hands, names, handicaps, umpire_mod, court_mod } = parse(argv.into_iter());
     // M142: the disc a lobby's host checks a guest's against (an imported pack's hash; an ISO's ID was checked)
     handshake::set_pack(Iso::open(&args.iso).ok().and_then(|i| i.pack_hash));
     // nothing asked for: the main menu, which starts matches in this app (`mode.rs`) with the flags above
@@ -519,7 +523,7 @@ fn start(argv: Vec<String>) {
         let (iso, early) = (args.iso.clone(), lineup(&args, &slot_mods, viewer_mod.is_some().then_some(mod_slot)));
         let early_mods = mod_lineup(&args, &slot_mods, viewer_mod.as_ref().map(|d| (mod_slot, d)));
         let first = mode::Mode::new(move |app| {
-            app.insert_resource(a).insert_resource(swap_hands).insert_resource(names).add_systems(Startup, load);
+            app.insert_resource(a).insert_resource(swap_hands).insert_resource(names).insert_resource(handicaps).add_systems(Startup, load);
             add_match(app, viewer_mod, mod_slot, slot_mods, umpire_mod);
             court_mod::add(app, court_mod);
         })
@@ -597,7 +601,7 @@ pub fn menu_mode(app: &mut App) {
 /// The menu's match in this app: `flags` read as on the command line (the settings' `--no-upscale` and
 /// graphics flags take effect here); its quit comes back to `back`.
 pub fn match_mode(iso: &str, flags: &[String], back: mode::Mode) -> mode::Mode {
-    let Cli { mut args, gfx, upscale, viewer_mod, mod_slot, slot_mods, swap_hands, names, umpire_mod, court_mod, .. } = parse(std::iter::once(iso.to_string()).chain(flags.iter().cloned()));
+    let Cli { mut args, gfx, upscale, viewer_mod, mod_slot, slot_mods, swap_hands, names, handicaps, umpire_mod, court_mod, .. } = parse(std::iter::once(iso.to_string()).chain(flags.iter().cloned()));
     textures::set(iso, upscale);
     let cover = loading::cover(args.iso.clone(), args.court, court_mod.as_ref().and_then(|c| c.loading_picture()));
     let (iso, early) = (args.iso.clone(), lineup(&args, &slot_mods, viewer_mod.is_some().then_some(mod_slot)));
@@ -608,7 +612,7 @@ pub fn match_mode(iso: &str, flags: &[String], back: mode::Mode) -> mode::Mode {
         // the app's own `--shot` goes on through the match
         let old = app.world().resource::<Args>();
         (args.shot, args.shot_at) = (old.shot.clone(), old.shot_at);
-        app.insert_resource(args).insert_resource(swap_hands).insert_resource(names).add_systems(Startup, load);
+        app.insert_resource(args).insert_resource(swap_hands).insert_resource(names).insert_resource(handicaps).add_systems(Startup, load);
         add_match(app, viewer_mod, mod_slot, slot_mods, umpire_mod);
         court_mod::add(app, court_mod);
     })

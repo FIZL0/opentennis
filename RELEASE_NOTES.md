@@ -18,3 +18,4 @@
 - Settings → Controls is now one scrolling table: each action's controller buttons and keyboard keys side by side in bigger rows that read on a phone, either one picked to rebind (←/→ or a tap), and Reset to defaults is a square button at the top. The same in the pause menu's settings.
 - With touch controls, the score at the top of the screen now sits just below the L1/R1 buttons instead of under them.
 - The loading screen before a match keeps its shape in tall (portrait) and very wide windows: the hint panel no longer squashes, and the court picture fills the whole window without black bars.
+- Set Handicap is back: on the Ready to play? screen, press △ (L on the keyboard) or tap the pill on a player's card to give them one or two leg weights. Each weight slows their running for the whole match, and they wear the weights on their calves. Online matches play without handicaps for now.
