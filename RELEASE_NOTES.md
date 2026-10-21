@@ -46,6 +46,6 @@
 - Switching Settings tabs no longer shows both pages on top of each other: the old page fades onto a dimmed panel and the new one comes in over it.
 - Each Settings page now has its own header colour (Display blue, Graphics purple, Sound red, Controls orange, Online & Mods green, Mobile teal), so you can tell them apart at a glance.
 - The Ready to play? screen now shows each player's handicap with what it does (how many weights and how much slower they run) and changes it with ‹ ›, adds an Offbeat Rules box to the bottom bar that lists the rules on and opens them, and its bottom bar now rearranges onto more rows instead of shrinking its words on narrow or tall screens.
-- Settings → Controls now matches the other pages: its name on the header, the Reset button (now labelled) in the header's corner, and the column names under it.
+- Settings → Controls now matches the other pages: its name on the header, the Reset button (now labelled) in the header's corner, and the column names under it. △ resets from any row, and asks first when your controls aren't already the defaults.
 - When a controller is detected and the game asks whether to use it for 1P, the keyboard can now move between Yes and No and choose, not only dismiss it with Esc.
 - Switching a two-player local match to doubles now puts the second player on your team instead of across the net.

@@ -138,6 +138,7 @@ fn calm(m: &Menu) -> bool {
         && m.over.is_none()
         && m.picking.is_none()
         && m.switch.is_none()
+        && m.reset_ask.is_none()
         && m.listing.is_none()
         && m.quit.is_none()
         && m.stale.0.is_none()

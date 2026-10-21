@@ -56,6 +56,7 @@ impl Menu {
             && self.net_pause.is_none()
             && self.rebinding.is_none()
             && self.switch.is_none()
+            && self.reset_ask.is_none()
             && self.stale.0.is_none()
             && self.listing.is_none()
             && self.add.ask.is_none()

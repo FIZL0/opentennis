@@ -699,6 +699,8 @@ struct Menu {
     editing: Option<Settings>,
     /// B327: the Renderer switch's confirm popup is up: the renderer it would switch to and the chosen pill (0 Switch).
     switch: Option<(u8, usize)>,
+    /// The Controls page's Reset to defaults? popup is up: its chosen pill (0 Reset, 1 Cancel).
+    reset_ask: Option<usize>,
     /// Online pressed while a newer version is out: the suggestion popup's chosen pill (0 Update, 1 Play anyway), and
     /// whether it has been shown this run (it asks once; Play anyway always goes on).
     stale: (Option<usize>, bool),
@@ -796,6 +798,7 @@ impl Default for Menu {
             calls: 0,
             editing: None,
             switch: None,
+            reset_ask: None,
             stale: (None, false),
             quit: None,
             update_ask: None,
@@ -842,6 +845,9 @@ enum Effect {
     /// The game restarted itself after a self-update (no browser equivalent).
     #[cfg(not(target_arch = "wasm32"))]
     Quit,
+    /// Reset (△ anywhere on the Controls page, or ✕ on its pill): the bindings back to defaults, through the confirm
+    /// popup when they aren't already.
+    AskResetControls,
     ResetControls,
     Online(online::Fx),
     /// The umpire picker's Preview Voice: umpire, voice program, key (`hst_sim::umpire`'s banks).
@@ -1484,7 +1490,7 @@ impl Menu {
         if self.mod_ask_step(k, &mut out) {
             return out;
         }
-        if self.switch_step(k, &mut out) {
+        if self.switch_step(k, &mut out) || self.reset_step(k, &mut out) {
             return out;
         }
         if self.settings_step(dev, k, &mut out) {
@@ -1611,8 +1617,8 @@ impl Menu {
         if (k.left || k.right) && self.sel < n && self.keys_tab != k.right {
             self.keys_tab = k.right;
             out.push(Sound(0));
-        } else if k.ok && self.sel == n {
-            out.extend([ResetControls, Sound(2)]);
+        } else if k.card || k.ok && self.sel == n {
+            out.extend([AskResetControls, Sound(2)]);
         } else if k.ok {
             self.rebinding = Some(self.sel);
             out.push(Sound(2));
@@ -2523,7 +2529,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         "sound" | "sound-edit" => Screen::Sound,
         "mod-settings" => Screen::ModSettings,
         "mobile" => Screen::Mobile,
-        "controls" | "controls-keys" | "controls-bind" | "controls-last" | "controls-reset" => Screen::Controls,
+        "controls" | "controls-keys" | "controls-bind" | "controls-last" | "controls-reset" | "controls-ask" => Screen::Controls,
         "mode" => Screen::Mode,
         "assign" | "assign-moved" | "assign-drag" => Screen::Assign,
         "chars" | "chars2" | "chars4" | "chars4-pads" | "roster1" | "roster2" | "roster3" | "roster4" | "roster4-names" | "roster2-favs" | "roster4-favs" | "roster2-deep" | "mods" | "attrs" | "mods-attrs" | "coms" | "coms-random" | "chars-online" | "chars-hosting" | "chars-joining" | "chars-relay" | "chars-random" | "names" | "names-type" | "names-card" => Screen::Chars,
@@ -2592,6 +2598,10 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     // M127: the pad takeover prompt up / its toast
     if fresh && (screen == "takeover" || screen == "takeover-toast") {
         takeover::sample(&mut menu, screen == "takeover-toast");
+    }
+    // the Controls page's Reset to defaults? popup up
+    if fresh && screen == "controls-ask" {
+        menu.reset_ask = Some(0);
     }
     // B327: the Renderer switch's popup up, on WebGL2
     if fresh && screen == "renderer" {
@@ -3569,6 +3579,11 @@ fn step(
                 #[cfg(not(target_arch = "wasm32"))]
                 Effect::Quit => {
                     exit.write(AppExit::Success);
+                }
+                Effect::AskResetControls => {
+                    if *bind != Bindings::default() {
+                        menu.reset_ask = Some(0);
+                    }
                 }
                 Effect::ResetControls => {
                     *bind = Bindings::default();
