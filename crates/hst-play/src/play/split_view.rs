@@ -52,6 +52,14 @@ pub(super) fn on() -> bool {
     ON.load(Ordering::Relaxed)
 }
 
+/// B635: whether player `i`'s stick is turned round on top of `own_camera::flipped` while the picture is split: its
+/// half looks from behind its own end, and the stick steers by the shared camera's (a local human on the far team
+/// when humans play on both teams; online each machine's camera is already behind its player). The input turns the
+/// raw stick before it's recorded (`tick_input`), so replays and the tick hash stay as played.
+pub(super) fn turned(g: &Game, i: usize) -> bool {
+    on() && g.players.get(i).is_some_and(|p| (p.end < 0.0) != own_camera::flipped(g, i))
+}
+
 /// The bottom half's camera.
 #[derive(Component)]
 struct SplitCam;
