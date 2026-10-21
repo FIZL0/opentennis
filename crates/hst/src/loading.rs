@@ -46,7 +46,7 @@ fn pick(seen: &mut [u8; HINTS], rand: u32) -> usize {
 }
 
 fn path(iso: &str) -> std::path::PathBuf {
-    std::path::Path::new(iso).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(".".as_ref()).join("hints.txt")
+    crate::store::path(iso, "hints.txt")
 }
 
 /// The next hint, its seen flag saved (`hints.txt`: one hex byte per hint).

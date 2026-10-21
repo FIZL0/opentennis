@@ -117,7 +117,7 @@ impl Default for Online {
 
 impl Online {
     pub fn path(iso: &str) -> std::path::PathBuf {
-        std::path::Path::new(iso).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(".".as_ref()).join("online.txt")
+        crate::store::path(iso, "online.txt")
     }
 
     pub fn load(iso: &str) -> Online {

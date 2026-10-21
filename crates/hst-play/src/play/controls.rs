@@ -1,6 +1,6 @@
 //! Rebindable controls and controller slots that survive hot-plugging (remaster-only, never touches the 60 Hz sim).
 //!
-//! Bindings live in `controls.txt` beside the disc image, written with the defaults on first run: one line per
+//! Bindings live in `controls.txt` in the per-user data folder (`crate::store`), written with the defaults on first run: one line per
 //! action, `action = Name Name …`, keys by their Bevy `KeyCode` name (`KeyJ` or just `J`, `Digit1` or `1`, `Space`,
 //! `ArrowLeft`, …) and pad buttons with a `Pad` prefix (`PadSouth`, `PadLeftTrigger`, …). Unknown names are reported
 //! and skipped; an action left without a binding keeps its default.
@@ -278,9 +278,9 @@ pub fn fixed_stick(i: usize) -> Option<(bool, usize)> {
     }
 }
 
-/// `controls.txt` beside the disc image.
+/// `controls.txt` in the per-user data folder.
 fn path(iso: &str) -> PathBuf {
-    std::path::Path::new(iso).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(".".as_ref()).join("controls.txt")
+    crate::store::path(iso, "controls.txt")
 }
 
 fn load(mut commands: Commands, args: Res<crate::Args>, pads: Option<ResMut<super::Pads>>) {
