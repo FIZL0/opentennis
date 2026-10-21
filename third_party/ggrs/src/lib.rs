@@ -121,6 +121,7 @@ pub use sessions::p2p_spectator_session::SpectatorSession;
 pub use sessions::sync_test_session::SyncTestSession;
 pub use sync_layer::{GameStateAccessor, GameStateCell};
 
+// HST (B494): a clock the calling thread can drive (clock.rs)
 pub mod clock;
 pub(crate) mod error;
 pub(crate) mod frame_info;

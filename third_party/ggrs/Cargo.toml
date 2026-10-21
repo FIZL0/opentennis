@@ -47,6 +47,7 @@ wasm-bindgen = [
 name = "ggrs"
 path = "src/lib.rs"
 
+# HST (B494): the examples, tests and dev-dependencies left out (the vendored copy has none of them)
 [dependencies.bincode]
 version = "1.3"
 

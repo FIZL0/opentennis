@@ -10,6 +10,7 @@ use crate::{
 };
 use tracing::{trace, warn};
 
+// HST (B494): every `now` and the ping clock read through crate::clock, which a test can drive
 use crate::clock::{millis_since_epoch, Instant};
 use instant::Duration;
 use std::collections::vec_deque::Drain;
