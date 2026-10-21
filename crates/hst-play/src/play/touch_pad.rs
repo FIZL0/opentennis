@@ -124,6 +124,21 @@ impl Layout {
     }
 }
 
+/// B610: how far down the HUD's view the shoulder row (L1, R1, Select, Start, chat) reaches on a `size` window, in
+/// percent of the view's height; 0 without the pad. The score panel's top half drops below it.
+pub fn top_row(size: Vec2) -> f32 {
+    if !on() {
+        return 0.0;
+    }
+    row_bottom(size, super::widescreen::safe_insets(size), super::widescreen::view(size))
+}
+
+fn row_bottom(size: Vec2, safe: [f32; 4], view: Rect) -> f32 {
+    let l = Layout::new(size, safe);
+    let bottom = l.keys[4..].iter().fold(l.chat.max.y, |b, k| b.max(k.max.y));
+    ((bottom - view.min.y) / view.height() * 100.0).max(0.0)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Control {
     Key(usize),
@@ -579,6 +594,39 @@ mod tests {
     fn layout() -> Layout {
         // an iPhone 15 Pro on its side: the Dynamic Island's side and the home indicator kept clear
         Layout::new(SIZE, [59.0, 0.0, 59.0, 21.0])
+    }
+
+    /// B610: with the pad on, the score panel's top Sets/Games strips (either corner, background and text) clear the
+    /// shoulder row and the chat button, landscape and portrait, with and without safe-area insets.
+    #[test]
+    fn score_strip_clears_the_shoulders() {
+        use super::super::{panel, widescreen};
+        for (size, safe) in [
+            (Vec2::new(1280.0, 720.0), [0.0; 4]),
+            (SIZE, [59.0, 0.0, 59.0, 21.0]),
+            (Vec2::new(1024.0, 768.0), [0.0; 4]),
+            (Vec2::new(450.0, 900.0), [0.0; 4]),
+            (Vec2::new(393.0, 852.0), [0.0, 59.0, 0.0, 34.0]),
+        ] {
+            let [l, t, r, b] = safe;
+            let view = Rect::from_corners(Vec2::new(l, t), size - Vec2::new(r, b));
+            let aspect = view.width() / view.height();
+            let drop = panel::drop_below(row_bottom(size, safe, view), aspect);
+            let lay = Layout::new(size, safe);
+            let px = |[x, y, w, h]: [f32; 4]| {
+                let (left, width) = widescreen::pin(x, w, widescreen::share(aspect));
+                let (top, height) = panel::vplace_clear(y, h, aspect, drop);
+                Rect::from_corners(view.min + Vec2::new(left, top) / 100.0 * view.size(), view.min + Vec2::new(left + width, top + height) / 100.0 * view.size())
+            };
+            for strip in [[0.0, 16.0, 240.0, 20.0], [16.0, 14.0, 184.0, 24.0], [400.0, 16.0, 240.0, 20.0], [440.0, 14.0, 184.0, 24.0]] {
+                let s = px(strip);
+                for k in lay.keys[4..].iter().chain([&lay.chat]) {
+                    assert!(s.intersect(*k).is_empty(), "{size} {strip:?} {k:?} {s:?}");
+                }
+                // and not pushed far into the court
+                assert!(s.min.y < lay.zone.min.y, "{size} {strip:?}");
+            }
+        }
     }
 
     #[test]

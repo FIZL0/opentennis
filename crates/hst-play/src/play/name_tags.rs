@@ -255,6 +255,7 @@ fn labels(
     window: Query<&Window>,
 ) {
     let aspect = window.single().map_or(4.0 / 3.0, super::widescreen::aspect);
+    let drop = window.single().map_or(0.0, |w| super::panel::touch_drop(w, aspect));
     for (Label(h, k), mut node, mut img, mut vis) in &mut q {
         let Some((p, name)) = plates.0[*h].get(*k).and_then(|p| Some((p, names.as_ref()?.get(p.player)?))) else {
             vis.set_if_neq(Visibility::Hidden);
@@ -265,7 +266,7 @@ fn labels(
         let handle = made.entry((name.to_string(), (squeeze * 20.0).round() as u8)).or_insert_with(|| images.add(tag_image(name, Style::Plate, squeeze))).clone();
         if *h == PANEL {
             let (left, width) = super::widescreen::pin(x, w, super::widescreen::share(aspect));
-            let (top, height) = super::widescreen::vplace(y, hh, aspect, super::widescreen::Anchor::Sides);
+            let (top, height) = super::panel::vplace_clear(y, hh, aspect, drop);
             super::widescreen::put(&mut node, left, top, width, height);
         } else {
             let placed = Node { left: Val::Percent(x / 6.4), top: Val::Percent(y / 4.48), width: Val::Percent(w / 6.4), height: Val::Percent(hh / 4.48), ..node.clone() };
