@@ -328,6 +328,10 @@ fn android_main(app: bevy::android::android_activity::AndroidApp) {
     dev_env();
     handshake::set_build(BUILD_ID);
     let dir = app.external_data_path().expect("no external files dir");
+    // B603: the Hugging Face token stays in the app-private files dir, not the shared external one
+    if let Some(private) = app.internal_data_path() {
+        modstore::keep_token_in(&private);
+    }
     android::log_to_files(&dir);
     let _ = bevy::android::ANDROID_APP.set(app);
     android::init_tls();
@@ -354,6 +358,10 @@ fn start(argv: Vec<String>) {
     let menu = args.archives.is_empty() && args.stage.is_none() && !args.play && !args.ball && args.viewer.is_none() && args.sound.is_none() && roster.is_none();
     // `--windowed` on the command line holds for the whole run, over the menu's setting
     let windowed = gfx.windowed;
+    // B603: the Hugging Face token beside settings.txt (Android has already put it in the app's private dir)
+    if let Some(dir) = store::settings(&args.iso).parent() {
+        modstore::keep_token_in(dir);
+    }
     // the menu opens the window as settings.txt's graphics say, so it doesn't start fullscreen and then shrink
     if menu && let Ok(t) = store::read_to_string(play::main_menu::Settings::path(&args.iso)) {
         for (k, v) in t.lines().filter_map(|l| l.split('#').next()?.split_once('=')) {

@@ -7,7 +7,8 @@
 //! (`modfs::install`): into `mods/<id>/` on disk, or the page's OPFS store in the browser. Upload packages an
 //! installed mod (`mod.zip`, `meta.json`, `preview.png` and B372's ~256 px `thumb.png`) and commits it to the repo as a pull request through the
 //! Hub API (user 2026-10-13: no upload page), with the player's own Hugging Face write token, pasted once and kept
-//! in `hf-token.txt` beside settings.txt / localStorage.
+//! in `hf-token.txt` ([`token_path`]: beside settings.txt, the app's private dir on Android, localStorage in the
+//! browser), readable by the player only.
 //!
 //! Network work runs off the frame (a thread natively, the page's event loop in the browser); results come back
 //! through [`take`].
@@ -36,6 +37,67 @@ const MAX_META: u64 = 64 << 10;
 const MAX_PREVIEW: u64 = 4 << 20;
 /// The player's Hugging Face account: `<name>\n<token>`.
 const TOKEN: &str = "hf-token.txt";
+/// The directory [`TOKEN`] lives in ([`keep_token_in`]).
+static TOKEN_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// Keeps the token in `dir` from now on: settings.txt's dir on desktop, the app's private files dir on Android. The
+/// first call wins (Android sets its dir before the disc's is known). A token a build before B603 left in the working
+/// directory moves there.
+pub fn keep_token_in(dir: &Path) {
+    if TOKEN_DIR.set(dir.to_path_buf()).is_err() {
+        return;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let (old, new) = (Path::new(TOKEN), token_path());
+        if !new.exists() && let Ok(t) = std::fs::read_to_string(old) && write_token(&t).is_ok() {
+            let _ = std::fs::remove_file(old);
+        }
+        let _ = tighten(&new);
+    }
+}
+
+/// Where the token is kept: [`TOKEN`] in [`keep_token_in`]'s dir (the working directory before it's set; the
+/// localStorage key in the browser).
+pub fn token_path() -> std::path::PathBuf {
+    match TOKEN_DIR.get() {
+        Some(d) if !cfg!(target_arch = "wasm32") => d.join(TOKEN),
+        _ => TOKEN.into(),
+    }
+}
+
+/// Writes the token file, created owner-only (0600) so it's never readable by others, not even for a moment.
+fn write_token(text: &str) -> std::io::Result<()> {
+    write_private(&token_path(), text)
+}
+
+/// Writes `text` to `path`, a file only its owner can read (0600 from the moment it's created).
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+        // a file an older build made keeps its mode through open: tighten it before the token goes in
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        f.write_all(text.as_bytes())
+    }
+    #[cfg(not(unix))]
+    crate::store::write(path, text)
+}
+
+/// Tightens an existing token file to owner-only (one an older build wrote 0644).
+#[cfg(not(target_arch = "wasm32"))]
+fn tighten(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if path.exists() {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
 
 /// `mods/<id>/meta.json`: what Browse shows and what Install checks.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -1118,7 +1180,7 @@ fn head_of(png: &[u8]) -> Option<Vec<u8>> {
 
 /// The signed-in account: its name and token.
 pub fn account() -> Option<(String, String)> {
-    let t = crate::store::read_to_string(TOKEN).ok()?;
+    let t = crate::store::read_to_string(token_path()).ok()?;
     let (name, token) = t.trim().split_once('\n')?;
     let token = token.trim();
     (!token.is_empty()).then(|| (name.into(), token.into()))
@@ -1141,12 +1203,7 @@ pub fn sign_in(token: String) {
             if r["auth"]["accessToken"]["role"] == "read" {
                 return Err("that token can only read: make one with write access".into());
             }
-            crate::store::write(TOKEN, format!("{name}\n{token}\n")).map_err(|e| format!("can't keep the token: {e}"))?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(TOKEN, std::fs::Permissions::from_mode(0o600));
-            }
+            write_token(&format!("{name}\n{token}\n")).map_err(|e| format!("can't keep the token: {e}"))?;
             Ok(name)
         };
         send(Event::Signed(got.await));
@@ -1155,7 +1212,7 @@ pub fn sign_in(token: String) {
 
 /// Forgets the token.
 pub fn sign_out() {
-    let _ = crate::store::write(TOKEN, "");
+    let _ = write_token("");
 }
 
 /// One upload: an installed mod, its play style and △ grades as the select shows them, and the select's picture of
@@ -1438,6 +1495,25 @@ pub fn open(what: &str) {
 
 #[cfg(test)]
 mod tests {
+    /// B603: the token file is owner-only from creation, and one an older build left world-readable is tightened
+    /// before the token is written into it.
+    #[cfg(unix)]
+    #[test]
+    fn token_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("hst-token-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(super::TOKEN);
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let _ = std::fs::remove_file(&path);
+        super::write_private(&path, "me\nhf_x\n").unwrap();
+        assert_eq!(mode(&path), 0o600);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        super::write_private(&path, "you\nhf_y\n").unwrap();
+        assert_eq!((mode(&path), std::fs::read_to_string(&path).unwrap().as_str()), (0o600, "you\nhf_y\n"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// B557: every listed mod's `meta.json` (as Browse reads it, index included) names the size and sha256 of the
     /// `mod.zip` beside it on the same rev, so a size mismatch at install is a listing older than a re-upload (B548's
     /// retry), not the store disagreeing with itself. Network: `tools/check.sh -p hst-base store_meta_matches -- --ignored`
