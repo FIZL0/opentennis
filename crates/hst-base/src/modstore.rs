@@ -148,7 +148,15 @@ pub struct Meta {
     /// upload from before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub looks: Option<String>,
+    /// A character's `preview.png` is the select's own drawing at this [`RENDER`]: a select with the same one shows it
+    /// instead of drawing it again. Absent (an upload from before it, or a drawing since changed): drawn on the device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub render: Option<u32>,
 }
+
+/// The select cards' drawing version (part of their cache folder's name): bump it when the preview's drawing
+/// changes, so every card is drawn again and store pictures from before stop standing in for them.
+pub const RENDER: u32 = 13;
 
 /// B373: a mod's kind (`meta.json` / `mod.json` `"kind"`): absent is a character, so every older entry still reads;
 /// one this game doesn't know yet reads as `Other` and shows on no tab.
@@ -692,9 +700,9 @@ pub fn thumb(e: &Entry, dir: &Path) {
 }
 
 /// B335: the installed store mod in `dir` (id `id`)'s listing picture, to `done` (None: not fetched); false if it
-/// isn't a store mod.
+/// isn't a store mod, or its picture isn't this [`RENDER`]'s drawing (the select draws it then).
 pub fn installed_preview(dir: &Path, id: &str, done: impl FnOnce(Option<Vec<u8>>) + Send + 'static) -> bool {
-    let Some(s) = stamp(dir) else { return false };
+    let Some(s) = stamp(dir).filter(|s| s.render == Some(RENDER)) else { return false };
     let url = file_url(&s.rev, &format!("mods/{id}/preview.png"));
     spawn(async move { done(get(&url, MAX_PREVIEW).await.ok()) });
     true
@@ -729,6 +737,9 @@ pub struct Stamp {
     /// B248: the store author it was listed under (with its id, what makes it this store mod); empty before B248.
     #[serde(default)]
     pub author: String,
+    /// Its store picture's [`Meta::render`].
+    #[serde(default)]
+    pub render: Option<u32>,
 }
 
 pub fn stamp(dir: &Path) -> Option<Stamp> {
@@ -776,7 +787,7 @@ pub fn install(e: &Entry, root: &Path, upscaled: bool) {
                 },
                 m => m?,
             };
-            let s = Stamp { sha256: e.meta.sha256.clone(), rev: e.rev.clone(), verified: e.verified, author: e.meta.author.clone() };
+            let s = Stamp { sha256: e.meta.sha256.clone(), rev: e.rev.clone(), verified: e.verified, author: e.meta.author.clone(), render: e.meta.render };
             modfs::write(&m.dir.join("store.json"), serde_json::to_vec(&s).unwrap())?;
             keep(&m)
         };
@@ -1088,6 +1099,7 @@ pub fn package(m: &Mod, stats: Option<(usize, [u8; 5])>, iso: &str) -> Result<Pa
         covers: crate::mods_textures::tag(&j, "covers").filter(|_| pack.is_some()),
         look: crate::mods_textures::tag(&j, "look").filter(|_| pack.is_some()),
         looks: (kind != Kind::Textures).then(|| crate::mods_online::pack(&m.dir).ok()).flatten().map(|b| format!("{:016x}", crate::mods_online::hash(&b))),
+        render: None,
     };
     let preview = pack.and_then(|p| p.1).or_else(|| preview_of(&files, kind));
     Ok(Package { zip, meta, preview })
@@ -1146,9 +1158,11 @@ fn before_after(before: (u32, u32, &[u8]), after: (u32, u32, &[u8])) -> Option<V
 const PAIR: u32 = 512;
 
 /// M8f9: an upload's `preview.png` among its `files`: an umpire's `previews/umpire.png` (the standard's §3 picture,
-/// B400), a court's `previews/court.png`; else (and a character's) its first picture under `previews/`.
+/// B400), a court's `previews/court.png`; else its first picture under `previews/`. None for a character: its
+/// picture is the select's drawing, sent with the upload ([`Upload`]), never one it ships (an older game's).
 fn preview_of(files: &[(String, Vec<u8>)], kind: Kind) -> Option<Vec<u8>> {
     let own = match kind {
+        Kind::Character => return None,
         Kind::Umpire => Some("previews/umpire.png"),
         Kind::Court => Some("previews/court.png"),
         _ => None,
@@ -1212,7 +1226,7 @@ pub fn sign_out() {
 }
 
 /// One upload: an installed mod, its play style and △ grades as the select shows them, and the select's picture of
-/// it (sent when the mod ships no `previews/*.png`).
+/// it (a character's listing picture, drawn now; else sent when the mod ships no `previews/*.png`).
 pub type Upload = (Mod, Option<(usize, [u8; 5])>, Option<Vec<u8>>);
 
 /// B250: uploads `mods` in the background as account `name` ([`Event::Upload`] for each: Uploading, then Done /
@@ -1321,9 +1335,12 @@ async fn ready(m: &Mod, stats: Option<(usize, [u8; 5])>, card: Option<Vec<u8>>, 
         Plan::New => (newest_pr(own.as_deref().unwrap_or_default()), "Add"),
         Plan::Onto(n) => (Some(n), "Update"),
     };
+    // a character's picture is the select's drawing as it is now ([`preview_of`]), so the select can show it as its card
+    let png = p.preview.or(card);
+    p.meta.render = (p.meta.kind == Kind::Character && png.is_some()).then_some(RENDER);
     let dir = format!("mods/{}", m.id);
     let mut files = vec![(format!("{dir}/mod.zip"), p.zip), (format!("{dir}/meta.json"), serde_json::to_vec_pretty(&p.meta).unwrap())];
-    if let Some(png) = p.preview.or(card).filter(|b| b.len() as u64 <= MAX_PREVIEW) {
+    if let Some(png) = png.filter(|b| b.len() as u64 <= MAX_PREVIEW) {
         // B372: Browse's tile picture, the preview small (Browse fetches it first); M8f9/B400: an umpire's is its
         // head, as the umpire select's card has it
         let tile = if p.meta.kind == Kind::Umpire { head_of(&png) } else { None };
@@ -1336,16 +1353,16 @@ async fn ready(m: &Mod, stats: Option<(usize, [u8; 5])>, card: Option<Vec<u8>>, 
     Ok(Ok(Ready { dir: m.dir.clone(), id: m.id.clone(), name: m.name.clone(), verb, onto, files, mb }))
 }
 
-/// Backfill for uploads from before the card went up with them, or with a card baked before a drawing fix: for each
-/// `(id, style, grades, preview)` on open PR `pr`, sets its play style and grades in its `meta.json`, and its
-/// `preview.png`/`thumb.png` to `preview` if given; all of them in one commit (the Hub caps commits per repo), the zips
-/// left alone. Run by `main_menu`'s `store_cards`.
 /// B601: a store event as if a background job sent it (the menus' tests of what each one does).
 #[cfg(any(test, feature = "testing"))]
 pub fn inject(e: Event) {
     send(e);
 }
 
+/// Backfill for uploads from before the card went up with them, or with a card baked before a drawing fix: for each
+/// `(id, style, grades, preview)` on open PR `pr`, sets its play style and grades in its `meta.json`, and its
+/// `preview.png`/`thumb.png` to `preview` if given; all of them in one commit (the Hub caps commits per repo), the zips
+/// left alone. Run by `main_menu`'s `store_cards`.
 #[cfg(any(test, feature = "testing"))]
 pub async fn put_cards(token: &str, pr: u32, cards: Vec<(String, u8, [u8; 5], Option<Vec<u8>>)>) -> Result<String, String> {
     let mut files = Vec::new();
@@ -1354,6 +1371,8 @@ pub async fn put_cards(token: &str, pr: u32, cards: Vec<(String, u8, [u8; 5], Op
         let path = format!("mods/{id}/meta.json");
         let mut meta: Meta = serde_json::from_slice(&get(&file_url(&format!("refs/pr/{pr}"), &path), 1 << 20).await?).map_err(|e| e.to_string())?;
         (meta.style, meta.grades) = (Some(style), Some(grades));
+        // (a bake of this RENDER: the select shows it as the card)
+        meta.render = preview.is_some().then_some(RENDER).or(meta.render);
         files.push((path, serde_json::to_vec_pretty(&meta).unwrap()));
         if let Some(png) = preview {
             files.push((format!("mods/{id}/thumb.png"), shrink(&png, THUMB).ok_or_else(|| format!("{id}: preview isn't a PNG"))?));
@@ -1507,6 +1526,23 @@ mod tests {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         super::write_private(&path, "you\nhf_y\n").unwrap();
         assert_eq!((mode(&path), std::fs::read_to_string(&path).unwrap().as_str()), (0o600, "you\nhf_y\n"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An installed store mod whose store picture is an older game's drawing (no render, or another) isn't fetched
+    /// as its select card: the select draws it.
+    #[test]
+    fn older_store_pictures_are_drawn_again() {
+        let dir = std::env::temp_dir().join(format!("hst-render-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for render in [None, Some(super::RENDER - 1)] {
+            let s = super::Stamp { sha256: "ab".into(), rev: "main".into(), verified: true, author: String::new(), render };
+            std::fs::write(dir.join("store.json"), serde_json::to_vec(&s).unwrap()).unwrap();
+            assert!(!super::installed_preview(&dir, "x", |_| panic!("fetched")), "{render:?}");
+        }
+        // a store.json from before the field reads as no render
+        std::fs::write(dir.join("store.json"), r#"{"sha256":"ab","rev":"main","verified":true}"#).unwrap();
+        assert_eq!(super::stamp(&dir).unwrap().render, None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1747,7 +1783,7 @@ mod tests {
         assert!(!disk.join(&m.id).join("old").exists());
         assert!(modfs::files_under(&disk).is_empty());
         assert_eq!(crate::mods::read(&got.dir).unwrap().id, m.id);
-        let s = Stamp { sha256: p.meta.sha256.clone(), rev: "refs/pr/1".into(), verified: false, author: String::new() };
+        let s = Stamp { sha256: p.meta.sha256.clone(), rev: "refs/pr/1".into(), verified: false, author: String::new(), render: None };
         modfs::write(&got.dir.join("store.json"), serde_json::to_vec(&s).unwrap()).unwrap();
         assert_eq!(stamp(&got.dir).unwrap().rev, "refs/pr/1");
         // the stamp stays out of a re-upload's zip
