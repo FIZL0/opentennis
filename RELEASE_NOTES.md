@@ -13,3 +13,4 @@
 - Mod downloads and uploads now show their progress at the top of every menu screen, and when they finish the game offers to restart so the new mods load.
 - Once your mod downloads and uploads have all finished, a Reload Mods button appears at the top of the menus, and if you put off reloading, picking Local or Online asks once more (Reload now or Play without them). Nothing asks you to reload while a download or upload is still going.
 - The mod download and upload progress at the top of the menus now fills as mods download, counts every mod downloading at once, names the mod uploading now, and no longer moves your cursor on the screen you're on when the mod store list refreshes.
+- Your Hugging Face sign-in for uploading mods is now saved where only you can read it, next to your settings (in the app's private storage on Android).
