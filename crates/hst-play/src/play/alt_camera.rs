@@ -3,8 +3,8 @@
 //! each way, and fading the human toward half transparency while their body hides the ball coming at them.
 //!
 //! Presentation only: the shared match camera (`Game::cam`, which the cut-aways and reaction voices read) keeps
-//! stepping as before and nothing in play reads this one; the picture shows it through `own_camera::shown`. The
-//! last choice is kept in `camera.txt` for the next match. Select only switches in live play (`live`): a press
+//! stepping as before and nothing in play reads this one; the picture shows it through `own_camera::shown`. Every
+//! match starts on the normal camera, the choice isn't kept (user 2026-10-21). Select only switches in live play (`live`): a press
 //! while the players can't move (the intro, post-point, cut-aways, change of ends, replays) is dropped.
 
 use bevy::prelude::*;
@@ -13,7 +13,6 @@ use hst_sim::camera::{Camera, Scene, View, swing};
 
 use super::own_camera::{self, OwnCam};
 use super::{Figure, Game, Phase, Pads, controls};
-use crate::Args;
 
 /// Rally ticks the fade waits before it looks at the ball.
 const SETTLE: u32 = 30;
@@ -49,7 +48,7 @@ impl AltCamera {
 }
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, load)
+    app.init_resource::<AltCamera>()
         .add_systems(Update, (press.run_if(|w: &World| !super::front_end::paused(w) && !super::intro::running(w)), fade))
         // after every system that writes the shared camera's view this tick, as `own_camera::plain`
         .add_systems(
@@ -60,26 +59,6 @@ pub fn plugin(app: &mut App) {
                 .after(super::change_ends::step)
                 .after(super::start_effects),
         );
-}
-
-/// `camera.txt` in the per-user data folder.
-fn path(iso: &str) -> std::path::PathBuf {
-    crate::store::path(iso, "camera.txt")
-}
-
-fn load(mut commands: Commands, args: Res<Args>) {
-    let on = crate::store::read_to_string(path(&args.iso)).is_ok_and(|t| t.trim() == "alternate");
-    commands.insert_resource(AltCamera { on, ..default() });
-}
-
-fn save(iso: &str, on: bool) {
-    // tests never write beside the disc
-    if cfg!(test) {
-        return;
-    }
-    if let Err(e) = crate::store::write(path(iso), if on { "alternate\n" } else { "normal\n" }) {
-        warn!("camera.txt: {e}");
-    }
 }
 
 /// The one human playing on this machine, if exactly one does and the match isn't online.
@@ -122,17 +101,18 @@ fn step(
     np: Option<Res<super::netplay::Netplay>>,
     d: Option<Res<super::cutaway::Director>>,
     own: Option<ResMut<OwnCam>>,
-    args: Res<Args>,
     mut commands: Commands,
 ) {
     let (Some(mut alt), Some(g), Some(pads), Some(d)) = (alt, g, pads, d) else { return };
     let alt = &mut *alt;
     let press = std::mem::take(&mut alt.press);
+    if g.is_added() {
+        alt.on = false;
+    }
     let Some(i) = human(&g, &pads, np.is_some()) else { return };
     let changing_ends = matches!(g.phase, Phase::ChangeEnds(_));
     if press && alt.glide.is_none() && live(&g, &d) {
         alt.on = !alt.on;
-        save(&args.iso, alt.on);
         info!("alternate camera {}", if alt.on { "on" } else { "off" });
         let (prev, now) = own_camera::shown(&g, own.as_deref());
         alt.glide = Some((GLIDE, alt.last.unwrap_or(now)));
