@@ -625,6 +625,7 @@ fn draw(
     plates.0[super::name_tags::PANEL] = super::name_tags::take(&mut quads, names.as_deref(), &view.slots[..n], 8.0, label, |q| (q.dst, q.src, q.rgb, q.alpha));
     let aspect = window.single().map_or(4.0 / 3.0, crate::play::widescreen::aspect);
     let share = super::widescreen::share(aspect);
+    let drop = window.single().map_or(0.0, |w| touch_drop(w, aspect));
     for (Slot(i), mut img, mut node, mut vis) in &mut q {
         let Some(quad) = quads.get(*i) else {
             vis.set_if_neq(Visibility::Hidden);
@@ -656,10 +657,30 @@ fn draw(
         crate::ui_pool::paint(&mut img, art.0[tex].clone(), rect, Color::srgba(r, g, b, quad.alpha / 128.0));
         let [x, y, w, h] = quad.dst;
         let (left, width) = super::widescreen::pin(x, w, share);
-        let (top, height) = super::widescreen::vplace(y, h, aspect, super::widescreen::Anchor::Sides);
+        let (top, height) = vplace_clear(y, h, aspect, drop);
         super::widescreen::put(&mut node, left, top, width, height);
         vis.set_if_neq(Visibility::Inherited);
     }
+}
+
+/// B610: how far (percent of the view) the panel's top half drops so its first row (the Sets/Games strip, y 14)
+/// clears the touch pad's shoulder row, a little gap between; 0 without the pad or with room already.
+pub(super) fn touch_drop(window: &Window, aspect: f32) -> f32 {
+    drop_below(super::touch_pad::top_row(Vec2::new(window.width(), window.height())), aspect)
+}
+
+/// `touch_drop` for a shoulder row reaching `row` percent down the view.
+pub(super) fn drop_below(row: f32, aspect: f32) -> f32 {
+    if row <= 0.0 {
+        return 0.0;
+    }
+    (row + 1.0 - 14.0 / 4.48 * super::widescreen::vshare(aspect)).max(0.0)
+}
+
+/// `widescreen::vplace` (`Sides`) for a panel quad, the top half `drop` lower (`touch_drop`).
+pub(super) fn vplace_clear(y: f32, h: f32, aspect: f32, drop: f32) -> (f32, f32) {
+    let (top, height) = super::widescreen::vplace(y, h, aspect, super::widescreen::Anchor::Sides);
+    (if y + h / 2.0 < 224.0 { top + drop } else { top }, height)
 }
 
 impl super::snapshot::Wire for Clock {}
