@@ -4,3 +4,4 @@
 - A player's emote voice now stops when the point ends and the players start reacting, instead of talking over the reaction.
 - Mods → Installed: while you search, each kind tab (Characters, Courts, Umpires, Texture packs) shows how many mods it finds, and an empty tab tells you which other kinds have matches.
 - Web app: switching between Settings tabs is now instant instead of sliding.
+- Web app: a browser extension that hits an error on the page (seen with some iOS Safari extensions at launch) no longer stops the game.

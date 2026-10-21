@@ -948,6 +948,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B619** **Emote sound cut at post-point** (user 2026-10-21): when a point ends and the post-point animations start while a player is emoting, stop that player's emote sound so it doesn't play over the reaction. → `play.rs` (react/next_point, emotes) · `hst-base/src/audio.rs`
 - [x] **M145** **Installed mods filter** (user 2026-10-21): Mods → Installed gets a filter (by kind: characters / courts / umpires / texture packs, plus a name search) so a long installed list is quick to narrow; pad and touch, any aspect ratio. → `play/main_menu/mods_screen/grid.rs` · `play/main_menu/mods_screen/packs.rs`
 - [x] **B626** **Web app: instant Settings category switch** (user 2026-10-21): in the web build switching between categories (tabs) inside Settings animates badly; make the switch instant (no transition) there. → `play/main_menu.rs` · `hst-base/src/web.rs`
+- [x] **B627** **Web app crash on iOS Safari launch** (user 2026-10-21): launching the web app in iOS Safari shows 'The game stopped: undefined is not an object (evaluating 'contentScriptData.init_ts')'. That name isn't in our code, so it's likely a Safari extension's content script throwing on our page and our global error handler treating it as a game crash: confirm, and make the handler ignore errors that don't come from our own scripts (check the error's filename/stack) so a third-party script can't stop the game. → `hst-base/src/web.rs` · the web build's index.html/loader
 
 
 ### Shots
