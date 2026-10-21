@@ -221,6 +221,7 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     // the app's Mind keeps the net pick (its point result, its repick on each hit); the routines' own repicks write back
     (x.mind.net, x.mind.net_rate, x.mind.net_left) = (mind.net, mind.net_rate, mind.net_left);
     let (entered, new_shot) = (me.phase != Some(mind.phase), me.shots != g.shots);
+    let served = me.phase == Some(Ai::Serve);
     (me.phase, me.shots) = (Some(mind.phase), g.shots);
     let struck = std::mem::take(&mut me.struck);
     if new_shot {
@@ -246,7 +247,10 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
         Ai::Receive if entered || singles && struck && x.state != step::SWING => x.enter_receive(&mut roll),
         Ai::Rally if entered || singles && struck && x.sub != step::SWING => {
             x.enter_rally(&b, &mut w, &mut roll);
-            x.mind = kept;
+            // off its serve the entry's own net repick stands (the app's Mind doesn't draw that one)
+            if !(entered && served) {
+                x.mind = kept;
+            }
         }
         _ => {}
     }
@@ -309,6 +313,16 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     }
     advance_stroke(g, i, |g| ai_contact_stick(g, i));
     true
+}
+
+/// Computer player `i`'s AI state this frame, where `step` doesn't run (the point's start, its serve): the
+/// state its next step enters from.
+pub(super) fn track(g: &mut Game, i: usize, phase: Ai) {
+    if matches!(phase, Ai::Start | Ai::Serve)
+        && let Some(me) = g.doubles_ai.me.get_mut(i)
+    {
+        me.phase = Some(phase);
+    }
 }
 
 /// The hit message to computer player `i` from hitter `who`. Doubles (P11k6): the re-entry and its own team's
@@ -622,6 +636,9 @@ pub(super) fn formations(g: &mut Game, draws: &[u32]) {
 
 #[cfg(test)]
 mod handover;
+
+#[cfg(test)]
+mod serve_over;
 
 #[cfg(test)]
 mod tests {

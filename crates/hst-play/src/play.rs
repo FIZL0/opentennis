@@ -3325,6 +3325,7 @@ fn bot(g: &mut Game, i: usize) {
     }
     let was = g.players[i].ai_mind.map(|m| m.phase);
     let mind = ai_update(g, i);
+    doubles_ai::track(g, i, mind.phase);
     // the new-point message's tick runs nothing else, nor does the serve state's entry (the serve routine first
     // runs the tick after)
     if mind.phase == hst_sim::ai::Phase::Start || mind.phase == hst_sim::ai::Phase::Serve && was == Some(hst_sim::ai::Phase::Start) {
@@ -3507,16 +3508,11 @@ fn bot_serve(g: &mut Game, i: usize) {
         let horizon = g.serve_data[i].grades(toss).len();
         let due = s.bot_due.unwrap_or(SWEET_FRAME as usize);
         let quick = g.players[i].ai_picks.quick_serve;
+        // the aim waits for the frame before the contact: the swing's timing table never hits within 2 frames
+        // of the press, however late the AI's own pick makes it
         serve::ai_search(&g.serve_data[i], toss, quick, &predicted_path(g, horizon))
             .filter(|&k| k <= due)
-            .map(|k| {
-                let kind = ai_serve_kind(g, i, toss);
-                // ponytail: a contact a frame off aims at the press (the app's own search picks the swing's frames)
-                if k <= 1 {
-                    ai_serve_aim(g, i);
-                }
-                kind
-            })
+            .map(|_| ai_serve_kind(g, i, toss))
     } else {
         None
     };
@@ -3672,7 +3668,13 @@ fn ai_update(g: &mut Game, i: usize) -> hst_sim::ai::Mind {
             }
             false
         }
-        Ai::Serve => g.phase != Phase::Serve,
+        Ai::Serve => {
+            // its rally's entry is the routine step's (`doubles_ai::step`): the Return roll, then the net repick
+            if g.phase != Phase::Serve {
+                m.phase = Ai::Rally;
+            }
+            false
+        }
         // doubles goes over on the receive routine's own word, in its step (P11k6)
         Ai::Receive => g.players.len() != 4 && g.shots >= 2 && p.swing.is_none() && p.contact.is_none(),
         Ai::Rally => false,

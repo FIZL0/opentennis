@@ -66,7 +66,11 @@ mod tests {
         }
         let mut app = bot_match([false; 4]);
         let (mut shots, mut lobs) = (0, 0);
-        for _ in 0..60 * 60 * 2 {
+        // until two lobs (the bots' rallies decide when they come), at most 6 minutes of play
+        for _ in 0..60 * 60 * 6 {
+            if lobs >= 2 {
+                break;
+            }
             app.world_mut().run_schedule(FixedUpdate);
             let g = app.world().resource::<Game>();
             if g.shots == shots || g.shots < 2 {
