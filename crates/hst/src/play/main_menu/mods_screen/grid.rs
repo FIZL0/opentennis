@@ -1538,7 +1538,7 @@ const ROLL_SPEED: f32 = 30.0;
 
 /// B444: `s` from `[x, y]` at `size` in `max` px. Too long for it: with `roll` (seconds it has been chosen) it slides
 /// left until its end shows, rests, and starts over (clipped to `max`, its height kept); without, it ends in "...".
-fn marquee(d: &mut Draw, s: &str, [x, y]: [f32; 2], size: f32, max: f32, rgb: [f32; 3], roll: Option<f32>) {
+pub(in crate::play::main_menu) fn marquee(d: &mut Draw, s: &str, [x, y]: [f32; 2], size: f32, max: f32, rgb: [f32; 3], roll: Option<f32>) {
     let w = d.width(s, size);
     if max <= 0.0 {
         return;
@@ -2722,7 +2722,7 @@ mod tests {
         }
         let s = "Allan is up: https://huggingface.co/datasets/FIZL0/opentennis-mods/discussions/12";
         let (x, w) = (10.0, 200.0);
-        let draw = || Draw { out: Vec::new(), text: &t, said: String::new(), anchor: Anchor::Centre, hits: Vec::new(), outside: None };
+        let draw = || Draw { out: Vec::new(), text: &t, said: String::new(), anchor: Anchor::Centre, hits: Vec::new(), outside: None, clock: 0.0 };
         let at = |roll: f32| {
             let mut d = draw();
             let end = para_roll(&mut d, s, [x, 0.0], w, 16.0, 20.0, 4, WHITE, roll);

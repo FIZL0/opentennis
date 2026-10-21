@@ -30,7 +30,7 @@ use super::{CARD_FILL, Draw, Effect, GOLD, INK, Menu, Press, Screen, Tex, WHITE}
 use crate::modstore::{self, Entry, Event, Kind, Up};
 use crate::mods::Mod;
 
-mod grid;
+pub(super) mod grid;
 mod packs;
 mod transfers;
 
@@ -186,6 +186,11 @@ struct By {
 }
 
 impl View {
+    /// Seconds the menu has been up (the marquees' clock).
+    pub(super) fn clock(&self) -> f32 {
+        self.b.clock
+    }
+
     /// B445: Remove all uploads' next take-down (`busy` while it's out), or, the last one back, what came of them all.
     fn wipe_next(&mut self) {
         // a PR goes with the last of its mods in the queue (closing it is no commit); the others go with it, unasked

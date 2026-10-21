@@ -328,10 +328,10 @@ fn umpire(m: &Menu, text: &Text) -> String {
     m.umpire_name(text, m.umpire as usize)
 }
 
-/// `s` from (x, y) at `size`, squeezed across to fit `max`.
+/// `s` from (x, y) at `size` in `max` px: too long, it slides along to its end and back, clipped (never squeezed).
 pub(super) fn fit_text(d: &mut Draw, s: &str, x: f32, y: f32, size: f32, max: f32, rgb: [f32; 3]) {
-    let w = d.width(s, size);
-    d.label(s, x + w.min(max) / 2.0, y, size, max, rgb);
+    let t = d.clock;
+    super::mods_screen::grid::marquee(d, s, [x, y], size, max, rgb, Some(t));
 }
 
 /// `s` word-wrapped to `w` at `size` from (x, y), at most `lines` lines; the y under it.

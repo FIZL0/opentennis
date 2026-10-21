@@ -2786,6 +2786,8 @@ struct Draw<'a> {
     /// B221: what the pointer can press (`pointer.rs`), and what a press outside them does.
     hits: Vec<pointer::Hit>,
     outside: Option<pointer::Act>,
+    /// Seconds the menu has been up: drives text too long for its space sliding along (`home::fit_text`).
+    clock: f32,
 }
 
 const WHITE: [f32; 3] = [128.0; 3];
@@ -3137,7 +3139,7 @@ fn layout(m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity], hand_x: f32) 
 
 /// The screen's quads, words and hit rects. `controllers`: the pads plugged in, the on-screen pad not counted (B405).
 fn drawn<'a>(m: &Menu, text: &'a Text, bind: &Bindings, pads: &[Entity], controllers: usize, hand_x: f32) -> Draw<'a> {
-    let mut d = Draw { out: Vec::new(), text, said: String::new(), anchor: Anchor::Centre, hits: Vec::new(), outside: None };
+    let mut d = Draw { out: Vec::new(), text, said: String::new(), anchor: Anchor::Centre, hits: Vec::new(), outside: None, clock: m.add.clock() };
     match m.screen {
         Screen::Press => splash::layout(&mut d, m, pads, controllers),
         Screen::Main => home::layout(&mut d, m, text, controllers, hand_x),
@@ -4061,7 +4063,7 @@ mod tests {
     fn locked_rows_greyed() {
         let t = Text { msg: Vec::new(), glyphs: default(), grades: [[0; 5]; 14], style: [0; 14], hands: [1.0; 14], ranks: Vec::new(), mods: Vec::new() };
         let gold = |sel| {
-            let mut d = Draw { out: Vec::new(), text: &t, said: String::new(), anchor: Anchor::Centre, hits: Vec::new(), outside: None };
+            let mut d = Draw { out: Vec::new(), text: &t, said: String::new(), anchor: Anchor::Centre, hits: Vec::new(), outside: None, clock: 0.0 };
             d.rows_locked(&["a".into(), "b".into()], sel, 0.0, 0.0, 100.0, 0.0, 40.0, |i| i == 1);
             assert_eq!(d.hits.len(), 2);
             d.out.iter().any(|q| q.rgb == [128.0, 110.0, 40.0])

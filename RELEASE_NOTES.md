@@ -32,3 +32,4 @@
 - Settings and Controllers opened from the pause menu during a match show again (they were invisible but still took clicks).
 - Phones held upright: each half of the split picture now uses the normal match camera from behind that half's team, the same view as playing alone from that end.
 - Characters with only one costume now show the costume button greyed out on the character select, and pressing it does nothing.
+- Menu text too long for its space (like a doubles Rematch card's names) now slides along to show the rest instead of being squashed.

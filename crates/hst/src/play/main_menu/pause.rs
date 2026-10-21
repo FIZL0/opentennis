@@ -356,7 +356,7 @@ const NOTICE_POOL: usize = 1600;
 fn notice_layout(text: &Text, n: &OnlineNotice) -> (Vec<super::Quad>, Vec<[f32; 4]>) {
     use super::super::menu::{CHOSEN, PANEL, UNCHOSEN};
     use super::{INK, Tex, WHITE};
-    let mut d = super::Draw { out: Vec::new(), text, said: String::new(), anchor: widescreen::Anchor::Centre, hits: Vec::new(), outside: None };
+    let mut d = super::Draw { out: Vec::new(), text, said: String::new(), anchor: widescreen::Anchor::Centre, hits: Vec::new(), outside: None, clock: 0.0 };
     if n.text.is_empty() {
         return (d.out, Vec::new());
     }
