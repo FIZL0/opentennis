@@ -286,14 +286,10 @@ pub struct Flight {
 pub const REST_TIMEOUT: i32 = 1800;
 /// Below this speed (per frame) a ball rolling on, or not yet touching, gentle ground comes to rest.
 const REST_SPEED: f32 = 0.001;
-/// The smallest upward normal component the game's `asinf` takes past π/4 (`gentle`), found and checked
-/// against the game's own function (crates/hst-oracle/tests/libm.rs `rest_slope`).
-const GENTLE_UP: f32 = f32::from_bits(0x3f35_04f5);
-
 /// The rest check's slope test, the game's `asinf(up) > π/4`: the surface is flatter than 45°. Past ±1 the
 /// game's `asinf` answers the largest float, so those count as gentle too.
 pub fn gentle(up: f32) -> bool {
-    up >= GENTLE_UP || up < -1.0
+    crate::libm::asinf(up) > core::f32::consts::FRAC_PI_4
 }
 
 /// Turns `d` by `pitch` and `yaw` (radians), keeping its length: pitch clamped to ±π/2, heading wrapped to ±π.

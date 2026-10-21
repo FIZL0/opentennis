@@ -89,10 +89,26 @@ fn acosf() {
     check("acosf", 20_000, arg, |a| libm::acosf(a[0]));
 }
 
+/// Inside [-1, 1] and just past ±1 (where the game answers the largest float), plus every input within 300k ulps
+/// of 1/√2, where this build's π/4 high part (an ulp low) shows.
+#[test]
+fn asinf() {
+    let arg = |s: &mut u64| {
+        let x = input(s);
+        vec![match rng(s) & 3 {
+            0 => x / 8.0 % 1.0,
+            1 => f32::from_bits(0x3f80_0000 + rng(s) % 64 - 32).copysign(x),
+            2 => f32::from_bits(0x3f35_04f3 + rng(s) % 600_000 - 300_000).copysign(x),
+            _ => x,
+        }]
+    };
+    check("asinf", 20_000, arg, |a| libm::asinf(a[0]));
+}
+
 /// The ball's rest check asks whether the game's `asinf` of the surface's upward component passes π/4
-/// (`ball::gentle`; ps2-float's `asinf` is up to 2 ulps off the game's there, so the port keeps the game's own
-/// threshold instead): every input within 300k ulps of the threshold, then 20k draws (any finite pattern, [-8, 8],
-/// [-1, 1], just inside and past ±1), give the game's answer. Past ±1 the game's `asinf` answers the largest float.
+/// (`ball::gentle`, where an ulp of `asinf` decides; the game's first passes it at 0x3f3504f5): every input
+/// within 300k ulps of that, then 20k draws (any finite pattern, [-8, 8], [-1, 1], just inside and past ±1),
+/// give the game's answer. Past ±1 the game's `asinf` answers the largest float.
 #[test]
 fn rest_slope() {
     use hst_sim::ball::gentle;
