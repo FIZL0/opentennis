@@ -28,3 +28,4 @@
 - On high-DPI screens such as the Steam Deck, menu and HUD text now draws at the screen's full resolution instead of slightly soft.
 - Phones and tablets: two players facing each other in singles on one device can press 1P's camera button (Select) to split the screen, so each plays from behind their own player in their own half (side by side, or one above the other on an upright screen), with the controls turned to match their half. Press it again for the shared picture; the choice is remembered.
 - Settings and Controllers opened from the pause menu during a match show again (they were invisible but still took clicks).
+- Phones held upright: each half of the split picture now uses the normal match camera from behind that half's team, the same view as playing alone from that end.

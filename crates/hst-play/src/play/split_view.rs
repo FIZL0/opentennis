@@ -1,8 +1,8 @@
 //! B633: a tall window (a phone held upright) shows the match camera's whole court as a thin strip with the players
 //! small. While the match plays (serve and rally, the plain match view on screen) such a window splits instead: the
-//! team at the end the match camera looks from on the top half, the other team on the bottom half, each half its own
-//! camera low behind that team's end, framing its players (two side by side in doubles, a 2×2 grid of players in all)
-//! and following the ball across when it's on their side. Everything else (the intro, cut-aways, calls, replays, the
+//! team at the end the match camera looks from on the top half, the other team on the bottom half, each half that
+//! team's own match camera (B637): the one a singles match with one human at that end shows, behind that end, in
+//! doubles framing both of the team. Everything else (the intro, cut-aways, calls, replays, the
 //! change of ends, the alternate camera) shows the one picture as before.
 //!
 //! Presentation only: the match camera (`Game::cam`) and this machine's own (`own_camera`) step as before and nothing
@@ -35,35 +35,16 @@ use crate::{Args, Orbit};
 
 /// Windows narrower than this (width over height) split.
 const TALL: f32 = 0.8;
-/// The halves' cameras: how far they look down, the narrowest horizontal half-angle, the widest vertical one.
-const PITCH: f32 = 28.0 * std::f32::consts::PI / 180.0;
-const NARROWEST: f32 = 22.0 * std::f32::consts::PI / 180.0;
-const WIDEST: f32 = 50.0 * std::f32::consts::PI / 180.0;
-/// The eye never goes further from the net than this (m): back fences stand a little past it, and only the main
-/// camera's eye has the props around it hidden (`net_hide`).
-const BACK: f32 = 17.5;
-/// The eye's nearest to the view's centre (m): a lone player isn't shown closer.
-const NEAREST: f32 = 7.0;
-/// The view's centre: this far ahead of the team toward the net (m), at this height.
-const AHEAD: f32 = 2.0;
-const HEIGHT: f32 = 1.0;
-/// Room kept beside the outermost player (or the ball) across the picture (m), and their heads' height.
-const SIDE: f32 = 1.6;
-const HEAD: f32 = 1.8;
-/// Where the deepest player's feet stand: this far below the half's centre (of its half-height).
-const FEET: f32 = 0.7;
-/// How quickly a half follows its team (per second), and a jump that cuts instead (a new point's set-up).
-const FOLLOW: f32 = 5.0;
-const CUT: f32 = 3.0;
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(crate::twin_view::plugin);
     app.init_resource::<Split>()
         .init_resource::<StickTurn>()
+        .init_resource::<TeamCams>()
         .add_systems(Startup, load)
         .add_systems(Update, (press.run_if(|w: &World| !super::front_end::paused(w) && !super::intro::running(w)), split.after(super::camera).before(super::draw)))
         // as `own_camera::step`: on the scene the tick starts from
-        .add_systems(FixedUpdate, step.after(super::control).before(super::simulate));
+        .add_systems(FixedUpdate, (step_teams, step).chain().after(super::control).before(super::simulate));
 }
 
 /// The picture is split now (the score panel puts the near team's half on top, `panel`).
@@ -88,85 +69,6 @@ struct SplitCam;
 #[derive(Resource, Default)]
 struct Split {
     cam: Option<Entity>,
-    /// Shown last frame: the team on top, each half's rig.
-    shown: Option<(usize, [Rig; 2])>,
-}
-
-/// One half's camera: where it looks, from how far back, how far down, and its horizontal and vertical half-angles.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Rig {
-    look: Vec3,
-    dist: f32,
-    pitch: f32,
-    half: f32,
-    vertical: f32,
-    /// The team's side, Bevy +z or −z.
-    side: f32,
-}
-
-impl Rig {
-    fn forward(&self) -> Vec3 {
-        Vec3::new(0.0, -self.pitch.sin(), -self.side * self.pitch.cos())
-    }
-
-    fn eye(&self) -> Vec3 {
-        self.look - self.forward() * self.dist
-    }
-
-    fn transform(&self) -> Transform {
-        Transform::from_translation(self.eye()).looking_to(self.forward(), Vec3::Y)
-    }
-
-    fn eased(self, to: Rig, k: f32) -> Rig {
-        let l = |a: f32, b: f32| a + (b - a) * k;
-        Rig {
-            look: self.look.lerp(to.look, k),
-            dist: l(self.dist, to.dist),
-            pitch: l(self.pitch, to.pitch),
-            half: l(self.half, to.half),
-            vertical: l(self.vertical, to.vertical),
-            side: to.side,
-        }
-    }
-}
-
-/// The rig framing `team` (players `team`, `team + 2`, …; Bevy space) in a half `aspect` wide per unit of height, the
-/// ball's x kept in when it's on their side; `covered`: the share of the half's height at its bottom under the touch
-/// pad's buttons, the players kept above it.
-fn frame(players: &[Vec3], team: usize, ball: Vec3, aspect: f32, covered: f32) -> Option<Rig> {
-    let mine: Vec<Vec3> = players.iter().copied().skip(team).step_by(2).collect();
-    let first = *mine.first()?;
-    let z = mine.iter().map(|p| p.z).sum::<f32>();
-    let side = if z != 0.0 { z.signum() } else { first.z.signum() };
-    let depth = |p: &Vec3| (p.z * side).max(0.0);
-    let (near, deep) = mine.iter().map(depth).fold((f32::MAX, 0.0f32), |(a, b), d| (a.min(d), b.max(d)));
-    let mut xs: Vec<f32> = mine.iter().map(|p| p.x).collect();
-    if ball.z * side > 0.0 && ball.z * side < deep + 3.0 {
-        xs.push(ball.x);
-    }
-    let (lo, hi) = xs.iter().fold((f32::MAX, f32::MIN), |(a, b), &x| (a.min(x), b.max(x)));
-    let centre = ((lo + hi) / 2.0).clamp(-4.0, 4.0);
-    let width = (hi - centre).max(centre - lo) + SIDE;
-    let look = Vec3::new(centre, HEIGHT, side * ((near + deep) / 2.0 - AHEAD));
-    let pitch = PITCH;
-    let far = ((BACK - look.z * side) / pitch.cos()).max(NEAREST);
-    let dist = (width / NARROWEST.tan()).clamp(NEAREST, far);
-    let mut rig = Rig { look, dist, pitch, half: (width / dist).atan().max(NARROWEST), vertical: 0.0, side };
-    // tall enough for the across fit, and for the lowest feet to stand at `FEET` of the part of the half left
-    // uncovered, and every head inside it
-    let (eye, fwd) = (rig.eye(), rig.forward());
-    let up = (Vec3::X * side).cross(fwd).normalize();
-    let tan = |p: Vec3| {
-        let d = p - eye;
-        d.dot(up) / d.dot(fwd).max(0.5)
-    };
-    let feet = mine.iter().map(|&p| -tan(p)).fold(0.0f32, f32::max);
-    let head = mine.iter().map(|&p| tan(p + Vec3::Y * HEAD)).fold(0.0f32, f32::max);
-    let at = (1.0 - (1.0 + FEET) * (1.0 - covered)).min(-0.3).abs();
-    let need = (feet / at).max(head / 0.9);
-    rig.vertical = (rig.half.tan() / aspect.max(0.1)).atan().max(need.atan()).min(WIDEST);
-    rig.half = rig.half.max((rig.vertical.tan() * aspect).atan());
-    Some(rig)
 }
 
 /// Whether the picture splits now: a tall window, live play on the plain match view, the remaster's own look.
@@ -187,23 +89,25 @@ fn plain_play(w: &World) -> bool {
 }
 
 pub(super) fn split(w: &mut World) {
-    // the window's size (logical px) and the picture's width over height
-    let win = w.query_filtered::<&Window, With<PrimaryWindow>>().single(w).ok().map(|win| (Vec2::new(win.width(), win.height()), crate::play::widescreen::scene_aspect(win)));
-    let (size, aspect) = win.unwrap_or((Vec2::ONE, 1.0));
-    let own = w.get_resource::<Personal>().is_some_and(|p| p.cams.len() == 2) && plain_play(w);
-    let on = own || live(w, aspect);
+    let aspect = w.query_filtered::<&Window, With<PrimaryWindow>>().single(w).ok().map_or(1.0, crate::play::widescreen::scene_aspect);
+    let own = w.get_resource::<Personal>().is_some_and(|p| p.showing) && plain_play(w);
+    let on = (own || live(w, aspect)) && w.get_resource::<TeamCams>().is_some_and(|t| t.0.len() == 2);
     // M146: side by side, the score panels stay as they are
     ON.store(on && !(own && aspect >= 1.0), Ordering::Relaxed);
     let mut state = w.remove_resource::<Split>().unwrap_or_default();
     if own {
-        state.shown = None;
-        place_own(w, &mut state, aspect);
+        // 1P left (or on top), 2P right (or below)
+        place(w, &mut state, aspect, aspect >= 1.0, [0, 1]);
     } else if on {
-        place(w, &mut state, size, aspect);
+        // B637: the team at the end the match camera looks from on top, the other below
+        let g = w.resource::<Game>();
+        let eye = own_camera::shown(g, w.get_resource::<OwnCam>()).1.eye[2];
+        let top = if g.players[0].pos[2] * eye > 0.0 { 0 } else { 1 };
+        place(w, &mut state, aspect, false, [top, 1 - top]);
     } else {
         // (also after a mode's teardown dropped `Split` mid-split: the main camera still has its split layers)
         let split = w.query_filtered::<&RenderLayers, With<Orbit>>().single(w).is_ok_and(|l| *l == top_layers());
-        if state.shown.take().is_none() && state.cam.is_none() && !split {
+        if state.cam.is_none() && !split {
             w.insert_resource(state);
             return;
         }
@@ -220,31 +124,6 @@ pub(super) fn split(w: &mut World) {
         w.insert_resource(SecondEye(None));
     }
     w.insert_resource(state);
-}
-
-fn place(w: &mut World, state: &mut Split, size: Vec2, aspect: f32) {
-    // each half's
-    let aspect = aspect * 2.0;
-    // the bottom half keeps its players above the touch pad's face buttons
-    let pad = super::touch_pad::face_top(size).map_or(0.0, |top| ((size.y - top) / (size.y / 2.0).max(1.0)).clamp(0.0, 0.6));
-    let (a, dt) = (w.resource::<Time<Fixed>>().overstep_fraction(), w.resource::<Time>().delta_secs());
-    let g = w.resource::<Game>();
-    let players: Vec<Vec3> = g.players.iter().map(|p| bevy_space(Vec3::from(p.prev).lerp(Vec3::from(p.pos), a))).collect();
-    let ball = bevy_space(Vec3::from(g.prev_ball).lerp(Vec3::from(g.flight.ball.pos), a));
-    // the near team: at the end the match camera looks from (game space)
-    let eye = own_camera::shown(g, w.get_resource::<OwnCam>()).1.eye[2];
-    let top = if g.players[0].pos[2] * eye > 0.0 { 0 } else { 1 };
-    let (Some(up), Some(down)) = (frame(&players, top, ball, aspect, 0.0), frame(&players, 1 - top, ball, aspect, pad)) else { return };
-    let k = 1.0 - (-FOLLOW * dt).exp();
-    let rigs = match state.shown {
-        Some((t, [u, d])) if t == top && u.look.distance(up.look) < CUT && d.look.distance(down.look) < CUT => [u.eased(up, k), d.eased(down, k)],
-        _ => [up, down],
-    };
-    state.shown = Some((top, rigs));
-    let Some(target) = target(w) else { return };
-    let half = target.y / 2;
-    let views = [(UVec2::ZERO, UVec2::new(target.x, half)), (UVec2::new(0, half), UVec2::new(target.x, target.y - half))];
-    show(w, state, rigs.map(|r| (r.transform(), 2.0 * r.vertical)), views, aspect);
 }
 
 /// The main camera's picture size (physical px).
@@ -314,9 +193,15 @@ pub(super) struct Personal {
     on: bool,
     /// A Select press waiting for the next tick.
     press: bool,
-    /// While it plays, each player's own match camera and the view it showed the tick before.
-    cams: Vec<(sim_cam::Camera, View)>,
+    /// It plays (chosen, and the match can have it).
+    showing: bool,
 }
+
+/// Each team's own match camera (team 0's first), the original's one-human camera behind that team's end as a
+/// singles match with one human there shows it, and the view it showed the tick before. Stepped every tick (cheap)
+/// so a split shows it settled however it comes on.
+#[derive(Resource, Default)]
+struct TeamCams(Vec<(sim_cam::Camera, View)>);
 
 /// M146: per seat (1P..4P), whether the stick and d-pad turn round as they're read (`turn_sticks`).
 #[derive(Resource, Default, Clone, Copy, Debug, PartialEq)]
@@ -369,8 +254,7 @@ fn press(
     p.press |= key || pad;
 }
 
-/// Switches on Select in live play (the serve or the rally, nothing else on screen), steps each player's camera,
-/// and sets which sticks turn: those whose own picture looks from the other end than the one their stick follows
+/// Switches on Select in live play (the serve or the rally, nothing else on screen) and sets which sticks turn: those whose own picture looks from the other end than the one their stick follows
 /// in play (`own_camera::flipped`, the shared camera's).
 fn step(
     p: Option<ResMut<Personal>>,
@@ -385,7 +269,7 @@ fn step(
     let (Some(mut p), Some(g), Some(pads)) = (p, g, pads) else { return };
     let press = std::mem::take(&mut p.press);
     if !eligible(&g, &pads, np.is_some(), gr.is_some_and(|gr| gr.original)) {
-        p.cams.clear();
+        p.showing = false;
         *turn = StickTurn::default();
         return;
     }
@@ -395,30 +279,10 @@ fn step(
         save(&args.iso, p.on);
         info!("split view {}", if p.on { "on" } else { "off" });
     }
+    p.showing = p.on;
     if !p.on {
-        p.cams.clear();
         *turn = StickTurn::default();
         return;
-    }
-    let fresh = p.cams.is_empty();
-    if fresh {
-        p.cams = (0..2).map(|_| (sim_cam::Camera::from_view(g.cam.view), g.cam.view)).collect();
-    }
-    let players: Vec<_> = g.players.iter().map(|p| p.pos).collect();
-    let scene = Scene { players: &players, ball: g.flight.ball.pos };
-    for (i, (cam, prev)) in p.cams.iter_mut().enumerate() {
-        let turned = g.players[i].end < 0.0;
-        // a new point's placement (the shared camera's cut), its end changed, or just switched on: cut straight to it
-        let cut = fresh || g.cam_cut || cam.turned != turned;
-        if cut {
-            cam.cut();
-            cam.turned = turned;
-        }
-        *prev = cam.view;
-        cam.step(&scene);
-        if cut {
-            *prev = cam.view;
-        }
     }
     let mut t = StickTurn::default();
     for i in 0..2 {
@@ -431,11 +295,38 @@ fn step(
     }
 }
 
-/// M146: each player's own camera on their half: 1P left (or on top), 2P right (or below).
-fn place_own(w: &mut World, state: &mut Split, aspect: f32) {
+/// Steps each team's own camera on the scene the tick starts from (as `own_camera::step`).
+fn step_teams(g: Option<Res<Game>>, mut t: ResMut<TeamCams>) {
+    let Some(g) = g.filter(|g| g.players.len() >= 2) else {
+        t.0.clear();
+        return;
+    };
+    let fresh = t.0.is_empty();
+    if fresh {
+        t.0 = (0..2).map(|_| (sim_cam::Camera::from_view(g.cam.view), g.cam.view)).collect();
+    }
+    let players: Vec<_> = g.players.iter().map(|p| p.pos).collect();
+    let scene = Scene { players: &players, ball: g.flight.ball.pos };
+    for (team, (cam, prev)) in t.0.iter_mut().enumerate() {
+        let turned = g.players[team].end < 0.0;
+        // a new point's placement (the shared camera's cut), its end changed, or just started: cut straight to it
+        let cut = fresh || g.cam_cut || cam.turned != turned;
+        if cut {
+            cam.cut();
+            cam.turned = turned;
+        }
+        *prev = cam.view;
+        cam.step(&scene);
+        if cut {
+            *prev = cam.view;
+        }
+    }
+}
+
+/// Shows team `order[0]`'s own camera on the first half (left, or top) and `order[1]`'s on the second.
+fn place(w: &mut World, state: &mut Split, aspect: f32, wide: bool, order: [usize; 2]) {
     let a = w.resource::<Time<Fixed>>().overstep_fraction();
     let Some(target) = target(w) else { return };
-    let wide = aspect >= 1.0;
     let half = if wide { aspect / 2.0 } else { aspect * 2.0 };
     let views = if wide {
         let x = target.x / 2;
@@ -444,9 +335,9 @@ fn place_own(w: &mut World, state: &mut Split, aspect: f32) {
         let y = target.y / 2;
         [(UVec2::ZERO, UVec2::new(target.x, y)), (UVec2::new(0, y), UVec2::new(target.x, target.y - y))]
     };
-    let p = w.resource::<Personal>();
+    let t = w.resource::<TeamCams>();
     let eye = |i: usize| {
-        let (cam, v0) = &p.cams[i];
+        let (cam, v0) = &t.0[i];
         let v = cam.view;
         let mix = |x: [f32; 3], y: [f32; 3]| Vec3::from(x).lerp(Vec3::from(y), a).to_array();
         let (eye, pitch, yaw) = super::orbit_from(mix(v0.eye, v.eye), mix(v0.rot[2], v.rot[2]));
@@ -455,7 +346,7 @@ fn place_own(w: &mut World, state: &mut Split, aspect: f32) {
         let fov = 2.0 * (fov.tan() * super::SHOWN_ASPECT.max(1.0 / half)).atan();
         (Transform::from_translation(eye).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)), fov)
     };
-    let eyes = [eye(0), eye(1)];
+    let eyes = order.map(eye);
     show(w, state, eyes, views, half);
 }
 
@@ -480,53 +371,9 @@ fn top_layers() -> RenderLayers {
     RenderLayers::from_layers(&[0, twin_view::TOP])
 }
 
-/// Game space (Y down) → Bevy's.
-fn bevy_space(p: Vec3) -> Vec3 {
-    Vec3::new(p.x, -p.y, -p.z)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Doubles at the baselines: each half looks from behind its own team toward the net, its eye no further back
-    /// than the fences, both players and their heads inside the picture.
-    #[test]
-    fn each_half_frames_its_team_from_behind() {
-        // Bevy space: team 0 at +z, team 1 at −z
-        let players = [Vec3::new(-3.0, 0.0, 11.5), Vec3::new(2.5, 0.0, -11.0), Vec3::new(2.0, 0.0, 8.0), Vec3::new(-1.0, 0.0, -6.0)];
-        let ball = Vec3::new(1.0, 1.0, 4.0);
-        for (team, side) in [(0, 1.0), (1, -1.0)] {
-            let rig = frame(&players, team, ball, 0.92, 0.0).unwrap();
-            assert_eq!(rig.side, side);
-            let (eye, tf) = (rig.eye(), rig.transform());
-            assert!(eye.z * side > 11.0 && eye.z * side <= BACK + 1e-3, "team {team}: eye {eye}");
-            assert!(tf.forward().z * side < 0.0, "team {team} looks toward the net");
-            for p in players.iter().skip(team).step_by(2) {
-                for q in [*p, *p + Vec3::Y * 1.8] {
-                    let d = tf.rotation.inverse() * (q - eye);
-                    let (x, y) = (d.x / -d.z, d.y / -d.z);
-                    assert!(x.abs() < rig.half.tan() && y.abs() < rig.vertical.tan(), "team {team}: {q} off the picture");
-                }
-            }
-        }
-    }
-
-    /// The deepest player's feet stand at `FEET` below the centre, and on a touch screen's bottom half that much of
-    /// what the buttons leave uncovered, higher up.
-    #[test]
-    fn the_players_stand_above_the_buttons() {
-        let players = [Vec3::new(0.0, 0.0, 11.0), Vec3::new(0.0, 0.0, -11.0)];
-        let height = |covered| {
-            let rig = frame(&players, 1, Vec3::ZERO, 0.9, covered).unwrap();
-            let tf = rig.transform();
-            let d = tf.rotation.inverse() * (players[1] - rig.eye());
-            d.y / -d.z / rig.vertical.tan()
-        };
-        assert!((height(0.0) + FEET).abs() < 0.01, "{}", height(0.0));
-        let up = height(0.25);
-        assert!(up > height(0.0) + 0.2 && up > -1.0 + 0.5, "{up}");
-    }
 
     /// M146: a turned seat's stick runs the other way (within the pad bytes' rounding), its d-pad too; the others are
     /// left alone.
@@ -557,28 +404,10 @@ mod tests {
     #[test]
     fn each_human_has_their_own_camera() {
         use super::super::*;
-        use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
         if !hst_data::fixture::has_iso() {
             return;
         }
-        let app = |split: bool| {
-            let mut app = App::new();
-            app.add_plugins((MinimalPlugins, AssetPlugin::default()));
-            app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<SkinnedMeshInverseBindposes>();
-            app.insert_resource(Args { iso: hst_data::fixture::ISO_PATH.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles: true, chars: vec![6, 1], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None });
-            app.insert_resource(Pads { slots: default(), connected: 0, seats: Some([true, true, false, false]), autoplay: false });
-            app.init_resource::<tick_input::TickPads>().init_resource::<ButtonInput<KeyCode>>();
-            app.world_mut().spawn((crate::GameSpace, Transform::default(), Visibility::default()));
-            app.add_plugins((cutaway::plugin, change_ends::plugin, own_camera::plugin, tick_input::plugin));
-            if split {
-                app.add_plugins(super::plugin);
-            }
-            app.add_systems(Startup, setup);
-            let time = |mut g: ResMut<Game>| g.match_stats.tick();
-            app.add_systems(FixedUpdate, (remember, control, simulate, time, motions, character::tick, played_out, held_ball).chain());
-            app.update();
-            app
-        };
+        let app = |split: bool| match_app(split, true);
         let (mut a, mut b) = (app(true), app(false));
         a.world_mut().resource_mut::<super::Personal>().on = true;
         let state = |app: &App| {
@@ -590,17 +419,72 @@ mod tests {
             b.world_mut().run_schedule(FixedUpdate);
             assert!(state(&a) == state(&b), "tick {tick}: the match changed");
             let w = a.world();
-            let (g, p) = (w.resource::<Game>(), w.resource::<super::Personal>());
-            assert_eq!(p.cams.len(), 2);
+            let (g, p) = (w.resource::<Game>(), w.resource::<super::TeamCams>());
+            assert!(w.resource::<super::Personal>().showing);
+            assert_eq!(p.0.len(), 2);
             for i in 0..2 {
                 let z = g.players[i].pos[2];
-                let eye = p.cams[i].0.view.eye;
+                let eye = p.0[i].0.view.eye;
                 assert!(eye[2] * z > 0.0 && eye[2].abs() > z.abs(), "tick {tick}: player {i}'s eye {eye:?}, at z {z}");
                 // turned when its own picture's end isn't the shared camera's
                 let shared = g.cam.view.eye[2] * z > 0.0;
                 assert_eq!(w.resource::<super::StickTurn>().0[i], !shared, "tick {tick}: player {i}'s stick");
             }
             assert_eq!(w.resource::<super::StickTurn>().0.iter().filter(|t| **t).count(), 1);
+        }
+    }
+
+    /// A match app (singles: both human, doubles: all CPUs), this module's plugin added or not.
+    fn match_app(split: bool, singles: bool) -> App {
+        use super::super::*;
+        use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<SkinnedMeshInverseBindposes>();
+        app.insert_resource(Args { iso: hst_data::fixture::ISO_PATH.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles, chars: if singles { vec![6, 1] } else { vec![6, 1, 2, 3] }, outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None });
+        app.insert_resource(Pads { slots: default(), connected: 0, seats: Some([singles, singles, false, false]), autoplay: false });
+        app.init_resource::<tick_input::TickPads>().init_resource::<ButtonInput<KeyCode>>();
+        app.world_mut().spawn((crate::GameSpace, Transform::default(), Visibility::default()));
+        app.add_plugins((cutaway::plugin, change_ends::plugin, own_camera::plugin, tick_input::plugin));
+        if split {
+            app.add_plugins(super::plugin);
+        }
+        app.add_systems(Startup, setup);
+        let time = |mut g: ResMut<Game>| g.match_stats.tick();
+        app.add_systems(FixedUpdate, (remember, control, simulate, time, motions, character::tick, played_out, held_ball).chain());
+        app.update();
+        app
+    }
+
+    /// B637: in doubles each team's own camera looks from behind that team's end, both its players in front of the
+    /// eye, and stepping them changes nothing in the match (skipped without the ISO).
+    #[test]
+    fn each_team_has_its_own_camera() {
+        use super::super::*;
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let (mut a, mut b) = (match_app(true, false), match_app(false, false));
+        let state = |app: &App| {
+            let g = app.world().resource::<Game>();
+            (g.cam.view, g.flight.ball.pos, g.players.iter().map(|p| p.pos).collect::<Vec<_>>())
+        };
+        for tick in 0..300 {
+            a.world_mut().run_schedule(FixedUpdate);
+            b.world_mut().run_schedule(FixedUpdate);
+            assert!(state(&a) == state(&b), "tick {tick}: the match changed");
+            let w = a.world();
+            let (g, t) = (w.resource::<Game>(), w.resource::<super::TeamCams>());
+            assert_eq!(g.players.len(), 4);
+            assert!(!w.resource::<super::Personal>().showing);
+            for team in 0..2 {
+                let (cam, _) = t.0[team];
+                assert_eq!(cam.turned, g.players[team].end < 0.0);
+                let eye = cam.view.eye;
+                for p in g.players.iter().skip(team).step_by(2) {
+                    assert!(eye[2] * p.pos[2] > 0.0 && eye[2].abs() > p.pos[2].abs(), "tick {tick}: team {team}'s eye {eye:?}, a player at {:?}", p.pos);
+                }
+            }
         }
     }
 }
