@@ -42,3 +42,4 @@
 - Custom characters with a faster swing now speed up only their ground strokes and volleys: their serves, smashes, dives and missed smashes play at the normal speed.
 - Some custom characters no longer kick a leg up into the air when walking off after a point or running.
 - Custom characters whose faces swap whole face pictures no longer shut their eyes while running about in a rally, and blink at a natural pace instead of flickering between open and closed eyes.
+- Switching Settings tabs no longer shows both pages on top of each other: the old page fades onto a dimmed panel and the new one comes in over it.
