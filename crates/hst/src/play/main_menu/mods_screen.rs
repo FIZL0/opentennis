@@ -588,9 +588,15 @@ impl Menu {
         p == 0 && self.screen == Screen::Chars && !self.online() && !self.select_online() && self.mods.is_empty() && self.court_mods.is_empty() && self.umpire_mods.is_empty()
     }
 
+    /// The Mods page's tiles take its whole panel, the chosen mod's opening over them ([`grid::Lay::compact`]).
+    pub(super) fn mods_compact(&self) -> bool {
+        self.add.grid() && grid::lay_of(self).compact
+    }
+
     fn mods_page(&mut self, p: Page, sel: usize) {
         self.add.page = p;
         self.add.child = None;
+        self.add.b.card = false;
         self.add.by = None;
         self.add.top = 0;
         self.sel = sel;
@@ -753,6 +759,10 @@ impl Menu {
             }
         }
         self.sel = self.sel.min(n.max(1) - 1);
+        // (another kind or Show tab closes a compact page's open mod)
+        if k.kind_prev || k.kind_next || (k.prev || k.next) && !k.ok {
+            self.add.b.card = false;
+        }
         if k.kind_prev || k.kind_next {
             // B373: the kind tabs (an open child closes), stopping at the ends (B462); B383: only the ones shown
             let to = mods_kind::step(self.add.kind, k.kind_prev, &self.add.kinds_shown());
@@ -762,9 +772,9 @@ impl Menu {
             }
             return;
         }
-        // the installed dropdown's list takes every press while open
+        // an open footer dropdown takes every press
         if let Some(j) = self.listing.filter(|_| self.add.grid()) {
-            return self.have_list(j, k, out);
+            return self.drop_step(j, k, out);
         }
         // B372: the on-screen keyboard takes every press while up; a press forgets the tile a tap chose
         if self.add.grid() && self.add.b.osk.is_some() {
@@ -783,6 +793,15 @@ impl Menu {
                 Got::Open => self.add.child = Some(c),
                 Got::Close => self.add.status = if self.add.page == Page::Upload { RULE.into() } else { String::new() },
                 Got::Pick(i) => self.child_pick(c, i, out),
+            }
+        } else if self.add.grid() && self.add.b.card {
+            // a compact page's open mod: its buttons' keys act on it, ○ closes it (△'s More by leaves it)
+            if !grid::lay_of(self).compact || k.back {
+                self.add.b.card = false;
+                out.push(Sound(1));
+            } else if k.ok || k.card || k.page {
+                self.browse_press(k, out);
+                self.add.b.card &= !k.card;
             }
         } else if self.add.grid() {
             if k.back {
@@ -2436,19 +2455,15 @@ mod tests {
         let label = |o: &grid::Opt| format!("{o:?}");
         assert!(label(&games[1]).contains("Fore!") && label(&games[2]).contains("Get a Grip") && label(&games[3]).contains("Tekken"), "{games:?}");
         assert_eq!(games.len(), 4);
-        // the filter pill: Select to Hand, ✕ Left-handed; Select round to Game, ✕ Fore! (both apply); a tap on its left half back
+        // the filter dropdown lists every group's choices: Left-handed, then Fore! (both apply), then All games again
         let mut out = Vec::new();
         let p0 = 2 + m.add.words().len();
         m.sel = p0 + m.add.pills().iter().position(|p| *p == grid::Pill::Filter).unwrap();
-        let hand = Press { hand: true, ..default() };
-        m.mods_step(hand, &mut out);
-        m.mods_step(hand, &mut out);
-        m.mods_step(ok(), &mut out);
+        drop_pick(&mut m, "Hand: Left-handed");
         assert_eq!((names(&m), m.add.filter_words()), (vec!["Carol".to_string(), "Zed".into()], "Hand: Left-handed".to_string()));
-        m.mods_step(hand, &mut out);
-        m.mods_step(ok(), &mut out);
+        drop_pick(&mut m, "Game: Fore!");
         assert_eq!((names(&m), m.add.filter_words()), (vec!["Zed".to_string()], "Game: Fore! +1".to_string()));
-        m.mods_step(Press { ok: true, prev: true, ..default() }, &mut out);
+        drop_pick(&mut m, "Game: All games");
         assert_eq!(names(&m), ["Carol", "Zed"]);
         let pill = |m: &Menu, p: grid::Pill| p0 + m.add.pills().iter().position(|q| *q == p).unwrap();
         let (have, sort, filter) = (pill(&m, grid::Pill::Have), pill(&m, grid::Pill::Sort), pill(&m, grid::Pill::Filter));
@@ -2501,13 +2516,15 @@ mod tests {
         assert_eq!(go(&mut m, d), kind);
         m.sel = 1;
         assert_eq!(go(&mut m, l), 2 + m.add.words().len() - 1);
-        // the sort pill: ✕ the next, a tap on its left half the one before
+        // the sort dropdown; ○ closes it unchanged
         m.add.b.sort = grid::Sort::Newest;
         m.sel = sort;
-        m.mods_step(ok(), &mut out);
+        drop_pick(&mut m, "A-Z");
         assert_eq!((m.add.b.sort, names(&m)[0].as_str()), (grid::Sort::Az, "Alma"));
-        m.mods_step(Press { ok: true, prev: true, ..default() }, &mut out);
-        assert_eq!(m.add.b.sort, grid::Sort::Newest);
+        m.mods_step(ok(), &mut out);
+        m.mods_step(Press { down: true, ..default() }, &mut out);
+        m.mods_step(Press { back: true, ..default() }, &mut out);
+        assert_eq!((m.add.b.sort, m.listing, m.sel), (grid::Sort::Az, None, sort));
         // the legend says what a tile's buttons do; one kind of mod: no kind switch (B383)
         m.sel = t0 + names(&m).iter().position(|n| n == "Kent").unwrap();
         let l = grid::legend(&m).into_iter().map(|x| x.1).collect::<Vec<_>>();
@@ -3511,16 +3528,14 @@ mod tests {
         let ids = |m: &Menu| m.add.tiles().iter().map(|e| e.meta.id.clone()).collect::<Vec<_>>();
         assert_eq!(ids(&m), ["courts", "blue", "menus", "old"]);
         assert_eq!((m.add.groups(), m.add.group_name(0), m.add.group_name(1), m.add.group_name(2)), (3, "Covers", "Kind", "Size"));
-        // the filter pill: ✕ steps Covers through Any, Everything, Courts; Select to Kind, ✕ to Upscale
+        // the filter dropdown: Covers Everything, Courts; then Kind Upscale
         let filter = m.add.pills().iter().position(|p| *p == grid::Pill::Filter).unwrap();
         m.sel = 2 + m.add.words().len() + filter;
-        let mut out = Vec::new();
-        m.mods_step(ok(), &mut out);
+        drop_pick(&mut m, "Covers: Everything");
         assert!(ids(&m).is_empty(), "nobody says Everything");
-        m.mods_step(ok(), &mut out);
+        drop_pick(&mut m, "Covers: Courts");
         assert_eq!((ids(&m), m.add.filter_words()), (vec!["courts".to_string(), "blue".into()], "Covers: Courts".to_string()));
-        m.mods_step(Press { hand: true, ..default() }, &mut out);
-        m.mods_step(ok(), &mut out);
+        drop_pick(&mut m, "Kind: Upscale");
         assert_eq!((ids(&m), m.add.filter_words()), (vec!["courts".to_string()], "Kind: Upscale +1".to_string()));
         (m.add.b.covers, m.add.b.look) = (None, None);
         for (band, want) in [(0, &["courts", "old"][..]), (1, &["blue"]), (2, &["menus"])] {
@@ -3542,6 +3557,19 @@ mod tests {
         // off a tile (the search box) the panel has no picture to wipe
         m.sel = 0;
         assert!(!hits(&m).0.iter().any(|h| matches!(h.act, Act::Wipe(_))));
+    }
+
+    /// Opens the footer dropdown under the cursor and picks `want` from its list with ↓ and ✕.
+    fn drop_pick(m: &mut Menu, want: &str) {
+        let mut out = Vec::new();
+        m.mods_step(ok(), &mut out);
+        let all = m.add.drop_items(m.add.drop_at(m.sel).unwrap()).0;
+        let i = all.iter().position(|c| c == want).unwrap_or_else(|| panic!("{want} not in {all:?}"));
+        while m.listing != Some(i) {
+            m.mods_step(Press { down: true, ..default() }, &mut out);
+        }
+        m.mods_step(ok(), &mut out);
+        assert_eq!(m.listing, None);
     }
 
     /// M135: a store copy with another zip is an update only if its `mod.json` version is newer than the installed
@@ -3655,6 +3683,30 @@ mod kind_tabs_nav {
         assert_eq!(names(&mut m, grid::Have::default()), ["b"]);
         assert_eq!(names(&mut m, grid::Have::Installed), ["a"]);
         assert_eq!(names(&mut m, grid::Have::All), ["a", "b"]);
+    }
+
+    /// A view with room for no more than a row and a half of tiles beside the chosen mod's panel: the tiles take the
+    /// whole panel, ✕ on one opens its mod over them (its buttons' keys act on it, ↕ does nothing), ○ closes it.
+    #[test]
+    fn a_short_view_opens_the_mod_over_the_tiles() {
+        assert!(!grid::lay(&super::super::Grid::fit(16.0 / 9.0)).compact);
+        let mut m = Menu { screen: Screen::Mods, grid: super::super::Grid::fit(0.875), ..Default::default() };
+        assert!(grid::lay(&m.grid).compact);
+        let e = |id: &str| Entry { meta: Meta { id: id.into(), name: id.into(), kind: K::Character, sha256: id.repeat(64), size: 1, ..Default::default() }, rev: "main".into(), verified: true };
+        m.add.store = Some(vec![e("a"), e("b")]);
+        m.mods_page(Page::Browse, 0);
+        m.add.relist();
+        m.sel = m.add.browse_acts();
+        let mut out = Vec::new();
+        m.mods_step(Press { ok: true, ..default() }, &mut out);
+        assert!(m.add.b.card && m.add.jobs.is_empty(), "the first ✕ only opens it");
+        let at = m.sel;
+        m.mods_step(Press { down: true, ..default() }, &mut out);
+        assert_eq!((m.sel, m.add.b.card), (at, true));
+        m.mods_step(Press { page: true, ..default() }, &mut out);
+        assert!(m.add.b.wish.as_ref().is_some_and(|w| w.len() == 1) && m.add.b.card, "□ saves it, still open");
+        m.mods_step(Press { back: true, ..default() }, &mut out);
+        assert_eq!((m.screen, m.add.b.card, m.sel), (Screen::Mods, false, at));
     }
 
     /// B593: the footer's row lies between the panel's strip and the tiles at every aspect, Upload in it.

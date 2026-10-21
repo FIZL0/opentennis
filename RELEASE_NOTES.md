@@ -11,4 +11,6 @@
 - The web app (also when added to your home screen) now checks for a new version as soon as it opens, loads it straight away, and says "Updated to …" on the main menu; coming back to it offers a new version at once.
 - The alternate camera now backs away as the ball comes past you, tilts up to keep a high ball in the picture and glides smoothly after the play, as in the original.
 - Keyboard hints in a match now show the key that switches to the alternate camera, when the switch is available.
-- Mods → Browse: a new dropdown shows all mods, only installed ones, or only the ones you don't have yet (the default). The sort and filter now sit beside Refresh, and download progress shows at the top of the mod card.
+- Mods → Browse: a new dropdown shows all mods, only installed ones, or only the ones you don't have yet (the default). The sort and filter are dropdowns too and sit beside Refresh, and download progress shows at the top of the mod card.
+- Mods → Browse in a small window: the mods fill the page, and pressing one opens its card with Install, More by and Save.
+- Settings: On/Off options now switch with a single press, with nothing to confirm.

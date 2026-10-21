@@ -168,6 +168,8 @@ pub(super) struct Browse {
     pub pill_at: usize,
     /// The tile a tap chose: a tap on it again installs (a first tap only chooses).
     pub tapped: Option<usize>,
+    /// A compact page ([`Lay::compact`]): the chosen mod's panel is open over the tiles.
+    pub card: bool,
     /// 60 Hz frames since the page opened (the loading tiles' shimmer, the downloads' spinner), B566: counted from
     /// `clock`, so they keep their pace at any refresh rate (a frame count pulsed the shimmer into a flicker at 144 Hz+).
     pub tick: u32,
@@ -516,20 +518,59 @@ impl View {
         if more > 0 { format!("{s} +{more}") } else { s }
     }
 
-    /// B448: the filter pill's group's next option (`back`: the one before), round.
-    fn filter_step(&mut self, back: bool) {
-        let g = self.b.filter.min(self.groups() - 1);
-        let l = self.options(g);
-        let n = l.len();
-        let at = l.iter().position(|o| *o == self.chosen(g)).unwrap_or(0);
-        match l[if back { (at + n - 1) % n } else { (at + 1) % n }].clone() {
-            Opt::Game(x) => self.b.game = x,
-            Opt::Style(x) => self.b.style = x,
-            Opt::Left(x) => self.b.left = x,
-            Opt::Covers(x) => self.b.covers = x,
-            Opt::Look(x) => self.b.look = x,
-            Opt::Size(x) => self.b.size = x,
-            Opt::Show(_) => {}
+    /// The footer dropdown `p`'s choices, the chosen ones (dotted) and where each filter group starts (a rule over it;
+    /// the filter's choices are every group's, named "Group: choice" when there's more than one).
+    pub(super) fn drop_items(&self, p: Pill) -> (Vec<String>, Vec<usize>, Vec<usize>) {
+        match p {
+            Pill::Have => (HAVES.iter().map(|c| c.1.into()).collect(), HAVES.iter().position(|c| c.0 == self.b.have).into_iter().collect(), Vec::new()),
+            Pill::Sort => (SORTS.map(String::from).to_vec(), vec![self.b.sort as usize], Vec::new()),
+            _ => {
+                let (mut all, mut now, mut rules) = (Vec::new(), Vec::new(), Vec::new());
+                let many = self.groups() > 1;
+                for g in 0..self.groups() {
+                    rules.push(all.len());
+                    let chosen = self.chosen(g);
+                    for o in self.options(g) {
+                        if o == chosen {
+                            now.push(all.len());
+                        }
+                        all.push(if many { format!("{}: {}", self.group_name(g), o.label()) } else { o.label() });
+                    }
+                }
+                (all, now, rules)
+            }
+        }
+    }
+
+    /// Picks choice `j` of the footer dropdown `p`; whether the list changed.
+    fn drop_pick(&mut self, p: Pill, j: usize) -> bool {
+        let was = (self.b.have, self.b.sort, (0..self.groups()).map(|g| self.chosen(g)).collect::<Vec<_>>());
+        match p {
+            Pill::Have => self.b.have = HAVES[j.min(HAVES.len() - 1)].0,
+            Pill::Sort => self.b.sort = [Sort::Newest, Sort::Az, Sort::Uploader][j.min(2)],
+            _ => {
+                let Some((g, o)) = (0..self.groups()).flat_map(|g| self.options(g).into_iter().map(move |o| (g, o))).nth(j) else { return false };
+                // (the pill's words show the group last picked in)
+                self.b.filter = g;
+                match o {
+                    Opt::Game(x) => self.b.game = x,
+                    Opt::Style(x) => self.b.style = x,
+                    Opt::Left(x) => self.b.left = x,
+                    Opt::Covers(x) => self.b.covers = x,
+                    Opt::Look(x) => self.b.look = x,
+                    Opt::Size(x) => self.b.size = x,
+                    Opt::Show(_) => {}
+                }
+            }
+        }
+        was != (self.b.have, self.b.sort, (0..self.groups()).map(|g| self.chosen(g)).collect())
+    }
+
+    /// The footer dropdown under the cursor `sel` (its list open while `Menu::listing` is).
+    pub(super) fn drop_at(&self, sel: usize) -> Option<Pill> {
+        match self.slot(sel) {
+            Slot::Pill(i) => self.pills().get(i).copied().filter(|p| !matches!(p, Pill::Show(_))),
+            _ => None,
         }
     }
 
@@ -727,6 +768,9 @@ pub(super) struct Lay {
     pub cols: usize,
     pub tile: [f32; 2],
     pub gap: [f32; 2],
+    /// The tiles would show no more than a row and a half beside the chosen mod's panel: they take the whole panel and
+    /// the chosen mod's opens over them on ✕ (`Browse::card`, in `detail`, which is then the whole panel too).
+    pub compact: bool,
 }
 
 /// B471: the Upload button's width, and the panel width under which the footer's pills and words take a row each
@@ -734,7 +778,13 @@ pub(super) struct Lay {
 const UPLOAD_W: f32 = 104.0;
 const NARROW: f32 = 760.0;
 
+#[cfg(test)]
 pub(super) fn lay(g: &super::super::Grid) -> Lay {
+    lay_at(g, true)
+}
+
+/// [`lay`], `compact` where it's that short (`may`).
+fn lay_at(g: &super::super::Grid, may: bool) -> Lay {
     let portrait = g.detail[0] == g.strip[0];
     let zoom = look::Zoom::of(g.view, portrait);
     let view = zoom.inner(g.view);
@@ -761,6 +811,18 @@ pub(super) fn lay(g: &super::super::Grid) -> Lay {
         let dw = (360.0 * PX).min(w * 0.42);
         ([x0, cy, w - dw - gap * PX, h], [x1 - dw, cy, dw, h])
     };
+    let mut l = panel(zoom, shows, search, card, detail);
+    if may && l.grid[3] < 1.5 * l.tile[1] + l.gap[1] {
+        let all = [x0, cy, w, h];
+        l = panel(zoom, shows, search, all, all);
+        l.compact = true;
+    }
+    l
+}
+
+/// [`lay`]'s grid panel's parts in `card`.
+fn panel(zoom: look::Zoom, shows: (Option<f32>, f32, f32), search: [f32; 4], card: [f32; 4], detail: [f32; 4]) -> Lay {
+    let ph = PILL * PY;
     let (ix, iw) = (card[0] + (RIM + PAD) * PX, card[2] - 2.0 * (RIM + PAD) * PX);
     let stack = card[2] < 640.0 * PX;
     let sh = if stack { look::STRIP + PILL + ROW_GAP } else { look::STRIP } * PY;
@@ -780,12 +842,13 @@ pub(super) fn lay(g: &super::super::Grid) -> Lay {
     let tw = ((gw - gx * (cols - 1) as f32) / cols as f32).max(1.0);
     let grid = [ix, gy0, gw, gh];
     let bar = [ix + iw - BAR * PX, gy0, BAR * PX, gh];
-    Lay { zoom, shows, search, card, strip, stack, grid, bar, foot, note, upload, detail, cols, tile: [tw, tw * PY / PX], gap: [gx, gy] }
+    Lay { zoom, shows, search, card, strip, stack, grid, bar, foot, note, upload, detail, cols, tile: [tw, tw * PY / PX], gap: [gx, gy], compact: false }
 }
 
 /// M5b: the page's layout: [`lay`], one row a line on the Texture packs list (`packs.rs`).
 pub(super) fn lay_of(m: &Menu) -> Lay {
-    let mut l = lay(&m.grid);
+    // (Upload's panel holds its buttons: never folded away)
+    let mut l = lay_at(&m.grid, m.add.page != Page::Upload);
     // everything under the strip `dy` higher, the tiles' area that much taller
     let lift = |l: &mut Lay, dy: f32| {
         for r in [&mut l.grid, &mut l.bar] {
@@ -1039,25 +1102,16 @@ impl Menu {
                 }
             },
             Slot::Pill(i) => {
-                // B471: ✕ steps on (a tap on the pill's left half back: `prev` with it)
-                let step = k.ok;
                 match v.pills()[i] {
                     // B383: Installed and My uploads are pages of their own
-                    Pill::Show(s) if k.ok => return self.mods_show(s, out),
-                    Pill::Have if k.ok => {
-                        self.listing = HAVES.iter().position(|h| h.0 == self.add.b.have);
-                        return out.push(Sound(2));
+                    Pill::Show(s) if k.ok => self.mods_show(s, out),
+                    // the installed, sort and filter dropdowns open their lists on the chosen choice
+                    p if k.ok => {
+                        self.listing = Some(v.drop_items(p).1.first().copied().unwrap_or(0));
+                        out.push(Sound(2));
                     }
-                    Pill::Sort if step => {
-                        let at = self.add.b.sort as usize;
-                        self.add.b.sort = [Sort::Newest, Sort::Az, Sort::Uploader][if k.prev { (at + 2) % 3 } else { (at + 1) % 3 }];
-                    }
-                    Pill::Filter if k.hand && self.add.groups() > 1 => self.add.b.filter = (self.add.b.filter + 1) % self.add.groups(),
-                    Pill::Filter if step => self.add.filter_step(k.prev),
-                    _ => return,
+                    _ => {}
                 }
-                (self.add.top, self.add.b.tile_at) = (0, 0);
-                out.push(Sound(0));
             }
             Slot::Kind(j) if k.ok => {
                 let to = v.kinds_shown()[j];
@@ -1067,6 +1121,10 @@ impl Menu {
                 self.sel = 2 + v.words().len() + v.pills().len() + v.kinds_shown().iter().position(|k| *k == to).unwrap_or(0);
             }
             Slot::Kind(_) => {}
+            Slot::Tile(_) if k.ok && !v.b.card && lay_of(self).compact => {
+                self.add.b.card = true;
+                out.push(Sound(2));
+            }
             Slot::Tile(_) if v.packs_page() => self.pack_press(k, out),
             Slot::Tile(_) => {
                 let Some(e) = v.hovered(self.sel).cloned() else { return };
@@ -1112,18 +1170,21 @@ impl Menu {
     }
 
     /// Browse's Remove (✕ on an installed tile): takes the installed copy out.
-    /// One press while the installed dropdown's list is open on choice `j`: ↑ ↓ move (wrapping), ✕ picks it and
-    /// closes, ○ closes it unchanged.
-    pub(super) fn have_list(&mut self, j: usize, k: Press, out: &mut Vec<Effect>) {
+    /// One press while a footer dropdown's list is open on choice `j`: ↑ ↓ move (wrapping), ✕ picks it and closes,
+    /// ○ closes it unchanged.
+    pub(super) fn drop_step(&mut self, j: usize, k: Press, out: &mut Vec<Effect>) {
         use Effect::Sound;
-        let n = HAVES.len();
+        let Some(p) = self.add.drop_at(self.sel) else {
+            self.listing = None;
+            return;
+        };
+        let n = self.add.drop_items(p).0.len().max(1);
         if k.up || k.down {
             self.listing = Some((j + if k.down { 1 } else { n - 1 }) % n);
             out.push(Sound(0));
         } else if k.ok {
             self.listing = None;
-            if self.add.b.have != HAVES[j].0 {
-                self.add.b.have = HAVES[j].0;
+            if self.add.drop_pick(p, j) {
                 (self.add.top, self.add.b.tile_at) = (0, 0);
             }
             out.push(Sound(2));
@@ -1709,7 +1770,17 @@ fn page(d: &mut Draw, m: &Menu, a: [f32; 3], l: &Lay, tab_end: f32) {
     }
     strip(d, m, l);
     grid_tiles(d, m, a, l);
-    footer(d, m, l);
+    let open = footer(d, m, l);
+    if l.compact && !v.b.card {
+        return open_list(d, m, l, open);
+    }
+    if l.compact {
+        // the chosen mod's panel over the dimmed tiles, as a menu of its own (a tap off it closes it)
+        d.popup(Some(super::super::pointer::press(|k| k.back = true)));
+        d.anchor = super::super::Anchor::Span;
+        d.q(Tex::Solid, [0.0; 4], [0.0, 0.0, 640.0, 448.0], look::c(look::INK), 60.0);
+        d.anchor = super::super::Anchor::Centre;
+    }
     if v.child.is_some() {
         // B202: the open question takes every input; the page dims under it but the chosen mod's panel
         d.popup(Some(super::super::pointer::press(|k| k.back = true)));
@@ -1719,7 +1790,16 @@ fn page(d: &mut Draw, m: &Menu, a: [f32; 3], l: &Lay, tab_end: f32) {
     }
     detail(d, m, a, l.detail);
     status_chip(d, m, a, l.detail);
-    have_list(d, m, l);
+    open_list(d, m, l, open);
+}
+
+/// The open footer dropdown's list (`open`: its pill and where), under (or over) the pill, over the rest.
+fn open_list(d: &mut Draw, m: &Menu, l: &Lay, open: Option<(Pill, [f32; 4])>) {
+    let (Some((p, b)), Some(j)) = (open, m.listing) else { return };
+    let (all, now, rules) = m.add.drop_items(p);
+    let bw = all.iter().map(|c| d.width(c, 15.0 * PY)).fold(b[2], f32::max) + 50.0 * PX;
+    let r = [b[0], b[1], bw + 8.0 * PX, b[3]];
+    super::super::options::drop_box(d, &all, r, j, &now, [l.card[1], l.card[1] + l.card[3]], bw, &rules, |_| "");
 }
 
 /// B471: the grid panel's header strip: the kind tabs (Upload: Sign in and Upload all on the right, under them when
@@ -1851,7 +1931,7 @@ const FOOT_SIZE: f32 = 12.5;
 /// The footer (B593: under the panel's strip, a light rule between it and the tiles): the installed dropdown, the
 /// sort and the filter on the left (a narrow panel: in a row over the rest), the page's words as grey pills on the
 /// right and Upload at the far right.
-fn footer(d: &mut Draw, m: &Menu, l: &Lay) {
+fn footer(d: &mut Draw, m: &Menu, l: &Lay) -> Option<(Pill, [f32; 4])> {
     let v = &m.add;
     let [x, y, w, h] = l.foot;
     d.q(Tex::Solid, [0.0; 4], [x, y + h + ROW_GAP / 2.0 * PY, w, 2.0 * PY], look::c(look::RULE), 128.0);
@@ -1887,53 +1967,36 @@ fn footer(d: &mut Draw, m: &Menu, l: &Lay) {
         wx -= gap;
     }
     // the installed dropdown, the sort and the filter at the row's left (a narrow panel: a row of their own over it);
-    // the sort's and filter's "< value >" take a tap on their left half back, their right half on
     if up || v.packs_page() || v.empty_kind() {
-        return;
+        return None;
     }
     let (mut px, py) = (l.note[0], l.note[1]);
     let end = if l.note == l.foot { wx } else { l.note[0] + l.note[2] + gap };
     let p0 = 2 + v.words().len();
+    let mut open = None;
     for (i, p) in v.pills().into_iter().enumerate().skip(SHOWS.len()) {
         let pw = match p {
-            Pill::Have => have_rect(d, l)[2],
-            Pill::Sort => d.width("Uploader", size) + 50.0 * PX,
+            Pill::Have => d.width("Not installed", size) + 46.0 * PX,
+            Pill::Sort => d.width("Uploader", size) + 46.0 * PX,
             _ => (d.width(&v.filter_words(), size) + 50.0 * PX).clamp(150.0 * PX, 260.0 * PX).min(end - gap - px).max(90.0 * PX),
         };
         let b = [px, py, pw, h];
         let on = m.sel == p0 + i && v.child.is_none();
-        match p {
-            Pill::Have => {
-                let now = HAVES.iter().find(|c| c.0 == v.b.have).map_or("", |c| c.1);
-                super::super::options::drop_pill(d, b, now, size, m.listing.is_some(), on);
-                d.hit(b, Act::Row(p0 + i, OK));
-            }
-            _ => {
-                let (word, dim) = if p == Pill::Sort { (SORTS[v.b.sort as usize].to_string(), false) } else { (v.filter_words(), (0..v.groups()).all(|g| v.chosen(g).any())) };
-                look::steps(d, b, on, &word, size, dim, [true; 2]);
-                d.hit([b[0], b[1], b[2] / 2.0, b[3]], Act::Row(p0 + i, Press { ok: true, prev: true, ..Press::default() }));
-                d.hit([b[0] + b[2] / 2.0, b[1], b[2] / 2.0, b[3]], Act::Row(p0 + i, OK));
-            }
+        let word = match p {
+            Pill::Have => HAVES.iter().find(|c| c.0 == v.b.have).map_or("", |c| c.1).to_string(),
+            Pill::Sort => SORTS[v.b.sort as usize].to_string(),
+            _ => v.filter_words(),
+        };
+        super::super::options::drop_pill(d, b, &word, size, on && m.listing.is_some(), on);
+        d.hit(b, Act::Row(p0 + i, OK));
+        if on && m.listing.is_some() {
+            open = Some((p, b));
         }
         px += pw + gap;
     }
+    open
 }
 
-/// The installed dropdown's pill: first in the pills' row, wide enough for its longest choice.
-fn have_rect(d: &mut Draw, l: &Lay) -> [f32; 4] {
-    let w = d.width("Not installed", FOOT_SIZE * PY) + 46.0 * PX;
-    [l.note[0], l.note[1], w, PILL * PY]
-}
-
-/// The installed dropdown's list open (`listing`), under its pill.
-fn have_list(d: &mut Draw, m: &Menu, l: &Lay) {
-    let Some(j) = m.listing.filter(|_| m.add.has_have()) else { return };
-    let all: Vec<String> = HAVES.iter().map(|c| c.1.to_string()).collect();
-    let now = HAVES.iter().find(|c| c.0 == m.add.b.have).map_or("", |c| c.1);
-    let b = have_rect(d, l);
-    // (as wide as the pill: the list hangs from it)
-    super::super::options::drop_box(d, &all, [b[0], b[1], b[2] + 8.0 * PX, b[3]], j, now, [l.card[1], l.card[1] + l.card[3]], b[2], all.len(), |_| "");
-}
 
 /// The page's status (the last action's outcome, downloads and uploads under way, else "N installed"): white words
 /// on a dark pill at the top right of the chosen mod's panel.
@@ -2396,13 +2459,12 @@ pub(super) fn info(m: &Menu) -> String {
             }
             .into(),
             Pill::Sort => match v.b.sort {
-                Sort::Newest => "The newest uploads first, under their games. Press for A-Z or by uploader.",
-                Sort::Az => "By name, under their games A-Z. Press for by uploader or newest.",
-                Sort::Uploader => "Grouped by who shared them. Press for newest or A-Z.",
+                Sort::Newest => "The newest uploads first, under their games. Press for a list.",
+                Sort::Az => "By name, under their games A-Z. Press for a list.",
+                Sort::Uploader => "Grouped by who shared them. Press for a list.",
             }
             .into(),
-            Pill::Filter if v.groups() > 1 => format!("Showing {}: press for the next; Filter in the legend jumps to {}.", v.filter_words(), v.group_name((v.b.filter + 1) % v.groups()).to_lowercase()),
-            Pill::Filter => format!("Showing {}: press for the next game.", v.filter_words()),
+            Pill::Filter => format!("Showing {}. Press for a list.", v.filter_words()),
         },
         Slot::Tile(_) if v.packs_page() => match v.hovered(m.sel).and_then(|e| v.pack_of(e)) {
             Some(i) => format!("{} - {}. Switch it off or on, or move it up or down: the higher pack wins. Reload to see changes.", v.packs[i].name, v.pack_place(i)),
@@ -2441,7 +2503,9 @@ pub(super) fn legend(m: &Menu) -> Vec<(super::super::legend::Act, &'static str)>
     if m.listing.is_some() {
         return vec![(L::UpDown, "Move"), (L::Ok, "Select"), (L::Back, "Close")];
     }
-    let mut l = vec![(L::Move, "Move")];
+    // (a lone kind tab: nothing beside it)
+    let lone = matches!(v.slot(m.sel), Slot::Kind(_)) && v.kinds_shown().len() < 2;
+    let mut l = vec![if lone { (L::UpDown, "Move") } else { (L::Move, "Move") }];
     match v.slot(m.sel) {
         Slot::Search if v.b.focus => l.extend([(L::Type, "Type"), (L::Ok, "Done")]),
         Slot::Search if !v.pad && !v.phone => l.push((L::Ok, "Type")),
@@ -2450,10 +2514,7 @@ pub(super) fn legend(m: &Menu) -> Vec<(super::super::legend::Act, &'static str)>
         Slot::Kind(_) => l.push((L::Ok, "Show")),
         Slot::Pill(i) => match v.pills()[i] {
             Pill::Show(_) => l.push((L::Ok, "Show")),
-            Pill::Have => l.push((L::Ok, "Open list")),
-            Pill::Sort => l.push((L::Ok, "Sort")),
-            Pill::Filter if v.groups() > 1 => l.extend([(L::Ok, "Next"), (L::Hand, "Filter")]),
-            Pill::Filter => l.push((L::Ok, "Next")),
+            _ => l.push((L::Ok, "Open list")),
         },
         Slot::Tile(_) if v.packs_page() => {
             if let Some(r) = v.pack_at(m.sel) {
@@ -2473,6 +2534,15 @@ pub(super) fn legend(m: &Menu) -> Vec<(super::super::legend::Act, &'static str)>
             }
         }
         _ => l.push((L::Ok, "Choose")),
+    }
+    // a compact page: ✕ on a tile opens its mod, whose buttons then take ✕ △ □ and ○ closes it
+    if matches!(v.slot(m.sel), Slot::Tile(_)) && lay_of(m).compact {
+        if !v.b.card {
+            return vec![(L::Move, "Move"), (L::Ok, "Open"), (L::Costume, "Show"), (L::Back, "Back")];
+        }
+        l.retain(|(a, _)| matches!(a, L::Ok | L::Card | L::Page));
+        l.push((L::Back, "Close"));
+        return l;
     }
     // B471: L1 / R1 the Show tabs
     l.push((L::Costume, "Show"));

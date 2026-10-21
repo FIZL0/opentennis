@@ -508,6 +508,15 @@ impl Menu {
                 return;
             }
         }
+        // a two-way row (On/Off) flips at once on ✕, nothing to confirm (user 2026-10-21)
+        if let Some(o) = o.filter(|&o| k.ok && !matches!(o, Volume(_)) && choices(o).len() == 2) {
+            let now = self.settings;
+            self.settings.step(o, 1);
+            if self.settings != now {
+                out.extend([Effect::Sound(2), Effect::SaveSettings]);
+            }
+            return;
+        }
         if k.ok && o.is_some() {
             self.editing = Some(self.settings);
             out.push(Effect::Sound(2));
@@ -971,20 +980,23 @@ fn drop_list(d: &mut Draw, o: Opt, r: [f32; 4], j: usize, now: &str, span: [f32;
     // the Preset's Auto and Custom under a rule (not presets of their own)
     let rule = if o == Preset { Graphics::PRESETS.len() } else { all.len() };
     let bw = if o == Preset { 330.0 } else { 200.0 } * PX;
-    drop_box(d, &all, r, j, now, span, bw, rule, |c| hint(o, c));
+    let now: Vec<usize> = all.iter().position(|c| c == now).into_iter().collect();
+    drop_box(d, &all, r, j, &now, span, bw, &[rule], |c| hint(o, c));
 }
 
-/// [`drop_list`]'s list of any choices `all` under (or over) `[x, y, w, h]`, at most `bw` wide, a rule before choice
-/// `rule`, each with its `hint` (also the Mods page's Show dropdown).
+/// [`drop_list`]'s list of any choices `all` under (or over) `[x, y, w, h]`, at most `bw` wide, the choices `now` dotted,
+/// a rule before each choice in `rules`, each with its `hint` (also Mods → Browse's dropdowns).
 #[allow(clippy::too_many_arguments)]
-pub(super) fn drop_box(d: &mut Draw, all: &[String], [x, y, w, h]: [f32; 4], j: usize, now: &str, [top, bottom]: [f32; 2], bw: f32, rule: usize, hint: impl Fn(&str) -> &'static str) {
+pub(super) fn drop_box(d: &mut Draw, all: &[String], [x, y, w, h]: [f32; 4], j: usize, now: &[usize], [top, bottom]: [f32; 2], bw: f32, rules: &[usize], hint: impl Fn(&str) -> &'static str) {
     d.popup(Some(pointer::press(|k| k.back = true)));
     let n = all.len() as f32;
-    let (pad, sep) = (5.0 * PY, if rule < all.len() { 8.0 * PY } else { 0.0 });
+    let seps = rules.iter().filter(|&&r| r > 0 && r < all.len()).count() as f32;
+    let (pad, sep) = (5.0 * PY, 8.0 * PY);
+    let sep_all = sep * seps;
     let (below, above) = (bottom - (y + h + 2.0 * PY) - 6.0 * PY, y - 2.0 * PY - top - 6.0 * PY);
     let room = below.max(above);
-    let ip = ((room - 2.0 * pad - sep) / n).min(28.0 * PY);
-    let bh = ip * n + 2.0 * pad + sep;
+    let ip = ((room - 2.0 * pad - sep_all) / n).min(28.0 * PY);
+    let bh = ip * n + 2.0 * pad + sep_all;
     let by = if below >= bh || below >= above { y + h + 2.0 * PY } else { y - 2.0 * PY - bh };
     let bw = bw.min(w - 8.0 * PX);
     let bx = x + w - bw - 2.0 * PX;
@@ -995,7 +1007,7 @@ pub(super) fn drop_box(d: &mut Draw, all: &[String], [x, y, w, h]: [f32; 4], j: 
     let hs = size * 0.78;
     let mut iy = by + pad;
     for (k, c) in all.iter().enumerate() {
-        if k == rule {
+        if k > 0 && rules.contains(&k) {
             d.q(Tex::Solid, [0.0; 4], [bx + 12.0 * PX, iy + sep / 2.0 - 1.0 * PY, bw - 24.0 * PX, 2.0 * PY], look::c(look::RULE), 128.0);
             iy += sep;
         }
@@ -1015,7 +1027,7 @@ pub(super) fn drop_box(d: &mut Draw, all: &[String], [x, y, w, h]: [f32; 4], j: 
             let hint = roster::ellipsis(d, hint, hs, end - hx);
             d.text(&hint, hx, ty + (size - hs) * 0.75, hs, look::c(look::MUTED));
         }
-        if c == now {
+        if now.contains(&k) {
             rounded(d, [end + 6.0 * PX, iy + (ip - 7.0 * PY) / 2.0, 7.0 * PX, 7.0 * PY], 3.5, look::c(look::BLUE), 128.0);
         }
         iy += ip;
@@ -1476,6 +1488,14 @@ mod tests {
             }
             for k in [Press { right: true, ..default() }, Press { left: true, ..default() }] {
                 assert!(m.step(Dev::Keys, k).is_empty() && m.settings == was, "{o:?}");
+            }
+            // a two-way row flips on ✕ at once, unpicked
+            if !matches!(o, Volume(_)) && choices(o).len() == 2 {
+                let fx = m.step(Dev::Keys, press(|k| &mut k.ok));
+                assert!(fx.contains(&Effect::SaveSettings) && m.settings != was && m.editing.is_none(), "{o:?}");
+                m.step(Dev::Keys, press(|k| &mut k.ok));
+                assert_eq!(m.settings, was, "{o:?}");
+                continue;
             }
             m.step(Dev::Keys, press(|k| &mut k.ok));
             assert_eq!(m.editing, Some(was), "{o:?}");

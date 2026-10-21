@@ -705,11 +705,9 @@ mod tests {
         // the Sound tab (2), then its Menu Music row (5)
         app.world_mut().resource_mut::<super::super::pointer::Pending>().0.push((super::super::pointer::Act::Tab(2), true));
         app.update();
-        // B326: a tap picks the row, a tap on its value's right half changes it, a tap on the row keeps it
-        for k in [super::super::pointer::OK, Press { right: true, ..default() }, super::super::pointer::OK] {
-            app.world_mut().resource_mut::<super::super::pointer::Pending>().0.push((super::super::pointer::Act::Row(5, k), true));
-            app.update();
-        }
+        // an On/Off row flips on one tap
+        app.world_mut().resource_mut::<super::super::pointer::Pending>().0.push((super::super::pointer::Act::Row(5, super::super::pointer::OK), true));
+        app.update();
         assert_eq!(app.world().resource::<Menu>().settings.menu_music, !was, "Menu Music didn't change");
         assert!(std::fs::read_to_string(dir.join("settings.txt")).is_ok(), "settings not saved");
         app.world_mut().resource_mut::<super::super::pointer::Pending>().0.push((super::super::pointer::press(|k| k.back = true), true));

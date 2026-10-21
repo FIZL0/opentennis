@@ -294,7 +294,12 @@ impl Menu {
             Act::Show(i) if tap && self.screen == Screen::Mods => self.show_tap(i, &mut out),
             Act::Show(_) => {}
             Act::Tile(i) if tap => {
-                if self.add.tile_tap(i) && self.sel == i {
+                // (a compact Mods page: the first tap opens the mod, its panel being hidden)
+                let compact = self.screen == Screen::Mods && self.mods_compact();
+                if compact {
+                    self.choose(i);
+                }
+                if (self.add.tile_tap(i) || compact) && self.sel == i {
                     out = self.step(dev, OK);
                 } else {
                     self.choose(i);
@@ -639,23 +644,12 @@ pub(super) mod tests {
         let v = m.settings.value(Opt::Vsync);
         let n = page(Screen::Graphics).len();
         let [x, y, w, h] = page_row(Screen::Graphics, boxes(&m.grid, n).0, n, 5);
-        // B326: the first tap only picks the row; then its value's halves step it, the label keeps it
+        // an On/Off row flips on each tap, anywhere on it, nothing to confirm (user 2026-10-21)
         tap(&mut m, x + w - 20.0, y + h / 2.0);
-        assert_eq!((m.sel, m.settings.value(Opt::Vsync), m.editing.is_some()), (5, v.clone(), true));
-        tap(&mut m, x + w - 20.0, y + h / 2.0);
+        assert_eq!((m.sel, m.editing.is_some()), (5, false));
         assert_ne!(m.settings.value(Opt::Vsync), v);
-        tap(&mut m, x + w - 120.0, y + h / 2.0);
-        assert_eq!(m.settings.value(Opt::Vsync), v);
-        tap(&mut m, x + w - 20.0, y + h / 2.0);
         tap(&mut m, x + 40.0, y + h / 2.0);
-        assert!(m.editing.is_none() && m.settings.value(Opt::Vsync) != v, "kept");
-        // a tap off a picked row puts it back
-        let kept = m.settings.value(Opt::Vsync);
-        tap(&mut m, x + 40.0, y + h / 2.0);
-        tap(&mut m, x + w - 20.0, y + h / 2.0);
-        assert_ne!(m.settings.value(Opt::Vsync), kept);
-        tap(&mut m, 320.0, 5.0);
-        assert!(m.editing.is_none() && m.settings.value(Opt::Vsync) == kept, "put back");
+        assert!(m.editing.is_none() && m.settings.value(Opt::Vsync) == v);
         // Controls: a row starts a rebind (its label: in the column already chosen)
         let mut c = Menu { screen: Screen::Controls, ..default() };
         let t = super::super::options::table(&c.grid);
