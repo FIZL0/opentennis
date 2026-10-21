@@ -7,6 +7,7 @@
 //! both in costume 9 (block 3, the hardest): AIParam rows 48 and 52, level 3.
 //! `context/fixtures/ai_serve_s05.bin`: save slot 5, the bot-only doubles match. Characters 0, 2 / 1, 5 in
 //! costume 0: rows 84, 86 / 85, 89, level 3 (P11a). Doubles has no kind lock and its serve aim has no net dash.
+//! The `_dash` and `_second` fixtures (P116) reach second serves and the singles serve-and-dash; see their tests.
 
 use hst_data::fixture;
 use hst_data::{exe, xb::Archive};
@@ -121,12 +122,13 @@ fn calls(d: &[u8]) -> (Mt, Vec<Call<'_>>) {
     (mt, calls)
 }
 
-/// Replays every call of a fixture through the port; returns how many of each kind were checked.
-fn replay(name: &str) -> Option<[usize; 5]> {
+/// Replays every call of a fixture through the port; returns how many of each kind were checked: button locks,
+/// stick locks, tosses, swings, aims, then second-serve tosses and serve aims that dash.
+fn replay(name: &str) -> Option<[usize; 7]> {
     let d = fixture::read(format!("{}/context/fixtures/{name}", root())).ok()?;
     let (table, second) = disc()?;
     let (mt0, calls) = calls(&d);
-    let mut n = [0; 5];
+    let mut n = [0; 7];
     for c in &calls {
         let mut mt = mt0.clone();
         (0..c.before).for_each(|_| _ = mt.next());
@@ -163,10 +165,12 @@ fn replay(name: &str) -> Option<[usize; 5]> {
                 let (from, to) = (c.ai(0x55), c.x[AI + 0x55]);
                 if from == 2 && to == 3 {
                     let ch = u32_at(c.e, CHAR) as usize;
-                    let toss = AiParams::serve_toss(u32_at(c.e, SECOND) != 0, second[ch], c.ai(0x5c), &mut roll);
+                    let second_serve = u32_at(c.e, SECOND) != 0;
+                    let toss = AiParams::serve_toss(second_serve, second[ch], c.ai(0x5c), &mut roll);
                     assert_eq!(toss, c.x[AI + 0xb1], "{at}: toss");
                     assert_eq!(button(toss) as u32, u32_at(c.x, BUTTON), "{at}: toss button");
                     n[2] += 1;
+                    n[5] += second_serve as usize;
                 } else if from != 5 && to == 5 {
                     let swing = row.serve_swing(c.ai(0xb1), &mut roll);
                     assert_eq!(swing, c.x[AI + 0xb2], "{at}: swing");
@@ -180,6 +184,7 @@ fn replay(name: &str) -> Option<[usize; 5]> {
                         let reach = f32_at(c.e, AI + 0x14);
                         let (s, dash, spot) = row.serve_aim_singles(level, swing, ad, lefty, side, reach, &mut roll);
                         assert_eq!(dash, c.x[AI + 0x256] != 0 && c.ai(0x256) == 0, "{at}: dash");
+                        n[6] += dash as usize;
                         if let Some([x, z]) = spot {
                             assert_eq!([x, z].map(f32::to_bits), [0x70, 0x78].map(|o| u32_at(c.x, AI + o)), "{at}: dash spot");
                         }
@@ -218,12 +223,32 @@ fn replay(name: &str) -> Option<[usize; 5]> {
 fn singles_serves_and_kind_lock() {
     let Some(n) = replay("ai_serve_singles.bin") else { return };
     eprintln!("button locks, stick locks, tosses, swings, aims: {n:?}");
+    assert!(n[..5].iter().all(|&k| k > 0), "{n:?}");
+}
+
+/// P116: `ai_serve_singles_dash.bin`, the same singles match with P0 on row 49 (an ALL row with a 70 % net dash)
+/// and every CPU row's serve timing error poked to 25 frames so serves fault (`HST_AI=0:49:3 HST_SERVE_ERROR=25
+/// tools/record_ai_serve.py 8 9000`; the hooked calls don't read that cell): second-serve tosses and serve aims
+/// that dash in, checked against the disc's rows.
+#[test]
+fn singles_second_serves_and_net_dash() {
+    let Some(n) = replay("ai_serve_singles_dash.bin") else { return };
+    eprintln!("button locks, stick locks, tosses, swings, aims, second tosses, dashes: {n:?}");
     assert!(n.iter().all(|&k| k > 0), "{n:?}");
 }
 
 #[test]
 fn doubles_serves() {
     let Some(n) = replay("ai_serve_s05.bin") else { return };
-    eprintln!("tosses, swings, aims: {:?}", &n[2..]);
-    assert!(n[2..].iter().all(|&k| k > 0), "{n:?}");
+    eprintln!("tosses, swings, aims: {:?}", &n[2..5]);
+    assert!(n[2..5].iter().all(|&k| k > 0), "{n:?}");
+}
+
+/// P116: `ai_serve_s05_second.bin`, slot 5 with every CPU row's serve timing error poked to 25 frames
+/// (`HST_SERVE_ERROR=25 tools/record_ai_serve.py 5 9000`): a doubles bot's second serve.
+#[test]
+fn doubles_second_serves() {
+    let Some(n) = replay("ai_serve_s05_second.bin") else { return };
+    eprintln!("tosses, swings, aims, second tosses: {:?}", &n[2..6]);
+    assert!(n[2..6].iter().all(|&k| k > 0), "{n:?}");
 }

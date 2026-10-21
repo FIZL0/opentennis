@@ -20,7 +20,7 @@ File: b"AISV", u32 0, the generator block at the first draw (0x9c8 bytes), then 
 +0x3d60..+0x3d80, 0x2f0 +0x3ec0..+0x3ed0, 0x300 +0x3f90..+0x3fa0; 0x310 globals 0x423048..0x423068; 0x330
 0x316600..0x316610; 0x340 reach block (*(ai+8)) +0xf0..+0x110; 0x360 the player's hand byte. Hook 4's entry: 0x380
 the path at 0x424e90 (0x60 steps of 0x30)."""
-import struct, sys, time
+import os, struct, sys, time
 from pine import Pine
 from rec import R, i, lw, lbu, sw, lui, addiu, ori, j, jr, li, br, assemble
 
@@ -120,6 +120,21 @@ p.load_state(slot)
 time.sleep(0.3)
 gm0 = p.read32(GM_PTR)
 installed = []
+# HST_AI=k:row:level[,...] (P116, as record_ai_rally.py): player k's AI takes table row `row` and level byte, e.g. a
+# singles row with a net dash rate so its serve aims dash in
+for spec in filter(None, os.environ.get("HST_AI", "").split(",")):
+    k, row, level = map(int, spec.split(":"))
+    ai = p.read32(p.read32(gm0 + 0xa8 + 4 * k) + 0x80)
+    assert ai, f"player {k} has no AI object"
+    p.write32(ai + 0xc, 0x3174c0 + row * 0x118)
+    p.write32(ai + 0x10, p.read32(ai + 0x10) & ~0xff | level)
+# HST_SERVE_ERROR=<frames> (P116): every CPU's table row gets this serve timing error (+0x14), so its serves go
+# astray and second serves come; the hooked calls don't read it, so a replay against the disc table stays valid
+if "HST_SERVE_ERROR" in os.environ:
+    for k in range(4):
+        pl = p.read32(gm0 + 0xa8 + 4 * k)
+        ai = pl and p.read32(pl + 0x80)
+        if ai: p.write32(p.read32(ai + 0xc) + 0x14, int(os.environ["HST_SERVE_ERROR"]))
 
 
 def patch(at, stub, build):
