@@ -309,10 +309,12 @@ fn wild_aims_by_draw() {
 
 /// Every smash launch: the scatter `smash_scatter` gives from the lock (grade +0x3ee8, bias +0x3f98), the contact
 /// height, the aim's nudge (+0x3ed4) and held depth (+0x3edc) and `smash_scale` (+0x3ee0), to the stored target
-/// (the aim pulled inside, plus the scatter) and the launch velocity off the base smash table, bit for bit.
+/// (the aim pulled inside, plus the scatter) and the launch velocity off the base smash table, bit for bit. The
+/// smash's mode (`smash_mode`, from the swing's start +0x3ef8) is the stored +0x3ed8, and its blend
+/// (`smash_blend`) below 0 pulls the aim by the low margins.
 #[test]
 fn timed_smashes_like_the_game() {
-    use hst_sim::swing::{smash_scale, smash_scatter};
+    use hst_sim::swing::{smash_blend, smash_mode, smash_scale, smash_scatter};
     let Some(d) = disc() else { return };
     let game = hst_data::exe::Game::new(&d.cnf, &d.game_bin).unwrap();
     let (lines, angle) = game.court_margins();
@@ -324,7 +326,7 @@ fn timed_smashes_like_the_game() {
     let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let i = |b: &[u8], o: usize| i32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
-    let (mut seen, mut scattered, mut held, mut scaled, mut bad) = (0, 0, 0, 0, vec![]);
+    let (mut seen, mut scattered, mut held, mut scaled, mut low_n, mut low_pulled, mut bad) = (0, 0, 0, 0, 0, 0, vec![]);
     for (fx, _) in FIXTURES {
         let Ok(data) = fixture::read(format!("{}/{fx}", dir())) else { continue };
         let frames = frames_live(&data);
@@ -343,14 +345,21 @@ fn timed_smashes_like_the_game() {
             let c = w1.global(0x422fa8 + 4 * p) as usize;
             let (grade, bias, offset) = (byte(w1, p, 0x3ee8), word(w1, p, 0x3f98), word(w1, p, 0x3fa0));
             let (nudge, hold) = (word(w1, p, 0x3ed4), w1.player_f32(p, 0x3edc));
-            let scale = smash_scale(word(w1, p, 0x3ee4) != 4, offset, w1.player_f32(p, 0x3ef8));
+            let plain = word(w1, p, 0x3ee4) != 4;
+            let scale = smash_scale(plain, offset, w1.player_f32(p, 0x3ef8));
+            let mode = smash_mode(plain, offset, w1.player_f32(p, 0x3ef8));
+            if mode != word(w1, p, 0x3ed8) {
+                bad.push(format!("{at}: mode {mode} want {}", word(w1, p, 0x3ed8)));
+                continue;
+            }
+            let low = smash_blend(&d.stats[c], mode) < 0.0;
             if scale.to_bits() != w1.player_f32(p, 0x3ee0).to_bits() {
                 bad.push(format!("{at}: scale {scale} want {}", w1.player_f32(p, 0x3ee0)));
                 continue;
             }
             let (sx, sz) = smash_scatter(&d.stats[c], grade, bias, w1.player_f32(p, 0x3f44), nudge, scale, hold);
             let aim = [0x3e90, 0x3e94, 0x3e98].map(|o| w1.player_f32(p, o));
-            let pulled = m.inside(3, kind, false, w1.global(0x422fa4) >= 3, c, false, hit, aim);
+            let pulled = m.inside(3, kind, low, w1.global(0x422fa4) >= 3, c, false, hit, aim);
             let sc = hst_sim::serve::scatter_along(sx, sz, hit, pulled);
             let to = [hst_sim::ps2::add(pulled[0], sc[0]), pulled[1], hst_sim::ps2::add(pulled[2], sc[2])];
             let l = lookup(&table(c, kind), &Bounds::smash(kind), [hst_sim::ps2::sub(hit[0], sc[0]), hit[1], hst_sim::ps2::sub(hit[2], sc[2])], pulled);
@@ -362,11 +371,13 @@ fn timed_smashes_like_the_game() {
             scattered += (sx != 0.0 || sz != 0.0) as usize;
             held += (hold != 0.0) as usize;
             scaled += (scale != 1.0) as usize;
+            low_n += low as usize;
+            low_pulled += (pulled != m.inside(3, kind, false, w1.global(0x422fa4) >= 3, c, false, hit, aim)) as usize;
         }
     }
     for b in &bad {
         eprintln!("{b}");
     }
-    eprintln!("{seen} smashes, {scattered} scattered, {held} held, {scaled} scaled, {} wrong", bad.len());
+    eprintln!("{seen} smashes, {scattered} scattered, {held} held, {scaled} scaled, {low_n} low ({low_pulled} pulled further in by it), {} wrong", bad.len());
     assert!(bad.is_empty() && (seen == 0 || scattered > 0), "{} of {seen} smashes wrong", bad.len());
 }

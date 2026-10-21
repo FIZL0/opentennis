@@ -26,3 +26,4 @@
 - In singles, the computer player no longer restarts its plan and re-guesses its return position after every shot, runs up to the net along the line of its own aim instead of where the ball happened to land, and judges low balls by its own character's reach, so it moves and returns more like it does in the original.
 - A ball that comes to rest on the court or on a slope or prop now ends the point straight away (as out) instead of after a long wait, a ball that has stopped stays still, and a serve that clips the net and then hits the receiver is a let again only when it touched the net.
 - A special topspin serve you turn flat with the stick now aims inside the service box like any flat serve, as in the original, instead of keeping the curving serve's wider aim.
+- A mistimed ✕ or ○ smash from deep in the court now aims a little further inside the lines, as in the original.

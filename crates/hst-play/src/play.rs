@@ -338,8 +338,8 @@ pub struct Game {
     mis_hit: Option<swing::MisHit>,
     /// The last human aim's leftovers for the launch (nudge, short-only, a smash's held depth).
     aim: hst_sim::shot::Aim,
-    /// The smash being struck's timing scatter (`timing::smash`), set at its contact.
-    smash_scatter: Option<(f32, f32)>,
+    /// The smash being struck's timing scatter and launch blend (`timing::smash`), set at its contact.
+    smash_scatter: Option<(f32, f32, f32)>,
     /// Per player: the serve (see `serve_data`).
     serve_data: Const<Vec<ServeData>>,
     /// The serve in progress (server's toss and swing).
@@ -1897,13 +1897,15 @@ fn strike(
         Some(_) if g.last_hitter >= 0 => g.last_hitter as usize,
         _ => who,
     };
-    // a rally shot's aim is pulled inside the lines before anything uses it (the timing scatter comes after);
-    // ponytail: the smash's deep mode and the powered shots' unscaled margins are not modelled (low, special false)
+    // a rally shot's aim is pulled inside the lines before anything uses it (the timing scatter comes after): a
+    // smash with a negative blend takes its low margins
+    // ponytail: a special shot's unscaled margins aren't modelled (special false): what gates them in play is open
     let target = if class == class::SERVE {
         target
     } else {
         let doubles = g.rules.players > 2;
-        g.margins.inside(class, kind, false, doubles, g.chars[src] as usize, false, at, target)
+        let low = class == class::SMASH && g.smash_scatter.is_some_and(|s| s.2 < 0.0);
+        g.margins.inside(class, kind, low, doubles, g.chars[src] as usize, false, at, target)
     };
     let error = g.timing_error.take().or(framed.map(|_| swing::TimingError::default()));
     let timed = error.filter(|_| class == class::STROKE || class == class::VOLLEY).map(|e| {
@@ -1911,7 +1913,7 @@ fn strike(
     });
     let target = timed.as_ref().map_or(target, |t| t.target);
     // a smash's timing scatter, its table looked up from the aim (see `timing::smash`)
-    let smash = g.smash_scatter.take().filter(|_| class == class::SMASH).map(|(sx, sz)| (target, serve::scatter_along(sx, sz, at, target)));
+    let smash = g.smash_scatter.take().filter(|_| class == class::SMASH).map(|(sx, sz, _)| (target, serve::scatter_along(sx, sz, at, target)));
     let target = smash.map_or(target, |(t, sc)| [hst_sim::ps2::add(t[0], sc[0]), t[1], hst_sim::ps2::add(t[2], sc[2])]);
     let sent = if class == class::SERVE {
         let s = g.serving.scatter;

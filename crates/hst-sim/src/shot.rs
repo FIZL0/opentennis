@@ -581,11 +581,11 @@ pub struct Margins {
 impl Margins {
     /// A stroke's, volley's or smash's (`class` 1..3) aim pulled inside the court, as the original before the
     /// timing scatter: the sidelines (doubles' with three or more players) and the baselines (11.885), less the
-    /// kind's margins (`low`: the smash's mode is negative, its wider pair). When the shot heads for the far
-    /// sideline, the margins are scaled by the share of the hit→aim direction along each (unless it is a
-    /// `special` shot, not modelled yet), and a topspin stroke's across margin grows to the character's
-    /// `angle` × the angle's tangent for a short cross-court ball (aim under 6 m deep, crossing the net 9–19 m
-    /// from the hit). A topspin from outside a sideline aiming further out is instead judged where it is
+    /// kind's margins (`low`: the smash's launch blend is negative, its wider pair). When the shot heads for the
+    /// far sideline, the margins are scaled by the share of the hit→aim direction along each (unless it is a
+    /// `special` shot: its effect row has a bend or curve and the game's special gate holds), and a topspin
+    /// stroke's across margin grows to the character's `angle` × the angle's tangent for a short cross-court ball
+    /// (aim under 6 m deep, crossing the net 9–19 m from the hit). A topspin from outside a sideline aiming further out is instead judged where it is
     /// 18 m along the shot, its unscaled margins moving the aim by as much.
     #[allow(clippy::too_many_arguments)]
     pub fn inside(&self, class: u8, kind: i32, low: bool, doubles: bool, character: usize, special: bool, hit: V3, aim: V3) -> V3 {

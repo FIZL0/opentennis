@@ -64,3 +64,28 @@ fn variant_records_equal_the_games() {
     }
     assert!(checked >= 14 * 18, "{checked}");
 }
+
+/// P117: a smash with a non-zero launch blend mixes its spin group (launch and first-bounce spin, side angle,
+/// restitution pair) toward the character's `dw1` smash record, the base record when none is listed. On the
+/// disc every such variant's spin group is the base record's, so the launch's base `smash_spins` is exact.
+#[test]
+fn smash_down_variants_keep_the_base_spin_group() {
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
+        return fixture::skip(format_args!("the extracted disc absent, skipped"));
+    };
+    let game = Game::new(&cnf, &bin).unwrap();
+    let src = game.shot_params();
+    let built = ShotParams::build(&src.base, &src.kinds, &src.weights, src.middle_mix);
+    let spin = hst_sim::params::field::SPIN_GROUP;
+    let mut listed = 0;
+    for ch in 0..14 {
+        let r = hst_sim::params::record_of(ch);
+        for v in game.shot_variants(ch).iter().filter(|v| v.class == 3 && v.uses[1] != 0) {
+            let (base, dw1) = (built.record(3, v.kind, r), built.variant(3, v.kind, r, v.weight));
+            assert_eq!(base[spin.clone()].iter().map(|x| x.to_bits()).collect::<Vec<_>>(), dw1[spin.clone()].iter().map(|x| x.to_bits()).collect::<Vec<_>>(), "character {ch} smash kind {}", v.kind);
+            listed += 1;
+        }
+    }
+    assert!(listed >= 14, "{listed} dw1 smash variants");
+}

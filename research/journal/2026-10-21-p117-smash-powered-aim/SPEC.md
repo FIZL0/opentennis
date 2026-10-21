@@ -127,4 +127,13 @@ there are no side effects, so evaluating it lazily is fine.
 
 ## Open questions
 
-none
+- **C.1, the special gate inside the court pull (port phase, 2026-10-21).** The function oracle disagrees with
+  "the gate is `shot::special` for the striking player". With every player's lock grade and timing offset set
+  at random, a real player block as the "table set" argument and the last-hitter index set to each player in
+  turn, the pull never keeps a clean stroke lob's margins unscaled. Poking single bytes of the player blocks,
+  the match object, the live ball, the match globals and the scratchpad changes that only through the game's
+  debug switch; with that switch set, "special = the effect row has a bend or curve" matches 20k pulls bit for
+  bit. So the effect-row half of C is right, but the gate is not the player's lock grade. What does the pull's
+  gate read in play (what the caller passes as the "table set", a flag the launch sets before the pull, or
+  something else), and can it hold on the retail disc without the debug switch? Until answered the port passes
+  `special = false`. Details: `2-PORT-PART.md`.
