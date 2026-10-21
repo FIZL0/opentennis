@@ -229,6 +229,10 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
             court = c.layout as usize + 1;
         }
     }
+    // B640: a match on `--court N` without `--stage` draws court N too (else it plays over a bare grey screen)
+    if play && court > 0 {
+        stage = stage.or(Some(court as u32));
+    }
     // each match's flags set it afresh (the menu's next match parses its own)
     play::NO_MARKS.store(no_marks, std::sync::atomic::Ordering::Relaxed);
     let args = Args { iso, archives, shot, shot_at, radius, ball, court, stage, play, singles, chars, outfits, viewer: viewer_char.map(|c| (c, viewer_motion)), sound, music, umpire, sets, games, pads };
@@ -1725,6 +1729,15 @@ mod tests {
         let c = cli(&["--court-mod", &d]);
         assert_eq!((c.args.stage, c.court_mod.is_none()), (None, true));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// B640: `--play --court N` alone draws court N; `--stage` still picks another.
+    #[test]
+    fn court_flag_draws_its_court() {
+        let cli = |f: &[&str]| parse(["x.iso"].iter().chain(f).map(|s| s.to_string()));
+        assert_eq!(cli(&["--play", "--court", "3"]).args.stage, Some(3));
+        assert_eq!(cli(&["--play", "--court", "3", "--stage", "2"]).args.stage, Some(2));
+        assert_eq!(cli(&["--play"]).args.stage, None);
     }
 
     /// M8f8: an online room's `--court-mod-id` is looked up under `mods/` beside the disc: installed, it's drawn over
