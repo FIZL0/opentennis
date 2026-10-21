@@ -13,11 +13,16 @@
 //!
 //! - Weather scales S (`hst_sim::weather::shadow`, applied by `weather`); in rain the players also get a blob.
 //!
+//! - G2, Shadows Original (and Original Mode): the props' shadows are the game's own per-caster textures projected
+//!   on the ground ([`projected`]), so they leave the shadow map; the players stay in it.
+//!
 //! ponytail: time of day 0 and hour 1; add them with the match settings that pick them (P17e).
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use hst_data::{iso::Iso, xb::Archive};
+
+pub mod projected;
 
 /// Placed props that cast shadows (on the plant record's spawned root).
 #[derive(Component)]
@@ -33,6 +38,10 @@ pub struct Minor;
 /// A mesh under a [`Minor`] root that would cast: `NotShadowCaster` while the shadows are Low (`low`).
 #[derive(Component)]
 struct Dropped;
+
+/// G2: a mesh under a [`Caster`] prop: `NotShadowCaster` while the court's [`projected`] shadows draw in its place.
+#[derive(Component)]
+struct Prop;
 
 /// B351: whether a [`Caster`] prop's shadow can fall on the court or its run-off (game space, metres): its placed
 /// bounding box `lo`..`hi` swept along the sun `dir` (sun → ground) down to the ground (y 0) overlaps the
@@ -67,6 +76,7 @@ pub struct Sun {
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, (casters, low.after(casters), aim));
+    projected::plugin(app);
 }
 
 impl Sun {
@@ -106,23 +116,41 @@ pub fn darken_s(s: u32) -> f32 {
 }
 
 /// Only players (skinned rigs and what they carry) and [`Caster`] props cast.
-fn casters(mut commands: Commands, new: Query<Entity, Added<Mesh3d>>, parents: Query<&ChildOf>, cast: Query<(), Or<(With<Caster>, With<crate::character::Rig>)>>, minor: Query<(), With<Minor>>) {
+fn casters(mut commands: Commands, new: Query<Entity, Added<Mesh3d>>, parents: Query<&ChildOf>, cast: Query<(), Or<(With<Caster>, With<crate::character::Rig>)>>, minor: Query<(), With<Minor>>, props: Query<(), With<Caster>>) {
     for e in &new {
         if !parents.iter_ancestors(e).any(|a| cast.contains(a)) {
             commands.entity(e).try_insert(NotShadowCaster);
-        } else if parents.iter_ancestors(e).any(|a| minor.contains(a)) {
+            continue;
+        }
+        if parents.iter_ancestors(e).any(|a| minor.contains(a)) {
             commands.entity(e).try_insert(Dropped);
+        }
+        if parents.iter_ancestors(e).any(|a| props.contains(a)) {
+            commands.entity(e).try_insert(Prop);
         }
     }
 }
 
 /// Shadows Low: the [`Minor`] casters' meshes don't cast; Off and High give them back (Off draws none anyway, and
 /// switching on again needs no rebuild). B343: so does Low with Fewer Shadows off (`Graphics::fewer_shadows`).
-fn low(mut commands: Commands, g: Option<Res<crate::graphics::Graphics>>, all: Query<Entity, With<Dropped>>, new: Query<Entity, Added<Dropped>>) {
-    let on = g.as_ref().is_some_and(|g| g.shadows == crate::graphics::Shadows::Low && g.fewer_shadows);
-    let changed = g.as_ref().is_some_and(|g| g.is_changed());
-    for e in if changed { all.iter().collect::<Vec<_>>() } else { new.iter().collect() } {
-        if on {
+/// G2: Original drops them too (the game's casters are the players and the props), and the [`Prop`]s' while the
+/// court has [`projected`] shadows.
+#[allow(clippy::type_complexity)]
+fn low(
+    mut commands: Commands,
+    g: Option<Res<crate::graphics::Graphics>>,
+    drawn: Query<Ref<projected::Projected>>,
+    all: Query<(Entity, Has<Dropped>, Has<Prop>), Or<(With<Dropped>, With<Prop>)>>,
+    new: Query<Entity, Or<(Added<Dropped>, Added<Prop>)>>,
+) {
+    use crate::graphics::Shadows;
+    let shadows = g.as_ref().map(|g| g.shadows_drawn());
+    let minor = g.as_ref().is_some_and(|g| g.shadows == Shadows::Low && g.fewer_shadows) || shadows == Some(Shadows::Original);
+    let prop = shadows == Some(Shadows::Original) && !drawn.is_empty();
+    let changed = g.as_ref().is_some_and(|g| g.is_changed()) || drawn.iter().any(|d| d.is_added());
+    let pick = |e: Entity| all.get(e).ok();
+    for (e, dropped, is_prop) in if changed { all.iter().collect::<Vec<_>>() } else { new.iter().filter_map(pick).collect() } {
+        if (dropped && minor) || (is_prop && prop) {
             commands.entity(e).try_insert(NotShadowCaster);
         } else {
             commands.entity(e).try_remove::<NotShadowCaster>();

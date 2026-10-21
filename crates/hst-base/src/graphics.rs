@@ -1,7 +1,7 @@
 //! Video settings (remaster-only; P53: the Auto preset, picked per device and timed in matches, below): borderless fullscreen or a window, frame limit, Show FPS, vsync, render resolution scale, shadow quality, MSAA and the original
 //! 640×448 mode (`hud_gamma.rs` draws it; it also fixes the aspect ratio to 4:3 and turns texture replacements off, `main.rs`).
 //! The menu edits the [`Graphics`] resource (applied live) and passes it to a match as flags
-//! (`--windowed`, `--fps N`, `--vsync`, `--scale N`, `--shadows off|low|high`, `--msaa off|2x|4x`, `--original`, `--mesh N`). The simulation stays a fixed
+//! (`--windowed`, `--fps N`, `--vsync`, `--scale N`, `--shadows off|low|high|original`, `--msaa off|2x|4x`, `--original`, `--mesh N`). The simulation stays a fixed
 //! 60 Hz tick whatever these are. Defaults draw as before these settings existed.
 
 use bevy::light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap};
@@ -15,6 +15,8 @@ pub enum Shadows {
     Off,
     Low,
     High,
+    /// G2: High's map for the players; the props' shadows drawn as the PS2 draws them (`shadow::projected`).
+    Original,
 }
 
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
@@ -60,7 +62,7 @@ pub static KEEP_WINDOWED: AtomicBool = AtomicBool::new(false);
 pub const FPS: [u32; 9] = [30, 60, 90, 120, 144, 240, 360, 480, 0];
 /// P63: above 100 % supersamples (the scene drawn larger, filtered down to the window).
 pub const SCALES: [u32; 8] = [50, 67, 75, 85, 100, 125, 150, 200];
-pub const SHADOWS: [Shadows; 3] = [Shadows::Off, Shadows::Low, Shadows::High];
+pub const SHADOWS: [Shadows; 4] = [Shadows::Off, Shadows::Low, Shadows::High, Shadows::Original];
 pub const MSAA: [u32; 3] = [1, 2, 4];
 pub const MESHES: [u32; 4] = [25, 50, 75, 100];
 /// The speed-up switch's default (`Graphics::fewer_shadows`).
@@ -192,6 +194,11 @@ impl Graphics {
         if self.vsync { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync }
     }
 
+    /// G2: the shadows drawn: Original in Original Mode unless they're off, else the setting.
+    pub fn shadows_drawn(&self) -> Shadows {
+        if self.original && self.shadows != Shadows::Off { Shadows::Original } else { self.shadows }
+    }
+
     /// The MSAA samples the cameras draw at: 1 on WebGL2 ([`webgl2`]), else the setting.
     pub fn msaa_drawn(&self) -> u32 {
         if webgl2() { 1 } else { self.msaa }
@@ -227,7 +234,7 @@ pub fn msaa_name(m: u32) -> &'static str {
 
 impl Shadows {
     pub fn name(self) -> &'static str {
-        ["off", "low", "high"][self as usize]
+        ["off", "low", "high", "original"][self as usize]
     }
 }
 
@@ -604,7 +611,7 @@ fn unclustered(
     }
 }
 
-/// Shadow quality: off, or the shadow map's size and cascades (High: 2048, two cascades).
+/// Shadow quality: off, or the shadow map's size and cascades (High and Original: 2048, two cascades).
 fn lights(mut commands: Commands, g: Res<Graphics>, mut map: ResMut<DirectionalLightShadowMap>, mut lights: Query<(Entity, Mut<DirectionalLight>)>) {
     if !g.is_changed() && !lights.iter().any(|(_, l)| l.is_added()) {
         return;
@@ -621,7 +628,7 @@ fn lights(mut commands: Commands, g: Res<Graphics>, mut map: ResMut<DirectionalL
     // slivers that each drew every caster again; A/B shots on court 1 show no change on the court (one cascade to
     // 120 m like Low does: tree and net shadow edges move)
     #[cfg(not(all(target_arch = "wasm32", not(feature = "webgpu"))))]
-    let (size, cascades, far) = if g.shadows == Shadows::Low { (2048, 1, 120.0) } else { (2048, 2, 120.0) };
+    let (size, cascades, far) = if g.shadows_drawn() == Shadows::Low { (2048, 1, 120.0) } else { (2048, 2, 120.0) };
     if map.size != size {
         map.size = size;
     }
@@ -708,7 +715,7 @@ fn fps_counter(
             a(acquire),
             a(enc),
             a(sub),
-            g.shadows.name(),
+            g.shadows_drawn().name(),
             msaa_name(g.msaa_drawn()),
         );
     }
@@ -909,7 +916,7 @@ pub fn cheaper(g: Graphics) -> Option<Graphics> {
         (c.fewer_shadows, c.cull) = (true, true);
     } else if g.scale > 67 && !g.original {
         c.scale = SCALES.into_iter().rev().find(|&s| s < g.scale)?;
-    } else if g.shadows == Shadows::High {
+    } else if matches!(g.shadows, Shadows::High | Shadows::Original) {
         c.shadows = Shadows::Low;
     } else if g.msaa_drawn() > 1 {
         c.msaa = g.msaa / 2;
@@ -1131,6 +1138,25 @@ mod tests {
         }
         let mut g = Graphics::default();
         assert!(g.set("render_scale", "400%") && g.scale == 200);
+    }
+
+    /// G2: Shadows Original round-trips, Original Mode draws it unless shadows are off, and it steps down to Low.
+    #[test]
+    fn original_shadows() {
+        let g = Graphics { shadows: Shadows::Original, ..default() };
+        let mut back = Graphics::default();
+        for l in g.text().lines() {
+            let (k, v) = l.split_once(" = ").unwrap();
+            back.set(k, v);
+        }
+        assert_eq!(back.shadows, Shadows::Original);
+        assert!(g.flags().windows(2).any(|w| w == ["--shadows", "original"]));
+        assert_eq!(g.shadows_drawn(), Shadows::Original);
+        assert_eq!(Graphics { original: true, ..default() }.shadows_drawn(), Shadows::Original);
+        assert_eq!(Graphics { original: true, shadows: Shadows::Low, ..default() }.shadows_drawn(), Shadows::Original);
+        assert_eq!(Graphics { original: true, shadows: Shadows::Off, ..default() }.shadows_drawn(), Shadows::Off);
+        assert_eq!(Graphics::default().shadows_drawn(), Shadows::High);
+        assert_eq!(cheaper(Graphics { fewer_shadows: true, cull: true, scale: 67, ..g }).map(|c| c.shadows), Some(Shadows::Low));
     }
 
     /// P53: the Auto preset's device pick and its step-down ladder never cap at 30, and the timing steps down until

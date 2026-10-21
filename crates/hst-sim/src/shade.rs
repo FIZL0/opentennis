@@ -327,13 +327,14 @@ fn raster(mut v: [[i64; 2]; 3], unit: i64, w: usize, h: usize, mut put: impl FnM
 }
 
 /// Shadow texture side (texels).
-const TEX: usize = 128;
+pub const TEX: usize = 128;
 
 /// A caster's shadow texture (palette index 0..15, red = index·0x20 clamped): its triangles drawn in light space at
 /// twice the size with red 0x80 over 0, every other pixel kept as red >> 4. Solid triangles write 0x80; a
 /// [`Shape`]'s cut ones blend toward it by their texture's bilinear alpha ((0x80 − Rd)·At >> 7 + Rd) where At ≥ 1.
+/// Rows of [`TEX`] texels along v, each along u (the [`Caster::light`] u, v in −1..1 over the texture).
 #[allow(clippy::float_arithmetic)] // double-precision raster standing in for VU1/GS (render only), not the FPU
-fn texture(c: &Caster) -> Vec<u8> {
+pub fn texture(c: &Caster) -> Vec<u8> {
     let mut red = vec![0u32; TEX * TEX];
     let screen = |t: &[[f32; 3]; 3]| t.map(|p| light_uv(&c.light, to_world(&c.item, p)).map(|u| ((128.0 * u + 126.0) * 16.0).floor() as i64));
     for k in &c.cut {

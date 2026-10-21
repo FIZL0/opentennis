@@ -886,6 +886,8 @@ fn load_court(
         && let Some((model, mats)) = raw_models.get(&hole)
     {
         // B605: a court whose collision can't be read gets no shade map (the match says why, `court_load`)
+        // G2: Shadows Original draws the props' shadows the game's way
+        shadow::projected::spawn(commands, root, &shade_casters, model, mats);
         match hst_sim::court::world(iso, n) {
             Ok(world) => commands.insert_resource(shade::build(frame, &shade_casters, model, mats, world)),
             Err(e) => error!("court {n} shade map: {e}"),
