@@ -620,7 +620,7 @@ pub struct BallFlight {
 
 pub fn load_flight(iso: &mut Iso, commands: &mut Commands, parent: Entity, meshes: &mut Assets<Mesh>, materials: &mut Assets<Fx>, images: &mut Assets<Image>) -> Result<BallFlight, String> {
     let ribbon = meshes.add(Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default()));
-    let view = commands.spawn((Mesh3d(ribbon.clone()), MeshMaterial3d(look(iso, "ballrolling", materials, images)?), Transform::default(), crate::cull::Cullable)).id();
+    let view = commands.spawn((Mesh3d(ribbon.clone()), MeshMaterial3d(look(iso, "ballrolling", materials, images)?), Transform::default(), crate::cull::Cullable, crate::twin_view::Billboard::BUILT)).id();
     // Z21: `Glow::start` shows slice's for flat and top's for drop, so `impactef_flat` and `impactef_drop` are never read
     let (slice, top) = (look(iso, "impactef_slice", materials, images)?, look(iso, "impactef_top", materials, images)?);
     let looks = vec![slice.clone(), top.clone(), slice, look(iso, "impactef_lob", materials, images)?, top];
@@ -677,11 +677,18 @@ fn ribbon_points(f: &Flight, ball: Vec3) -> Vec<Vec3> {
 /// at the ball as drawn (`draw` interpolates it between frames by the fixed clock's overstep).
 // ponytail: the game's flag switch on the glow by flight facing (towards/away from the camera) and its halved ribbon
 // length under one of its mode counts are left out
-pub fn draw_flight(fx: Res<BallFlight>, time: Res<Time<Fixed>>, cam: Query<(&Transform, &Projection), With<crate::Orbit>>, mut disc: Query<(&mut Transform, &mut Visibility, &MeshMaterial3d<Fx>), Without<crate::Orbit>>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<Fx>>) {
+#[allow(clippy::too_many_arguments)]
+pub fn draw_flight(
+    fx: Res<BallFlight>,
+    time: Res<Time<Fixed>>,
+    cam: Query<(&Transform, &Projection), With<crate::Orbit>>,
+    mut disc: Query<(&mut Transform, &mut Visibility, &MeshMaterial3d<Fx>), Without<crate::Orbit>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<Fx>>,
+    second: crate::twin_view::Second,
+) {
     let Ok((cam, proj)) = cam.single() else { return };
     let fov = if let Projection::Perspective(p) = proj { p.fov } else { 0.8 };
-    // world → game space: (x, −y, −z)
-    let eye = Vec3::new(cam.translation.x, -cam.translation.y, -cam.translation.z);
     let ball = fx.prev.lerp(fx.pos, time.overstep_fraction());
     if let Ok((mut t, mut v, look)) = disc.get_mut(fx.disc) {
         *v = if fx.glow.life > 0 { Visibility::Visible } else { Visibility::Hidden };
@@ -695,7 +702,20 @@ pub fn draw_flight(fx: Res<BallFlight>, time: Res<Time<Fixed>>, cam: Query<(&Tra
             m.base.base_color = colour;
         }
     }
-    let f = &fx.flight;
+    let (pos, uv, colour, index) = ribbon(&fx.flight, ball, cam, fov);
+    fill(&mut meshes, &fx.ribbon, pos, uv, colour, index);
+    // a second view (`twin_view`): its own, facing it
+    if let (Some(cam), Some(p), Some(h)) = (second.eye(), second.projection(), second.mesh(&fx.ribbon)) {
+        let (pos, uv, colour, index) = ribbon(&fx.flight, ball, cam, p.fov);
+        fill(&mut meshes, h, pos, uv, colour, index);
+    }
+}
+
+/// `draw_flight`'s ribbon through `ball` for the camera at `cam` with vertical field of view `fov`.
+#[allow(clippy::type_complexity)]
+fn ribbon(f: &Flight, ball: Vec3, cam: &Transform, fov: f32) -> (Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<[f32; 4]>, Vec<u32>) {
+    // world → game space: (x, −y, −z)
+    let eye = Vec3::new(cam.translation.x, -cam.translation.y, -cam.translation.z);
     let (mut pos, mut uv, mut colour, mut index) = (vec![], vec![], vec![], vec![]);
     if f.live && f.count >= 2 {
         let p = ribbon_points(f, ball);
@@ -729,7 +749,7 @@ pub fn draw_flight(fx: Res<BallFlight>, time: Res<Time<Fixed>>, cam: Query<(&Tra
             }
         }
     }
-    fill(&mut meshes, &fx.ribbon, pos, uv, colour, index);
+    (pos, uv, colour, index)
 }
 
 /// The glow's orientation (game space): a frame facing the flight (side = up × flight, then flight × side); a flight
@@ -786,15 +806,19 @@ pub fn load_bounce(
     let (ring, ring_view) = model(&arc, "bnd/ballbound_00", commands, parent, meshes, materials, images, bindposes)?;
     let c = if (1..=11).contains(&court) { court } else { 10 };
     let (crater, crater_view) = model(&arc, &format!("smash_bnd/c{c:02}/c{c:02}_chakudan"), commands, parent, meshes, materials, images, bindposes)?;
-    let mut mesh = |tex: &str, commands: &mut Commands| -> Result<Handle<Mesh>, String> {
+    // `facing`: its quads face the camera (the split view's second half gets its own, `twin_view`)
+    let mut mesh = |tex: &str, facing: bool, commands: &mut Commands| -> Result<Handle<Mesh>, String> {
         let m = meshes.add(Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default()));
         let view = commands.spawn((Mesh3d(m.clone()), MeshMaterial3d(look(iso, tex, materials, images)?), Transform::default(), crate::cull::Cullable)).id();
+        if facing {
+            commands.entity(view).insert(crate::twin_view::Billboard::BUILT);
+        }
         commands.entity(parent).add_child(view);
         Ok(m)
     };
-    let marks = mesh("bnd/ballkon_00", commands)?;
-    let puffs = mesh("run/kemuri_01", commands)?;
-    let dust = mesh("run/kemuri_00", commands)?;
+    let marks = mesh("bnd/ballkon_00", false, commands)?;
+    let puffs = mesh("run/kemuri_01", true, commands)?;
+    let dust = mesh("run/kemuri_00", true, commands)?;
     Ok(BallBounce {
         bounce: Bounce::new(ring, crater, colours.puffs),
         ring: ring_view,
@@ -838,13 +862,13 @@ pub fn draw_bounce(
     mut joints: Query<&mut Transform, Without<crate::Orbit>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<Fx>>,
+    second: crate::twin_view::Second,
 ) {
     let b = &fx.bounce;
     pose(&b.ring, &fx.ring, &mut q, &mut joints, &mut materials);
     pose(&b.crater, &fx.crater, &mut q, &mut joints, &mut materials);
     let Ok(cam) = cam.single() else { return };
     let game = |v: Vec3| Vec3::new(v.x, -v.y, -v.z);
-    let (right, up) = (game(cam.rotation * Vec3::X), game(cam.rotation * Vec3::Y));
     let mut put = |h: &Handle<Mesh>, quads: Vec<([Vec3; 4], [f32; 2], [f32; 4])>| {
         let (mut pos, mut uv, mut colour, mut index) = (vec![], vec![], vec![], vec![]);
         for (corners, [v0, v1], c) in quads {
@@ -870,12 +894,21 @@ pub fn draw_bounce(
     }
     put(&fx.marks, quads);
     let [r, g, bl] = fx.look.0;
-    let billboard = |p: &Puff| {
-        let (foot, w, h) = (v3(p.pos), right * p.size, up * 2.0 * p.size);
-        ([foot - w + h, foot + w + h, foot - w, foot + w], [0.0, 1.0], [r, g, bl, p.alpha / 128.0])
+    // the puffs and dust facing `cam`, into `puffs` and `dust`
+    let mut facing = |cam: &Transform, puffs: &Handle<Mesh>, dust: &Handle<Mesh>| {
+        let (right, up) = (game(cam.rotation * Vec3::X), game(cam.rotation * Vec3::Y));
+        let billboard = |p: &Puff| {
+            let (foot, w, h) = (v3(p.pos), right * p.size, up * 2.0 * p.size);
+            ([foot - w + h, foot + w + h, foot - w, foot + w], [0.0, 1.0], [r, g, bl, p.alpha / 128.0])
+        };
+        put(puffs, b.puffs.iter().filter(|p| p.life > 0).map(billboard).collect());
+        put(dust, b.dust.iter().map(|(p, _, _)| billboard(p)).collect());
     };
-    put(&fx.puffs, b.puffs.iter().filter(|p| p.life > 0).map(billboard).collect());
-    put(&fx.dust, b.dust.iter().map(|(p, _, _)| billboard(p)).collect());
+    facing(cam, &fx.puffs, &fx.dust);
+    // a second view (`twin_view`): its own, facing it
+    if let (Some(cam), Some(puffs), Some(dust)) = (second.eye(), second.mesh(&fx.puffs), second.mesh(&fx.dust)) {
+        facing(cam, puffs, dust);
+    }
 }
 
 /// The landing markers: `chakudan_p` (red, a looping pulse) at the shot's aim and `smash_p` (yellow, one 120-frame

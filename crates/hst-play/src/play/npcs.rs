@@ -39,6 +39,8 @@ mod court_clear;
 mod court_people;
 #[cfg(test)]
 pub(super) use court_people::seen as court_people_seen;
+#[cfg(test)]
+pub(super) use court_people::split as court_people_split;
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(court_people::plugin);

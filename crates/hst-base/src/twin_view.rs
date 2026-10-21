@@ -31,7 +31,8 @@ pub fn plugin(app: &mut App) {
             .after(crate::effects::hide_empty)
             .before(TransformSystems::Propagate)
             .before(VisibilitySystems::VisibilityPropagate),
-    );
+    )
+    .add_systems(PostUpdate, top_halves.before(VisibilitySystems::VisibilityPropagate));
 }
 
 /// The second view's camera, where it is and its lens, while it's on (its owner sets it each frame).
@@ -49,6 +50,11 @@ impl Billboard {
     pub const TURNED: Billboard = Billboard { own_mesh: false };
     pub const BUILT: Billboard = Billboard { own_mesh: true };
 }
+
+/// B639: a mesh drawn by the main camera only while a second view is on, for things whose system keeps a whole
+/// copy of its own on [`BOTTOM`] (a court mod's card people: scenes, maybe skinned, that one mesh copy can't turn).
+#[derive(Component)]
+pub struct TopHalf;
 
 /// A copy, for the second view, of this original.
 #[derive(Component)]
@@ -189,6 +195,19 @@ fn material<M: Material>(mut commands: Commands, twins: Option<Res<Twins>>, orig
         let (Ok(m), Ok(cm)) = (originals.get(*o), copies.get(*c)) else { continue };
         if cm.is_none_or(|cm| cm.0 != m.0) {
             commands.entity(*c).insert(MeshMaterial3d(m.0.clone()));
+        }
+    }
+}
+
+/// [`TopHalf`] meshes go on [`TOP`] while a second view is on, back to the default layer when it goes.
+fn top_halves(mut commands: Commands, eye: Option<Res<SecondEye>>, q: Query<(Entity, Option<&RenderLayers>), With<TopHalf>>) {
+    let on = eye.is_some_and(|e| e.0.is_some());
+    let top = RenderLayers::layer(TOP);
+    for (e, layers) in &q {
+        match (on, layers == Some(&top)) {
+            (true, false) => _ = commands.entity(e).insert(top.clone()),
+            (false, true) => _ = commands.entity(e).remove::<RenderLayers>(),
+            _ => {}
         }
     }
 }

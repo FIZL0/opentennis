@@ -119,5 +119,8 @@ fn a_court_mod_is_seen_and_heard_and_never_moves_the_match() {
     let want = court.people.as_ref().map_or(0, |p| p.people.len());
     assert!(want > 0 && placed == want, "{placed} of the mod's {want} people placed");
     assert_eq!((reacted, sounds), (placed, true), "the people didn't all react, or have no sounds");
+    // B639: the stand-ins are cards, each with its copy for the split view's second half
+    let (cards, copies) = npcs::court_people_split(modded.world_mut());
+    assert_eq!((cards, copies), (placed, placed), "cards without their split view copies");
 }
 
