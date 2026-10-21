@@ -59,7 +59,7 @@ while :; do
   echo "=== run $run $(date -Is) — next: $(grep -m1 '^- \[ \]' plan/TODO.md | cut -c1-100)" | tee -a "$log"
   id=$(uuidgen)
   tid=$(grep -m1 -oP '^- \[ \] \*\*\K[^*\s]+' plan/TODO.md)
-  # stall check, as tools/parallel.py: transcript quiet HST_STALL s (20 min) at a prompt, or 65 min with a tool running
+  # stall check, as agent-runner: transcript quiet HST_STALL s (20 min) at a prompt, or 65 min with a tool running
   ( while sleep 60; do
       t=$(find ~/.claude/projects -name "$id.jsonl" 2>/dev/null | head -1); [ -n "$t" ] || continue
       q=$(( $(date +%s) - $(stat -c %Y "$t") )) c=$(/home/ryha/repos/opentennis/tools/pgrep -f -- "--session-id $id" | head -1)
