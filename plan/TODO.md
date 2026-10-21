@@ -8,6 +8,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 
 ### Next (user priorities, in order)
 
+- [ ] **P133** Court prop motions: court 5's ball-boy carts (ballboy01) turn their two wheels with their own motion ballboy01.ani (spin_L/spin_R, one turn per 3200 ticks), and the wheels collide; port prop motion playback (clock, rate, loop, sampling) spec → port, check the wheels against a court 5 recording over frames → crates/hst-sim/src/court.rs nodes · world.rs | t: hst-sim world.rs | j: 2026-10-21-p125-prop-nodes
 - [ ] **B615** Rachel's walk (user 2026-10-21): getagrip_pc09_rachel's walk shoots her legs up weirdly. Her mod has no walk clip (motions.glb is only the 4 emotes), so it's her donor pc12's walk retargeted onto her rig: check the leg joints' rest axes/lengths vs pc12, level_feet and the pelvis keys; side-by-side shots vs a stock walk; rebuild + bump her mod.json version if the fix is in packaging → hst-base mods.rs (retarget, level_feet) · ../opentennis-mods tools/rerig/package.py
 - [ ] **B614** Mod face blinks (user 2026-10-21): Open Tee 2 and Get a Grip mods close their eyes when they shouldn't and flip between open and closed too fast. Check their texture faces' blink/eye tracks (timing vs the source game's 30 Hz TATs, the §4b channel threshold, which emotes/idle drive eyes shut) against the source games and HST's own blink rhythm; bump mod.json versions for rebuilt mods → ../opentennis-mods tools/rerig/ (face packaging), standard §4b · hst-sim/src/face.rs · hst-base mods.rs (texture face)
 - [ ] **B613** Mod animation speed (user 2026-10-21): some of Bigger Chief's swings and Lauryn's (opentee2_pc16_lauryn) animations play sped up. Find which clips: Chief's §6 swing_speed 2 is meant only for ground strokes/volleys (smash/serve stay contact-timed, M11 journal), check nothing else is paced; Lauryn's OT2 emotes are packaged 'played at 60 Hz' while opentee_data.py notes the face TATs suggest Open Tee 2 plays them at 30 Hz (so 2x fast), and check her donor-retargeted swings. A/B shots vs pc07/pc12 → ../opentennis-mods tools/rerig/package.py, opentee_data.py · hst-play/src/play.rs (swing_pace) · hst-sim/src/motion.rs (paced) — user 2026-10-21: Lauryn's is a celebration emote (re_gu/re_gu_set takes, OT2 clips packaged at 60 Hz: the 30 Hz lead), not her swings
@@ -23,7 +24,6 @@ index out of bounds: the len is 0 but the index is 0"
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
 
 ### Match basics
-- [ ] **P125** Prop collision node walk off court 10 (T8): child nodes of a court prop are placed by local · parent, checked only on court 10 where every prop is one node. Check the collision world of a court with multi-node props against the game (RAM dump of the placed collision, or a recorded ball hitting such a prop), fix if it differs → crates/hst-sim/src/court.rs nodes · world.rs | t: hst-sim world.rs, collision.rs | j: 2026-10-21-repo-audit (T8 ledger)
 
 ### Shots
 

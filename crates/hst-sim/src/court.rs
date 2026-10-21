@@ -15,7 +15,8 @@ pub fn materials(game: &exe::Game) -> Vec<Material> {
 }
 
 /// Every node's drawing matrix: the root's `root`, each child its own placement through its parent's.
-// ponytail: children follow the game's node walk (local · parent), checked only on court 10 where every prop is one node
+// ponytail: the walk (local · parent) is checked against court 5's props (tests/world.rs); a prop with its own motion
+// (court 5's ball-boy cart wheels) keeps its disc pose here, the game turns those nodes
 fn nodes(m: &mdl::Model, root: world::M4) -> Vec<world::M4> {
     let mut out: Vec<world::M4> = Vec::with_capacity(m.node_count);
     for (k, parent) in m.node_parent.iter().enumerate() {

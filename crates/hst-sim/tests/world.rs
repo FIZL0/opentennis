@@ -125,3 +125,59 @@ fn court_10_props_and_grid_match_ram() {
     }
     eprintln!("{} props, {} collide, {} cells, {listed} entries", ids.len(), colliding.len(), g.cells.len());
 }
+
+/// Court 5's colliding props have child nodes (the ball-boy cart: wheels and balls under the body, the balls two
+/// levels down), unlike court 10's. Against `context/p125/court05.bin` (a doubles match on court 5 at P1's first serve,
+/// `context/p125/p125_court.py`, journal 2026-10-21-p125-prop-nodes): every node of every colliding prop has the
+/// matrix `court::world` gives it — local · parent from the disc — except the cart's two wheels, which its own motion
+/// (`ballboy01.ani`) turns: their axles sit where the walk puts them, their rotation is the motion's (not ported yet).
+#[test]
+fn court_5_prop_nodes_match_ram() {
+    let (Ok(ram), Ok(mut iso)) = (fixture::read("context/p125/court05.bin"), fixture::iso()) else {
+        fixture::skip(format_args!("court 5 RAM dump or disc missing, skipped"));
+        return;
+    };
+    let r = Ram(ram);
+    assert_eq!(r.u(0x422f90), 5, "the dump isn't on court 5");
+    let w = hst_sim::court::world(&mut iso, 5).unwrap();
+    // the cart's model and the nodes its motion keys (more than one rotation or position key)
+    let hol = iso.read("COURT/05/HOL01.XB").unwrap();
+    let a = Archive::parse(&hol).unwrap();
+    let file = |end: &str| a.read(a.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(end)).unwrap()).unwrap();
+    let cart = mdl::parse(&file("ballboy01.mdl")).unwrap();
+    let motion = hst_data::ani::parse(&file("ballboy01.ani")).unwrap();
+    let moved: Vec<usize> = motion.tracks.iter().filter(|t| t.rotation.len() > 1 || t.position.len() > 1)
+        .map(|t| cart.node_names.iter().position(|n| *n == t.name).unwrap()).collect();
+    assert_eq!(moved.len(), 2, "the cart's two wheels turn");
+
+    // the RAM list's colliding props, in list order (the order `court::world` keeps them in)
+    let mut node = r.u(LIST);
+    let mut ram = Vec::new();
+    while node != 0 {
+        let inst = r.u(r.u(r.u(r.u(node))) + 0xc);
+        if r.bytes(r.u(inst + 0x54) + 0x48, 1)[0] != 0 {
+            ram.push(r.u(inst + 0x64));
+        }
+        node = r.u(node + 0x10);
+    }
+    assert_eq!(ram.len(), w.props.len(), "colliding props");
+    let (mut children, mut carts) = (0, 0);
+    for (i, (p, &n0)) in w.props.iter().zip(&ram).enumerate() {
+        let cart_like = p.nodes.len() == cart.node_count && w.models[p.model].node_from_model == cart.node_inverse;
+        carts += cart_like as usize;
+        for (k, want) in p.nodes.iter().enumerate() {
+            let at = n0 + 0x120 * k as u32;
+            if cart_like && moved.contains(&k) {
+                // the axle stays where the walk puts it; the wheel's turn is the motion's
+                let got = r.m4(at);
+                assert_eq!(bits(&[got[3]]), bits(&[want[3]]), "prop {i} node {k}: axle");
+                assert_ne!(bits(&got), bits(want), "prop {i} node {k}: the wheel should be turned");
+                continue;
+            }
+            assert_eq!(bits(&r.m4(at)), bits(want), "prop {i} node {k}");
+            children += (k > 0) as usize;
+        }
+    }
+    assert!(carts == 4 && children >= 16, "{carts} carts, {children} child nodes checked");
+    eprintln!("{} props, {carts} carts, {children} still child nodes bit-exact", w.props.len());
+}
