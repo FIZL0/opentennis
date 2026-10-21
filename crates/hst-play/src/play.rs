@@ -3965,6 +3965,8 @@ fn react(g: &mut Game, event: Event) {
         } else {
             base
         };
+        // B619: the reaction cuts the player's emote line still sounding
+        g.lines.push(emote::Line::Cut(i));
         let p = &mut g.players[i];
         p.vel = Vec2::ZERO;
         (p.whiff, p.pending, p.approach) = (None, None, None);

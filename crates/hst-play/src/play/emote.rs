@@ -191,6 +191,8 @@ pub fn bank_last(program: u8, players: usize) -> i32 {
 pub enum Line {
     Emote(usize, sound::Play),
     Reaction(usize, sound::Play),
+    /// B619: player's emote line cut, its reaction starting.
+    Cut(usize),
 }
 
 /// Plays the lines due this tick at their player, each once however often its tick runs (`heard`), cutting the emote
@@ -205,20 +207,28 @@ pub(super) fn play_lines(
     let lines = std::mem::take(&mut g.lines);
     let (Some(sound), Some(voices)) = (sound, voices) else { return };
     for line in lines {
-        let (Line::Emote(i, p) | Line::Reaction(i, p)) = line;
+        let (i, p) = match line {
+            Line::Emote(i, p) | Line::Reaction(i, p) => (i, p),
+            // B619: a reaction starting cuts its player's emote line, once however often its tick runs
+            Line::Cut(i) => {
+                if played.first(heard.tick, ("cut", i)) {
+                    sound.stop_emote(i);
+                }
+                continue;
+            }
+        };
         let at = g.players[i].pos;
         if !played.first(heard.tick, ("line", p, at)) {
             continue;
         }
         let bank = voices.0.get(p.slot as usize - 1).and_then(|b| b.as_ref());
         // B594: the player's one emote voice, through the mixer's (`audio::Sound::emote`)
-        match line {
-            Line::Emote(..) => _ = sound.emote(i, |s| bank.map_or(0, |b| s.play_at(b, p, at))),
-            Line::Reaction(..) => {
-                sound.stop_emotes();
-                if let Some(b) = bank {
-                    sound.play_at(b, p, at);
-                }
+        if let Line::Emote(..) = line {
+            sound.emote(i, |s| bank.map_or(0, |b| s.play_at(b, p, at)));
+        } else {
+            sound.stop_emotes();
+            if let Some(b) = bank {
+                sound.play_at(b, p, at);
             }
         }
     }
@@ -605,6 +615,33 @@ mod match_tests {
         a.world_mut().resource_mut::<Game>().lines.push(super::Line::Reaction(0, p));
         step(&mut a);
         assert!(!sound.playing(lines[1]) && sound.playing(sound.plays()), "the reaction didn't cut the emote line");
+    }
+
+    /// B619: the post-point reaction starting cuts its players' emote lines, even with no reaction line to play.
+    #[test]
+    fn the_reaction_cuts_the_emote_line() {
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let flick = Pad { rx: 0x80, ry: 0, ..IDLE };
+        let mut a = app(vec![]);
+        let at = 10;
+        let mut pads = vec![[IDLE; 4]; at + 4];
+        pads[at][1] = flick;
+        a.insert_resource(Replay(pads.into_iter().collect()));
+        let sound = crate::audio::Sound::test(&mut hst_data::fixture::iso().unwrap());
+        a.insert_resource(sound.clone());
+        a.add_plugins(heard::plugin);
+        a.add_systems(FixedUpdate, super::play_lines.after(held_ball));
+        for _ in 0..=at {
+            step(&mut a);
+        }
+        let line = sound.plays();
+        assert!(sound.playing(line), "no emote line");
+        react(&mut a.world_mut().resource_mut::<Game>(), Event::Point);
+        step(&mut a);
+        assert_eq!(sound.plays(), line, "a line played");
+        assert!(!sound.playing(line), "the reaction didn't cut the emote line");
     }
 
     /// A mod character's emotes speak its own takes (programs 9, 10, 7, 8): each of the four flicks plays a line.
