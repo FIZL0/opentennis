@@ -14,7 +14,7 @@ Upstream status: none of these has been sent upstream yet (2026-10-21).
 
 | Crate | Upstream | Files changed | Task: what |
 |---|---|---|---|
-| `bevy_render` | 0.19.1 | `src/render_phase/mod.rs`, `src/batching/no_gpu_preprocessing.rs` | B385: on CPU batching (WebGL2) an unbatchable mesh with no batch data this frame keeps its slot and is skipped, instead of shifting the dynamic offsets past their end. Upstream has the same bug (no issue found) |
+| `bevy_render` | 0.19.1 | `src/render_phase/mod.rs`, `src/batching/no_gpu_preprocessing.rs`, `src/view/window/mod.rs` | B385: on CPU batching (WebGL2) an unbatchable mesh with no batch data this frame keeps its slot and is skipped, instead of shifting the dynamic offsets past their end. Upstream has the same bug (no issue found). `src/view/window/mod.rs`: Mailbox (the game's VSync on Linux) falls back to Fifo, never Immediate, so it never tears. |
 | | | `src/batching/gpu_preprocessing.rs` | B395: the same slot-keeping on the GPU-preprocessing path |
 | | | `src/render_phase/mod.rs` (`dirty`), `src/batching/gpu_preprocessing.rs` (`write_binned_instance_buffers`) | P36: a retained bin's GPU buffers are uploaded only when they changed |
 | | | `src/render_resource/pipeline_cache.rs` (`compile_budget`) | P47: where pipelines compile on the render thread (browser, macOS) a queue pass stops after a time budget, set by `crates/hst-play/src/mode.rs` |
