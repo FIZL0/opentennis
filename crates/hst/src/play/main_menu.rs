@@ -3901,6 +3901,7 @@ pub fn plugin(app: &mut App) {
     legend::plugin(app);
     app.add_systems(Update, legend::fill.after(step));
     app.add_systems(Update, takeover::watch.before(step).after(pointer::pointer));
+    app.add_systems(Update, takeover::updated.before(takeover::watch));
     app.init_resource::<umpire_mods::Pics>().add_systems(Update, umpire_mods::load.before(draw));
     app.init_resource::<court_mods::Pics>().add_systems(Update, court_mods::load.before(draw));
     app.add_systems(Update, trace::trace.after(online::poll).run_if(trace::on));

@@ -946,6 +946,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B622** **No camera switch while movement is locked** (user 2026-10-21): ignore the camera-change input while the players can't move (post-point, cut-aways, serve setup, change of ends, replays); it only works during live play. Presentation only: must not touch the sim or match timing. → `play.rs` (input, camera)
 - [x] **B624** **Stretch aspect option is missing** (user 2026-10-21): the Stretch choice in the aspect-ratio setting has disappeared; find what removed it (git log on the settings/aspect code) and bring it back on every platform. → `hst-base/src/graphics.rs` · `hst-base/src/widescreen.rs`
 - [x] **B619** **Emote sound cut at post-point** (user 2026-10-21): when a point ends and the post-point animations start while a player is emoting, stop that player's emote sound so it doesn't play over the reaction. → `play.rs` (react/next_point, emotes) · `hst-base/src/audio.rs`
+- [x] **B625** **Web app: check for updates on launch** (user 2026-10-21): the web app installed on iOS (home-screen PWA) didn't notice a new version when launched. Check for a new version immediately on launch (and on resume from background, if possible), pick it up, and tell the player when the game has updated itself (e.g. a short 'Updated to vX' notice). → `hst-base/src/web.rs` · `hst/src/update.rs`
 
 
 ### Shots

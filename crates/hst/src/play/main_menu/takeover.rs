@@ -17,6 +17,8 @@ const WAIT: f32 = 4.0;
 /// Seconds the toast stays (the last `FADE` of them fading).
 const TOAST: f32 = 2.5;
 const FADE: f32 = 0.5;
+/// Seconds B625's "Updated to …" toast stays.
+const UPDATED: f32 = 4.0;
 
 /// The prompt's state, kept in [`Menu`].
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -213,6 +215,18 @@ pub(super) fn watch(mut menu: ResMut<Menu>, gamepads: Query<(Entity, &Gamepad, O
             menu.set_changed();
             return;
         }
+    }
+}
+
+/// B625: the "Updated to …" toast ([`crate::update::updated`]), once, when the main menu first shows (past the
+/// splash); the same pill as Yes's toast, up a little longer.
+pub(super) fn updated(mut menu: ResMut<Menu>, mut done: Local<bool>) {
+    if *done || menu.screen != Screen::Main {
+        return;
+    }
+    *done = true;
+    if let Some(s) = crate::update::updated() {
+        menu.takeover.toast = Some((s, UPDATED));
     }
 }
 

@@ -70,6 +70,27 @@ pub fn latest() -> Option<String> {
         .filter(|s| !s.is_empty() && !s.starts_with(ours) && !ours.starts_with(s.as_str()))
 }
 
+/// B625: the main menu's "Updated to …" toast, once, when this is the first run of a new build: the browser keeps
+/// the last build it ran (`hst-build` in local storage, written here), so a page that picked up a newer one (at
+/// launch, `web/index.html`, or a Refresh) says so. A first visit says nothing. `HST_UPDATED=1` fakes one (`--shot`s).
+pub fn updated() -> Option<String> {
+    let ours = env!("HST_COMMIT").trim_end_matches('+');
+    // as the main menu's version corner says it (`home.rs`)
+    let says = || format!("Updated to {} - {}", VERSION.unwrap_or(concat!("v", env!("CARGO_PKG_VERSION"))), ours.get(..7).unwrap_or(ours));
+    if std::env::var("HST_UPDATED").is_ok_and(|s| !s.is_empty()) {
+        return Some(says());
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let store = web_sys::window()?.local_storage().ok()??;
+        let before = store.get_item("hst-build").ok()?;
+        let _ = store.set_item("hst-build", ours);
+        before.filter(|b| !b.is_empty() && b != ours).map(|_| says())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    None
+}
+
 /// What the desktop check found and what an install is doing.
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Default)]
