@@ -16,3 +16,4 @@ Work only the user can do (recordings, devices, accounts); agents add items here
   background (crickets over wind) ever stop, fade or start over — between points, during the post-point camera
   shots/replays, at the change of ends? The remaster keeps it running nonstop, as one loop. If it does gap, note where
   — j: 2026-10-16-b509-gag-ambience/1-AMBIENCE-FINAL.md
+- **Repo-wide `cargo fmt`? (for T4's CI gate)**: CI checks tests, clippy and cargo-deny, but not formatting: `cargo fmt --all --check` gives 8,103 diffs (no `rustfmt.toml`; the code is hand-wrapped at ~120 columns). Say whether to (a) add a `rustfmt.toml` (`max_width = 120` plus whatever keeps the current style) and reformat everything in one commit while no runners are going (every open task branch conflicts with it otherwise), then add `cargo fmt --all --check` to `.github/workflows/ci.yml`; or (b) leave formatting unchecked — j: 2026-10-21-t4-ci-gate/README-FINAL.md
