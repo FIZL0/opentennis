@@ -11,3 +11,4 @@
 - Your Hugging Face sign-in for uploading mods is now saved where only you can read it, next to your settings (in the app's private storage on Android).
 - Joining an online lobby from a different imported game disc than the host's is now refused straight away with a message saying so, instead of the match drifting out of sync later.
 - A damaged game disc image no longer crashes the game when a match loads a court whose data can't be read: the match plays on another court's layout and says what went wrong.
+- Settings → Controls is now one scrolling table: each action's controller buttons and keyboard keys side by side in bigger rows that read on a phone, either one picked to rebind (←/→ or a tap), and Reset to defaults is a square button at the top. The same in the pause menu's settings.

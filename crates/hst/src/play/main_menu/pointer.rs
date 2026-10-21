@@ -142,6 +142,8 @@ impl Menu {
             _ if self.mod_asking() => Some(std::mem::replace(&mut self.net.ask_row, i)),
             Screen::Mode => Some(std::mem::replace(&mut self.doubles, i == 1) as usize),
             Screen::Mods => Some(std::mem::replace(self.mods_cursor(), i)),
+            // B609: the Controls table's cells (`options::controls_cell`)
+            Screen::Controls => Some(self.controls_choose(i)),
             Screen::Lobby => {
                 if i != self.sel {
                     self.net.status.clear();
@@ -285,7 +287,6 @@ impl Menu {
             Act::Store(_) => {}
             Act::Name(p, i) => out = self.name_point(p, i, tap),
             Act::Kind(i) if tap && self.screen == Screen::Mods => self.mods_kind(super::mods_kind::KINDS[i], &mut out),
-            Act::Kind(i) if tap && self.screen == Screen::Controls => self.controls_tab(i == 1, &mut out),
             Act::Kind(_) => {}
             Act::Show(i) if tap && self.screen == Screen::Mods => self.show_tap(i, &mut out),
             Act::Show(_) => {}
@@ -628,7 +629,7 @@ pub(super) mod tests {
         m.point(Dev::Keys, a, true);
         assert_eq!(m.screen, Screen::Display);
         // B294: the Graphics tab, then its VSync value's arrows (an On/Off row: more choices are a dropdown)
-        use super::super::options::{Opt, boxes, row, page, page_row};
+        use super::super::options::{Opt, boxes, page, page_row};
         let tab = hits(&m).0.into_iter().find(|h| h.act == Act::Tab(1)).unwrap().rect;
         tap(&mut m, tab[0] + tab[2] / 2.0, tab[1] + tab[3] / 2.0);
         assert_eq!(m.screen, Screen::Graphics);
@@ -652,15 +653,16 @@ pub(super) mod tests {
         assert_ne!(m.settings.value(Opt::Vsync), kept);
         tap(&mut m, 320.0, 5.0);
         assert!(m.editing.is_none() && m.settings.value(Opt::Vsync) == kept, "put back");
-        // Controls: a row starts a rebind
+        // Controls: a row starts a rebind (its label: in the column already chosen)
         let mut c = Menu { screen: Screen::Controls, ..default() };
-        let [x, y, _, h] = row(super::super::options::controls_body(boxes(&c.grid, 14).0), 14, 2);
+        let t = super::super::options::table(&c.grid);
+        let [x, y, _, h] = t.row(2);
         tap(&mut c, x + 40.0, y + h / 2.0);
         assert_eq!(c.rebinding, Some(2));
-        // the last row resets them all instead
+        // B609: the banner's square resets them all instead
         c.rebinding = None;
-        let [x, y, _, h] = row(super::super::options::controls_body(boxes(&c.grid, 14).0), 14, 13);
-        assert!(tap(&mut c, x + 40.0, y + h / 2.0).contains(&Effect::ResetControls));
+        let [x, y, w, h] = super::super::options::reset_button(&c.grid);
+        assert!(tap(&mut c, x + w / 2.0, y + h / 2.0).contains(&Effect::ResetControls));
         assert_eq!(c.rebinding, None);
     }
 

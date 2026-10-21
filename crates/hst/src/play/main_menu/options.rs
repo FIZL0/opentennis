@@ -585,19 +585,11 @@ impl Menu {
         }
     }
 
-    /// B291: the Controls page's Keyboard & Mouse tab (`keys`) or its Controller tab, with the soft cursor tick.
-    pub(super) fn controls_tab(&mut self, keys: bool, out: &mut Vec<Effect>) {
-        if self.keys_tab != keys {
-            self.keys_tab = keys;
-            out.push(Effect::Sound(0));
-        }
-    }
-
     /// B442: open Settings tab `page` (L1 / R1, a tap on its pill) with the soft cursor tick, not the select cue.
     pub(super) fn go_tab(&mut self, page: Screen, out: &mut Vec<Effect>) {
         self.screen = page;
         self.sel = 0;
-        // B291: Controls opens on the tab of the device last used (a phone has no keyboard)
+        // B291: Controls opens on the column of the device last used (a phone has no keyboard)
         self.keys_tab = !super::legend::MOBILE && super::legend::last_style() == super::legend::Style::Keys;
         out.push(Effect::Sound(0));
     }
@@ -698,15 +690,7 @@ fn pin_marks(d: &mut Draw, list: [f32; 4], n: usize) {
 /// the rows and the side panel's words.
 fn chrome(d: &mut Draw, m: &Menu, n: usize, name: &str, foot: &str) -> ([f32; 4], [f32; 4]) {
     let (list, side) = boxes(&m.grid, n);
-    let (portrait, z) = zoom(&m.grid);
-    let view = z.inner(m.grid.view);
-    let tab_end = look::top(d, m.grid.view, "Settings", look::c(look::BLUE));
-    let tabs = tabs_shown();
-    let words: Vec<String> = tabs.iter().map(|t| t.0.to_string()).collect();
-    let on = tabs.iter().position(|t| t.1 == TABS[tab(m.screen)].1);
-    let right = side[0] + side[2];
-    let (x, ty) = if portrait { (list[0], view[1] + look::TOP_BAR * PY) } else { (tab_end, look::bar_y(view[1])) };
-    look::tabs(d, [x, ty, right - x], &words, look::Tabs::Bar, on, None, Some((5, 6)), [false; 2], pointer::Act::Tab);
+    settings_bar(d, m, side[0] + side[2], 0.0);
     let [sx, sy, sw, sh] = look::panel(d, list, strip(list, n), look::c(look::BLUE));
     // the page's name outlined white and its count of rows on the strip
     let (ix, iw) = (sx + look::PAD * PX, sw - 2.0 * look::PAD * PX);
@@ -718,16 +702,39 @@ fn chrome(d: &mut Draw, m: &Menu, n: usize, name: &str, foot: &str) -> ([f32; 4]
     let title = roster::ellipsis(d, name, hs, iw - cw - 12.0 * PX);
     look::bold(d, &title, [ix, sy + (sh - hs) / 2.0], hs, WHITE);
     look::bold(d, &count, [ix + iw - cw, sy + (sh - cs) / 2.0], cs, WHITE);
-    let fs = 12.5 * PY;
-    let fy = list[1] + list[3] - (look::RIM + look::PAD + FOOT) * PY;
-    d.q(Tex::Solid, [0.0; 4], [ix, fy + 2.0 * PY, iw, 2.0 * PY], look::c(look::RULE), 128.0);
-    // (B558: over the select or the lobby, the host's countdown in the footnote's place)
-    match super::over::countdown(m) {
-        Some(words) => d.text(&words, ix, fy + (FOOT * PY - fs) / 2.0 + 3.0 * PY, fs, look::c(look::BLUE)),
-        None => d.text(foot, ix, fy + (FOOT * PY - fs) / 2.0 + 3.0 * PY, fs, look::c(look::MUTED)),
-    }
+    footnote(d, m, list, foot);
     look::panel(d, side, strip(list, n), side_band());
     (list, side)
+}
+
+/// The wall's blue title band with its "Settings" tab and the page tabs between L1 / R1 (a tap opens one) in the top
+/// bar (a portrait view: a row of their own under it), ending at `right` less `reserve` mockup px (B609: Controls'
+/// Reset button there).
+fn settings_bar(d: &mut Draw, m: &Menu, right: f32, reserve: f32) {
+    let (portrait, z) = zoom(&m.grid);
+    let view = z.inner(m.grid.view);
+    let tab_end = look::top(d, m.grid.view, "Settings", look::c(look::BLUE));
+    let tabs = tabs_shown();
+    let words: Vec<String> = tabs.iter().map(|t| t.0.to_string()).collect();
+    let on = tabs.iter().position(|t| t.1 == TABS[tab(m.screen)].1);
+    let x = if portrait { view[0] + look::MARGIN * PX } else { tab_end };
+    let ty = if portrait { view[1] + look::TOP_BAR * PY } else { look::bar_y(view[1]) };
+    look::tabs(d, [x, ty, right - reserve * PX - x], &words, look::Tabs::Bar, on, None, Some((5, 6)), [false; 2], pointer::Act::Tab);
+}
+
+/// A panel `list`'s footnote under its rows, over a light rule (B558: over the select or the lobby, the host's
+/// countdown in its place).
+fn footnote(d: &mut Draw, m: &Menu, list: [f32; 4], foot: &str) {
+    let inset = look::RIM + look::PAD;
+    let (ix, iw) = (list[0] + inset * PX, list[2] - 2.0 * inset * PX);
+    let fs = 12.5 * PY;
+    let fy = list[1] + list[3] - (inset + FOOT) * PY;
+    d.q(Tex::Solid, [0.0; 4], [ix, fy + 2.0 * PY, iw, 2.0 * PY], look::c(look::RULE), 128.0);
+    let ty = fy + (FOOT * PY - fs) / 2.0 + 3.0 * PY;
+    match super::over::countdown(m) {
+        Some(words) => d.text(&words, ix, ty, fs, look::c(look::BLUE)),
+        None => d.text(&roster::ellipsis(d, foot, fs, iw), ix, ty, fs, look::c(look::MUTED)),
+    }
 }
 
 /// The side panel (its light green strip, `strip` mockup px high, drawn by `chrome`): the name outlined on the strip, what it does, a rule
@@ -1015,89 +1022,213 @@ fn webgl2_reach(fps: f64, play: bool, refresh: Option<f64>) -> String {
     }
 }
 
-/// B291: the Controller tab's button pills' dark fill.
+/// B291: the Controller column's button pills' dark fill.
 const PAD_WELL: u32 = 0x4a4560;
 
-/// B291: the Controls page's tabs, Controller first.
-pub(super) const CONTROLS_TABS: [&str; 2] = ["Controller", "Keyboard & Mouse"];
+/// B609: the Controls table's column headings.
+pub(super) const CONTROLS_HEAD: [&str; 3] = ["Action", "Controller", "Keyboard & mouse"];
 
-/// The Controls page: its two tabs (Controller, Keyboard & Mouse; B291) on the list's strip between L2 / R2, each
-/// action a row with its pad buttons as the pad's own button icons (the stick that always does it beside them) or its
-/// keys as key caps in a white pill on the right (✕ rebinds: the next button or key pressed replaces the tab's); the
-/// chosen one's bindings in the side column.
+/// B609: a Controls row's least pitch (mockup px): roomier than a Settings row's, so the button icons read on a phone.
+const TABLE_PITCH: f32 = 52.0;
+
+/// B609: the Controls table on the view `g`: its panel (the list's and side panel's room as one: the page's whole
+/// width, a portrait view's whole height), the rows' area under its strip (the scroll bar's lane right of it, kept
+/// even when every row fits), the pitch and how many rows show whole.
+pub(super) struct Table {
+    pub panel: [f32; 4],
+    pub rows: [f32; 4],
+    pub bar: [f32; 4],
+    pub pitch: f32,
+    pub shown: usize,
+}
+
+pub(super) fn table(g: &Grid) -> Table {
+    let (list, side) = boxes(g, 1);
+    let panel = [list[0], list[1], side[0] + side[2] - list[0], side[1] + side[3] - list[1]];
+    let inset = look::RIM + look::PAD;
+    let top = panel[1] + (look::RIM + look::STRIP + 2.5 + look::PAD) * PY;
+    let h = panel[1] + panel[3] - (inset + FOOT) * PY - top;
+    let (x, w) = (panel[0] + inset * PX, panel[2] - 2.0 * inset * PX);
+    let lane = (look::BAR + look::PAD) * PX;
+    // (the rows that fit whole, spread to fill the room)
+    let shown = ((h / (TABLE_PITCH * PY) + 0.15) as usize).max(1);
+    let pitch = (h / shown as f32).min(1.25 * TABLE_PITCH * PY);
+    Table { panel, rows: [x, top, w - lane, h], bar: [x + w - look::BAR * PX, top, look::BAR * PX, h], pitch, shown }
+}
+
+impl Table {
+    /// Place `j` on view's row box.
+    pub(super) fn row(&self, j: usize) -> [f32; 4] {
+        let [x, y, w, _] = self.rows;
+        [x, y + self.pitch * j as f32, w, self.pitch - look::ROW_GAP * PY]
+    }
+
+    /// Row box `r`'s label room and its Controller and Keyboard & mouse cells.
+    pub(super) fn cells(&self, [x, y, w, h]: [f32; 4]) -> (f32, [[f32; 4]; 2]) {
+        let label = (w * 0.3).min(240.0 * PX);
+        let gap = 8.0 * PX;
+        let cw = (w - label - 3.0 * gap) / 2.0;
+        let ch = h - 8.0 * PY;
+        let cell = |k: f32| [x + label + gap + (cw + gap) * k, y + 4.0 * PY, cw, ch];
+        (label, [cell(0.0), cell(1.0)])
+    }
+}
+
+/// B609: the square Reset button at the right of the Settings bar (its tabs' row in a portrait view).
+pub(super) fn reset_button(g: &Grid) -> [f32; 4] {
+    let (portrait, z) = zoom(g);
+    let view = z.inner(g.view);
+    let right = view[2] - look::MARGIN * PX;
+    let y = if portrait { view[1] + look::TOP_BAR * PY } else { look::bar_y(view[1]) };
+    [right - look::PILL * PX, y, look::PILL * PX, look::PILL * PY]
+}
+
+/// B609: the Controls table's first action on view: where it was, moved just enough to show the chosen row.
+pub(super) fn controls_top(m: &Menu) -> usize {
+    let n = controls::action_names().count();
+    let shown = table(&m.grid).shown.min(n);
+    let top = m.controls_top.min(n - shown);
+    if m.sel < n { top.min(m.sel).max((m.sel + 1).saturating_sub(shown)) } else { top }
+}
+
+/// B609: the pointer's row index of the Controls table's cell: action `a`'s Controller (`keys` false) or Keyboard &
+/// mouse cell; past every action, the Reset button.
+pub(super) fn controls_cell(a: usize, keys: bool) -> usize {
+    let n = controls::action_names().count();
+    if a < n { 2 * a + usize::from(keys) } else { 2 * n }
+}
+
+impl Menu {
+    /// B609: the pointer on the Controls table's cell `i` ([`controls_cell`]): its row and column chosen; the
+    /// cell that was chosen.
+    pub(super) fn controls_choose(&mut self, i: usize) -> usize {
+        let was = controls_cell(self.sel, self.keys_tab);
+        self.sel = i / 2;
+        if i < controls_cell(usize::MAX, false) {
+            self.keys_tab = i % 2 == 1;
+        }
+        self.controls_top = controls_top(self);
+        was
+    }
+}
+
+/// The Controls page (B609: one table): the Settings bar with its square Reset button at the right end, then a panel
+/// with the column headings on its strip (Action, Controller, Keyboard & mouse) over a row per action: its name, its
+/// pad buttons as the pad's own button icons (the stick that always does it beside them) and its keys as key caps,
+/// each cell rebindable (✕ on the chosen one: the next button or key pressed replaces the cell's). The rows scroll
+/// with the cursor (pad, wheel, a finger's drag) when they don't all fit, a scroll bar beside them; the footnote
+/// says what the chosen cell does.
 pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings, _hand_x: f32) {
     let names: Vec<String> = controls::action_names().map(|n| n[..1].to_uppercase() + &n[1..].replace('_', " ")).collect();
-    let n = names.len() + 1;
+    let n = names.len();
     let z = zoom(&m.grid).1;
     look::backdrop(d);
     let n0 = d.out.len();
-    let (list, side) = chrome(d, m, n, "Controls", "Saved to controls.txt, shared by every player");
-    let body = controls_body(list);
+    let reset = reset_button(&m.grid);
+    settings_bar(d, m, reset[0] + reset[2], look::PILL + 8.0);
+    reset_square(d, reset, m.sel == n);
+    d.hit(reset, pointer::Act::Row(controls_cell(n, false), pointer::OK));
+    let t = table(&m.grid);
+    let [_, sy, _, sh] = look::panel(d, t.panel, look::STRIP, look::c(look::BLUE));
+    // the column headings on the strip, over the label and each cell
+    let (label, cells) = t.cells(t.row(0));
+    let hs = 16.0 * PY;
+    let hy = sy + (sh - hs) / 2.0;
+    let fit = |d: &Draw, s: &str, room: f32| hs.min(hs * room / d.width(s, hs).max(1.0));
+    let s0 = fit(d, CONTROLS_HEAD[0], label - 20.0 * PX);
+    look::bold(d, CONTROLS_HEAD[0], [t.rows[0] + 16.0 * PX, hy + (hs - s0) / 2.0], s0, WHITE);
+    for (c, head) in cells.iter().zip(&CONTROLS_HEAD[1..]) {
+        let s = fit(d, head, c[2] - 8.0 * PX);
+        let x = c[0] + (c[2] - d.width(head, s)) / 2.0;
+        look::bold(d, head, [x, hy + (hs - s) / 2.0], s, WHITE);
+    }
     let waiting = m.rebinding.is_some();
     let style = legend::pad_style_shown();
-    {
-        // the tabs on the strip, after the page's name
-        let inset = (look::RIM + look::PAD) * PX;
-        let x = list[0] + inset + d.width("Controls", 20.0 * PY) + 16.0 * PX;
-        let y = list[1] + (look::RIM + (strip(list, n) - look::PILL) / 2.0) * PY;
-        let words: Vec<String> = CONTROLS_TABS.iter().map(|s| s.to_string()).collect();
-        let on = usize::from(m.keys_tab);
-        look::tabs(d, [x, y, list[0] + list[2] - inset - x], &words, look::Tabs::Strip, Some(on), None, Some((0, 1)), [on == 0, on == 1], pointer::Act::Kind);
-    }
-    for (i, nm) in names.iter().enumerate() {
-        let r @ [x, y, w, h] = row(body, n, i);
+    let top = controls_top(m);
+    let shown = t.shown.min(n);
+    for (j, i) in (top..top + shown).enumerate() {
+        let r @ [x, y, _, h] = t.row(j);
         let on = i == m.sel;
-        let vh = (h - 8.0 * PY).min(30.0 * PY);
-        let vw = (w * 0.5).min(300.0 * PX);
-        let b = [x + w - vw - 5.0 * PX, y + (h - vh) / 2.0, vw, vh];
-        let size = row_pill(d, r, on, nm, b[0] - x - 20.0 * PX, false);
-        // B471: a white pill in a dark outline; the one waiting for a key or button blue
-        let wait = on && waiting;
-        // (B291: the Controller tab's dark, so the pad art's white arms and arrows show)
-        let fill = if wait { look::c(look::BLUE) } else if m.keys_tab { WHITE } else { look::c(PAD_WELL) };
-        look::outlined_pill(d, b, fill, 2.0);
-        if wait {
-            let say = if m.keys_tab { "Press a key..." } else { "Press a button..." };
-            d.label(say, b[0] + vw / 2.0, b[1] + (vh - size * 0.9) / 2.0, size * 0.9, vw - 16.0 * PX, WHITE);
-        } else if m.keys_tab {
-            key_caps(d, b, &bind.keys_of(i).into_iter().map(key_name).collect::<Vec<_>>(), size * 0.85);
-        } else {
-            let mut icons: Vec<u8> = bind.pads_of(i).into_iter().filter_map(legend::button_glyph).collect();
-            icons.extend(controls::fixed_stick(i).map(|(right, dir)| legend::stick_glyph(right, dir)));
-            button_icons(d, b, style, &icons, size);
+        look::button(d, r, on);
+        let (label, cells) = t.cells(r);
+        let size = (h * 0.4).min(16.0 * PY);
+        let ink = if on { look::c(look::INK) } else { WHITE };
+        d.text(&roster::ellipsis(d, &names[i], size, label - 20.0 * PX), x + 16.0 * PX, y + (h - size) / 2.0, size, ink);
+        for (k, b) in cells.into_iter().enumerate() {
+            let keys = k == 1;
+            let chosen = on && m.keys_tab == keys;
+            let wait = chosen && waiting;
+            if chosen {
+                look::halo(d, b);
+            }
+            // B471: a white pill in a dark outline, the one waiting for a key or button blue (B291: the Controller
+            // column's dark, so the pad art's white arms and arrows show)
+            let fill = if wait { look::c(look::BLUE) } else if keys { WHITE } else { look::c(PAD_WELL) };
+            look::outlined_pill(d, b, fill, if chosen { 3.0 } else { 2.0 });
+            if wait {
+                let say = if keys { "Press a key..." } else { "Press a button..." };
+                d.label(say, b[0] + b[2] / 2.0, b[1] + (b[3] - size * 0.9) / 2.0, size * 0.9, b[2] - 16.0 * PX, WHITE);
+            } else if keys {
+                key_caps(d, b, &bind.keys_of(i).into_iter().map(key_name).collect::<Vec<_>>(), size * 0.9);
+            } else {
+                let mut icons: Vec<u8> = bind.pads_of(i).into_iter().filter_map(legend::button_glyph).collect();
+                icons.extend(controls::fixed_stick(i).map(|(right, dir)| legend::stick_glyph(right, dir)));
+                button_icons(d, b, style, &icons, size);
+            }
+            d.hit(b, pointer::Act::Row(controls_cell(i, keys), pointer::OK));
         }
-        d.hit(r, pointer::Act::Row(i, pointer::OK));
+        // the label: the row in the column already chosen
+        d.hit([x, y, label, h], pointer::Act::Row(controls_cell(i, m.keys_tab), pointer::OK));
     }
-    {
-        // the last row: Reset to defaults
-        let i = names.len();
-        let r = row(body, n, i);
-        row_pill(d, r, i == m.sel, "Reset to defaults", r[2] - 30.0 * PX, false);
-        d.hit(r, pointer::Act::Row(i, pointer::OK));
+    if n > shown {
+        look::scroll_bar(d, t.bar, look::c(look::BLUE), shown, n, top, n - shown);
     }
-    let sh = strip(list, n);
-    if let Some(nm) = names.get(m.sel) {
-        let (about, chips, note) = if m.keys_tab {
-            let about = if waiting { "Press the new key for it (Escape cancels). It replaces the action's keys; its controller buttons stay." } else { "Choose it to rebind it: the next key you press." };
-            let note = "The mouse points, clicks and scrolls in the menus. Enter, Esc, Q / E and Tab always work there.";
-            (about, bind.keys_of(m.sel).into_iter().map(key_name).collect::<Vec<_>>(), note)
-        } else {
-            let about = if waiting { "Press the new button on any controller (Escape or a tap cancels). It replaces the action's buttons; its keys stay." } else { "Choose it to rebind it: the next button you press on any controller." };
-            let mut chips: Vec<String> = bind.pads_of(m.sel).into_iter().map(|b| legend::button_word(style, b)).collect();
-            chips.extend(controls::fixed_stick(m.sel).map(|(right, _)| (if right { "Right stick" } else { "Left stick" }).to_string()));
-            let note = match controls::fixed_stick(m.sel) {
-                Some((false, _)) => "The left stick always moves as well; it can't be rebound.",
-                Some((true, _)) => "The right stick, flicked fully that way, always plays it as well; it can't be rebound.",
-                None => "",
-            };
-            (about, chips, note)
-        };
-        side_panel(d, side, sh, nm, about, "Bound to", &chips, None, note);
+    let foot = if m.sel >= n {
+        "Reset: puts every key and button back as it was first."
+    } else if waiting && m.keys_tab {
+        "Press the new key for it (Escape cancels). It replaces the action's keys; its controller buttons stay."
+    } else if waiting {
+        "Press the new button on any controller (Escape or a tap cancels). It replaces the action's buttons; its keys stay."
+    } else if m.keys_tab {
+        "The mouse points, clicks and scrolls in the menus; Enter, Esc, Q / E and Tab always work there."
     } else {
-        let about = "Puts every key and button back as it was first.";
-        side_panel(d, side, sh, "Reset to defaults", about, "", &[], None, "");
-    }
+        match controls::fixed_stick(m.sel) {
+            Some((false, _)) => "The left stick always moves as well; it can't be rebound.",
+            Some((true, _)) => "The right stick, flicked fully that way, always plays it as well; it can't be rebound.",
+            None => "Saved to controls.txt, shared by every player.",
+        }
+    };
+    footnote(d, m, t.panel, foot);
     z.apply(d, n0);
+}
+
+/// B609: the square Reset button: the main menu's button (grey, chosen yellow) with rounded corners and a
+/// round-arrow mark.
+fn reset_square(d: &mut Draw, b @ [x, y, w, h]: [f32; 4], on: bool) {
+    let (r, t) = (7.0, 2.0);
+    rounded(d, b, r, look::c(look::INK), 128.0);
+    rounded(d, [x + t * PX, y + t * PY, w - 2.0 * t * PX, h - 2.0 * t * PY], r - t, look::c(if on { look::YELLOW } else { look::GREY }), 128.0);
+    let ink = if on { look::c(look::INK) } else { WHITE };
+    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    let (rx, ry) = (w * 0.27, h * 0.27);
+    let stroke = |d: &mut Draw, [ax, ay]: [f32; 2], [bx, by]: [f32; 2]| {
+        let (dx, dy) = ((bx - ax) / PX, (by - ay) / PY);
+        let len = dx.hypot(dy) + 1.6;
+        d.q(Tex::Solid, [0.0; 4], [(ax + bx) / 2.0 - len * PX / 2.0, (ay + by) / 2.0 - 1.0 * PY, len * PX, 2.0 * PY], ink, 128.0);
+        if let Some(q) = d.out.last_mut() {
+            q.angle = dy.atan2(dx);
+        }
+    };
+    // the circle, open at the top right, then the arrowhead at its start pointing on round
+    let at = |a: f32| [cx + rx * a.cos(), cy - ry * a.sin()];
+    let (a0, a1, steps) = (0.35f32, 0.35 + std::f32::consts::TAU * 0.8, 12);
+    for s in 0..steps {
+        let (p, q) = (a0 + (a1 - a0) * s as f32 / steps as f32, a0 + (a1 - a0) * (s + 1) as f32 / steps as f32);
+        stroke(d, at(p), at(q));
+    }
+    let tip = at(a0);
+    stroke(d, tip, [tip[0] - w * 0.16, tip[1] - h * 0.02]);
+    stroke(d, tip, [tip[0] + w * 0.02, tip[1] - h * 0.17]);
 }
 
 /// B291: key caps `names` in a row, centred in the pill `b` (narrower where they'd run past it): each a light cap in a
@@ -1157,10 +1288,6 @@ fn key_name(k: KeyCode) -> String {
     ["Key", "Digit", "Arrow"].iter().find_map(|p| n.strip_prefix(p).filter(|r| !r.is_empty())).unwrap_or(&n).to_string()
 }
 
-/// The Controls page's rows' box: the list (B471: its column headings on the strip).
-pub(super) fn controls_body(list: [f32; 4]) -> [f32; 4] {
-    list
-}
 
 
 #[cfg(test)]
@@ -1211,26 +1338,73 @@ mod tests {
         assert_eq!((m.screen, m.sel), (Screen::Main, m.main_at(super::super::home::Row::Settings)));
     }
 
-    /// B442: changing tab (R1, L1, a tap on a pill) plays the soft cursor tick, never the select cue.
+    /// B609: the Controls table: ←→ choose a row's Controller or Keyboard & mouse cell, ✕ rebinds it; ↑ from the
+    /// first row is the banner's Reset; the rows scroll with the cursor where they don't all fit (and stay put while
+    /// it moves on view); a tap on a cell chooses that cell.
     #[test]
-    fn controls_tabs() {
-        // B291: L2 / R2 and a tap on a tab switch Controller / Keyboard & Mouse; ✕ still rebinds the row
+    fn controls_table() {
+        let n = controls::action_names().count();
         let mut m = Menu { screen: Screen::Controls, ..Menu::default() };
         assert!(!m.keys_tab);
-        assert_eq!(m.step(Dev::Keys, press(|k| &mut k.kind_next)), [Effect::Sound(0)]);
+        assert_eq!(m.step(Dev::Keys, press(|k| &mut k.right)), [Effect::Sound(0)]);
         assert!(m.keys_tab);
-        m.step(Dev::Keys, press(|k| &mut k.kind_prev));
+        assert!(m.step(Dev::Keys, press(|k| &mut k.right)).is_empty(), "already on it");
+        m.step(Dev::Keys, press(|k| &mut k.left));
         assert!(!m.keys_tab);
-        m.point(Dev::Keys, pointer::Act::Kind(1), true);
-        assert!(m.keys_tab);
-        assert!(m.point(Dev::Keys, pointer::Act::Kind(1), true).is_empty(), "already on it");
+        m.step(Dev::Keys, press(|k| &mut k.right));
         m.sel = 4;
         m.step(Dev::Keys, press(|k| &mut k.ok));
         assert_eq!((m.rebinding, m.keys_tab, m.screen), (Some(4), true, Screen::Controls));
+        m.rebinding = None;
+        // Reset over the first row; ←→ there do nothing
+        m.sel = 0;
+        m.step(Dev::Keys, press(|k| &mut k.up));
+        assert_eq!(m.sel, n);
+        assert!(m.step(Dev::Keys, press(|k| &mut k.left)).is_empty() && m.keys_tab);
+        assert!(m.step(Dev::Keys, press(|k| &mut k.ok)).contains(&Effect::ResetControls));
+        m.step(Dev::Keys, press(|k| &mut k.up));
+        assert_eq!(m.sel, n - 1);
+        // the last row on view at the foot, back up it stays till the cursor passes the top
+        let t = table(&m.grid);
+        assert!(t.shown < n, "{} rows on view", t.shown);
+        assert_eq!(m.controls_top, n - t.shown);
+        m.step(Dev::Keys, press(|k| &mut k.up));
+        assert_eq!(m.controls_top, n - t.shown);
+        for _ in 0..t.shown {
+            m.step(Dev::Keys, press(|k| &mut k.up));
+        }
+        assert_eq!(m.controls_top, m.sel);
+        // the wheel steps the cursor (and so the rows) too
+        let top = m.controls_top;
+        m.point(Dev::Keys, pointer::Act::Wheel(false), true);
+        assert_eq!(m.controls_top, top - 1);
+        // a tap on a row's Controller cell: that cell, waiting for a button
+        let ([x, y, w, h], i) = cell_rect(&m, 0, false);
+        tap_at(&mut m, x + w / 2.0, y + h / 2.0);
+        assert_eq!((m.sel, m.keys_tab, m.rebinding), (i, false, Some(i)));
+        m.rebinding = None;
+        let ([x, y, w, h], i) = cell_rect(&m, 1, true);
+        tap_at(&mut m, x + w / 2.0, y + h / 2.0);
+        assert_eq!((m.sel, m.keys_tab, m.rebinding), (i, true, Some(i)));
+        m.rebinding = None;
+        let [x, y, w, h] = reset_button(&m.grid);
+        assert!(tap_at(&mut m, x + w / 2.0, y + h / 2.0).contains(&Effect::ResetControls));
         assert_eq!(key_name(KeyCode::ArrowLeft), "Left");
         assert_eq!(key_name(KeyCode::Numpad4), "Num 4");
         assert_eq!(key_name(KeyCode::ShiftLeft), "L Shift");
         assert_eq!(key_name(KeyCode::KeyJ), "J");
+    }
+
+    /// A tap at the 640×448 point (x, y) on a 4:3 window.
+    fn tap_at(m: &mut Menu, x: f32, y: f32) -> Vec<Effect> {
+        let a = super::super::pointer::tests::act_at(m, x, y).unwrap_or_else(|| panic!("nothing at {x},{y}"));
+        m.point(Dev::Keys, a, true)
+    }
+
+    /// The Controls table's row `j` on view's Controller (`keys` false) or Keyboard & mouse cell, and its action.
+    fn cell_rect(m: &Menu, j: usize, keys: bool) -> ([f32; 4], usize) {
+        let t = table(&m.grid);
+        (t.cells(t.row(j)).1[usize::from(keys)], controls_top(m) + j)
     }
 
     #[test]
@@ -1405,6 +1579,11 @@ mod tests {
         let t = super::super::pointer::tests::text_with_mods(0);
         for a in [4.0, 21.0 / 9.0, 16.0 / 9.0, 4.0 / 3.0, 5.0 / 4.0, 9.0 / 16.0, 0.4] {
             let grid = Grid::fit(a);
+            // B609: the Controls table's rows on view, under its strip and over its footnote, a phone's icons readable
+            let tb = table(&grid);
+            let last = tb.row(tb.shown - 1);
+            assert!(tb.shown >= 3 && last[1] + last[3] <= tb.panel[1] + tb.panel[3] - 24.0 * PY && last[3] >= 40.0 * PY, "{a} {last:?} {:?}", tb.panel);
+            assert!(tb.cells(last).1[1][0] + tb.cells(last).1[1][2] <= last[0] + last[2], "{a}");
             for s in TABS.map(|t| t.1).into_iter().chain([Screen::Advanced]) {
                 let n = if s == Screen::Controls { controls::action_names().count() + 1 } else { page(s).len() };
                 let (list, side) = boxes(&grid, n);

@@ -518,8 +518,10 @@ struct Menu {
     roll: u64,
     /// The action waiting for a new key or button (controls screen).
     rebinding: Option<usize>,
-    /// B291: the Controls page's tab: Keyboard & Mouse (else Controller).
+    /// B291: the Controls page's chosen column (B609: of its one table): Keyboard & mouse (else Controller).
     keys_tab: bool,
+    /// B609: the Controls table's first action on view (`options::controls_top`).
+    controls_top: usize,
     /// The custom roster.
     mods: Vec<crate::mods::Mod>,
     /// M8f3: the installed umpire mods, on the umpire select after the disc five (`umpire_mods`).
@@ -640,6 +642,7 @@ impl Default for Menu {
             roll: 0,
             rebinding: None,
             keys_tab: false,
+            controls_top: 0,
             mods: Vec::new(),
             umpire_mods: Vec::new(),
             court_mods: Vec::new(),
@@ -1422,12 +1425,15 @@ impl Menu {
                 if self.rebinding.is_some() {
                     return out;
                 }
-                // the last row resets every binding (a stick on a phone's pad can't be bound back)
+                // B609: ↑↓ walk the table's rows with the banner's Reset over the first (`sel` past the actions: it
+                // resets every binding, as a stick on a phone's pad can't be bound back), ←→ the row's two cells
                 let n = controls::action_names().count();
-                rows(n + 1, &mut self.sel, &mut out);
-                if k.kind_prev || k.kind_next {
-                    // B291: L2 / R2 (1 / 3) the other tab, as the Mods page's kinds
-                    self.controls_tab(!self.keys_tab, &mut out);
+                let mut at = (self.sel + 1) % (n + 1);
+                rows(n + 1, &mut at, &mut out);
+                self.sel = (at + n) % (n + 1);
+                if (k.left || k.right) && self.sel < n && self.keys_tab != k.right {
+                    self.keys_tab = k.right;
+                    out.push(Sound(0));
                 } else if k.ok && self.sel == n {
                     out.extend([ResetControls, Sound(2)]);
                 } else if k.ok {
@@ -1436,6 +1442,7 @@ impl Menu {
                 } else {
                     self.step_tabs(k, &mut out);
                 }
+                self.controls_top = options::controls_top(self);
             }
             Screen::Mode if self.hosts(dev) => {
                 if k.up || k.down || k.left || k.right {
@@ -2348,7 +2355,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         "sound" | "sound-edit" => Screen::Sound,
         "mod-settings" => Screen::ModSettings,
         "mobile" => Screen::Mobile,
-        "controls" | "controls-keys" | "controls-bind" => Screen::Controls,
+        "controls" | "controls-keys" | "controls-bind" | "controls-last" | "controls-reset" => Screen::Controls,
         "mode" => Screen::Mode,
         "assign" | "assign-moved" | "assign-drag" => Screen::Assign,
         "chars" | "chars2" | "chars4" | "chars4-pads" | "roster1" | "roster2" | "roster3" | "roster4" | "roster4-names" | "roster2-favs" | "roster4-favs" | "roster2-deep" | "mods" | "attrs" | "mods-attrs" | "coms" | "coms-random" | "chars-online" | "chars-hosting" | "chars-joining" | "chars-relay" | "chars-random" | "names" | "names-type" | "names-card" => Screen::Chars,
@@ -2466,6 +2473,10 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         menu.keys_tab = screen == "controls-keys";
         if screen == "controls-bind" {
             (menu.sel, menu.rebinding) = (2, Some(2));
+        }
+        // B609: the table scrolled to its last row; the banner's Reset chosen
+        if let Some(sel) = [("controls-last", 1), ("controls-reset", 0)].iter().find(|r| r.0 == screen).map(|r| controls::action_names().count() - r.1) {
+            menu.sel = sel;
         }
         // B326: a Settings row picked (Effects Volume)
         if screen == "sound-edit" {
@@ -3228,7 +3239,7 @@ fn step(
             play(1);
             return;
         }
-        // B291: the Keyboard & Mouse tab takes a key, the Controller tab a pad button
+        // B291: the Keyboard & mouse column takes a key, the Controller column a pad button
         let key = keys.get_just_pressed().find(|k| Bindings::bindable_key(**k)).copied().filter(|_| menu.keys_tab);
         let button = gamepads.iter().filter(|(_, g)| controls::readable(g)).flat_map(|(_, g)| g.get_just_pressed().copied().collect::<Vec<_>>()).find(|b| Bindings::bindable_pad(*b)).filter(|_| !menu.keys_tab);
         if key.is_some() || button.is_some() {
