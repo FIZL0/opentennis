@@ -1247,6 +1247,13 @@ fn serve_bent(g: &Game, who: usize, toss: Toss, kind: i32, grade: u8, offset: i3
     kind < 2 && bend[kind as usize] != 0.0 && hst_sim::shot::special(0, kind, toss == Toss::Strong, grade, offset)
 }
 
+/// A rally shot the character's special effect applies to (the special gate holds and `src`'s effect row for
+/// this class and kind bends or curves: a clean stroke lob, a clean slice by a character with a rally-slice bend):
+/// the court pull keeps its margins unscaled.
+fn special_margins(g: &Game, src: usize, class: u8, kind: i32, grade: u8, offset: i32) -> bool {
+    hst_sim::shot::has_effect(&g.specials[src].0, class, kind) && hst_sim::shot::special(class, kind, false, grade, offset)
+}
+
 /// The character's special-shot effect on this hit, as launched: (bend, curve, first-bounce turn). `src` is the
 /// character whose shot is launched (a counter's is the incoming hitter's), `target` where the ball is sent.
 fn shot_effect(g: &Game, who: usize, src: usize, class: u8, kind: i32, (branch, grade, offset): (u8, u8, i32), hit: V3, target: V3) -> (f32, f32, f32) {
@@ -1900,14 +1907,14 @@ fn strike(
         _ => who,
     };
     // a rally shot's aim is pulled inside the lines before anything uses it (the timing scatter comes after): a
-    // smash with a negative blend takes its low margins
-    // ponytail: a special shot's unscaled margins aren't modelled (special false): what gates them in play is open
+    // smash with a negative blend takes its low margins, a special shot keeps them unscaled
     let target = if class == class::SERVE {
         target
     } else {
         let doubles = g.rules.players > 2;
         let low = class == class::SMASH && g.smash_scatter.is_some_and(|s| s.2 < 0.0);
-        g.margins.inside(class, kind, low, doubles, g.chars[src] as usize, false, at, target)
+        let special = special_margins(g, src, class, kind, grade, offset);
+        g.margins.inside(class, kind, low, doubles, g.chars[src] as usize, special, at, target)
     };
     let error = g.timing_error.take().or(framed.map(|_| swing::TimingError::default()));
     let timed = error.filter(|_| class == class::STROKE || class == class::VOLLEY).map(|e| {

@@ -3,7 +3,7 @@
 next to each player's own lock grade / offset / result-ready flag, and the last-hitter index. Prints a line
 whenever any of them changes. Usage: p117_latch.py <slot> <frames>"""
 import struct, sys, time
-import os; sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+import os; sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../../tools"))
 from pine import Pine
 
 VSYNC, GM_PTR, HITTER, NPL = 0x1d5780, 0x422f80, 0x423058, 0x422fa4
