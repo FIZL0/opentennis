@@ -4126,7 +4126,8 @@ fn start_effects(
         sparks.restart(&mut mt);
     }
     sparks.frame(hit, &mut g.rng.sound, &mut commands);
-    let dead = !matches!(g.phase, Phase::Serve | Phase::Rally);
+    // a ghost ball (offbeat) takes its trail and glow with it
+    let dead = !matches!(g.phase, Phase::Serve | Phase::Rally) || offbeat::ghosted(&g);
     flight.frame(
         hit,
         dead,
