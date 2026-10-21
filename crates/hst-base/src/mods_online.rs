@@ -324,13 +324,17 @@ pub fn cache(iso: &str) -> PathBuf {
 }
 
 /// A folder here with the looks `w` names: a received copy, or one of `roster` with the same id whose pack hashes the
-/// same.
-pub fn find(w: &Wire, roster: &[Mod], cache: &Path) -> Option<PathBuf> {
+/// same, else (B588) one with the same id whose costume `costume` has the pick's rig (joint names and tree): the
+/// same mod in another version, or a copy built by hand, draws in its place (gameplay comes from the wire either way)
+/// instead of a download being asked for a mod this machine has.
+pub fn find(w: &Wire, costume: usize, roster: &[Mod], cache: &Path) -> Option<PathBuf> {
     let got = cache.join(format!("{:016x}", w.looks));
     if crate::modfs::is_file(&got.join("mod.json")) {
         return Some(got);
     }
-    roster.iter().filter(|m| m.id == w.id).find(|m| looks(&m.dir) == Ok(w.looks)).map(|m| m.dir.clone())
+    let same = || roster.iter().filter(|m| m.id == w.id);
+    let rig = |m: &&Mod| kept(m, costume % m.costumes.len().max(1)).is_ok_and(|(sk, _)| sk.names == w.names && sk.parent == w.parent);
+    same().find(|m| looks(&m.dir) == Ok(w.looks)).or_else(|| same().find(rig)).map(|m| m.dir.clone())
 }
 
 /// What to do with a remote mod's looks.
@@ -414,6 +418,38 @@ mod tests {
         assert_eq!(mods::voice_takes(&m), [(9, 4), (7, 5)], "a stand-in's emotes don't cycle over the owner's takes");
         assert_eq!(crate::handshake::gameplay_hash(&m), crate::handshake::gameplay_hash(&for_match(&wire(), None)));
         assert_eq!(m.skeleton.unwrap().names, ["a", "b"]);
+    }
+
+    /// B588: a peer's pick of a mod this machine has in another version (files not the same, so its looks hash
+    /// differently) is found here by id and rig, not asked to download; one on another rig isn't.
+    #[test]
+    fn the_same_mod_in_another_version_is_found() {
+        let src = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/mods/test_pc00"));
+        if !src.is_dir() {
+            return eprintln!("no context/mods/test_pc00, skipped");
+        }
+        let tmp = std::env::temp_dir().join(format!("hst-b588-{}", std::process::id()));
+        let copy = |to: &Path| {
+            std::fs::create_dir_all(to.join("model")).unwrap();
+            for f in ["mod.json", "model/c00.glb"] {
+                std::fs::copy(src.join(f), to.join(f)).unwrap();
+            }
+            mods::read(to).unwrap()
+        };
+        let theirs = copy(&tmp.join("theirs"));
+        let mine = copy(&tmp.join("mine"));
+        std::fs::create_dir_all(mine.dir.join("voice")).unwrap();
+        std::fs::write(mine.dir.join("voice/0_0.wav"), [1, 2, 3]).unwrap();
+        let w = Wire::of(&theirs, 0).unwrap();
+        assert_ne!(looks(&mine.dir), Ok(w.looks));
+        let cache = tmp.join("cache");
+        assert_eq!(find(&w, 0, std::slice::from_ref(&mine), &cache), Some(mine.dir.clone()));
+        // another mod's id, or another rig: not this machine's
+        assert_eq!(find(&Wire { id: "other".into(), ..w.clone() }, 0, std::slice::from_ref(&mine), &cache), None);
+        let mut names = w.names.clone();
+        names[0] += "x";
+        assert_eq!(find(&Wire { names, ..w.clone() }, 0, std::slice::from_ref(&mine), &cache), None);
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

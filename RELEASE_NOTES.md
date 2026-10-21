@@ -9,3 +9,4 @@
 - In the mod store's Updates view, the Characters, Courts, Umpires and Texture packs tabs now count only the mods that have an update, not every mod in the store.
 - Character select emotes now put the racket away for moves made without one, as they do in a match.
 - In the browser on an iPhone held sideways, the picture now stays clear of the Dynamic Island, the notch and the home indicator instead of running under them.
+- Online lobbies no longer ask you to download a custom character you already have when the other player's copy is a different version; your own copy is shown.

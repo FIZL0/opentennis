@@ -1654,7 +1654,7 @@ impl Menu {
                 (Some(m), _) => Some(m.dir.clone()),
                 // the browser: an installed copy's files read in first, then hashed (asked again next frame)
                 (None, Some((_, w))) if self.mods[..own].iter().any(|m| m.id == w.id && !crate::modfs::ready(&m.dir)) => continue,
-                (None, Some((_, w))) => mo::find(w, &self.mods, &cache),
+                (None, Some((s, w))) => mo::find(w, s.pick.costume, &self.mods, &cache),
                 // the court: installed (by id), or fetched before
                 (None, None) =>self.room_court_dir(room).or_else(|| Some(cache.join(format!("{h:016x}"))).filter(|d| crate::modfs::is_file(&d.join("mod.json")))),
             };
@@ -3734,7 +3734,7 @@ mod tests {
         a.seats[0] = Some(super::super::Dev::Keys);
         (a.players[0].modded, a.players[0].pick) = (true, 0);
         let w = *a.wire(0).r#mod.expect("the owner's pick carries its mod");
-        assert_eq!(mo::find(&w, &a.mods, &tmp), Some(m.dir.clone()));
+        assert_eq!(mo::find(&w, 0, &a.mods, &tmp), Some(m.dir.clone()));
         // a guest that downloaded it: drawn as the mod in its seat, not on its own roster
         let got = mo::unpack(&mo::pack(dir).unwrap(), w.looks, &tmp).unwrap();
         let mut b = Menu { screen: Screen::Lobby, ..default() };
