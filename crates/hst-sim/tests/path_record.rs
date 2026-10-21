@@ -188,14 +188,13 @@ fn run(fs: &[Frame], court: usize, margin: f32, poke: &Poke, t: &mut Tally) {
         let swinging = (i(b.head, 0x128) > 2).then_some(b.look() == 15);
         let hit = i(b.live, 0xac) == 0 && v3(b.live, 0x130) != [0.0; 3] && b.end() == 15 && b.start() == 0;
         let net = i(b.live, 0x22c) > i(a.live, 0x22c);
-        let kind;
-        if hit {
+        let kind = if hit {
             p.frame(&shot, surface, calls, swinging);
             let (mut live, shot) = load(b.live);
             live.lines = Some(lines(b, b.live));
             p.hit(&live, &shot, surface, calls, b.phase() > 1);
             t.hits += 1;
-            kind = "hit";
+            "hit"
         } else if net {
             let (mut live, shot) = load(b.live);
             live.lines = Some(lines(b, b.live));
@@ -203,11 +202,11 @@ fn run(fs: &[Frame], court: usize, margin: f32, poke: &Poke, t: &mut Tally) {
             p.new_path();
             p.frame(&shot, surface, calls, swinging);
             t.nets += 1;
-            kind = "net";
+            "net"
         } else {
             p.frame(&shot, surface, calls, swinging);
-            kind = "frame";
-        }
+            "frame"
+        };
         // the record
         let got = (p.entries.len() as i32, p.start, p.active, p.mode as u8, p.gap.to_bits());
         let want = (b.end(), b.start(), b.head[0xc] != 0, b.head[0xd], f(b.head, 0x10).to_bits());
@@ -264,7 +263,9 @@ fn the_path_record_matches_the_game_frame_by_frame() {
         return;
     };
     let margin = Game::new(&cnf, &bin).unwrap().line_margin();
-    let cases: [(&str, usize, Option<(i32, i32, i32)>); 10] = [
+    // (recording, court, the (vsync, end, start) it was poked with, if any)
+    type Case = (&'static str, usize, Option<(i32, i32, i32)>);
+    let cases: [Case; 10] = [
         ("doubles", 10, None),
         ("singles", SINGLES_COURT, None),
         ("cord", 10, None),
