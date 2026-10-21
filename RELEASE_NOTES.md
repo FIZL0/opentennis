@@ -9,3 +9,4 @@
 - On the indoor court, a ball that hits a ball-boy cart's turning wheels now bounces off them where they actually are, as in the original.
 - Web app: a browser extension that hits an error on the page (seen with some iOS Safari extensions at launch) no longer stops the game.
 - The web app (also when added to your home screen) now checks for a new version as soon as it opens, loads it straight away, and says "Updated to …" on the main menu; coming back to it offers a new version at once.
+- Mods → Browse: a new dropdown shows all mods, only installed ones, or only the ones you don't have yet (the default). The sort and filter now sit beside Refresh, and download progress shows at the top of the mod card.

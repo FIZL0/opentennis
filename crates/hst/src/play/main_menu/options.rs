@@ -952,7 +952,7 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
 }
 
 /// B498: a dropdown row's value pill: white (blue with white words while open), its value and a ▼ (▲ open).
-fn drop_pill(d: &mut Draw, b @ [x, y, w, h]: [f32; 4], value: &str, size: f32, open: bool) {
+pub(super) fn drop_pill(d: &mut Draw, b @ [x, y, w, h]: [f32; 4], value: &str, size: f32, open: bool) {
     look::outlined_pill(d, b, look::c(if open { look::BLUE } else { look::PAPER }), 2.0);
     let ink = if open { WHITE } else { look::c(look::INK) };
     let (tw, th) = (size * 0.7, size * 0.45);
@@ -965,19 +965,26 @@ fn drop_pill(d: &mut Draw, b @ [x, y, w, h]: [f32; 4], value: &str, size: f32, o
 /// B498: row `r`'s open dropdown of `o`'s choices (`now` the current one, a dot beside it; `j` highlighted, yellow),
 /// right under the row (over it when there's more room there), within `span` (top, bottom); choices closer together
 /// where they'd run past it. Each takes the pointer (hover highlights, a tap picks); a tap off it closes it.
-fn drop_list(d: &mut Draw, o: Opt, [x, y, w, h]: [f32; 4], j: usize, now: &str, [top, bottom]: [f32; 2]) {
-    d.popup(Some(pointer::press(|k| k.back = true)));
+fn drop_list(d: &mut Draw, o: Opt, r: [f32; 4], j: usize, now: &str, span: [f32; 2]) {
     let all = choices(o);
-    let n = all.len() as f32;
     // the Preset's Auto and Custom under a rule (not presets of their own)
     let rule = if o == Preset { Graphics::PRESETS.len() } else { all.len() };
+    let bw = if o == Preset { 330.0 } else { 200.0 } * PX;
+    drop_box(d, &all, r, j, now, span, bw, rule, |c| hint(o, c));
+}
+
+/// [`drop_list`]'s list of any choices `all` under (or over) `[x, y, w, h]`, at most `bw` wide, a rule before choice
+/// `rule`, each with its `hint` (also the Mods page's Show dropdown).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn drop_box(d: &mut Draw, all: &[String], [x, y, w, h]: [f32; 4], j: usize, now: &str, [top, bottom]: [f32; 2], bw: f32, rule: usize, hint: impl Fn(&str) -> &'static str) {
+    d.popup(Some(pointer::press(|k| k.back = true)));
+    let n = all.len() as f32;
     let (pad, sep) = (5.0 * PY, if rule < all.len() { 8.0 * PY } else { 0.0 });
     let (below, above) = (bottom - (y + h + 2.0 * PY) - 6.0 * PY, y - 2.0 * PY - top - 6.0 * PY);
     let room = below.max(above);
     let ip = ((room - 2.0 * pad - sep) / n).min(28.0 * PY);
     let bh = ip * n + 2.0 * pad + sep;
     let by = if below >= bh || below >= above { y + h + 2.0 * PY } else { y - 2.0 * PY - bh };
-    let bw = if o == Preset { 330.0 } else { 200.0 } * PX;
     let bw = bw.min(w - 8.0 * PX);
     let bx = x + w - bw - 2.0 * PX;
     // a hard dark shadow, the dark outline, the white body
@@ -1001,7 +1008,7 @@ fn drop_list(d: &mut Draw, o: Opt, [x, y, w, h]: [f32; 4], j: usize, now: &str, 
         let end = b[0] + b[2] - 22.0 * PX;
         let name = roster::ellipsis(d, c, size, end - tx);
         d.text(&name, tx, ty, size, look::c(look::INK));
-        let hint = hint(o, c);
+        let hint = hint(c);
         let hx = tx + d.width(&name, size) + 8.0 * PX;
         if !hint.is_empty() && hx < end - 20.0 * PX {
             let hint = roster::ellipsis(d, hint, hs, end - hx);

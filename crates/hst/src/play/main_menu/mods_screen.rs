@@ -512,7 +512,7 @@ impl View {
             Page::Upload => self.of_kind(k).len(),
             Page::Installed => self.entries().iter().filter(|e| e.meta.kind == k && self.searched(e)).count(),
             // B587: Browse's under the chosen Show tab (Updates: only the mods with an update)
-            Page::Browse | Page::Mine => self.entries().iter().filter(|e| e.meta.kind == k && self.shown(e) && self.searched(e)).count(),
+            Page::Browse | Page::Mine => self.entries().iter().filter(|e| e.meta.kind == k && self.shown(e) && self.have_keeps(e) && self.searched(e)).count(),
         })
     }
 
@@ -680,7 +680,7 @@ impl Menu {
         // B448: the cursor stays on the pill (every grid page has the pills; another page's words may be more)
         if let Some(i) = self.add.pills().iter().position(|p| *p == grid::Pill::Show(s)) {
             self.sel = 2 + self.add.words().len() + i;
-            self.add.b.pill_at = i;
+            self.add.b.pill_at = 0;
         }
         out.push(Effect::Sound(0));
     }
@@ -761,6 +761,10 @@ impl Menu {
                 self.mods_kind(to, out);
             }
             return;
+        }
+        // the installed dropdown's list takes every press while open
+        if let Some(j) = self.listing.filter(|_| self.add.grid()) {
+            return self.have_list(j, k, out);
         }
         // B372: the on-screen keyboard takes every press while up; a press forgets the tile a tap chose
         if self.add.grid() && self.add.b.osk.is_some() {
@@ -2398,6 +2402,7 @@ mod tests {
     #[test]
     fn grid_sorts_filters_and_moves() {
         let mut m = Menu { screen: Screen::Mods, ..default() };
+        m.add.b.have = grid::Have::All;
         let e = |id: &str, who: &str, src: &str, rev: &str, hand: i8, style: u8| Entry {
             meta: Meta { id: id.into(), name: id.into(), author: who.into(), source: src.into(), sha256: id.repeat(32), size: 1, hand: Some(hand), style: Some(style), ..Default::default() },
             rev: rev.into(),
@@ -2434,7 +2439,7 @@ mod tests {
         // the filter pill: Select to Hand, ✕ Left-handed; Select round to Game, ✕ Fore! (both apply); a tap on its left half back
         let mut out = Vec::new();
         let p0 = 2 + m.add.words().len();
-        m.sel = p0 + 6;
+        m.sel = p0 + m.add.pills().iter().position(|p| *p == grid::Pill::Filter).unwrap();
         let hand = Press { hand: true, ..default() };
         m.mods_step(hand, &mut out);
         m.mods_step(hand, &mut out);
@@ -2445,7 +2450,9 @@ mod tests {
         assert_eq!((names(&m), m.add.filter_words()), (vec!["Zed".to_string()], "Game: Fore! +1".to_string()));
         m.mods_step(Press { ok: true, prev: true, ..default() }, &mut out);
         assert_eq!(names(&m), ["Carol", "Zed"]);
-        assert_eq!(m.sel, p0 + 6);
+        let pill = |m: &Menu, p: grid::Pill| p0 + m.add.pills().iter().position(|q| *q == p).unwrap();
+        let (have, sort, filter) = (pill(&m, grid::Pill::Have), pill(&m, grid::Pill::Sort), pill(&m, grid::Pill::Filter));
+        assert_eq!(m.sel, filter);
         m.add.b.left = false;
         // Show's Updates pill: the installed mod with another zip
         m.sel = p0 + 2;
@@ -2462,8 +2469,8 @@ mod tests {
         let cols = grid::lay(&m.grid).cols;
         assert!(grid::lay(&super::super::Grid::fit(16.0 / 9.0)).cols > cols && cols >= 2, "{cols}");
         // moves, by Uploader (ann: Carol, Mia; bob: Kent; cal: Zed; Alma): ← → along, ↓ the next heading's row, off
-        // the foot nothing, ↑ off the top the footer's words (B593: over the tiles), ↓ back to the tile, ↑ from the
-        // footer the strip's sort and filter (B471), ↑ from the filter the search box
+        // the foot nothing, ↑ off the top the footer row (B593: over the tiles; a narrow panel: its words, under the
+        // installed / sort / filter pills' row), ↓ back to the tile, ↑ from the footer the open kind tab
         let (l, r, u, d) = (Press { left: true, ..default() }, Press { right: true, ..default() }, Press { up: true, ..default() }, Press { down: true, ..default() });
         let go = |m: &mut Menu, k: Press| {
             m.mods_step(k, &mut Vec::new());
@@ -2473,21 +2480,30 @@ mod tests {
         assert_eq!([go(&mut m, l), go(&mut m, l), go(&mut m, r), go(&mut m, d), go(&mut m, d), go(&mut m, d)], [t0, t0, t0 + 1, t0 + 2, t0 + 3, t0 + 4]);
         assert_eq!(go(&mut m, d), t0 + 4);
         m.sel = t0 + 1;
-        assert_eq!([go(&mut m, u), go(&mut m, d), go(&mut m, u)], [2, t0 + 1, 2]);
-        // (stacked strip: ↑ from the footer the kind tab, → the sort, ↑ the kind tab, ↓ the sort, ↓ the footer)
-        assert_eq!([go(&mut m, u), go(&mut m, r), go(&mut m, u), go(&mut m, d), go(&mut m, d), go(&mut m, d)], [p0 + 7, p0 + 5, p0 + 7, p0 + 5, 2, t0 + 1]);
-        // B471: the search box at the top bar's right: ← the last Show tab, → stays; the Show tabs' ↓ the strip;
-        // Upload in the footer, ← the footer's last word
+        let kind = 2 + m.add.words().len() + m.add.pills().len();
+        let split = grid::lay_of(&m).note != grid::lay_of(&m).foot;
+        let foot = if split { 2 } else { have };
+        assert_eq!([go(&mut m, u), go(&mut m, d), go(&mut m, u)], [foot, t0 + 1, foot]);
+        if split {
+            assert_eq!(go(&mut m, u), have);
+        }
+        // ↑ the kind tab, ↓ the installed pill, → the sort, → the filter, then (one row) → the first word, ← back
+        assert_eq!([go(&mut m, u), go(&mut m, d), go(&mut m, r), go(&mut m, r)], [kind, have, sort, filter]);
+        if !split {
+            assert_eq!([go(&mut m, r), go(&mut m, l)], [2, filter]);
+        }
+        assert_eq!(go(&mut m, d), if split { 2 } else { t0 + 1 });
+        // B471: the search box at the top bar's right: ← the last Show tab, → stays; ↓ from it and the Show tabs the
+        // kind tabs; Upload in the footer, ← the footer's last word
         m.sel = 0;
-        // (stacked strip: ↓ from the search box and the Show tabs is the kind tab's row)
-        assert_eq!([go(&mut m, r), go(&mut m, l), go(&mut m, r), go(&mut m, d)], [0, p0 + 4, 0, p0 + 7]);
+        assert_eq!([go(&mut m, r), go(&mut m, l), go(&mut m, r), go(&mut m, d)], [0, p0 + 4, 0, kind]);
         m.sel = p0 + 1;
-        assert_eq!(go(&mut m, d), p0 + 7);
+        assert_eq!(go(&mut m, d), kind);
         m.sel = 1;
         assert_eq!(go(&mut m, l), 2 + m.add.words().len() - 1);
         // the sort pill: ✕ the next, a tap on its left half the one before
         m.add.b.sort = grid::Sort::Newest;
-        m.sel = p0 + 5;
+        m.sel = sort;
         m.mods_step(ok(), &mut out);
         assert_eq!((m.add.b.sort, names(&m)[0].as_str()), (grid::Sort::Az, "Alma"));
         m.mods_step(Press { ok: true, prev: true, ..default() }, &mut out);
@@ -2534,7 +2550,7 @@ mod tests {
         assert_eq!((m.sel, m.add.top), (0, 0));
         // B383: the header's Upload button is lit here; a tap on it goes back to the grid
         assert!(add_rect(&m, 4.0 / 3.0, 1.0).is_none());
-        let u = lay.upload;
+        let u = grid::lay_of(&m).upload;
         assert_eq!(at(&m, u[0] + 10.0, u[1] + 5.0), Some(super::super::pointer::Act::Tab(0)));
         // 4:3 fills the window: Add mod's own place (as last drawn)
         installed(&mut m);
@@ -2550,6 +2566,7 @@ mod tests {
     #[test]
     fn browse_and_upload_pages() {
         let mut m = Menu { screen: Screen::Mods, ..default() };
+        m.add.b.have = grid::Have::All;
         let e = |id: &str, sha: &str| Entry { meta: Meta { id: id.into(), name: id.into(), sha256: sha.repeat(64), size: 1, ..Default::default() }, rev: "main".into(), verified: true };
         m.add.store = Some(vec![e("a", "1"), e("b", "2"), e("c", "3")]);
         m.add.have = [("/a".to_string(), ("1".repeat(64), "mods/a".into())), ("/b".to_string(), ("9".repeat(64), "mods/b".into()))].into();
@@ -2933,6 +2950,7 @@ mod tests {
     #[test]
     fn download_all_in_every_sort() {
         let mut m = Menu { screen: Screen::Mods, ..default() };
+        m.add.b.have = grid::Have::All;
         let e = |id: &str, who: &str| Entry {
             meta: Meta { id: id.into(), name: id.to_uppercase(), author: who.into(), version: "1".into(), sha256: id.repeat(32), size: 1, ..Default::default() },
             rev: "main".into(),
@@ -2970,6 +2988,7 @@ mod tests {
     #[test]
     fn browse_by_author() {
         let mut m = Menu { screen: Screen::Mods, ..default() };
+        m.add.b.have = grid::Have::All;
         let e = |id: &str, who: &str, ver: &str| Entry {
             meta: Meta { id: id.into(), name: id.to_uppercase(), author: who.into(), version: ver.into(), sha256: id.repeat(32), size: 1, ..Default::default() },
             rev: "main".into(),
@@ -3037,18 +3056,20 @@ mod tests {
         m.add.store = Some(vec![e("c1", Kind::Character), e("court", Kind::Court)]);
         m.mods_open(&mut Vec::new());
         assert_eq!(m.add.slot(m.sel), grid::Slot::Tile(0));
-        m.mods_step(Press { up: true, ..default() }, &mut Vec::new());
-        assert_eq!(m.add.slot(m.sel), grid::Slot::Word(0));
-        m.mods_step(Press { up: true, ..default() }, &mut Vec::new());
-        assert_eq!(m.add.slot(m.sel), grid::Slot::Kind(0));
-        m.mods_step(Press { up: true, ..default() }, &mut Vec::new());
-        assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(0));
+        let have = grid::Slot::Pill(grid::SHOWS.len());
+        let l = grid::lay_of(&m);
+        // (a narrow panel: the words' row, then the pills' row over it)
+        let rows: &[grid::Slot] = if l.note != l.foot { &[grid::Slot::Word(0), have] } else { &[have] };
+        for &s in rows.iter().chain(&[grid::Slot::Kind(0), grid::Slot::Pill(0)]) {
+            m.mods_step(Press { up: true, ..default() }, &mut Vec::new());
+            assert_eq!(m.add.slot(m.sel), s);
+        }
         assert_eq!(m.add.pills()[0], grid::Pill::Show(grid::Show::All));
     }
 
-    /// The kind tabs are cursor stops in the panel's strip (touch has no L2 / R2): ← from Sort reaches the last, ✕
-    /// opens one with the cursor staying on it, → from the last is Sort again, ↑ the Show tabs, ↓ the footer, then
-    /// the tiles.
+    /// The kind tabs are cursor stops in the panel's strip (touch has no L2 / R2): ✕ opens one with the cursor
+    /// staying on it, ↓ the footer row (the installed / sort / filter pills, then the words; a narrow panel: the
+    /// pills' row over the words'), ↓ the tiles, ↑ back to the footer stop it left, ↑ the open tab, ↑ the Show tabs.
     #[test]
     fn kind_tabs_take_the_cursor() {
         let e = |id: &str, kind: Kind| Entry { meta: Meta { id: id.into(), name: id.into(), kind, ..Default::default() }, rev: "main".into(), verified: true };
@@ -3058,33 +3079,37 @@ mod tests {
         m.add.relist();
         let mut out = Vec::new();
         let go = |m: &mut Menu, p: Press| m.mods_step(p, &mut Vec::new());
-        let sort = grid::SHOWS.len();
-        m.sel = 2 + m.add.words().len() + sort;
-        assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(sort));
-        go(&mut m, Press { left: true, ..default() });
+        let have = grid::SHOWS.len();
+        m.sel = 2 + m.add.words().len() + m.add.pills().len() + 2;
         assert_eq!(m.add.slot(m.sel), grid::Slot::Kind(2));
         go(&mut m, Press { left: true, ..default() });
         assert_eq!(m.add.slot(m.sel), grid::Slot::Kind(1));
         m.mods_step(ok(), &mut out);
         assert_eq!((m.add.kind, m.add.slot(m.sel)), (Kind::Court, grid::Slot::Kind(1)));
         assert_eq!(m.add.items().iter().map(|e| e.meta.id.as_str()).collect::<Vec<_>>(), ["court"]);
-        // (this view's strip is stacked: the kind tabs' row, then the sort and filter's, the footer, then the tiles)
         go(&mut m, Press { down: true, ..default() });
-        assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(sort));
-        go(&mut m, Press { down: true, ..default() });
+        assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(have));
+        go(&mut m, Press { right: true, ..default() });
+        go(&mut m, Press { right: true, ..default() });
+        assert_eq!((m.add.pills()[have], m.add.slot(m.sel)), (grid::Pill::Have, grid::Slot::Pill(have + 2)));
+        let l = grid::lay_of(&m);
+        let split = l.note != l.foot;
+        if split {
+            go(&mut m, Press { down: true, ..default() });
+        } else {
+            go(&mut m, Press { right: true, ..default() });
+        }
         assert_eq!(m.add.slot(m.sel), grid::Slot::Word(0));
         go(&mut m, Press { down: true, ..default() });
         assert_eq!(m.add.slot(m.sel), grid::Slot::Tile(0));
         go(&mut m, Press { up: true, ..default() });
-        assert_eq!(m.add.slot(m.sel), grid::Slot::Word(0));
-        go(&mut m, Press { up: true, ..default() });
-        assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(sort), "the strip remembers the sort");
+        assert_eq!(m.add.slot(m.sel), grid::Slot::Word(0), "the footer remembers its stop");
+        if split {
+            go(&mut m, Press { up: true, ..default() });
+            assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(have));
+        }
         go(&mut m, Press { up: true, ..default() });
         assert_eq!(m.add.slot(m.sel), grid::Slot::Kind(1), "↑ the open tab");
-        go(&mut m, Press { right: true, ..default() });
-        go(&mut m, Press { right: true, ..default() });
-        assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(sort));
-        go(&mut m, Press { left: true, ..default() });
         go(&mut m, Press { up: true, ..default() });
         assert_eq!(m.add.slot(m.sel), grid::Slot::Pill(0), "Browse's Show tab");
         // Upload: the tabs come after the installed mods' slots; ← from Sign in the last, → from the last Sign in
@@ -3582,49 +3607,54 @@ mod kind_tabs_nav {
     use super::*;
     use crate::modstore::{Kind as K, Meta};
 
-    /// A narrow panel (a phone, either way up) stacks the kind tabs over the sort and filter: ↓ from the Show tabs
-    /// reaches the kind tabs, ↓ again the sort, ↑ back the same way (the stick used to skip the kind tabs).
+    /// At every aspect: ↓ from the Show tabs is the kind tabs, ↓ again the footer row's installed pill, ↑ back the
+    /// same way; ↑ from the first tile is the footer row (a narrow panel: its words, then the pills' row over them),
+    /// then the open kind tab.
     #[test]
-    fn stick_reaches_the_stacked_kind_tabs() {
-        let mut stacked = 0;
+    fn stick_walks_the_strip_and_the_footer() {
+        let ns = grid::SHOWS.len();
         for aspect in [16.0 / 9.0, 19.5 / 9.0, 4.0 / 3.0, 9.0 / 16.0, 9.0 / 19.5] {
             let mut m = Menu { screen: Screen::Mods, grid: super::super::Grid::fit(aspect), ..Default::default() };
             let e = |i: usize, k: K| Entry { meta: Meta { id: format!("m{i:03}"), name: format!("M{i:03}"), kind: k, sha256: format!("{i:064x}"), size: 1, ..Default::default() }, rev: "main".into(), verified: true };
             m.add.store = Some((0..20).map(|i| e(i, [K::Character, K::Court, K::Umpire, K::Textures][i % 4])).collect());
             m.mods_page(Page::Browse, 0);
-            if !grid::lay_of(&m).stack {
-                continue;
-            }
-            stacked += 1;
-            let p0 = 2 + m.add.words().len();
+            m.add.relist();
             let (up, down) = (Press { up: true, ..Default::default() }, Press { down: true, ..Default::default() });
-            m.sel = p0;
-            let mut walk = vec![];
-            for k in [down, down, up, up] {
-                m.mods_step(k, &mut Vec::new());
-                walk.push(m.add.slot(m.sel));
-            }
-            let ns = grid::SHOWS.len();
-            assert_eq!(walk, [grid::Slot::Kind(0), grid::Slot::Pill(ns), grid::Slot::Kind(0), grid::Slot::Pill(0)], "{aspect}");
+            let walk = |m: &mut Menu, from: usize, keys: &[Press]| {
+                m.sel = from;
+                keys.iter()
+                    .map(|&k| {
+                        m.mods_step(k, &mut Vec::new());
+                        m.add.slot(m.sel)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let p0 = 2 + m.add.words().len();
+            assert_eq!(walk(&mut m, p0, &[down, down, up, up]), [grid::Slot::Kind(0), grid::Slot::Pill(ns), grid::Slot::Kind(0), grid::Slot::Pill(0)], "{aspect}");
+            let l = grid::lay_of(&m);
+            let rows = if l.note != l.foot { vec![grid::Slot::Word(0), grid::Slot::Pill(ns)] } else { vec![grid::Slot::Pill(ns)] };
+            let t0 = (0..m.add.rows()).find(|&s| m.add.slot(s) == grid::Slot::Tile(0)).unwrap();
+            let keys = vec![up; rows.len() + 1];
+            assert_eq!(walk(&mut m, t0, &keys), [rows, vec![grid::Slot::Kind(0)]].concat(), "{aspect}");
         }
-        assert!(stacked > 0, "no aspect stacks the strip");
     }
 
-    /// One strip line (a wide panel): ↑ from the first tile is the footer (B593: over the tiles), ↑ again, nothing
-    /// remembered yet, the open kind tab on the strip's left (it used to jump to the sort on the right).
+    /// Browse shows only the mods not installed yet by default; the dropdown picks All or Installed instead.
     #[test]
-    fn up_from_the_tiles_is_the_kind_tab() {
-        let mut m = Menu { screen: Screen::Mods, grid: super::super::Grid::fit(16.0 / 9.0), ..Default::default() };
-        let e = |i: usize| Entry { meta: Meta { id: format!("m{i:03}"), name: format!("M{i:03}"), kind: K::Character, ..Default::default() }, rev: "main".into(), verified: true };
-        m.add.store = Some((0..8).map(e).collect());
+    fn browse_hides_installed_mods_by_default() {
+        let mut m = Menu { screen: Screen::Mods, ..Default::default() };
+        let e = |id: &str| Entry { meta: Meta { id: id.into(), name: id.into(), kind: K::Character, sha256: id.repeat(64), size: 1, ..Default::default() }, rev: "main".into(), verified: true };
+        m.add.store = Some(vec![e("a"), e("b")]);
+        m.add.have = [("/a".to_string(), ("a".repeat(64), "mods/a".into()))].into();
         m.mods_page(Page::Browse, 0);
-        m.add.relist();
-        assert!(!grid::lay_of(&m).stack);
-        m.sel = (0..m.add.rows()).find(|&s| m.add.slot(s) == grid::Slot::Tile(0)).unwrap();
-        m.mods_step(Press { up: true, ..Default::default() }, &mut Vec::new());
-        assert_eq!(m.add.slot(m.sel), grid::Slot::Word(0));
-        m.mods_step(Press { up: true, ..Default::default() }, &mut Vec::new());
-        assert_eq!(m.add.slot(m.sel), grid::Slot::Kind(0));
+        let names = |m: &mut Menu, h| {
+            m.add.b.have = h;
+            m.add.relist();
+            m.add.tiles().iter().map(|e| e.meta.id.clone()).collect::<Vec<_>>()
+        };
+        assert_eq!(names(&mut m, grid::Have::default()), ["b"]);
+        assert_eq!(names(&mut m, grid::Have::Installed), ["a"]);
+        assert_eq!(names(&mut m, grid::Have::All), ["a", "b"]);
     }
 
     /// B593: the footer's row lies between the panel's strip and the tiles at every aspect, Upload in it.

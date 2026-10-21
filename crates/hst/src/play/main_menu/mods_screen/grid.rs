@@ -81,6 +81,19 @@ pub(super) enum Show {
 /// B383: Show's options, in the pills' order.
 pub(super) const SHOWS: [Show; 5] = [Show::All, Show::Installed, Show::Updates, Show::Wish, Show::Mine];
 
+/// The store's mods by whether they're installed (the strip's dropdown on Browse and Saved; user 2026-10-21: Not
+/// installed by default).
+#[derive(Default, Clone, Copy, Debug, PartialEq)]
+pub(super) enum Have {
+    All,
+    Installed,
+    #[default]
+    Missing,
+}
+
+/// [`Have`]'s choices, in the dropdown's order.
+pub(super) const HAVES: [(Have, &str); 3] = [(Have::All, "All"), (Have::Installed, "Installed"), (Have::Missing, "Not installed")];
+
 /// B383: the footer's Add mod word as last drawn (the browser's file input follows it; `mods_screen::add_rect`).
 #[cfg(not(test))]
 static ADD_AT: std::sync::Mutex<Option<[f32; 4]>> = std::sync::Mutex::new(None);
@@ -133,6 +146,7 @@ pub(super) struct Browse {
     pub look: Option<u8>,
     pub size: Option<u8>,
     pub show: Show,
+    pub have: Have,
     /// B448: the filter pill's group (0 Game, 1 Plays like, 2 Hand).
     pub filter: usize,
     pub search: String,
@@ -148,7 +162,8 @@ pub(super) struct Browse {
     /// The grid last scrolled down (its next screen is fetched below, else above), and the top line it was on.
     pub down: bool,
     pub seen: usize,
-    /// The tile and pill the cursor left from (↑ out of the grid, ↓ back into it).
+    /// The tile the cursor left the grid from, and (Browse: its slot, 0 = none yet; Upload: the strip's stop) the
+    /// footer stop it last left.
     pub tile_at: usize,
     pub pill_at: usize,
     /// The tile a tap chose: a tap on it again installs (a first tap only chooses).
@@ -223,6 +238,8 @@ fn show_name(s: Show) -> &'static str {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Pill {
     Show(Show),
+    /// The installed / not installed dropdown ([`Have`]).
+    Have,
     Sort,
     Filter,
 }
@@ -321,11 +338,33 @@ impl View {
         w
     }
 
-    /// B448: the pills row: Show's five, the sort, the filter.
+    /// B448: the pills row: Show's five, the installed dropdown (where it has a say), the sort, the filter.
     pub(super) fn pills(&self) -> Vec<Pill> {
         // M5b: the texture packs' list keeps its own order and has no games: no sort or filter
-        let strip: &[Pill] = if self.packs_page() { &[] } else { &[Pill::Sort, Pill::Filter] };
+        let strip: &[Pill] = if self.packs_page() {
+            &[]
+        } else if self.has_have() {
+            &[Pill::Have, Pill::Sort, Pill::Filter]
+        } else {
+            &[Pill::Sort, Pill::Filter]
+        };
         SHOWS.iter().map(|s| Pill::Show(*s)).chain(strip.iter().copied()).collect()
+    }
+
+    /// Whether the installed dropdown is up: the store's own lists (Browse, Saved), not Installed's or Updates' (all
+    /// installed) or My uploads'.
+    pub(super) fn has_have(&self) -> bool {
+        self.page == Page::Browse && matches!(self.b.show, Show::All | Show::Wish)
+    }
+
+    /// Whether the installed dropdown leaves `e` (one on its way stays until it lands).
+    pub(super) fn have_keeps(&self, e: &Entry) -> bool {
+        !self.has_have()
+            || match self.b.have {
+                Have::All => true,
+                Have::Installed => self.state(e).is_some(),
+                Have::Missing => self.state(e).is_none() || self.on_way(e),
+            }
     }
 
     /// The games the filter names (of the kind tab's mods): the most mods first (at most [`GAMES`]; the chosen one
@@ -466,7 +505,7 @@ impl View {
     /// Whether `e` matches the search (its name, uploader or game) and every group's chosen option.
     fn keeps(&self, e: &Entry, games: &[String]) -> bool {
         // B373: the chosen kind's only
-        e.meta.kind == self.kind && matches(e, &self.b.search) && (0..4).all(|g| self.passes(e, &self.chosen(g), games))
+        e.meta.kind == self.kind && matches(e, &self.b.search) && self.have_keeps(e) && (0..4).all(|g| self.passes(e, &self.chosen(g), games))
     }
 
     /// B448: the filter pill's words: its group and the option chosen in it, "+N" for the other groups filtering.
@@ -671,10 +710,10 @@ pub(super) struct Lay {
     /// the search box at the top bar's right (portrait: a row of its own under the tabs).
     pub shows: (Option<f32>, f32, f32),
     pub search: [f32; 4],
-    /// The grid's panel, its header strip (`stack`: the kind tabs over the sort and filter, on two rows), the tiles'
-    /// area (the scroll bar's lane right of it), the footer's row of pills between them (Upload at its right) and the
-    /// room for its words (`note`: the footer's own row left of the pills, or a row over them on a narrow panel); the chosen
-    /// mod's panel.
+    /// The grid's panel, its header strip (`stack`: Upload's kind tabs over its Sign in and Upload all, on two rows),
+    /// the tiles' area (the scroll bar's lane right of it), the footer's row of words between them (Upload at its
+    /// right) and the installed / sort / filter pills' (`note`: the footer's own row, those at its left, or a row
+    /// over it on a narrow panel); the chosen mod's panel.
     pub card: [f32; 4],
     pub strip: [f32; 4],
     pub stack: bool,
@@ -690,9 +729,10 @@ pub(super) struct Lay {
     pub gap: [f32; 2],
 }
 
-/// B471: the Upload button's width and a footer row of words on a narrow panel (mockup px).
+/// B471: the Upload button's width, and the panel width under which the footer's pills and words take a row each
+/// (mockup px).
 const UPLOAD_W: f32 = 104.0;
-const NOTE: f32 = 16.0;
+const NARROW: f32 = 760.0;
 
 pub(super) fn lay(g: &super::super::Grid) -> Lay {
     let portrait = g.detail[0] == g.strip[0];
@@ -727,11 +767,11 @@ pub(super) fn lay(g: &super::super::Grid) -> Lay {
     let strip = [card[0] + RIM * PX, card[1] + RIM * PY, card[2] - 2.0 * RIM * PX, sh];
     // B593: the footer's row sits under the strip, over the tiles (a pad reaches it without passing every mod)
     let fy = strip[1] + sh + 2.5 * PY + PAD * PY;
-    // (a narrow panel: the footer's words get a row of their own over its pills)
-    let narrow = iw < 560.0 * PX;
-    let foot = [ix, if narrow { fy + (NOTE + ROW_GAP) * PY } else { fy }, iw, ph];
+    // (a narrow panel: the installed / sort / filter pills get a row of their own over the words)
+    let narrow = iw < NARROW * PX;
+    let foot = [ix, if narrow { fy + ph + ROW_GAP * PY } else { fy }, iw, ph];
     let upload = [ix + iw - UPLOAD_W * PX, foot[1], UPLOAD_W * PX, ph];
-    let note = if narrow { [ix, fy, iw, NOTE * PY] } else { foot };
+    let note = if narrow { [ix, fy, iw, ph] } else { foot };
     let gy0 = foot[1] + ph + (ROW_GAP + 4.0) * PY;
     let gh = (card[1] + card[3] - (RIM + PAD) * PY - gy0).max(20.0 * PY);
     let (gx, gy) = (TILE_GAP * PX, TILE_GAP * PY);
@@ -746,20 +786,30 @@ pub(super) fn lay(g: &super::super::Grid) -> Lay {
 /// M5b: the page's layout: [`lay`], one row a line on the Texture packs list (`packs.rs`).
 pub(super) fn lay_of(m: &Menu) -> Lay {
     let mut l = lay(&m.grid);
+    // everything under the strip `dy` higher, the tiles' area that much taller
+    let lift = |l: &mut Lay, dy: f32| {
+        for r in [&mut l.grid, &mut l.bar] {
+            (r[1], r[3]) = (r[1] - dy, r[3] + dy);
+        }
+        for r in [&mut l.foot, &mut l.note, &mut l.upload] {
+            r[1] -= dy;
+        }
+    };
+    // only Upload's strip has pills right of the kind tabs: elsewhere a narrow panel's strip keeps one line
+    if l.stack && m.add.page != Page::Upload {
+        let dy = (PILL + ROW_GAP) * PY;
+        l.stack = false;
+        l.strip[3] -= dy;
+        lift(&mut l, dy);
+    }
     if m.add.packs_page() {
         (l.cols, l.tile) = (1, [l.grid[2], super::packs::ROW * PY]);
-        // no sort or filter pills: a narrow panel's strip keeps one line, the list gets the room
-        if l.stack {
-            let dy = (PILL + ROW_GAP) * PY;
-            l.stack = false;
-            l.strip[3] -= dy;
-            for r in [&mut l.grid, &mut l.bar] {
-                (r[1], r[3]) = (r[1] - dy, r[3] + dy);
-            }
-            for r in [&mut l.foot, &mut l.note, &mut l.upload] {
-                r[1] -= dy;
-            }
-        }
+    }
+    // M5b: no installed, sort or filter pills (Upload, the texture packs' list): a narrow panel's pills row goes
+    if (m.add.packs_page() || m.add.page == Page::Upload) && l.note != l.foot {
+        let dy = l.foot[1] - l.note[1];
+        lift(&mut l, dy);
+        l.note = l.foot;
     }
     l
 }
@@ -826,73 +876,69 @@ impl Lay {
 // ---------------------------------------------------------------- presses
 
 impl Menu {
-    /// Browse's move from the cursor: the top bar (Show tabs, search box), the panel's strip (kind tabs, sort and
-    /// filter), the footer's words and Upload under it (B593), then the tiles' grid.
-    /// Returns whether it moved.
+    /// Browse's move from the cursor: the top bar (Show tabs, search box), the panel's strip (kind tabs), the footer
+    /// row (the installed / sort / filter pills, the page's words, Upload; a narrow panel: the pills on a row over
+    /// the rest), then the tiles' grid. Returns whether it moved.
     pub(super) fn browse_move(&mut self, k: Press) -> bool {
         let v = &self.add;
         let kinds = v.kinds_shown();
         let (nw, np, nk, n) = (v.words().len(), v.pills().len(), kinds.len(), v.tiles().len());
-        let lines = lines(&v.secs(), lay_of(self).cols);
+        let l = lay_of(self);
+        let lines = lines(&v.secs(), l.cols);
         let (w0, p0, k0) = (2, 2 + nw, 2 + nw + np);
         let t0 = k0 + nk;
         let tile = (n > 0).then(|| t0 + v.b.tile_at.min(n - 1));
         let ns = SHOWS.len();
         let shown = p0 + SHOWS.iter().position(|s| *s == v.b.show).unwrap_or(0);
-        // the panel's strip: the kind tabs, then the sort and filter; `pill_at` np.. is a kind tab
-        let kind = k0 + kinds.iter().position(|k| *k == v.kind).unwrap_or(0);
-        // a narrow panel stacks the strip: the kind tabs' row over the sort and filter's, so ↑ / ↓ pass through both
-        let stacked = nk > 0 && np > ns && lay_of(self).stack;
-        // nothing remembered yet (a Show tab's index): ↑ from the footer is the open kind tab, the strip's first stop
-        // (stacked too, over the sort's row: ↑ from the footer is the kind, then Browse)
-        let strip = match v.b.pill_at {
-            i if i >= np && nk > 0 => k0 + (i - np).min(nk - 1),
-            i if np > ns && (i >= ns || nk == 0) => p0 + i.clamp(ns, np - 1),
-            _ if nk > 0 => kind,
-            _ => shown,
+        let strip = if nk > 0 { k0 + kinds.iter().position(|k| *k == v.kind).unwrap_or(0) } else { shown };
+        // the footer row's stops, left to right; a narrow panel splits it: the pills' row over the words'
+        let pills = (np > ns).then_some(p0 + ns);
+        let words = if nw > 0 { w0 } else { 1 };
+        let split = pills.is_some() && l.note != l.foot;
+        // the footer row's first stop, or the one the cursor last left (`pill_at`)
+        let foot = match v.b.pill_at {
+            s if s >= w0 && s < k0 && !matches!(v.slot(s), Slot::Pill(i) if i < ns) => s,
+            1 => 1,
+            _ => pills.unwrap_or(words),
         };
-        let under = if nw > 0 { w0 } else { 1 };
+        let row_of = |s: usize| matches!(v.slot(s), Slot::Pill(i) if i >= ns);
+        let foot = if split && row_of(foot) { words } else { foot };
         let to = match v.slot(self.sel) {
-            Slot::Pill(i) if stacked && i < ns && k.down => kind,
-            Slot::Search if stacked && k.down => kind,
-            Slot::Kind(_) if stacked && k.down => p0 + ns,
-            Slot::Pill(i) if stacked && i >= ns && k.up => kind,
-            // B471: the top bar: the Show tabs, then the search box on their right; ↓ to the sort and filter in the
-            // panel's strip, ↓ again to the tiles
+            // B471: the top bar: the Show tabs, then the search box on their right
             Slot::Pill(i) if i < ns && k.left && i > 0 => self.sel - 1,
             Slot::Pill(i) if i < ns && k.right => if i + 1 < ns { self.sel + 1 } else { 0 },
-            Slot::Pill(i) if i < ns && k.down => if np > ns { p0 + ns } else { strip },
+            Slot::Pill(i) if i < ns && k.down => strip,
             Slot::Search if k.left => p0 + ns - 1,
-            Slot::Search if k.down => if np > ns { p0 + np - 1 } else if nk > 0 { strip } else { under },
-            Slot::Pill(i) if k.left && i == ns && nk > 0 => k0 + nk - 1,
-            Slot::Pill(i) if k.left && i > ns => self.sel - 1,
-            Slot::Pill(i) if k.right && i >= ns && i + 1 < np => self.sel + 1,
-            Slot::Pill(i) if k.up && i >= ns && i + 1 == np => 0,
-            Slot::Pill(_) if k.up => shown,
-            Slot::Pill(i) if k.down && i >= ns => under,
+            Slot::Search if k.down => strip,
             Slot::Kind(j) if k.left && j > 0 => self.sel - 1,
             Slot::Kind(j) if k.right && j + 1 < nk => self.sel + 1,
-            Slot::Kind(_) if k.right && np > ns => p0 + ns,
             Slot::Kind(_) if k.up => shown,
-            Slot::Kind(_) if k.down => under,
-            Slot::Tile(i) => match tile_step(&lines, i, k) {
-                Some(j) => t0 + j,
-                None if k.up => under,
-                None => self.sel,
-            },
-            // the footer, between the strip and the tiles: the page's words, then Upload at its right
+            Slot::Kind(_) if k.down => if split { pills.unwrap_or(foot) } else { foot },
+            // the footer row: installed, sort, filter, the page's words, then Upload at its right
+            Slot::Pill(i) if k.left && i > ns => self.sel - 1,
+            Slot::Pill(i) if k.right && i + 1 < np => self.sel + 1,
+            Slot::Pill(_) if k.right && !split => words,
+            Slot::Pill(_) if k.up => strip,
+            Slot::Pill(_) if k.down => if split { foot } else { tile.unwrap_or(self.sel) },
+            Slot::Word(0) if k.left && !split => pills.map_or(self.sel, |p| p + np - ns - 1),
             Slot::Word(i) if k.left && i > 0 => self.sel - 1,
             Slot::Word(i) if k.right => if i + 1 < nw { self.sel + 1 } else { 1 },
-            Slot::Word(_) | Slot::Upload if k.up => strip,
-            Slot::Word(_) | Slot::Upload if k.down => tile.unwrap_or(self.sel),
             Slot::Upload if k.left && nw > 0 => w0 + nw - 1,
+            Slot::Upload if k.left && !split => pills.map_or(self.sel, |p| p + np - ns - 1),
+            Slot::Word(_) | Slot::Upload if k.up => if split { pills.unwrap_or(strip) } else { strip },
+            Slot::Word(_) | Slot::Upload if k.down => tile.unwrap_or(self.sel),
+            Slot::Tile(i) => match tile_step(&lines, i, k) {
+                Some(j) => t0 + j,
+                None if k.up => foot,
+                None => self.sel,
+            },
             _ => self.sel,
         };
-        // the grid and the pills remember where the cursor left them
+        // the grid and the footer row remember where the cursor left them
+        let in_foot = |s: usize| s == 1 || matches!(v.slot(s), Slot::Word(_)) || row_of(s);
         match v.slot(self.sel) {
             Slot::Tile(i) if !matches!(v.slot(to), Slot::Tile(_)) => self.add.b.tile_at = i,
-            Slot::Pill(i) if i >= SHOWS.len() && !matches!(v.slot(to), Slot::Pill(_) | Slot::Kind(_)) => self.add.b.pill_at = i,
-            Slot::Kind(j) if !matches!(v.slot(to), Slot::Pill(_) | Slot::Kind(_)) => self.add.b.pill_at = np + j,
+            _ if in_foot(self.sel) && !in_foot(to) => self.add.b.pill_at = self.sel,
             _ => {}
         }
         let moved = to != self.sel;
@@ -998,6 +1044,10 @@ impl Menu {
                 match v.pills()[i] {
                     // B383: Installed and My uploads are pages of their own
                     Pill::Show(s) if k.ok => return self.mods_show(s, out),
+                    Pill::Have if k.ok => {
+                        self.listing = HAVES.iter().position(|h| h.0 == self.add.b.have);
+                        return out.push(Sound(2));
+                    }
                     Pill::Sort if step => {
                         let at = self.add.b.sort as usize;
                         self.add.b.sort = [Sort::Newest, Sort::Az, Sort::Uploader][if k.prev { (at + 2) % 3 } else { (at + 1) % 3 }];
@@ -1062,6 +1112,27 @@ impl Menu {
     }
 
     /// Browse's Remove (✕ on an installed tile): takes the installed copy out.
+    /// One press while the installed dropdown's list is open on choice `j`: ↑ ↓ move (wrapping), ✕ picks it and
+    /// closes, ○ closes it unchanged.
+    pub(super) fn have_list(&mut self, j: usize, k: Press, out: &mut Vec<Effect>) {
+        use Effect::Sound;
+        let n = HAVES.len();
+        if k.up || k.down {
+            self.listing = Some((j + if k.down { 1 } else { n - 1 }) % n);
+            out.push(Sound(0));
+        } else if k.ok {
+            self.listing = None;
+            if self.add.b.have != HAVES[j].0 {
+                self.add.b.have = HAVES[j].0;
+                (self.add.top, self.add.b.tile_at) = (0, 0);
+            }
+            out.push(Sound(2));
+        } else if k.back {
+            self.listing = None;
+            out.push(Sound(1));
+        }
+    }
+
     pub(super) fn browse_remove(&mut self, sel: usize, out: &mut Vec<Effect>) {
         let Some(dir) = self.add.hovered(sel).and_then(|e| self.add.dir_of(e)).map(super::bare) else { return };
         if let Some(i) = self.add.locals().iter().position(|m| super::bare(&m.dir) == dir) {
@@ -1637,7 +1708,7 @@ fn page(d: &mut Draw, m: &Menu, a: [f32; 3], l: &Lay, tab_end: f32) {
     }
     strip(d, m, l);
     grid_tiles(d, m, a, l);
-    footer(d, m, a, l);
+    footer(d, m, l);
     if v.child.is_some() {
         // B202: the open question takes every input; the page dims under it but the chosen mod's panel
         d.popup(Some(super::super::pointer::press(|k| k.back = true)));
@@ -1646,11 +1717,12 @@ fn page(d: &mut Draw, m: &Menu, a: [f32; 3], l: &Lay, tab_end: f32) {
         d.anchor = super::super::Anchor::Centre;
     }
     detail(d, m, a, l.detail);
+    status_chip(d, m, a, l.detail);
+    have_list(d, m, l);
 }
 
-/// B471: the grid panel's header strip: the kind tabs on the left, the sort and the filter as white "< value >" pills
-/// on the right (a tap: its left half back, its right half on; Upload: Sign in and Upload all), under them when the
-/// panel is narrow.
+/// B471: the grid panel's header strip: the kind tabs (Upload: Sign in and Upload all on the right, under them when
+/// the panel is narrow).
 fn strip(d: &mut Draw, m: &Menu, l: &Lay) {
     let v = &m.add;
     let [sx, sy, sw, _] = l.strip;
@@ -1661,8 +1733,7 @@ fn strip(d: &mut Draw, m: &Menu, l: &Lay) {
     let size = 13.5 * PY;
     let gap = 6.0 * PX;
     let mut rx = x + w;
-    if mods_kind::coming(v.kind).is_some() || v.packs_page() {
-    } else if v.page == Page::Upload {
+    if v.page == Page::Upload && mods_kind::coming(v.kind).is_none() {
         let words = [v.account.as_ref().map_or("Sign in".to_string(), |a| format!("Signed in: {}", super::short(a, 18))), "Upload all".to_string()];
         for (i, word) in words.iter().enumerate().rev() {
             let pw = (d.width(word, size) + 30.0 * PX).min(w * 0.45);
@@ -1672,26 +1743,6 @@ fn strip(d: &mut Draw, m: &Menu, l: &Lay) {
             d.hit(b, Act::Row(i, OK));
             rx -= gap;
         }
-    } else {
-        let p0 = 2 + v.words().len();
-        let slot = v.slot(m.sel);
-        let sort = SORTS[v.b.sort as usize];
-        let filter = v.filter_words();
-        let sw = d.width("Uploader", size) + 50.0 * PX;
-        let fw = (d.width(&filter, size) + 50.0 * PX).clamp(150.0 * PX, 260.0 * PX).min(w * 0.5);
-        rx -= sw + gap + fw;
-        let unfiltered = (0..v.groups()).all(|g| v.chosen(g).any());
-        for (k, (b, word, dim)) in [([rx, ry, sw, h], sort.to_string(), false), ([rx + sw + gap, ry, fw, h], filter, unfiltered)].into_iter().enumerate() {
-            let i = SHOWS.len() + k;
-            let on = slot == Slot::Pill(i) && v.child.is_none();
-            if on {
-                look::halo(d, b);
-            }
-            look::steps(d, b, on, &word, size, dim, [true; 2]);
-            d.hit([b[0], b[1], b[2] / 2.0, b[3]], Act::Row(p0 + i, Press { ok: true, prev: true, ..Press::default() }));
-            d.hit([b[0] + b[2] / 2.0, b[1], b[2] / 2.0, b[3]], Act::Row(p0 + i, OK));
-        }
-        rx -= gap;
     }
     let room = if l.stack { w } else { rx - x - gap };
     let cursor = match v.slot(m.sel) {
@@ -1793,14 +1844,17 @@ fn up_badge(u: &Up) -> (&'static str, [f32; 3]) {
     (t, hex(c))
 }
 
-/// The footer (B593: under the panel's strip, a light rule between it and the tiles): how the kind behaves online on the left, the status on the right (B471: the
-/// downloads moved here from the top bar), then the page's words as grey pills and Upload at the far right (a
-/// narrow panel: the words in a row over the pills).
-fn footer(d: &mut Draw, m: &Menu, a: [f32; 3], l: &Lay) {
+/// The footer's words' size (mockup px).
+const FOOT_SIZE: f32 = 12.5;
+
+/// The footer (B593: under the panel's strip, a light rule between it and the tiles): the installed dropdown, the
+/// sort and the filter on the left (a narrow panel: in a row over the rest), the page's words as grey pills on the
+/// right and Upload at the far right.
+fn footer(d: &mut Draw, m: &Menu, l: &Lay) {
     let v = &m.add;
     let [x, y, w, h] = l.foot;
     d.q(Tex::Solid, [0.0; 4], [x, y + h + ROW_GAP / 2.0 * PY, w, 2.0 * PY], look::c(look::RULE), 128.0);
-    let size = 12.5 * PY;
+    let size = FOOT_SIZE * PY;
     let gap = 6.0 * PX;
     let up = v.page == Page::Upload;
     let grid = v.grid() && !v.empty_kind();
@@ -1831,25 +1885,85 @@ fn footer(d: &mut Draw, m: &Menu, a: [f32; 3], l: &Lay) {
         }
         wx -= gap;
     }
-    let (nx, nr, ny, nh) = if l.note == l.foot { (x, wx - 6.0 * PX, y, h) } else { (l.note[0], l.note[0] + l.note[2], l.note[1], l.note[3]) };
-    let ty = ny + (nh - size) / 2.0;
+    // the installed dropdown, the sort and the filter at the row's left (a narrow panel: a row of their own over it);
+    // the sort's and filter's "< value >" take a tap on their left half back, their right half on
+    if up || v.packs_page() || v.empty_kind() {
+        return;
+    }
+    let (mut px, py) = (l.note[0], l.note[1]);
+    let end = if l.note == l.foot { wx } else { l.note[0] + l.note[2] + gap };
+    let p0 = 2 + v.words().len();
+    for (i, p) in v.pills().into_iter().enumerate().skip(SHOWS.len()) {
+        let pw = match p {
+            Pill::Have => have_rect(d, l)[2],
+            Pill::Sort => d.width("Uploader", size) + 50.0 * PX,
+            _ => (d.width(&v.filter_words(), size) + 50.0 * PX).clamp(150.0 * PX, 260.0 * PX).min(end - gap - px).max(90.0 * PX),
+        };
+        let b = [px, py, pw, h];
+        let on = m.sel == p0 + i && v.child.is_none();
+        if on {
+            look::halo(d, b);
+        }
+        match p {
+            Pill::Have => {
+                let now = HAVES.iter().find(|c| c.0 == v.b.have).map_or("", |c| c.1);
+                super::super::options::drop_pill(d, b, now, size, on || m.listing.is_some());
+                d.hit(b, Act::Row(p0 + i, OK));
+            }
+            _ => {
+                let (word, dim) = if p == Pill::Sort { (SORTS[v.b.sort as usize].to_string(), false) } else { (v.filter_words(), (0..v.groups()).all(|g| v.chosen(g).any())) };
+                look::steps(d, b, on, &word, size, dim, [true; 2]);
+                d.hit([b[0], b[1], b[2] / 2.0, b[3]], Act::Row(p0 + i, Press { ok: true, prev: true, ..Press::default() }));
+                d.hit([b[0] + b[2] / 2.0, b[1], b[2] / 2.0, b[3]], Act::Row(p0 + i, OK));
+            }
+        }
+        px += pw + gap;
+    }
+}
+
+/// The installed dropdown's pill: first in the pills' row, wide enough for its longest choice.
+fn have_rect(d: &mut Draw, l: &Lay) -> [f32; 4] {
+    let w = d.width("Not installed", FOOT_SIZE * PY) + 46.0 * PX;
+    [l.note[0], l.note[1], w, PILL * PY]
+}
+
+/// The installed dropdown's list open (`listing`), under its pill.
+fn have_list(d: &mut Draw, m: &Menu, l: &Lay) {
+    let Some(j) = m.listing.filter(|_| m.add.has_have()) else { return };
+    let all: Vec<String> = HAVES.iter().map(|c| c.1.to_string()).collect();
+    let now = HAVES.iter().find(|c| c.0 == m.add.b.have).map_or("", |c| c.1);
+    let b = have_rect(d, l);
+    // (as wide as the pill: the list hangs from it)
+    super::super::options::drop_box(d, &all, [b[0], b[1], b[2] + 8.0 * PX, b[3]], j, now, [l.card[1], l.card[1] + l.card[3]], b[2], all.len(), |_| "");
+}
+
+/// The page's status (the last action's outcome, downloads and uploads under way, else "N installed"): white words
+/// on a dark pill at the top right of the chosen mod's panel.
+fn status_chip(d: &mut Draw, m: &Menu, a: [f32; 3], [x, y, w, _]: [f32; 4]) {
+    let v = &m.add;
     let (said, busy) = status(m);
-    let room = (nr - nx).max(0.0);
+    if said.is_empty() {
+        return;
+    }
+    let size = 11.5 * PY;
     let spin = if busy { 16.0 * PX } else { 0.0 };
     // B447: a long status (an upload's end, its pull request's link) slides in its room instead of ending in "...";
     // one that fits keeps M114's "·" drawn as a dot (the font has none)
-    let max = (room * 0.6 - spin).max(0.0);
-    let sw = dotted_width(d, &said, size).min(max);
-    if dotted_width(d, &said, size) <= max {
-        super::super::frame::dotted(d, &said, nr - sw, ty, size, sw + 1.0, look::c(look::INK), false);
+    let max = (w * 0.6 - spin).max(0.0);
+    let full = dotted_width(d, &said, size);
+    let tw = full.min(max);
+    let (cw, ch) = (tw + spin + 20.0 * PX, size + 10.0 * PY);
+    let b @ [cx, cy, _, _] = [x + w - (RIM + 8.0) * PX - cw, y + (RIM + 8.0) * PY, cw, ch];
+    look::outlined_pill(d, b, look::c(look::INK), 2.0);
+    let (tx, ty) = (cx + 10.0 * PX + spin, cy + (ch - size) / 2.0);
+    if full <= max {
+        super::super::frame::dotted(d, &said, tx, ty, size, tw + 1.0, WHITE, false);
     } else {
-        marquee(d, &said.replace('·', "-"), [nr - sw, ty], size, max, look::c(look::INK), Some(v.b.roll.0));
+        marquee(d, &said.replace('·', "-"), [tx, ty], size, max, WHITE, Some(v.b.roll.0));
     }
     if busy {
-        spinner(d, v, [nr - sw - 10.0 * PX, ny + nh / 2.0], a);
+        spinner(d, v, [cx + 8.0 * PX + spin / 2.0, cy + ch / 2.0], a);
     }
-    let note = ellipsis(d, mods_kind::online(v.kind), size, (room - sw - spin - 14.0 * PX).max(0.0));
-    d.text(&note, nx + 2.0 * PX, ty, size, look::c(look::MUTED));
 }
 
 /// A panel with only words: a name outlined white on its strip in `a`, what it is and a note under it.
@@ -2233,6 +2347,7 @@ fn slot_text(m: &Menu) -> (String, String) {
             Slot::Word(i) => v.words()[i].into(),
             Slot::Pill(i) => match v.pills()[i] {
                 Pill::Show(s) => show_name(s).into(),
+                Pill::Have => "Installed or not".into(),
                 Pill::Sort => "Sort".into(),
                 Pill::Filter => "Filter".into(),
             },
@@ -2276,6 +2391,12 @@ pub(super) fn info(m: &Menu) -> String {
             Pill::Show(Show::Mine) if v.account.is_none() => "The mods you've shared on the store. Sign in under Upload (top right) to see them.".into(),
             Pill::Show(Show::Mine) => "The mods you've shared on the store: press one to take it down.".into(),
             Pill::Show(Show::Wish) => "The mods you saved with Save on a mod.".into(),
+            Pill::Have => match v.b.have {
+                Have::All => "Every mod, installed or not. Press for a list.",
+                Have::Installed => "Only the mods you have installed. Press for a list.",
+                Have::Missing => "Only the mods you don't have yet. Press for a list.",
+            }
+            .into(),
             Pill::Sort => match v.b.sort {
                 Sort::Newest => "The newest uploads first, under their games. Press for A-Z or by uploader.",
                 Sort::Az => "By name, under their games A-Z. Press for by uploader or newest.",
@@ -2319,6 +2440,9 @@ pub(super) fn legend(m: &Menu) -> Vec<(super::super::legend::Act, &'static str)>
     if v.b.osk.is_some() {
         return osk::legend(v.b.osk.unwrap_or(0), Some("Done"));
     }
+    if m.listing.is_some() {
+        return vec![(L::UpDown, "Move"), (L::Ok, "Select"), (L::Back, "Close")];
+    }
     let mut l = vec![(L::Move, "Move")];
     match v.slot(m.sel) {
         Slot::Search if v.b.focus => l.extend([(L::Type, "Type"), (L::Ok, "Done")]),
@@ -2328,6 +2452,7 @@ pub(super) fn legend(m: &Menu) -> Vec<(super::super::legend::Act, &'static str)>
         Slot::Kind(_) => l.push((L::Ok, "Show")),
         Slot::Pill(i) => match v.pills()[i] {
             Pill::Show(_) => l.push((L::Ok, "Show")),
+            Pill::Have => l.push((L::Ok, "Open list")),
             Pill::Sort => l.push((L::Ok, "Sort")),
             Pill::Filter if v.groups() > 1 => l.extend([(L::Ok, "Next"), (L::Hand, "Filter")]),
             Pill::Filter => l.push((L::Ok, "Next")),
