@@ -20,7 +20,7 @@ User report (2026-10-21): some skies show texture seams that don't line up, and 
   world instead of following the eye. The sky regex now takes any `_bgNN_cloud`.
 - The game side (`court_mod.rs` `Looped`: `clip.pose(now % length)`, linear keys, slerp) was already right. It
   just played the bad keys faithfully. No game code change.
-- Mods repo commit `75704fa` (not pushed: runner rule). Courts 01 03 07 08 09 13 14 15 17 18 20 were re-exported
+- Mods repo commit `75704fa` (on origin/main). Courts 01 03 07 08 09 13 14 15 17 18 20 were re-exported
   into `out/mods` and their `mod.json` versions bumped (c01/03/07/08/09/13/14/15/18 → 2, c17 → 3, c20 → 5).
 
 ### Seams
@@ -45,8 +45,7 @@ User report (2026-10-21): some skies show texture seams that don't line up, and 
 - Only courts 2 and 10 were compared against the original at a matching camera. The other stock courts were
   checked in ours alone, for continuity.
 - The re-exported mods are in the local `out/mods` (and the user's mods folder via the link) but not uploaded to
-  the mod store and not pushed: **the user needs to push opentennis-mods `75704fa` and re-upload the 11 bumped
-  court mods.**
+  the mod store: **the user needs to re-upload the 11 bumped court mods.**
 - The mod cloud nodes rest at a 474 cm offset that their animation sets to 0, so the first frame moves the ring a
   little once. Minor, left alone.
 - There's no free camera in the original. The hunt for the game's own up-looking cut-aways on court 10
