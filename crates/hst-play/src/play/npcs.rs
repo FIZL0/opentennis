@@ -46,7 +46,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Ambience>()
         .add_systems(PostStartup, setup.after(super::setup))
         .add_systems(FixedUpdate, step.after(character::tick).before(super::play_sounds))
-        .add_systems(Update, (draw_cheers.after(super::camera), draw_crowd, look.after(character::animate)))
+        .add_systems(Update, (draw_cheers.after(super::split_view::split), draw_crowd, look.after(character::animate)))
         .add_systems(FixedUpdate, mod_umpire.after(step).before(super::play_sounds))
         .add_systems(Update, mod_look.after(look))
         .add_systems(PostUpdate, cull_crowd.before(bevy::transform::TransformSystems::Propagate));
@@ -271,7 +271,7 @@ fn setup(
     npcs.uncull = hidden;
     if let Ok(look) = crate::effects::look(&mut iso, "npc/clap", &mut materials, &mut images) {
         npcs.sprites = meshes.add(Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default()));
-        let view = commands.spawn((Mesh3d(npcs.sprites.clone()), MeshMaterial3d(look), Transform::default(), bevy::camera::visibility::NoFrustumCulling)).id();
+        let view = commands.spawn((Mesh3d(npcs.sprites.clone()), MeshMaterial3d(look), Transform::default(), bevy::camera::visibility::NoFrustumCulling, crate::twin_view::Billboard::BUILT)).id();
         commands.entity(root).add_child(view);
     }
     commands.insert_resource(npcs);
@@ -758,8 +758,20 @@ fn match_news(near: &mut npc::Near, g: &Game) {
 /// keeps it about the same on screen up close and grows with distance far off; hidden when a metre there would
 /// show `sizes[4]` pixels or more (too near the camera).
 // ponytail: the original also needs a flag (never set in any dump) to be clear on courts other than 5
-fn draw_cheers(npcs: Option<Res<Npcs>>, g: Res<Game>, cam: Query<&Transform, With<crate::Orbit>>, mut meshes: ResMut<Assets<Mesh>>) {
+fn draw_cheers(npcs: Option<Res<Npcs>>, g: Res<Game>, cam: Query<&Transform, With<crate::Orbit>>, mut meshes: ResMut<Assets<Mesh>>, second: crate::twin_view::Second) {
     let (Some(npcs), Ok(cam)) = (npcs, cam.single()) else { return };
+    let (pos, uv, colour, index) = cheers(&npcs, &g, cam);
+    crate::effects::fill(&mut meshes, &npcs.sprites, pos, uv, colour, index);
+    // the split view's second half
+    if let (Some(cam), Some(h)) = (second.eye(), second.mesh(&npcs.sprites)) {
+        let (pos, uv, colour, index) = cheers(&npcs, &g, cam);
+        crate::effects::fill(&mut meshes, h, pos, uv, colour, index);
+    }
+}
+
+/// `draw_cheers`' quads for the camera at `cam`.
+#[allow(clippy::type_complexity)]
+fn cheers(npcs: &Npcs, g: &Game, cam: &Transform) -> (Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<[f32; 4]>, Vec<u32>) {
     let game = |v: Vec3| Vec3::new(v.x, -v.y, -v.z);
     let (right, up, ahead, eye) = (game(cam.rotation * Vec3::X), game(cam.rotation * Vec3::Y), game(cam.rotation * Vec3::NEG_Z), game(cam.translation));
     let t = &npcs.sizes[npcs.cheers.kind.min(1) as usize];
@@ -784,7 +796,7 @@ fn draw_cheers(npcs: Option<Res<Npcs>>, g: Res<Game>, cam: Query<&Transform, Wit
             index.extend([n, n + 1, n + 2, n + 2, n + 1, n + 3]);
         }
     }
-    crate::effects::fill(&mut meshes, &npcs.sprites, pos, uv, colour, index);
+    (pos, uv, colour, index)
 }
 
 /// The decided point's gallery reaction (`simulate` leaves it for the cheerers to come first).
@@ -864,14 +876,19 @@ fn crowd_shown(depth: f32, focal: f32) -> bool {
 /// Runs on the drawn camera (any mode) once it has moved, like `net_hide::hide_around_eye`, and shows them all while
 /// `cull::Off` holds (the intro's flyover).
 // ponytail: depth and focal from the drawn camera in f32, not the game's VU0 view matrix (rendering only)
-fn cull_crowd(camera: Query<(&Transform, &Projection), With<crate::Orbit>>, off: Option<Res<crate::cull::Off>>, window: Query<&Window>, mut q: Query<(&CrowdCull, &mut Visibility)>) {
+/// B634: while the split view is on, one either half shows.
+fn cull_crowd(camera: Query<(&Transform, &Projection), With<crate::Orbit>>, off: Option<Res<crate::cull::Off>>, window: Query<&Window>, second: Option<Res<crate::twin_view::SecondEye>>, mut q: Query<(&CrowdCull, &mut Visibility)>) {
     let Ok((t, Projection::Perspective(p))) = camera.single() else { return };
     let aspect = window.single().map_or(16.0 / 9.0, crate::play::widescreen::aspect);
-    let focal = 240.0 * 0.75f32.max(1.0 / aspect) / (p.fov / 2.0).tan();
+    let focal = |p: &PerspectiveProjection, aspect: f32| 240.0 * 0.75f32.max(1.0 / aspect) / (p.fov / 2.0).tan();
+    let mut views = vec![(*t, focal(p, aspect))];
+    if let Some((_, t, p)) = second.as_ref().and_then(|s| s.0.as_ref()) {
+        views.push((*t, focal(p, p.aspect_ratio)));
+    }
     for (c, mut v) in &mut q {
         // game space is Bevy's turned a half-turn about X
         let at = Vec3::new(c.0[0], -c.0[1], -c.0[2]);
-        let shown = off.is_some() || crowd_shown((at - t.translation).dot(*t.forward()), focal);
+        let shown = off.is_some() || views.iter().any(|(t, focal)| crowd_shown((at - t.translation).dot(*t.forward()), *focal));
         v.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
     }
 }

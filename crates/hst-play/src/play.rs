@@ -1725,6 +1725,7 @@ fn spawn_balloons(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials:
             MeshMaterial3d(m),
             Transform::default(),
             Visibility::Hidden,
+            crate::twin_view::Billboard::TURNED,
         ));
     }
     commands.insert_resource(BalloonArt(art));

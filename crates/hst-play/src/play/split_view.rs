@@ -7,7 +7,9 @@
 //!
 //! Presentation only: the match camera (`Game::cam`) and this machine's own (`own_camera`) step as before and nothing
 //! in play reads these views; the main camera takes the top half's view after `camera` has placed it, so the
-//! billboards and the eye-hiding passes that follow the main camera follow the top half.
+//! billboards and the eye-hiding passes that follow the main camera follow the top half. B634: the bottom half's
+//! camera is the second view (`twin_view`): the camera-facing quads get copies turned to it, drawn there only, and
+//! the crowd's and the eye-hiding culls keep what either half needs.
 //!
 //! M146: on a phone or tablet, two humans playing singles against each other on the one device share the match
 //! camera, which keeps its end: one of them always plays from the far end. 1P's Select (only 1P's) switches to a
@@ -19,6 +21,7 @@
 //! the choice kept in `split.txt`.
 
 use bevy::camera::Viewport;
+use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,6 +30,7 @@ use hst_sim::camera::{self as sim_cam, Scene, View};
 
 use super::own_camera::{self, OwnCam};
 use super::{Game, Pads, Phase, controls};
+use crate::twin_view::{self, SecondEye};
 use crate::{Args, Orbit};
 
 /// Windows narrower than this (width over height) split.
@@ -53,6 +57,7 @@ const FOLLOW: f32 = 5.0;
 const CUT: f32 = 3.0;
 
 pub fn plugin(app: &mut App) {
+    app.add_plugins(crate::twin_view::plugin);
     app.init_resource::<Split>()
         .init_resource::<StickTurn>()
         .add_systems(Startup, load)
@@ -181,7 +186,7 @@ fn plain_play(w: &World) -> bool {
         && w.get_resource::<OwnCam>().is_none_or(|o| o.plain_view())
 }
 
-fn split(w: &mut World) {
+pub(super) fn split(w: &mut World) {
     // the window's size (logical px) and the picture's width over height
     let win = w.query_filtered::<&Window, With<PrimaryWindow>>().single(w).ok().map(|win| (Vec2::new(win.width(), win.height()), crate::play::widescreen::scene_aspect(win)));
     let (size, aspect) = win.unwrap_or((Vec2::ONE, 1.0));
@@ -195,14 +200,24 @@ fn split(w: &mut World) {
         place_own(w, &mut state, aspect);
     } else if on {
         place(w, &mut state, size, aspect);
-    } else if state.shown.take().is_some() || state.cam.is_some() {
+    } else {
+        // (also after a mode's teardown dropped `Split` mid-split: the main camera still has its split layers)
+        let split = w.query_filtered::<&RenderLayers, With<Orbit>>().single(w).is_ok_and(|l| *l == top_layers());
+        if state.shown.take().is_none() && state.cam.is_none() && !split {
+            w.insert_resource(state);
+            return;
+        }
         if let Some(e) = state.cam.take() {
             w.despawn(e);
         }
-        let mut q = w.query_filtered::<&mut Camera, With<Orbit>>();
-        if let Ok(mut cam) = q.single_mut(w) {
+        let mut q = w.query_filtered::<(Entity, &mut Camera, Option<&RenderLayers>), With<Orbit>>();
+        if let Ok((e, mut cam, layers)) = q.single_mut(w) {
             cam.viewport = None;
+            if layers == Some(&top_layers()) {
+                w.entity_mut(e).remove::<RenderLayers>();
+            }
         }
+        w.insert_resource(SecondEye(None));
     }
     w.insert_resource(state);
 }
@@ -229,7 +244,7 @@ fn place(w: &mut World, state: &mut Split, size: Vec2, aspect: f32) {
     let Some(target) = target(w) else { return };
     let half = target.y / 2;
     let views = [(UVec2::ZERO, UVec2::new(target.x, half)), (UVec2::new(0, half), UVec2::new(target.x, target.y - half))];
-    show(w, state, rigs.map(|r| (r.transform(), 2.0 * r.vertical)), views);
+    show(w, state, rigs.map(|r| (r.transform(), 2.0 * r.vertical)), views, aspect);
 }
 
 /// The main camera's picture size (physical px).
@@ -239,8 +254,8 @@ fn target(w: &mut World) -> Option<UVec2> {
 }
 
 /// Puts the main camera (`Orbit`) and the second one at the halves' eyes, each with its vertical field of view and
-/// its part of the picture (position, size; physical px).
-fn show(w: &mut World, state: &mut Split, eyes: [(Transform, f32); 2], views: [(UVec2, UVec2); 2]) {
+/// its part of the picture (position, size; physical px); `aspect` is a half's width over height.
+fn show(w: &mut World, state: &mut Split, eyes: [(Transform, f32); 2], views: [(UVec2, UVec2); 2], aspect: f32) {
     let cam = *state.cam.get_or_insert_with(|| {
         w.spawn((
             SplitCam,
@@ -257,6 +272,7 @@ fn show(w: &mut World, state: &mut Split, eyes: [(Transform, f32); 2], views: [(
             bevy::core_pipeline::tonemapping::Tonemapping::None,
             Projection::Perspective(PerspectiveProjection { far: 20_000.0, ..default() }),
             Transform::default(),
+            RenderLayers::from_layers(&[0, twin_view::BOTTOM]),
         ))
         .id()
     });
@@ -271,13 +287,24 @@ fn show(w: &mut World, state: &mut Split, eyes: [(Transform, f32); 2], views: [(
             cam.viewport = v;
         }
     };
-    let mut q = w.query_filtered::<(&mut Transform, &mut Projection, &mut Camera), With<Orbit>>();
-    let Ok((mut tf, mut proj, mut main)) = q.single_mut(w) else { return };
+    let mut q = w.query_filtered::<(Entity, &mut Transform, &mut Projection, &mut Camera, Option<&RenderLayers>), With<Orbit>>();
+    let Ok((main_e, mut tf, mut proj, mut main, layers)) = q.single_mut(w) else { return };
+    let relayer = layers != Some(&top_layers());
     set(eyes[0], views[0], &mut tf, &mut proj, &mut main);
+    if relayer {
+        w.entity_mut(main_e).insert(top_layers());
+    }
     let mut q = w.query_filtered::<(&mut Transform, &mut Projection, &mut Camera), With<SplitCam>>();
+    let mut second = None;
     if let Ok((mut tf, mut proj, mut c)) = q.get_mut(w, cam) {
         set(eyes[1], views[1], &mut tf, &mut proj, &mut c);
+        if let Projection::Perspective(p) = &mut *proj {
+            // the billboards size themselves by this half's picture
+            p.aspect_ratio = aspect;
+            second = Some((cam, *tf, p.clone()));
+        }
     }
+    w.insert_resource(SecondEye(second));
 }
 
 /// M146: the personal split's state.
@@ -429,7 +456,7 @@ fn place_own(w: &mut World, state: &mut Split, aspect: f32) {
         (Transform::from_translation(eye).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)), fov)
     };
     let eyes = [eye(0), eye(1)];
-    show(w, state, eyes, views);
+    show(w, state, eyes, views, half);
 }
 
 /// M146: turns this tick's local pads round for the seats `turn` says (stick and d-pad), before they're recorded.
@@ -446,6 +473,11 @@ pub(super) fn turn_sticks(pads: &mut [hst_sim::replay::Pad; 4], turn: Option<&St
         let swap = |from: u16, to: u16| if b & from != 0 { to } else { 0 };
         p.buttons = b & !(UP | DOWN | LEFT | RIGHT) | swap(UP, DOWN) | swap(DOWN, UP) | swap(LEFT, RIGHT) | swap(RIGHT, LEFT);
     }
+}
+
+/// The main camera's layers while split: the scene's and its own billboards' (`twin_view::TOP`).
+fn top_layers() -> RenderLayers {
+    RenderLayers::from_layers(&[0, twin_view::TOP])
 }
 
 /// Game space (Y down) → Bevy's.

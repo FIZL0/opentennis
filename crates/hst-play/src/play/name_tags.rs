@@ -309,7 +309,7 @@ fn setup(
             depth_bias: markers::LAST,
             ..default()
         });
-        commands.spawn((Tag { i, material: material.clone(), size }, Mesh3d(quad.clone()), MeshMaterial3d(material), Transform::default(), Visibility::Hidden));
+        commands.spawn((Tag { i, material: material.clone(), size }, Mesh3d(quad.clone()), MeshMaterial3d(material), Transform::default(), Visibility::Hidden, crate::twin_view::Billboard::TURNED));
     }
 }
 
@@ -323,8 +323,9 @@ fn draw(
     time: Res<Time<Fixed>>,
     cam: Query<&Transform, (With<crate::Orbit>, Without<Marker>, Without<Tag>)>,
     mut markers: Query<(&Marker, &mut Visibility), Without<Tag>>,
-    mut tags: Query<(&Tag, &mut Transform, &mut Visibility), Without<Marker>>,
+    mut tags: Query<(Entity, &Tag, &mut Transform, &mut Visibility), Without<Marker>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut second: crate::twin_view::Second,
 ) {
     let Some(names) = names else { return };
     for (m, mut vis) in &mut markers {
@@ -336,19 +337,23 @@ fn draw(
     let on = markers::shown(&g);
     let a = time.overstep_fraction();
     let t = g.cam.view.fov.tan();
-    for (tag, mut tr, mut vis) in &mut tags {
+    for (e, tag, mut tr, mut vis) in &mut tags {
         let Some(p) = g.players.get(tag.i).filter(|_| on) else {
             *vis = Visibility::Hidden;
             continue;
         };
         let at = Vec3::from(p.prev).lerp(Vec3::from(p.pos), a);
         let anchor = Vec3::new(at.x, (g.reaches[tag.i].base + 0.65) * g.offbeat.scale(), -at.z);
-        let z = (anchor - cam.translation).dot(*cam.forward());
-        let s = markers::half_width(z, t);
-        tr.translation = anchor;
-        tr.rotation = cam.rotation;
-        // the marker's 40×32 cell is 2s × 1.68s
-        tr.scale = Vec3::new(2.0 * s * tag.size[0] / HEAD[0], 2.0 * 0.84 * s * tag.size[1] / HEAD[1], 1.0);
+        let pose = |cam: &Transform| {
+            let s = markers::half_width((anchor - cam.translation).dot(*cam.forward()), t);
+            // the marker's 40×32 cell is 2s × 1.68s
+            let scale = Vec3::new(2.0 * s * tag.size[0] / HEAD[0], 2.0 * 0.84 * s * tag.size[1] / HEAD[1], 1.0);
+            Transform { translation: anchor, rotation: cam.rotation, scale }
+        };
+        *tr = pose(cam);
+        if let Some(c) = second.eye().copied() {
+            second.pose(e, pose(&c));
+        }
         let [r, gg, b] = colours.0[tag.i].map(|c| c as f32 / 128.0);
         let colour = Color::srgb(r, gg, b);
         // written only when it changes (B328)

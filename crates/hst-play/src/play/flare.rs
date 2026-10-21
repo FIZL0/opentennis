@@ -11,7 +11,7 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use bevy::asset::RenderAssetUsages;
-use bevy::camera::visibility::NoFrustumCulling;
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::{Mesh, PrimitiveTopology};
@@ -24,7 +24,7 @@ use super::Game;
 use crate::{Args, Orbit};
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(PostUpdate, draw.before(TransformSystems::Propagate));
+    app.add_systems(PostUpdate, (draw, draw_second).before(TransformSystems::Propagate));
 }
 
 /// The flare's elements as the game makes them: position along the sun → middle line, sprite cell (6 = the rays),
@@ -160,24 +160,101 @@ fn draw(
         return;
     }
     let (sprites, rays) = build(&g.rng.flare, &sun, p, tf.rotation);
-    // M8f6: none on a court mod without its own
-    let on = crate::weather::now() < 2 && !crate::court_mod::FLARE_OFF.load(std::sync::atomic::Ordering::Relaxed);
+    let on = flare_on();
     let mut built = [Some(rays), Some(sprites)];
     for (part, mesh, mut vis) in &mut parts {
         let Some(b) = built[part.0 as usize].take() else { continue };
-        *vis = if on && !b.pos.is_empty() { Visibility::Inherited } else { Visibility::Hidden };
-        // an empty one stays as it was, hidden: Bevy's mesh allocator logs a use-after-free for a mesh with no
-        // vertices, twice a frame while the sun is out of the picture (B163)
-        if b.pos.is_empty() {
-            continue;
+        show(b, on, mesh, &mut vis, &mut meshes);
+    }
+}
+
+/// Whether the flare shows now: clear or cloudy, and (M8f6) not on a court mod without its own.
+fn flare_on() -> bool {
+    crate::weather::now() < 2 && !crate::court_mod::FLARE_OFF.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// One part's mesh and visibility from this frame's build.
+fn show(b: Built, on: bool, mesh: &Mesh3d, vis: &mut Visibility, meshes: &mut Assets<Mesh>) {
+    *vis = if on && !b.pos.is_empty() { Visibility::Inherited } else { Visibility::Hidden };
+    // an empty one stays as it was, hidden: Bevy's mesh allocator logs a use-after-free for a mesh with no
+    // vertices, twice a frame while the sun is out of the picture (B163)
+    if b.pos.is_empty() {
+        return;
+    }
+    // hidden, it waits for the next frame it's on: each `get_mut` re-uploads the mesh (B357)
+    if !on {
+        return;
+    }
+    if let Some(mut m) = meshes.get_mut(&mesh.0) {
+        *m = b.mesh();
+    }
+}
+
+/// A part of the second view's flare (`SecondPart(textured)`).
+#[derive(Component)]
+struct SecondPart(bool);
+
+/// B634: the split view's bottom half (`twin_view`'s second view) gets its own pair under its camera, built for its
+/// view, and the main camera's pair is drawn by the main camera only while it's on.
+#[allow(clippy::type_complexity)]
+fn draw_second(
+    mut commands: Commands,
+    g: Option<Res<Game>>,
+    sun: Option<Res<crate::shadow::Sun>>,
+    second: crate::twin_view::Second,
+    originals: Query<(Entity, &Part, &MeshMaterial3d<StandardMaterial>, Option<&RenderLayers>), Without<SecondPart>>,
+    mut parts: Query<(Entity, &SecondPart, &Mesh3d, &mut Visibility, &ChildOf)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    let top = RenderLayers::layer(crate::twin_view::TOP);
+    let (Some(cam), Some(eye), Some(p)) = (second.camera(), second.eye(), second.projection()) else {
+        for (e, .., layers) in &originals {
+            if layers == Some(&top) {
+                commands.entity(e).remove::<RenderLayers>();
+            }
         }
-        // hidden, it waits for the next frame it's on: each `get_mut` re-uploads the mesh (B357)
-        if !on {
-            continue;
+        for (e, ..) in &parts {
+            commands.entity(e).try_despawn();
         }
-        if let Some(mut m) = meshes.get_mut(&mesh.0) {
-            *m = b.mesh();
+        return;
+    };
+    for (e, .., layers) in &originals {
+        if layers != Some(&top) {
+            commands.entity(e).insert(top.clone());
         }
+    }
+    let mut have = false;
+    for (e, _, _, _, parent) in &parts {
+        if parent.parent() == cam {
+            have = true;
+        } else {
+            commands.entity(e).try_despawn();
+        }
+    }
+    if !have {
+        for (_, part, m, _) in &originals {
+            commands.spawn((
+                SecondPart(part.0),
+                Mesh3d(meshes.add(Built::default().mesh())),
+                m.clone(),
+                Transform::default(),
+                Visibility::Hidden,
+                NoFrustumCulling,
+                NotShadowCaster,
+                NotShadowReceiver,
+                RenderLayers::layer(crate::twin_view::BOTTOM),
+                ChildOf(cam),
+            ));
+        }
+        return;
+    }
+    let (Some(g), Some(sun)) = (g, sun) else { return };
+    let (sprites, rays) = build(&g.rng.flare, &sun, p, eye.rotation);
+    let on = flare_on();
+    let mut built = [Some(rays), Some(sprites)];
+    for (_, part, mesh, mut vis, _) in &mut parts {
+        let Some(b) = built[part.0 as usize].take() else { continue };
+        show(b, on, mesh, &mut vis, &mut meshes);
     }
 }
 

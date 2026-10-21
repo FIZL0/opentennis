@@ -19,7 +19,7 @@ use crate::Args;
 pub fn plugin(app: &mut App) {
     app.add_systems(PostStartup, setup.after(super::setup))
         .add_systems(FixedUpdate, tick.after(super::bodyhit::pose))
-        .add_systems(Update, (draw.after(super::camera), draw_dash, draw_bits.after(super::camera)));
+        .add_systems(Update, (draw.after(super::split_view::split), draw_dash, draw_bits.after(super::split_view::split)));
 }
 
 #[derive(Resource, Clone, serde::Serialize, serde::Deserialize)]
@@ -65,15 +65,19 @@ fn setup(
     let court = args.stage.map_or(args.court, |s| s as usize);
     let looks = game.bounce_looks();
     let dust = looks.get(court).unwrap_or(&looks[10]).dust.map(lin);
-    let mut mesh = |tex: &str| {
+    // `facing`: its quads face the camera (the split view's second half gets its own, `twin_view`)
+    let mut mesh = |tex: &str, facing: bool| {
         let m = meshes.add(Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default()));
         let material = look(&mut iso, tex, &mut materials, &mut images).expect("footstep texture");
         let view = commands.spawn((Mesh3d(m.clone()), MeshMaterial3d(material), Transform::default(), crate::cull::Cullable)).id();
+        if facing {
+            commands.entity(view).insert(crate::twin_view::Billboard::BUILT);
+        }
         commands.entity(root).add_child(view);
         m
     };
-    let (dry_puffs, wet_puffs, prints) = (mesh("run/kemuri_00"), mesh("run/spray"), mesh("run/e_footprint"));
-    let bits = [mesh("par/tuti"), mesh("par/siba")];
+    let (dry_puffs, wet_puffs, prints) = (mesh("run/kemuri_00", true), mesh("run/spray", true), mesh("run/e_footprint", false));
+    let bits = [mesh("par/tuti", true), mesh("par/siba", true)];
     let arc = iso.read("AZUMA/C_EFF/EFFCT.XB0").expect("EFFCT.XB0");
     let arc = Archive::parse(&arc).expect("EFFCT.XB0");
     let dash = (0..4).map(|_| model(&arc, "run/dash", &mut commands, root, &mut meshes, &mut materials, &mut images, &mut bindposes).expect("run/dash")).collect();
@@ -228,10 +232,9 @@ fn sub(g: &Game, i: usize, reacted: bool) -> i32 {
 /// Puffs face the camera, pulled back half a metre along the game view's forward row (its camera → world row 2),
 /// `size` either side along row 0 and twice that up along row 1 of the basis the run object's draw builds facing
 /// back along the camera's look (`impact_matrix(-look)`, level right); footprints lie on the court.
-fn draw(fx: Option<Res<FootFx>>, g: Res<Game>, own: Option<Res<super::own_camera::OwnCam>>, mut meshes: ResMut<Assets<Mesh>>) {
+fn draw(fx: Option<Res<FootFx>>, g: Res<Game>, own: Option<Res<super::own_camera::OwnCam>>, mut meshes: ResMut<Assets<Mesh>>, second: crate::twin_view::Second) {
     let Some(fx) = fx else { return };
-    let [ax, ay, az] = super::own_camera::shown(&g, own.as_deref()).1.rot[2];
-    let basis = hst_sim::effect::impact_matrix([-ax, -ay, -az, -0.0], [0.0; 3]);
+    let row = super::own_camera::shown(&g, own.as_deref()).1.rot[2];
     let v3 = |r: [f32; 4]| Vec3::new(r[0], r[1], r[2]);
     let mut put = |h: &Handle<Mesh>, quads: Vec<([Vec3; 4], [f32; 4])>| {
         let (mut pos, mut uv, mut colour, mut index) = (vec![], vec![], vec![], vec![]);
@@ -245,27 +248,40 @@ fn draw(fx: Option<Res<FootFx>>, g: Res<Game>, own: Option<Res<super::own_camera
         fill(&mut meshes, h, pos, uv, colour, index);
     };
     let [r, g, b] = if fx.wet { [1.0; 3] } else { fx.dust };
-    let puffs = fx
-        .feet
-        .puffs
-        .iter()
-        .map(|p| {
-            use hst_sim::ps2::{add, madd, mul, sub};
-            // pos + 0 − row 2 × 0.5 (the halving is exact, so one madd rounds as the game's mul and sub)
-            let pull = |a: f32, r: f32| madd(add(a, 0.0), r, -0.5);
-            let foot = [pull(p.pos[0], ax), pull(p.pos[1], ay), pull(p.pos[2], az)];
-            let corner = |side: f32, top: bool| {
-                Vec3::from_array(std::array::from_fn(|k| {
-                    let at = add(foot[k], side * mul(basis[0][k], p.size));
-                    if top { sub(at, mul(mul(basis[1][k], p.size), 2.0)) } else { at }
-                }))
-            };
-            ([corner(-1.0, true), corner(1.0, true), corner(-1.0, false), corner(1.0, false)], [r, g, b, p.alpha / 128.0])
-        })
-        .collect();
+    // facing back along a view's forward row (game space)
+    let puffs = |[ax, ay, az]: [f32; 3]| -> Vec<([Vec3; 4], [f32; 4])> {
+        let basis = hst_sim::effect::impact_matrix([-ax, -ay, -az, -0.0], [0.0; 3]);
+        fx.feet
+            .puffs
+            .iter()
+            .map(|p| {
+                use hst_sim::ps2::{add, madd, mul, sub};
+                // pos + 0 − row 2 × 0.5 (the halving is exact, so one madd rounds as the game's mul and sub)
+                let pull = |a: f32, r: f32| madd(add(a, 0.0), r, -0.5);
+                let foot = [pull(p.pos[0], ax), pull(p.pos[1], ay), pull(p.pos[2], az)];
+                let corner = |side: f32, top: bool| {
+                    Vec3::from_array(std::array::from_fn(|k| {
+                        let at = add(foot[k], side * mul(basis[0][k], p.size));
+                        if top { sub(at, mul(mul(basis[1][k], p.size), 2.0)) } else { at }
+                    }))
+                };
+                ([corner(-1.0, true), corner(1.0, true), corner(-1.0, false), corner(1.0, false)], [r, g, b, p.alpha / 128.0])
+            })
+            .collect()
+    };
     let (shown, empty) = if fx.wet { (&fx.wet_puffs, &fx.dry_puffs) } else { (&fx.dry_puffs, &fx.wet_puffs) };
-    put(shown, puffs);
+    put(shown, puffs(row));
     put(empty, vec![]);
+    // the split view's second half
+    if let Some(cam) = second.eye() {
+        let f = cam.forward();
+        if let Some(h) = second.mesh(shown) {
+            put(h, puffs([f.x, -f.y, -f.z]));
+        }
+        if let Some(h) = second.mesh(empty) {
+            put(h, vec![]);
+        }
+    }
     let c = fx.table.courts.get(fx.court).unwrap_or(&fx.table.courts[10]);
     let [r, g, b] = c.print_rgb[fx.wet as usize].map(lin);
     let prints = fx
@@ -302,8 +318,23 @@ fn draw_dash(fx: Option<Res<FootFx>>, mut q: Query<(&mut Visibility, &mut MorphW
 
 /// Debris, all in group 0's look: a clod faces the camera (`size` each way, the court's clod colour) over a dark
 /// shadow on the court; a blade lies in its turn's rows 0 and 2 in its own colour. Each shows one 32-pixel cell.
-fn draw_bits(fx: Option<Res<FootFx>>, cam: Query<&Transform, With<crate::Orbit>>, mut meshes: ResMut<Assets<Mesh>>) {
+fn draw_bits(fx: Option<Res<FootFx>>, cam: Query<&Transform, With<crate::Orbit>>, mut meshes: ResMut<Assets<Mesh>>, second: crate::twin_view::Second) {
     let (Some(fx), Ok(cam)) = (fx, cam.single()) else { return };
+    let [shown, empty] = if fx.feet.kinds[0] == 1 { [&fx.bits[1], &fx.bits[0]] } else { [&fx.bits[0], &fx.bits[1]] };
+    let (pos, uv, colour, index) = bits(&fx, cam);
+    fill(&mut meshes, shown, pos, uv, colour, index);
+    fill(&mut meshes, empty, vec![], vec![], vec![], vec![]);
+    // the split view's second half
+    if let (Some(cam), Some(s), Some(e)) = (second.eye(), second.mesh(shown), second.mesh(empty)) {
+        let (pos, uv, colour, index) = bits(&fx, cam);
+        fill(&mut meshes, s, pos, uv, colour, index);
+        fill(&mut meshes, e, vec![], vec![], vec![], vec![]);
+    }
+}
+
+/// `draw_bits`' quads for the camera at `cam`.
+#[allow(clippy::type_complexity)]
+fn bits(fx: &FootFx, cam: &Transform) -> (Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<[f32; 4]>, Vec<u32>) {
     let game = |v: Vec3| Vec3::new(v.x, -v.y, -v.z);
     let (right, up) = (game(cam.rotation * Vec3::X), game(cam.rotation * Vec3::Y));
     let v3 = |r: [f32; 4]| Vec3::new(r[0], r[1], r[2]);
@@ -332,9 +363,7 @@ fn draw_bits(fx: Option<Res<FootFx>>, cam: Query<&Transform, With<crate::Orbit>>
             quad((Vec3::X * s.size, Vec3::Z * s.size), Vec3::new(at.x, -0.01, at.z), [lin(32.0), lin(32.0), lin(32.0), 90.0 / 128.0]);
         }
     }
-    let [shown, empty] = if blades { [&fx.bits[1], &fx.bits[0]] } else { [&fx.bits[0], &fx.bits[1]] };
-    fill(&mut meshes, shown, pos, uv, colour, index);
-    fill(&mut meshes, empty, vec![], vec![], vec![], vec![]);
+    (pos, uv, colour, index)
 }
 
 // a resync's state (`snapshot::encode`) keeps this machine's drawing entities and handles

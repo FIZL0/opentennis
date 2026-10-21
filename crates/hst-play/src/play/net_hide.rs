@@ -130,10 +130,13 @@ fn hide(g: Res<Game>, own: Option<Res<super::own_camera::OwnCam>>, d: Option<Res
 
 /// Runs on the drawn camera (any mode: match, cut-away, replay, own camera, `HST_EYE`) once it has moved; hides
 /// nothing while `cull::Off` holds (the intro's flyover).
-fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, mut q: Query<(Option<&mut HideAroundEye>, Option<&NearBox>, &mut Visibility), Or<(With<HideAroundEye>, With<NearBox>)>>) {
+/// B634: while the split view is on, a prop that buries either half's eye is hidden (from both).
+#[allow(clippy::type_complexity)]
+fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, second: Option<Res<crate::twin_view::SecondEye>>, mut q: Query<(Option<&mut HideAroundEye>, Option<&NearBox>, &mut Visibility), Or<(With<HideAroundEye>, With<NearBox>)>>) {
     let (Some(g), Ok((t, proj))) = (g, camera.single()) else { return };
     let Some(view) = drawn_view(t, proj, &window) else { return };
-    let (world, r) = (&g.world.0, reach(&view));
+    let views: Vec<(View, f32)> = std::iter::once(view).chain(second_view(second.as_deref())).map(|v| { let r = reach(&v); (v, r) }).collect();
+    let world = &g.world.0;
     for (h, near, mut v) in &mut q {
         let hidden = off.is_none() && h.is_some_and(|mut h| {
             let pos = h.pos;
@@ -145,8 +148,8 @@ fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, cam
                     m[0].abs() + m[1].abs() + m[2].abs() < 1e-3
                 })
             }) };
-            prop.is_some_and(|i| buried_at(&view, r, &world.models, &world.props[i]))
-        }) || off.is_none() && near.is_some_and(|b| in_front_at(&view, r, b.lo, b.hi));
+            prop.is_some_and(|i| views.iter().any(|(v, r)| buried_at(v, *r, &world.models, &world.props[i])))
+        }) || off.is_none() && near.is_some_and(|b| views.iter().any(|(v, r)| in_front_at(v, *r, b.lo, b.hi)));
         v.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
     }
 }
@@ -156,19 +159,33 @@ fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, cam
 fn drawn_view(t: &Transform, proj: &Projection, window: &Query<&Window>) -> Option<View> {
     let Projection::Perspective(p) = proj else { return None };
     let aspect = window.single().map_or(16.0 / 9.0, crate::play::widescreen::scene_aspect);
+    Some(view_at(t, p, aspect))
+}
+
+/// A camera's view in game space with the horizontal fov of its picture `aspect` wide.
+fn view_at(t: &Transform, p: &PerspectiveProjection, aspect: f32) -> View {
     let (e, f) = (t.translation * Vec3::new(1.0, -1.0, -1.0), *t.forward() * Vec3::new(1.0, -1.0, -1.0));
-    Some(View { rot: [[0.0; 3], [0.0; 3], f.to_array()], eye: e.to_array(), fov: ((p.fov / 2.0).tan() / 0.75f32.max(1.0 / aspect)).atan() })
+    View { rot: [[0.0; 3], [0.0; 3], f.to_array()], eye: e.to_array(), fov: ((p.fov / 2.0).tan() / 0.75f32.max(1.0 / aspect)).atan() }
+}
+
+/// B634: the split view's bottom half's view (`twin_view`'s second view), while it's on.
+fn second_view(second: Option<&crate::twin_view::SecondEye>) -> Option<View> {
+    let (_, t, p) = second?.0.as_ref()?;
+    Some(view_at(t, p, p.aspect_ratio))
 }
 
 /// B510: a court mod's gimmick (`court_mod::NearPiece`) one of whose boxes comes right up in front of the drawn camera
 /// is hidden whole: B303's test (`in_front`) at its widest lens' reach whatever the zoom (within 0.5 m of the lens'
 /// line out to 3 m), since a telephoto's longer reach also takes the pieces in frame far behind the player it
 /// follows (Dubno's caution flags); nothing while `cull::Off` holds (the intro's flyover).
-fn hide_near_pieces(off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, pieces: Query<&crate::court_mod::NearPiece>, mut vis: Query<&mut Visibility, (Without<HideAroundEye>, Without<NearBox>)>) {
+#[allow(clippy::type_complexity)]
+fn hide_near_pieces(off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, second: Option<Res<crate::twin_view::SecondEye>>, pieces: Query<&crate::court_mod::NearPiece>, mut vis: Query<&mut Visibility, (Without<HideAroundEye>, Without<NearBox>)>) {
     let Ok((t, proj)) = camera.single() else { return };
     let Some(view) = drawn_view(t, proj, &window) else { return };
+    // B634: in front of either half's eye while the split view is on
+    let views: Vec<View> = std::iter::once(view).chain(second_view(second.as_deref())).collect();
     for np in &pieces {
-        let hidden = off.is_none() && np.boxes.iter().any(|&(lo, hi)| in_front_at(&view, 1.0, lo, hi));
+        let hidden = off.is_none() && np.boxes.iter().any(|&(lo, hi)| views.iter().any(|v| in_front_at(v, 1.0, lo, hi)));
         for &e in &np.hide {
             if let Ok(mut v) = vis.get_mut(e) {
                 v.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });

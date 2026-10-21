@@ -423,7 +423,7 @@ pub fn plugin(app: &mut App) {
 
 /// B328: an effect with nothing to draw (most of them, most of the time) still cost a draw of its degenerate
 /// triangle; on no render layer it's skipped by every view, shadows included. Its `Visibility` stays the effect's own.
-fn hide_empty(mut commands: Commands, q: Query<(Entity, &Mesh3d, Has<Emptied>, Has<bevy::camera::visibility::RenderLayers>)>) {
+pub fn hide_empty(mut commands: Commands, q: Query<(Entity, &Mesh3d, Has<Emptied>, Has<bevy::camera::visibility::RenderLayers>)>) {
     let changes = std::mem::take(&mut *EMPTIED.lock().unwrap());
     if changes.is_empty() {
         return;
@@ -473,7 +473,7 @@ pub fn load_sparks(iso: &mut Iso, commands: &mut Commands, parent: Entity, meshe
         looks.push(look(iso, &format!("{k}tubu00"), materials, images)?);
     }
     let mesh = meshes.add(Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default()));
-    let view = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(looks[0].clone()), Transform::default(), Visibility::Hidden, crate::cull::Cullable)).id();
+    let view = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(looks[0].clone()), Transform::default(), Visibility::Hidden, crate::cull::Cullable, crate::twin_view::Billboard::BUILT)).id();
     commands.entity(parent).add_child(view);
     // the table is rolled by the match start's reseed (`HitSparks::restart`)
     let rolls = [Roll::new(0.0, [0.0; 3]); SPARKS];
@@ -505,9 +505,21 @@ impl HitSparks {
 
 /// The sparks as quads facing the camera (game space: the camera's right and screen-down axes), fading over their
 /// last frames.
-pub fn draw_sparks(fx: Res<HitSparks>, cam: Query<&Transform, With<crate::Orbit>>, mut vis: Query<&mut Visibility>, mut meshes: ResMut<Assets<Mesh>>) {
+pub fn draw_sparks(fx: Res<HitSparks>, cam: Query<&Transform, With<crate::Orbit>>, mut vis: Query<&mut Visibility>, mut meshes: ResMut<Assets<Mesh>>, second: crate::twin_view::Second) {
     let (Ok(cam), Ok(mut v)) = (cam.single(), vis.get_mut(fx.view)) else { return };
     *v = if fx.sparks.live { Visibility::Visible } else { Visibility::Hidden };
+    let (pos, uv, colour, index) = sparks(&fx, cam);
+    fill(&mut meshes, &fx.mesh, pos, uv, colour, index);
+    // a second view (`twin_view`): its own, facing it
+    if let (Some(cam), Some(h)) = (second.eye(), second.mesh(&fx.mesh)) {
+        let (pos, uv, colour, index) = sparks(&fx, cam);
+        fill(&mut meshes, h, pos, uv, colour, index);
+    }
+}
+
+/// `draw_sparks`' quads for the camera at `cam`.
+#[allow(clippy::type_complexity)]
+fn sparks(fx: &HitSparks, cam: &Transform) -> (Vec<[f32; 3]>, Vec<[f32; 2]>, Vec<[f32; 4]>, Vec<u32>) {
     // world → game space: (x, −y, −z)
     let game = |v: Vec3| Vec3::new(v.x, -v.y, -v.z);
     let (right, down) = (game(cam.rotation * Vec3::X), game(cam.rotation * Vec3::NEG_Y));
@@ -523,7 +535,7 @@ pub fn draw_sparks(fx: Res<HitSparks>, cam: Query<&Transform, With<crate::Orbit>
         index.extend([n, n + 1, n + 2, n + 2, n + 1, n + 3]);
     }
     debug_assert!(pos.len() <= 4 * SPARKS);
-    fill(&mut meshes, &fx.mesh, pos, uv, colour, index);
+    (pos, uv, colour, index)
 }
 
 /// A player's swing trail and the motion (id, serial) last seen, to catch a swing's start.

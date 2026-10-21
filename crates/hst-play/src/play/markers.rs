@@ -76,7 +76,7 @@ fn setup(
             depth_bias: LAST,
             ..default()
         });
-        commands.spawn((Marker(i, m.clone()), Mesh3d(quad.clone()), MeshMaterial3d(m), Transform::default(), Visibility::Hidden));
+        commands.spawn((Marker(i, m.clone()), Mesh3d(quad.clone()), MeshMaterial3d(m), Transform::default(), Visibility::Hidden, crate::twin_view::Billboard::TURNED));
     }
 }
 
@@ -86,15 +86,16 @@ pub(super) fn draw(
     colours: Option<Res<Colours>>,
     time: Res<Time<Fixed>>,
     cam: Query<&Transform, (With<crate::Orbit>, Without<Marker>)>,
-    mut q: Query<(&Marker, &mut Transform, &mut Visibility)>,
+    mut q: Query<(Entity, &Marker, &mut Transform, &mut Visibility)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut second: crate::twin_view::Second,
 ) {
     let (Ok(cam), Some(colours)) = (cam.single(), colours) else { return };
     let on = shown(&g);
     let n = g.players.len();
     let a = time.overstep_fraction();
     let t = g.cam.view.fov.tan();
-    for (Marker(i, m), mut tr, mut vis) in &mut q {
+    for (e, Marker(i, m), mut tr, mut vis) in &mut q {
         if !on {
             *vis = Visibility::Hidden;
             continue;
@@ -103,11 +104,14 @@ pub(super) fn draw(
         let at = Vec3::from(p.prev).lerp(Vec3::from(p.pos), a);
         // game space → world: (x, -y, -z), and the anchor's height is absolute; offbeat sizes scale it with the player
         let anchor = Vec3::new(at.x, (g.reaches[*i].base + 0.65) * g.offbeat.scale(), -at.z);
-        let z = (anchor - cam.translation).dot(*cam.forward());
-        let s = half_width(z, t);
-        tr.translation = anchor;
-        tr.rotation = cam.rotation;
-        tr.scale = Vec3::new(2.0 * s, 2.0 * 0.84 * s, 1.0);
+        let pose = |cam: &Transform| {
+            let s = half_width((anchor - cam.translation).dot(*cam.forward()), t);
+            Transform { translation: anchor, rotation: cam.rotation, scale: Vec3::new(2.0 * s, 2.0 * 0.84 * s, 1.0) }
+        };
+        *tr = pose(cam);
+        if let Some(c) = second.eye().copied() {
+            second.pose(e, pose(&c));
+        }
         let slot = pads.slot_of(*i, n).unwrap_or(4);
         // cell `slot` of five: u from slot·0.156 to (slot+1)·0.156, the full height
         let uv = bevy::math::Affine2::from_scale_angle_translation(Vec2::new(0.156, 1.0), 0.0, Vec2::new(slot as f32 * 0.156, 0.0));
