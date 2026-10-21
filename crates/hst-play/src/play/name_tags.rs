@@ -159,9 +159,12 @@ pub fn plugin(app: &mut App) {
 
 /// A named player's slot label on a HUD this frame (640×448 rect, its cell on its sheet, tint and alpha out of 128):
 /// `labels` sets the name there instead.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Plate {
-    player: usize,
+    /// The player's name, else their slot's label ("1P".."4P", "COM"): every label is set in our tag.
+    text: String,
+    /// A name: on a pill it takes the (human's empty) rank row too.
+    named: bool,
     dst: [f32; 4],
     src: [f32; 4],
     rgb: [f32; 3],
@@ -191,9 +194,9 @@ pub(super) fn pool(p: &mut bevy::ecs::hierarchy::ChildSpawnerCommands, hud: usiz
     }
 }
 
-/// Takes the named players' slot labels out of `quads`: `label` gives a quad's slot if it is a slot label, `parts`
-/// its rect, cell, tint and alpha; `slots` is each match player's slot (humans 0..3, unique). The rest stay as they
-/// are.
+/// Takes the slot labels out of `quads`, to set each as our tag (the player's name, else the slot's label): `label`
+/// gives a quad's slot (0..3, 4 COM) if it is a slot label, `parts` its rect, cell, tint and alpha; `slots` is each
+/// match player's slot (humans 0..3, unique). The rest stay as they are.
 pub(super) fn take<Q>(
     quads: &mut Vec<Q>,
     names: Option<&Names>,
@@ -202,16 +205,20 @@ pub(super) fn take<Q>(
     label: impl Fn(&Q) -> Option<usize>,
     parts: impl Fn(&Q) -> ([f32; 4], [f32; 4], [f32; 3], f32),
 ) -> Vec<Plate> {
-    let Some(names) = names else { return Vec::new() };
     let mut out = Vec::new();
     quads.retain(|q| {
-        let player = label(q).filter(|&s| s < 4).and_then(|s| slots.iter().position(|&x| x == s)).filter(|&i| names.get(i).is_some());
-        let Some(player) = player else { return true };
+        let Some((s, player)) = label(q).filter(|&s| s <= 4).and_then(|s| Some((s, slots.iter().position(|&x| x == s)?))) else { return true };
+        let name = names.and_then(|n| n.get(player)).filter(|_| s < 4);
         let (dst, src, rgb, alpha) = parts(q);
-        out.push(Plate { player, dst, src, rgb, alpha, extra });
+        out.push(Plate { text: name.map_or_else(|| slot_label(s).to_string(), str::to_string), named: name.is_some(), dst, src, rgb, alpha, extra });
         false
     });
     out
+}
+
+/// Slot `s`'s label (0..3 humans, 4 COM).
+pub fn slot_label(s: usize) -> &'static str {
+    ["1P", "2P", "3P", "4P", "COM"][s.min(4)]
 }
 
 /// A slot label's words in its cell (disc px: left, top, right of their ink, outline included): `inpane_p`'s 40-px
@@ -230,7 +237,7 @@ fn place(p: &Plate, size: [f32; 2], above: f32) -> ([f32; 4], f32) {
     let (kx, ky) = (w / sw, h / sh);
     let [l, t, r] = ink(p.src);
     // a pill's label (`inpane_p`): a named player is human, so no rank row under it; the name takes both rows
-    let (big, t) = if sw == 40.0 { (BIG, sh - PLATE_H / 2.0) } else { (1.0, t) };
+    let (big, t) = if sw == 40.0 && p.named { (BIG, sh - PLATE_H / 2.0) } else { (1.0, t) };
     let (size, above) = ([size[0] * big, size[1] * big], above * big);
     let right = x + w / 2.0 > 320.0;
     let room = if right { r + PAD } else { sw - l + PAD + p.extra };
@@ -247,7 +254,6 @@ fn place(p: &Plate, size: [f32; 2], above: f32) -> ([f32; 4], f32) {
 #[allow(clippy::type_complexity)]
 fn labels(
     plates: Res<Plates>,
-    names: Option<Res<Names>>,
     mut images: ResMut<Assets<Image>>,
     mut sizes: Local<std::collections::HashMap<String, ([f32; 2], f32)>>,
     mut made: Local<std::collections::HashMap<(String, u8), Handle<Image>>>,
@@ -257,7 +263,7 @@ fn labels(
     let aspect = window.single().map_or(4.0 / 3.0, super::widescreen::aspect);
     let drop = window.single().map_or(0.0, |w| super::panel::touch_drop(w, aspect));
     for (Label(h, k), mut node, mut img, mut vis) in &mut q {
-        let Some((p, name)) = plates.0[*h].get(*k).and_then(|p| Some((p, names.as_ref()?.get(p.player)?))) else {
+        let Some((p, name)) = plates.0[*h].get(*k).map(|p| (p, p.text.as_str())) else {
             vis.set_if_neq(Visibility::Hidden);
             continue;
         };
@@ -284,21 +290,26 @@ fn labels(
     }
 }
 
-/// Spawns the named players' head tags: each its own quad (bottom edge on the anchor) and material, as the markers.
+/// Spawns the players' head tags (the name, else the slot's label): each its own quad (bottom edge on the anchor) and
+/// material, as the markers.
 fn setup(
     mut commands: Commands,
     g: Res<Game>,
+    pads: Res<super::Pads>,
     names: Option<Res<Names>>,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut done: Local<bool>,
 ) {
-    let (false, Some(names)) = (*done, names) else { return };
+    if *done || g.players.is_empty() {
+        return;
+    }
     *done = true;
     let quad = meshes.add(Rectangle::new(1.0, 1.0).mesh().build().translated_by(Vec3::Y * 0.5));
     for i in 0..g.players.len() {
-        let Some(name) = names.get(i) else { continue };
+        let slot = slot_label(pads.slot_of(i, g.players.len()).unwrap_or(4));
+        let name = names.as_ref().and_then(|n| n.get(i)).unwrap_or(slot);
         let (size, _) = tag_size(name, Style::Head);
         let material = materials.add(StandardMaterial {
             base_color_texture: Some(images.add(tag_image(name, Style::Head, 1.0))),
@@ -314,11 +325,10 @@ fn setup(
 }
 
 /// Hangs each head tag where its player's marker would be (`markers::draw`), the marker's height and the tag's
-/// width at the marker's scale, tinted as the marker; the named players' markers stay hidden.
+/// width at the marker's scale, tinted as the marker; the disc's markers stay hidden.
 #[allow(clippy::type_complexity)]
 fn draw(
     g: Res<Game>,
-    names: Option<Res<Names>>,
     colours: Option<Res<Colours>>,
     time: Res<Time<Fixed>>,
     cam: Query<&Transform, (With<crate::Orbit>, Without<Marker>, Without<Tag>)>,
@@ -327,11 +337,8 @@ fn draw(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut second: crate::twin_view::Second,
 ) {
-    let Some(names) = names else { return };
-    for (m, mut vis) in &mut markers {
-        if names.get(m.0).is_some() {
-            *vis = Visibility::Hidden;
-        }
+    for (_, mut vis) in &mut markers {
+        *vis = Visibility::Hidden;
     }
     let (Ok(cam), Some(colours)) = (cam.single(), colours) else { return };
     let on = markers::shown(&g);
@@ -379,16 +386,16 @@ mod tests {
         assert_eq!(n.get(3), None);
     }
 
-    /// A named human's slot label comes out of the quads; a nameless one's and a COM's stay.
+    /// Every player's slot label comes out of the quads: a named human's as the name, a nameless one's and a COM's
+    /// as its label; other quads stay.
     #[test]
-    fn takes_named_labels() {
+    fn takes_slot_labels() {
         let names = Names::parse("ANNA,,BO");
         // players 0..3 on slots 1, 0, 4 (COM), and slot labels for each plus another quad
         let mut quads = vec![(Some(1), 10.0), (Some(0), 20.0), (Some(4), 30.0), (None, 40.0)];
         let got = take(&mut quads, Some(&names), &[1, 0, 4], 0.0, |q| q.0, |q| ([q.1, 0.0, 40.0, 24.0], [0.0, 0.0, 40.0, 24.0], [128.0; 3], 128.0));
-        assert_eq!(got.iter().map(|p| (p.player, p.dst[0])).collect::<Vec<_>>(), [(0, 10.0)]);
-        assert_eq!(quads.iter().map(|q| q.1).collect::<Vec<_>>(), [20.0, 30.0, 40.0]);
-        assert!(take(&mut quads, None, &[1, 0, 4], 0.0, |q| q.0, |q| ([q.1; 4], [0.0; 4], [0.0; 3], 0.0)).is_empty());
+        assert_eq!(got.iter().map(|p| (p.text.as_str(), p.named, p.dst[0])).collect::<Vec<_>>(), [("ANNA", true, 10.0), ("1P", false, 20.0), ("COM", false, 30.0)]);
+        assert_eq!(quads.iter().map(|q| q.1).collect::<Vec<_>>(), [40.0]);
     }
 
     /// B541: "1P" set as either tag comes out the size of the disc's own (the head cell 40×32; the plate's words
@@ -399,7 +406,7 @@ mod tests {
     /// middle.
     #[test]
     fn plates_fit_their_cells() {
-        let plate = |x: f32, extra: f32| Plate { player: 0, dst: [x, 100.0, 80.0, 48.0], src: [0.0, 0.0, 40.0, 24.0], rgb: [128.0; 3], alpha: 128.0, extra };
+        let plate = |x: f32, extra: f32| Plate { text: String::new(), named: true, dst: [x, 100.0, 80.0, 48.0], src: [0.0, 0.0, 40.0, 24.0], rgb: [128.0; 3], alpha: 128.0, extra };
         let close = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-3);
         // 30 wide at 1.4 = 42 in 36 + 40 of room: whole, its middle on the label's bottom edge (the pill's middle)
         let (r, squeeze) = place(&plate(100.0, 40.0), [30.0, PLATE_H], 0.0);
