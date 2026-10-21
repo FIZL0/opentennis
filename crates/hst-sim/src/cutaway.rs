@@ -423,8 +423,24 @@ impl Shot {
         self.build(&frame);
     }
 
+    /// [`Shot::step`] with a shot's own `hook` run on the orbit view before the record's checks and framing (the
+    /// alternate camera's pull-back, [`crate::alt_cam`]).
+    pub fn step_with(&mut self, frame: impl Fn(u8) -> M4, hook: impl FnOnce(&mut Shot)) {
+        for c in &mut self.channels[ch::FIRST..] {
+            c.step();
+        }
+        if self.byte(rec::FOLLOW_YAW) != 0 && self.byte(rec::HOLD_YAW) != 0 {
+            self.yaw_held = (F(self.yaw_held) + self.yaw_over).0;
+        }
+        self.build_with(&frame, hook);
+    }
+
     /// Build the view for the current channel values (`step` without advancing).
     pub fn build(&mut self, frame: &impl Fn(u8) -> M4) {
+        self.build_with(frame, |_| {});
+    }
+
+    fn build_with(&mut self, frame: &impl Fn(u8) -> M4, hook: impl FnOnce(&mut Shot)) {
         let basis = self.basis(frame);
         // orbit: the subject's frame turned by yaw then pitch, rebuilt from its forward without roll
         let cam = mul(&basis, &rot_y(self.ch(ch::YAW)));
@@ -478,6 +494,7 @@ impl Shot {
         }
         self.cam = cam;
         self.fov = self.ch(ch::FOV);
+        hook(self);
         // keep the eye above the ground, looking at the subject: the subject frame's own spot (the frame it's moved
         // to, before the channel offset), not the basis. A shot whose offset puts the eye on the basis (the
         // close-up, from the ground in front of the player) would otherwise take the asin of a zero-length look (B367)
@@ -633,12 +650,17 @@ impl Shot {
         [x, y, z, pos]
     }
 
+    /// The record's pitch-framing dead zone (a share of the vertical half-angle).
+    pub(crate) fn pitch_dead_zone(&self) -> f32 {
+        self.float(rec::PITCH_FRAMING[1])
+    }
+
     fn vfov(&self) -> f32 {
         musl::atanf((F(musl::tanf(self.fov)) * ASPECT).0)
     }
 
     /// Widen and tilt up so `point` stays within `amount` of the half-height above centre (`MAX_VFOV` at most).
-    fn head(&mut self, amount: f32, point: [f32; 3]) {
+    pub(crate) fn head(&mut self, amount: f32, point: [f32; 3]) {
         /// 35° in radians.
         const MAX_VFOV: f32 = 0.610_865_24;
         let vfov = self.vfov();
