@@ -5,7 +5,8 @@ Usage: record_ai_rally.py <slot> <frames> <out.bin> [keep 1 call in N] [tags, e.
 Hooks like record_ai_search.py (entry stub snapshots the world and swaps the return address for an exit stub that
 appends the entry and exit records; a counter hook on the generator 0x19f5c0 with the AI's MT at 0x427130 counts
 draws and copies the generator block at its first draw). Tags: 1 receive 0x3cf7b0, 2 NET 0x3d02c0, 3 BASE 0x3d1320;
-each is called as (ai, *stick out, *button out). Every Nth call is kept (all calls draw). The buffer is drained
+each is called as (ai, *stick out, *button out); doubles also 5 the AI update, 6 its message handler (a1 = the
+message id, *a1/*a2 left zero). Every Nth call is kept (all calls draw). The buffer is drained
 while the game is paused, so runs aren't limited by the free RAM.
 
 File: b"AIRL", u32 0, the generator block at the first draw (0x9c8 bytes), then records. Record (REC bytes fixed,
@@ -46,6 +47,12 @@ if SINGLES: HOOKS = {1: 0x3c9a40, 2: 0x3ca4e0, 3: 0x3cb130}
 # zero in the record) and no partner/opponent regions. 0x740: the path object +0x1f0..+0x200 (its claimed slot +0x1fc
 # at 0x74c), every tag. Tag 4 takes the unused tag 0's scratch and call counter (tag & 3).
 HOOKS[4] = 0x3646a0
+# Tags 5 and 6 (P11k6), doubles only: the AI object's per-frame update 0x3cebf0, called by the player update as (ai,
+# *stick quad, *button word) with both zeroed by the caller just before (0x20 / 0x30 hold what it leaves), and its
+# message handler 0x3ce7c0, called after the player's own handler as (ai, message id): the id is a1 at 0x14, and
+# 0x20/0x30 stay zero. Both run the routines inside them, so record them without tags 1-3 (a nested hooked call
+# would share nothing, but the outer record then spans the inner one's). Not with HST_PROBE (its stubs sit at tag 5's).
+if not SINGLES: HOOKS.update({5: 0x3cebf0, 6: 0x3ce7c0})
 # (at, source: list of (base, offsets to load through), first offset, bytes)
 PLAYER = [(0x340, 0x12b0, 0x20), (0x360, 0x1370, 0x20), (0x380, 0x13f0, 0x10), (0x390, 0x3050, 0x10),
           (0x3a0, 0x38f0, 0x10), (0x3b0, 0x3a90, 0xd0), (0x480, 0x3d60, 0x20), (0x4a0, 0x3df0, 0x20),
@@ -78,6 +85,11 @@ copyn.n = 0
 def copy(src, n, at): return [addiu("t9", "zero", n)] + copyn(src, "t9", at)
 
 
+def scratch_of(tag):
+    """The entry record's build area: 0x8000 apiece for tags 0-3 (4 shares 0's), the gaps between for 5 and 6."""
+    return SCRATCH + (0x8000 * (tag & 3) if tag <= 4 else 0x4000 + 0x8000 * (tag - 5))
+
+
 def save(tag): return DATA + 0x100 + 0x40 * tag  # ra, a0..a2, size, 2 temps
 
 
@@ -95,7 +107,7 @@ def record(tag, size, exit):
     for k in range(3):
         p += [lw("t6", s + 4 + 4 * k, "t4"), sw("t6", 0x10 + 4 * k, "t5")]
     p += [sw("v0" if exit else "zero", 0x1c, "t5")]
-    if tag != 4:
+    if tag not in (4, 6):
         p += [lw("t6", s + 8, "t4")] + copy("t6", 4, 0x20) + [lw("t6", s + 12, "t4"), lw("t6", 0, "t6"), sw("t6", 0x30, "t5")]
     p += [*li("t6", GM_PTR), lw("t6", 0, "t6"), lw("t7", 0x58, "t6"), sw("t7", 0x34, "t5"), lbu("t7", 0x55, "t6"),
           sw("t7", 0x38, "t5"), *li("t6", 0x422fa4), lw("t6", 0, "t6"), sw("t6", 0x3c, "t5")]
@@ -136,15 +148,15 @@ def entry(tag, first, second):
           lw("t2", 0x50, "t6"), sll("t8", "t7", 5), sll("t7", "t7", 4), addu("t7", "t7", "t8"), addu("t2", "t2", "t7")]
     # size: REC + count · 0x30
     p += [sll("t7", "t3", 5), sll("t6", "t3", 4), addu("t6", "t6", "t7"), addiu("at", "t6", REC), sw("at", s + 0x10, "t4"),
-          *li("t5", SCRATCH + 0x8000 * (tag & 3))]
+          *li("t5", scratch_of(tag))]
     p += [sw("t2", s + 0x14, "t4"), sw("t3", s + 0x18, "t4")]  # kept over record(): it uses t2
     p += record(tag, "at", False)
     p += [lw("t2", s + 0x14, "t4"), lw("t3", s + 0x18, "t4"), sll("t6", "t3", 3), sll("t3", "t3", 2), addu("t6", "t6", "t3"),
-          br(4, "t6", "zero", "nopath"), 0, *li("t5", SCRATCH + 0x8000 * (tag & 3) + REC)]
+          br(4, "t6", "zero", "nopath"), 0, *li("t5", scratch_of(tag) + REC)]
     p += copyn("t2", "t6", 0) + ["nopath"]
     # the stack quad again, last: a vsync interrupt during the copies above writes below sp, so the routine reads what
     # is there now (P11k8)
-    p += [*li("t5", SCRATCH + 0x8000 * (tag & 3)), addiu("t6", "sp", -0x20)] + copy("t6", 4, 0x730)
+    p += [*li("t5", scratch_of(tag)), addiu("t6", "sp", -0x20)] + copy("t6", 4, 0x730)
     p += [lw(r, s + 4 + 4 * k, "t4") for k, r in enumerate(ARGS[:3])]
     p += [*li("ra", exit_at(tag)), first, second, j(HOOKS[tag] + 8), 0]
     p += ["bad", sw("a0", D + 0x20, "t4"), sw("ra", D + 0x24, "t4"), sw("a1", D + 0x28, "t4"), sw("sp", D + 0x2c, "t4"),
@@ -153,7 +165,7 @@ def entry(tag, first, second):
 
 
 def leave(tag, every):
-    scratch, s = SCRATCH + 0x8000 * (tag & 3), save(tag) & 0xffff
+    scratch, s = scratch_of(tag), save(tag) & 0xffff
     p = [lui("t4", DATA >> 16), sw("zero", D + 0x34 + 4 * tag, "t4"), lw("t6", D + 8 + 4 * (tag & 3), "t4"), addiu("t6", "t6", 1),
          sw("t6", D + 8 + 4 * (tag & 3), "t4"), addiu("t7", "zero", every), br(5, "t6", "t7", "done"), 0, sw("zero", D + 8 + 4 * (tag & 3), "t4")]
     # room for the entry, the exit and its path copy? else count a drop
@@ -182,6 +194,7 @@ def counter(first, second):
 slot, want, out = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
 every = int(sys.argv[4]) if len(sys.argv) > 4 else 1
 tags = [int(t) for t in sys.argv[5].split(",")] if len(sys.argv) > 5 else list(HOOKS)
+assert not (os.environ.get("HST_PROBE") == "1" and {5, 6} & set(tags)), "HST_PROBE's stubs sit where tag 5's go"
 slow = float(sys.argv[6]) if len(sys.argv) > 6 else 1.0  # scales every player's speed stat (+0x1374): missed balls
 p = Pine()
 p.load_state(slot)
