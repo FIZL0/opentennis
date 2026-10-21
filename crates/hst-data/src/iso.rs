@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex};
 use twox_hash::XxHash3_64;
 
 const SECTOR: u64 = 2048;
+/// Largest directory extent read: the retail disc's biggest is a few sectors, a damaged one may claim 4 GB.
+const MAX_DIR: u32 = 1 << 20;
 
 /// Where an `Iso` reads from: a file, a mounted pack, or (browser import) the picked `File`.
 pub trait Source: Read + Seek {}
@@ -138,6 +140,10 @@ impl Iso {
 
     fn read_at(&mut self, off: u64, len: usize) -> io::Result<Vec<u8>> {
         READ.fetch_add(len as u64, std::sync::atomic::Ordering::Relaxed);
+        let end = self.file.seek(SeekFrom::End(0))?;
+        if off.checked_add(len as u64).is_none_or(|e| e > end) {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "read past the end of the disc"));
+        }
         let mut buf = vec![0; len];
         self.file.seek(SeekFrom::Start(off))?;
         self.file.read_exact(&mut buf)?;
@@ -148,6 +154,9 @@ impl Iso {
         if depth > 16 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "directory nesting too deep"));
         }
+        if size > MAX_DIR {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "directory too large"));
+        }
         let dir = self.read_at(lba as u64 * SECTOR, size as usize)?;
         let mut p = 0;
         while p < dir.len() {
@@ -156,9 +165,9 @@ impl Iso {
                 p = (p / SECTOR as usize + 1) * SECTOR as usize; // records never straddle sectors
                 continue;
             }
-            let rec = dir.get(p..p + len).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad dir record"))?;
-            let name_len = rec[32] as usize;
-            let raw = &rec[33..33 + name_len];
+            let bad = || io::Error::new(io::ErrorKind::InvalidData, "bad dir record");
+            let rec = dir.get(p..p + len).filter(|r| r.len() >= 33).ok_or_else(bad)?;
+            let raw = rec.get(33..33 + rec[32] as usize).ok_or_else(bad)?;
             if raw != [0] && raw != [1] {
                 let name = String::from_utf8_lossy(raw);
                 let name = name.split(';').next().unwrap().to_ascii_uppercase();
@@ -192,4 +201,51 @@ impl Iso {
 fn extent(rec: &[u8]) -> (u32, u32) {
     let le = |o: usize| u32::from_le_bytes(rec[o..o + 4].try_into().unwrap());
     (le(2), le(10))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An image whose root directory (one sector at LBA 18) holds `rec`, with a `size`-byte extent.
+    fn image(rec: &[u8], size: u32) -> io::Result<Iso> {
+        let mut d = vec![0; 19 * SECTOR as usize];
+        let pvd = 16 * SECTOR as usize;
+        d[pvd + 1..pvd + 6].copy_from_slice(b"CD001");
+        d[pvd + 156 + 2..pvd + 156 + 6].copy_from_slice(&18u32.to_le_bytes());
+        d[pvd + 156 + 10..pvd + 156 + 14].copy_from_slice(&size.to_le_bytes());
+        let root = 18 * SECTOR as usize;
+        d[root..root + rec.len()].copy_from_slice(rec);
+        Iso::from_source(Box::new(io::Cursor::new(d)))
+    }
+
+    fn record(len: u8, name: &[u8], name_len: u8) -> Vec<u8> {
+        let mut r = vec![0; 33];
+        r[0] = len;
+        r[32] = name_len;
+        r.extend(name);
+        r
+    }
+
+    #[test]
+    fn damaged_directories_are_invalid_data_not_panics() {
+        let invalid = |r: io::Result<Iso>| r.err().map(|e| e.kind());
+        // record too short to hold its name length
+        assert_eq!(invalid(image(&[10; 10], 2048)), Some(io::ErrorKind::InvalidData));
+        // name length running past the record
+        assert_eq!(invalid(image(&record(40, b"ABCDEFG", 200), 2048)), Some(io::ErrorKind::InvalidData));
+        // a 4 GB directory extent
+        assert_eq!(invalid(image(&record(40, b"A", 1), u32::MAX)), Some(io::ErrorKind::InvalidData));
+        // an extent past the end of the image
+        assert_eq!(invalid(image(&record(40, b"A", 1), 1 << 19)), Some(io::ErrorKind::UnexpectedEof));
+    }
+
+    #[test]
+    fn a_file_past_the_end_fails_to_read() {
+        let mut r = record(34, b"A", 1);
+        r[2..6].copy_from_slice(&1000u32.to_le_bytes());
+        r[10..14].copy_from_slice(&u32::MAX.to_le_bytes());
+        let mut iso = image(&r, 2048).unwrap();
+        assert_eq!(iso.read("A").unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
+    }
 }

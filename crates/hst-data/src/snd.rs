@@ -139,7 +139,7 @@ impl<'a> Bank<'a> {
                     break;
                 }
             }
-            frame += delta.div_ceil(8);
+            frame = frame.checked_add(delta.div_ceil(8))?;
         }
     }
 
@@ -257,7 +257,8 @@ impl Sequencer {
         let mut out = Vec::new();
         self.time += self.inc;
         while self.at.is_some() && self.time - self.next >= 0.0 {
-            if self.event(&mut out).is_none() {
+            // a damaged file can loop without time passing: end it rather than spin
+            if out.len() > MAX_FRAME_EVENTS || self.event(&mut out).is_none() {
                 self.at = None;
                 break;
             }
@@ -319,6 +320,9 @@ impl Sequencer {
         Some(())
     }
 }
+
+/// Most channel messages one frame may hold before the track counts as damaged (the game's BGM has a handful).
+const MAX_FRAME_EVENTS: usize = 4096;
 
 /// The game's frame rate the BGM clock counts in.
 const FPS: f64 = 60.0;
@@ -588,4 +592,40 @@ pub fn gaussian() -> &'static [[i16; 4]; 256] {
         }
         out
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_damaged_sequence_with_huge_deltas_ends_without_a_crash() {
+        let mut hd = vec![0; 0x40];
+        hd[0xc..0x10].copy_from_slice(b"SShd");
+        hd[0x10..0x14].copy_from_slice(&(-1i32).to_le_bytes());
+        hd[0x24..0x28].copy_from_slice(&(-1i32).to_le_bytes());
+        hd[0x1c..0x20].copy_from_slice(&0x28i32.to_le_bytes());
+        // one program (offset 4 from the section), one key (sequence at offset 8)
+        hd[0x28..0x2a].copy_from_slice(&0u16.to_le_bytes());
+        hd[0x2a..0x2c].copy_from_slice(&4u16.to_le_bytes());
+        hd[0x2c..0x2e].copy_from_slice(&0u16.to_le_bytes());
+        hd[0x2e..0x30].copy_from_slice(&8u16.to_le_bytes());
+        hd.truncate(0x30);
+        for _ in 0..64 {
+            hd.extend([0xb0, 0, 0, 0xff, 0xff, 0xff, 0xff, 0x7f]);
+        }
+        assert_eq!(Bank::parse(&hd).unwrap().key_ons(0, 0), None);
+    }
+
+    #[test]
+    fn a_loop_without_time_ends_the_track() {
+        let mut mid = b"MThd\0\0\0\x06\0\0\0\x01\x01\xe0MTrk".to_vec();
+        // loop start, a note, loop end, all at delta 0
+        let track = [0, 0xb0, 99, 20, 0, 0x90, 60, 100, 0, 0xb0, 99, 30, 0];
+        mid.extend((track.len() as u32).to_be_bytes());
+        mid.extend(track);
+        let mut s = Sequencer::new(&mid).unwrap();
+        assert!(s.frame().len() <= MAX_FRAME_EVENTS + 1);
+        assert!(s.done());
+    }
 }
