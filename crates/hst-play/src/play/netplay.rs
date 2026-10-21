@@ -686,6 +686,10 @@ pub fn flags(room: &Room, me: &str, devices: &[Option<super::controls::Seat>], e
     if order.iter().any(|&s| pick(s).is_some_and(|p| p.swap)) {
         a.extend(["--swap-hands".into(), order.iter().map(|&s| if pick(s).is_some_and(|p| p.swap) { "1" } else { "0" }).collect::<Vec<_>>().join(",")]);
     }
+    // B40g3: the host's handicaps, by match slot
+    if let Some(h) = super::handicap::Handicaps::flag(&order.iter().map(|&s| pick(s).map_or(0, |p| p.handicap)).collect::<Vec<_>>()) {
+        a.extend(["--handicap".into(), h]);
+    }
     a.extend(extra.iter().cloned());
     a
 }
@@ -796,6 +800,23 @@ mod tests {
         room.seats[1].as_mut().unwrap().pick.swap = true;
         let a = flags(&room, "host", &[None, None], &[]);
         assert_eq!(a[a.iter().position(|x| x == "--swap-hands").unwrap() + 1], "0,0,1,0");
+    }
+
+    /// B40g3: the host's handicaps reach every peer's match by match slot; none set, no flag.
+    #[test]
+    fn flags_carry_the_handicaps() {
+        use crate::net::{Pick, Seat};
+        let s = |peer: &str| Some(Seat { peer: peer.into(), pick: Pick::disc(0, 0) });
+        let mut room = Room { doubles: true, seats: vec![s("host"), s("g"), s("cpu"), s("g")], ..Default::default() };
+        let flag = |room: &Room, me| {
+            let a = flags(room, me, &[None, None], &[]);
+            a.iter().position(|x| x == "--handicap").map(|i| a[i + 1].clone())
+        };
+        assert_eq!(flag(&room, "g"), None);
+        room.seats[1].as_mut().unwrap().pick.handicap = 1;
+        room.seats[2].as_mut().unwrap().pick.handicap = 2;
+        // seats 0 2 1 3 are match slots 0 1 2 3; every peer reads the same
+        assert_eq!((flag(&room, "g"), flag(&room, "host")), (Some("0,2,1,0".into()), Some("0,2,1,0".into())));
     }
 
     /// The host's Markers Off reaches every peer's match.
