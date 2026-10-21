@@ -765,6 +765,12 @@ impl Sound {
         id
     }
 
+    /// B619: cuts character `who`'s emote voice (its post-point reaction starting).
+    pub fn stop_emote(&self, who: usize) {
+        let id = std::mem::take(&mut self.0.lock().unwrap().emotes[who]);
+        self.stop(id);
+    }
+
     /// Cuts every character's emote voice (a post-point reaction's line, B473).
     pub fn stop_emotes(&self) {
         let ids = std::mem::take(&mut self.0.lock().unwrap().emotes);
