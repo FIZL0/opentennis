@@ -300,7 +300,7 @@ pub(super) fn begin(
     let b = if g.stage == 7 { "B" } else { "" };
     // B181: a mod character (not a costume pack) never speaks its donor's; it has no prize take, so it says its own
     // set cheer / groan (programs 9 / 10)
-    let modded = match_mod.as_ref().and_then(|m| m.0.get(plan.shown)?.as_ref()).filter(|m| m.costume_of.is_none());
+    let modded = match_mod.as_ref().and_then(|m| m.0.get(plan.shown)?.as_ref()).filter(|m| m.disc_voice().is_none());
     let (voice, voice_program) = match modded {
         Some(m) => (crate::mods::voice(m), 9),
         None => (SoundBank::load(&mut iso, &format!("SND/VOICE/PRIZE/PC_HV{c:02}{b}.XB0"), &format!("data/sound/VOICE/PRIZE/sgv_vc{c:02}f{}.hd", b.to_lowercase())), 0),

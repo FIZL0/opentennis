@@ -1346,7 +1346,7 @@ fn voice(act: Act, who: Who, costume: usize, mods: &[Mod], banks: &mut HashMap<S
             if let Some(own) = own.filter(|o| o.wav.contains_key(&(program as usize))) {
                 return Some((own, sound::Play { slot: 0x16, program, key: 0, volume: 0x80, speed: 1.0 }));
             }
-            (m.costume_of?, 0)
+            (m.disc_voice()?, 0)
         }
     };
     if act == Act::Pose {
@@ -1387,7 +1387,7 @@ fn pick_voice(who: Who, n: u8, mods: &[Mod], banks: &mut HashMap<String, Option<
             if let Some(own) = own.filter(|o| o.wav.contains_key(&9)) {
                 return Some((own, sound::Play { slot: 0x16, program: 9, key: 0, volume: 0x80, speed: 1.0 }));
             }
-            m.costume_of?
+            m.disc_voice()?
         }
     };
     let (xb, hd) = (format!("SND/VOICE/MENU/MVC_CH{n}.XB0"), format!("data/sound/VOICE/MENU/mvc_ch{n}.hd"));
@@ -1574,6 +1574,7 @@ mod tests {
             skeleton: None,
             emotes: None, voice_takes: None,
             upscale: true,
+            build: Default::default(),
         }];
         assert!(picks_past_select(&menu).is_empty(), "the select draws its own (tiles on view, the picks)");
         (menu.players[1].random, menu.players[1].modded, menu.players[1].pick, menu.players[1].costume) = (true, true, 0, 1);
@@ -1606,6 +1607,7 @@ mod tests {
             skeleton: None,
             emotes: None, voice_takes: None,
             upscale: true,
+            build: Default::default(),
         };
         let mut menu = Menu { screen: Screen::Mods, ..default() };
         menu.mods = vec![m("a")];
@@ -1680,7 +1682,7 @@ mod tests {
         std::fs::write(dir.join("voice/9_0.wav"), &wav).unwrap();
         let m = |voice: &str| Mod {
             dir: dir.clone(), id: "t".into(), name: "t".into(), source: String::new(), costumes: vec![], donor: 3, hand: 1.0, base: 3,
-            overrides: vec![], ai_row: 3, texture_face: false, no_face: false, voice: voice.into(), motions: None, costume_of: None, skeleton: None, emotes: None, voice_takes: None, upscale: true,
+            overrides: vec![], ai_row: 3, texture_face: false, no_face: false, voice: voice.into(), motions: None, costume_of: None, skeleton: None, emotes: None, voice_takes: None, upscale: true, build: Default::default(),
         };
         let mods = [m("voice/"), m("none/")];
         let mut banks = HashMap::new();

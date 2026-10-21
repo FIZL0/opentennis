@@ -153,6 +153,7 @@ pub fn load(
         frame_gameplay: false,
         emote_ticks: HashMap::new(),
         voice_takes: HashMap::new(),
+        size: 1.0,
     }))
 }
 

@@ -118,6 +118,7 @@ mod tests {
             skeleton: None,
             emotes: None, voice_takes: None,
             upscale: true,
+            build: Default::default(),
         };
         let h = gameplay_hash(&m);
         assert_eq!(h, gameplay_hash(&Mod { name: "Y".into(), costumes: vec![], voice: "v/".into(), ..m.clone() }));

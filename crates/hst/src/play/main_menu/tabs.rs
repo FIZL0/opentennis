@@ -373,6 +373,7 @@ mod tests {
             skeleton: None,
             emotes: None, voice_takes: None,
             upscale: true,
+            build: Default::default(),
         }
     }
 

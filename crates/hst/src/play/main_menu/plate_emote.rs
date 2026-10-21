@@ -220,7 +220,7 @@ fn voice(id: usize, who: Who, mods: &[crate::mods::Mod], banks: &mut HashMap<Str
                 *key = next(emote::own_voice_keys(id, |p| own.wav.get(&(p as usize)).map_or(0, Vec::len))?);
                 return Some((own, sound::Play { slot: 0x16, program, key: *key, volume: 0x80, speed: 1.0 }));
             }
-            m.costume_of?
+            m.disc_voice()?
         }
     };
     *key = next(emote::voice_keys(id)?);

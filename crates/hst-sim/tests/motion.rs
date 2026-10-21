@@ -901,3 +901,27 @@ fn drawn_sampler_close() {
     eprintln!("{samples} track samples, worst rotation {:e}, position {:e}", worst[0], worst[1]);
     assert!(samples > 100_000 && worst[0] < 5e-4 && worst[1] < 1e-5, "{samples} {worst:?}");
 }
+
+/// M11: a mod's swing pace. At rate 1 every paced helper is the original's; at 2 the swing waits for 4 frames out
+/// (its 8th frame meets the ball at speed 2), recoveries halve and a whiff starts 4 ticks in.
+#[test]
+fn paced_swings() {
+    use hst_sim::motion::{paced, paced_stroke_start, paced_whiff, swing_lead, id};
+    use hst_sim::shot::branch;
+    for b in [branch::GROUND, branch::VOLLEY, branch::DIVE, branch::SMASH] {
+        for frames in -2..40 {
+            for anim in [0x10, 0x11, 0x16, 0x1f] {
+                assert_eq!(paced_stroke_start(b, frames, anim, 1.0), stroke_start(b, frames, anim));
+            }
+        }
+    }
+    assert_eq!((swing_lead(1.0), swing_lead(2.0), swing_lead(3.0)), (SWING_LEAD, 4, 3));
+    assert_eq!((paced(30, 1.0), paced(30, 2.0), paced(15, 2.0)), (30, 15, 8));
+    assert_eq!((paced_whiff(1.0), paced_whiff(2.0)), (0, 4));
+    // 4..8 frames out: a ground stroke turns and its swing waits for 4 out; at 4 it starts at speed 2
+    assert_eq!(paced_stroke_start(branch::GROUND, 6, 0x10, 2.0), (id::TURN_FORE, 1.0, Some(0x10)));
+    assert_eq!(paced_stroke_start(branch::GROUND, 4, 0x11, 2.0), (0x11, 2.0, None));
+    assert_eq!(paced_stroke_start(branch::GROUND, 0, 0x11, 2.0), (0x11, 2.0, None));
+    // the smash stays timed to its contact
+    assert_eq!(paced_stroke_start(branch::SMASH, 6, 0x1f, 2.0), stroke_start(branch::SMASH, 6, 0x1f));
+}

@@ -59,6 +59,10 @@ pub struct Wire {
 impl Wire {
     /// Mod `m` in costume `costume` (reads its files: the costume's skeleton and the pack's hash).
     pub fn of(m: &Mod, costume: usize) -> Result<Wire, String> {
+        // M11: the wire carries no body or pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`) yet
+        if m.build != mods::Build::default() {
+            return Err(format!("{}: a disc-body, scaled or paced mod doesn't play online yet", m.id));
+        }
         let (sk, looks) = kept(m, costume % m.costumes.len().max(1))?;
         Ok(Wire {
             id: m.id.clone(),
@@ -140,6 +144,7 @@ pub fn for_match(w: &Wire, looks: Option<&Path>) -> Mod {
         skeleton: None,
         emotes: None, voice_takes: None,
         upscale: true,
+        build: Default::default(),
     });
     (m.donor, m.hand, m.base, m.overrides, m.ai_row) = (w.donor, w.hand, w.base, w.overrides.clone(), w.ai_row);
     m.skeleton = Some(Arc::new(w.skeleton()));

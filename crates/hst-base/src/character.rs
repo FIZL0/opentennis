@@ -144,6 +144,8 @@ pub struct CharacterData {
     /// B596: a mod's own voice takes, how many it has of each program (`mods::voice_takes`; online the owner's wire),
     /// that its emotes cycle over; empty for a disc character.
     pub voice_takes: HashMap<u8, u8>,
+    /// How many times its disc body's size it is drawn (a disc-body mod's §6 `scale`, M11); 1 for every other.
+    pub size: f32,
 }
 
 /// A mod's off hand on its racket (looks only). The donor's clips turn the costume's own bones, so on longer or
@@ -883,7 +885,58 @@ pub fn load_disc_with(
     // the game binds a face track to the target of the same name; others are dropped
     let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &skeleton, |name| model.morph_names.iter().position(|m| m == name), only)?;
     let binds = part_skins(&joints, &parts, meshes, bindposes);
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new(), voice_takes: HashMap::new() })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new(), voice_takes: HashMap::new(), size: 1.0 })
+}
+
+/// [`load_disc_with`] `scale` times the size (M11, a disc-body mod's §6 `scale`): every rest translation (so every
+/// motion's reach, the arm table and the turn's pelvis table, rebound to the bigger skeleton) and the racket. The
+/// mesh keeps its vertices: each joint's inverse bind scales what it carries into the joint's space, so skinning
+/// (morphs included, and the per-joint cull boxes, which go through the same matrices) draws it `scale` times as big.
+#[allow(clippy::too_many_arguments)]
+pub fn load_disc_scaled(
+    iso: &mut Iso,
+    n: usize,
+    costume: usize,
+    scale: f32,
+    meshes: &mut impl Store<Mesh>,
+    materials: &mut impl Store<StandardMaterial>,
+    images: &mut impl Store<Image>,
+    bindposes: &mut impl Store<SkinnedMeshInverseBindposes>,
+    only: Option<&[usize]>,
+) -> Result<CharacterData, String> {
+    let mut d = load_disc_with(iso, n, costume, meshes, materials, images, bindposes, only)?;
+    if scale == 1.0 {
+        return Ok(d);
+    }
+    d.size = scale;
+    let grow = Mat4::from_scale(Vec3::splat(scale));
+    for j in &mut d.joints {
+        j.rest.translation *= scale;
+        j.inverse_bind = grow * j.inverse_bind;
+    }
+    for r in &mut d.skeleton.rest {
+        r[3][..3].iter_mut().for_each(|v| *v *= scale);
+    }
+    let names = d.morph_names.clone();
+    let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &d.skeleton, |name| names.iter().position(|m| m == name), only)?;
+    (d.motions, d.paths, d.pelvis, d.arm, d.faces, d.stance_ball) = (motions, paths, pelvis, arm, faces, stance_ball);
+    // the pelvis keys are the body's own height, not scaled by a bone length: they grow with the body, and the arm
+    // table is read again from the grown strokes
+    let hip = d.skeleton.names.iter().position(|n| n == "Bip01Pelvis");
+    for t in d.motions.values_mut().flat_map(|c| &mut c.tracks).filter(|t| Some(t.node) == hip) {
+        t.scale *= scale;
+    }
+    let strokes: Option<Vec<Clip>> = (0x10..0x1c).map(|m| d.motions.get(&m).cloned()).collect();
+    d.arm = strokes.map(|c| Arc::new(arm_table(&d.skeleton, &c, n as i32)));
+    for b in &mut d.binds {
+        b.binds = bindposes.add(SkinnedMeshInverseBindposes::from(b.joints.iter().map(|&j| d.joints[j].inverse_bind).collect::<Vec<_>>()));
+    }
+    for (h, _) in &d.racket {
+        if let Some(bevy::mesh::VertexAttributeValues::Float32x3(pos)) = meshes.get_mut(h).and_then(|m| m.attribute_mut(Mesh::ATTRIBUTE_POSITION)) {
+            pos.iter_mut().flatten().for_each(|v| *v *= scale);
+        }
+    }
+    Ok(d)
 }
 
 /// The node names of disc character `n`'s body model (costume 0; every costume shares the skeleton).
@@ -1150,6 +1203,7 @@ pub fn load_npc(
         frame_gameplay: false,
         emote_ticks: HashMap::new(),
         voice_takes: HashMap::new(),
+        size: 1.0,
     })
 }
 

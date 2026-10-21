@@ -45,6 +45,14 @@ impl Stats {
     }
 }
 
+impl Stats {
+    /// A mod's run pace (character standard §6 `run_speed`, M11): the same stats running `rate` times as fast. The
+    /// run speed is linear in `speed` (SPE / 10), so ×`rate` there scales every run, the AI's planning included.
+    pub fn paced(self, rate: f32) -> Stats {
+        Stats { speed: (F(self.speed) * rate).0, ..self }
+    }
+}
+
 /// A character's reach and contact heights (m) and body-shot adjustments, as the game's TParam.csv parser leaves
 /// them in the character record (and copies to the player).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -878,6 +886,20 @@ impl Body {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// M11: a run pace of ¼ runs every frame of every run exactly a quarter as far (a power of two: no rounding);
+    /// pace 1 is the stats themselves.
+    #[test]
+    fn paced_run_is_a_quarter() {
+        let s = Stats::new(9, 20, 40, [8, 3, 8], 0);
+        assert_eq!(s.paced(1.0), s);
+        let q = s.paced(0.25);
+        for run in 0..30 {
+            for stamina in [0, 5, 9, 10, 40] {
+                assert_eq!(run_speed(&q, run, stamina, 100), (F(run_speed(&s, run, stamina, 100)) * 0.25).0);
+            }
+        }
+    }
 
     /// The named constants keep the original's bits.
     #[test]

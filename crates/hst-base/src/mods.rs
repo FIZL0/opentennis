@@ -149,6 +149,55 @@ pub struct Mod {
     /// §3 `upscale` (B488): false when its textures are HD already (e.g. Hot Shots Golf Fore's), so its
     /// `textures/upscaled/` is never read nor downloaded. Absent: true.
     pub upscale: bool,
+    /// §6 `disc_body`, `scale`, `swing_speed`, `run_speed` (M11).
+    pub build: Build,
+}
+
+/// A mod's body and pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`, M11); [`Build::default`] for a mod
+/// without them, which plays exactly as its donor's body does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Build {
+    /// The donor's own disc costumes (model, textures, faces, racket) and voice, read from the player's disc: the
+    /// mod ships no model. Its costumes are [`DISC_COSTUMES`] entries.
+    pub disc: bool,
+    /// The whole body this many times its size: mesh, rest pose (so every motion's reach and the arm table), the
+    /// racket, and TParam's size-bound columns ([`SIZE_COLUMNS`]).
+    pub scale: f32,
+    /// Its swings (strokes, volleys, smash, serve follow-through, whiffs) play this many times faster.
+    pub swing: f32,
+    /// It runs this many times as fast.
+    pub run: f32,
+}
+
+impl Default for Build {
+    fn default() -> Self {
+        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0 }
+    }
+}
+
+/// A disc-body mod's costume entries (`disc/cNN`, the donor's `PC/PCddCNN.XB`): no file in the mod.
+pub const DISC_COSTUMES: usize = 10;
+
+impl Build {
+    /// The disc costume a [`Mod::costumes`] entry names (`disc/c03` → 3).
+    pub fn disc_costume(entry: &str) -> Option<usize> {
+        entry.strip_prefix("disc/c")?.parse().ok()
+    }
+}
+
+/// TParam.csv columns that are body measurements and scale with §6 `scale`: height, the stroke and volley height
+/// tolerances, the reach base, margin and reach, the dive start and limit, the body-shot switch, the collision
+/// size, the underhand limit and the ideal, smash and serve heights.
+pub const SIZE_COLUMNS: [usize; 19] = [3, 34, 35, 36, 37, 38, 39, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66];
+
+/// A TParam cell (`a` or `a/b/c`) × `scale`: whole numbers stay whole (rounded), decimals keep six places.
+fn scale_cell(cell: &str, scale: f32) -> String {
+    let one = |v: &str| match v.trim().parse::<f64>() {
+        Ok(x) if v.contains('.') => format!("{:.6}", x * scale as f64),
+        Ok(x) => format!("{}", (x * scale as f64).round() as i64),
+        Err(_) => v.to_string(),
+    };
+    cell.split('/').map(one).collect::<Vec<_>>().join("/")
 }
 
 /// The mods playing in a match, by match slot (`--slot-mod N DIR` from the character select, or `--mod DIR
@@ -176,6 +225,12 @@ impl Mod {
         self.dir.file_name().map_or_else(|| self.id.clone(), |n| n.to_string_lossy().to_string())
     }
 
+    /// The disc character whose voice it speaks: a costume pack's character, or a disc-body mod's donor (§6
+    /// `disc_body`); `None` for a mod with its own voice (B181: never its donor's).
+    pub fn disc_voice(&self) -> Option<usize> {
+        self.costume_of.or(self.build.disc.then_some(self.donor))
+    }
+
     /// B369: the select's category tab it goes under: its game (`source`), "Mods" when unset.
     pub fn game(&self) -> &str {
         if self.source.is_empty() { "Mods" } else { &self.source }
@@ -199,6 +254,22 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     if j["standard"].as_u64() != Some(1) {
         return Err(err(format!("`standard` is {}, this game reads standard 1", j["standard"])));
     }
+    let disc = match &j["disc_body"] {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(b) => *b,
+        v => return Err(err(format!("`disc_body` {v} must be true or false"))),
+    };
+    let factor = |k: &str, lo: f64, hi: f64| match &j[k] {
+        serde_json::Value::Null => Ok(1.0),
+        v => v.as_f64().filter(|x| (lo..=hi).contains(x)).map(|x| x as f32).ok_or_else(|| err(format!("`{k}` {v} must be a number {lo} to {hi}"))),
+    };
+    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)? };
+    if disc && (!j["costumes"].is_null() || j["face"] != "morph") {
+        return Err(err("`disc_body` plays the donor's disc costumes and faces: no `costumes`, `face` \"morph\"".into()));
+    }
+    if !disc && build.scale != 1.0 {
+        return Err(err("`scale` grows the donor's disc body: it needs `disc_body`".into()));
+    }
     let mut costumes: Vec<String> = j["costumes"].as_array().map(|a| a.iter().filter_map(|c| c.as_str().map(str::to_string)).collect()).unwrap_or_default();
     costumes.iter().try_for_each(|c| inside("costumes", c))?;
     // M1n: a listed costume with no .glb is left out (the select never offers an empty one), not the whole mod
@@ -209,6 +280,9 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
         }
         ok
     });
+    if disc {
+        costumes = (0..DISC_COSTUMES).map(|k| format!("disc/c{k:02}")).collect();
+    }
     if costumes.is_empty() {
         return Err(err("`costumes` must list at least one .glb that exists".into()));
     }
@@ -259,14 +333,15 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
         num(&j["disc_racket"], "disc_racket", 13)?;
     }
     if let Some(c) = costume_of
-        && (donor != c || base != c || ai_row != c || !overrides.is_empty())
+        && (donor != c || base != c || ai_row != c || !overrides.is_empty() || build != Build::default())
     {
-        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`")));
+        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed` or `run_speed`")));
     }
     Ok(Mod {
         skeleton: None,
         emotes: None, voice_takes: None,
         upscale,
+        build,
         costume_of,
         motions,
         dir: dir.to_path_buf(),
@@ -309,6 +384,7 @@ pub fn read_any(dir: &Path) -> Result<Mod, String> {
         skeleton: None,
         emotes: None, voice_takes: None,
         upscale: true,
+        build: Build::default(),
     };
     match Kind::of_dir(dir) {
         Kind::Character => read(dir),
@@ -461,6 +537,12 @@ pub fn tparam_row(csv: &[u8], m: &Mod) -> Result<Vec<String>, String> {
     let tag = format!("{},", m.base);
     let row = csv.split(|&b| b == b'\n').find(|l| l.starts_with(tag.as_bytes())).ok_or("no TParam.csv row")?;
     let mut cells: Vec<String> = row.split(|&b| b == b',').map(|c| String::from_utf8_lossy(c).trim().to_string()).collect();
+    if m.build.scale != 1.0 {
+        for &c in &SIZE_COLUMNS {
+            let cell = cells.get_mut(c).ok_or("short TParam.csv row")?;
+            *cell = scale_cell(cell, m.build.scale);
+        }
+    }
     for (k, v) in &m.overrides {
         let c = column(k).unwrap();
         *cells.get_mut(c).ok_or("short TParam.csv row")? = v.clone();
@@ -479,7 +561,7 @@ pub fn voice_takes(m: &Mod) -> Vec<(u8, u8)> {
     if let Some(v) = &m.voice_takes {
         return v.clone();
     }
-    if m.costume_of.is_some() || m.voice.is_empty() {
+    if m.disc_voice().is_some() || m.voice.is_empty() {
         return Vec::new();
     }
     let mut n = std::collections::BTreeMap::<u8, u8>::new();
@@ -1210,7 +1292,7 @@ pub fn head_height(m: &Mod, costume: usize) -> Option<f32> {
 
 /// §7's checks on every costume of `m` (a mod that came over the network, before it's used).
 pub fn check(m: &Mod) -> Result<(), String> {
-    m.costumes.iter().try_for_each(|c| {
+    m.costumes.iter().filter(|c| Build::disc_costume(c).is_none()).try_for_each(|c| {
         let (doc, blob) = open(&m.dir.join(c))?;
         conform(&doc, &blob, false).map(drop).map_err(|e| format!("{c}: {e}"))
     })
@@ -1219,6 +1301,9 @@ pub fn check(m: &Mod) -> Result<(), String> {
 /// Whether costume `c` of `m` passes the checks [`load_with`] makes before it builds anything (the select marks a
 /// failing one up front instead of on its first hover).
 pub fn costume_ok(m: &Mod, c: usize) -> bool {
+    if m.build.disc {
+        return c < m.costumes.len();
+    }
     m.costumes.get(c).and_then(|f| open(&m.dir.join(f)).ok()).is_some_and(|(doc, blob)| conform(&doc, &blob, !m.texture_face && !m.no_face).is_ok())
 }
 
@@ -1271,6 +1356,9 @@ pub fn load_with(
     bindposes: &mut impl Store<SkinnedMeshInverseBindposes>,
     only: Option<&[usize]>,
 ) -> Result<CharacterData, String> {
+    if let Some(k) = m.costumes.get(costume).and_then(|c| Build::disc_costume(c)).filter(|_| m.build.disc) {
+        return character::load_disc_scaled(iso, m.donor, k, m.build.scale, meshes, materials, images, bindposes, only);
+    }
     let file = m.dir.join(m.costumes.get(costume).ok_or_else(|| format!("{}: no costume {costume}", m.id))?);
     let ctx = |e: String| format!("{}: {e}", file.display());
     let (doc, blob) = open(&file)?;
@@ -1459,7 +1547,7 @@ pub fn load_with(
         c.tracks.retain(|t| !sprung.contains(&t.node));
     }
     let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs }));
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, grip, frame_gameplay: false, emote_ticks, voice_takes: HashMap::new() })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, grip, frame_gameplay: false, emote_ticks, voice_takes: HashMap::new(), size: 1.0 })
 }
 
 /// `mod.json`'s `disc_racket` (§6, M1r): the disc character (0..13) whose racket it holds when it ships no
@@ -2560,6 +2648,67 @@ mod tests {
             assert!(try_(&bad).is_err(), "accepted {bad}");
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// M11: a disc-body mod (Bigger Chief: pc07 at twice the size, swinging twice as fast, running at a quarter)
+    /// reads its pace and size from the manifest; its TParam row is pc07's with the size-bound columns doubled, and
+    /// its body is pc07's disc body with every joint of every motion twice as far out.
+    #[test]
+    fn bigger_disc_body() {
+        let root = std::env::temp_dir().join(format!("hst-mod-build-{}", std::process::id()));
+        let dir = root.join("hst_bigger_chief");
+        std::fs::create_dir_all(&dir).unwrap();
+        let json = r#"{"standard":1,"id":"hst_bigger_chief","name":"Bigger Chief","disc_body":true,"donor":7,"hand":"right","params":{"base":7,"override":{}},"ai_row":7,"face":"morph","scale":2,"swing_speed":2,"run_speed":0.25,"version":1}"#;
+        let try_ = |j: &str| {
+            std::fs::write(dir.join("mod.json"), j).unwrap();
+            read(&dir)
+        };
+        let m = try_(json).unwrap();
+        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25 });
+        // only a mod.json, and on the character select's roster
+        assert!(list(&root).iter().any(|r| r.id == "hst_bigger_chief"), "not on the roster");
+        assert_eq!((m.costumes.len(), m.disc_voice(), m.costume_of), (DISC_COSTUMES, Some(7), None));
+        // out of range, a disc body with its own costumes, or a costume pack that isn't its disc character
+        for bad in [
+            json.replace("\"scale\":2", "\"scale\":5"),
+            json.replace("\"swing_speed\":2", "\"swing_speed\":0.5"),
+            json.replace("\"run_speed\":0.25", "\"run_speed\":0"),
+            json.replace("\"donor\"", "\"costumes\":[\"model/c00.glb\"],\"donor\""),
+            json.replace("\"disc_body\":true,", "\"costume_of\":7,"),
+            json.replace("\"disc_body\":true,", "\"costumes\":[],"),
+        ] {
+            assert!(try_(&bad).is_err(), "accepted {bad}");
+        }
+        std::fs::remove_dir_all(&root).ok();
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let plain = Mod { build: Build::default(), ..m.clone() };
+        let (big, own) = (tparam(&mut iso, &m).unwrap(), tparam(&mut iso, &plain).unwrap());
+        let nums = |c: &str| -> Vec<f64> { c.split('/').map(|v| v.trim().parse().unwrap()).collect() };
+        for (k, (a, b)) in big.iter().zip(&own).enumerate() {
+            if SIZE_COLUMNS.contains(&k) {
+                let (a, b) = (nums(a), nums(b));
+                assert!(a.iter().zip(&b).all(|(a, b)| (a - 2.0 * b).abs() < 1e-5), "column {k}: {a:?} vs {b:?}");
+            } else {
+                assert_eq!(a, b, "column {k}");
+            }
+        }
+        let mut s = Stores(default(), default(), default(), default());
+        let c = load(&mut iso, &m, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
+        let chief = character::load_disc_with(&mut iso, 7, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3, None).unwrap();
+        let mut ids: Vec<_> = c.motions.keys().copied().collect();
+        ids.sort();
+        assert_eq!(ids.len(), chief.motions.len());
+        for id in ids.iter().copied().filter(|&id| id == 0x10 || id == 3 || id == 0x20) {
+            let len = c.motions[&id].length;
+            for k in 0..4 {
+                let t = len * k as f32 / 4.0;
+                let (a, b) = (pose(&c, id, t), pose(&chief, id, t));
+                for (n, p) in &a {
+                    assert!((*p - 2.0 * b[n]).length() < 1e-3, "motion {id:#x} {n} at {t}: {p} vs {}", b[n]);
+                }
+            }
+        }
+        assert!(c.arm.is_some() && c.paths.len() == chief.paths.len());
     }
 
     /// M8f1: courts, umpires and kinds this build doesn't know stay off the character roster, quietly; `read`

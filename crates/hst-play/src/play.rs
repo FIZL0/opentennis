@@ -440,6 +440,8 @@ pub struct Game {
     hit_effect: Option<effects::Hit>,
     /// Per player its character's smash top and window middle (TParam, m) and the landing markers' state.
     smash_heights: Vec<[f32; 2]>,
+    /// Per player a mod's swing pace (character standard §6 `swing_speed`, M11); missing is 1, the original's.
+    swing_pace: Vec<f32>,
     /// Per player the contact search's reach: `reach` with the character's TParam reach and heights and its hand.
     pub reaches: Vec<Reach>,
     /// Per player TParam's hand (+1 right, −1 left) before the select's hand toggle (`hand_swap`): the AI's strong side.
@@ -1367,6 +1369,7 @@ pub fn setup(
         stage: args.stage.map_or(args.court, |s| s as usize) as u8,
         hit_effect: None,
         smash_heights: Vec::new(),
+        swing_pace: Vec::new(),
         reaches: Vec::new(),
         strong_hand: [1.0; 4],
         doubles_ai: default(),
@@ -2155,11 +2158,12 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
         g.players[i].stance = pos[0].abs();
         strike(g, i, class::SERVE, sw.kind, target, (branch::SERVE, sw.grade, sw.offset));
         g.finish.strong = toss == Toss::Strong;
+        let pace = swing_pace(g, i);
         let p = &mut g.players[i];
         p.served = Some(0);
-        p.recover = motion::serve_recovery(toss == Toss::Strong, sw.kind);
-        // the swing plays on at speed 1 from contact
-        set_motion(p, motion::serve_swing(toss == Toss::Under, 1).0, 1.0, false, None);
+        p.recover = motion::paced(motion::serve_recovery(toss == Toss::Strong, sw.kind), pace);
+        // the swing plays on at speed 1 from contact (a paced mod's at its pace)
+        set_motion(p, motion::serve_swing(toss == Toss::Under, 1).0, pace, false, None);
         serve_ik_tick(g, i);
         g.serving = Serving::default();
         return;
@@ -2611,11 +2615,12 @@ fn square_up(p: &mut Player) {
 fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Option<Contact> {
     let mut struck = None;
     doubles_ai::stroke_check(g, i);
+    let pace = swing_pace(g, i);
     if let Some(f) = g.players[i].follow.take() {
         set_motion(
             &mut g.players[i],
             f,
-            1.0,
+            pace,
             false,
             Some(motion::SOFT_FOLLOW_HOLD),
         );
@@ -2631,10 +2636,11 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
             p.hit_at = Some(c.swing.ball);
             p.aim_from = [p.pos[0], p.pos[2]];
             p.wind = c.frames.max(1);
-            let (m, speed, wait) = motion::stroke_start(
+            let (m, speed, wait) = motion::paced_stroke_start(
                 branch_code(c.swing.branch),
                 c.frames as i32,
                 c.swing.anim as i32,
+                pace,
             );
             set_motion(p, m, speed, wait.is_some(), None);
             p.wait_swing = wait;
@@ -2791,7 +2797,7 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
             p.contact = None;
             p.swung = true;
             p.after = Some(0);
-            p.recover = motion::recovery(branch, kind);
+            p.recover = motion::paced(motion::recovery(branch, kind), pace);
             p.balloon = serve::balloon(c.grade, c.offset, false).map(|b| (b, 0));
             struck = Some(c);
         } else {
@@ -2800,10 +2806,10 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
                 ..c
             });
             // the swing waiting behind the body's turn starts 8 frames before contact
-            if c.frames as i32 - 1 == motion::SWING_LEAD
+            if c.frames as i32 - 1 == motion::swing_lead(pace)
                 && let Some(anim) = p.wait_swing.take()
             {
-                set_motion(p, anim, 1.0, false, None);
+                set_motion(p, anim, pace, false, None);
             }
         }
     }
@@ -2977,6 +2983,7 @@ fn whiff(g: &mut Game, i: usize, miss: bool, quiet: bool) {
     };
     // ponytail: the middle height is TParam's middle smash cell, the window's midpoint for every character seen
     let middle = (g.reaches[i].smash_top + g.reaches[i].smash_bottom) / 2.0;
+    let pace = swing_pace(g, i);
     let (b, p) = (g.flight.ball, &mut g.players[i]);
     let base = match p.kind {
         kind::SLICE => swing::anim::SLICE as i32,
@@ -2993,8 +3000,8 @@ fn whiff(g: &mut Game, i: usize, miss: bool, quiet: bool) {
     } else {
         base + other as i32
     };
-    p.whiff = Some(motion::Whiff::new(anim, miss, quiet));
-    set_motion(p, anim, 1.0, false, None);
+    p.whiff = Some(motion::Whiff { tick: motion::paced_whiff(pace), ..motion::Whiff::new(anim, miss, quiet) });
+    set_motion(p, anim, pace, false, None);
     p.vel = Vec2::ZERO;
     // the stroke state ends the run: freed, the run counter starts again from 0, no dash carried over (B59); the
     // body squares up too, or a point lost mid-miss walks its reaction along the old run direction
@@ -3014,14 +3021,20 @@ fn cancel_locks(g: &mut Game, but: Option<usize>) {
     }
 }
 
+/// Player `i`'s swing pace: a mod's §6 `swing_speed` (M11), else 1.
+fn swing_pace(g: &Game, i: usize) -> f32 {
+    g.swing_pace.get(i).copied().unwrap_or(1.0)
+}
+
 /// A cancelled swing's contact frame: no strike, the swing turns into its miss motion with a shout, as a whiff
 /// at its pose frame (the re-press lock and recovery run on from there).
 fn miss_contact(g: &mut Game, i: usize, c: &Contact) {
     let anim = c.swing.anim as i32;
+    let pace = swing_pace(g, i);
     let p = &mut g.players[i];
     (p.contact, p.swing, p.ik) = (None, None, None);
     if let Some(m) = motion::whiff(anim) {
-        set_motion(p, m, 1.0, false, None);
+        set_motion(p, m, pace, false, None);
         g.doubles_ai.missed(i);
     }
     p.missed = true;
@@ -3034,11 +3047,12 @@ fn miss_contact(g: &mut Game, i: usize, c: &Contact) {
 /// One frame of a whiff, before this frame's press: at the contact pose the swing turns into its miss motion
 /// with a shout, and once recovered a stick (`stick`) or the motion's end frees the player.
 fn whiff_frame(g: &mut Game, i: usize, stick: bool) {
+    let pace = swing_pace(g, i);
     let p = &mut g.players[i];
     let Some(mut w) = p.whiff else { return };
     p.prev = p.pos;
     if let Some(m) = w.step() {
-        set_motion(p, m, 1.0, false, None);
+        set_motion(p, m, pace, false, None);
         p.missed = true;
         g.doubles_ai.missed(i);
         if !w.quiet {

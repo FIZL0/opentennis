@@ -127,7 +127,9 @@ pub fn spawn(commands: &mut Commands, data: &Arc<CharacterData>, n: usize, hand:
     let rig = character::spawn(commands, data, space);
     let t = character::pose_frame(n, data.motions.get(&POSE).map_or(0.0, |c| c.length));
     let uv = uv_held(t, data);
-    commands.entity(rig).insert((Transform { translation: Vec3::new(0.0, 1.5, 8.0), rotation: Quat::from_rotation_y(PI), scale: Vec3::new(hand, 1.0, 1.0) }, held(t), uv, crate::shade::FixedLight(LIGHT)));
+    // a grown body (M11) drawn back at its disc size, so the card frames it as any character
+    let fit = Vec3::new(hand, 1.0, 1.0) / data.size;
+    commands.entity(rig).insert((Transform { translation: Vec3::new(0.0, 1.5, 8.0), rotation: Quat::from_rotation_y(PI), scale: fit }, held(t), uv, crate::shade::FixedLight(LIGHT)));
     commands
         .spawn((
             Camera3d::default(),
@@ -261,8 +263,10 @@ fn centre(time: Res<Time<Fixed>>, cams: Query<&Preview>, mut rigs: Query<(&chara
         let Some(clip) = rig.data.motions.get(&m.id) else { continue };
         let t = clip.wrap(m.prev + (m.clock.sampled - m.prev) * time.overstep_fraction(), false);
         let (_, yaw, _) = tf.rotation.to_euler(EulerRot::YXZ);
-        if let Some(c) = pelvis_centre(&rig.data.skeleton, clip, t, yaw, tf.scale.x) {
-            (tf.translation.x, tf.translation.z) = (c.x, c.y);
+        // a grown body drawn at its disc size (`spawn`): its pelvis offset shrinks with it
+        let k = tf.scale.y;
+        if let Some(c) = pelvis_centre(&rig.data.skeleton, clip, t, yaw, tf.scale.x.signum()) {
+            (tf.translation.x, tf.translation.z) = (c.x * k, 8.0 + (c.y - 8.0) * k);
         }
     }
 }
