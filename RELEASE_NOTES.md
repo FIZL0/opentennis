@@ -35,3 +35,4 @@
 - A dive now needs you to have been running just before you press, as in the original: the automatic step toward the ball after a press no longer makes a dive possible, and computer partners dive by the same rule.
 - In singles, a computer opponent returning serve now moves on to its rally play at the same moment as in the original game (once its return is really done), not as soon as it has hit the ball.
 - A computer server now hands over from its serve to the rally at the same moment as in the original: in singles it starts moving about half a second sooner after serving.
+- Switching Settings tabs now only nudges the options card instead of sliding the whole page.
