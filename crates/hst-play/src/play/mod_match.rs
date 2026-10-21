@@ -73,6 +73,7 @@ pub(super) fn apply(g: &mut Game, i: usize, iso: &mut Iso, m: &Mod, outfit: usiz
     let smash = cells(64);
     g.smash_heights[i] = [smash[0] / 100.0, smash[1] / 100.0];
     g.reaches[i] = super::reach_of(&g.reach, &row, m.hand);
+    g.under_min[i] = hst_sim::player::ReachStats::from_tparam(&row.join(",")).under_min;
     g.timing[i].restat(&row);
     // B181: a mod character speaks only its own takes; a program it has no wav for, or a mod with no voice, is silent
     // (never its donor's). A costume pack is its disc character and keeps that voice.

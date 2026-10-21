@@ -166,14 +166,15 @@ mod tests {
         app
     }
 
-    /// One tick (the real match's state hash after it); first, a point from the match's end at every serve.
+    /// One tick (the real match's state hash after it); first, match point at every serve.
     fn tick(app: &mut App) -> u64 {
         let w = app.world_mut();
         w.run_schedule(FixedPreUpdate);
         {
             let mut g = w.resource_mut::<Game>();
             if g.phase == Phase::Serve && !g.score.match_over {
-                g.score.points = [3, 0];
+                // match point: the first point player 0 wins ends it, however long the bots' rallies run
+                (g.score.points, g.score.games) = ([3, 0], [1, 0]);
             }
         }
         w.run_schedule(FixedUpdate);

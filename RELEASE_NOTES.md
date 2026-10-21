@@ -19,3 +19,4 @@
 - With touch controls, the score at the top of the screen now sits just below the L1/R1 buttons instead of under them.
 - The loading screen before a match keeps its shape in tall (portrait) and very wide windows: the hint panel no longer squashes, and the court picture fills the whole window without black bars.
 - Settings → Shadows has a new Original choice that draws the trees' and buildings' shadows soft, as on the PS2, instead of sharp; Original Mode uses it.
+- In singles, the computer player no longer restarts its plan and re-guesses its return position after every shot, runs up to the net along the line of its own aim instead of where the ball happened to land, and judges low balls by its own character's reach, so it moves and returns more like it does in the original.

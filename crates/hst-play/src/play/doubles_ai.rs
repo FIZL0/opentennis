@@ -25,6 +25,9 @@ pub(super) struct Shared {
     /// Each player's smash stand offset sideways (`smash_side`); worked out once, again after a snapshot load.
     #[serde(skip)]
     smash_x: Unsaved<Vec<f32>>,
+    /// Each player's shot target: the aimed point of its latest shot (`aimed`), kept until its next aim.
+    #[serde(default)]
+    targets: [[f32; 4]; 4],
 }
 
 /// Worked out again after a snapshot load, so left out of the state text (`snapshot::state_text`) too.
@@ -143,6 +146,7 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
             stroke_height: r.stroke_height,
             volley_height: r.volley_height,
             smash: [r.smash_top, g.smash_heights[i][1], r.smash_bottom],
+            under_min: g.under_min.get(i).copied().unwrap_or_default(),
             ..Default::default()
         },
         strong: if g.strong_hand[i] >= 0.0 { hst_sim::ai::strong::MINUS } else { hst_sim::ai::strong::PLUS },
@@ -151,7 +155,7 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
         // the partner's movement state as it is now: its own update this frame has run only if it steps first
         mate_voice: if singles { 0 } else { foot_fx::state(g, mate) },
         mark: mark as u8,
-        target: if singles { landing(g) } else { [0.0; 4] },
+        target: if singles { g.doubles_ai.targets[i] } else { [0.0; 4] },
         opp_lefty: g.players[opp[0]].hand < 0.0,
     };
     let mut w = World {
@@ -218,15 +222,6 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
             Some((Guess::Other, at)) => (guess::OTHER, at),
             None => (guess::NONE, x.from),
         };
-        // the singles hit message on an opponent's shot: its kind and spot (ponytail: the hitter's position for the
-        // shot's own spot, P11l6), and the dash after a dive
-        if singles && g.last_hitter >= 0 && g.last_hitter as usize & 1 != i & 1
-            && let Some(seen) = p.ai_seen[0]
-        {
-            x.opp_kind = seen.kind;
-            x.last = b.opp[0];
-            x.heard_hit(seen.kind, row.style, &b);
-        }
     }
     let mut early = me.early.take();
     let rng = &mut g.rng.ai;
@@ -235,9 +230,9 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     // state (the app already drew the net repick those messages make, so theirs is dropped)
     let kept = x.mind;
     match mind.phase {
-        Ai::Receive if entered || ((new_shot || struck) && x.state != step::SWING) => x.enter_receive(&mut roll),
-        // singles re-enters on the new path, not on the hit
-        Ai::Rally if entered || (((new_shot && (singles || g.shots > 1)) || struck) && x.sub != step::SWING) => {
+        // singles re-enters only on the strike and the new path, never on the hit
+        Ai::Receive if entered || (((new_shot && !singles) || struck) && x.state != step::SWING) => x.enter_receive(&mut roll),
+        Ai::Rally if entered || (((new_shot && !singles && g.shots > 1) || struck) && x.sub != step::SWING) => {
             x.enter_rally(&b, &mut w, &mut roll);
             x.mind = kept;
         }
@@ -301,29 +296,45 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
 /// shot), which rolls the return to the centre first, ahead of the net repick and the timing draw. The roll is drawn
 /// here and kept for `step`'s re-entry. Whether it re-enters.
 pub(super) fn heard_hit(g: &mut Game, i: usize) -> bool {
-    let singles = g.players.len() == 2;
     let rally = g.players[i].ai_mind.is_some_and(|m| m.phase == Ai::Rally);
     let me = &mut g.doubles_ai.me[i];
-    if !(matches!(g.players.len(), 2 | 4) && rally && (singles || g.shots > 1) && me.rally.sub != step::SWING) {
+    // the singles hit doesn't re-enter (nor draw the roll or the net repick)
+    if !(g.players.len() == 4 && rally && g.shots > 1 && me.rally.sub != step::SWING) {
         return false;
     }
     me.early = Some(g.rng.ai.next());
     true
 }
 
-/// The ball's next landing on the app's flight (y-up), for the singles routines' shot target (`Body::target`).
-// ponytail: where its shot lands, not the target it aimed at (scatter and timing errors included); P11l6
-fn landing(g: &Game) -> [f32; 4] {
-    let mut f = g.flight;
-    f.net = false;
-    let n = f.contacts;
-    for _ in 0..PATH_MAX {
-        if f.contacts != n {
-            break;
-        }
-        f.step(&g.shot, &COURTS[g.court]);
+/// Player `i` aimed its shot (the rally aim's or the serve aim's point, before the margins, the scatter and the
+/// launch): its shot target from now until its next aim, as the singles routines read it (`Body::target`).
+pub(super) fn aimed(g: &mut Game, i: usize, target: V3) {
+    if let Some(t) = g.doubles_ai.targets.get_mut(i) {
+        *t = [target[0], target[1], target[2], 0.0];
     }
-    up(f.ball.pos)
+}
+
+/// The singles hit message to each computer player on an opponent's shot, at the strike: the shot's kind and spot
+/// (the hitter's position now, y down, w 1) become its opponent's last shot, and a dive sends a NET or ALL style
+/// that isn't dashing to the net.
+fn singles_hit(g: &mut Game) {
+    let Ok(who) = usize::try_from(g.last_hitter) else { return };
+    if g.players.len() != 2 || who >= 2 {
+        return;
+    }
+    let [x, y, z] = g.players[who].pos;
+    for i in 0..2 {
+        let p = &g.players[i];
+        if i & 1 == who & 1 || g.humans.get(i) == Some(&true) {
+            continue;
+        }
+        let Some(seen) = p.ai_seen[0] else { continue };
+        let b = Body { side: p.end, ..Default::default() };
+        let style = p.ai.style;
+        let r = &mut g.doubles_ai.me[i].rally;
+        (r.opp_kind, r.last) = (seen.kind, [x, y, z, 1.0]);
+        r.heard_hit(seen.kind, style, &b);
+    }
 }
 
 /// A match message to the AI side (`msg`: `rally::msg::*`), sent where the original sends it, in its order within
@@ -335,6 +346,7 @@ pub(super) fn heard(g: &mut Game, msg: u8) {
         msg::HIT => {
             // the predictor takes the ball just launched; from the serve on, the path is built now
             r.hit(&g.flight, &g.shot, &COURTS[g.court], g.phase == Phase::Rally, !matches!(g.phase, Phase::ChangeEnds(_)));
+            singles_hit(g);
         }
         msg::STRIKE | msg::REACTION => r.stop(),
         msg::SERVE | msg::CHANGE_ENDS => r.point(),
@@ -351,7 +363,8 @@ pub(super) fn heard(g: &mut Game, msg: u8) {
             msg::SERVE => (x.hold, x.held, x.voice, m.set_up, m.mark) = (false, false, true, false, false),
             _ => {}
         }
-        if msg == msg::HIT || msg == msg::NEW_PATH && g.phase == Phase::Rally {
+        // the singles hit leaves the let-go hold alone
+        if msg == msg::HIT && g.players.len() == 4 || msg == msg::NEW_PATH && g.phase == Phase::Rally {
             x.held = false;
         }
     }
@@ -628,6 +641,63 @@ mod tests {
         }
         assert!(rallies > 0 && stepped > 0, "{rallies} {stepped}");
         assert_eq!(pinned, 0);
+    }
+
+    /// P11l6: the singles AI's wiring. Each player's shot target is its own latest aim (y and w 0), kept through the
+    /// opponent's shot; an opponent's hit leaves its kind and the hitter's position at the strike (w 1) as the AI's
+    /// mark and doesn't re-enter the routine (no early roll); the reach carries the character's TParam under_min.
+    #[test]
+    fn singles_wiring() {
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+        app.insert_resource(Args { iso: ISO.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 1, stage: None, play: true, singles: true, chars: vec![0, 1], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None });
+        app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
+        app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
+        app.add_systems(Startup, setup);
+        app.add_systems(FixedUpdate, (remember, control, simulate, motions, character::tick, played_out, held_ball).chain());
+        app.update();
+        {
+            let g = app.world().resource::<Game>();
+            let mut iso = hst_data::fixture::iso().unwrap();
+            for (i, &c) in g.chars.iter().enumerate() {
+                let want = loco::ReachStats::from_tparam(&tparam(&mut iso, c as usize).join(",")).under_min;
+                assert!(want > 0.3 && want < 0.6, "p{i} {want}");
+                assert_eq!(g.under_min[i], want, "p{i}");
+            }
+        }
+        let (mut shots, mut heard, mut kept) = (0, 0, 0);
+        for _ in 0..60 * 40 {
+            let before = app.world().resource::<Game>().doubles_ai.targets;
+            app.world_mut().run_schedule(FixedUpdate);
+            let g = app.world().resource::<Game>();
+            assert!(g.doubles_ai.me.iter().all(|m| m.early.is_none()), "a singles hit drew the re-entry's roll");
+            if g.shots == shots {
+                continue;
+            }
+            shots = g.shots;
+            if g.shots == 0 || g.last_hitter < 0 {
+                continue;
+            }
+            let who = g.last_hitter as usize;
+            let t = g.doubles_ai.targets[who];
+            assert_eq!((t[1], t[3]), (0.0, 0.0), "p{who} target {t:?}");
+            // the other player's target is its own, unchanged by this shot
+            assert_eq!(g.doubles_ai.targets[who ^ 1], before[who ^ 1]);
+            kept += (before[who ^ 1] != [0.0; 4]) as i32;
+            let r = &g.doubles_ai.me[who ^ 1].rally;
+            if let Some(seen) = g.players[who ^ 1].ai_seen[0] {
+                let p = g.players[who].pos;
+                assert_eq!((r.opp_kind, r.last[3]), (seen.kind, 1.0));
+                assert!((r.last[0] - p[0]).abs() < 0.2 && (r.last[2] - p[2]).abs() < 0.2, "{:?} {p:?}", r.last);
+                heard += 1;
+            }
+        }
+        assert!(heard > 5 && kept > 5, "{heard} {kept}");
     }
 
     /// A singles bot's dive press dives: the routine lets go of the stick as it presses, and before the press kept
