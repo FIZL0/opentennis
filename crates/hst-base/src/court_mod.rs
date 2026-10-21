@@ -6,7 +6,8 @@
 //! court's music and creature sounds. A `__clear` node isn't drawn while it stands between the eye and the court
 //! (M8f5a3, `clear_view`); a gimmick creature standing in the players' room isn't drawn at all (B506,
 //! `creatures_in_play`), and a big piece of the court or its gimmicks right in front of the camera isn't drawn
-//! (M129, gs.wgsl's `GS_CLEAR`); neither while the intro flies over (B583, `cull::Off`). Nothing here reads or writes the match: replays stay bit-exact.
+//! (M129, gs.wgsl's `GS_CLEAR`), nor is a whole gimmick one of whose pieces comes right up in front of the lens
+//! (B510, [`NearPiece`]); none of it while the intro flies over (B583, `cull::Off`). Nothing here reads or writes the match: replays stay bit-exact.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -100,6 +101,17 @@ pub struct ClearView {
     hide: Vec<Entity>,
 }
 
+/// B510: a placed gimmick (`gimmick.glb`, not `__clear`): its meshes' boxes in game space at rest that stand over
+/// 0.5 m up (its ground shadows left out) and what to hide while one of them comes right up in front of the drawn
+/// camera (its node, and its skinned meshes, which hang elsewhere), as B303 does for the disc courts' props
+/// (`play::net_hide`). Dubno's helicopter stands just past the doubles sideline, where a post-point camera following
+/// a player who ran out wide ends up inside its cabin.
+#[derive(Component)]
+pub struct NearPiece {
+    pub boxes: Vec<(Vec3, Vec3)>,
+    pub hide: Vec<Entity>,
+}
+
 /// M8f7: what `scene` spawned for its caller to drive: the animations by name (not left looping) and the named nodes.
 #[derive(Default)]
 pub struct Spawned {
@@ -186,7 +198,8 @@ pub fn scene(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob:
     scene_off(commands, s, doc, blob, parent, singles, light, sky, spawned, false, false)
 }
 
-/// [`scene`]; with `off_court`, the creatures standing in the players' room ([`creatures_in_play`]) aren't spawned (B506);
+/// [`scene`]; with `off_court` (`gimmick.glb`), the creatures standing in the players' room ([`creatures_in_play`]) aren't
+/// spawned (B506) and each placed piece gets its [`NearPiece`] (B510);
 /// with `clear`, its big blockers aren't drawn (M129, `GsKey::clear`).
 #[allow(clippy::too_many_arguments)]
 fn scene_off(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob: &[u8], parent: Entity, singles: bool, light: Option<&Light>, sky: bool, mut spawned: Option<&mut Spawned>, off_court: bool, clear: bool) -> Result<usize, String> {
@@ -221,6 +234,8 @@ fn scene_off(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob:
         stack.extend(n.children().map(|c| (c, e, clear)));
     }
     let mut clears: HashMap<usize, ClearView> = HashMap::new();
+    let piece_of = if off_court { placed_pieces(doc) } else { HashMap::new() };
+    let mut near: HashMap<usize, NearPiece> = HashMap::new();
     let mut draws = 0;
     for n in doc.nodes().filter(|n| nodes.contains_key(&n.index())) {
         let Some(mesh) = n.mesh().filter(|_| !off.contains(&n.index())) else { continue };
@@ -240,11 +255,22 @@ fn scene_off(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob:
             Some(sk) => sk.joints().map(|j| clear_of.get(&j.index()).copied()).reduce(|a, b| a.filter(|&a| Some(a) == b)).flatten(),
             None => clear_of.get(&n.index()).copied(),
         };
+        let piece = match &skin {
+            Some(sk) => sk.joints().map(|j| piece_of.get(&j.index()).copied()).reduce(|a, b| a.filter(|&a| Some(a) == b)).flatten(),
+            None => piece_of.get(&n.index()).copied(),
+        };
         for p in mesh.primitives() {
             let Some(m) = primitive(&p, blob, light, &rest, skinned.is_some()) else { continue };
             if let (Some(c), Some(b)) = (clear, bounds(&m, &rest)) {
                 let cv = clears.entry(c).or_insert(ClearView { lo: Vec3::INFINITY, hi: Vec3::NEG_INFINITY, hide: vec![nodes[&c]] });
                 (cv.lo, cv.hi) = (cv.lo.min(b.0), cv.hi.max(b.1));
+            }
+            if let (Some(c), Some(b)) = (piece, bounds(&m, &rest)) {
+                let np = near.entry(c).or_insert(NearPiece { boxes: Vec::new(), hide: vec![nodes[&c]] });
+                // (game up is −y)
+                if -b.0.y >= 0.5 {
+                    np.boxes.push(b);
+                }
             }
             let m = s.meshes.add(m);
             for mat in &mats[p.material().index().unwrap_or(mats.len() - 1)] {
@@ -254,6 +280,9 @@ fn scene_off(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob:
                     if let Some(cv) = clear.and_then(|c| clears.get_mut(&c)) {
                         cv.hide.push(e.id());
                     }
+                    if let Some(np) = piece.and_then(|c| near.get_mut(&c)) {
+                        np.hide.push(e.id());
+                    }
                 }
                 draws += 1;
             }
@@ -262,6 +291,9 @@ fn scene_off(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob:
     // a piece under 1.5 m (game up is −y) can't hide a player: always drawn (Dubno's toolboxes behind the baseline)
     for cv in clears.into_values().filter(|cv| -cv.lo.y >= 1.5) {
         commands.spawn(cv);
+    }
+    for np in near.into_values().filter(|np| !np.boxes.is_empty()) {
+        commands.spawn(np);
     }
     for a in doc.animations() {
         let mut channels = Vec::new();
@@ -487,6 +519,32 @@ fn primitive(p: &gltf::Primitive, blob: &[u8], light: Option<&Light>, rest: &[Ma
         mesh = mesh.with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, nrm);
     }
     Some(mesh)
+}
+
+/// B510: each node of a gimmick file's placed pieces (the children where the single-child chain from `game_space`, else
+/// the scene's roots, ends: `game_space` → the source's own root → the pieces; skinned meshes hang beside it), mapped
+/// to its piece's node; `__clear` pieces left out (`clear_view` has them).
+fn placed_pieces(doc: &gltf::Document) -> HashMap<usize, usize> {
+    let mut top: Vec<gltf::Node> = match doc.nodes().find(|n| n.name() == Some("game_space")) {
+        Some(n) => vec![n],
+        None => doc.default_scene().or_else(|| doc.scenes().next()).map_or(Vec::new(), |s| s.nodes().collect()),
+    };
+    while let [one] = top.as_slice() {
+        let next: Vec<_> = one.children().collect();
+        if next.is_empty() {
+            break;
+        }
+        top = next;
+    }
+    let mut out = HashMap::new();
+    for piece in top.iter().filter(|n| !n.name().is_some_and(|m| m.trim_end_matches("__singles").trim_end_matches("__doubles").ends_with("__clear"))) {
+        let mut stack = vec![piece.clone()];
+        while let Some(n) = stack.pop() {
+            out.insert(n.index(), piece.index());
+            stack.extend(n.children());
+        }
+    }
+    out
 }
 
 /// A mesh's box in game space at rest (`rest`: its node's matrix, or its skin's joints at bind, each vertex by its
@@ -763,6 +821,35 @@ mod tests {
             }
         }
         eprintln!("{} court mods seat the umpire", courts.len());
+    }
+
+    /// B510: Dubno's helicopter (`$HST_MODS`, the mods repo's `out/mods`) is one placed piece whose boxes over 0.5 m up
+    /// take in its cabin beside the doubles sideline and leave its ground shadows out; the `__clear` flag isn't one.
+    #[test]
+    fn dubno_helicopter_is_a_piece() {
+        let Ok(root) = std::env::var("HST_MODS") else { return eprintln!("no HST_MODS, skipped") };
+        let Ok((doc, blob)) = crate::mods::open(&std::path::Path::new(&root).join("gag_c20_city/gimmick.glb")) else { return eprintln!("no Dubno, skipped") };
+        let pieces = placed_pieces(&doc);
+        let name = |i: usize| doc.nodes().nth(i).and_then(|n| n.name().map(str::to_string)).unwrap_or_default();
+        let mut names: Vec<_> = pieces.values().map(|&p| name(p)).collect();
+        names.sort();
+        names.dedup();
+        assert!(names.iter().any(|n| n.contains("Bheli")) && !names.iter().any(|n| n.ends_with("__clear")), "{names:?}");
+        let worlds = worlds(&doc);
+        let to_game = doc.nodes().find(|n| n.name() == Some("game_space")).map_or(Mat4::IDENTITY, |n| worlds[n.index()]).inverse();
+        let boxes: Vec<(Vec3, Vec3)> = doc
+            .nodes()
+            .filter(|n| n.skin().is_none() && pieces.get(&n.index()).is_some_and(|&p| name(p).contains("Bheli")))
+            .filter_map(|n| {
+                let rest = [to_game * worlds[n.index()]];
+                n.mesh()?.primitives().filter_map(|p| primitive(&p, &blob, None, &rest, false).and_then(|m| bounds(&m, &rest))).reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
+            })
+            .filter(|b| -b.0.y >= 0.5)
+            .collect();
+        // the logged cut-away eye 0.5 m past the cabin's side, 3 m up: in a box's reach
+        let cabin = Vec3::new(9.5, -2.0, 1.8);
+        assert!(boxes.iter().any(|(lo, hi)| cabin.cmpge(*lo).all() && cabin.cmple(*hi).all()), "{boxes:?}");
+        assert!(boxes.iter().all(|(lo, _)| -lo.y >= 0.5));
     }
 
     /// B506: every court mod under `$HST_MODS`: the creatures left out for standing in the players' room are whole (a
