@@ -1,8 +1,8 @@
 # Export strokes whose table lookup was confirmed exactly (speed, elevation AND frames) by traj_inverse2:
 # table_file,kind,hit_x,hit_y,hit_z,target_x,target_z,vel_x,vel_y,vel_z,curve_frames
-import sys, glob, struct, re, subprocess, numpy as np
+import os, sys, glob, struct, re, subprocess, numpy as np
 out=open(sys.argv[2],'w')
-lines=subprocess.run(['python3','tools/traj_inverse2.py',sys.argv[1]],capture_output=True,text=True).stdout.splitlines()
+lines=subprocess.run(['python3',os.path.join(os.path.dirname(os.path.abspath(__file__)),'traj_inverse2.py'),sys.argv[1]],capture_output=True,text=True).stdout.splitlines()
 files={f.split('/')[-1][:-4]:f for f in glob.glob('xb/TRAJ/*/data/hatsuyama/traj/*.dat')}
 for l in lines:
     m=re.match(r'(\d{3}) kind (\d) spin \S+ err (\S+) (\S+)\s+target \(\s*(\S+),\s*(\S+)\) frames (\d+) tbl (\d+)',l)
