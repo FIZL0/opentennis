@@ -1251,6 +1251,13 @@ fn serve_bent(g: &Game, who: usize, toss: Toss, kind: i32, grade: u8, offset: i3
     kind < 2 && bend[kind as usize] != 0.0 && hst_sim::shot::special(0, kind, toss == Toss::Strong, grade, offset)
 }
 
+/// A rally shot the character's special effect applies to (the special gate holds and `src`'s effect row for
+/// this class and kind bends or curves: a clean stroke lob, a clean slice by a character with a rally-slice bend):
+/// the court pull keeps its margins unscaled.
+fn special_margins(g: &Game, src: usize, class: u8, kind: i32, grade: u8, offset: i32) -> bool {
+    hst_sim::shot::has_effect(&g.specials[src].0, class, kind) && hst_sim::shot::special(class, kind, false, grade, offset)
+}
+
 /// The character's special-shot effect on this hit, as launched: (bend, curve, first-bounce turn). `src` is the
 /// character whose shot is launched (a counter's is the incoming hitter's), `target` where the ball is sent.
 fn shot_effect(g: &Game, who: usize, src: usize, class: u8, kind: i32, (branch, grade, offset): (u8, u8, i32), hit: V3, target: V3) -> (f32, f32, f32) {
@@ -1905,14 +1912,14 @@ fn strike(
         _ => who,
     };
     // a rally shot's aim is pulled inside the lines before anything uses it (the timing scatter comes after): a
-    // smash with a negative blend takes its low margins
-    // ponytail: a special shot's unscaled margins aren't modelled (special false): what gates them in play is open
+    // smash with a negative blend takes its low margins, a special shot keeps them unscaled
     let target = if class == class::SERVE {
         target
     } else {
         let doubles = g.rules.players > 2;
         let low = class == class::SMASH && g.smash_scatter.is_some_and(|s| s.2 < 0.0);
-        g.margins.inside(class, kind, low, doubles, g.chars[src] as usize, false, at, target)
+        let special = special_margins(g, src, class, kind, grade, offset);
+        g.margins.inside(class, kind, low, doubles, g.chars[src] as usize, special, at, target)
     };
     let error = g.timing_error.take().or(framed.map(|_| swing::TimingError::default()));
     let timed = error.filter(|_| class == class::STROKE || class == class::VOLLEY).map(|e| {
@@ -3329,6 +3336,7 @@ fn bot(g: &mut Game, i: usize) {
     }
     let was = g.players[i].ai_mind.map(|m| m.phase);
     let mind = ai_update(g, i);
+    doubles_ai::track(g, i, mind.phase);
     // the new-point message's tick runs nothing else, nor does the serve state's entry (the serve routine first
     // runs the tick after)
     if mind.phase == hst_sim::ai::Phase::Start || mind.phase == hst_sim::ai::Phase::Serve && was == Some(hst_sim::ai::Phase::Start) {
@@ -3511,16 +3519,11 @@ fn bot_serve(g: &mut Game, i: usize) {
         let horizon = g.serve_data[i].grades(toss).len();
         let due = s.bot_due.unwrap_or(SWEET_FRAME as usize);
         let quick = g.players[i].ai_picks.quick_serve;
+        // the aim waits for the frame before the contact: the swing's timing table never hits within 2 frames
+        // of the press, however late the AI's own pick makes it
         serve::ai_search(&g.serve_data[i], toss, quick, &predicted_path(g, horizon))
             .filter(|&k| k <= due)
-            .map(|k| {
-                let kind = ai_serve_kind(g, i, toss);
-                // ponytail: a contact a frame off aims at the press (the app's own search picks the swing's frames)
-                if k <= 1 {
-                    ai_serve_aim(g, i);
-                }
-                kind
-            })
+            .map(|_| ai_serve_kind(g, i, toss))
     } else {
         None
     };
@@ -3676,7 +3679,13 @@ fn ai_update(g: &mut Game, i: usize) -> hst_sim::ai::Mind {
             }
             false
         }
-        Ai::Serve => g.phase != Phase::Serve,
+        Ai::Serve => {
+            // its rally's entry is the routine step's (`doubles_ai::step`): the Return roll, then the net repick
+            if g.phase != Phase::Serve {
+                m.phase = Ai::Rally;
+            }
+            false
+        }
         // doubles goes over on the receive routine's own word, in its step (P11k6)
         Ai::Receive => g.players.len() != 4 && g.shots >= 2 && p.swing.is_none() && p.contact.is_none(),
         Ai::Rally => false,
@@ -4243,6 +4252,10 @@ fn motions(mut g: ResMut<Game>, mut q: Query<(&Figure, &mut Motion)>) {
             }
         }
         m.clock.speed = c.speed;
+        // a dive whose slide a blocked move cut short: the receive motion restarts at time 5 and plays on
+        if g.players[i].dive.is_some_and(|d| d.restarted()) {
+            (m.clock.time, m.clock.speed) = (5.0, 1.0);
+        }
     }
 }
 

@@ -149,3 +149,8 @@ line-margin hold, each from a poked singles vpad match: no singles row has a cen
 `HST_RATE=0`); the arrival needs the CPU's contact heights poked in rallies (`HST_CHAR_RALLY`); the hold needs the
 `HST_LINE`/`HST_MARGIN` pokes, from a point's third shot only (`HST_LINE_FROM`). Test:
 `singles_vpad_net_and_base_match_the_game`.
+
+## P129 (strike and new-path messages)
+
+See 27-P129-STRIKE-FINAL.md. Net cords from plain bot play, figure strikes by moving one of court 10's figures onto
+the ball (`record_ai_rally.py` `HST_STRIKE=43`). Test: `strike_and_new_path_match_the_game`.

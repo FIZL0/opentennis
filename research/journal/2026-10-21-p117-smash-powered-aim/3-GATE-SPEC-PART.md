@@ -5,7 +5,7 @@ per-player copy of each player's last lock grade and timing offset, refreshed on
 for the 999/9999 "no timing" offsets), and the gate reads the striker's copy (the strike sets the last-hitter
 index first). The port phase's oracle never set those copies, so the gate stayed shut there.
 
-Live check: `research/p117_latch.py 5 2400` (slot-5 bot doubles, PCSX2 copy 5) logged the copies, the players'
+Live check: `research/journal/2026-10-21-p117-smash-powered-aim/scripts/p117_latch.py 5 2400` (slot-5 bot doubles, PCSX2 copy 5) logged the copies, the players'
 own lock grade/offset/ready flag and the hitter index each frame: every hit (22 of 22) had copy == the striker's
 current lock, and the lock came 5–8 frames before the contact. So `special = shot::special(striker) && effect row
 non-zero` on the retail disc; clean lobs heading across keep unscaled margins in the original.

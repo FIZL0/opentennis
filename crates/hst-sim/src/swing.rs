@@ -291,6 +291,19 @@ impl Dive {
         self.cut
     }
 
+    /// The frame just stepped cut the slide short: the receive motion restarts at time 5 (the counter has jumped
+    /// past the slide, so this holds until the next step).
+    pub fn restarted(&self) -> bool {
+        self.cut && !self.stopped && self.origin == self.frame + 1 && self.tick == self.frame + 2
+    }
+
+    /// Test-only: the dive carries on from `pos` (x, z) as if it had started there (a recording that moves the
+    /// diver on its first frame).
+    #[cfg(feature = "testing")]
+    pub fn moved_to(&mut self, pos: [f32; 2]) {
+        self.start = pos;
+    }
+
     /// Frames the dive locks the player, counting the search frame.
     pub fn lock_frames(&self) -> usize {
         self.frame + DIVE_RECOVERY + 1
@@ -325,7 +338,7 @@ impl Dive {
             let inv = (1.0 / (F(dx) * dx + F(dz) * dz).sqrt()).0;
             if (F(dz) * inv * self.dir[1] + F(dx) * inv * self.dir[0] + 0.0).0 < DIVE_STRAY {
                 if n <= k {
-                    // ponytail: the slide's early end restarts the motion at time 5, as decompiled; no recorded case
+                    // the slide's early end restarts the motion at time 5 (tests/swing.rs `blocked_dives`)
                     self.prev = [0.0; 2];
                     self.tick = k + 2;
                     self.origin = k + 1;
@@ -561,7 +574,7 @@ pub fn smash_mode(plain: bool, offset: i32, from_z: f32) -> i32 {
         return 0;
     }
     let deep = (F(from_z.abs().clamp(6.4, BASELINE)) - 6.4) / 5.485;
-    -(F::ZERO + (deep * 10.0 + 0.5)).0 as i32
+    -((F::ZERO + (deep * 10.0 + 0.5)).0 as i32)
 }
 
 /// A smash's launch blend from its `mode`, as the strokes' (`timing_launch`) with the smash's stats: Serv POW

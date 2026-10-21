@@ -73,7 +73,7 @@ lob and after the high ground stroke turned into a volley):
    start (grade 0 → gate shut). The strike sets the last-hitter index to the striker before it launches, so
    the pull reads the striker's copy.
    In play the lock comes several frames before the contact, so the copy always equals the striker's current
-   lock grade and offset when the pull runs: a live PINE probe of a slot-5 bot game (`research/p117_latch.py`,
+   lock grade and offset when the pull runs: a live PINE probe of a slot-5 bot game (`research/journal/2026-10-21-p117-smash-powered-aim/scripts/p117_latch.py`,
    2400 frames) saw 22 of 22 hits with copy == current lock, and the 999 sentinels only on swings that never
    made contact. So for the port the gate **is** `shot::special` of the striker's own grade/offset (rally
    shots: grade 1 or 2); no separate state is needed. A game-wide debug switch can force the gate on; it is

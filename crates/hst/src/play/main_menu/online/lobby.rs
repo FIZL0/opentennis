@@ -163,6 +163,8 @@ pub(in super::super) fn over(d: &mut Draw, m: &Menu) {
         }
         carried(d, m, r, i, rect, s);
     }
+    // B611: a host's tap on a card's handicap pill steps it, not the card under it
+    super::super::handicap::lift(d, m);
     strip(d, m, rm, &g, &on, &hit);
     start_button(d, m, rm, &g, &items, &on);
 }
