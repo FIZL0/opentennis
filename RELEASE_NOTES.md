@@ -11,3 +11,4 @@
 - Your Hugging Face sign-in for uploading mods is now saved where only you can read it, next to your settings (in the app's private storage on Android).
 - Joining an online lobby from a different imported game disc than the host's is now refused straight away with a message saying so, instead of the match drifting out of sync later.
 - A damaged game disc image no longer crashes the game when a match loads a court whose data can't be read: the match plays on another court's layout and says what went wrong.
+- Starting a match now zooms and fades out of the player select straight into the loading screen, without the player select flashing back over the loading screen first.
