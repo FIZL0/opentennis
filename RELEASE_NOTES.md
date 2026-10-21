@@ -1,4 +1,5 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Phones held upright (and other tall windows): during play the picture now splits in two, your end on top and the other team on the bottom, each half close behind its own players so they are big instead of a far-off whole court; between points, in close-ups and replays it goes back to one picture.
 - The camera button now only switches cameras during play, not between points, in cut-aways, at the change of ends or in replays.
 - The Stretch aspect ratio is back in Settings → Display, on every platform: the picture, menus and score use the whole screen, notch and margins included.
 - A player's emote voice now stops when the point ends and the players start reacting, instead of talking over the reaction.
