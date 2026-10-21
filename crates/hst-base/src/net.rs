@@ -4370,7 +4370,8 @@ mod tests {
             hcmd.send(Cmd::Fetching(Some(5))).unwrap();
             let Event::Room(both) = next(&gev, |e| matches!(e, Event::Room(r) if r.fetching.len() == 2)).await else { unreachable!() };
             assert_eq!(both.fetching.get("host"), Some(&5));
-            (gcmd.send(Cmd::Fetching(None)).unwrap(), hcmd.send(Cmd::Fetching(None)).unwrap());
+            gcmd.send(Cmd::Fetching(None)).unwrap();
+            hcmd.send(Cmd::Fetching(None)).unwrap();
             next(&gev, fetching(&[])).await;
             // ready and started, but the mods aren't settled yet
             gcmd.send(Cmd::Prepared(true)).unwrap();

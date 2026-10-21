@@ -1,7 +1,7 @@
 # T4: the checks a beta waits for. Runs on pull requests and pushes to other branches by itself; pushes to main run it
 # from pages.yml (`ci` job), whose beta and site deploy only go out when it passes.
 # - tests: hst-sim and hst-data, the ones that run without the disc (CI has no ISO; most disc tests skip themselves)
-# - clippy, warnings are errors: the crates that build without Bevy (the Bevy crates' 13 warnings: T9)
+# - clippy, warnings are errors: the whole workspace, the same command tools/done.sh runs before a task lands
 # - cargo-deny (deny.toml): RustSec advisories, licences, sources
 # No `cargo fmt --check` yet: the code isn't rustfmt-formatted and a repo-wide reformat waits for the user (plan/HUMAN.md).
 name: ci
@@ -24,7 +24,9 @@ jobs:
       - run: |
           cargo test --locked -p hst-sim -p hst-data -- \
             --skip match_serve_walk --skip beach_plane_flies_over --skip serve_follow_through
-      - run: cargo clippy --locked --all-targets -p hst-sim -p hst-data -p hst-oracle -p hst-gltf -- -D warnings
+      # the Bevy crates' system libraries (alsa, udev; wayland/xkbcommon headers for winit), as in Bevy's linux setup
+      - run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
   deny:
     runs-on: ubuntu-latest
     steps:

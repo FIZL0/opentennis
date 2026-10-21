@@ -85,6 +85,7 @@ fn one_player_per_ball_and_the_miss_mark() {
         let heard = app.world().resource::<Game>().whooshes.len();
         app.world_mut().run_schedule(FixedUpdate);
         let g = &mut *app.world_mut().resource_mut::<Game>();
+        #[allow(clippy::needless_range_loop)] // i is the player: before, me and records together
         for i in 0..4 {
             // a mark from the last frame is gone after this one's step
             assert!(!(before[i] && g.doubles_ai.me[i].mark), "player {i}'s miss mark lasted two frames");
@@ -96,6 +97,7 @@ fn one_player_per_ball_and_the_miss_mark() {
         }
         // (the lock cancelled above stays until its contact frame, so it doesn't count)
         let locked = |j: usize| g.players[j].contact.is_some_and(|c| !c.cancelled);
+        #[allow(clippy::needless_range_loop)] // t is the team: players t and t + 2, and pairs
         for t in 0..2 {
             let pair = locked(t) && locked(t + 2);
             if pair {
