@@ -494,10 +494,12 @@ fn picture(d: &mut Draw, m: &Menu, r: Row, pads: usize, [x, y, w, h]: [f32; 4]) 
             }
         }
         Row::Settings => {
-            let pw = 150.0;
-            let cols = (((w - 20.0) / (pw + 10.0)) as usize).clamp(1, 3);
+            // B632: as many across as the pills need to stay clear of the row's name over the picture's foot (a narrow
+            // panel, 4:3 or portrait, shrinks them rather than stacking them over the name and words)
+            let pages = options::tabs_shown();
+            let (cols, pw) = settings_pills(pages.len(), w, h);
             let x0 = x + (w - cols as f32 * (pw + 10.0) + 10.0) / 2.0;
-            for (k, (page, _)) in options::tabs_shown().iter().enumerate() {
+            for (k, (page, _)) in pages.iter().enumerate() {
                 let dst = [x0 + (pw + 10.0) * (k % cols) as f32, y + 14.0 + 40.0 * (k / cols) as f32, pw, 32.0];
                 d.pill_at(dst, [INK, WHITE, OFF], 128.0);
                 d.label(page, dst[0] + pw / 2.0, dst[1] + 6.0, 20.0, pw - 24.0, [110.0; 3]);
@@ -532,6 +534,15 @@ fn picture(d: &mut Draw, m: &Menu, r: Row, pads: usize, [x, y, w, h]: [f32; 4]) 
         }
         Row::Quit => {}
     }
+}
+
+/// The Settings picture's page pills for `n` pages in a picture `w` × `h`: how many across and how wide (150 at
+/// most, 3 across at most while that holds them), with the rows (40 apart from 14 down) ending clear of the row's
+/// name, which sits over the picture's last 37.
+fn settings_pills(n: usize, w: f32, h: f32) -> (usize, f32) {
+    let rows = (((h - 37.0 - 4.0 - 14.0 - 32.0) / 40.0).max(0.0) as usize + 1).max(1);
+    let cols = (((w - 20.0) / 160.0) as usize).clamp(1, 3).max(n.div_ceil(rows));
+    (cols, ((w - 20.0) / cols as f32 - 10.0).min(150.0))
 }
 
 /// `s` at 8.5 units ending at `right`.
@@ -667,7 +678,8 @@ const TILE_LETTER: [f32; 3] = [69.0, 53.0, 25.0];
 /// the face is baked), its name along the foot, UPDATE if the store has a newer one; "+N" for the rest.
 fn mod_tiles(d: &mut Draw, m: &Menu, [x, y, w, _]: [f32; 4]) {
     if m.mods.is_empty() {
-        d.text("No mods installed yet: browse the store or add one.", x + 18.0, y + 20.0, 14.0, INK);
+        // B632: wrapped inside a narrow (4:3, portrait) picture
+        para(d, "No mods installed yet: browse the store or add one.", x + 18.0, y + 20.0, w - 36.0, 14.0, 3, INK);
         return;
     }
     let (pad, gap) = (12.0, 4.0);
@@ -733,6 +745,23 @@ mod tests {
         assert_eq!(pw169, pw219);
         let s = store.expect("21:9 has the store column");
         assert!(x - 60.0 >= -extra(21.0 / 9.0) && s + STORE_W <= 640.0 + extra(21.0 / 9.0));
+    }
+
+    /// B632: the Settings picture's pills stay inside the picture and above the row's name, on the 4:3-and-narrower
+    /// panel and the 16:9 one, with and without the touch pages.
+    #[test]
+    fn settings_pills_clear_the_name() {
+        let extra = |a: f32| (640.0 / super::super::super::widescreen::share(a) - 640.0) / 2.0;
+        for a in [9.0 / 19.5, 3.0 / 4.0, 4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0] {
+            let (_, _, pw, _) = columns(extra(a));
+            let (w, h) = (pw - 6.0, PIC_H);
+            for n in [super::options::TABS.len() - 1, super::options::TABS.len()] {
+                let (cols, tw) = settings_pills(n, w, h);
+                let rows = n.div_ceil(cols);
+                assert!(cols as f32 * (tw + 10.0) - 10.0 <= w - 20.0 && tw >= 100.0, "{a} {n}: {cols} x {tw}");
+                assert!(14.0 + 40.0 * (rows - 1) as f32 + 32.0 <= h - 37.0, "{a} {n}: {rows} rows");
+            }
+        }
     }
 
     /// B440: a match comes back to the main screen with Local highlighted, the Rematch card one row up.
