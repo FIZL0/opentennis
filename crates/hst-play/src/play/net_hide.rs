@@ -44,7 +44,7 @@ pub struct NearBox {
 }
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Update, hide.after(super::camera)).add_systems(PostUpdate, hide_around_eye.before(bevy::transform::TransformSystems::Propagate));
+    app.add_systems(Update, hide.after(super::camera)).add_systems(PostUpdate, (hide_around_eye, hide_near_pieces).before(bevy::transform::TransformSystems::Propagate));
 }
 
 /// The objects the eye test runs on: the pass's categories with the code character the setup checks.
@@ -132,11 +132,7 @@ fn hide(g: Res<Game>, own: Option<Res<super::own_camera::OwnCam>>, d: Option<Res
 /// nothing while `cull::Off` holds (the intro's flyover).
 fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, mut q: Query<(Option<&mut HideAroundEye>, Option<&NearBox>, &mut Visibility), Or<(With<HideAroundEye>, With<NearBox>)>>) {
     let (Some(g), Ok((t, proj))) = (g, camera.single()) else { return };
-    let Projection::Perspective(p) = proj else { return };
-    // game space is Bevy's turned a half-turn about X; the horizontal fov as `fixed_eye` sets the vertical one
-    let aspect = window.single().map_or(16.0 / 9.0, crate::play::widescreen::scene_aspect);
-    let (e, f) = (t.translation * Vec3::new(1.0, -1.0, -1.0), *t.forward() * Vec3::new(1.0, -1.0, -1.0));
-    let view = View { rot: [[0.0; 3], [0.0; 3], f.to_array()], eye: e.to_array(), fov: ((p.fov / 2.0).tan() / 0.75f32.max(1.0 / aspect)).atan() };
+    let Some(view) = drawn_view(t, proj, &window) else { return };
     let (world, r) = (&g.world.0, reach(&view));
     for (h, near, mut v) in &mut q {
         let hidden = off.is_none() && h.is_some_and(|mut h| {
@@ -152,6 +148,32 @@ fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, cam
             prop.is_some_and(|i| buried_at(&view, r, &world.models, &world.props[i]))
         }) || off.is_none() && near.is_some_and(|b| in_front_at(&view, r, b.lo, b.hi));
         v.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
+    }
+}
+
+/// The drawn camera's view in game space (Bevy's turned a half-turn about X), with the horizontal fov as `fixed_eye`
+/// sets the vertical one; `None` for an orthographic one.
+fn drawn_view(t: &Transform, proj: &Projection, window: &Query<&Window>) -> Option<View> {
+    let Projection::Perspective(p) = proj else { return None };
+    let aspect = window.single().map_or(16.0 / 9.0, crate::play::widescreen::scene_aspect);
+    let (e, f) = (t.translation * Vec3::new(1.0, -1.0, -1.0), *t.forward() * Vec3::new(1.0, -1.0, -1.0));
+    Some(View { rot: [[0.0; 3], [0.0; 3], f.to_array()], eye: e.to_array(), fov: ((p.fov / 2.0).tan() / 0.75f32.max(1.0 / aspect)).atan() })
+}
+
+/// B510: a court mod's gimmick (`court_mod::NearPiece`) one of whose boxes comes right up in front of the drawn camera
+/// is hidden whole: B303's test (`in_front`) at its widest lens' reach whatever the zoom (within 0.5 m of the lens'
+/// line out to 3 m), since a telephoto's longer reach also takes the pieces in frame far behind the player it
+/// follows (Dubno's caution flags); nothing while `cull::Off` holds (the intro's flyover).
+fn hide_near_pieces(off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, pieces: Query<&crate::court_mod::NearPiece>, mut vis: Query<&mut Visibility, (Without<HideAroundEye>, Without<NearBox>)>) {
+    let Ok((t, proj)) = camera.single() else { return };
+    let Some(view) = drawn_view(t, proj, &window) else { return };
+    for np in &pieces {
+        let hidden = off.is_none() && np.boxes.iter().any(|&(lo, hi)| in_front_at(&view, 1.0, lo, hi));
+        for &e in &np.hide {
+            if let Ok(mut v) = vis.get_mut(e) {
+                v.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
+            }
+        }
     }
 }
 
@@ -212,6 +234,19 @@ mod tests {
         assert!(hit(&cut, table(1.5, 0.0)) && hit(&cut, table(2.0, 0.6)));
         assert!(!hit(&cut, table(5.0, 0.0)) && !hit(&cut, table(1.5, 2.0)) && !hit(&cut, table(-1.0, 0.0)));
         assert!(hit(&view([0.0, -1.0, 0.0], [0.0, 0.0, 1.0], 20.0), table(5.0, 0.0)));
+    }
+
+    /// B510: the gimmick test at the widest lens' reach (`hide_near_pieces`): Dubno's helicopter cabin (its box at rest)
+    /// fills a logged doubles cut-away from 0.5 m past its side; a telephoto replay down the court, whose zoomed reach
+    /// would take in the far caution flag behind the player, keeps a box 20 m out on its line.
+    #[test]
+    fn gimmick_in_front() {
+        let cabin = (Vec3::new(7.06, -3.7, -6.85), Vec3::new(9.96, -0.57, 9.03));
+        let cut = view([10.427, -2.983, 1.839], [-0.959, 0.224, 0.175], 2.0 * 0.4363f32.to_degrees());
+        assert!(in_front_at(&cut, 1.0, cabin.0, cabin.1));
+        let tele = view([2.535, -1.507, 23.806], [-0.135, 0.026, -0.990], 2.0 * 0.04363f32.to_degrees());
+        let far = (Vec3::new(-0.5, -2.5, 2.0), Vec3::new(0.5, -1.0, 3.0));
+        assert!(!in_front_at(&tele, 1.0, far.0, far.1) && in_front(&tele, far.0, far.1));
     }
 
     /// P43: the quick box rejection in `in_front` never changes its answer from the sampled test alone.

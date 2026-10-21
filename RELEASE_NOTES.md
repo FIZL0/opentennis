@@ -55,3 +55,4 @@
 - Switching a two-player local match to doubles now puts the second player on your team instead of across the net.
 - Custom characters' select pictures are drawn again to match how the game draws them now, instead of showing older pictures from the store or the mod itself. Uploading a character sends the game's current picture of it, and an updated mod shows its new picture.
 - The ball-boy carts on the indoor court now turn their ball-launcher wheels, and the horses beside the ranch court move as they do in the original.
+- After a point, the camera no longer gets stuck looking through the inside of a large set piece standing beside a custom court (such as a parked helicopter): the piece is hidden while the camera stands in it.
