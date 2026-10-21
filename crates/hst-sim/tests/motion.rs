@@ -924,4 +924,16 @@ fn paced_swings() {
     assert_eq!(paced_stroke_start(branch::GROUND, 0, 0x11, 2.0), (0x11, 2.0, None));
     // the smash stays timed to its contact
     assert_eq!(paced_stroke_start(branch::SMASH, 6, 0x1f, 2.0), stroke_start(branch::SMASH, 6, 0x1f));
+    // B613: only ground strokes and volleys are paced; the serve, smash and dive (and their whiffs) play as any
+    // character's, even with no time left before contact
+    for frames in -2..1 {
+        for (b, anim) in [(branch::SMASH, 0x1f), (branch::DIVE, 0x16)] {
+            assert_eq!(paced_stroke_start(b, frames, anim, 2.0), stroke_start(b, frames, anim));
+        }
+    }
+    use hst_sim::motion::{anim_pace, stroke_pace};
+    assert_eq!([branch::SERVE, branch::GROUND, branch::VOLLEY, branch::DIVE, branch::SMASH].map(|b| stroke_pace(b, 2.0)),
+               [1.0, 2.0, 2.0, 1.0, 1.0]);
+    assert_eq!([0x10, 0x11, 0x19, id::SMASH, id::SERVE, id::SERVE_UNDER].map(|a| anim_pace(a, 2.0)),
+               [2.0, 2.0, 2.0, 1.0, 1.0, 1.0]);
 }

@@ -233,7 +233,8 @@ pub fn swing_lead(rate: f32) -> i32 {
 
 /// [`stroke_start`] for a swing played `rate` times faster (`rate` 1: exactly it). A ground stroke or volley more
 /// than [`swing_lead`] frames out turns first and its swing waits, to start at `rate` that many frames before
-/// contact; a swing with less time than that (and the smash, timed to its contact) plays at 8 / frames as any.
+/// contact; a swing with less time than that plays at 8 / frames as any (at `rate` once contact is due). The smash
+/// and the dive play exactly as any character's ([`stroke_pace`]).
 pub fn paced_stroke_start(branch: u8, frames: i32, anim: i32, rate: f32) -> (i32, f32, Option<i32>) {
     if rate == 1.0 {
         return stroke_start(branch, frames, anim);
@@ -242,9 +243,20 @@ pub fn paced_stroke_start(branch: u8, frames: i32, anim: i32, rate: f32) -> (i32
         return (if anim & 1 == 0 { id::TURN_FORE } else { id::TURN_BACK }, 1.0, Some(anim));
     }
     match stroke_start(branch, frames, anim) {
-        (m, _, w) if branch != branch::DIVE && frames < 1 => (m, rate, w),
+        (m, _, w) if (branch::GROUND..=branch::VOLLEY).contains(&branch) && frames < 1 => (m, rate, w),
         s => s,
     }
+}
+
+/// The pace a swing of `branch` plays at for a mod's swing `rate`: `rate` for ground strokes and volleys, 1 (the
+/// original's timing) for the serve, the smash and the dive, which stay timed to their contact.
+pub fn stroke_pace(branch: u8, rate: f32) -> f32 {
+    if (branch::GROUND..=branch::VOLLEY).contains(&branch) { rate } else { 1.0 }
+}
+
+/// [`stroke_pace`] by the swing's motion: `rate` for a ground stroke or volley (`id::STROKES`), else 1.
+pub fn anim_pace(anim: i32, rate: f32) -> f32 {
+    if id::STROKES.contains(&anim) { rate } else { 1.0 }
 }
 
 /// `frames` (a recovery after contact) at a swing `rate` times faster, rounded up; `frames` itself at rate 1.
