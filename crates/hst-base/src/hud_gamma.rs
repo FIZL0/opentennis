@@ -145,9 +145,10 @@ fn encode_pbr_output(mut events: MessageReader<AssetEvent<Shader>>, mut shaders:
 }
 
 /// B547: the most device pixels per CSS px (logical px) the images get: a phone's DPR 3 drew and held 2.25× the pixels
-/// of 2 for a picture that looks the same at its pixel density (the composite upscales). Desktop windows (DPR ≤ 2)
-/// never reach it.
-const MAX_DENSITY: f32 = 2.0;
+/// of 2 for a picture that looks the same at its pixel density (the composite upscales). Phones and the browser only:
+/// a desktop window always draws at its native pixels (a Steam Deck's X server can report a 2.25 scale factor, and
+/// the cap drew its menus' text at 1138×711 and upscaled it to the 1280×800 panel).
+const MAX_DENSITY: f32 = if cfg!(any(target_os = "ios", target_os = "android", target_arch = "wasm32")) { 2.0 } else { f32::INFINITY };
 
 /// Both images at the window's physical size and scale factor, as the window target was; the scene's times the
 /// render scale setting (the composite upscales it); neither past [`MAX_DENSITY`]. The persistence's images only
@@ -396,8 +397,12 @@ mod tests {
 
     #[test]
     fn density_capped_at_two() {
-        // a DPR-3 phone: two thirds of its pixels; DPR 2 and below: all
-        assert_eq!(densest(3.0), 2.0 / 3.0);
+        // a DPR-3 phone: two thirds of its pixels; DPR 2 and below, and any desktop window: all
+        if MAX_DENSITY.is_finite() {
+            assert_eq!(densest(3.0), 2.0 / 3.0);
+        } else {
+            assert_eq!(densest(2.25), 1.0);
+        }
         assert_eq!((densest(2.0), densest(1.25), densest(1.0)), (1.0, 1.0, 1.0));
     }
 

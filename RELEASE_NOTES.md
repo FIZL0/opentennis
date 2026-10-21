@@ -15,3 +15,4 @@
 - The first launch after an update no longer risks closing straight away while it gets match graphics ready ahead of time.
 - Phone apps: held upright, the touch stick, buttons and Select/Start are now full thumb size and sit together at the bottom of the screen.
 - Main menu in a tall or 4:3 window: the Settings preview's page buttons and the empty Mods preview's words now fit inside their picture instead of running over the title and description.
+- On high-DPI screens such as the Steam Deck, menu and HUD text now draws at the screen's full resolution instead of slightly soft.
