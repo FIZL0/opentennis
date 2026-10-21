@@ -54,6 +54,9 @@ struct SplitCam;
 #[derive(Resource, Default)]
 struct Split {
     cam: Option<Entity>,
+    /// The main camera's field of view `both` last wrote and the 4:3 picture's half-height tangent it came from: a
+    /// camera that doesn't rewrite its fov every frame leaves the written one, which mustn't be refitted again.
+    wrote: Option<(f32, f32)>,
 }
 
 /// Live play on the plain match view, the remaster's own look.
@@ -70,15 +73,18 @@ fn plain_play(w: &World) -> bool {
 
 pub(super) fn split(w: &mut World) {
     let aspect = w.query_filtered::<&Window, With<PrimaryWindow>>().single(w).ok().map_or(1.0, crate::play::widescreen::scene_aspect);
-    let on = w.get_resource::<Personal>().is_some_and(|p| p.showing)
-        && plain_play(w)
-        && w.get_resource::<TeamCams>().is_some_and(|t| t.0.len() == 2);
+    // chosen, the split stays through everything (user 2026-10-21: cutting back to one picture looks bad); the
+    // halves follow their humans in live play and both show the one picture otherwise (intro, calls, replays)
+    let on = w.get_resource::<Personal>().is_some_and(|p| p.showing) && w.contains_resource::<Game>();
+    let own = on && plain_play(w) && w.get_resource::<TeamCams>().is_some_and(|t| t.0.len() == 2);
     // side by side, the score panels stay as they are
     ON.store(on && aspect < 1.0, Ordering::Relaxed);
     let mut state = w.remove_resource::<Split>().unwrap_or_default();
-    if on {
+    if own {
         // 1P's team left (or on top), the other right (or below)
         place(w, &mut state, aspect, aspect >= 1.0, [0, 1]);
+    } else if on {
+        both(w, &mut state, aspect, aspect >= 1.0);
     } else {
         // (also after a mode's teardown dropped `Split` mid-split: the main camera still has its split layers)
         let split = w.query_filtered::<&RenderLayers, With<Orbit>>().single(w).is_ok_and(|l| *l == top_layers());
@@ -295,18 +301,40 @@ fn step_teams(g: Option<Res<Game>>, p: Option<Res<Personal>>, pads: Option<Res<P
     }
 }
 
+/// Each half's aspect (width over height) and its part of the picture (position, size; physical px).
+fn halves(target: UVec2, aspect: f32, wide: bool) -> (f32, [(UVec2, UVec2); 2]) {
+    if wide {
+        let x = target.x / 2;
+        (aspect / 2.0, [(UVec2::ZERO, UVec2::new(x, target.y)), (UVec2::new(x, 0), UVec2::new(target.x - x, target.y))])
+    } else {
+        let y = target.y / 2;
+        (aspect * 2.0, [(UVec2::ZERO, UVec2::new(target.x, y)), (UVec2::new(0, y), UVec2::new(target.x, target.y - y))])
+    }
+}
+
+/// The one picture the main camera was given this frame, whole in both halves (the 4:3 picture fitted to each, as
+/// the full window fits it).
+fn both(w: &mut World, state: &mut Split, aspect: f32, wide: bool) {
+    let Some(target) = target(w) else { return };
+    let (half, views) = halves(target, aspect, wide);
+    let mut q = w.query_filtered::<(&Transform, &Projection), With<Orbit>>();
+    let Ok((tf, Projection::Perspective(p))) = q.single(w) else { return };
+    let tan = match state.wrote {
+        Some((fov, tan)) if fov == p.fov => tan,
+        _ => (p.fov / 2.0).tan() / super::SHOWN_ASPECT.max(1.0 / aspect),
+    };
+    let fov = 2.0 * (tan * super::SHOWN_ASPECT.max(1.0 / half)).atan();
+    let tf = *tf;
+    state.wrote = Some((fov, tan));
+    show(w, state, [(tf, fov); 2], views, half);
+}
+
 /// Shows team `order[0]`'s own camera on the first half (left, or top) and `order[1]`'s on the second.
 fn place(w: &mut World, state: &mut Split, aspect: f32, wide: bool, order: [usize; 2]) {
     let a = w.resource::<Time<Fixed>>().overstep_fraction();
     let Some(target) = target(w) else { return };
-    let half = if wide { aspect / 2.0 } else { aspect * 2.0 };
-    let views = if wide {
-        let x = target.x / 2;
-        [(UVec2::ZERO, UVec2::new(x, target.y)), (UVec2::new(x, 0), UVec2::new(target.x - x, target.y))]
-    } else {
-        let y = target.y / 2;
-        [(UVec2::ZERO, UVec2::new(target.x, y)), (UVec2::new(0, y), UVec2::new(target.x, target.y - y))]
-    };
+    let (half, views) = halves(target, aspect, wide);
+    state.wrote = None;
     let t = w.resource::<TeamCams>();
     let eye = |i: usize| {
         let (v0, v) = (t.0[i].prev, t.0[i].now);
