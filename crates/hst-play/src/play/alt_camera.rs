@@ -149,7 +149,9 @@ fn step(
     let p = &g.players[i];
     let (spot, near, ball) = ([p.pos[0], p.pos[1], p.pos[2]], p.end > 0.0, g.flight.ball.pos);
     // this tick's target: the shot behind the human, the reset match camera, else none (the shared camera shows)
-    let target = if g.instant.replaying {
+    // B621: a post-point cut-away shows on the shared camera as with the normal one; the next point cuts back to a
+    // fresh shot behind the human
+    let target = if g.instant.replaying || d.on_screen() {
         alt.glide = None;
         alt.follow = None;
         None
@@ -350,5 +352,44 @@ mod tests {
         w.insert_resource(g);
             w.run_system_once(super::step).expect("step");
         assert_ne!(w.resource::<AltCamera>().on, on, "no switch in the serve");
+    }
+
+    /// B621: with the alternate camera on, a post-point cut-away takes the picture as with the normal camera (from the
+    /// shot's first step), and the next point cuts back behind the human (skipped without the ISO).
+    #[test]
+    fn cut_aways_show_in_the_alternate_camera() {
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        // the match all bots (an idle human never serves); the camera, stepped after each tick, follows player 0
+        let mut a = app(false);
+        a.insert_resource(AltCamera { on: true, ..default() });
+        let pads = |autoplay| Pads { slots: default(), connected: 0, seats: Some([true, false, false, false]), autoplay };
+        let (mut shots, mut was, mut back) = (0, false, 0);
+        for _ in 0..60 * 120 {
+            a.insert_resource(pads(true));
+            a.world_mut().run_schedule(FixedUpdate);
+            a.insert_resource(pads(false));
+            bevy::ecs::system::RunSystemOnce::run_system_once(a.world_mut(), super::step).unwrap();
+            let w = a.world();
+            let (g, own) = (w.resource::<Game>(), w.get_resource::<own_camera::OwnCam>());
+            let on = w.resource::<cutaway::Director>().on_screen();
+            let (prev, now) = own_camera::shown(g, own);
+            if on {
+                assert_eq!((prev, now), (g.prev_view, g.cam.view), "cut-away {shots}: the picture isn't the shot");
+            } else if was {
+                // the cut back: no blend from the shot
+                let z = g.players[0].pos[2];
+                assert_eq!(prev, now, "the cut back blends");
+                assert!(now.eye[2] * z > 0.0 && now.eye[2].abs() > z.abs() + 5.0, "eye {:?} not behind the human at z {z}", now.eye);
+                back += 1;
+            }
+            shots += (on && !was) as u32;
+            was = on;
+            if back == 2 {
+                break;
+            }
+        }
+        assert_eq!(back, 2, "{shots} cut-aways, {back} back behind the human");
     }
 }
