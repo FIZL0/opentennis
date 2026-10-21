@@ -249,8 +249,14 @@ fn opened(
 fn pool(mut commands: Commands, root: Query<(Entity, &Visibility), With<Root>>, slots: Query<(Entity, &ChildOf), With<Slot>>) {
     for (r, v) in &root {
         let have = slots.iter().filter(|(_, p)| p.parent() == r).map(|(e, _)| e);
-        crate::ui_pool::keep(&mut commands, r, *v != Visibility::Hidden, have, POOL_HERE.min(POOL), |i| (Slot(i), crate::ui_pool::quad()));
+        crate::ui_pool::keep(&mut commands, r, *v != Visibility::Hidden, have, POOL_HERE.min(POOL), slot);
     }
+}
+
+/// One of the overlay's quads, with everything `super::draw` queries a `Slot` for (B623's `Bleed`: without it the draw
+/// found none and the Settings over the match drew nothing, though they still took input).
+fn slot(i: usize) -> impl Bundle {
+    (Slot(i), crate::ui_pool::quad(), widescreen::Bleed { order: i as i32, on: false })
 }
 
 /// B294: the Settings pages lay out on the whole view, as the main menu's (`fit_grid`, less its live settings), at the
@@ -516,6 +522,15 @@ fn touch_menu(w: &World, mut was: Local<Option<bool>>) {
 mod tests {
     use super::*;
     use super::super::{Press, controls};
+
+    /// The overlay's quads are ones `super::draw` draws (it queries a `Slot` for all of these).
+    #[test]
+    fn pause_slots_are_drawn() {
+        let mut w = World::new();
+        w.spawn(slot(0));
+        let mut q = w.query::<(&Slot, &ImageNode, &Node, &Visibility, &UiTransform, &BorderColor, &widescreen::Bleed)>();
+        assert_eq!(q.iter(&w).count(), 1);
+    }
 
     /// B430: the venue caption names an umpire mod by its own name (with or without "Umpire " in it), like a disc one.
     #[test]
