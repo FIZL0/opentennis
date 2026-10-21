@@ -16,10 +16,12 @@ if [ "$3" = --spec ]; then
   exit
 fi
 tools/audit.sh && tools/patches.py && tools/check.sh || exit 1
-# the sim's #![deny(clippy::float_arithmetic)] modules (C2: float math through ps2::F / vu0::Vf); clippy only
-# reports the deny-level lints here, every other lint stays off
-cargo clippy -q -p hst-sim --lib --message-format=short -- -A clippy::all 2>&1 | grep -E 'error' | head -20 | grep . &&
-  { echo "CLIPPY FAILED: plain f32 arithmetic in a converted sim module (use ps2::F / vu0::Vf)"; exit 1; }
+# T9: CI's clippy (ci.yml), warnings are errors, so a task can't land a warning that stops the beta. It covers the
+# sim's #![deny(clippy::float_arithmetic)] modules too (C2: float math through ps2::F / vu0::Vf)
+out=$(cargo clippy -q --locked --workspace --all-targets --message-format=short -- -D warnings 2>&1) || {
+  grep -E '^(crates|tools|third_party)/.*(error|warning)|^error' <<<"$out" | grep -v 'could not compile' | head -30
+  grep -q float_arithmetic <<<"$out" && echo "plain f32 arithmetic in a converted sim module: use ps2::F / vu0::Vf"
+  echo "CLIPPY FAILED (same as CI's: cargo clippy --workspace --all-targets -- -D warnings)"; exit 1; }
 export HST_CTX_NOCOMMIT=1  # the tick goes into the commit below
 if [ $# = 4 ]; then tools/ctx.py block "$1" "$4"; else tools/ctx.py tick "$1"; fi || exit 1
 if [ "$main" ]; then git add -- "${paths[@]}" && git commit -qm "$2" -- plan/TODO.md plan/DONE.md "${paths[@]}"

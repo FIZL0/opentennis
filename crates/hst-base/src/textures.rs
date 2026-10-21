@@ -463,7 +463,7 @@ mod tests {
         let px: Vec<u8> = (0..4 * 2).flat_map(|i| [i as u8 * 10, 0, 255, 100]).collect();
         let (w, h, out) = halve_to((4, 2, px.clone()), 2);
         assert_eq!((w, h), (2, 1));
-        assert_eq!(&out[..4], &[(0 + 10 + 40 + 50 + 2) / 4, 0, 255, 100]);
+        assert_eq!(&out[..4], &[(10 + 40 + 50 + 2) / 4, 0, 255, 100]);
         assert_eq!(halve_to((4, 2, px.clone()), 4), (4, 2, px.clone()), "within the cap: untouched");
         let (w, h, _) = halve_to((5, 3, vec![7; 5 * 3 * 4]), 1);
         assert_eq!((w, h), (1, 1));

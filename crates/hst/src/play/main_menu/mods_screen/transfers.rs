@@ -332,8 +332,7 @@ mod tests {
 
     #[test]
     fn the_popup_waits_for_a_calm_screen() {
-        let mut m = Menu::default();
-        m.screen = Screen::Chars;
+        let mut m = Menu { screen: Screen::Chars, ..Default::default() };
         (m.add.due, m.add.fresh) = (true, true);
         offer(&mut m);
         assert_eq!(m.add.ask, None, "not over the select");
@@ -344,8 +343,7 @@ mod tests {
 
     #[test]
     fn the_popup_waits_for_the_uploads() {
-        let mut m = Menu::default();
-        m.screen = Screen::Main;
+        let mut m = Menu { screen: Screen::Main, ..Default::default() };
         (m.add.due, m.add.fresh) = (true, true);
         m.add.ups.insert("m/a".into(), Up::Uploading);
         offer(&mut m);
@@ -362,8 +360,7 @@ mod tests {
     /// M141: the Reload Mods button and the main menu's Mods note wait for the queue; then the button reloads.
     #[test]
     fn the_reload_button_waits_for_the_queue() {
-        let mut m = Menu::default();
-        m.screen = Screen::Graphics;
+        let mut m = Menu { screen: Screen::Graphics, ..Default::default() };
         m.add.changed = true;
         m.add.enqueue(entry("x"), false, 1);
         assert!(!button(&m) && !super::super::reload_due(&m), "not while a download is going");
@@ -406,8 +403,7 @@ mod tests {
     /// M141: leaving the Mods page mid-download doesn't ask; the end of the queue does.
     #[test]
     fn leaving_mid_download_asks_at_the_end() {
-        let mut m = Menu::default();
-        m.screen = Screen::Mods;
+        let mut m = Menu { screen: Screen::Mods, ..Default::default() };
         m.add.changed();
         m.add.enqueue(entry("x"), false, 1);
         m.mods_back(&mut Vec::new());
@@ -425,8 +421,7 @@ mod tests {
     #[test]
     fn play_asks_again() {
         use super::super::super::home::Row;
-        let mut m = Menu::default();
-        m.screen = Screen::Main;
+        let mut m = Menu { screen: Screen::Main, ..Default::default() };
         m.sel = m.main_at(Row::Local);
         m.add.changed = true;
         m.add.enqueue(entry("x"), false, 1);

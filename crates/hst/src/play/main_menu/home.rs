@@ -758,7 +758,7 @@ mod tests {
                 assert_eq!(pitch, want, "{cards:?}");
             }
             let end = TOP + 5.0 * pitch + cards.iter().map(|r| if *r == Rematch { CARD_H + 12.0 } else { UPDATE_H + 8.0 }).sum::<f32>();
-            assert!(end <= FOOT - 32.0 && ph >= 24.0 && ph <= PILL_H, "{cards:?}: {end} {ph}");
+            assert!(end <= FOOT - 32.0 && (24.0..=PILL_H).contains(&ph), "{cards:?}: {end} {ph}");
         }
     }
 }

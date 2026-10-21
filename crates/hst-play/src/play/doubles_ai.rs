@@ -737,6 +737,7 @@ mod tests {
             app.world_mut().resource_mut::<Replay>().0.push_back([pad, IDLE, IDLE, IDLE]);
             app.world_mut().run_schedule(FixedUpdate);
             let g = app.world().resource::<Game>();
+            #[allow(clippy::needless_range_loop)] // i indexes players, doubles_ai.me and was together
             for i in 1..g.players.len() {
                 let x = &g.doubles_ai.me[i].rally;
                 let s = if g.players[i].ai_mind.is_some_and(|m| m.phase == Ai::Receive) { x.state } else { x.sub };
