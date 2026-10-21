@@ -16,7 +16,7 @@ links = ["context", "mods", "replacements", "*.iso"]
 shared_files = ["play.rs"]
 joinable = ["plan/*.md", "research/journal/*", "RELEASE_NOTES.md"]
 slot_env = ["HST_PCSX2={n}", "HST_PCSX2_MAX_HOLD=1200", "HST_BG=1", "RUSTC_WRAPPER=sccache", "SCCACHE_CACHE_SIZE=60G"]
-on_exit = "tools/pcsx2.sh tools/pcsx2-hst.sh stop"
+on_exit = "tools/pcsx2.sh tools/pcsx2-hst.sh stop; tools/worktree-gc.sh"
 before_start = "ls /run/user/$(id -u)/wayland-[0-9]* >/dev/null 2>&1"   # PCSX2 needs this user's desktop session
 untested = ["*.md", ".github/*", "tools/*", "!tools/check.sh"]
 failures = '^---- (\S+) stdout ----'
