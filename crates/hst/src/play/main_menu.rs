@@ -1326,7 +1326,7 @@ impl Menu {
             return out;
         }
         let host = self.lead();
-        if self.screen == Screen::Main && (self.ask_step(k, &mut out) || self.stale_step(dev, k, &mut out)) {
+        if self.ask_step(k, &mut out) || self.screen == Screen::Main && self.stale_step(dev, k, &mut out) {
             return out;
         }
         // B484: the other side's mod asked about over the select / the confirm (drawn over everything)
@@ -2393,6 +2393,10 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     if fresh && screen == "reloadmods" {
         mods_screen::sample(&mut menu, &screen);
     }
+    // M136: `HST_TRANSFERS=1`: mod downloads and uploads under way over it
+    if fresh {
+        mods_screen::transfers_sample(&mut menu);
+    }
     // M127: the pad takeover prompt up / its toast
     if fresh && (screen == "takeover" || screen == "takeover-toast") {
         takeover::sample(&mut menu, screen == "takeover-toast");
@@ -2955,6 +2959,9 @@ fn drawn<'a>(m: &Menu, text: &'a Text, bind: &Bindings, pads: &[Entity], control
         Screen::Mods => mods_screen::layout(&mut d, m, hand_x),
         Screen::Extras => extras::layout(&mut d, m, hand_x),
     }
+    // M136: the mod downloads / uploads under way, and the Reload popup once they've changed the mods (any screen)
+    mods_screen::transfers_layout(&mut d, m);
+    mods_screen::ask_layout(&mut d, m, hand_x);
     online::draw_ask_over(&mut d, m);
     takeover::layout(&mut d, m, hand_x);
     // B221: the screens with no Back row show the title tab's Back (B449: the confirm screen has its own)
