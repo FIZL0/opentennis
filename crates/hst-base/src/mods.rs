@@ -1171,8 +1171,9 @@ fn level_feet(joints: &mut [Joint], sides: &[Option<usize>], soles: &[Vec<(Vec3,
         let mut sole = [heel, ball, ball];
         if let Some(w) = &world {
             // the sole in the stance: each vertex skinned on its joint; heel and toe the lowest of the back and
-            // front thirds along the foot
-            let skin = |joints: &[Joint], (v, j): (Vec3, usize)| w[j].1 + w[j].0 * joints[j].inverse_bind.transform_point3(v);
+            // front thirds along the foot (with the joint's own scale: B615, Get a Grip's toe nubs are scaled 0.01
+            // and some costumes skin the toes to them, which put the sole metres off)
+            let skin = |joints: &[Joint], (v, j): (Vec3, usize)| w[j].1 + w[j].0 * (joints[j].rest.scale * joints[j].inverse_bind.transform_point3(v));
             let (pa, pt) = (w[f].1, w[t].1);
             let fwd = Vec3::new(pt.x - pa.x, 0.0, pt.z - pa.z).normalize_or_zero();
             let pts: Vec<Vec3> = soles[side].iter().map(|&v| skin(joints, v)).collect();
@@ -2881,12 +2882,63 @@ mod tests {
             let (Some(V::Float32x3(pos)), Some(V::Uint16x4(js)), Some(V::Float32x4(ws))) = (m.attribute(Mesh::ATTRIBUTE_POSITION), m.attribute(Mesh::ATTRIBUTE_JOINT_INDEX), m.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)) else { continue };
             for ((v, j), w) in pos.iter().zip(js).zip(ws) {
                 let top = (0..4).max_by(|&a, &b| w[a].total_cmp(&w[b])).unwrap();
-                let Some(k) = want.iter().position(|x| *x == Some(skin.joints[j[top] as usize])) else { continue };
+                // a toe's nub (Get a Grip skins toes to it) counts as the toe
+                let jt = skin.joints[j[top] as usize];
+                let jt = if c.skeleton.names[jt].ends_with("Nub") { c.skeleton.parent[jt].unwrap_or(jt) } else { jt };
+                let Some(k) = want.iter().position(|x| *x == Some(jt)) else { continue };
                 let q: Vec3 = (0..4).map(|i| w[i] * (model[skin.joints[j[i] as usize]] * c.joints[skin.joints[j[i] as usize]].inverse_bind).transform_point3(Vec3::from(*v))).sum();
                 out[k] = if out[k].is_nan() { q.y } else { out[k].max(q.y) };
             }
         }
         out
+    }
+
+    /// B615: a toe's sole vertices measure the same whether they ride the toe or a scaled nub below it (Get a Grip's
+    /// nubs are scaled 0.01; Rachel's toes ride them, and her sole came out metres off, so a run threw her legs up).
+    #[test]
+    fn soles_on_a_scaled_nub() {
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let mut s = Stores(default(), default(), default(), default());
+        let c = character::load_disc(&mut iso, 12, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
+        let body = character::disc_body(&mut iso, 12).unwrap();
+        let mut joints: Vec<Joint> = c.joints.iter().map(|j| Joint { name: j.name.clone(), parent: j.parent, rest: j.rest, inverse_bind: j.inverse_bind }).collect();
+        let at = |joints: &[Joint], n: &str| joints.iter().position(|j| j.name == n).unwrap();
+        let mut nubs = [0; 2];
+        for (k, s) in ["L", "R"].iter().enumerate() {
+            let toe = at(&joints, &format!("Bip01{s}Toe0"));
+            let rest = Transform { translation: Vec3::new(0.02, 0.0, 0.0), rotation: Quat::from_rotation_y(0.7), scale: Vec3::splat(0.01) };
+            let inverse_bind = (joints[toe].inverse_bind.inverse() * rest.to_matrix()).inverse();
+            nubs[k] = joints.len();
+            joints.push(Joint { name: format!("Bip01{s}Toe0Nub"), parent: Some(toe), rest, inverse_bind });
+        }
+        let sides = foot_sides(&joints);
+        // a box of sole vertices per foot from behind the ankle to past the toe joint, the front half on the toe
+        let soles = |on: [usize; 2]| -> [Vec<(Vec3, usize)>; 2] {
+            std::array::from_fn(|k| {
+                let s = ["L", "R"][k];
+                let (f, t) = (at(&joints, &format!("Bip01{s}Foot")), at(&joints, &format!("Bip01{s}Toe0")));
+                let (a, o) = (joints[f].inverse_bind.inverse().w_axis.truncate(), joints[t].inverse_bind.inverse().w_axis.truncate());
+                let fwd = Vec3::new(o.x - a.x, 0.0, o.z - a.z).normalize();
+                let side = Vec3::Y.cross(fwd);
+                let mut v = Vec::new();
+                for i in 0..8 {
+                    let x = -0.08 + (o - a).length() * 1.3 * i as f32 / 7.0;
+                    for (w, y) in [(-0.04, 0.0), (0.04, 0.0), (0.0, -0.05)] {
+                        let p = Vec3::new(a.x, y, a.z) + fwd * x + side * w;
+                        v.push((p, if i < 4 { f } else { on[k] }));
+                    }
+                }
+                v
+            })
+        };
+        let toes = [at(&joints, "Bip01LToe0"), at(&joints, "Bip01RToe0")];
+        let feet = |on: [usize; 2]| level_feet(&mut joints.iter().map(|j| Joint { name: j.name.clone(), parent: j.parent, rest: j.rest, inverse_bind: j.inverse_bind }).collect::<Vec<_>>(), &sides, &soles(on), &body, c.motions.get(&0)).unwrap();
+        let (a, b) = (feet(toes), feet(nubs));
+        for k in 0..2 {
+            for (p, q) in a.feet[k].1.iter().zip(&b.feet[k].1) {
+                assert!((*p - *q).length() < 1e-3, "foot {k}: on the toe {p}, on the nub {q}");
+            }
+        }
     }
 
     /// B563 diagnostic: the donor model of [`character::Feet`] run on a stock character itself, against its skinned
