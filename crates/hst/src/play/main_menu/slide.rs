@@ -1,13 +1,15 @@
 //! The slide between menu screens (B40e2): the last screen's panels slide off and fade, then the new screen's slide
 //! in from the other side. Ours, not the original's (menus need not be 1:1, user 2026-10-12): the wall and title bar
 //! (`Anchor::Span`) switch at the midpoint without moving; a forward step (a later `Screen`) moves left, back moves right.
-//! Between two Settings tabs only the page's cards move, and only a little: the tab bar and legend stay put, and the
-//! new cards slide in at full strength under the old ones as those slide out and fade, so the wall never shows through.
+//! Between two Settings tabs only the page's cards move, and only a little: the tab bar and legend stay put; the old
+//! cards slide out and fade onto a dimmed blank panel, then the new ones slide in over it, so only one page shows at a
+//! time and the wall never shows through (user 2026-10-21: both pages at once was too much).
 
 use bevy::prelude::*;
 
 use super::super::widescreen::Anchor;
-use super::{Quad, Screen};
+use super::roster::PX;
+use super::{Quad, Screen, Tex, look};
 
 /// Frames (60 Hz) for each half: out, then in.
 const HALF: f32 = 8.0;
@@ -15,6 +17,8 @@ const HALF: f32 = 8.0;
 const TRAVEL: f32 = 160.0;
 /// How far a Settings tab's cards travel.
 const TAB_TRAVEL: f32 = 24.0;
+/// The blank panel the Settings cards fade through: paper, dimmed.
+const DIM: f32 = 0.85;
 
 #[derive(Resource)]
 pub(super) struct Slide {
@@ -26,8 +30,8 @@ pub(super) struct Slide {
     t: f32,
     /// +1 forward, −1 back.
     dir: f32,
-    /// Between Settings tabs: the cards' y band (only quads starting in it move).
-    band: Option<[f32; 2]>,
+    /// Between Settings tabs: the cards' boxes (list, side); only quads starting in their y band move.
+    band: Option<[[f32; 4]; 2]>,
 }
 
 impl Default for Slide {
@@ -37,8 +41,8 @@ impl Default for Slide {
 }
 
 impl Slide {
-    /// Feeds this frame's screen and quads (`dt` in 60 Hz frames) and the Settings cards' y band; returns what to draw.
-    pub(super) fn step(&mut self, screen: Screen, quads: Vec<Quad>, dt: f32, cards: [f32; 2]) -> Vec<Quad> {
+    /// Feeds this frame's screen and quads (`dt` in 60 Hz frames) and the Settings cards' boxes; returns what to draw.
+    pub(super) fn step(&mut self, screen: Screen, quads: Vec<Quad>, dt: f32, cards: [[f32; 4]; 2]) -> Vec<Quad> {
         if let Some(from) = self.on.filter(|&s| s != screen) {
             // no slide into a match (the window hides) or out of one (back to the menus)
             // M121: nor between the online select and the lobby, one screen with the cursor moving
@@ -52,11 +56,19 @@ impl Slide {
         }
         self.on = Some(screen);
         self.last = quads.clone();
-        if let Some(b) = self.band.filter(|_| self.t < 2.0 * HALF) {
-            // the old cards drawn last, over the new
-            let e = ease(self.t / (2.0 * HALF));
-            let mut out = shift(quads, self.dir * TAB_TRAVEL * (1.0 - e), 1.0, Some(b));
-            out.extend(shift(self.old.clone(), -self.dir * TAB_TRAVEL * e, 1.0 - e, Some(b)).into_iter().filter(|q| in_band(q, b)));
+        if let Some(boxes) = self.band.filter(|_| self.t < 2.0 * HALF) {
+            let b = [boxes[0][1], boxes[1][1] + boxes[1][3]];
+            let (mut out, new): (Vec<_>, Vec<_>) = quads.into_iter().partition(|q| q.anchor == Anchor::Span || !in_band(q, b));
+            let paper = look::c(look::PAPER).map(|v| v * DIM);
+            out.extend(boxes.map(|dst| Quad { tex: Tex::Solid, src: [0.0; 4], dst, rgb: paper, alpha: 128.0, tile: false, anchor: Anchor::Centre, angle: 0.0, round: [18.0 * PX; 4], rim: 0.0 }));
+            out.extend(match self.incoming() {
+                Some((_, e)) => shift(new, self.dir * TAB_TRAVEL * (1.0 - e), e, None),
+                None => {
+                    let e = ease(self.t / HALF);
+                    let old = self.old.iter().copied().filter(|q| q.anchor != Anchor::Span && in_band(q, b)).collect();
+                    shift(old, -self.dir * TAB_TRAVEL * e, 1.0 - e, None)
+                }
+            });
             return out;
         }
         match self.incoming() {
@@ -108,27 +120,33 @@ mod tests {
         Quad { tex: Tex::Solid, src: [0.0; 4], dst: [100.0, 0.0, 10.0, 10.0], rgb: [128.0; 3], alpha: 128.0, tile: false, anchor, angle: 0.0, round: [0.0; 4], rim: 0.0 }
     }
 
-    const NONE: [f32; 2] = [0.0; 2];
+    const NONE: [[f32; 4]; 2] = [[0.0; 4]; 2];
+    const CARDS: [[f32; 4]; 2] = [[0.0, 50.0, 300.0, 350.0], [320.0, 50.0, 100.0, 350.0]];
 
-    /// Between Settings tabs only the cards (in the band) move, and less; the bar stays the new page's; the new cards
-    /// are whole from the first frame, the old ones over them fading.
+    /// Between Settings tabs only the cards (in the band) move, and less; the bar stays the new page's; the old cards
+    /// fade onto the dimmed panels, then the new ones come in over them, never both at once.
     #[test]
-    fn tabs_slide_only_the_cards() {
+    fn tabs_fade_through_a_dim_panel() {
         let mut s = Slide::default();
         let mut bar = quad(Anchor::Centre);
         bar.dst[1] = 10.0;
         let mut card = quad(Anchor::Centre);
         card.dst[1] = 100.0;
-        s.step(Screen::Display, vec![bar, card], 1.0, [50.0, 400.0]);
+        s.step(Screen::Display, vec![bar, card], 1.0, CARDS);
         let mut new_bar = bar;
         new_bar.rgb = [0.0; 3];
-        let out = (0..8).map(|_| s.step(Screen::Sound, vec![new_bar, card], 1.0, [50.0, 400.0])).last().unwrap();
-        assert!(out.contains(&new_bar) && !out.contains(&bar));
-        let [new, old] = [1, 2].map(|k| out[k]);
-        assert!(new.alpha == 128.0 && new.dst[0] > 100.0 && new.dst[0] < 100.0 + TAB_TRAVEL, "new under, whole: {new:?}");
-        assert!(old.alpha < 128.0 && old.alpha > 0.0 && old.dst[0] < 100.0 && old.dst[0] > 100.0 - TAB_TRAVEL, "old over, fading: {old:?}");
-        let done = (0..9).map(|_| s.step(Screen::Sound, vec![new_bar, card], 1.0, [50.0, 400.0])).last().unwrap();
-        assert_eq!(done, vec![new_bar, card]);
+        let mut new_card = card;
+        new_card.rgb = [0.0; 3];
+        let mut go = |n| (0..n).map(|_| s.step(Screen::Sound, vec![new_bar, new_card], 1.0, CARDS)).last().unwrap();
+        let out = go(4);
+        assert_eq!(out.len(), 4);
+        assert!(out[0] == new_bar && out[1].dst == CARDS[0] && out[2].dst == CARDS[1]);
+        let old = out[3];
+        assert!(old.rgb == card.rgb && old.alpha < 128.0 && old.alpha > 0.0 && old.dst[0] < 100.0, "old leaving: {old:?}");
+        let out = go(8);
+        let new = out[3];
+        assert!(new.rgb == new_card.rgb && new.alpha < 128.0 && new.alpha > 0.0 && new.dst[0] > 100.0, "new coming: {new:?}");
+        assert_eq!(go(5), vec![new_bar, new_card]);
     }
 
     #[test]
