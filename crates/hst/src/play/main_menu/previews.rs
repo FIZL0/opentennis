@@ -1623,8 +1623,7 @@ mod tests {
     /// A card's load (B102) has the preview's motions (B460: and the lobby's other two emotes), the same as a full load's, for every disc character.
     #[test]
     fn preview_loads_only_its_motions() {
-        let iso = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso"));
-        let Ok(mut disc) = Iso::open(iso) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut disc) = hst_data::fixture::iso() else { return };
         let (mut m, mut t, mut i, mut b) = (Assets::<Mesh>::default(), Assets::<StandardMaterial>::default(), Assets::<Image>::default(), Assets::<SkinnedMeshInverseBindposes>::default());
         for (c, ..) in GRID {
             let part = character::load_disc_with(&mut disc, c, 0, &mut m, &mut t, &mut i, &mut b, Some(&inspect::MOTIONS)).unwrap();
@@ -1669,8 +1668,8 @@ mod tests {
     /// R2 / L2 on a disc character and a mod start the matching voice (B86a).
     #[test]
     fn presses_start_voices() {
-        let iso = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso"));
-        let Ok(mut disc) = Iso::open(iso) else { return eprintln!("no ISO, skipped") };
+        let iso = Path::new(hst_data::fixture::ISO_PATH);
+        let Ok(mut disc) = hst_data::fixture::iso() else { return };
         let sound = Sound::test(&mut disc);
         let dir = std::env::temp_dir().join(format!("hst-b86a-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("voice")).unwrap();

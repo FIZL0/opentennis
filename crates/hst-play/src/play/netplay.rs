@@ -969,7 +969,7 @@ mod tests {
         use crate::{Args, GameSpace};
         use std::path::Path;
 
-        const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+        const ISO: &str = hst_data::fixture::ISO_PATH;
 
         fn room(delay: u32) -> Room {
             let s = |peer: &str, char| Some(Seat { peer: peer.into(), pick: Pick::disc(char, 0) });
@@ -1083,8 +1083,8 @@ mod tests {
         #[test]
         #[ignore]
         fn full_doubles_match_at_100ms_stays_in_sync() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let _ = in_sync(200_000, true);
         }
@@ -1093,8 +1093,8 @@ mod tests {
         /// it hashes the same elsewhere (B154b), and its saved inputs replay to the same state.
         #[test]
         fn doubles_at_100ms_stays_in_sync_sends_and_replays() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let [mut host, mut g] = in_sync(2400, false);
             sent_state_hashes_the_same(&mut host, &mut g);
@@ -1104,8 +1104,8 @@ mod tests {
         /// B151: the host started with two seats open, the computer plays them on both machines alike.
         #[test]
         fn doubles_with_computer_seats_stays_in_sync() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let mut room = room(crate::net::delay_for(std::time::Duration::from_millis(200)));
             room.seats[1] = Some(Seat { peer: crate::net::CPU.into(), pick: Pick::disc(1, 0) });
@@ -1142,8 +1142,8 @@ mod tests {
         /// host's state and they play on in sync (B154, B154b).
         #[test]
         fn a_desync_is_saved_and_play_goes_on() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             // tick 119's pads are in the state hashed before tick 120
             for mut a in play(6, 400, Some(119)) {
@@ -1262,7 +1262,7 @@ mod tests {
         #[test]
         fn a_mod_plays_alike_with_or_without_its_looks() {
             const ANYA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/oob_pc12_anya");
-            if !Path::new(ISO).is_file() || !Path::new(ANYA).is_dir() {
+            if !hst_data::fixture::has_iso() || !Path::new(ANYA).is_dir() {
                 return eprintln!("no ISO or mods/hst-mods/oob_pc12_anya, skipped");
             }
             let ticks: u32 = std::env::var("HST_LOOKS_TICKS").map_or(4000, |t| t.parse().unwrap());
@@ -1378,8 +1378,8 @@ mod tests {
         }
 
         fn rollback_in_sync(limit: u32, to_the_end: bool) {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             const { assert!(rollback::DELAY <= 2) };
             let t0 = std::time::Instant::now();
@@ -1408,8 +1408,8 @@ mod tests {
         /// time while its network still queues the host's datagrams; the host stalls, nobody is dropped, and after
         /// it comes back both run on in sync.
         fn tabbed_out(away: std::time::Duration) {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let room = room(0);
             let mut apps = ["host", "g"].map(|me| {
@@ -1489,8 +1489,8 @@ mod tests {
         /// two end up within a tick of each other.
         #[test]
         fn rollback_time_sync_spreads_the_waits() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let frame = |a: &App| a.world().resource::<Rollback>().frame();
             let (mut last, mut idle, mut longest) = (0, 0, 0);
@@ -1515,8 +1515,8 @@ mod tests {
         /// host's mashed pads stop for the tick it flicks, so its latch goes out as a real device's would.
         #[test]
         fn the_hosts_emote_plays_on_both() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let (mut flicked, mut seen, mut mash) = (None, [false; 2], None);
             let apps = play_rollback_with(5, 900, false, 0..0, |round, apps| {
@@ -1549,8 +1549,8 @@ mod tests {
         /// guest takes the host's state, and the hashes from then on agree (B154b).
         #[test]
         fn rollback_desync_is_saved_and_play_goes_on() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             // ggrs compares the confirmed ticks' checksums: none differ after the resync (`reported`)
             let apps = play_rollback(5, 900, true);
@@ -1564,8 +1564,8 @@ mod tests {
         /// machine) play the forced desync's match the same, tick for tick.
         #[test]
         fn rollback_rounds_play_the_same_however_long_they_take() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let outcome = |slow: bool| {
                 let apps = play_rollback_with(5, 420, true, 0..0, |r, _| {
@@ -1595,8 +1595,8 @@ mod tests {
         #[test]
         #[ignore]
         fn a_resynced_match_finishes() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             REPLAYS.set(false);
             for a in &play_rollback(5, 400_000, true) {
@@ -1609,8 +1609,8 @@ mod tests {
         /// first run's (it panics on a difference). The determinism check for rollback, in CI.
         #[test]
         fn synctest_reruns_every_tick_the_same() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             // into the first point's rally (the serve is around tick 200), mashing
             synctest(|t, _| t >= 420);
@@ -1622,8 +1622,8 @@ mod tests {
         #[test]
         #[ignore]
         fn synctest_through_a_change_of_ends() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             REPLAYS.set(false);
             let mut seen = false;
@@ -1800,8 +1800,8 @@ mod tests {
         /// second of real time, never two rounds without a tick, at most `SHIFT` behind real time) and every peer in
         /// sync; the slow one keeps up in real time too.
         fn a_slow_peer(two: bool) {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let limit = 900;
             let (apps, ran) = paced(two, limit, |i, r| if i == 1 { slow(r) } else { 1 });
@@ -1841,8 +1841,8 @@ mod tests {
         /// (✕), which plays 3P from the same tick on both machines left, in lockstep.
         #[test]
         fn a_bot_takes_a_silent_peers_seat() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let (kill, s) = (600, |x: f32| (x * 60.0) as u32);
             let (mut said, mut asked) = (Vec::new(), Vec::new());
@@ -1877,8 +1877,8 @@ mod tests {
         /// which plays 3P and 4P on.
         #[test]
         fn a_bot_takes_the_only_guests_seats() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let (kill, s) = (600, |x: f32| (x * 60.0) as u32);
             let apps = peers(true, kill + s(recover::SILENT) + 120 + 800, |round, apps, live| {
@@ -1931,8 +1931,8 @@ mod tests {
         /// B162: a guest tabbed out for 30 s (2 min: `a_player_switched_away_for_2_min_comes_back`).
         #[test]
         fn a_player_switched_away_comes_back() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let (mut apps, said) = switched_away(2, 30.0);
             assert!(said.iter().all(|t| t.starts_with("g switched away from the game.\nWaiting for them to come back... 4:4")), "{said:?}");
@@ -1942,8 +1942,8 @@ mod tests {
         /// B162: the host tabbed out for 30 s: the guests hold too (a silent host ends it after 13 s).
         #[test]
         fn the_host_switched_away_comes_back() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let (_, said) = switched_away(0, 30.0);
             assert!(said.iter().all(|t| t.starts_with("host switched away from the game.")), "{said:?}");
@@ -1954,8 +1954,8 @@ mod tests {
         #[test]
         #[ignore]
         fn a_player_switched_away_for_2_min_comes_back() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             switched_away(2, 120.0);
         }
@@ -1964,8 +1964,8 @@ mod tests {
         /// others wait [`recover::WAIT`] for it as for a silent one.
         #[test]
         fn a_player_switched_away_too_long_is_away() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let s = |x: f32| (x * 60.0) as u32;
             let mut said = Vec::new();
@@ -1996,8 +1996,8 @@ mod tests {
         /// B196: nobody wants a bot (○ on `h`): both machines left go back to the lobby together.
         #[test]
         fn a_silent_peer_can_end_the_match() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let (kill, s) = (600, |x: f32| (x * 60.0) as u32);
             let apps = peers(false, kill + s(recover::SILENT + recover::WAIT) + 200, |round, apps, live| {
@@ -2025,8 +2025,8 @@ mod tests {
         /// the host sent, or ahead of it to this one, waiting.
         #[test]
         fn the_result_screen_leads_back_to_the_lobby() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let over = 120;
             let mut apps = peers(true, over + ((recover::SILENT + 12.0) * 60.0) as u32, |round, apps, live| {
@@ -2074,8 +2074,8 @@ mod tests {
         #[test]
         #[ignore]
         fn a_silent_peer_rejoins_and_a_silent_host_ends_it() {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let (kill, back) = (600, 900);
             let mut room = None;
@@ -2181,8 +2181,8 @@ mod tests {
         /// through (`oneway`: nothing from the host): every peer's ticks go on within a second of the network
         /// coming back (no mutual wait), and between, nobody waits a second; all in sync, no datagram too big.
         fn on_a_bad_network(two: bool, oneway: bool) {
-            if !Path::new(ISO).is_file() {
-                return eprintln!("no ISO, skipped");
+            if !hst_data::fixture::has_iso() {
+                return;
             }
             let (apps, ran, big, outage) = lossy(two, 0.2, 5, 180, oneway);
             for (i, f) in ran.iter().enumerate() {

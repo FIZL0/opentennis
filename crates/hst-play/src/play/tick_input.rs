@@ -168,10 +168,9 @@ mod replay_tests {
     use super::super::*;
     use super::{IDLE, Replay};
     use crate::{Args, GameSpace};
-    use std::path::Path;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-    const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures/round1.bin");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
+    const FIXTURE: &str = "context/fixtures/round1.bin";
 
     /// Player 0's position every tick with these pads on 1P (2P a bot).
     fn run(pads: &[[hst_sim::replay::Pad; 4]]) -> Vec<V3> {
@@ -196,8 +195,8 @@ mod replay_tests {
 
     #[test]
     fn a_recording_drives_the_match() {
-        let (Ok(data), true) = (std::fs::read(FIXTURE), Path::new(ISO).is_file()) else {
-            return eprintln!("no ISO or round1.bin, skipped");
+        let (Ok(data), true) = (hst_data::fixture::read(FIXTURE), hst_data::fixture::has_iso()) else {
+            return;
         };
         let pads: Vec<_> = hst_sim::replay::frames(&data).iter().take(1200).map(|f| [super::recorded(f.pad(0)), IDLE, IDLE, IDLE]).collect();
         let played = run(&pads);

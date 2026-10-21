@@ -186,7 +186,7 @@ mod tests {
     /// in a flower bed (91) and a red flower bush (44): hidden; the match camera hides nothing in frame.
     #[test]
     fn buried_props() {
-        let Ok(mut iso) = hst_data::iso::Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let match_cam = view([0.0, -11.89, -39.238], [0.0, 0.292, 0.956], 20.0);
         for (court, prop, eye, fwd, t) in [
             (6, 91, [-2.4966, -1.63983, -16.0944], [0.162865, 0.036274, 0.985981], 0.0436609f32),

@@ -638,13 +638,11 @@ mod tests {
     use super::*;
     use hst_data::mdl;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-
     /// Brad's model x/z with the pelvis over the spot, against the original's root matrix (PCSX2, inspect screen,
     /// research/journal/2026-10-08-b40b-select-models/scripts/b40b3_probe.py: context/b40b3/c5_r2.tsv): the held pose after △, then gu_set (R2) as it plays.
     #[test]
     fn pelvis_centre_matches_the_game() {
-        let Ok(mut iso) = Iso::open(ISO) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let data = iso.read("PC/PC05C00.XB").unwrap();
         let arc = Archive::parse(&data).unwrap();
         let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("_c00.mdl")).unwrap();

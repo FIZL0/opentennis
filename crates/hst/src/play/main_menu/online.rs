@@ -3723,9 +3723,9 @@ mod tests {
     /// lobby and the select, for a peer that downloaded it (kept after the roster, off the grid); a stand-in otherwise.
     #[test]
     fn own_and_downloaded_mods_show_as_themselves() {
-        let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/mods/test_pc00"));
+        let dir = &hst_data::fixture::path("context/mods/test_pc00");
         if !dir.is_dir() {
-            return eprintln!("no context/mods/test_pc00, skipped");
+            return hst_data::fixture::skip("no context/mods/test_pc00");
         }
         let m = crate::mods::read(dir).unwrap();
         let tmp = std::env::temp_dir().join(format!("hst-b285-{}", std::process::id()));
@@ -3777,9 +3777,9 @@ mod tests {
                 }
             }
         }
-        let src = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/mods/getagrip_pc00_emi"));
+        let src = &hst_data::fixture::path("context/mods/getagrip_pc00_emi");
         if !src.is_dir() {
-            return eprintln!("no context/mods/getagrip_pc00_emi, skipped");
+            return hst_data::fixture::skip("no context/mods/getagrip_pc00_emi");
         }
         let tmp = std::env::temp_dir().join(format!("hst-b530-{}", std::process::id()));
         let dir = tmp.join("mods/getagrip_pc00_emi");

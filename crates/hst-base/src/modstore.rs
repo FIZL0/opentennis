@@ -1821,8 +1821,8 @@ mod tests {
     /// pictures. Skips without the ISO.
     #[test]
     fn texture_packs_go_up() {
-        let iso = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-        let Ok(mut disc) = hst_data::iso::Iso::open(iso) else { return eprintln!("no ISO, skipped") };
+        let iso = hst_data::fixture::ISO_PATH;
+        let Ok(mut disc) = hst_data::fixture::iso() else { return };
         // three disc textures of at least 16×16
         let mut picked = Vec::new();
         hst_data::texhash::disc_textures(&mut disc, |t| {

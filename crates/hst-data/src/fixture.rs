@@ -17,6 +17,10 @@ use std::path::{Path, PathBuf};
 /// The disc image's file name, in the repo root.
 pub const ISO: &str = "Hot Shots Tennis (USA).iso";
 
+/// The disc image's full path, for a test that hands it on as a file name (the Bevy app's `Args::iso`); check
+/// [`has_iso`] first.
+pub const ISO_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+
 /// The repo root (for the disc, `context/` and `research/`).
 pub fn root() -> &'static Path {
     Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
@@ -95,6 +99,12 @@ fn checked<T>(r: io::Result<T>, p: &Path) -> io::Result<T> {
 pub fn iso() -> io::Result<Iso> {
     let p = path(ISO);
     checked(Iso::open(&p), &p)
+}
+
+/// Whether the user's disc is there (skip/fail as above when it isn't), for a test that only needs [`ISO_PATH`].
+#[track_caller]
+pub fn has_iso() -> bool {
+    exists(ISO)
 }
 
 /// `std::fs::read` of a file under the repo root.

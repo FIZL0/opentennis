@@ -276,7 +276,6 @@ mod tests {
         assert!(!touches(&wall(0.5), p, -HEAD, -KNEE, R));
     }
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
     /// The mods repo's builds (`mods/hst-mods`, the mods repo's `out/mods`).
     const MODS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods");
 
@@ -285,7 +284,7 @@ mod tests {
     /// without the ISO or the mods repo's builds).
     #[test]
     fn every_court_mods_walkers_have_room() {
-        let (Ok(mut iso), true) = (hst_data::iso::Iso::open(ISO), std::path::Path::new(MODS).is_dir()) else { return eprintln!("no ISO or no {MODS}, skipped") };
+        let (Ok(mut iso), true) = (hst_data::fixture::iso(), std::path::Path::new(MODS).is_dir()) else { return eprintln!("no ISO or no {MODS}, skipped") };
         let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
         let game = hst_data::exe::Game::new(&cnf, &bin).unwrap();
         let courts = crate::mods_court::list(std::path::Path::new(MODS));

@@ -745,11 +745,7 @@ mod every_character_tables {
 
     #[test]
     fn load() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-        let Ok(mut iso) = Iso::open(path) else {
-            eprintln!("no ISO, skipped");
-            return;
-        };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let params = disc(&mut iso, None, 4).3;
         for c in 0..14 {
             character_tables(&mut iso, c, "B", "smsh", "", 2);

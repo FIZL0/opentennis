@@ -483,12 +483,11 @@ mod tests {
     fn disc_and_mod_characters_reduce() {
         use crate::character::{self, CharacterData};
         use bevy::prelude::*;
-        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-        let Ok(mut iso) = hst_data::iso::Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let (mut m, mut t, mut i, mut b) = (Assets::<Mesh>::default(), Assets::<StandardMaterial>::default(), Assets::<Image>::default(), Assets::default());
         let mut who: Vec<(String, CharacterData)> = [0, 6].iter().map(|&n| (format!("pc{n:02}"), character::load_disc(&mut iso, n, 0, &mut m, &mut t, &mut i, &mut b).unwrap())).collect();
         for id in ["getagrip_pc00_emi", "fore_pc00_phoebe"] {
-            let Ok(md) = crate::mods::read(&std::path::Path::new(root).join("context/mods").join(id)) else { continue };
+            let Ok(md) = crate::mods::read(&crate::modfs::tests::test_mod(id)) else { continue };
             who.push((id.into(), crate::mods::load(&mut iso, &md, 0, &mut m, &mut t, &mut i, &mut b).unwrap()));
         }
         for (name, c) in &who {

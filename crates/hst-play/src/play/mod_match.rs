@@ -89,18 +89,21 @@ mod tests {
     use crate::{Args, GameSpace};
     use std::path::Path;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-    const MOD: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/mods/test_pc00");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
+    /// The converted mod (`context/mods/test_pc00`, from another checkout when this one lacks it).
+    fn mod_dir() -> std::path::PathBuf {
+        hst_data::fixture::path("context/mods/test_pc00")
+    }
 
     #[test]
     fn bot_match_with_a_mod_plays_a_rally() {
-        if !Path::new(ISO).is_file() || !Path::new(MOD).is_dir() {
-            return eprintln!("no ISO or context/mods/test_pc00, skipped");
+        if !hst_data::fixture::has_iso() || !hst_data::fixture::exists("context/mods/test_pc00") {
+            return;
         }
-        let m = mods::read(Path::new(MOD)).unwrap();
+        let m = mods::read(&mod_dir()).unwrap();
         let mut app = bot_match(&m, 1);
         use super::super::*;
-        let mut iso = Iso::open(ISO).unwrap();
+        let mut iso = hst_data::fixture::iso().unwrap();
         let row = mods::tparam(&mut iso, &m).unwrap();
         {
             let g = app.world().resource::<Game>();
@@ -167,7 +170,7 @@ mod tests {
     #[test]
     fn mod_voices_never_fall_back_to_the_donor() {
         const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/");
-        if !Path::new(ISO).is_file() || !Path::new(ROOT).is_dir() {
+        if !hst_data::fixture::has_iso() || !Path::new(ROOT).is_dir() {
             return eprintln!("no ISO or mods/hst-mods, skipped");
         }
         for id in ["getagrip_pc14_helghast", "getagrip_pc03_wendy", "hst_umpire_00_chika"] {
@@ -191,7 +194,7 @@ mod tests {
     #[test]
     fn get_a_grip_stats_reach_the_match() {
         const GAG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/getagrip_pc03_wendy");
-        if !Path::new(ISO).is_file() || !Path::new(GAG).is_dir() {
+        if !hst_data::fixture::has_iso() || !Path::new(GAG).is_dir() {
             return eprintln!("no ISO or mods/hst-mods/getagrip_pc03_wendy, skipped");
         }
         let m = mods::read(Path::new(GAG)).unwrap();
@@ -205,7 +208,7 @@ mod tests {
         app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
         app.add_systems(Startup, super::super::setup);
         app.update();
-        let mut iso = Iso::open(ISO).unwrap();
+        let mut iso = hst_data::fixture::iso().unwrap();
         let g = app.world().resource::<super::super::Game>();
         let p = &g.players[1];
         eprintln!("{}: speed {} agility {} stamina {}, power {:?}, aim {:?}, reach {}", m.id, p.stats.speed, p.stats.agility, p.stats.stamina, g.finish.power[1], g.aim_stats[1].con, g.reaches[1].reach);
@@ -221,15 +224,15 @@ mod tests {
     /// motions, so a peer that declined the looks plays the same match.
     #[test]
     fn stand_in_simulates_like_the_mod() {
-        if !Path::new(ISO).is_file() || !Path::new(MOD).is_dir() {
-            return eprintln!("no ISO or context/mods/test_pc00, skipped");
+        if !hst_data::fixture::has_iso() || !hst_data::fixture::exists("context/mods/test_pc00") {
+            return;
         }
-        let w = crate::mods_online::Wire::of(&mods::read(Path::new(MOD)).unwrap(), 0).unwrap();
-        let mut iso = Iso::open(ISO).unwrap();
+        let w = crate::mods_online::Wire::of(&mods::read(&mod_dir()).unwrap(), 0).unwrap();
+        let mut iso = hst_data::fixture::iso().unwrap();
         let mut one = |m: &Mod| {
             load(&mut iso, m, 0, &mut Assets::default(), &mut Assets::default(), &mut Assets::default(), &mut Assets::default())
         };
-        let (real, stand) = (one(&crate::mods_online::for_match(&w, Some(Path::new(MOD)))), one(&crate::mods_online::for_match(&w, None)));
+        let (real, stand) = (one(&crate::mods_online::for_match(&w, Some(&mod_dir()))), one(&crate::mods_online::for_match(&w, None)));
         assert_eq!((&real.skeleton.names, &real.skeleton.parent), (&stand.skeleton.names, &stand.skeleton.parent));
         assert!(real.skeleton.rest == stand.skeleton.rest && real.pelvis == stand.pelvis);
         let mut ids: Vec<_> = real.motions.keys().copied().collect();

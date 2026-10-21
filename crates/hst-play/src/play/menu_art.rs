@@ -1005,8 +1005,8 @@ mod tests {
     /// only then is nothing left building.
     #[test]
     fn a_deferred_sheet_lands_the_same() {
-        let Ok(mut iso) = hst_data::iso::Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let arc_data = iso.read("MENU/MENU04.XB0").expect("menu archive");
         let arc = hst_data::xb::Archive::parse(&arc_data).expect("xb");

@@ -75,9 +75,8 @@ pub(super) fn reset_human(g: &mut Game, i: usize) {
 mod tests {
     use super::super::*;
     use crate::{Args, GameSpace};
-    use std::path::Path;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     fn app(singles: bool, seats: [bool; 4]) -> App {
         let mut app = App::new();
@@ -117,7 +116,7 @@ mod tests {
 
     #[test]
     fn first_point_index_matches_the_original() {
-        if !Path::new(ISO).is_file() {
+        if !hst_data::fixture::has_iso() {
             return;
         }
         // human P0 serves to a CPU: the intro left 54, the CPU's first-point reset adds 18
@@ -132,7 +131,7 @@ mod tests {
     /// A later point in doubles: four plain resets (17 each, the human's AI object's too).
     #[test]
     fn later_points_reset_plain() {
-        if !Path::new(ISO).is_file() {
+        if !hst_data::fixture::has_iso() {
             return;
         }
         let mut app = app(false, [true, false, false, false]);

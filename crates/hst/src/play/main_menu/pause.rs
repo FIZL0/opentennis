@@ -684,9 +684,9 @@ mod tests {
     /// user's. Needs the ISO at the repository root, skipped without.
     #[test]
     fn open_change_back_in_a_match() {
-        let iso = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-        if !std::path::Path::new(iso).is_file() {
-            return eprintln!("no ISO, skipped");
+        let iso = hst_data::fixture::ISO_PATH;
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let dir = std::env::temp_dir().join(format!("hst-b139-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

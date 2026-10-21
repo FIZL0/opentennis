@@ -583,15 +583,15 @@ mod tests {
         assert_eq!((mode, gap), (1, out));
     }
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     /// B15: singles bots get the point set-up's walk-back spot (the middle, 10 or 11 back) and their level's net reach
     /// (3.2), so after their own shot they go back to the baseline instead of running into the net, where the
     /// opponent's next ball went past them.
     #[test]
     fn singles_bots_go_back_to_the_baseline() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         // every player a bot
         crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -635,8 +635,8 @@ mod tests {
     /// dive the AI picked was an air swing.
     #[test]
     fn bots_dive() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
         let mut app = App::new();
@@ -660,8 +660,8 @@ mod tests {
     /// (slot 3's characters, read from each player object there); the AI used one character's for everyone.
     #[test]
     fn smash_side_per_character() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()));
@@ -686,8 +686,8 @@ mod tests {
     fn net_rush_probe() {
         use crate::play::tick_input::{IDLE, Replay, TickPads};
         use hst_sim::replay::Pad;
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let chars: Vec<usize> = std::env::var("P111_CHARS").map_or(vec![0, 1], |s| s.split(',').map(|c| c.parse().unwrap()).collect());
         let singles = chars.len() == 2;

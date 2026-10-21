@@ -162,25 +162,27 @@ pub fn load_disc(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
-    const MOD: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/mods/getagrip_pc00_emi");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
+    /// The converted mod (`context/mods/getagrip_pc00_emi`, from another checkout when this one lacks it).
+    fn mod_dir() -> std::path::PathBuf {
+        hst_data::fixture::path("context/mods/getagrip_pc00_emi")
+    }
 
     /// B550: a mod's costume loaded on the pool and taken by the start is the one the start would load itself, its
     /// assets in the world's stores (needs the ISO at the repository root and a converted mod; skipped without).
     #[test]
     fn a_mod_loaded_early_is_the_one_the_start_loads() {
-        if !Path::new(ISO).is_file() || !Path::new(MOD).is_dir() {
-            return eprintln!("no ISO or context/mods/getagrip_pc00_emi, skipped");
+        if !hst_data::fixture::has_iso() || !hst_data::fixture::exists("context/mods/getagrip_pc00_emi") {
+            return;
         }
-        let m = crate::mods::read(Path::new(MOD)).unwrap();
+        let m = crate::mods::read(&mod_dir()).unwrap();
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()));
         app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<SkinnedMeshInverseBindposes>();
         mods(app.world_mut(), ISO, &[(m.clone(), 0)]);
         assert_eq!(MOD_LOADS.lock().unwrap().len(), 1, "no load started");
-        let mut iso = hst_data::iso::Iso::open(ISO).unwrap();
+        let mut iso = hst_data::fixture::iso().unwrap();
         let w = app.world_mut();
         let (mut me, mut ma, mut im, mut bp) = (Assets::default(), Assets::default(), Assets::default(), Assets::default());
         let direct = crate::mods::load(&mut iso, &m, 0, &mut me, &mut ma, &mut im, &mut bp).unwrap();

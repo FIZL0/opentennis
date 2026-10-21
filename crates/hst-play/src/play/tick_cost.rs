@@ -6,10 +6,9 @@ mod tests {
     use super::super::*;
     use super::super::snapshot::{fnv, state_hash};
     use crate::{Args, GameSpace};
-    use std::path::Path;
     use std::time::{Duration, Instant};
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     #[derive(Resource, Default)]
     struct Spent(Duration);
@@ -23,7 +22,7 @@ mod tests {
     #[test]
     #[ignore]
     fn four_bot_control_cost() {
-        if !Path::new(ISO).is_file() {
+        if !hst_data::fixture::has_iso() {
             return;
         }
         let ticks: usize = std::env::var("HST_TICKS").ok().and_then(|s| s.parse().ok()).unwrap_or(20_000);

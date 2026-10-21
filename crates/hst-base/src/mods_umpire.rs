@@ -151,8 +151,8 @@ mod tests {
     /// the ISO).
     #[test]
     fn calls_over_the_donor_timed_by_the_donor() {
-        let Ok(mut iso) = hst_data::iso::Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
         };
         let root = dir("bank");
         std::fs::create_dir_all(root.join("voice")).unwrap();

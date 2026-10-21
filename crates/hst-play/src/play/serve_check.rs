@@ -7,9 +7,8 @@ mod tests {
     use super::super::*;
     use crate::{Args, GameSpace};
     use hst_sim::replay::Pad;
-    use std::path::Path;
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     /// A doubles match with 1P human (Carol, as slot 3), run to 1P's first serve.
     fn to_serve() -> App {
@@ -82,8 +81,8 @@ mod tests {
     /// after its press.
     #[test]
     fn weak_toss_timeline() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let (_, rows) = timeline(&[(0, 0x4000), (5, 0), (80, 0x4000), (85, 0)], 100);
         let released = rows.iter().position(|r| r.0);
@@ -96,8 +95,8 @@ mod tests {
     /// (weight 0), bit for bit as the original's samples.
     #[test]
     fn early_serve_steps() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = to_serve();
         // the save's Carol is right-handed (the disc's is a lefty)
@@ -123,8 +122,8 @@ mod tests {
     /// after the weak toss's): the original calls it a fault when the toss lands, then sets up the second serve.
     #[test]
     fn whiffed_serve_is_a_fault() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let (app, _) = timeline(&[(0, 0x4000), (5, 0), (119, 0x4000), (124, 0)], 140);
         let g = app.world().resource::<Game>();
@@ -136,8 +135,8 @@ mod tests {
     /// bounce has one (its rally phase started with the press).
     #[test]
     fn untouched_toss_leaves_no_bounce_effects() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         for (script, want) in [(&[(0, 0x4000), (5, 0)][..], false), (&[(0, 0x4000), (5, 0), (119, 0x4000), (124, 0)][..], true)] {
             let mut app = to_serve();
@@ -159,9 +158,8 @@ mod tests {
     /// contact windows, reach, powers and both tosses' timing tables (once character 0's for everyone).
     #[test]
     fn serve_data_per_character() {
-        let ram = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/ram/s03.bin");
-        let (Ok(ram), true) = (std::fs::read(ram), Path::new(ISO).is_file()) else {
-            return eprintln!("no ISO or s03.bin, skipped");
+        let (Ok(ram), true) = (hst_data::fixture::read("context/ram/s03.bin"), hst_data::fixture::has_iso()) else {
+            return;
         };
         // where slot 3's RAM keeps the match: the select screen's character picks (one 12-byte row each), the
         // match object and its player pointers, and the serve fields in each player object
@@ -207,8 +205,8 @@ mod tests {
     /// release and apex are bit-exact against the original's for the lefty in `hst-sim` `match_s05_serves`).
     #[test]
     fn lefty_toss_mirrored() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         // (across, up, ahead) of the ball from the server, in the server's frame, at release and at the apex
         let toss = |hand: f32| {
@@ -243,8 +241,8 @@ mod tests {
     /// check runs only in the rally phase, so the fault stands and the second serve follows.
     #[test]
     fn a_faulted_serve_cant_be_returned() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = set_up_seats(vec![6, 1, 2, 3], [false; 4]);
         let tick = |app: &mut App| {
@@ -282,8 +280,8 @@ mod tests {
     /// reaction message puts every player into the reaction, whatever its serve state (a body-hit one plays `re_ball`).
     #[test]
     fn a_whiffed_double_fault_plays_the_reactions() {
-        if !Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = to_serve();
         // ticks since this serve's toss press

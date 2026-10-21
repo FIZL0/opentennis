@@ -32,6 +32,8 @@ ggrs = { version = "0.13", features = ["wasm-bindgen"] }
 [dev-dependencies]
 # hst-base's test helpers for this crate's tests
 hst-base = { path = "../hst-base", features = ["testing"] }
+# the disc and context/ recordings for this crate's tests (`hst_data::fixture`)
+hst-data = { path = "../hst-data", features = ["testing"] }
 
 [lints.clippy]
 # Bevy systems take each query and resource as its own parameter, and queries spell out their filters: clippy's

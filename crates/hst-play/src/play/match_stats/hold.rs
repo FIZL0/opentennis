@@ -142,7 +142,7 @@ mod tests {
     use super::super::super::*;
     use crate::{Args, GameSpace};
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     fn app(windowed: bool) -> App {
         let mut app = App::new();
@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn the_match_end_holds_its_last_picture() {
-        if !std::path::Path::new(ISO).is_file() {
+        if !hst_data::fixture::has_iso() {
             return;
         }
         let (mut plain, mut held) = (app(false), app(true));

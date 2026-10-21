@@ -34,7 +34,7 @@ mod tests {
     use crate::{Args, GameSpace};
     use hst_sim::shot::{class, kind};
 
-    const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+    const ISO: &str = hst_data::fixture::ISO_PATH;
 
     /// A singles match (chars 6, 1, court 0) with these seats human, the rest bots; set up, not ticked yet.
     fn bot_match(seats: [bool; 4]) -> App {
@@ -61,8 +61,8 @@ mod tests {
     /// flight places a point for each lob and for no other shot (B12's report: a lob's marker on the next hit).
     #[test]
     fn lob_places_its_own_marker() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = bot_match([false; 4]);
         let (mut shots, mut lobs) = (0, 0);
@@ -97,8 +97,8 @@ mod tests {
     /// the humans on the receiving team (checked live on slot 4 in the B507 journal); the lobs onto bots are ours.
     #[test]
     fn every_lob_shows_the_marker() {
-        if !std::path::Path::new(ISO).is_file() {
-            return eprintln!("no ISO, skipped");
+        if !hst_data::fixture::has_iso() {
+            return;
         }
         let mut app = bot_match([true, false, false, false]);
         let (mut shots, mut own, mut own_lobs, mut their_lobs) = (0, 0, 0, 0);

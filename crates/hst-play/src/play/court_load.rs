@@ -63,7 +63,7 @@ mod tests {
     /// A court that isn't on the disc plays on court 10's collision and leaves its reason for the notice.
     #[test]
     fn unreadable_court_falls_back() {
-        let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
         assert!(court::world(&mut iso, 99).is_err());
         let w = world(&mut iso, 99, false);
         assert_eq!(w.props.len(), court::world(&mut iso, FALLBACK).unwrap().props.len());

@@ -4,7 +4,7 @@ use super::*;
 use crate::{Args, GameSpace};
 use std::path::Path;
 
-const ISO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+const ISO: &str = hst_data::fixture::ISO_PATH;
 /// The mods repo's build of Get a Grip's first court (`mods/hst-mods`, the mods repo's `out/mods`).
 const MOD: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/gag_c01_yamate");
 
@@ -21,7 +21,7 @@ fn app(court: usize, mod_: Option<&crate::mods_court::Court>) -> (App, crate::au
     app.add_plugins((cutaway::plugin, bodyhit::plugin, surprise::plugin, reaction_voices::plugin, match_stats::plugin, panel::plugin, popups::plugin, npcs::plugin, foot_fx::plugin, weather::plugin, heard::plugin));
     app.add_systems(PostStartup, setup);
     app.add_systems(FixedUpdate, (remember, effects::tick, tick_input::systems(), control, simulate, start_effects, age_balloons, motions, character::tick, played_out, held_ball).chain());
-    let mut iso = hst_data::iso::Iso::open(ISO).unwrap();
+    let mut iso = hst_data::fixture::iso().unwrap();
     let sound = crate::audio::Sound::test(&mut iso);
     app.insert_resource(crate::audio::court_bank(&mut iso, court));
     app.insert_resource(crate::audio::GalleryBank(crate::audio::gallery_bank(&mut iso, court, 0).map(std::sync::Arc::new)));
@@ -42,7 +42,7 @@ fn app(court: usize, mod_: Option<&crate::mods_court::Court>) -> (App, crate::au
 /// ISO or the mods repo's build).
 #[test]
 fn a_court_mod_is_seen_and_heard_and_never_moves_the_match() {
-    if !Path::new(ISO).is_file() || !Path::new(MOD).is_dir() {
+    if !hst_data::fixture::has_iso() || !Path::new(MOD).is_dir() {
         return eprintln!("no ISO or no {MOD}, skipped");
     }
     let mut court = crate::mods_court::read(Path::new(MOD)).unwrap();
