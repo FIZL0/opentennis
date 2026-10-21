@@ -4,7 +4,8 @@
 //!
 //! Presentation only: the shared match camera (`Game::cam`, which the cut-aways and reaction voices read) keeps
 //! stepping as before and nothing in play reads this one; the picture shows it through `own_camera::shown`. The
-//! last choice is kept in `camera.txt` for the next match.
+//! last choice is kept in `camera.txt` for the next match. Select only switches in live play (`live`): a press
+//! while the players can't move (the intro, post-point, cut-aways, change of ends, replays) is dropped.
 
 use bevy::prelude::*;
 use hst_sim::alt_cam::{self, Fade, Follow, GLIDE};
@@ -47,7 +48,7 @@ impl AltCamera {
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Startup, load)
-        .add_systems(Update, (press.run_if(|w: &World| !super::front_end::paused(w)), fade))
+        .add_systems(Update, (press.run_if(|w: &World| !super::front_end::paused(w) && !super::intro::running(w)), fade))
         // after every system that writes the shared camera's view this tick, as `own_camera::plain`
         .add_systems(
             FixedUpdate,
@@ -87,6 +88,12 @@ fn human(g: &Game, pads: &Pads, online: bool) -> Option<usize> {
     (!online && humans.next().is_none()).then_some(first)
 }
 
+/// B622: the players can move (the serve or the rally, no cut-away or replay on screen), the only time Select
+/// switches cameras.
+fn live(g: &Game, d: &super::cutaway::Director) -> bool {
+    matches!(g.phase, Phase::Serve | Phase::Rally) && !d.showing() && !g.instant.replaying
+}
+
 /// Latches the one human's Select (their keyboard or pad) for the next tick.
 fn press(
     alt: Option<ResMut<AltCamera>>,
@@ -121,7 +128,7 @@ fn step(
     let press = std::mem::take(&mut alt.press);
     let Some(i) = human(&g, &pads, np.is_some()) else { return };
     let changing_ends = matches!(g.phase, Phase::ChangeEnds(_));
-    if press && alt.glide.is_none() && !changing_ends && !g.instant.replaying {
+    if press && alt.glide.is_none() && live(&g, &d) {
         alt.on = !alt.on;
         save(&args.iso, alt.on);
         info!("alternate camera {}", if alt.on { "on" } else { "off" });
@@ -312,5 +319,36 @@ mod tests {
         assert_eq!(off, want, "glide off");
         let alt = a.world().resource::<AltCamera>();
         assert!(!alt.on && alt.follow.is_none());
+    }
+
+    /// B622: Select does nothing while the players can't move (the point over, the change of ends, a replay), and
+    /// switches again once the serve is up (skipped without the ISO).
+    #[test]
+    fn select_is_ignored_while_play_is_stopped() {
+        use bevy::ecs::system::RunSystemOnce;
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let mut a = app(true);
+        for set in [|g: &mut Game| g.phase = Phase::Post, |g: &mut Game| g.phase = Phase::ChangeEnds(0), |g: &mut Game| g.instant.replaying = true] {
+            let w = a.world_mut();
+            let mut g = w.resource::<Game>().clone();
+            set(&mut g);
+            let mut alt = w.resource_mut::<AltCamera>();
+            alt.press = true;
+            let on = alt.on;
+            w.insert_resource(g);
+            w.run_system_once(super::step).expect("step");
+            assert_eq!(w.resource::<AltCamera>().on, on, "switched while stopped");
+            assert!(!w.resource::<AltCamera>().press, "the press stayed latched");
+        }
+        let w = a.world_mut();
+        let mut g = w.resource::<Game>().clone();
+        (g.phase, g.instant.replaying) = (Phase::Serve, false);
+        let on = w.resource::<AltCamera>().on;
+        w.resource_mut::<AltCamera>().press = true;
+        w.insert_resource(g);
+            w.run_system_once(super::step).expect("step");
+        assert_ne!(w.resource::<AltCamera>().on, on, "no switch in the serve");
     }
 }
