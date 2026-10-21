@@ -722,13 +722,29 @@ function dropped(e, where) {
 // B330: a script from another origin that throws reaches the page as a bare "Script error." (no error, no file): the
 // browser's own or an extension's, never the game's (every script of ours is same-origin). iOS Safari's Share button
 // runs its share extensions' page scripts, and one throwing stopped the game on the ISO prompt: logged, not fatal.
+// B627: a browser extension's content script runs in the page and its errors reach these handlers too, with its own
+// file: iOS Safari stopped the game on launch with an extension's "undefined is not an object (evaluating
+// 'contentScriptData.init_ts')". Every script of ours (the page, its modules, the wasm glue, blob workers) is
+// same-origin, so an error whose file, or every file in its stack, is elsewhere (webkit-masked-url://hidden/,
+// safari-web-extension://, chrome-extension://, moz-extension://, another site) isn't the game's: logged, not fatal.
+// One with no file or stack at all can't be told apart and still stops the game.
+const ours = url => { try { return new URL(url, location.href).origin === location.origin; } catch { return false; } };
+const files = stack => String(stack ?? '').match(/\b[a-z][a-z0-9+.-]*:\/\/[^\s)]+/gi)?.map(u => u.replace(/(:\d+){1,2}$/, '')) ?? [];
+function foreign(filename, err) {
+  if (filename) return !ours(filename);
+  const f = files(err?.stack);
+  return f.length > 0 && !f.some(ours);
+}
+const ignore = (what, m) => console.warn(`hst: ignored an error from a script that isn't the game's (${what}): ${m}`);
 addEventListener('error', e => {
   if (!e.error && !e.filename && /^script error\.?$/i.test(e.message ?? '')) return console.warn(`hst: ignored a script error from another origin (${e.message})`);
+  if (foreign(e.filename, e.error)) return ignore(e.filename || 'stack', e.error?.message ?? e.message);
   fail(e.error ?? e.message);
 });
 addEventListener('unhandledrejection', e => {
   // B452: any other WebGPU promise Chrome cancels the same way (a GPUDevice call of the renderer's own)
   if (/Instance dropped/i.test(String(e.reason?.message ?? e.reason))) return dropped(e.reason, 'promise');
+  if (foreign('', e.reason)) return ignore('stack', e.reason?.message ?? e.reason);
   fail(e.reason);
 });
 // B260: a hidden tab gets no animation frames and the game's loop (Bevy on winit) only steps on them, so while the
