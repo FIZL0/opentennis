@@ -1,0 +1,9 @@
+# T4: one compiler for CI, release builds and every checkout, so a new stable can't break a build with no code change.
+# Bumping it: change the version here, run tools/check.sh and `cargo clippy` (CI gates on both), commit.
+[toolchain]
+channel = "1.99.0"
+components = ["clippy", "rustfmt"]
+# the browser and Windows builds (tools/web.sh, tools/build.sh, .github/workflows/pages.yml); phone targets are
+# added once with `rustup target add` (tools/apk.sh, tools/ios-build.sh)
+targets = ["wasm32-unknown-unknown", "x86_64-pc-windows-gnu"]
+profile = "minimal"

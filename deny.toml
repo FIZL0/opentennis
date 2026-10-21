@@ -1,0 +1,65 @@
+# cargo-deny (T4): run in CI by .github/workflows/ci.yml, locally `cargo deny check` (cargo install cargo-deny --locked).
+# Licences every shipped dependency may carry, advisories from RustSec, and only crates.io plus our own git crates.
+[graph]
+# every platform the game ships on (desktop, browser, phones)
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-gnu",
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "aarch64-apple-ios",
+    "aarch64-linux-android",
+    "wasm32-unknown-unknown",
+]
+
+[advisories]
+# unmaintained crates deep in Bevy/iroh aren't ours to replace: only those we depend on directly fail the check
+unmaintained = "workspace"
+ignore = [
+    # bincode 1 is unmaintained, with no maintained release to move to: ggrs (third_party/ggrs) and our rollback
+    # encode their datagrams with it
+    { id = "RUSTSEC-2025-0141", reason = "no maintained bincode release; ggrs' wire format" },
+    # ruzstd's decompression bomb: Bevy's image loader pins 0.8 (fixed in 0.9.1) for zstd-packed KTX2 files
+    { id = "RUSTSEC-2026-0344", reason = "pinned by bevy_image until a Bevy release moves to ruzstd 0.9" },
+]
+
+[licenses]
+# permissive licences, plus MPL-2.0 (file-level copyleft: fine to link, changes to its own files stay MPL)
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# our own crates (hst, hst-base, ...) carry no licence field of their own where they aren't published
+ignore = true
+
+[bans]
+# Bevy, wgpu and iroh pull in several versions of many crates: not worth failing on
+multiple-versions = "allow"
+# cargo-deny counts our path and git dependencies as wildcards (the crates aren't marked unpublishable); a crates.io
+# "*" would still be pinned by Cargo.lock
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = [
+    "https://github.com/FIZL0/ps2-float",
+    "https://github.com/FIZL0/ps2-oracle",
+]
