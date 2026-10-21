@@ -464,10 +464,13 @@ pub fn speed_word(speed: f32) -> u32 {
 /// smash still at 85 km/h or more), and the ball effects' sound key of the bounced material (the net's key 2 not
 /// again until the ball meets a playing surface), plus key 0 for materials 0x0d, 0x17 and 0x30. An effect-spawning
 /// material holds the next 4 frames' material sounds off.
-/// ponytail: the rolling scrape (key 3) needs a ball flag never set in the recordings; the menu option
-/// that swaps key 0 for 0xd and the 10-effect cap (effects expire too fast to reach it) are left out.
+/// ponytail: the rolling scrape (key 3) needs a ball flag never set in the recordings, and the
+/// 10-effect cap (effects expire too fast to reach it) are left out.
 #[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Bounces {
+    /// Offbeat rule 1 (irregular bounce): the playing surface's bounces play key 13 instead of 0, never slowed.
+    #[serde(default)]
+    pub irregular: bool,
     /// Frames the material sounds are held off.
     cooldown: i32,
     /// The last material sound was a soft obstacle's (effect kind `SOFT`).
@@ -481,6 +484,8 @@ const SILENT: u8 = 5;
 const EFFECT_HOLD: i32 = 4;
 /// Materials that also play the playing surface's bounce key.
 const BOUNCE_TOO: [u8; 3] = [0x0d, 0x17, 0x30];
+/// The playing surface's bounce key under offbeat rule 1.
+const IRREGULAR_KEY: u8 = 13;
 /// A smash landing at this speed (km/h) or more: the first bounce plays slowed.
 const SMASH_KMH: f32 = 85.0;
 
@@ -493,7 +498,10 @@ impl Bounces {
         if let Some((n, m)) = bounce {
             if (1..4).contains(&n) && m.court {
                 let fast = n == 1 && smash_kmh.is_some_and(|v| v >= SMASH_KMH);
-                out.push(Play { speed: if fast { 0.5 } else { 1.0 }, ..bounce_play(0) });
+                out.push(match self.irregular {
+                    true => bounce_play(IRREGULAR_KEY),
+                    false => Play { speed: if fast { 0.5 } else { 1.0 }, ..bounce_play(0) },
+                });
             }
             if n < 6 && self.cooldown < 1 {
                 self.soft &= !m.court;

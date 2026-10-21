@@ -96,7 +96,7 @@ fn hush(mut g: ResMut<Game>, p: Res<Pace>) {
 
 /// End of each tick: the next tick's clock. Skipping, the fixed loop runs on within the frame; slowed, the next tick
 /// comes after its in-between frames.
-fn pace(g: Res<Game>, mut p: ResMut<Pace>, mut virt: ResMut<Time<Virtual>>, mut fixed: ResMut<Time<Fixed>>) {
+pub(super) fn pace(g: Res<Game>, mut p: ResMut<Pace>, mut virt: ResMut<Time<Virtual>>, mut fixed: ResMut<Time<Fixed>>) {
     let p = &mut *p;
     if !g.instant.replaying {
         // B198: also when a rollback or resync restored a state from before the replay (no `replay` to take) with

@@ -151,6 +151,16 @@ impl Default for Shot {
     }
 }
 
+/// Offbeat rule 1's turn for a shot of `kind` launched with uniforms `pitch` and `yaw` (each in [0, 1)): the
+/// bounce tilts down by 0°..15° and swings ±15° (±20° for a lob), as (pitch, yaw) radians for `Flight::irregular`.
+pub fn irregular(kind: i32, pitch: f32, yaw: f32) -> [f32; 2] {
+    const DEGREE: f32 = 0.017_453_292;
+    let spread = F(DEGREE) * if kind == crate::shot::kind::LOB { 20.0 } else { 15.0 };
+    let yaw = (F(yaw) * 2.0 - 1.0) * spread;
+    let pitch = F(DEGREE) * F::ZERO.madd(F(pitch), 15.0);
+    [pitch.0, yaw.0]
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Ball {
     pub pos: V3,
@@ -280,6 +290,10 @@ pub struct Flight {
     pub normal: V4,
     /// The match is in its rally phase: the live ball stops at the rally timeout (`REST_TIMEOUT`).
     pub rally: bool,
+    /// Offbeat rule 1 (irregular bounce) is on: every bounce of the flight in a rally turns by this (pitch, yaw),
+    /// from the launch's two uniforms (`irregular`). `None` with the rule off; a launch sets it afresh.
+    #[serde(default)]
+    pub irregular: Option<[f32; 2]>,
 }
 
 /// A live ball still in the rally phase this many steps after its launch comes to rest on the next one.
@@ -350,7 +364,7 @@ mod k {
 
 impl Flight {
     pub fn new(ball: Ball, spin_frame: [V4; 4], contact: [V4; 4]) -> Self {
-        Self { ball, frame: 0, bounces: 0, contacts: 0, special_contacts: 0, rolling: false, landing: ([0.0; 3], COURT), spin_frame, contact, slide: 0.0, net: true, lines: None, call: crate::judge::Call::None, line_distance: 0.0, in_play: true, model: placed(&IDENTITY, ball.pos), last: ball.vel, touched: false, at_rest: false, normal: INTO_GROUND, rally: false }
+        Self { ball, frame: 0, bounces: 0, contacts: 0, special_contacts: 0, rolling: false, landing: ([0.0; 3], COURT), spin_frame, contact, slide: 0.0, net: true, lines: None, call: crate::judge::Call::None, line_distance: 0.0, in_play: true, model: placed(&IDENTITY, ball.pos), last: ball.vel, touched: false, at_rest: false, normal: INTO_GROUND, rally: false, irregular: None }
     }
 
     /// `next` launched in place of this ball: it keeps this ball's latest contact normal and rally flag.
@@ -467,6 +481,10 @@ impl Flight {
                 let c = crate::contact::contact_point(h.as_ref(), pos, end, shot.params.radius);
                 self.landing = ([c[0], c[1], c[2]], material);
             }
+            let d = match self.irregular {
+                Some([pitch, yaw]) if self.in_play && !self.rolling => turn(d, pitch, yaw),
+                _ => d,
+            };
             let d = if self.in_play && !self.rolling && self.bounces == 1 && shot.bounce_turn != 0.0 { turn(d, 0.0, shot.bounce_turn) } else { d };
             self.ball.vel = [d[0], d[1], d[2]];
             if f.special {
@@ -525,6 +543,9 @@ impl Flight {
             d = self.respond(shot, surface, d, h.normal, material, ghost, &mut f);
             if f.counted && !counted {
                 self.landing = (point, material);
+            }
+            if let Some([pitch, yaw]) = self.irregular.filter(|_| self.in_play && contacts == 1 && !self.rolling) {
+                d = turn(d, pitch, yaw);
             }
             if self.in_play && contacts == 1 && !self.rolling && self.bounces == 1 && shot.bounce_turn != 0.0 {
                 d = turn(d, 0.0, shot.bounce_turn);

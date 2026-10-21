@@ -69,6 +69,7 @@ mod mod_match;
 mod skeleton_reach;
 pub mod hand_swap;
 pub mod handicap;
+pub mod offbeat;
 pub mod net_hide;
 mod own_camera;
 mod alt_camera;
@@ -347,6 +348,8 @@ pub struct Game {
     reach: Reach,
     flight: Flight,
     shot: Shot,
+    /// B40g2: the match's offbeat rules (`offbeat.rs`).
+    pub offbeat: offbeat::Offbeat,
     prev_ball: V3,
     pub players: Vec<Player>,
     phase: Phase,
@@ -618,6 +621,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(tick_input::plugin);
     app.add_plugins(tornado::plugin);
     app.add_plugins(replay_pace::plugin);
+    app.add_plugins(offbeat::plugin);
     app.add_plugins(weather::plugin);
     app.add_plugins(widescreen::plugin);
     app.add_plugins(heard::plugin);
@@ -1392,6 +1396,7 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
             [[0.0; 4]; 4],
         ),
         shot: Shot::default(),
+        offbeat: default(),
         prev_ball: [0.0; 3],
         players: vec![
             Player {
@@ -2026,12 +2031,12 @@ fn strike(
             None => rally_spin(g, src, class, kind, at, target),
         },
     };
-    // the ball launch's two uniforms (kept on the ball; nothing ported reads them)
-    g.rng.shared.next();
-    g.rng.shared.next();
+    // the ball launch's two uniforms (kept on the ball; only offbeat rule 1 reads them)
+    let irregular = offbeat::launch(g);
     let last = g.flight;
     g.flight = Flight::struck(Ball { pos: at, vel, spin }, launched.frame, launched.frame);
     g.flight = last.relaunch(g.flight);
+    g.flight.irregular = irregular;
     ai_heard_hit(g, who, branch, vel);
     // ponytail: practice's (one player) side pick between candidates and its red-marker timeout aren't ported
     g.marks.red = (g.rules.players == 1 || g.shots > 1).then_some([target[0], target[2]]);
@@ -2347,11 +2352,10 @@ fn pads_aim(g: &Game, i: usize) -> bool {
     g.serving.bot_due.is_none() || i != g.score.server as usize
 }
 
-/// The toss's ball launch draws the ball's two shared uniforms, as every launch does (kept on the ball; nothing
-/// ported reads them).
+/// The toss's ball launch draws the ball's two shared uniforms, as every launch does (kept on the ball; only offbeat
+/// rule 1 reads them).
 fn toss_draws(g: &mut Game) {
-    g.rng.shared.next();
-    g.rng.shared.next();
+    g.flight.irregular = offbeat::launch(g);
 }
 
 /// A new point's placement message: one shared draw per player, right after the reseed.
