@@ -141,6 +141,9 @@ pub(super) struct View {
     batch: (usize, usize),
     /// M136: the uploads since none were last going: ended, all (the menus' upload strip, `transfers.rs`).
     up_batch: (usize, usize),
+    /// B601: the upload started last (the store packs a batch's mods one after another, and they all stay under way
+    /// till the batch's one commit lands): the one the pill names.
+    up_now: Option<PathBuf>,
     /// M136: a download batch that changed the mods ended: the Reload / Later popup is due once no upload is going
     /// and the screen is calm.
     due: bool,
@@ -374,6 +377,9 @@ impl View {
             _ => {}
         }
         let end = !matches!(u, Up::Queued | Up::Uploading);
+        if u == Up::Uploading {
+            self.up_now = Some(dir.clone());
+        }
         if end && matches!(self.ups.get(&dir), Some(Up::Queued | Up::Uploading)) {
             self.up_batch.0 += 1;
         }
@@ -1857,6 +1863,7 @@ fn page(
     let mut sel = menu.sel;
     // (M5d: what a pack's install saves, the pack order with it)
     let menu_settings = menu.settings;
+    let mods_up = menu.screen == Screen::Mods;
     for e in modstore::take() {
         let v = &mut menu.add;
         match e {
@@ -1865,7 +1872,10 @@ fn page(
                 match r {
                     Ok(list) => {
                         v.status = format!("{} mods in the store.", list.len());
-                        v.listed(list, &mut sel);
+                        // B601: Browse's cursor follows the listing only while it's up: one read as downloads end
+                        // over another screen moved that screen's cursor
+                        let mut elsewhere = 0;
+                        v.listed(list, if mods_up { &mut sel } else { &mut elsewhere });
                         if let Some(b) = v.by.take() {
                             v.narrow(Some(b.author), b.from);
                         }
@@ -2183,6 +2193,26 @@ mod tests {
         app.add_systems(Update, page);
         app.update();
         assert_eq!(app.world().resource::<Menu>().sel, 7);
+    }
+
+    /// B601: a store listing landing while another screen is up (downloads ending over Settings read it again) moves
+    /// only Browse's cursor, not that screen's.
+    #[test]
+    fn a_listing_elsewhere_keeps_the_cursor() {
+        let _one = PAGE.lock().unwrap_or_else(|e| e.into_inner());
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Image>().init_resource::<Shelf>().init_resource::<super::super::previews::ModCard>();
+        let mut m = Menu { screen: Screen::Mods, ..default() };
+        m.mods_page(Page::Browse, 0);
+        (m.screen, m.sel) = (Screen::Display, 0);
+        app.insert_resource(m);
+        app.add_systems(Update, page);
+        let e = |id: &str| Entry { meta: Meta { id: id.into(), name: id.into(), author: "ann".into(), sha256: id.repeat(64), size: 1, ..Default::default() }, rev: "main".into(), verified: true };
+        modstore::inject(Event::Listing(Ok(vec![e("a"), e("b")])));
+        app.update();
+        let m = app.world().resource::<Menu>();
+        assert_eq!((m.sel, m.add.store.as_ref().map(Vec::len)), (0, Some(2)));
     }
 
     fn a_mod(id: &str, name: &str) -> Mod {

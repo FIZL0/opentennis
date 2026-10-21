@@ -299,11 +299,25 @@ struct Entry {
 /// left-out upscaled set, not even downloaded). The kept files' names, in the zip's order.
 pub async fn unpack_with<F: Future<Output = Result<Vec<u8>, String>>>(
     len: u64,
+    read: impl FnMut(u64, usize) -> F,
+    keep: impl Fn(&str) -> bool,
+    put: impl FnMut(&str, Vec<u8>) -> Result<(), String>,
+    max_file: usize,
+    max_total: usize,
+) -> Result<Vec<String>, String> {
+    unpack_planned(len, read, keep, put, max_file, max_total, |_| {}).await
+}
+
+/// B601: [`unpack_with`], telling `plan` once the directory is read how many more bytes it will ask `read` for (the
+/// kept files' headers and data), so a download can show how far along it is.
+pub async fn unpack_planned<F: Future<Output = Result<Vec<u8>, String>>>(
+    len: u64,
     mut read: impl FnMut(u64, usize) -> F,
     keep: impl Fn(&str) -> bool,
     mut put: impl FnMut(&str, Vec<u8>) -> Result<(), String>,
     max_file: usize,
     max_total: usize,
+    plan: impl FnOnce(u64),
 ) -> Result<Vec<String>, String> {
     let mut at = async |from: u64, n: usize| if from.checked_add(n as u64).is_some_and(|e| e <= len) { read(from, n).await } else { Err("the zip is cut short".into()) };
     // the end of central directory record: the last one, within its comment's 64 KB of the end
@@ -378,6 +392,8 @@ pub async fn unpack_with<F: Future<Output = Result<Vec<u8>, String>>>(
         top
     };
     files.retain(|f| keep(&f.name[top.len()..]));
+    // each file's one read below (a long extra field's second read aside)
+    plan(files.iter().map(|f| (30 + f.name.len() + f.packed + 256).min(len.saturating_sub(f.local) as usize).max(30 + f.name.len()) as u64).sum());
     let mut total = 0;
     for f in &files {
         let name = &f.name;
@@ -559,6 +575,21 @@ pub async fn install_with<F: Future<Output = Result<Vec<u8>, String>>>(
     disk: bool,
     with_upscaled: bool,
 ) -> Result<Mod, String> {
+    install_planned(len, zip, root, want, owner, disk, with_upscaled, |_| {}).await
+}
+
+/// B601: [`install_with`], with [`unpack_planned`]'s `plan`.
+#[allow(clippy::too_many_arguments)]
+pub async fn install_planned<F: Future<Output = Result<Vec<u8>, String>>>(
+    len: u64,
+    zip: impl FnMut(u64, usize) -> F,
+    root: &Path,
+    want: Option<&str>,
+    owner: Option<&str>,
+    disk: bool,
+    with_upscaled: bool,
+    plan: impl FnOnce(u64),
+) -> Result<Mod, String> {
     // B339: a store mod's own stage, as several install at once
     let stage = root.join(match (owner, want) {
         (Some(o), Some(w)) => format!(".import-{o}-{w}"),
@@ -588,7 +619,7 @@ pub async fn install_with<F: Future<Output = Result<Vec<u8>, String>>>(
             total += b.len();
             put(n, b)
         };
-        let names = unpack_with(len, zip, |n| with_upscaled || !upscaled(n), count, MAX_FILE, MAX_PACK).await?;
+        let names = unpack_planned(len, zip, |n| with_upscaled || !upscaled(n), count, MAX_FILE, MAX_PACK, plan).await?;
         let j: serde_json::Value = serde_json::from_slice(&read(&stage.join("mod.json")).map_err(|e| e.to_string())?).map_err(|e| format!("mod.json: not JSON: {e}"))?;
         if total > max_total(&mods::Kind::of(&j)) {
             return Err(format!("more than {} MB unpacked", MAX_TOTAL >> 20));
@@ -736,6 +767,23 @@ pub mod tests {
             assert_eq!(f.iter().map(|f| f.0.as_str()).collect::<Vec<_>>(), ["mod.json", "c.glb", "voice/0_0.wav"]);
             assert_eq!(f[0].1, MANIFEST);
         }
+    }
+
+    /// B601: the plan is the bytes the kept files' reads then take, the left-out upscaled set not among them.
+    #[test]
+    fn plans_the_bytes_it_reads() {
+        let big = vec![7u8; 3000];
+        let z = zip(&[("mod.json", MANIFEST), ("c.glb", &big[..]), ("textures/upscaled/a.png", &big[..]), ("voice/0_0.wav", b"RIFF")], false, 0o100644);
+        let (read, planned) = (std::cell::Cell::new(0u64), std::cell::Cell::new(None));
+        let at = |from: u64, n: usize| {
+            read.set(read.get() + n as u64);
+            std::future::ready(Ok(z[from as usize..from as usize + n].to_vec()))
+        };
+        let names = now(unpack_planned(z.len() as u64, at, |n| !upscaled(n), |_, _| Ok(()), MAX_FILE, MAX_PACK, |rest| planned.set(Some((read.get(), rest))))).unwrap();
+        assert_eq!(names, ["mod.json", "c.glb", "voice/0_0.wav"]);
+        let (before, rest) = planned.get().unwrap();
+        assert_eq!(read.get() - before, rest);
+        assert!(rest < 5000, "{rest}: the upscaled picture isn't planned");
     }
 
     #[test]

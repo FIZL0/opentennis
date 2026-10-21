@@ -756,7 +756,7 @@ fn looks_candidates(lists: Vec<Vec<Entry>>, id: &str, looks: u64) -> Vec<Entry> 
 /// sending tens of MB over the relay is slow and drags its frame rate): a listed copy that may have them
 /// ([`looks_candidates`]) is downloaded without its upscaled set into `stage` (on disk, the browser's in memory), packed
 /// and hashed, and `done` hears the pack if it hashes to `looks` (else why not: the owner is asked instead). `stage`
-/// is cleared afterwards either way; `tell` hears how far a download is (bytes so far, the zip's size).
+/// is cleared afterwards either way; `tell` hears how far a download is (bytes so far, of all it will fetch: B601).
 pub fn fetch_looks(id: String, looks: u64, stage: std::path::PathBuf, tell: impl Fn(u64, u64) + Send + Sync + 'static, done: impl FnOnce(Result<Vec<u8>, String>) + Send + 'static) {
     spawn(async move {
         let got = async {
@@ -845,15 +845,17 @@ impl Drop for Zip {
 async fn ranged(e: &Entry, root: &Path, disk: bool) -> Result<Mod, String> {
     send(Event::Progress(e.key(), format!("Downloading {}...", e.meta.name)));
     let (key, name) = (e.key(), &e.meta.name);
-    ranged_with(e, root, disk, |was, got, _| {
+    // B601: as the whole zip's download words it, so the menus' transfer pill reads how far it is
+    ranged_with(e, root, disk, |was, got, all| {
         if got >> 20 != was >> 20 {
-            send(Event::Progress(key.clone(), format!("Downloading {name}... {} MB", got >> 20)));
+            send(Event::Progress(key.clone(), format!("Downloading {name}... {} / {} MB ({}%)", got >> 20, all.max(got) >> 20, got * 100 / all.max(got).max(1))));
         }
     })
     .await
 }
 
-/// [`ranged`], telling `tell` how far it's got as each part comes (bytes before it, bytes so far, the zip's size).
+/// [`ranged`], telling `tell` how far it's got as each part comes (bytes before it, bytes so far, and the bytes it will
+/// fetch in all: the zip's size till its directory is read, then what the kept files need, B601).
 async fn ranged_with(e: &Entry, root: &Path, disk: bool, tell: impl Fn(u64, u64, u64) + Sync) -> Result<Mod, String> {
     let asked = file_url(&e.rev, &format!("mods/{}/mod.zip", e.meta.id));
     let mut r = ask(&asked, 0, 1).await?;
@@ -873,8 +875,9 @@ async fn ranged_with(e: &Entry, root: &Path, disk: bool, tell: impl Fn(u64, u64,
         return Err("too big".into());
     }
     let (url, got) = (r.url().to_string(), std::sync::atomic::AtomicU64::new(0));
+    let all = std::sync::atomic::AtomicU64::new(len);
     let read = |at: u64, n: usize| {
-        let (url, got, tell) = (url.clone(), &got, &tell);
+        let (url, got, tell, all) = (url.clone(), &got, &tell, &all);
         async move {
             if n == 0 {
                 return Ok(Vec::new());
@@ -884,12 +887,13 @@ async fn ranged_with(e: &Entry, root: &Path, disk: bool, tell: impl Fn(u64, u64,
                 return Err("download cut short".into());
             }
             let was = got.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
-            tell(was, was + n as u64, len);
+            tell(was, was + n as u64, all.load(std::sync::atomic::Ordering::Relaxed));
             Ok(b.to_vec())
         }
     };
+    let plan = |rest: u64| all.store(got.load(std::sync::atomic::Ordering::Relaxed) + rest, std::sync::atomic::Ordering::Relaxed);
     // M5c: a texture pack's pictures are all it has: even ones under `textures/upscaled/` come
-    modfs::install_with(len, read, root, Some(&e.meta.id), Some(&e.meta.author), disk, e.meta.kind == Kind::Textures).await
+    modfs::install_planned(len, read, root, Some(&e.meta.id), Some(&e.meta.author), disk, e.meta.kind == Kind::Textures, plan).await
 }
 
 /// Bytes `at..at + n` of `url` (the store's file, or where it redirected), asked for; `partial` checks they came.
@@ -1283,6 +1287,12 @@ async fn ready(m: &Mod, stats: Option<(usize, [u8; 5])>, card: Option<Vec<u8>>, 
 /// `(id, style, grades, preview)` on open PR `pr`, sets its play style and grades in its `meta.json`, and its
 /// `preview.png`/`thumb.png` to `preview` if given; all of them in one commit (the Hub caps commits per repo), the zips
 /// left alone. Run by `main_menu`'s `store_cards`.
+/// B601: a store event as if a background job sent it (the menus' tests of what each one does).
+#[cfg(any(test, feature = "testing"))]
+pub fn inject(e: Event) {
+    send(e);
+}
+
 #[cfg(any(test, feature = "testing"))]
 pub async fn put_cards(token: &str, pr: u32, cards: Vec<(String, u8, [u8; 5], Option<Vec<u8>>)>) -> Result<String, String> {
     let mut files = Vec::new();

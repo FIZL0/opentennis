@@ -16,15 +16,21 @@ const W: f32 = 290.0;
 const TOP: f32 = 0.0;
 const H: f32 = 22.0;
 
-/// One direction's batch: its verb, the mod going now, how many are done of all, and the share of
-/// the batch done (the item going now counted by its own progress, where the download says it).
+/// One direction's batch: its verb, the mod going now, how many are done, under way (side by side) and in all, and
+/// the share of the batch done (the items going now counted by their own progress, where the download says it).
 #[derive(Debug, PartialEq)]
 pub(super) struct Strip {
     verb: &'static str,
     now: String,
     done: usize,
+    going: usize,
     all: usize,
     share: f32,
+}
+
+/// "Alex" with one going, "Alex +2" with three.
+fn named(first: String, going: usize) -> String {
+    if going > 1 { format!("{first} +{}", going - 1) } else { first }
 }
 
 /// "45" from a download's "Downloading X... 3 / 7 MB (45%)".
@@ -34,28 +40,41 @@ fn percent(s: &str) -> Option<f32> {
     Some(n.clamp(0.0, 100.0) / 100.0)
 }
 
+/// "3/5" (the one going now is the batch's 3rd of 5), "1-3/5" (three going side by side).
+fn place(s: &Strip) -> String {
+    let (from, to) = ((s.done + 1).min(s.all), (s.done + s.going).clamp(1, s.all));
+    if to > from { format!("{from}-{to}/{}", s.all) } else { format!("{from}/{}", s.all) }
+}
+
 impl View {
     /// The downloads' strip, while any is queued or under way.
     fn downloading(&self) -> Option<Strip> {
         let now = self.doing.first()?;
         let going: f32 = self.doing.iter().filter_map(|e| self.jobs.get(&e.key()).and_then(|j| percent(&j.1))).sum();
         let (done, all) = (self.batch.0, self.batch.1.max(self.batch.0 + self.doing.len() + self.queue.len()));
-        let now = match self.doing.len() {
-            1 => now.meta.name.clone(),
-            n => format!("{} +{}", now.meta.name, n - 1),
-        };
-        Some(Strip { verb: "Downloading", now, done, all, share: (done as f32 + going) / all.max(1) as f32 })
+        let n = self.doing.len();
+        Some(Strip { verb: "Downloading", now: named(now.meta.name.clone(), n), done, going: n, all, share: (done as f32 + going) / all.max(1) as f32 })
     }
 
-    /// The uploads' strip, while any is queued or under way.
+    /// The uploads' strip, while any is queued or under way. B601: the store packs a batch's mods one after another,
+    /// each under way from its start till the batch's one commit lands: the pill names the one started last, and a
+    /// mod under way counts half done (packed or packing, not sent yet).
     fn uploading(&self) -> Option<Strip> {
-        let (now, left) = self.uploads();
+        let (first, left) = self.uploads();
         if left == 0 {
             return None;
         }
+        let going = self.ups.values().filter(|u| **u == Up::Uploading).count();
         let (done, all) = (self.up_batch.0, self.up_batch.1.max(self.up_batch.0 + left));
-        let now = now.unwrap_or_else(|| "waiting its turn".into());
-        Some(Strip { verb: "Uploading", now, done, all, share: done as f32 / all.max(1) as f32 })
+        let latest = self.up_now.as_ref().filter(|d| self.ups.get(*d) == Some(&Up::Uploading)).map(|dir| {
+            let m = self.list.iter().chain(&self.courts).chain(&self.umpires).find(|m| m.dir == *dir);
+            m.map(|m| m.name.clone()).unwrap_or_else(|| dir.file_name().unwrap_or_default().to_string_lossy().into_owned())
+        });
+        let now = match latest.or(first) {
+            Some(n) => named(n, going),
+            None => "waiting its turn".into(),
+        };
+        Some(Strip { verb: "Uploading", now, done, going, all, share: (done as f32 + 0.5 * going as f32) / all.max(1) as f32 })
     }
 
     /// Both directions' strips, downloads first.
@@ -203,10 +222,10 @@ fn reload_button(d: &mut Draw, m: &Menu) {
     d.anchor = Anchor::Centre;
 }
 
-/// One direction in `w` px from `x`: "Downloading 3/5: Ace Pilot" (the one going now is the batch's 3rd of 5), its
-/// batch's bar under it.
+/// One direction in `w` px from `x`: "Downloading 3/5: Ace Pilot" (the one going now is the batch's 3rd of 5; B601:
+/// "1-3/5: Ace Pilot +2" with three side by side), its batch's bar under it.
 fn strip(d: &mut Draw, s: &Strip, x: f32, w: f32) {
-    let line = format!("{} {}/{}: {}", s.verb, (s.done + 1).min(s.all), s.all, s.now);
+    let line = format!("{} {}: {}", s.verb, place(s), s.now);
     super::super::home::fit_text(d, &line, x + 6.0, TOP + 3.0, 12.0, w - 12.0, WHITE);
     let bar = [x + 6.0, TOP + H - 5.0, w - 12.0, 2.0];
     d.q(Tex::Solid, [0.0, 0.0, 1.0, 1.0], bar, [50.0; 3], 128.0);
@@ -244,6 +263,53 @@ mod tests {
         v.next(false, 1);
         let s = v.downloading().unwrap();
         assert_eq!((s.now.as_str(), s.done, s.all), ("Y", 1, 3));
+    }
+
+    /// B601: three downloading side by side (Downloads at once 3): their places, the first named.
+    #[test]
+    fn downloads_side_by_side_show_their_places() {
+        let mut v = View::default();
+        for id in ["x", "y", "z", "w"] {
+            v.enqueue(entry(id), false, 3);
+        }
+        let s = v.downloading().unwrap();
+        assert_eq!((place(&s), s.now.as_str()), ("1-3/4".into(), "X +2"));
+        for id in ["x", "y"] {
+            v.finish(&entry(id).key(), &Ok(id.into()));
+        }
+        v.next(false, 3);
+        let s = v.downloading().unwrap();
+        assert_eq!((place(&s), s.now.as_str()), ("3-4/4".into(), "Z +1"));
+        v.finish(&entry("z").key(), &Ok("z".into()));
+        let s = v.downloading().unwrap();
+        assert_eq!((place(&s), s.now.as_str()), ("4/4".into(), "W"));
+    }
+
+    /// B601: an upload batch as the store reports it (`modstore::publish`): each mod under way as it's packed, all of
+    /// them till the one commit lands, then each one's outcome. The pill names the one being packed and moves on.
+    #[test]
+    fn an_upload_batch_as_the_store_sends_it() {
+        let mut v = View::default();
+        let dirs = ["m/a", "m/b", "m/c"].map(std::path::PathBuf::from);
+        for d in &dirs {
+            v.ups.insert(d.clone(), Up::Queued);
+        }
+        v.up_queued(3);
+        let mut shares = vec![v.uploading().unwrap().share];
+        let mut seen = Vec::new();
+        for d in &dirs {
+            v.uploaded(d.clone(), Up::Uploading);
+            let s = v.uploading().unwrap();
+            seen.push((place(&s), s.now.clone()));
+            shares.push(s.share);
+        }
+        assert_eq!(seen, [("1/3".into(), "a".to_string()), ("1-2/3".into(), "b +1".into()), ("1-3/3".into(), "c +2".into())]);
+        v.uploaded(dirs[0].clone(), Up::Done("ok".into()));
+        shares.push(v.uploading().unwrap().share);
+        assert!(shares.windows(2).all(|w| w[1] > w[0]), "the bar moves on: {shares:?}");
+        v.uploaded(dirs[1].clone(), Up::Done("ok".into()));
+        v.uploaded(dirs[2].clone(), Up::Skipped("same".into()));
+        assert!(v.strips().is_empty());
     }
 
     #[test]
