@@ -461,11 +461,6 @@ impl Overrides {
         }
     }
 
-    /// The pack's PNG under any of PCSX2's names, alpha expanded.
-    pub fn from_pack(&self, names: &[String]) -> Option<(u32, u32, Vec<u8>)> {
-        Files { m: None, pack: names.iter().find_map(|n| self.pack.get(n)).cloned() }.load()
-    }
-
     /// Write every disc texture as it is on the disc (native size, straight 0..255 alpha) to
     /// `mods/textures-src/<path>-<key>.png`: the input for upscaling, whose output goes in `mods/texture-replacements/` under
     /// the same names. Not the pack's PNGs, so every file is the same kind of input.

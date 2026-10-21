@@ -9,7 +9,7 @@
 pub mod hst;
 
 pub use hst::{HstEe, addr, root};
-pub use ps2_oracle::{DONE, Ee, Hook};
+pub use ps2_oracle::Ee;
 
 /// The EE's main RAM: 32 MB.
 pub const RAM: usize = 32 << 20;

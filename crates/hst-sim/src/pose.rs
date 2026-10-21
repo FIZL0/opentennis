@@ -363,6 +363,7 @@ impl Nodes {
     }
 
     /// Nodes as caught in a save state: local rows, sampled rotations and positions.
+    #[cfg(any(test, feature = "testing"))]
     pub fn from_parts(local: Vec<M4>, q: Vec<[f32; 4]>, p: Vec<[f32; 3]>) -> Nodes {
         Nodes { local, q, p }
     }

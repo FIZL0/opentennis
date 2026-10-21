@@ -235,8 +235,11 @@ static PEAK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::ne
 #[global_allocator]
 static ALLOC: Counted = Counted;
 
+// SAFETY: every call goes straight to `System` with the caller's own arguments and returns its result untouched; the
+// counting beside it is two relaxed atomics, which never allocate
 unsafe impl std::alloc::GlobalAlloc for Counted {
     unsafe fn alloc(&self, l: std::alloc::Layout) -> *mut u8 {
+        // SAFETY: our caller's contract for `alloc`, passed on
         let p = unsafe { std::alloc::System.alloc(l) };
         if !p.is_null() {
             grew(l.size());
@@ -244,6 +247,7 @@ unsafe impl std::alloc::GlobalAlloc for Counted {
         p
     }
     unsafe fn alloc_zeroed(&self, l: std::alloc::Layout) -> *mut u8 {
+        // SAFETY: our caller's contract for `alloc_zeroed`, passed on
         let p = unsafe { std::alloc::System.alloc_zeroed(l) };
         if !p.is_null() {
             grew(l.size());
@@ -251,10 +255,12 @@ unsafe impl std::alloc::GlobalAlloc for Counted {
         p
     }
     unsafe fn dealloc(&self, p: *mut u8, l: std::alloc::Layout) {
+        // SAFETY: `p` came from `System` through this allocator with layout `l` (our caller's contract)
         unsafe { std::alloc::System.dealloc(p, l) };
         LIVE.fetch_sub(l.size(), std::sync::atomic::Ordering::Relaxed);
     }
     unsafe fn realloc(&self, p: *mut u8, l: std::alloc::Layout, size: usize) -> *mut u8 {
+        // SAFETY: as `dealloc`, and `size` is our caller's valid new size
         let q = unsafe { std::alloc::System.realloc(p, l, size) };
         if !q.is_null() {
             LIVE.fetch_sub(l.size(), std::sync::atomic::Ordering::Relaxed);
