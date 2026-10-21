@@ -142,7 +142,7 @@ fn label(o: Opt) -> &'static str {
         Chat => "Chat",
         Renderer => "Renderer",
         Vibration => "Vibration",
-        UpdateCheck => "Check for Updates",
+        UpdateCheck => "Updates",
         FewerShadows => "Fewer Shadows",
         Mesh => "Mesh",
         Advanced => "Advanced",
@@ -185,7 +185,7 @@ fn about(o: Opt) -> &'static str {
         Chat => "Show the online lobby's and match's text chat (T, or R2/L2 on a pad), or hide it.",
         Renderer => "Auto: WebGPU when the browser has it, else WebGL2; the one in use shows in brackets, with Hardware (drawn by the graphics card) or Software (drawn by the CPU, much slower: turn on the browser's hardware acceleration). A change asks first: the page reloads into it.",
         Vibration => vibration_about(),
-        UpdateCheck => "Look for a newer version when the game starts. The main menu offers it: Update downloads and checks it, then restarts the game into it (or opens its page where the game can't replace itself).",
+        UpdateCheck => "Look for a newer version while the game runs. Ask: the main menu asks Update? the first time it finds one. Always: it installs by itself where it can (a phone's installer still asks you to confirm). Never: no looking.",
         FewerShadows => "At Low shadows, only the players, the umpire and what shades the court cast: fewer draws. Off: Low casts as many as High.",
         Advanced => "Switches that trade a little detail for speed on a slow device: the characters' mesh detail, fewer shadows, skipping what's off-screen.",
     }
@@ -248,7 +248,7 @@ fn choices(o: Opt) -> Vec<String> {
         ButtonIcons => super::legend::LAYOUTS.iter().map(|l| l.0.to_string()).collect(),
         Fps => FPS.map(fps_name).to_vec(),
         Volume(_) => (0..=10).map(|v| v.to_string()).collect(),
-        OnlineMods | KeepDownloads => ASK_VALUES.iter().map(|(_, n)| n.to_string()).collect(),
+        OnlineMods | KeepDownloads | UpdateCheck => ASK_VALUES.iter().map(|(_, n)| n.to_string()).collect(),
         AtOnce => (0..=super::max_downloads()).map(at_once_name).collect(),
         Advanced => Vec::new(),
         _ => words(&["Off", "On"]),
@@ -298,6 +298,15 @@ fn cycle<T: PartialEq + Copy>(list: &[T], cur: T, d: isize) -> T {
 const AUTO: &str = "Auto";
 
 impl Settings {
+    /// M140: the Updates row's choice: Never is Check for Updates off, else Ask or Always.
+    fn updates(&self) -> Ask {
+        match (self.0[UPDATE_CHECK], self.11) {
+            (false, _) => Ask::Never,
+            (true, true) => Ask::Always,
+            (true, false) => Ask::Each,
+        }
+    }
+
     /// Change `o` one step in direction `d`.
     pub(super) fn step(&mut self, o: Opt, d: isize) {
         let g = &mut self.1;
@@ -348,9 +357,13 @@ impl Settings {
             }
             Renderer => self.5 = (self.5 as isize + d).rem_euclid(RENDERERS.len() as isize) as u8,
             Vibration => self.0[VIBRATION] = !self.0[VIBRATION],
+            // M140: Ask / Always / Never, Never being the older Check for Updates off
             UpdateCheck => {
-                self.0[UPDATE_CHECK] = !self.0[UPDATE_CHECK];
+                let a = cycle(&ASK_VALUES.map(|(a, _)| a), self.updates(), d);
+                self.0[UPDATE_CHECK] = a != Ask::Never;
                 crate::update::CHECK.store(self.0[UPDATE_CHECK], std::sync::atomic::Ordering::Relaxed);
+                self.11 = a == Ask::Always;
+                crate::update::ALWAYS.store(self.11, std::sync::atomic::Ordering::Relaxed);
             }
             FewerShadows => g.fewer_shadows = !g.fewer_shadows,
             Mesh => g.mesh = cycle(&MESHES, g.mesh, d),
@@ -421,7 +434,7 @@ impl Settings {
             Chat => on_off(self.0[CHAT]),
             Renderer => RENDERERS[self.5 as usize].1.into(),
             Vibration => on_off(self.0[VIBRATION]),
-            UpdateCheck => on_off(self.0[UPDATE_CHECK]),
+            UpdateCheck => ASK_VALUES.iter().find(|(a, _)| *a == self.updates()).unwrap().1.into(),
             FewerShadows => on_off(g.fewer_shadows),
             Advanced => ">".into(),
         }

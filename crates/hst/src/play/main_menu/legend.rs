@@ -39,6 +39,7 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
         _ if m.takeover_asking() => {}
         _ if m.add.ask.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose")]),
         Screen::Main if m.stale.0.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Back")]),
+        Screen::Main if m.update_ask.is_some() => v.extend([(Act::UpDown, "Move"), (Act::Ok, "Choose"), (Act::Back, "No")]),
         _ if m.mod_asking() => v.extend([(Act::UpDown, "Move"), (Act::Ok, "Choose"), (Act::Back, "Stand-in")]),
         _ if m.switch.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Cancel")]),
         Screen::Main if m.main_rows().get(s) == Some(&super::home::Row::ModUpdates) => v.extend([(Act::UpDown, "Move"), (Act::Ok, "Update all"), (Act::Back, "Back")]),

@@ -16,6 +16,17 @@
 //! whose folder can't be written (installed system-wide, Flatpak, Steam) only gets the release page.
 //! `HST_UPDATE_API=<url>` checks another releases/latest JSON (a local test server); `HST_UPDATE_NOW=1` installs what
 //! it finds without waiting for the button (an unattended end-to-end run).
+//!
+//! M140: every platform updates in place ([`Way`], the write-up in `research/journal/2026-10-20-update-everywhere/`).
+//! A game whose folder it can't write (a system-wide install, a Flatpak, Steam's folder, Program Files) installs the
+//! new binary into the user data folder instead (`update/<tag>/`), and [`relaunch`], the first thing the game does at
+//! start, hands over to the newest such copy that's newer than itself (Unix: `exec`, the same process for Steam or
+//! Flatpak to follow). Android downloads the release's .apk, checks it the same way and gives it to the system's
+//! installer (the player confirms; same signing key, so it installs over the app and keeps its files). iOS can't run
+//! new code it downloads: Update hands the release's .ipa to the sideload installer that's on the phone (SideStore,
+//! AltStore, TrollStore), which installs it over the app; with none, the release page. Settings → Updates (Ask,
+//! Always, Never; `updates` in settings.txt, Never being the older Check for Updates off) and the main menu's Update?
+//! popup the first time a release is found ([`offer`]).
 
 /// The release page the desktop notice's Download opens.
 #[cfg(not(target_arch = "wasm32"))]
@@ -40,6 +51,10 @@ const ASSET: Option<&str> = if cfg!(all(target_os = "linux", target_arch = "x86_
     Some("opentennis-linux-x86_64")
 } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
     Some("opentennis-windows-x86_64.exe")
+} else if cfg!(target_os = "android") {
+    Some("opentennis-android.apk")
+} else if cfg!(target_os = "ios") {
+    Some("opentennis-ios.ipa")
 } else {
     None
 };
@@ -291,23 +306,176 @@ fn old(exe: &std::path::Path) -> std::path::PathBuf {
     s.into()
 }
 
-/// Whether Update can swap the game here: a release binary for this platform, in a folder it may write (not a
-/// Flatpak's or Steam's, nor a system-wide install).
+/// How Update installs a release here (M140).
 #[cfg(not(target_arch = "wasm32"))]
-fn swappable() -> bool {
-    if std::env::var_os("FLATPAK_ID").is_some() || std::env::var_os("SteamAppId").is_some() || std::env::var_os("SteamGameId").is_some() {
-        return false;
+#[derive(Clone, Debug, PartialEq)]
+enum Way {
+    /// The new binary takes the game file's place: its folder is the player's (a build unpacked somewhere, a Steam
+    /// Deck's non-Steam game).
+    #[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
+    Swap(std::path::PathBuf),
+    /// The new binary goes to this path in the user data folder's `update/<tag>/`, which [`relaunch`] starts from
+    /// then on: the game's folder isn't the player's to write (a system-wide install, Program Files, a Flatpak, Steam's
+    /// own folder, which only Steam updates), or the game already is such a copy.
+    #[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
+    Copy(std::path::PathBuf),
+    /// Android: the .apk, checked, to the system's installer.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    Apk,
+    /// iOS: the sideload installer's link that installs the release's .ipa.
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    Installer(String),
+    /// The release page.
+    Page,
+}
+
+/// How `f` installs on this machine.
+#[cfg(not(target_arch = "wasm32"))]
+fn way(f: &Found) -> Way {
+    let Some(files) = &f.files else { return Way::Page };
+    #[cfg(target_os = "android")]
+    {
+        let _ = files;
+        return if from_store() { Way::Page } else { Way::Apk };
     }
-    let Some(dir) = exe().and_then(|e| e.parent().map(|d| d.to_path_buf())) else { return false };
-    let probe = dir.join(".hst-update-probe");
-    let ok = std::fs::write(&probe, b"").is_ok();
-    let _ = std::fs::remove_file(&probe);
-    ok
+    #[cfg(target_os = "ios")]
+    return installer().map_or(Way::Page, |i| Way::Installer(format!("{i}{}", escape(&files[0]))));
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let _ = files;
+        let Some(exe) = exe() else { return Way::Page };
+        let flatpak = std::env::var_os("FLATPAK_ID").is_some();
+        if !flatpak && !steams(&exe) && !copied(&exe) && writable() {
+            return Way::Swap(exe);
+        }
+        Way::Copy(copies().join(&f.tag).join(format!("opentennis{}", std::env::consts::EXE_SUFFIX)))
+    }
+}
+
+/// Whether the game's folder takes new files (looked at once a run: [`button`] asks every frame).
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+fn writable() -> bool {
+    static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OK.get_or_init(|| {
+        let Some(dir) = exe().and_then(|e| e.parent().map(|d| d.to_path_buf())) else { return false };
+        let probe = dir.join(".hst-update-probe");
+        let ok = std::fs::write(&probe, b"").is_ok();
+        let _ = std::fs::remove_file(&probe);
+        ok
+    })
+}
+
+/// Whether `exe` is in a Steam library (`steamapps/`), whose files Steam owns and checks. A Steam Deck's non-Steam game
+/// (Steam's environment variables, but the player's own folder) isn't.
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+fn steams(exe: &std::path::Path) -> bool {
+    exe.components().any(|c| c.as_os_str().eq_ignore_ascii_case("steamapps"))
+}
+
+/// Where [`Way::Copy`] puts releases: `update/` in the user data folder (a Flatpak's own, `~/.var/app/<id>/data/hst`).
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+fn copies() -> std::path::PathBuf {
+    let d = crate::disc::data_dir().join("update");
+    d.canonicalize().unwrap_or(d)
+}
+
+/// Whether `exe` is one of [`copies`].
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+fn copied(exe: &std::path::Path) -> bool {
+    exe.starts_with(copies())
+}
+
+/// The newest release in `root` (`root/<tag>/<bin>`) newer than `ours`: its tag and binary.
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
+fn newest(root: &std::path::Path, ours: &str, bin: &str) -> Option<(String, std::path::PathBuf)> {
+    let mut best: Option<(String, std::path::PathBuf)> = None;
+    for e in std::fs::read_dir(root).ok()?.flatten() {
+        let tag = e.file_name().to_string_lossy().into_owned();
+        let path = e.path().join(bin);
+        if tag.starts_with('v') && newer(&tag, ours) && path.is_file() && best.as_ref().is_none_or(|b| newer(&tag, &b.0)) {
+            best = Some((tag, path));
+        }
+    }
+    best
+}
+
+/// The releases in `root` that `keep` (the one started, or none) doesn't need: every `v*` folder but `keep`'s and
+/// the running game's own.
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
+fn stale(root: &std::path::Path, keep: Option<&str>, running: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
+    let Ok(dir) = std::fs::read_dir(root) else { return Vec::new() };
+    dir.flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with('v') && keep != Some(&*e.file_name().to_string_lossy()))
+        .map(|e| e.path())
+        .filter(|p| running.is_none_or(|r| !r.starts_with(p)))
+        .collect()
+}
+
+/// M140, the thin launcher: the first thing a release build does at start. A newer release that [`Way::Copy`] put in
+/// the user data folder runs instead of this game, with the same arguments (Unix: `exec`, so Steam or Flatpak keep
+/// following the same process; Windows: it waits for it and exits with its code); copies no newer than this game (a
+/// Steam or Flatpak update overtook them) are removed. `OPENTENNIS_RELAUNCHED` keeps the copy from handing over again (not an
+/// `HST_*` name: a player build drops those at start).
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(any(target_os = "android", target_os = "ios"), allow(dead_code))]
+pub fn relaunch() {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let Some(ours) = VERSION else { return };
+        if std::env::var_os("OPENTENNIS_RELAUNCHED").is_some() {
+            return;
+        }
+        let root = copies();
+        let next = newest(&root, ours, &format!("opentennis{}", std::env::consts::EXE_SUFFIX));
+        for p in stale(&root, next.as_ref().map(|n| n.0.as_str()), exe().as_deref()) {
+            let _ = std::fs::remove_dir_all(p);
+        }
+        let Some((tag, bin)) = next else { return };
+        let mut c = std::process::Command::new(&bin);
+        c.args(std::env::args_os().skip(1)).env("OPENTENNIS_RELAUNCHED", &tag);
+        #[cfg(unix)]
+        let e = std::os::unix::process::CommandExt::exec(&mut c);
+        #[cfg(windows)]
+        let e = match c.status() {
+            Ok(s) => std::process::exit(s.code().unwrap_or(1)),
+            Err(e) => e,
+        };
+        // it won't start: this game plays on
+        eprintln!("update: couldn't start {}: {e}", bin.display());
+    }
+}
+
+/// Android: whether Google Play installed the app (its rules: updates only through Play, so the release page).
+#[cfg(target_os = "android")]
+fn from_store() -> bool {
+    static PLAY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *PLAY.get_or_init(crate::android::from_store)
+}
+
+/// iOS: the sideload installers' install-from-a-link URLs, in the order they're tried; each takes the .ipa's URL
+/// (escaped) after it. SideStore and AltStore install over the app with the player's own signing; TrollStore
+/// (`apple-magnifier`) installs it as is.
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+const INSTALLERS: [&str; 3] = ["sidestore://install?url=", "altstore://install?url=", "apple-magnifier://install?url="];
+
+/// iOS: the first of [`INSTALLERS`] the phone has (the IPA's Info.plist lists their schemes, `tools/ios-ipa.sh`; none
+/// until UIKit has answered, a frame or so after the first ask).
+#[cfg(target_os = "ios")]
+fn installer() -> Option<&'static str> {
+    INSTALLERS.into_iter().find(|i| crate::ios::can_open(i) == Some(true))
+}
+
+/// `s` as one URL query value (everything but RFC 3986's unreserved characters percent-escaped).
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn escape(s: &str) -> String {
+    s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
 /// The notice's button: the page reloads (once its mod saves are done, `web.rs`) into the new build, which the
-/// service worker has already downloaded in the background (`web/sw.js`, B470); a newer release installs (B374); else
-/// the release page opens.
+/// service worker has already downloaded in the background (`web/sw.js`, B470); a newer release installs (B374, M140's
+/// [`Way`]); else the release page opens.
 pub fn act() {
     #[cfg(target_arch = "wasm32")]
     crate::web::reload();
@@ -321,9 +489,17 @@ pub fn act() {
             drop(s);
             return crate::modstore::open(RELEASES);
         };
-        let (Some(files), true, Some(exe)) = (f.files.clone(), swappable(), exe()) else {
-            drop(s);
-            return crate::modstore::open(&f.page);
+        let w = way(&f);
+        let files = match (&w, f.files.clone()) {
+            (Way::Page, _) | (_, None) => {
+                drop(s);
+                return crate::modstore::open(&f.page);
+            }
+            (Way::Installer(link), _) => {
+                drop(s);
+                return crate::modstore::open(link);
+            }
+            (_, Some(files)) => files,
         };
         (s.busy, s.job) = (true, Some((format!("Downloading {}...", f.tag), Some(0.0))));
         drop(s);
@@ -333,23 +509,68 @@ pub fn act() {
                 let k = got as f32 / total.max(1) as f32;
                 STATE.lock().unwrap().job = Some((format!("Downloading {}... {} / {} MB", f.tag, got >> 20, total >> 20), Some(k.min(1.0))));
             };
-            match rt.block_on(install(&files, &exe, PUBLIC_KEY, &shown)) {
-                Ok(()) => {
-                    STATE.lock().unwrap().job = Some((format!("Starting {}...", f.tag), None));
-                    // the same arguments (the disc), from the new file at the old one's path
-                    match std::process::Command::new(&exe).args(std::env::args_os().skip(1)).spawn() {
-                        Ok(_) => std::process::exit(0),
-                        Err(e) => STATE.lock().unwrap().job = Some((format!("Updated to {}: start the game again ({e}).", f.tag), None)),
+            let job = |says: String| STATE.lock().unwrap().job = Some((says, None));
+            let done = match &w {
+                Way::Swap(exe) | Way::Copy(exe) => {
+                    let dir = exe.parent().map(|d| std::fs::create_dir_all(d).map_err(|e| format!("can't make {}: {e}", d.display())));
+                    match dir.unwrap_or(Ok(())).and_then(|()| rt.block_on(install(&files, exe, PUBLIC_KEY, &shown))) {
+                        Ok(()) => {
+                            job(format!("Starting {}...", f.tag));
+                            // the same arguments (the disc), from the new file (at the old one's path, or the copy)
+                            match std::process::Command::new(exe).args(std::env::args_os().skip(1)).spawn() {
+                                Ok(_) => std::process::exit(0),
+                                Err(e) => Ok(format!("Updated to {}: start the game again ({e}).", f.tag)),
+                            }
+                        }
+                        Err(e) => Err(e),
                     }
                 }
+                Way::Apk => apk(&rt, &files, &f.tag, &shown, &job),
+                Way::Installer(_) | Way::Page => unreachable!(),
+            };
+            match done {
+                Ok(says) => job(says),
                 Err(e) => {
                     bevy::log::warn!("update: {e}");
-                    STATE.lock().unwrap().job = Some((format!("Update failed: {e}"), None));
+                    job(format!("Update failed: {e}"));
                 }
             }
             STATE.lock().unwrap().busy = false;
         });
     }
+}
+
+/// Android: the release's .apk downloaded beside the app's files (`update.apk`), checked as [`install`] checks a
+/// binary, and handed to the system's installer; then its answer, while the player confirms (an install that goes
+/// through ends the app: the system replaces it). The last words to show.
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(not(target_os = "android"), allow(unused_variables))]
+fn apk(rt: &tokio::runtime::Runtime, files: &[String; 3], tag: &str, shown: &dyn Fn(u64, u64), job: &dyn Fn(String)) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        let to = std::env::current_dir().map_err(|e| e.to_string())?.join("update.apk");
+        rt.block_on(verified(files, &to, PUBLIC_KEY, shown))?;
+        crate::android::install_apk(&to)?;
+        job(format!("Install {tag}: confirm on the screen..."));
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            match crate::android::install_status() {
+                None => continue,
+                Some(0) => return Ok(format!("Installed {tag}: open the game again.")),
+                // `PackageInstaller.STATUS_FAILURE_ABORTED`: the player said no
+                Some(3) => {
+                    let _ = std::fs::remove_file(&to);
+                    return Ok(format!("{tag} wasn't installed."));
+                }
+                Some(n) => {
+                    let _ = std::fs::remove_file(&to);
+                    return Err(format!("the installer turned it down (status {n})"));
+                }
+            }
+        }
+    }
+    #[allow(unreachable_code)]
+    Err("no installer on this platform".into())
 }
 
 /// ○ on the notice: no offer again this run.
@@ -376,12 +597,67 @@ pub fn button() -> &'static str {
     #[cfg(target_arch = "wasm32")]
     return "Refresh";
     #[cfg(not(target_arch = "wasm32"))]
-    if STATE.lock().unwrap().found.as_ref().is_some_and(|f| f.files.is_some()) && swappable() { "Update" } else { "Download" }
+    if installs() { "Update" } else { "Download" }
 }
 
-/// Whether the button installs in place (else it opens the release page).
+/// Whether the button installs in place (M140: here, or through the phone's sideload installer), else it opens the
+/// release page.
 pub fn installs() -> bool {
-    button() == "Update"
+    #[cfg(target_arch = "wasm32")]
+    return false;
+    #[cfg(not(target_arch = "wasm32"))]
+    STATE.lock().unwrap().found.as_ref().is_some_and(|f| way(f) != Way::Page)
+}
+
+/// M140: whether an install runs to its end here with no one at the controls but the system's own confirm (Always
+/// starts it by itself): not iOS's, which leaves for another app.
+#[cfg(not(target_arch = "wasm32"))]
+fn installs_alone() -> bool {
+    STATE.lock().unwrap().found.as_ref().is_some_and(|f| matches!(way(f), Way::Swap(_) | Way::Copy(_) | Way::Apk))
+}
+
+/// M140: Settings → Updates on Always: a release found installs by itself from the main menu (else Ask: the Update?
+/// popup; Never is the older Check for Updates off, [`CHECK`]).
+pub static ALWAYS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// M140: settings.txt's `updates` line for Check for Updates `check` and Always `always` ([`ALWAYS`]).
+pub fn settings_line(check: bool, always: bool) -> String {
+    let word = if !check { "never" } else if always { "always" } else { "ask" };
+    format!("updates = {word}\n")
+}
+
+/// What the main menu does about a newer version, once per one found: [`Due::Ask`] the Update? popup, [`Due::Install`]
+/// it (Always, where it installs by itself).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Due {
+    Ask,
+    Install,
+}
+
+/// The release the main menu last asked about (or installed by itself).
+#[cfg(not(target_arch = "wasm32"))]
+static ASKED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// M140: called by the main menu while nothing else is up on it: what to do about a newer version, the first time
+/// it's seen (a later one asks again). None in the browser, whose notice refreshes the page.
+pub fn offer() -> Option<Due> {
+    #[cfg(target_arch = "wasm32")]
+    return None;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let tag = latest()?;
+        let mut asked = ASKED.lock().unwrap();
+        if asked.as_deref() == Some(tag.as_str()) || STATE.lock().unwrap().busy {
+            return None;
+        }
+        *asked = Some(tag);
+        drop(asked);
+        if !ALWAYS.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(Due::Ask)
+        } else {
+            installs_alone().then_some(Due::Install)
+        }
+    }
 }
 
 /// This build's version as the notice shows it: its release tag, else its commit.
@@ -407,21 +683,32 @@ pub fn refused(why: String) -> String {
     why
 }
 
-/// `files` (this platform's binary, `SHA256SUMS`, `SHA256SUMS.sig`) installed over `exe`: the binary downloads to
-/// `opentennis.new` beside it, the sums' signature is checked against `key` and the binary's sha256 against them, then it
-/// takes `exe`'s place. Any failure leaves `exe` as it was and no `opentennis.new`.
+/// `files` (this platform's binary, `SHA256SUMS`, `SHA256SUMS.sig`) installed over `exe` (or as `exe`, a new
+/// [`Way::Copy`]): the binary downloads to `opentennis.new` beside it ([`verified`]), then takes `exe`'s place. Any
+/// failure leaves `exe` as it was and no `opentennis.new`.
 #[cfg(not(target_arch = "wasm32"))]
 async fn install(files: &[String; 3], exe: &std::path::Path, key: &str, shown: &dyn Fn(u64, u64)) -> Result<(), String> {
+    let new = exe.with_file_name("opentennis.new");
+    verified(files, &new, key, shown).await?;
+    let ok = swap(&new, exe, cfg!(windows));
+    if ok.is_err() {
+        let _ = std::fs::remove_file(&new);
+    }
+    ok
+}
+
+/// `files[0]` downloaded to `to`, once the sums' signature is checked against `key` and the download's sha256
+/// against them; any failure leaves no `to`.
+#[cfg(not(target_arch = "wasm32"))]
+async fn verified(files: &[String; 3], to: &std::path::Path, key: &str, shown: &dyn Fn(u64, u64)) -> Result<(), String> {
     let name = files[0].rsplit('/').next().unwrap_or_default().to_string();
     let sums = fetch(&files[1], 1 << 16).await?;
     let sig = fetch(&files[2], 1 << 12).await?;
     let want = signed_sum(&sums, &sig, key, &name)?;
-    let new = exe.with_file_name("opentennis.new");
-    let got = download(&files[0], &new, shown).await;
+    let got = download(&files[0], to, shown).await;
     let ok = got.and_then(|h| if h == want { Ok(()) } else { Err(format!("{name}'s checksum doesn't match the signed one")) });
-    let ok = ok.and_then(|()| swap(&new, exe, cfg!(windows)));
     if ok.is_err() {
-        let _ = std::fs::remove_file(&new);
+        let _ = std::fs::remove_file(to);
     }
     ok
 }
@@ -467,7 +754,7 @@ async fn download(url: &str, to: &std::path::Path, shown: &dyn Fn(u64, u64)) -> 
 
 /// `new` in `exe`'s place. Linux: made executable and renamed over it (the running game keeps its open copy).
 /// Windows (`windows`), where a running .exe can't be replaced but can be renamed: `exe` → `exe.old`, `new` → `exe`
-/// (put back if that fails).
+/// (put back if that fails). No `exe` yet (a new [`Way::Copy`]): `new` is renamed.
 #[cfg(not(target_arch = "wasm32"))]
 fn swap(new: &std::path::Path, exe: &std::path::Path, windows: bool) -> Result<(), String> {
     let e = |what: &str, err: std::io::Error| format!("can't {what}: {err}");
@@ -476,7 +763,7 @@ fn swap(new: &std::path::Path, exe: &std::path::Path, windows: bool) -> Result<(
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(new, std::fs::Permissions::from_mode(0o755)).map_err(|x| e("make it executable", x))?;
     }
-    if windows {
+    if windows && exe.exists() {
         let old = old(exe);
         let _ = std::fs::remove_file(&old);
         std::fs::rename(exe, &old).map_err(|x| e("move the old game aside", x))?;
@@ -635,6 +922,63 @@ PGdwmy/sa9Kqh1f1dYqI+JP0Iweg2dLM/mEgnRNTVfsQ9pI1u5aeusKILuRdn61QcyAsnzeOSfS5RRAE
         assert!(!due(t, t) && !due(t, t + min(29)));
         assert!(due(t, t + min(30)) && due(t, t + min(7 * 60)));
         assert!(due(t, t - min(1)));
+    }
+
+    /// M140: the launcher hands over to the newest copy newer than the game (one with its binary), and clears out the
+    /// others but the running one; a new copy installs into its empty folder on both platforms' renames.
+    #[test]
+    fn copies_launch_the_newest_and_install_into_a_fresh_folder() {
+        let root = std::env::temp_dir().join(format!("hst-update-copies-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for (tag, bin) in [("v1.0.0", true), ("v1.2.0", true), ("v1.10.0-beta.1", true), ("v1.11.0", false), ("v0.9.0", true), ("notes", true)] {
+            std::fs::create_dir_all(root.join(tag)).unwrap();
+            if bin {
+                std::fs::write(root.join(tag).join("opentennis"), b"x").unwrap();
+            }
+        }
+        let (tag, bin) = newest(&root, "v1.1.0", "opentennis").unwrap();
+        assert_eq!((tag.as_str(), bin), ("v1.10.0-beta.1", root.join("v1.10.0-beta.1/opentennis")));
+        assert_eq!(newest(&root, "v1.10.0", "opentennis"), None);
+        assert_eq!(newest(&root.join("none"), "v1.0.0", "opentennis"), None);
+        let mut gone = stale(&root, Some("v1.10.0-beta.1"), Some(&root.join("v1.0.0/opentennis")));
+        gone.sort();
+        assert_eq!(gone, ["v0.9.0", "v1.11.0", "v1.2.0"].map(|t| root.join(t)));
+        assert_eq!(stale(&root, None, None).len(), 5);
+
+        // the download into a folder with no game yet (`Way::Copy`): the Windows renames too
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let api = release("v1.12.0", SUMS, SIG);
+        let files = rt.block_on(check(&api, "v1.0.0", Some("opentennis-linux-x86_64"))).unwrap().unwrap().files.unwrap();
+        for (k, name) in ["opentennis", "opentennis.exe"].into_iter().enumerate() {
+            let dir = root.join(format!("fresh{k}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            let new = dir.join("opentennis.new");
+            rt.block_on(verified(&files, &new, KEY, &|_, _| {})).unwrap();
+            swap(&new, &dir.join(name), k == 1).unwrap();
+            assert_eq!(std::fs::read(dir.join(name)).unwrap(), BIN);
+            assert!(!new.exists() && !old(&dir.join(name)).exists());
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// M140: a Steam library's folder is Steam's; a Deck's non-Steam game elsewhere isn't.
+    #[test]
+    fn steam_owns_only_its_library() {
+        assert!(steams(std::path::Path::new("/home/deck/.local/share/Steam/steamapps/common/OpenTennis/opentennis")));
+        assert!(steams(std::path::Path::new("D:/SteamLibrary/SteamApps/common/OpenTennis/opentennis.exe")));
+        assert!(!steams(std::path::Path::new("/home/deck/Games/opentennis/opentennis")));
+    }
+
+    /// M140: the iOS installers' links carry the .ipa's URL as one escaped query value; the settings word.
+    #[test]
+    fn installer_links_and_the_updates_word() {
+        let ipa = "https://github.com/FIZL0/opentennis/releases/download/v1.2.3/opentennis-ios.ipa";
+        assert_eq!(
+            format!("{}{}", INSTALLERS[0], escape(ipa)),
+            "sidestore://install?url=https%3A%2F%2Fgithub.com%2FFIZL0%2Fopentennis%2Freleases%2Fdownload%2Fv1.2.3%2Fopentennis-ios.ipa"
+        );
+        assert_eq!(escape("a b&c=d~_.-"), "a%20b%26c%3Dd~_.-");
+        assert_eq!([settings_line(true, false), settings_line(true, true), settings_line(false, true)], ["updates = ask\n", "updates = always\n", "updates = never\n"]);
     }
 
     #[test]
