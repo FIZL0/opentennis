@@ -8,15 +8,26 @@
 //! Presentation only: the match camera (`Game::cam`) and this machine's own (`own_camera`) step as before and nothing
 //! in play reads these views; the main camera takes the top half's view after `camera` has placed it, so the
 //! billboards and the eye-hiding passes that follow the main camera follow the top half.
+//!
+//! M146: on a phone or tablet, two humans playing singles against each other on the one device share the match
+//! camera, which keeps its end: one of them always plays from the far end. 1P's Select (only 1P's) switches to a
+//! split instead, at any window shape: each player's half shows their own match camera, the original's one-human
+//! camera behind them (as `own_camera` online), so both play from behind themselves. Side by side on a wide window
+//! (1P left), stacked on a tall one (1P on top). Each human's stick and d-pad turn with their own half's picture
+//! as they're read, before the tick's pads are recorded (`turn_sticks`), so instant replays and the tick hash
+//! replay what was played. Shown only when the plain match view would be (as above), switched only in live play,
+//! the choice kept in `split.txt`.
 
 use bevy::camera::Viewport;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use hst_sim::camera::{self as sim_cam, Scene, View};
+
 use super::own_camera::{self, OwnCam};
-use super::{Game, Phase};
-use crate::Orbit;
+use super::{Game, Pads, Phase, controls};
+use crate::{Args, Orbit};
 
 /// Windows narrower than this (width over height) split.
 const TALL: f32 = 0.8;
@@ -42,7 +53,12 @@ const FOLLOW: f32 = 5.0;
 const CUT: f32 = 3.0;
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Split>().add_systems(Update, split.after(super::camera).before(super::draw));
+    app.init_resource::<Split>()
+        .init_resource::<StickTurn>()
+        .add_systems(Startup, load)
+        .add_systems(Update, (press.run_if(|w: &World| !super::front_end::paused(w) && !super::intro::running(w)), split.after(super::camera).before(super::draw)))
+        // as `own_camera::step`: on the scene the tick starts from
+        .add_systems(FixedUpdate, step.after(super::control).before(super::simulate));
 }
 
 /// The picture is split now (the score panel puts the near team's half on top, `panel`).
@@ -142,9 +158,13 @@ fn frame(players: &[Vec3], team: usize, ball: Vec3, aspect: f32, covered: f32) -
 
 /// Whether the picture splits now: a tall window, live play on the plain match view, the remaster's own look.
 fn live(w: &World, aspect: f32) -> bool {
+    aspect < TALL && plain_play(w)
+}
+
+/// Live play on the plain match view, the remaster's own look.
+fn plain_play(w: &World) -> bool {
     let Some(g) = w.get_resource::<Game>() else { return false };
-    aspect < TALL
-        && g.players.len() >= 2
+    g.players.len() >= 2
         && matches!(g.phase, Phase::Serve | Phase::Rally)
         && !w.get_resource::<crate::graphics::Graphics>().is_some_and(|gr| gr.original)
         && !super::intro::running(w)
@@ -157,10 +177,15 @@ fn split(w: &mut World) {
     // the window's size (logical px) and the picture's width over height
     let win = w.query_filtered::<&Window, With<PrimaryWindow>>().single(w).ok().map(|win| (Vec2::new(win.width(), win.height()), crate::play::widescreen::scene_aspect(win)));
     let (size, aspect) = win.unwrap_or((Vec2::ONE, 1.0));
-    let on = live(w, aspect);
-    ON.store(on, Ordering::Relaxed);
+    let own = w.get_resource::<Personal>().is_some_and(|p| p.cams.len() == 2) && plain_play(w);
+    let on = own || live(w, aspect);
+    // M146: side by side, the score panels stay as they are
+    ON.store(on && !(own && aspect >= 1.0), Ordering::Relaxed);
     let mut state = w.remove_resource::<Split>().unwrap_or_default();
-    if on {
+    if own {
+        state.shown = None;
+        place_own(w, &mut state, aspect);
+    } else if on {
         place(w, &mut state, size, aspect);
     } else if state.shown.take().is_some() || state.cam.is_some() {
         if let Some(e) = state.cam.take() {
@@ -193,6 +218,21 @@ fn place(w: &mut World, state: &mut Split, size: Vec2, aspect: f32) {
         _ => [up, down],
     };
     state.shown = Some((top, rigs));
+    let Some(target) = target(w) else { return };
+    let half = target.y / 2;
+    let views = [(UVec2::ZERO, UVec2::new(target.x, half)), (UVec2::new(0, half), UVec2::new(target.x, target.y - half))];
+    show(w, state, rigs.map(|r| (r.transform(), 2.0 * r.vertical)), views);
+}
+
+/// The main camera's picture size (physical px).
+fn target(w: &mut World) -> Option<UVec2> {
+    let mut q = w.query_filtered::<&Camera, With<Orbit>>();
+    q.single(w).ok()?.physical_target_size()
+}
+
+/// Puts the main camera (`Orbit`) and the second one at the halves' eyes, each with its vertical field of view and
+/// its part of the picture (position, size; physical px).
+fn show(w: &mut World, state: &mut Split, eyes: [(Transform, f32); 2], views: [(UVec2, UVec2); 2]) {
     let cam = *state.cam.get_or_insert_with(|| {
         w.spawn((
             SplitCam,
@@ -205,15 +245,10 @@ fn place(w: &mut World, state: &mut Split, size: Vec2, aspect: f32) {
         ))
         .id()
     });
-    let mut q = w.query_filtered::<(&mut Transform, &mut Projection, &mut Camera), With<Orbit>>();
-    let Ok((mut tf, mut proj, mut main)) = q.single_mut(w) else { return };
-    let Some(target) = main.physical_target_size() else { return };
-    let half = target.y / 2;
-    let views = [(UVec2::ZERO, UVec2::new(target.x, half)), (UVec2::new(0, half), UVec2::new(target.x, target.y - half))];
-    let show = |rig: &Rig, (at, size): (UVec2, UVec2), tf: &mut Transform, proj: &mut Projection, cam: &mut Camera| {
-        *tf = rig.transform();
+    let set = |(eye, fov): (Transform, f32), (at, size): (UVec2, UVec2), tf: &mut Transform, proj: &mut Projection, cam: &mut Camera| {
+        *tf = eye;
         if let Projection::Perspective(p) = proj {
-            p.fov = 2.0 * rig.vertical;
+            p.fov = fov;
             p.near = 0.1;
         }
         let v = Some(Viewport { physical_position: at, physical_size: size.max(UVec2::ONE), ..default() });
@@ -221,10 +256,180 @@ fn place(w: &mut World, state: &mut Split, size: Vec2, aspect: f32) {
             cam.viewport = v;
         }
     };
-    show(&rigs[0], views[0], &mut tf, &mut proj, &mut main);
+    let mut q = w.query_filtered::<(&mut Transform, &mut Projection, &mut Camera), With<Orbit>>();
+    let Ok((mut tf, mut proj, mut main)) = q.single_mut(w) else { return };
+    set(eyes[0], views[0], &mut tf, &mut proj, &mut main);
     let mut q = w.query_filtered::<(&mut Transform, &mut Projection, &mut Camera), With<SplitCam>>();
     if let Ok((mut tf, mut proj, mut c)) = q.get_mut(w, cam) {
-        show(&rigs[1], views[1], &mut tf, &mut proj, &mut c);
+        set(eyes[1], views[1], &mut tf, &mut proj, &mut c);
+    }
+}
+
+/// M146: the personal split's state.
+#[derive(Resource, Default)]
+pub(super) struct Personal {
+    /// Chosen (1P's Select).
+    on: bool,
+    /// A Select press waiting for the next tick.
+    press: bool,
+    /// While it plays, each player's own match camera and the view it showed the tick before.
+    cams: Vec<(sim_cam::Camera, View)>,
+}
+
+/// M146: per seat (1P..4P), whether the stick and d-pad turn round as they're read (`turn_sticks`).
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq)]
+pub(super) struct StickTurn(pub(super) [bool; 4]);
+
+/// `split.txt` in the per-user data folder.
+fn path(iso: &str) -> std::path::PathBuf {
+    crate::store::path(iso, "split.txt")
+}
+
+fn load(mut commands: Commands, args: Res<Args>) {
+    // `HST_SPLIT2=on`: on from the start (shots)
+    let on = crate::store::read_to_string(path(&args.iso)).is_ok_and(|t| t.trim() == "split")
+        || std::env::var("HST_SPLIT2").is_ok_and(|v| v == "on");
+    commands.insert_resource(Personal { on, ..default() });
+}
+
+fn save(iso: &str, on: bool) {
+    // tests never write beside the disc
+    if cfg!(test) {
+        return;
+    }
+    if let Err(e) = crate::store::write(path(iso), if on { "split\n" } else { "shared\n" }) {
+        warn!("split.txt: {e}");
+    }
+}
+
+/// The personal split can play: singles, both players human on this device, not online, a phone or tablet
+/// (`HST_SPLIT2` set: any machine; `on` also switches it on), the remaster's own look.
+fn eligible(g: &Game, pads: &Pads, online: bool, original: bool) -> bool {
+    let device = matches!(crate::device::PLATFORM, crate::device::Platform::Android | crate::device::Platform::Ios)
+        || cfg!(test)
+        || std::env::var_os("HST_SPLIT2").is_some();
+    device && !online && !original && g.players.len() == 2 && (0..2).all(|i| pads.slot_of(i, 2).is_some())
+}
+
+/// Latches 1P's Select (their keyboard or pad) for the next tick.
+fn press(
+    p: Option<ResMut<Personal>>,
+    pads: Option<Res<Pads>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    bind: Option<Res<controls::Bindings>>,
+    held: Option<Res<controls::PadSlots>>,
+    gamepads: Query<&Gamepad>,
+) {
+    let (Some(mut p), Some(pads), Some(bind), Some(held)) = (p, pads, bind, held) else { return };
+    let Some(slot) = pads.slot_of(0, 2) else { return };
+    let key = held.keys() == Some(slot) && bind.key_just_pressed(&keys, controls::Action::Camera);
+    let pad = held.0[slot].and_then(|e| gamepads.get(e).ok()).is_some_and(|g| bind.pad_just_pressed(g, controls::Action::Camera));
+    p.press |= key || pad;
+}
+
+/// Switches on Select in live play (the serve or the rally, nothing else on screen), steps each player's camera,
+/// and sets which sticks turn: those whose own picture looks from the other end than the one their stick follows
+/// in play (`own_camera::flipped`, the shared camera's).
+fn step(
+    p: Option<ResMut<Personal>>,
+    g: Option<Res<Game>>,
+    pads: Option<Res<Pads>>,
+    np: Option<Res<super::netplay::Netplay>>,
+    d: Option<Res<super::cutaway::Director>>,
+    gr: Option<Res<crate::graphics::Graphics>>,
+    mut turn: ResMut<StickTurn>,
+    args: Res<Args>,
+) {
+    let (Some(mut p), Some(g), Some(pads)) = (p, g, pads) else { return };
+    let press = std::mem::take(&mut p.press);
+    if !eligible(&g, &pads, np.is_some(), gr.is_some_and(|gr| gr.original)) {
+        p.cams.clear();
+        *turn = StickTurn::default();
+        return;
+    }
+    let live = matches!(g.phase, Phase::Serve | Phase::Rally) && !d.is_some_and(|d| d.showing()) && !g.instant.replaying;
+    if press && live {
+        p.on = !p.on;
+        save(&args.iso, p.on);
+        info!("split view {}", if p.on { "on" } else { "off" });
+    }
+    if !p.on {
+        p.cams.clear();
+        *turn = StickTurn::default();
+        return;
+    }
+    let fresh = p.cams.is_empty();
+    if fresh {
+        p.cams = (0..2).map(|_| (sim_cam::Camera::from_view(g.cam.view), g.cam.view)).collect();
+    }
+    let players: Vec<_> = g.players.iter().map(|p| p.pos).collect();
+    let scene = Scene { players: &players, ball: g.flight.ball.pos };
+    for (i, (cam, prev)) in p.cams.iter_mut().enumerate() {
+        let turned = g.players[i].end < 0.0;
+        // a new point's placement (the shared camera's cut), its end changed, or just switched on: cut straight to it
+        let cut = fresh || g.cam_cut || cam.turned != turned;
+        if cut {
+            cam.cut();
+            cam.turned = turned;
+        }
+        *prev = cam.view;
+        cam.step(&scene);
+        if cut {
+            *prev = cam.view;
+        }
+    }
+    let mut t = StickTurn::default();
+    for i in 0..2 {
+        if let Some(s) = pads.slot_of(i, 2) {
+            t.0[s] = (g.players[i].end < 0.0) != own_camera::flipped(&g, i);
+        }
+    }
+    if *turn != t {
+        *turn = t;
+    }
+}
+
+/// M146: each player's own camera on their half: 1P left (or on top), 2P right (or below).
+fn place_own(w: &mut World, state: &mut Split, aspect: f32) {
+    let a = w.resource::<Time<Fixed>>().overstep_fraction();
+    let Some(target) = target(w) else { return };
+    let wide = aspect >= 1.0;
+    let half = if wide { aspect / 2.0 } else { aspect * 2.0 };
+    let views = if wide {
+        let x = target.x / 2;
+        [(UVec2::ZERO, UVec2::new(x, target.y)), (UVec2::new(x, 0), UVec2::new(target.x - x, target.y))]
+    } else {
+        let y = target.y / 2;
+        [(UVec2::ZERO, UVec2::new(target.x, y)), (UVec2::new(0, y), UVec2::new(target.x, target.y - y))]
+    };
+    let p = w.resource::<Personal>();
+    let eye = |i: usize| {
+        let (cam, v0) = &p.cams[i];
+        let v = cam.view;
+        let mix = |x: [f32; 3], y: [f32; 3]| Vec3::from(x).lerp(Vec3::from(y), a).to_array();
+        let (eye, pitch, yaw) = super::orbit_from(mix(v0.eye, v.eye), mix(v0.rot[2], v.rot[2]));
+        let fov = v0.fov + (v.fov - v0.fov) * a;
+        // as the match camera's: never less than the game's 4:3 picture across
+        let fov = 2.0 * (fov.tan() * super::SHOWN_ASPECT.max(1.0 / half)).atan();
+        (Transform::from_translation(eye).with_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)), fov)
+    };
+    let eyes = [eye(0), eye(1)];
+    show(w, state, eyes, views);
+}
+
+/// M146: turns this tick's local pads round for the seats `turn` says (stick and d-pad), before they're recorded.
+pub(super) fn turn_sticks(pads: &mut [hst_sim::replay::Pad; 4], turn: Option<&StickTurn>) {
+    use hst_sim::player::pad::{DOWN, LEFT, RIGHT, UP};
+    let Some(turn) = turn else { return };
+    let mirror = |b: u8| {
+        let v = b as f32 - 128.0;
+        super::stick_byte(-v / if v < 0.0 { 128.0 } else { 127.0 })
+    };
+    for (p, _) in pads.iter_mut().zip(turn.0).filter(|(_, t)| *t) {
+        (p.lx, p.ly) = (mirror(p.lx), mirror(p.ly));
+        let b = p.buttons;
+        let swap = |from: u16, to: u16| if b & from != 0 { to } else { 0 };
+        p.buttons = b & !(UP | DOWN | LEFT | RIGHT) | swap(UP, DOWN) | swap(DOWN, UP) | swap(LEFT, RIGHT) | swap(RIGHT, LEFT);
     }
 }
 
@@ -274,5 +479,81 @@ mod tests {
         assert!((height(0.0) + FEET).abs() < 0.01, "{}", height(0.0));
         let up = height(0.25);
         assert!(up > height(0.0) + 0.2 && up > -1.0 + 0.5, "{up}");
+    }
+
+    /// M146: a turned seat's stick runs the other way (within the pad bytes' rounding), its d-pad too; the others are
+    /// left alone.
+    #[test]
+    fn a_turned_stick_runs_the_other_way() {
+        use hst_sim::player::{pad, pad_dir};
+        use hst_sim::replay::Pad;
+        let turn = StickTurn([false, true, false, false]);
+        for lx in (0..=255u8).step_by(5) {
+            for ly in (0..=255u8).step_by(5) {
+                let p = Pad { buttons: 0, lx, ly, rx: 0x80, ry: 0x80 };
+                let mut pads = [p; 4];
+                turn_sticks(&mut pads, Some(&turn));
+                assert_eq!(pads[0], p);
+                let ([x, z], [tx, tz]) = (pad_dir(0, lx, ly, 3), pad_dir(0, pads[1].lx, pads[1].ly, 3));
+                assert!((x + tx).abs() < 0.02 && (z + tz).abs() < 0.02, "{lx:02x},{ly:02x}: {x},{z} turned {tx},{tz}");
+            }
+        }
+        let mut pads = [Pad { buttons: pad::UP | pad::LEFT | 0x2000, lx: 0x80, ly: 0x80, rx: 0x80, ry: 0x80 }; 4];
+        turn_sticks(&mut pads, Some(&turn));
+        assert_eq!(pads[1].buttons, pad::DOWN | pad::RIGHT | 0x2000);
+        assert_eq!(pads[0].buttons, pad::UP | pad::LEFT | 0x2000);
+    }
+
+    /// M146: 2P singles with the personal split on: each player's camera looks from behind them, the stick of the one
+    /// the shared camera has at the far end turns, and the match plays exactly as without it (skipped without the
+    /// ISO).
+    #[test]
+    fn each_human_has_their_own_camera() {
+        use super::super::*;
+        use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let app = |split: bool| {
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+            app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<SkinnedMeshInverseBindposes>();
+            app.insert_resource(Args { iso: hst_data::fixture::ISO_PATH.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles: true, chars: vec![6, 1], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None });
+            app.insert_resource(Pads { slots: default(), connected: 0, seats: Some([true, true, false, false]), autoplay: false });
+            app.init_resource::<tick_input::TickPads>().init_resource::<ButtonInput<KeyCode>>();
+            app.world_mut().spawn((crate::GameSpace, Transform::default(), Visibility::default()));
+            app.add_plugins((cutaway::plugin, change_ends::plugin, own_camera::plugin, tick_input::plugin));
+            if split {
+                app.add_plugins(super::plugin);
+            }
+            app.add_systems(Startup, setup);
+            let time = |mut g: ResMut<Game>| g.match_stats.tick();
+            app.add_systems(FixedUpdate, (remember, control, simulate, time, motions, character::tick, played_out, held_ball).chain());
+            app.update();
+            app
+        };
+        let (mut a, mut b) = (app(true), app(false));
+        a.world_mut().resource_mut::<super::Personal>().on = true;
+        let state = |app: &App| {
+            let g = app.world().resource::<Game>();
+            (g.cam.view, g.flight.ball.pos, g.players.iter().map(|p| p.pos).collect::<Vec<_>>(), app.world().resource::<tick_input::TickPads>().now())
+        };
+        for tick in 0..300 {
+            a.world_mut().run_schedule(FixedUpdate);
+            b.world_mut().run_schedule(FixedUpdate);
+            assert!(state(&a) == state(&b), "tick {tick}: the match changed");
+            let w = a.world();
+            let (g, p) = (w.resource::<Game>(), w.resource::<super::Personal>());
+            assert_eq!(p.cams.len(), 2);
+            for i in 0..2 {
+                let z = g.players[i].pos[2];
+                let eye = p.cams[i].0.view.eye;
+                assert!(eye[2] * z > 0.0 && eye[2].abs() > z.abs(), "tick {tick}: player {i}'s eye {eye:?}, at z {z}");
+                // turned when its own picture's end isn't the shared camera's
+                let shared = g.cam.view.eye[2] * z > 0.0;
+                assert_eq!(w.resource::<super::StickTurn>().0[i], !shared, "tick {tick}: player {i}'s stick");
+            }
+            assert_eq!(w.resource::<super::StickTurn>().0.iter().filter(|t| **t).count(), 1);
+        }
     }
 }
