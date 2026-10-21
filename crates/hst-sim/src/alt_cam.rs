@@ -23,21 +23,31 @@ const SUBJECT: u8 = 113;
 const LOOK_AT: u8 = 114;
 /// How far out the look-at point lies.
 const FAR: f32 = 100.0;
+/// The share of the way to the live ball the followed ball moves each frame (B621: measured against the original,
+/// whose turn after the ball lags it so).
+const BALL_EASE: f32 = 0.05;
 
 /// The camera following the human.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Follow {
     shot: Shot,
+    /// The ball the shot turns after: eased toward the live one, from where it was at the first frame.
+    ball: Option<[f32; 3]>,
 }
 
 impl Follow {
     pub fn new(shots: &[CameraShot], doubles: bool) -> Self {
-        Follow { shot: Shot::new(shots, if doubles { DOUBLES } else { SINGLES }, false) }
+        Follow { shot: Shot::new(shots, if doubles { DOUBLES } else { SINGLES }, false), ball: None }
     }
 
     /// One frame on: the human stands at `spot` (game space) at the −z end when `near`, the ball at `ball`.
     pub fn step(&mut self, spot: [f32; 3], near: bool, ball: [f32; 3]) -> View {
-        self.shot.step(frames(spot, near, ball));
+        let eased = match self.ball {
+            Some(b) => std::array::from_fn(|i| (F(b[i]) + (F(ball[i]) - b[i]) * BALL_EASE).0),
+            None => ball,
+        };
+        self.ball = Some(eased);
+        self.shot.step(frames(spot, near, eased));
         self.shot.view()
     }
 }

@@ -35,6 +35,12 @@ impl Director {
         self.shot.is_some()
     }
 
+    /// A cut-away shot has been stepped and holds the shared camera's view (`showing` is set a tick earlier, the tick
+    /// it's picked).
+    pub(super) fn on_screen(&self) -> bool {
+        self.shot.as_ref().is_some_and(|s| s.0.fov != 0.0)
+    }
+
     /// Player `i`'s head as the last cut-away they were in predicted it (`None` before their first).
     pub(super) fn head(&self, i: usize) -> Option<[f32; 4]> {
         self.heads.get(i).copied().flatten()
