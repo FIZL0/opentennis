@@ -625,6 +625,14 @@ pub(super) fn boxes(g: &Grid, n: usize) -> ([f32; 4], [f32; 4]) {
     }
 }
 
+/// B608: whether page `s`'s rows keep their full pitch on the view `g` (a bigger Menu Size on a short view would
+/// squeeze them, `slot`).
+pub(super) fn rows_fit(g: &Grid, s: Screen) -> bool {
+    let n = if s == Screen::Controls { controls::action_names().count() + 1 } else { page(s).len() };
+    let (list, _) = boxes(g, n);
+    slot(list, n, if pinned(s) { 1.0 } else { 0.0 }, 0.0).1 >= PITCH * PY - 1e-3
+}
+
 /// B448: a list's foot (the footnote) and a row's pitch, mockup px.
 const FOOT: f32 = 30.0;
 const PITCH: f32 = 46.0;

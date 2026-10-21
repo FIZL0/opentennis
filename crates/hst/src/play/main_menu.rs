@@ -152,6 +152,32 @@ impl Grid {
     }
 }
 
+/// B608: logical px a touch screen's Auto Menu Size gives the 448-unit screen at least (`Settings::menu_scale`).
+const PHONE_SCREEN: f32 = 440.0;
+
+/// B608: the largest Menu Size up to `k` that `screen` lays out whole at on a view `aspect` wide. The screens drawn
+/// on the fixed 640×448 screen (the title, the main menu, Online, the lobby list, the code and name keyboard, Extras)
+/// grow until it fills the view and no further; a Settings page until its rows would squeeze (`options::rows_fit`);
+/// the rest re-lay out on the view (`Grid`) and take any size.
+fn fit_scale(screen: Screen, aspect: f32, k: f32) -> f32 {
+    let (s, v) = super::widescreen::menu_shares(aspect, 1.0);
+    let whole = 1.0 / s.max(v);
+    if k <= whole {
+        return k;
+    }
+    match screen {
+        Screen::Press | Screen::Main | Screen::Online | Screen::Lobbies | Screen::Code | Screen::Extras => whole,
+        s if s == Screen::Controls || !options::page(s).is_empty() => {
+            let mut t = k;
+            while t > whole && !options::rows_fit(&Grid::fit_at(aspect, t), s) {
+                t = (t - 0.05).max(whole);
+            }
+            t
+        }
+        _ => k,
+    }
+}
+
 /// Keeps `Menu::grid` fitted to the window and the roster, live on resize; applies the Aspect Ratio setting live
 /// (B117); B306: keeps the select's scroll on the shown player.
 fn fit_grid(window: Query<&Window, With<PrimaryWindow>>, mut menu: ResMut<Menu>) {
@@ -159,7 +185,7 @@ fn fit_grid(window: Query<&Window, With<PrimaryWindow>>, mut menu: ResMut<Menu>)
     super::key_hints::ON.store(menu.settings.0[KEY_HINTS], std::sync::atomic::Ordering::Relaxed);
     legend::LAYOUT.store(menu.settings.9, std::sync::atomic::Ordering::Relaxed);
     let Ok(w) = window.single() else { return };
-    let g = Grid::fit_at(super::widescreen::aspect(w), menu.settings.apply_menu_scale(w));
+    let g = Grid::fit_at(super::widescreen::aspect(w), menu.settings.apply_menu_scale_on(w, menu.screen));
     let resized = menu.grid != g;
     if resized {
         menu.grid = g;
@@ -353,18 +379,27 @@ impl Settings {
     /// B570: logical px (the OS's DPI scale taken out) on the screen as the view letterboxes it, so a phone or a HiDPI
     /// laptop, whose window is many physical px tall but small to the eye, keeps its menus at full size; only a
     /// big monitor gets them smaller.
+    /// B608: on a touch screen Auto is the size that gives the 448 units at least `PHONE_SCREEN` logical px (a
+    /// phone's logical px are about 1/160 in on Android and 1/163 in on iOS, so ~2.75 in of glass), up to 130%:
+    /// a phone held sideways (~390 px) gets ~113%, a small one (360 px) ~122%, a tablet 100%.
     fn menu_scale(&self, screen_h: f32) -> f32 {
+        self.menu_scale_on(screen_h, touch_page())
+    }
+
+    fn menu_scale_on(&self, screen_h: f32, touch: bool) -> f32 {
         match self.7 {
+            0 if touch => (PHONE_SCREEN / screen_h.max(1.0)).clamp(1.0, 1.3),
             0 if screen_h > 1440.0 => 0.8,
             0 => 1.0,
             t => t as f32 / 10.0,
         }
     }
 
-    /// Puts the Menu Size factor for window `w` in force (`widescreen::MENU_SCALE`, which the menus' drawing and
-    /// pointer read) and returns it.
-    pub(super) fn apply_menu_scale(&self, w: &Window) -> f32 {
-        let k = self.menu_scale(super::widescreen::view_size(w).y * super::widescreen::vshare(super::widescreen::aspect(w)));
+    /// Puts the Menu Size factor for window `w` on `screen` in force (`widescreen::MENU_SCALE`, which the menus'
+    /// drawing and pointer read) and returns it: B608, no bigger than that screen's layout fits (`fit_scale`).
+    fn apply_menu_scale_on(&self, w: &Window, screen: Screen) -> f32 {
+        let a = super::widescreen::aspect(w);
+        let k = fit_scale(screen, a, self.menu_scale(super::widescreen::view_size(w).y * super::widescreen::vshare(a)));
         super::widescreen::MENU_SCALE.store(k.to_bits(), std::sync::atomic::Ordering::Relaxed);
         k
     }
