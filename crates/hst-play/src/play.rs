@@ -606,6 +606,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(ball_shadow::plugin);
     app.add_plugins(net_hide::plugin);
     app.add_plugins(court_load::plugin);
+    app.add_plugins(crate::stage::plugin);
     app.add_plugins(own_camera::plugin);
     app.add_plugins(alt_camera::plugin);
     app.add_plugins(foot_fx::plugin);

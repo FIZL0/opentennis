@@ -832,7 +832,9 @@ fn load_court(
     if let Some(sun) = sun {
         commands.insert_resource(sun);
     }
-    for p in &plants {
+    // P135: structures that play their own motion (court 5's carts' wheels, court 6's horses), by plant record
+    let mut posed: std::collections::HashMap<usize, _> = hst_sim::court::drawn(iso, n, season).into_iter().collect();
+    for (k, p) in plants.iter().enumerate() {
         let Some(e) = layout::resolve(&list, p, season) else { continue };
         if !matches!(e.dir.as_str(), "tree" | "prop" | "structure" | "billboard") {
             continue; // creatures/gallery are animated NPCs, dmy are markers
@@ -851,7 +853,13 @@ fn load_court(
         let shape = model_shapes.get(&e.stem).cloned().unwrap_or_default();
         let near = matches!(e.dir.as_str(), "tree" | "prop");
         let cast = p.code[3] != b'0' && (17..=19).contains(&p.category);
-        let e = spawn_parts(commands, root, parts, t);
+        let own = posed.remove(&k).zip(raw_models.get(stem)).zip(anims.get(stem)).and_then(|((motion, (model, _)), (anim, tags))| {
+            spawn_posed(commands, root, t, motion, model, |mi, pi| anim.uv_track(mi, pi), tags, parts, meshes)
+        });
+        let (e, parts) = match &own {
+            Some((e, own)) => (*e, own),
+            None => (spawn_parts(commands, root, parts, t), parts),
+        };
         // B185: the Grand Palais end houses: the match camera behind your baseline sits inside one
         if stem.starts_with("w-house") {
             let b = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::compute_aabb(meshes.get(m)?)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), a| (lo.min(a.min().into()), hi.max(a.max().into())));
@@ -1166,7 +1174,7 @@ fn gs_models_anim(
                 });
                 textures::add_mtl(images, img, &mats.textures[i])
             });
-            let key = |pi: usize| (packets[pi].prim & 0x70, anim.uv_track(mi, pi), packets[pi].uv_swap, packets[pi].flags & 2);
+            let key = |pi: usize| batch_key(&packets[pi], anim.uv_track(mi, pi));
             let mut keys: Vec<_> = (0..packets.len()).map(|pi| (key(pi), pi)).collect();
             keys.sort();
             keys.dedup_by_key(|k| k.0);

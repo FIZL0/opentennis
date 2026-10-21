@@ -54,3 +54,4 @@
 - When a controller is detected and the game asks whether to use it for 1P, the keyboard can now move between Yes and No and choose, not only dismiss it with Esc.
 - Switching a two-player local match to doubles now puts the second player on your team instead of across the net.
 - Custom characters' select pictures are drawn again to match how the game draws them now, instead of showing older pictures from the store or the mod itself. Uploading a character sends the game's current picture of it, and an updated mod shows its new picture.
+- The ball-boy carts on the indoor court now turn their ball-launcher wheels, and the horses beside the ranch court move as they do in the original.

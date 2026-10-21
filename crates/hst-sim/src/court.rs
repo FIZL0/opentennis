@@ -118,6 +118,60 @@ impl Motions {
     }
 }
 
+impl Motions {
+    /// `pass` for drawing alone, with no collision world to move: `moved` gets each motion whose pose changed.
+    pub fn draw_pass(&mut self, step: bool, hidden: impl Fn(usize) -> bool, mut moved: impl FnMut(&PropMotion)) {
+        if step && !self.first {
+            for m in &mut self.list {
+                if !hidden(m.prop) && m.step() {
+                    moved(m);
+                }
+            }
+        }
+        self.first = false;
+    }
+}
+
+/// P135: every placed structure (category 19) on disc court `n`, hole 1, `season`'s layout, whose model has a motion
+/// next to it, colliding or not (court 6's horses only draw): each a motion of its own with `prop` its index in the
+/// plant records and its nodes in model space (the roots are identity on the disc: `world_nodes` is the model's bind
+/// until the first step), so a drawing can pose the model's vertices with them. Unreadable data gives none.
+pub fn drawn(iso: &mut Iso, n: u32, season: usize) -> Vec<(usize, Motions)> {
+    let (mut anims, mut models) = (std::collections::HashMap::new(), std::collections::HashMap::new());
+    let (mut list, mut plants) = (Vec::new(), Vec::new());
+    let hole = if season == 1 { "SSN1/HOL01.XB" } else { "HOL01.XB" };
+    for arc in ["CMN.XB", "GRD01.XB", "HOL01.XB", hole] {
+        let Some(data) = iso.read(&format!("COURT/{n:02}/{arc}")).ok() else { continue };
+        let Ok(a) = Archive::parse(&data) else { continue };
+        for e in &a.entries {
+            let name = e.name.to_ascii_lowercase();
+            let stem = |ext: &str| name.strip_suffix(ext).map(|s| s.rsplit(['/', '\\']).next().unwrap_or(s).to_string());
+            let Ok(bytes) = a.read(e) else { continue };
+            if name.ends_with(&format!("entry_c{n:02}.txt")) {
+                list = layout::entries(&String::from_utf8_lossy(&bytes));
+            } else if name.ends_with(&format!("plant_c{n:02}_h01_0.dat")) && arc == "HOL01.XB" {
+                plants = layout::plants(&bytes).unwrap_or_default();
+            } else if let Some(s) = stem(".ani") {
+                if let Ok(anim) = ani::parse(&bytes) {
+                    anims.insert(s, anim);
+                }
+            } else if let Some(s) = stem(".mdl")
+                && let Ok(m) = mdl::parse(&bytes)
+            {
+                models.insert(s, m);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for (k, p) in plants.iter().enumerate().filter(|(_, p)| p.category == category::STRUCTURE) {
+        let Some(e) = layout::resolve(&list, p, season) else { continue };
+        if let (Some(m), Some(anim)) = (models.get(&e.stem), anims.get(&e.stem)) {
+            out.push((k, Motions { list: vec![PropMotion::new(k, m, anim, IDENTITY)], first: true }));
+        }
+    }
+    out
+}
+
 /// A disc model as collision geometry.
 fn collision_model(m: &mdl::Model, mt: &mtl::Mtl) -> mesh::Model {
     mesh::Model {
