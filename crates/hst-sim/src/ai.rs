@@ -505,24 +505,24 @@ impl AiParams {
     }
 }
 
+/// What [`AiParams::reaction`] weighs besides the row: the shot it answers (a lob or a special serve) and where
+/// the AI is (beside a human partner; `near_net`: within the service line).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Reacting {
+    pub lob: bool,
+    pub special_serve: bool,
+    pub beside_human: bool,
+    pub near_net: bool,
+}
+
 impl AiParams {
     /// The reaction (frames the AI stands before going for the ball) drawn after an opponent's hit, after the
     /// timing errors and the shot-choice draws: after a smash the after-smash frames, else the base
     /// one (the net value within 6.4 m of the net, `near_net`; the doubles columns beside a human partner, else the
     /// singles ones) plus the fast-ball frames; then a random part up to the row's, and a lob (`lob`: a △ ground
-    /// stroke, volley or dive) or special serve adds half its frames plus up to half again. `near_net`: within the
-    /// service line.
-    #[allow(clippy::too_many_arguments)] // the ported routine's own inputs, one argument each as the game passes them
-    pub fn reaction(
-        &self,
-        t: &Timing,
-        last: &Seen,
-        lob: bool,
-        special_serve: bool,
-        beside_human: bool,
-        near_net: bool,
-        roll: &mut impl FnMut() -> u32,
-    ) -> i32 {
+    /// stroke, volley or dive) or special serve adds half its frames plus up to half again (`on`: [`Reacting`]).
+    pub fn reaction(&self, t: &Timing, last: &Seen, on: Reacting, roll: &mut impl FnMut() -> u32) -> i32 {
+        let Reacting { lob, special_serve, beside_human, near_net } = on;
         let mut upto = |n: i32| r15(roll()) as i32 % (n + 1);
         let r = if last.kind == branch::SMASH as i32 {
             self.react_after_smash + upto(self.react_random)
@@ -610,45 +610,50 @@ impl AiParams {
     }
 }
 
-/// Where the AI stands when its contact search found the ball on both sides of it: `minus` (standing at ball x −
-/// reach·side, the forehand of a right-hander) or `plus` (ball x + reach·side). It keeps the stand spot nearer to
-/// `from` (its position, x and z), unless the farther one is its `strong` side (`strong::*`) and the run-round roll passed (`width`: Some(`run_round_width`)) and that spot's |x| is inside the
-/// width. Each spot stands `depth` (player stat) · side / 2 short of the ball. Some(true) for minus, Some(false) for
-/// plus, None when neither was found. As the game, a side found at the path's first entry (index 0) isn't weighed.
-/// ponytail: only minus at index 0 found makes the game read the entry before the path; this keeps minus then.
-#[allow(clippy::too_many_arguments)] // the ported routine's own inputs, one argument each as the game passes them
-pub fn stand_side(
-    minus: Option<Spot>,
-    plus: Option<Spot>,
-    from: [f32; 2],
-    reach: f32,
-    side: f32,
-    depth: f32,
-    strong: u8,
-    width: Option<f32>,
-) -> Option<bool> {
-    let (m, p) = match (minus, plus) {
-        (None, None) => return None,
-        (Some(m), Some(p)) if m.0 > 0 && p.0 > 0 => (m.1, p.1),
-        (Some(m), p) => return Some(m.0 >= 1 || p.is_none()),
-        (None, Some(_)) => return Some(false),
-    };
-    let off = F(reach) * side;
-    let x = [(m[0] - off).0, (p[0] + off).0];
-    let back = F(depth) * side / 2.0;
-    let dist = |x: f32, z: f32| {
-        let (dx, dz) = (F(x) - from[0], z - back - from[1]);
-        (dz * dz).madd(dx, dx)
-    };
-    let nearer_minus = dist(x[0], m[1]) <= dist(x[1], p[1]);
-    let strong_minus = match strong {
-        strong::MINUS => true,
-        strong::PLUS => false,
-        _ => return Some(nearer_minus),
-    };
-    let run = strong_minus != nearer_minus
-        && width.is_some_and(|w| x[if strong_minus { 0 } else { 1 }].abs() < w);
-    Some(if run { strong_minus } else { nearer_minus })
+/// The AI player as [`Stander::stand_side`] weighs it: its position (x, z), reach, side (the sign that turns reach
+/// into an x offset toward the forehand), depth (player stat) and strong side (`strong::*`).
+#[derive(Clone, Copy, Debug)]
+pub struct Stander {
+    pub from: [f32; 2],
+    pub reach: f32,
+    pub side: f32,
+    pub depth: f32,
+    pub strong: u8,
+}
+
+impl Stander {
+    /// Where the AI stands when its contact search found the ball on both sides of it: `minus` (standing at ball x −
+    /// reach·side, the forehand of a right-hander) or `plus` (ball x + reach·side). It keeps the stand spot nearer to
+    /// `from`, unless the farther one is its `strong` side and the run-round roll passed (`width`: Some(`run_round_width`))
+    /// and that spot's |x| is inside the width. Each spot stands depth · side / 2 short of the ball. Some(true) for
+    /// minus, Some(false) for plus, None when neither was found. As the game, a side found at the path's first entry
+    /// (index 0) isn't weighed.
+    /// ponytail: only minus at index 0 found makes the game read the entry before the path; this keeps minus then.
+    pub fn stand_side(&self, minus: Option<Spot>, plus: Option<Spot>, width: Option<f32>) -> Option<bool> {
+        let Stander { from, reach, side, depth, strong } = *self;
+        let (m, p) = match (minus, plus) {
+            (None, None) => return None,
+            (Some(m), Some(p)) if m.0 > 0 && p.0 > 0 => (m.1, p.1),
+            (Some(m), p) => return Some(m.0 >= 1 || p.is_none()),
+            (None, Some(_)) => return Some(false),
+        };
+        let off = F(reach) * side;
+        let x = [(m[0] - off).0, (p[0] + off).0];
+        let back = F(depth) * side / 2.0;
+        let dist = |x: f32, z: f32| {
+            let (dx, dz) = (F(x) - from[0], z - back - from[1]);
+            (dz * dz).madd(dx, dx)
+        };
+        let nearer_minus = dist(x[0], m[1]) <= dist(x[1], p[1]);
+        let strong_minus = match strong {
+            strong::MINUS => true,
+            strong::PLUS => false,
+            _ => return Some(nearer_minus),
+        };
+        let run = strong_minus != nearer_minus
+            && width.is_some_and(|w| x[if strong_minus { 0 } else { 1 }].abs() < w);
+        Some(if run { strong_minus } else { nearer_minus })
+    }
 }
 
 /// The bounds an ALL-style AI's net rate is kept in after each point (the same for both AI classes).
@@ -1064,7 +1069,8 @@ impl Searcher<'_> {
         }
         let spot = |k: usize| best[k].map(|(at, _, _)| (at as i32, [self.path[at].pos[0], self.path[at].pos[2]]));
         let width = self.row.run_round_width(self.singles);
-        let minus = stand_side(spot(0), spot(1), rn.pos, reach, side, self.depth, self.strong, run.then_some(width))?;
+        let me = Stander { from: rn.pos, reach, side, depth: self.depth, strong: self.strong };
+        let minus = me.stand_side(spot(0), spot(1), run.then_some(width))?;
         let (at, _, frames) = best[if minus { 0 } else { 1 }]?;
         let [x, _, z] = self.path[at].pos;
         let acc = F::ZERO + x;

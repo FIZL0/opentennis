@@ -465,7 +465,7 @@ pub fn sun_axes(sun: vu0::V4) -> [vu0::V4; 3] {
 }
 
 /// A caster's light matrix (world → light space, u/v in ±1 over the caster, z along the sun) as the game builds
-/// it at load in EE floats: `item` is the caster's model matrix (scaled by `scale`), `centre`/`half` its model
+/// it at load (its inputs in EE floats, the inverse our own, a few ulps off the game's): `item` is the caster's model matrix (scaled by `scale`), `centre`/`half` its model
 /// box, `axes` the [`sun_axes`]. The matrix is the inverse of [lu; lv; sun; box centre] scaled to the caster's
 /// extent across the light.
 pub fn light_matrix(item: &[vu0::V4; 4], scale: f32, centre: [f32; 3], half: [f32; 3], axes: &[vu0::V4; 3]) -> [vu0::V4; 4] {
@@ -583,167 +583,29 @@ pub fn planes(item: &[vu0::V4; 4], scale: f32, centre: [f32; 3], half: [f32; 3],
     std::array::from_fn(|b| std::array::from_fn(|r| std::array::from_fn(|j| out[4 * b + j][r])))
 }
 
-/// The game's general 4×4 inverse in EE floats: the 2×2 minors' determinant, the 16 cofactors in the game's op order
-/// (generated from its code), each times 1/det; the identity when det is 0.
+/// A general 4×4 inverse (rendering only has to look right, so any accurate one serves): the textbook adjugate
+/// built from the six 2×2 minors of the top two rows (`s`) and the six of the bottom two (`c`), over the
+/// determinant; the identity when the determinant is 0.
 fn inverse(m: &[vu0::V4; 4]) -> [vu0::V4; 4] {
-    let m: [F; 16] = std::array::from_fn(|i| F(m[i / 4][i % 4]));
-    let p = |a: usize, b: usize, c: usize, d: usize| (m[a] * m[b]).msub(m[c], m[d]);
-    let det = (p(0, 5, 1, 4) * p(10, 15, 11, 14)).msub(p(0, 6, 2, 4), p(9, 15, 11, 13));
-    let det = det
-        .madd(p(0, 7, 3, 4), p(9, 14, 10, 13))
-        .madd(p(1, 6, 2, 5), p(8, 15, 11, 12))
-        .msub(p(1, 7, 3, 5), p(8, 14, 10, 12))
-        .madd(p(2, 7, 3, 6), p(8, 13, 9, 12));
+    let a = |r: usize, k: usize| F(m[r][k]);
+    // the 2×2 minor of rows r, r + 1 over columns i, j
+    let minor = |r: usize, i: usize, j: usize| (a(r, i) * a(r + 1, j)).msub(a(r, j), a(r + 1, i));
+    let s = [minor(0, 0, 1), minor(0, 0, 2), minor(0, 0, 3), minor(0, 1, 2), minor(0, 1, 3), minor(0, 2, 3)];
+    let c = [minor(2, 0, 1), minor(2, 0, 2), minor(2, 0, 3), minor(2, 1, 2), minor(2, 1, 3), minor(2, 2, 3)];
+    let det = (s[0] * c[5]).msub(s[1], c[4]).madd(s[2], c[3]).madd(s[3], c[2]).msub(s[4], c[1]).madd(s[5], c[0]);
     if det == 0.0 {
         return std::array::from_fn(|i| std::array::from_fn(|j| if i == j { 1.0 } else { 0.0 }));
     }
-    let r = F(1.0) / det;
-    let t2 = m[2] * m[13];
-    let t3 = m[0] * m[13];
-    let t4 = m[0] * m[5];
-    let t5 = m[1] * m[12];
-    let t6 = m[1] * m[4];
-    let t7 = m[10] * m[12];
-    let t8 = m[8] * m[14];
-    let t9 = m[9] * m[14];
-    let t10 = m[10] * m[13];
-    let t11 = m[8] * m[13];
-    let t12 = m[9] * m[12];
-    let t13 = m[5] * m[11];
-    let t14 = m[7] * m[9];
-    let t15 = m[7] * m[8];
-    let t16 = m[4] * m[11];
-    let t17 = m[3] * m[5];
-    let t18 = m[1] * m[7];
-    let t19 = m[0] * m[7];
-    let t20 = m[3] * m[4];
-    let t21 = m[3] * m[13];
-    let t22 = m[1] * m[15];
-    let t23 = m[0] * m[15];
-    let t24 = m[3] * m[12];
-    let t25 = m[11] * m[13];
-    let t26 = m[9] * m[15];
-    let t27 = m[8] * m[15];
-    let t28 = m[11] * m[12];
-    let t29 = m[7] * m[10];
-    let t30 = m[6] * m[11];
-    let t31 = m[2] * m[7];
-    let t32 = m[3] * m[6];
-    let t33 = m[2] * m[15];
-    let t34 = m[3] * m[14];
-    let t35 = m[10] * m[15];
-    let t36 = m[11] * m[14];
-    let t37 = m[0] * m[14];
-    let t38 = t9 - t10;
-    let t39 = m[1] * m[14];
-    let t40 = t10 - t9;
-    let t41 = m[1] * m[6];
-    let t42 = t35 - t36;
-    let t43 = m[2] * m[5];
-    let t44 = t36 - t35;
-    let t45 = m[6] * m[9];
-    let t46 = t25 - t26;
-    let t47 = m[5] * m[10];
-    let t48 = t26 - t25;
-    let t49 = m[2] * m[12];
-    let t50 = m[6] * t46;
-    let t51 = m[0] * m[6];
-    let t52 = (F::ZERO + t50).madd(m[5], t42);
-    let t53 = m[2] * m[4];
-    let t54 = (F::ZERO + t52).madd(m[7], t38);
-    let t55 = m[4] * m[10];
-    let t56 = m[4] * t48;
-    let t57 = m[6] * m[8];
-    let t58 = t39 - t2;
-    let t59 = m[5] * m[8];
-    let t60 = t2 - t39;
-    let t61 = m[4] * m[9];
-    let t62 = t33 - t34;
-    let t63 = t34 - t33;
-    let t64 = t21 - t22;
-    let t65 = m[10] * t64;
-    let t66 = t22 - t21;
-    let t67 = m[8] * t66;
-    let t68 = t41 - t43;
-    let t69 = (F::ZERO + t65).madd(m[9], t62);
-    let t70 = t43 - t41;
-    let t71 = (F::ZERO + t69).madd(m[11], t58);
-    let t72 = t31 - t32;
-    let t73 = t32 - t31;
-    let t74 = t37 - t49;
-    let t75 = t17 - t18;
-    let t76 = t18 - t17;
-    let t77 = m[14] * t75;
-    let t78 = (F::ZERO + t77).madd(m[13], t72);
-    let t79 = (F::ZERO + t78).madd(m[15], t68);
-    let t80 = m[12] * t76;
-    let t81 = t45 - t47;
-    let t82 = t47 - t45;
-    let t83 = t29 - t30;
-    let t84 = t30 - t29;
-    let t85 = t13 - t14;
-    let t86 = t14 - t13;
-    let t87 = m[2] * t85;
-    let t88 = (F::ZERO + t87).madd(m[1], t83);
-    let t89 = (F::ZERO + t88).madd(m[3], t81);
-    let t90 = m[0] * t86;
-    let t91 = t27 - t28;
-    let t92 = t28 - t27;
-    let t93 = t7 - t8;
-    let t94 = t8 - t7;
-    let t95 = m[7] * t93;
-    let t96 = (F::ZERO + t95).madd(m[6], t91);
-    let t97 = m[5] * t94;
-    let t98 = (F::ZERO + t96).madd(m[4], t44);
-    let t99 = t23 - t24;
-    let t100 = t24 - t23;
-    let t101 = t49 - t37;
-    let t102 = m[11] * t101;
-    let t103 = (F::ZERO + t102).madd(m[10], t99);
-    let t104 = m[9] * t74;
-    let t105 = (F::ZERO + t103).madd(m[8], t63);
-    let t106 = t19 - t20;
-    let t107 = t20 - t19;
-    let t108 = t53 - t51;
-    let t109 = m[15] * t108;
-    let t110 = (F::ZERO + t109).madd(m[14], t106);
-    let t111 = t51 - t53;
-    let t112 = (F::ZERO + t110).madd(m[12], t73);
-    let t113 = m[13] * t111;
-    let t114 = t15 - t16;
-    let t115 = t16 - t15;
-    let t116 = t55 - t57;
-    let t117 = t57 - t55;
-    let t118 = m[3] * t116;
-    let t119 = (F::ZERO + t118).madd(m[2], t114);
-    let t120 = m[1] * t117;
-    let t121 = (F::ZERO + t119).madd(m[0], t84);
-    let t122 = t11 - t12;
-    let t123 = (F::ZERO + t56).madd(m[7], t122);
-    let t124 = (F::ZERO + t123).madd(m[5], t92);
-    let t125 = t12 - t11;
-    let t126 = t3 - t5;
-    let t127 = (F::ZERO + t67).madd(m[11], t126);
-    let t128 = (F::ZERO + t127).madd(m[9], t100);
-    let t129 = t5 - t3;
-    let t130 = t4 - t6;
-    let t131 = (F::ZERO + t80).madd(m[15], t130);
-    let t132 = (F::ZERO + t131).madd(m[13], t107);
-    let t133 = t59 - t61;
-    let t134 = (F::ZERO + t90).madd(m[3], t133);
-    let t135 = (F::ZERO + t134).madd(m[1], t115);
-    let t136 = (F::ZERO + t97).madd(m[4], t40);
-    let t137 = (F::ZERO + t136).madd(m[6], t125);
-    let t138 = t6 - t4;
-    let t139 = (F::ZERO + t104).madd(m[8], t60);
-    let t140 = (F::ZERO + t139).madd(m[10], t129);
-    let t141 = t61 - t59;
-    let t142 = (F::ZERO + t113).madd(m[12], t70);
-    let t143 = (F::ZERO + t142).madd(m[14], t138);
-    let t144 = (F::ZERO + t120).madd(m[0], t82);
-    let t145 = (F::ZERO + t144).madd(m[2], t141);
-    let o = [t54, t71, t79, t89, t98, t105, t112, t121, t124, t128, t132, t135, t137, t140, t143, t145];
-    std::array::from_fn(|i| std::array::from_fn(|j| (o[4 * i + j] * r).0))
+    // x·p − y·q + z·r
+    let sum = |x: F, p: F, y: F, q: F, z: F, r: F| (x * p).msub(y, q).madd(z, r);
+    let adj = [
+        [sum(a(1, 1), c[5], a(1, 2), c[4], a(1, 3), c[3]), -sum(a(0, 1), c[5], a(0, 2), c[4], a(0, 3), c[3]), sum(a(3, 1), s[5], a(3, 2), s[4], a(3, 3), s[3]), -sum(a(2, 1), s[5], a(2, 2), s[4], a(2, 3), s[3])],
+        [-sum(a(1, 0), c[5], a(1, 2), c[2], a(1, 3), c[1]), sum(a(0, 0), c[5], a(0, 2), c[2], a(0, 3), c[1]), -sum(a(3, 0), s[5], a(3, 2), s[2], a(3, 3), s[1]), sum(a(2, 0), s[5], a(2, 2), s[2], a(2, 3), s[1])],
+        [sum(a(1, 0), c[4], a(1, 1), c[2], a(1, 3), c[0]), -sum(a(0, 0), c[4], a(0, 1), c[2], a(0, 3), c[0]), sum(a(3, 0), s[4], a(3, 1), s[2], a(3, 3), s[0]), -sum(a(2, 0), s[4], a(2, 1), s[2], a(2, 3), s[0])],
+        [-sum(a(1, 0), c[3], a(1, 1), c[1], a(1, 2), c[0]), sum(a(0, 0), c[3], a(0, 1), c[1], a(0, 2), c[0]), -sum(a(3, 0), s[3], a(3, 1), s[1], a(3, 2), s[0]), sum(a(2, 0), s[3], a(2, 1), s[1], a(2, 2), s[0])],
+    ];
+    let inv = F(1.0) / det;
+    adj.map(|row| row.map(|x| (x * inv).0))
 }
 
 #[cfg(any(test, feature = "testing"))]

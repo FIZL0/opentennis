@@ -314,7 +314,8 @@ fn ball_scale_and_outline_match_the_game() {
 
 /// The 17 court 10 casters' light matrices and shadow-volume planes built from the disc (plant records, model boxes,
 /// the sun from the court's time-of-day row 0 at hour 1) against the game's (`context/p17v/rcv.txt` `L` rows and
-/// `context/p17v/cull.txt` `P` rows, slot 5). Skips when absent.
+/// `context/p17v/cull.txt` `P` rows, slot 5): the planes bit for bit, the matrices to a few ulps (our own inverse;
+/// rendering only has to look right). Skips when absent.
 #[test]
 fn light_matrices_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
@@ -373,7 +374,13 @@ fn light_matrices_match_the_game() {
         })
         .collect();
     assert_eq!(want.len(), 17);
-    assert_eq!(built, want);
+    assert_eq!(built.len(), want.len());
+    for (c, (g, w)) in built.iter().zip(&want).enumerate() {
+        let f = |m: &[[u32; 4]; 4]| m.as_flattened().iter().map(|&x| f32::from_bits(x)).collect::<Vec<_>>();
+        let (g, w) = (f(g), f(w));
+        let worst = g.iter().zip(&w).map(|(a, b)| (a - b).abs() / b.abs().max(1.0)).fold(0.0, f32::max);
+        assert!(worst < 1e-5, "caster {c} light matrix off by {worst}: {g:?} vs {w:?}");
+    }
 }
 
 /// The hole triangles each court 10 caster's receiver pass draws, culled from the disc's hole model with the
