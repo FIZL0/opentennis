@@ -145,6 +145,11 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, (draw_banner, pose_banner, uncull));
 }
 
+/// The intro is still running (the match held, its pads unread).
+pub(super) fn running(w: &World) -> bool {
+    w.contains_resource::<Intro>()
+}
+
 /// B583: nothing culled or hidden by the eye while the flyover shows (`crate::cull::Off`); the match camera's hold
 /// and banner after it cull as the match does.
 fn uncull(mut commands: Commands, intro: Option<Res<Intro>>, off: Option<Res<crate::cull::Off>>) {
