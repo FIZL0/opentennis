@@ -49,7 +49,7 @@ impl Style {
             Style::Head => (64, 0.27),
             Style::Plate => (30, 0.0),
         };
-        Look { top: [255; 3], bottom: [255; 3], edge: [edge; 3], ring: [0; 3], ew: 2.0, rw: 0.0, slant }
+        Look { top: [255; 3], bottom: [255; 3], edge: [edge; 3], ring: [0; 3], ew: 2.0, rw: 0.0, slant, bevel: false }
     }
 
     /// The words' box (outline included) and its top in the tag, disc px.
