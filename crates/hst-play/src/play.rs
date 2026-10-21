@@ -446,6 +446,8 @@ pub struct Game {
     swing_pace: Vec<f32>,
     /// Per player the contact search's reach: `reach` with the character's TParam reach and heights and its hand.
     pub reaches: Vec<Reach>,
+    /// Per player its character's lowest underhand contact (TParam, m): the AI's scoop height (`ReachStats::under_min`).
+    pub under_min: Vec<f32>,
     /// Per player TParam's hand (+1 right, −1 left) before the select's hand toggle (`hand_swap`): the AI's strong side.
     pub strong_hand: [f32; 4],
     /// The doubles AI's rally state (`doubles_ai`).
@@ -1456,6 +1458,7 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
         smash_heights: Vec::new(),
         swing_pace: Vec::new(),
         reaches: Vec::new(),
+        under_min: Vec::new(),
         strong_hand: [1.0; 4],
         doubles_ai: default(),
         marks: Marks::default(),
@@ -1514,6 +1517,7 @@ fn load_player(game: &mut Game, iso: &mut Iso, shot_params: &ShotParams, i: usiz
     game.finish.power.push(popups::power(iso, c));
     game.smash_heights.push(smash_heights(iso, c));
     game.reaches.push(character_reach(&game.reach, iso, c, game.players[i].hand));
+    game.under_min.push(loco::ReachStats::from_tparam(&tparam(iso, c).join(",")).under_min);
     game.serve_tables
         .push(serve_tables(iso, shot_params, c));
     game.specials.push(serve_specials(iso, shot_params, c));
@@ -2200,6 +2204,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             [aim.x, aim.y],
             coins,
         );
+        let aimed = target;
         let hit = g.flight.ball.pos;
         let target = serve::inside(pos[0], hit, target, serve_bent(g, i, toss, sw.kind, sw.grade, sw.offset));
         let error = serve::depth_error(
@@ -2210,6 +2215,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             -hit[1],
         );
         g.serving.scatter = serve::scatter(d, toss, miss, error, hit, target);
+        doubles_ai::aimed(g, i, aimed);
         // the stick toward the net turns a topspin serve flat
         let sw = ServeSwing {
             kind: hst_sim::shot::stick_kind(branch::SERVE, sw.kind, [aim.x, aim.y], end),
@@ -2475,6 +2481,7 @@ fn aim_target(g: &mut Game, i: usize, stick: Vec2, branch: u8, kind: i32, offset
     let incoming = (g.shots > 0 && g.shot.class != class::SMASH && g.shot.kind == kind::SLICE).then_some(g.last_sweet);
     // bots aim through this too, with the stick their AI picked (`ai_aim`)
     g.aim = hst_sim::shot::aim(&h, &g.aim_stats[i], [stick.x, stick.y], g.rules.players == 4, false, incoming, &mut || g.rng.shared.next());
+    doubles_ai::aimed(g, i, g.aim.target);
     g.aim.target
 }
 
