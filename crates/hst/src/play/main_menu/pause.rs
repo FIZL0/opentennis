@@ -259,7 +259,7 @@ fn pool(mut commands: Commands, root: Query<(Entity, &Visibility), With<Root>>, 
 fn fit(window: Query<&Window, With<PrimaryWindow>>, ps: Res<PauseSettings>, mut menu: ResMut<Menu>) {
     let Ok(w) = window.single() else { return };
     let k = if ps.open {
-        menu.settings.apply_menu_scale(w)
+        menu.settings.apply_menu_scale_on(w, menu.screen)
     } else {
         widescreen::MENU_SCALE.store(1.0f32.to_bits(), std::sync::atomic::Ordering::Relaxed);
         1.0
@@ -312,6 +312,7 @@ fn after(
     }
     let [_, _, match_music, ..] = menu.settings.0;
     widescreen::ASPECT.store(menu.settings.3, std::sync::atomic::Ordering::Relaxed);
+    widescreen::MARGIN.store(menu.settings.12, std::sync::atomic::Ordering::Relaxed);
     super::super::key_hints::ON.store(menu.settings.0[super::KEY_HINTS], std::sync::atomic::Ordering::Relaxed);
     if match_music != args.music
         && let (Some(game), Some(sound), Some(mut music)) = (game, sound, music)

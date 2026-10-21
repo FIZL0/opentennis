@@ -13,58 +13,79 @@
 //! B590: the page's other insets (sideways, the island at one side and the home indicator below) come in as `SAFE`
 //! like the phone apps' (`web::safe_area`), so at Auto the picture stays clear of them too.
 //!
-//! M106: the native phone apps (iOS, Android) draw edge to edge, so there the view is fitted inside the window's safe
-//! area (`SAFE`, read by `follow_safe_area`): at Auto it is the whole safe rect, a fixed ratio is the largest rect of it
-//! centred in the safe rect; the notch, cutout and home-indicator strips stay black like the bars. The touch pad keeps
-//! to the whole window (`touch_pad`), so neither the safe area nor the Aspect Ratio moves it. `HST_SAFE=l,t,r,b`
-//! (logical px) fakes the insets anywhere, for `--shot`s.
+//! M106: the native phone apps (iOS, Android) draw edge to edge; `SAFE` holds the window's safe-area insets (read by
+//! `follow_safe_area`). `HST_SAFE=l,t,r,b` (logical px) fakes them anywhere, for `--shot`s.
 //!
-//! B421: there the Aspect Ratio also offers Stretch (`STRETCH`, `aspect_choices`): the view is the whole window, notch,
-//! cutout and home-indicator strips included, so the picture fills the screen (HUD and menus may reach under the island
-//! then). Nothing is distorted: the 3D view widens to it and the HUD keeps its 4:3 screen, as at Auto. The touch pad
-//! still keeps its buttons clear of the safe area.
+//! B608 (replacing B421's Stretch): the 3D picture always fills the window, or the fixed ratio's centred rect of it
+//! (`scene_view`), notch, cutout and home-indicator strips included; only the HUD and menus are inset (`view`): to the
+//! device's safe area at the Safe Area setting's Auto, a margin of the user's on top (`MARGIN`), or none. Nothing is
+//! distorted: the 3D view widens to its rect and the HUD keeps its 4:3 screen in its own. `hud_gamma` draws the HUD's
+//! camera into the view's part of the picture. The touch pad keeps to the whole window (`touch_pad`), its buttons
+//! clear of the device's safe area.
 
 use bevy::prelude::*;
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 /// The Aspect Ratio setting's choices (index in `ASPECT`): Auto fills the window (B17's widescreen).
-/// Stretch (B421) is the phone apps' only (`aspect_choices`).
+/// Stretch (B421) is no longer offered (`aspect_choices`, B608): a saved one reads as Auto, which now does the same.
 pub const ASPECTS: [&str; 6] = ["Auto", "4:3", "16:9", "16:10", "21:9", "Stretch"];
 const RATIOS: [f32; 5] = [0.0, 4.0 / 3.0, 16.0 / 9.0, 16.0 / 10.0, 21.0 / 9.0];
-/// B421: the `ASPECTS` index of Stretch: the whole window, the safe area ignored.
+/// B421: the `ASPECTS` index of Stretch, past the offered ones.
 pub const STRETCH: u8 = 5;
 
-/// How many of `ASPECTS` the setting offers: Stretch only where there is a safe area to ignore (the phone apps, or
-/// `HST_SAFE`); elsewhere Auto already fills the window.
+/// How many of `ASPECTS` the setting offers: B608 dropped Stretch everywhere, as the picture now always fills the
+/// window and the Safe Area setting (`MARGIN`) says how far in the HUD and menus keep.
 pub fn aspect_choices() -> usize {
-    if cfg!(any(target_os = "ios", target_os = "android")) || fake_safe().is_some() { ASPECTS.len() } else { STRETCH as usize }
+    STRETCH as usize
 }
 /// The aspect ratio in force (an `ASPECTS` index): the settings' (`main_menu`), 4:3 in the original mode.
 pub static ASPECT: AtomicU8 = AtomicU8::new(0);
 
-/// The centred rect of a `size` window the game draws into: all of it at Auto, else the largest rect of the fixed
-/// ratio. A portrait window (a phone held upright) keeps all of it, for its own layout (B112).
+/// B608: the Safe Area setting: `AUTO_MARGIN` keeps the HUD and menus inside the device's safe area (`SAFE`),
+/// `NO_MARGIN` lets them reach the window's edges, n in 1..=20 keeps them n/2 % of the window's width and height in
+/// from every edge as well (a TV that crops its edges), the device's insets still kept where they are bigger.
+pub static MARGIN: AtomicU8 = AtomicU8::new(AUTO_MARGIN);
+pub const AUTO_MARGIN: u8 = 0;
+pub const NO_MARGIN: u8 = u8::MAX;
+
+/// The centred rect of a `size` window the HUD and menus are laid out in: the picture's (`scene_view`) less the
+/// safe area (`SAFE` and `MARGIN`).
 pub fn view(size: Vec2) -> Rect {
     view_at(size, ASPECT.load(Ordering::Relaxed))
 }
 
-fn view_at(size: Vec2, aspect: u8) -> Rect {
-    view_in(size, aspect, SAFE.each_ref().map(|a| f32::from_bits(a.load(Ordering::Relaxed))))
+/// B608: the rect of a `size` window the 3D picture is drawn in: all of it at Auto, else the largest centred rect of
+/// the fixed ratio; the safe area doesn't shrink it (the court and sky reach under a notch or a Dynamic Island). A
+/// portrait window (a phone held upright) keeps all of it, for its own layout (B112).
+pub fn scene_view(size: Vec2) -> Rect {
+    view_in(size, ASPECT.load(Ordering::Relaxed), [0.0; 4])
 }
 
-/// `view_at` with the safe-area insets `safe` (left, top, right, bottom, as shares of the window's width and height).
+fn view_at(size: Vec2, aspect: u8) -> Rect {
+    view_in(size, aspect, insets(SAFE.each_ref().map(|a| f32::from_bits(a.load(Ordering::Relaxed))), MARGIN.load(Ordering::Relaxed)))
+}
+
+/// The UI's insets (shares of the window, as `SAFE`) for the device's `safe` ones under the Safe Area setting `margin`.
+fn insets(safe: [f32; 4], margin: u8) -> [f32; 4] {
+    match margin {
+        NO_MARGIN => [0.0; 4],
+        m => safe.map(|s| s.max(m as f32 * 0.005)),
+    }
+}
+
+/// The picture's rect of a `size` window at `aspect`, less the insets `[l, t, r, b]` (shares of the window's width
+/// and height); the whole picture if they would leave nothing of it.
 fn view_in(size: Vec2, aspect: u8, [l, t, r, b]: [f32; 4]) -> Rect {
-    if aspect == STRETCH {
-        return Rect::from_corners(Vec2::ZERO, size);
-    }
-    let safe = Rect::from_corners(Vec2::new(l * size.x, t * size.y), Vec2::new(size.x * (1.0 - r), size.y * (1.0 - b)));
     let ratio = RATIOS.get(aspect as usize).copied().unwrap_or(0.0);
-    let s = safe.size();
-    if ratio == 0.0 || size.x < size.y || s.x <= 0.0 || s.y <= 0.0 {
-        return if s.x > 0.0 && s.y > 0.0 { safe } else { Rect::from_corners(Vec2::ZERO, size) };
-    }
-    let v = if s.x > s.y * ratio { Vec2::new(s.y * ratio, s.y) } else { Vec2::new(s.x, s.x / ratio) };
-    Rect::from_center_size(safe.center(), v)
+    let scene = if ratio == 0.0 || size.x < size.y || size.y <= 0.0 {
+        Rect::from_corners(Vec2::ZERO, size)
+    } else {
+        let v = if size.x > size.y * ratio { Vec2::new(size.y * ratio, size.y) } else { Vec2::new(size.x, size.x / ratio) };
+        Rect::from_center_size(size / 2.0, v)
+    };
+    let safe = Rect::from_corners(Vec2::new(l * size.x, t * size.y), Vec2::new(size.x * (1.0 - r), size.y * (1.0 - b)));
+    let v = scene.intersect(safe);
+    if v.width() > 0.0 && v.height() > 0.0 { v } else { scene }
 }
 
 /// M106: the window's safe-area insets (left, top, right, bottom) as shares of its width and height, f32 bits: zero
@@ -140,9 +161,10 @@ pub fn aspect(w: &Window) -> f32 {
     v.x / v.y.max(1.0)
 }
 
-/// The 3D picture's width over height (the view's).
+/// The 3D picture's width over height (B608: its own rect's, wider than the HUD's view by the safe area).
 pub fn scene_aspect(w: &Window) -> f32 {
-    aspect(w)
+    let v = scene_view(Vec2::new(w.width(), w.height())).size();
+    v.x / v.y.max(1.0)
 }
 
 /// A point in a `size` window (or page) → the HUD's view size and the point in it.
@@ -352,22 +374,23 @@ fn views_in_the_safe_area() {
     // M106: an iPhone 15 Pro on its side, Dynamic Island left, home indicator below (852×393 pt, 59/0/59/21)
     let (size, safe) = (Vec2::new(852.0, 393.0), [59.0 / 852.0, 0.0, 59.0 / 852.0, 21.0 / 393.0]);
     let close = |a: Rect, b: Rect| (a.min - b.min).abs().max_element() < 1e-3 && (a.max - b.max).abs().max_element() < 1e-3;
-    // Auto: the whole safe rect
-    assert!(close(view_in(size, 0, safe), Rect::new(59.0, 0.0, 793.0, 372.0)));
-    // 16:9 and 4:3: the largest rect of the ratio, centred in the safe rect, never past it
+    // B608: Auto: the HUD's view is the whole safe rect, the picture the whole window
+    assert!(close(view_in(size, 0, insets(safe, AUTO_MARGIN)), Rect::new(59.0, 0.0, 793.0, 372.0)));
+    assert_eq!(view_in(size, 0, [0.0; 4]), Rect::new(0.0, 0.0, 852.0, 393.0));
+    // fixed ratios: the picture is the ratio's rect centred in the window, the HUD's view the part of it in the safe rect
     for a in [1, 2, 3, 4] {
+        let p = view_in(size, a, [0.0; 4]);
+        assert!((p.width() / p.height() - RATIOS[a as usize]).abs() < 1e-3 && (p.center() - size / 2.0).length() < 1e-3, "{a}");
         let v = view_in(size, a, safe);
-        assert!(v.min.x >= 59.0 - 1e-3 && v.max.x <= 793.0 + 1e-3 && v.min.y >= -1e-3 && v.max.y <= 372.0 + 1e-3, "{a}");
-        assert!((v.width() / v.height() - RATIOS[a as usize]).abs() < 1e-3 && (v.center() - Vec2::new(426.0, 186.0)).length() < 1e-3, "{a}");
+        assert!(v.min.x >= 59.0f32.max(p.min.x) - 1e-3 && v.max.x <= 793.0f32.min(p.max.x) + 1e-3 && v.max.y <= 372.0 + 1e-3, "{a}");
     }
     // an Android phone's cutout on one side only: the view starts past it
-    let v = view_in(Vec2::new(2400.0, 1080.0), 0, [0.04, 0.0, 0.0, 0.0]);
-    assert_eq!(v, Rect::new(96.0, 0.0, 2400.0, 1080.0));
-    // no insets: as before
-    assert_eq!(view_in(size, 0, [0.0; 4]), Rect::new(0.0, 0.0, 852.0, 393.0));
-    // B421: Stretch fills the whole window, notch and home indicator included, upright too
-    assert_eq!(view_in(size, STRETCH, safe), Rect::new(0.0, 0.0, 852.0, 393.0));
-    assert_eq!(view_in(Vec2::new(393.0, 852.0), STRETCH, [0.0, 59.0 / 852.0, 0.0, 34.0 / 852.0]), Rect::new(0.0, 0.0, 393.0, 852.0));
+    assert_eq!(view_in(Vec2::new(2400.0, 1080.0), 0, [0.04, 0.0, 0.0, 0.0]), Rect::new(96.0, 0.0, 2400.0, 1080.0));
+    // None ignores the device's insets; a 5 % margin keeps 5 % in on every side, more where the device's are bigger
+    assert_eq!(view_in(size, 0, insets(safe, NO_MARGIN)), Rect::new(0.0, 0.0, 852.0, 393.0));
+    let v = view_in(Vec2::new(1920.0, 1080.0), 0, insets([0.0; 4], 10));
+    assert!(close(v, Rect::new(96.0, 54.0, 1824.0, 1026.0)));
+    assert!(close(view_in(size, 0, insets(safe, 10)), Rect::new(59.0, 19.65, 793.0, 372.0)));
 }
 
 #[test]

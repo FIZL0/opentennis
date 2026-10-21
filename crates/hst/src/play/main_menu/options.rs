@@ -6,7 +6,7 @@
 
 use super::super::widescreen::{ASPECTS, aspect_choices};
 use super::roster::{self, PX, PY, rounded};
-use super::{legend, look, CHAT, EMOTE_VOICES, UPDATE_CHECK, VIBRATION, Draw, Effect, Grid, INK, KEY_HINTS, MENU_SIZES, Menu, Press, RENDERERS, Screen, Settings, Tex, UPSCALED_DOWNLOADS, WHITE, controls, pointer};
+use super::{legend, look, CHAT, EMOTE_VOICES, UPDATE_CHECK, VIBRATION, Draw, Effect, Grid, INK, KEY_HINTS, MENU_SIZES, Menu, Press, RENDERERS, SAFE_AREAS, Screen, Settings, Tex, UPSCALED_DOWNLOADS, WHITE, controls, pointer, safe_area_name};
 use crate::mods_online::Ask;
 use crate::graphics::{FPS, Graphics, MESHES, MSAA, SCALES, SHADOWS};
 use bevy::prelude::{KeyCode, default};
@@ -18,6 +18,8 @@ pub(super) enum Opt {
     Aspect,
     /// The menus' size (`widescreen::MENU_SCALE`).
     MenuSize,
+    /// B608: how far in from the screen's edges the HUD and menus keep (`widescreen::MARGIN`).
+    SafeArea,
     ShowFps,
     /// B301: the match's keyboard hints.
     KeyHints,
@@ -83,7 +85,7 @@ pub(super) fn tab(page: Screen) -> usize {
 
 /// The browser build stays in its page (`graphics::KEEP_WINDOWED`), so it has no Display mode row; it has a
 /// Renderer instead (B273).
-const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, MenuSize, ShowFps, KeyHints, ButtonIcons] } else { &[Display, Aspect, MenuSize, ShowFps, KeyHints, ButtonIcons] };
+const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons] } else { &[Display, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons] };
 /// What a preset sets, then the textures, then the way into Advanced.
 const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Upscaled, Advanced];
 /// B411: Graphics → Advanced, the speed-up switches for a slow device.
@@ -119,6 +121,7 @@ fn label(o: Opt) -> &'static str {
         Display => "Display",
         Aspect => "Aspect Ratio",
         MenuSize => "Menu Size",
+        SafeArea => "Safe Area",
         ShowFps => "Show FPS",
         KeyHints => "Key Hints",
         ButtonIcons => "Button Icons",
@@ -154,6 +157,7 @@ fn about(o: Opt) -> &'static str {
         Display => "Borderless fullscreen on the current monitor, or a window.",
         Aspect => aspect_about(),
         MenuSize => "Makes every menu smaller or bigger. The whole layout scales together, never stretched; the extra room goes around it.",
+        SafeArea => "Keeps the menus and the match's score clear of the screen's edges; the picture always fills the screen. Auto keeps them off a phone's notch, camera cutout, rounded corners and home bar; a margin keeps them that far in from every edge as well (for a TV that crops its edges); None lets them reach the edges.",
         ShowFps => "Show the frame rate in the bottom-left corner, in the menus and in a match. Detailed: where each frame's time goes (game, simulation, rendering, waiting on the GPU/browser), meshes drawn and the renderer.",
         KeyHints => "Show the keyboard's keys at the bottom during a match while you play on the keyboard.",
         ButtonIcons => "The controller buttons the hints show. Auto: each controller's own (PlayStation, Switch, Steam Deck, else Xbox); or the same set for every controller.",
@@ -191,13 +195,9 @@ fn about(o: Opt) -> &'static str {
     }
 }
 
-/// B421: the phone apps' Aspect Ratio also has Stretch.
+/// B608: Stretch is gone, Auto now fills the screen everywhere (the Safe Area setting keeps the menus off the notch).
 fn aspect_about() -> &'static str {
-    if aspect_choices() > 5 {
-        "Auto fills the screen clear of the notch; a fixed ratio shows the whole picture at that shape, black bars around it; Stretch fills the whole screen, notch and all."
-    } else {
-        "Auto fills the window; a fixed ratio shows the whole picture at that shape, black bars around it."
-    }
+    "Auto fills the screen; a fixed ratio shows the whole picture at that shape, black bars around it."
 }
 
 /// B329: the Vibration row's text, by what this browser can do (`web/touch.js`).
@@ -238,6 +238,7 @@ fn choices(o: Opt) -> Vec<String> {
         Display => words(&["Fullscreen", "Window"]),
         Aspect => words(&ASPECTS[..aspect_choices()]),
         MenuSize => MENU_SIZES.iter().map(|&t| menu_size_name(t)).collect(),
+        SafeArea => SAFE_AREAS.iter().map(|&m| safe_area_name(m)).collect(),
         Preset => Graphics::PRESETS.iter().map(|(n, _)| n.to_string()).chain([AUTO.into(), "Custom".into()]).collect(),
         Scale => SCALES.iter().map(|s| format!("{s} %")).collect(),
         Mesh => MESHES.iter().map(|s| format!("{s} %")).collect(),
@@ -316,6 +317,7 @@ impl Settings {
             Display => g.windowed = !g.windowed,
             Aspect => self.3 = (self.3 as isize + d).rem_euclid(aspect_choices() as isize) as u8,
             MenuSize => self.7 = cycle(&MENU_SIZES, self.7, d),
+            SafeArea => self.12 = cycle(&SAFE_AREAS, self.12, d),
             ShowFps => g.show_fps = (g.show_fps as isize + d).rem_euclid(3) as u8,
             KeyHints => self.0[KEY_HINTS] = !self.0[KEY_HINTS],
             ButtonIcons => self.9 = (self.9 as isize + d).rem_euclid(super::legend::LAYOUTS.len() as isize) as u8,
@@ -409,6 +411,7 @@ impl Settings {
             Display => if g.windowed { "Window" } else { "Fullscreen" }.into(),
             Aspect => ASPECTS[self.3 as usize].into(),
             MenuSize => menu_size_name(self.7),
+            SafeArea => safe_area_name(self.12),
             ShowFps => SHOW_FPS_NAMES[g.show_fps.min(2) as usize].into(),
             KeyHints => on_off(self.0[KEY_HINTS]),
             ButtonIcons => super::legend::LAYOUTS[self.9 as usize].0.into(),
@@ -615,6 +618,14 @@ pub(super) fn boxes(g: &Grid, n: usize) -> ([f32; 4], [f32; 4]) {
         let dw = (340.0 * PX).min(w * 0.4);
         ([x0, top, w - dw - gap * PX, h], [x1 - dw, top, dw, h])
     }
+}
+
+/// B608: whether page `s`'s rows keep their full pitch on the view `g` (a bigger Menu Size on a short view would
+/// squeeze them, `slot`).
+pub(super) fn rows_fit(g: &Grid, s: Screen) -> bool {
+    let n = if s == Screen::Controls { controls::action_names().count() + 1 } else { page(s).len() };
+    let (list, _) = boxes(g, n);
+    slot(list, n, if pinned(s) { 1.0 } else { 0.0 }, 0.0).1 >= PITCH * PY - 1e-3
 }
 
 /// B448: a list's foot (the footnote) and a row's pitch, mockup px.
@@ -867,7 +878,7 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         let note = if preset {
             "Set by Preset. Changing it switches Preset to Custom."
         } else if o == MenuSize {
-            "Auto is 100%, 80% on screens taller than 1440 px. The match HUD keeps its size."
+            if super::touch_page() { "Auto picks a size that reads well at this screen's size. The match HUD keeps its size." } else { "Auto is 100%, 80% on screens taller than 1440 px. The match HUD keeps its size." }
         } else {
             ""
         };
@@ -1786,7 +1797,7 @@ mod tests {
         assert!(!s.0[0] && s.0[UPSCALED_DOWNLOADS]);
         s.step(Aspect, -1);
         assert_eq!(s.value(Aspect), ASPECTS[aspect_choices() - 1]);
-        // B421: Stretch is the phone apps' only; a settings.txt's Stretch reads back there (elsewhere as the default)
+        // B608: Stretch is no longer offered; a settings.txt's Stretch reads as the default
         assert_eq!(choices(Aspect).len(), aspect_choices());
         let mut t = s;
         t.3 = crate::play::widescreen::STRETCH;

@@ -46,6 +46,8 @@ struct Targets {
     out: Entity,
     /// The persistence's two images: frame parity `i` mixes the scene and `last[1 - i]` into `last[i]`.
     last: [Handle<Image>; 2],
+    /// B608: the HUD's camera, drawing only in the safe part of its image (`widescreen::view`).
+    ui: Entity,
 }
 
 /// Present while a match runs (the game's match scene turns its frame persistence on, menus have none).
@@ -62,7 +64,7 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     // blank after a resize before too)
     let target = |f| Image { data: None, copy_on_resize: false, ..Image::new_target_texture(1, 1, f, None) };
     let (scene, hud) = (images.add(target(TextureFormat::Rgba8Unorm)), images.add(target(TextureFormat::Rgba8UnormSrgb)));
-    commands.spawn((
+    let ui = commands.spawn((
         Camera2d,
         Camera { order: 50, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
         RenderTarget::Image(ImageRenderTarget { handle: hud.clone(), scale_factor: 1.0 }),
@@ -70,12 +72,12 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         Msaa::Off,
         // UI only: no layer, so the per-view visibility check rejects every mesh at once (P41)
         RenderLayers::none(),
-    ));
+    )).id();
     // raw like the scene image, so the mix lands in it unencoded
     let last = [(); 2].map(|_| images.add(target(TextureFormat::Rgba8Unorm)));
     let out = commands.spawn(out::camera()).id();
     commands.insert_resource(out::Frame { scene: scene.clone(), hud: hud.clone(), last: last.clone(), mix: None });
-    commands.insert_resource(Targets { scene, hud, out, last });
+    commands.insert_resource(Targets { scene, hud, out, last, ui });
 }
 
 /// A 3D camera drawing into the scene image.
@@ -144,8 +146,9 @@ fn follow_window(
     device: Option<Res<bevy::render::renderer::RenderDevice>>,
 ) {
     let Ok(w) = window.single() else { return };
-    // B117: the images are the view's size, the composite drawn only there
-    let v = crate::widescreen::view(Vec2::new(w.physical_width() as f32, w.physical_height() as f32));
+    // B117: the images are the picture's size, the composite drawn only there (B608: the safe area doesn't shrink it)
+    let phys = Vec2::new(w.physical_width() as f32, w.physical_height() as f32);
+    let v = crate::widescreen::scene_view(phys);
     let (pos, vs) = (v.min.round().as_uvec2(), v.size().round().as_uvec2().max(UVec2::ONE));
     let viewport = (vs != w.physical_size()).then(|| bevy::camera::Viewport { physical_position: pos, physical_size: vs, ..default() });
     let key = |v: &Option<bevy::camera::Viewport>| v.as_ref().map(|v| (v.physical_position, v.physical_size));
@@ -165,6 +168,17 @@ fn follow_window(
         let k = scene_scale(g.scale, cap, pw.max(ph), side);
         ((size((pw * k).floor(), (ph * k).floor()), k), (size((pw * cap).floor(), (ph * cap).floor()), cap))
     };
+    // B608: the HUD's camera draws in the view's part of its image (the whole image is still cleared each frame)
+    let ui = crate::widescreen::view(phys);
+    let f = Vec2::new(hud.width as f32 / pw.max(1.0), hud.height as f32 / ph.max(1.0));
+    let (at, inside) = (((ui.min - v.min) * f).round().as_uvec2(), (ui.size() * f).round().as_uvec2().max(UVec2::ONE));
+    let full = UVec2::new(hud.width, hud.height);
+    let ui_viewport = (inside != full).then(|| bevy::camera::Viewport { physical_position: at, physical_size: inside.min(full - at.min(full)).max(UVec2::ONE), ..default() });
+    if let Ok(mut cam) = cams.get_mut(t.ui)
+        && key(&cam.viewport) != key(&ui_viewport)
+    {
+        cam.viewport = ui_viewport;
+    }
     let sampler = if g.original { ImageSampler::nearest() } else { ImageSampler::Default };
     let last = if persist.is_some() { scene } else { size(1.0, 1.0) };
     for (h, size) in [(&t.scene, scene), (&t.hud, hud), (&t.last[0], last), (&t.last[1], last)] {

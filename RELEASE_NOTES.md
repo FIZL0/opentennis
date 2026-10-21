@@ -2,7 +2,8 @@
 - The game can now update itself in place on every platform, including Android, iPhone (through SideStore, AltStore or TrollStore), Flatpak and Program Files installs. The first time it finds a new version it asks Update? (Always, Yes, No or Never), and Settings → Updates changes the answer later.
 - Settings, controls, favourites, names and mods are now kept in your own user folder (~/.local/share/hst, %APPDATA%\hst or ~/Library/Application Support/hst) instead of beside the disc image, so moving the disc or keeping it on read-only media no longer loses them; the old files are brought over on the first start.
 - Settings → Display no longer has the Controller Vibration switch.
-- In the browser on an iPhone held sideways, the picture now stays clear of the Dynamic Island, the notch and the home indicator instead of running under them.
+- On phones the picture now fills the whole screen, under the Dynamic Island, notch and rounded corners, while the menus and the match's score keep clear of them. A new Safe Area setting (Settings → Display) adjusts that: Auto, None, or a margin of 1% to 10% from every edge for a TV that crops its edges.
+- Bigger Menu Sizes no longer cut menus off: every menu fits the screen at 150%, and on a phone or tablet Auto picks a size that's comfortable to read at the screen's real size.
 - Online lobbies no longer ask you to download a custom character you already have when the other player's copy is a different version; your own copy is shown.
 - Mod downloads and uploads now show their progress at the top of every menu screen, naming the mod uploading. Once they all finish, a Reload Mods button appears there, and if you put it off, picking Local or Online asks once more (Reload now or Play without them).
 - Mod downloads and uploads now show their progress at the top of every menu screen, and when they finish the game offers to restart so the new mods load.
