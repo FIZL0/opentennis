@@ -14,3 +14,4 @@
 - A damaged or wrong disc image now gives an error instead of crashing the game.
 - iPhone and iPad: the game now turns to portrait as well as landscape, and with rotation lock on it stays the way it was.
 - Starting a match now zooms and fades out of the player select straight into the loading screen, without the player select flashing back over the loading screen first.
+- Settings → Controls is now one scrolling table: each action's controller buttons and keyboard keys side by side in bigger rows that read on a phone, either one picked to rebind (←/→ or a tap), and Reset to defaults is a square button at the top. The same in the pause menu's settings.

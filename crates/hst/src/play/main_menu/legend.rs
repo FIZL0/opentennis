@@ -66,12 +66,12 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
                 v.extend([(Act::Costume, "Page"), (Act::Back, "Back")]);
             }
         }
-        // B291: the Keyboard & Mouse tab waits for a key, the Controller tab for a button (no keycap: any pad's)
+        // B291: the Keyboard & mouse column waits for a key, the Controller column for a button (no keycap: any pad's)
         Screen::Controls if m.rebinding.is_some() && m.keys_tab => v.extend([(Act::Type, "Press the new key"), (Act::Cancel, "Cancel")]),
         Screen::Controls if m.rebinding.is_some() => v.extend([(Act::Key, "Press the new button"), (Act::Cancel, "Cancel")]),
-        Screen::Controls => {
-            v.extend([(Act::UpDown, "Action"), (Act::Ok, "Rebind"), (Act::Kind, if m.keys_tab { "Controller" } else { "Keyboard & Mouse" }), (Act::Costume, "Page"), (Act::Back, "Back")]);
-        }
+        // B609: Reset is the banner's square, over the table's rows
+        Screen::Controls if m.sel >= super::super::controls::action_names().count() => v.extend([(Act::UpDown, "Action"), (Act::Ok, "Reset to defaults"), (Act::Costume, "Page"), (Act::Back, "Back")]),
+        Screen::Controls => v.extend([(Act::Move, "Choose"), (Act::Ok, "Rebind"), (Act::Costume, "Page"), (Act::Back, "Back")]),
         Screen::Mode if host => v.extend([(Act::Move, "Singles / Doubles"), (Act::Ok, "Choose"), (Act::Back, "Back")]),
         Screen::Assign if host && m.keep.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Cancel")]),
         Screen::Assign if host && m.held => v.extend([(Act::LeftRight, "Move controller"), (Act::Select, "Put down"), (Act::Back, "Put down")]),
