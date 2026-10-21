@@ -29,7 +29,7 @@ pub(super) const BAND: f32 = 18.0;
 pub(super) const RIM: f32 = 3.0;
 
 /// The panels' body, their outline, the grey buttons, the chosen one's yellow, the secondary words, the light rules,
-/// a tile's fill and border, the chosen choice's blue, the light green of Settings' side strip.
+/// a tile's fill and border, the chosen choice's blue, a light green.
 pub(super) const PAPER: u32 = 0xfbf9fd;
 pub(super) const INK: u32 = 0x1d1a24;
 pub(super) const GREY: u32 = 0x7b7690;

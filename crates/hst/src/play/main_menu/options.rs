@@ -640,8 +640,21 @@ fn strip(list: [f32; 4], n: usize) -> f32 {
 }
 
 /// B471: the light green of the side panel's strip.
-fn side_band() -> [f32; 3] {
-    look::c(look::MINT)
+/// Each Settings page's own header colour, so the tabs tell apart at a glance (user 2026-10-21).
+fn band(s: Screen) -> [f32; 3] {
+    look::c(match s {
+        Screen::Graphics | Screen::Advanced => 0x8a4fd0,
+        Screen::Sound => 0xe0404c,
+        Screen::Controls => 0xe8862e,
+        Screen::ModSettings => 0x3aa45a,
+        Screen::Mobile => 0x1f9fae,
+        _ => look::BLUE,
+    })
+}
+
+/// The side panel's strip: the page's colour, halfway to white.
+fn side_band(s: Screen) -> [f32; 3] {
+    band(s).map(|v| (v + 128.0) / 2.0)
 }
 
 /// Whether `g` is a portrait view, and the zoom its page draws with (`look::Zoom`).
@@ -702,7 +715,7 @@ fn pin_marks(d: &mut Draw, list: [f32; 4], n: usize) {
 fn chrome(d: &mut Draw, m: &Menu, n: usize, name: &str, foot: &str) -> ([f32; 4], [f32; 4]) {
     let (list, side) = boxes(&m.grid, n);
     settings_bar(d, m, side[0] + side[2], 0.0);
-    let [sx, sy, sw, sh] = look::panel(d, list, strip(list, n), look::c(look::BLUE));
+    let [sx, sy, sw, sh] = look::panel(d, list, strip(list, n), band(m.screen));
     // the page's name outlined white and its count of rows on the strip
     let (ix, iw) = (sx + look::PAD * PX, sw - 2.0 * look::PAD * PX);
     let hs = 20.0 * PY;
@@ -714,7 +727,7 @@ fn chrome(d: &mut Draw, m: &Menu, n: usize, name: &str, foot: &str) -> ([f32; 4]
     look::bold(d, &title, [ix, sy + (sh - hs) / 2.0], hs, WHITE);
     look::bold(d, &count, [ix + iw - cw, sy + (sh - cs) / 2.0], cs, WHITE);
     footnote(d, m, list, foot);
-    look::panel(d, side, strip(list, n), side_band());
+    look::panel(d, side, strip(list, n), side_band(m.screen));
     (list, side)
 }
 
@@ -1140,7 +1153,7 @@ pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings,
     reset_square(d, reset, m.sel == n);
     d.hit(reset, pointer::Act::Row(controls_cell(n, false), pointer::OK));
     let t = table(&m.grid);
-    let [_, sy, _, sh] = look::panel(d, t.panel, look::STRIP, look::c(look::BLUE));
+    let [_, sy, _, sh] = look::panel(d, t.panel, look::STRIP, band(m.screen));
     // the column headings on the strip, over the label and each cell
     let (label, cells) = t.cells(t.row(0));
     let hs = 16.0 * PY;
