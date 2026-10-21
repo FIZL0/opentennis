@@ -44,6 +44,14 @@ impl<T> std::ops::DerefMut for Const<T> {
     }
 }
 
+impl<T: Clone> Const<T> {
+    /// The one constant a tick changes (P134: `Game::world`, whose carts' wheels turn; their clocks are hashed in
+    /// `Game::carts` instead): copied first when a snapshot shares it.
+    pub(super) fn make_mut(&mut self) -> &mut T {
+        Arc::make_mut(self.0.as_mut().expect("a per-match constant"))
+    }
+}
+
 impl<T> fmt::Debug for Const<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("_")
@@ -284,6 +292,7 @@ fn decode_now(w: &mut World, bytes: &[u8]) -> Result<(), String> {
     g.timing = local.timing.clone();
     g.serve_data = local.serve_data.clone();
     g.world = local.world.clone();
+    g.carts.adopt(&local.carts, &mut g.world.make_mut().0);
     g.pelvis = local.pelvis.clone();
     g.data = local.data.clone();
     w.insert_resource(g);
