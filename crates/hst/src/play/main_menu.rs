@@ -2758,7 +2758,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
     commands.spawn((full, GlobalZIndex(10))).with_children(|p| {
         for i in 0..POOL {
-            p.spawn((Slot(i), ImageNode { image_mode: NodeImageMode::Stretch, ..default() }, BorderColor::default(), Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden));
+            p.spawn((Slot(i), ImageNode { image_mode: NodeImageMode::Stretch, ..default() }, BorderColor::default(), Node { position_type: PositionType::Absolute, ..default() }, Visibility::Hidden, super::widescreen::Bleed { order: i as i32, on: false }));
         }
         // the description bar's text over its bar (`ticker_text`)
         let clip = Node { position_type: PositionType::Absolute, overflow: Overflow::clip(), ..default() };
@@ -3649,7 +3649,7 @@ fn draw(
     time: Res<Time>,
     mut ticker: ResMut<Ticker>,
     mut slide: ResMut<slide::Slide>,
-    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility, &mut UiTransform, &mut BorderColor)>,
+    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility, &mut UiTransform, &mut BorderColor, &mut super::widescreen::Bleed)>,
     cursor: Option<Res<cursor::Cursor>>,
     icons: Res<Icons>,
     shelf: Res<mods_screen::Shelf>,
@@ -3684,7 +3684,8 @@ fn draw(
     let (share, vshare) = super::widescreen::window_menu_shares(&window);
     // the quads' parent (the view) in physical pixels
     let px = window.single().map_or(Vec2::ZERO, |w| super::widescreen::view_size(w) * w.scale_factor());
-    for (Slot(i), mut img, mut node, mut vis, mut turn, mut rim) in &mut q {
+    let window_size = window.single().map_or(Vec2::ONE, |w| Vec2::new(w.width(), w.height()));
+    for (Slot(i), mut img, mut node, mut vis, mut turn, mut rim, mut bleed) in &mut q {
         let Some(quad) = quads.get(*i).filter(|q| !matches!(q.tex, Tex::Preview(_))) else {
             *vis = Visibility::Hidden;
             continue;
@@ -3815,6 +3816,13 @@ fn draw(
         // edges on whole physical pixels: abutting quads (a box's nine slices) computed apart could round to either
         // side of an edge on a half pixel and leave a one-pixel seam showing what's behind
         let [(left, width), (top, height)] = [(left, width, px.x), (top, height, px.y)].map(|(a, len, p)| snap(a, len, p));
+        // B623: a wall, bar or backdrop on the view's edge carries on to the picture's, under the notch and the home
+        // indicator (not text or icons, which would stretch)
+        let wall = quad.anchor == Anchor::Span && quad.angle == 0.0 && quad.rim == 0.0 && matches!(quad.tex, Tex::Solid | Tex::Sheet(_) | Tex::CourtMod(_));
+        let [left, top, width, height] = if wall { super::widescreen::bleed_out([left, top, width, height], window_size) } else { [left, top, width, height] };
+        if bleed.on != wall {
+            bleed.on = wall;
+        }
         node.left = Val::Percent(left);
         node.top = Val::Percent(top);
         node.width = Val::Percent(width);

@@ -8,6 +8,9 @@ import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
+import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -40,6 +43,7 @@ public class HstActivity extends NativeActivity {
             getWindow().setAttributes(a);
         }
         super.onCreate(state);
+        immersive();
         try {
             WifiManager w = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
             if (w != null) {
@@ -59,6 +63,31 @@ public class HstActivity extends NativeActivity {
         } catch (Exception e) {
             // no CHANGE_WIFI_MULTICAST_STATE: the LAN list stays empty, the internet's still works
         }
+    }
+
+    /** B623: the game fills the whole screen, under the status and navigation bars too (before Android 15 the window
+     *  stopped above the navigation bar, while its insets still counted it), and hides them: a swipe from the edge shows
+     *  them for a moment over the game. The safe area the HUD keeps to is then only the camera cutout (`android.rs`). */
+    private void immersive() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            getWindow().setDecorFitsSystemWindows(false);
+            WindowInsetsController c = getWindow().getDecorView().getWindowInsetsController();
+            if (c != null) {
+                c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                c.hide(WindowInsets.Type.systemBars());
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
+        }
+    }
+
+    /** The system brings the bars back after a dialog, the picker or a trip to another app: hidden again on return. */
+    @Override
+    public void onWindowFocusChanged(boolean focus) {
+        super.onWindowFocusChanged(focus);
+        if (focus) immersive();
     }
 
     @Override

@@ -802,7 +802,9 @@ fn setup(mut commands: Commands) {
         overflow: Overflow::clip(),
         ..default()
     };
-    commands.spawn((Strip, node, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)), GlobalZIndex(30), Visibility::Hidden));
+    // B623: its bar runs on past the safe area to the screen's edges (the keys stay inside), over the menus' walls there
+    let bleed = widescreen::Bleed { order: 1 << 20, on: true };
+    commands.spawn((Strip, node, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)), GlobalZIndex(30), Visibility::Hidden, bleed));
 }
 
 /// Lays the frame's legend out on the strip (rebuilt when it or the window's size changes) and empties it.

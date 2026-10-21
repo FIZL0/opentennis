@@ -4,3 +4,4 @@
 - A player's emote voice now stops when the point ends and the players start reacting, instead of talking over the reaction.
 - Mods → Installed: while you search, each kind tab (Characters, Courts, Umpires, Texture packs) shows how many mods it finds, and an empty tab tells you which other kinds have matches.
 - Web app: switching between Settings tabs is now instant instead of sliding.
+- Phones: the menus, title and loading screens now fill the whole screen, under the notch, Dynamic Island and home bar, with buttons and text kept clear of them; the system bars hide while you play (swipe from an edge to bring them back).

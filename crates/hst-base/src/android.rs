@@ -422,7 +422,7 @@ fn decor<'a>(env: &mut JNIEnv<'a>, activity: &JObject) -> jni::errors::Result<JO
 }
 
 /// The window's insets, left, top, right, bottom, in physical px: the visible system bars and the display cutout
-/// (0 where the window doesn't reach under them).
+/// (0 where the window doesn't reach under them; B623: the activity hides the bars, so mostly the cutout).
 pub fn safe_area() -> Option<[f32; 4]> {
     with_env(|env, activity| {
         let decor = decor(env, activity)?;
