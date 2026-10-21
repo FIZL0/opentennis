@@ -34,3 +34,4 @@
 - Characters with only one costume now show the costume button greyed out on the character select, and pressing it does nothing.
 - Menu text too long for its space (like a doubles Rematch card's names) now slides along to show the rest instead of being squashed.
 - The team name plate at the end of a doubles match is now drawn sharp instead of the original blurry plate.
+- The in-match pop-ups and score panel (points, deuce, tie break, game/set, match and set point, aces, serve speed, the hints under the score, player ranks and the intro's set and game numbers) are now drawn sharp in the game's own style instead of the original blurry art.

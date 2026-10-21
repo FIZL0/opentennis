@@ -698,7 +698,7 @@ fn setup(mut commands: Commands, args: Res<Args>, mut images: ResMut<Assets<Imag
             .iter()
             .find(|e| e.name.to_ascii_lowercase().replace('\\', "/").ends_with(name))
             .unwrap_or_else(|| panic!("{name} in INPANE"));
-        panel::image(&mut images, &arc.read(e).expect("INPANE bytes"))
+        super::menu_art::image(&mut images, &arc.read(e).expect("INPANE bytes"), name)
     });
     commands.insert_resource(Art(art));
     commands
@@ -1381,7 +1381,7 @@ fn setup_banners(mut commands: Commands, args: Res<Args>, mut images: ResMut<Ass
             .iter()
             .find(|e| e.name.to_ascii_lowercase().replace('\\', "/").ends_with(name))
             .unwrap_or_else(|| panic!("{name} in INPANE"));
-        panel::image(&mut images, &arc.read(e).expect("INPANE bytes"))
+        super::menu_art::image(&mut images, &arc.read(e).expect("INPANE bytes"), name)
     });
     commands.insert_resource(BannerArt(art));
     let bank = crate::audio::SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd");
@@ -1670,7 +1670,7 @@ fn setup_speed(mut commands: Commands, args: Res<Args>, mut images: ResMut<Asset
         .iter()
         .find(|e| e.name.to_ascii_lowercase().replace('\\', "/").ends_with("/inpane_speed00.tm2"))
         .expect("inpane_speed00 in INPANE");
-    commands.insert_resource(SpeedArt(panel::image(&mut images, &arc.read(e).expect("INPANE bytes"))));
+    commands.insert_resource(SpeedArt(super::menu_art::image(&mut images, &arc.read(e).expect("INPANE bytes"), "/inpane_speed00.tm2")));
     commands.init_resource::<Speed>();
     // a full-window root: the readout is pinned to its side of the window (`widescreen::pin`)
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };

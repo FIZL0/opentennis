@@ -60,7 +60,240 @@ const SHEETS: &[Sheet] = &[
     stamped("result_gameset05", &[], BANNERS),
     stamped("inpane_pause00", &[], POINTS),
     stamped("inpane_pause01", &[], TIEBREAK),
+    // the match's pop-ups: points, Deuce!, the game/set result words, the result board's sets, the shot banners
+    stamped("inpane_kihontokuten00", &[], &PANEL_POINTS[0]),
+    stamped("inpane_kihontokuten01", &[], &PANEL_POINTS[1]),
+    stamped("inpane_tiebreak00", &[], &PANEL_TIEBREAK[0]),
+    stamped("inpane_tiebreak01", &[], &PANEL_TIEBREAK[1]),
+    stamped("inpane_duce00", &[], &DEUCE[0]),
+    stamped("inpane_duce01", &[], &DEUCE[1]),
+    stamped("result_game", &[], &two_rows((12, 7, 120, 47), "Game", ORANGE)),
+    stamped("result_set", &[], &two_rows((29, 3, 92, 56), "Set", RED_UP)),
+    stamped("result_verblue", &[], &SERVER[0]),
+    stamped("result_verred", &[], &SERVER[1]),
+    stamped("result_gameset03", &[], &BOARD_SETS),
+    stamped("inpane_mini0", &[], &MINI[0]),
+    stamped("inpane_mini1", &[], &MINI[1]),
+    stamped("inpane_tiebreak02", &[], &[((33, 2, 191, 34), "Tie break", RED_UP)]),
+    stamped("inpane_finish00", &[], &ACES[0]),
+    stamped("inpane_finish01", &[], &ACES[1]),
+    stamped("inpane_finish02", &[], &ACES[2]),
+    stamped("inpane_finish03", &[], &[((14, 1, 146, 22), "On the Line", LINE)]),
+    stamped("inpane_finish", &[], &ACES_WHITE),
+    stamped("inpane_match", &[], &[((4, 6, 250, 36), "Match Point", MATCH)]),
+    stamped("inpane_set", &[], &[((32, 5, 195, 37), "Set Point", SET_POINT)]),
+    stamped("inpane_counter", &[], &[((47, 28, 130, 32), "Counter", COUNTER)]),
+    stamped("inpane_speed00", &[], &SPEED_DIGITS),
+    stamped("inpane_start01", &[(0, 3, 53, 26, "Sets"), (1, 33, 77, 30, "Games")], &START_DIGITS),
+    stamped("inpane_start02", &[], &START_SET),
+    sheet("i_gameinfo_00", GAMEINFO),
+    sheet("inpane_dani", RANKS),
+    sheet("inpane_p", &[(5, 3, 27, 21, "1P"), (45, 3, 29, 21, "2P"), (85, 3, 29, 21, "3P"), (125, 3, 29, 21, "4P"), (162, 3, 37, 21, "COM")]),
 ];
+
+/// The serve/smash speed: cyan digits in 24-px cells and "mph".
+const SPEED_DIGITS: [Stamp; 11] = {
+    const S: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+    let l = look([225, 255, 255], [70, 205, 225], [10, 60, 85], 2.0, 0.0);
+    let mut out = [((252, 3, 48, 29), "mph", Look { ew: 1.5, rw: 1.25, ..l }); 11];
+    let mut d = 0;
+    while d < 10 {
+        out[d] = ((d as u16 * 24 + 1, 3, 22, 29), S[d], l);
+        d += 1;
+    }
+    out
+};
+
+/// The intro's sets and games to win: white digits 1–6 (tinted when drawn) over their thick white outlines below.
+const START_DIGITS: [Stamp; 12] = {
+    const S: [&str; 6] = ["1", "2", "3", "4", "5", "6"];
+    let fill = Look { top: [255; 3], bottom: [255; 3], edge: [255; 3], ring: [255; 3], ew: 0.0, rw: 0.0, slant: 0.0 };
+    let mut out = [((0, 0, 0, 0), "", fill); 12];
+    let mut d = 0;
+    while d < 6 {
+        let u = 112 + 24 * d as u16;
+        out[d] = ((u + 3, 3, 18, 26), S[d], fill);
+        out[d + 6] = ((u + 1, 33, 22, 30), S[d], Look { ew: 1.2, rw: 0.8, ..fill });
+        d += 1;
+    }
+    out
+};
+
+/// The intro's "Set" and its red digits 1–6.
+const START_SET: [Stamp; 7] = {
+    const S: [&str; 6] = ["1", "2", "3", "4", "5", "6"];
+    let l = Look { ew: 1.5, rw: 1.25, ..RED_UP };
+    let mut out = [((0, 6, 32, 24), "Set", l); 7];
+    let mut d = 0;
+    while d < 6 {
+        out[d + 1] = ((d as u16 * 24 + 1, 33, 22, 31), S[d], l);
+        d += 1;
+    }
+    out
+};
+
+/// The panel's hint under the score, each line's white start and coloured end set apart (split where the colour begins).
+const GAMEINFO: &[Label<'static>] = &[
+    (22, 0, 87, 24, "Score to "),
+    (109, 0, 128, 24, "win this game!"),
+    (22, 24, 86, 23, "Score to "),
+    (108, 24, 129, 23, "win the set!"),
+    (19, 50, 84, 21, "Score to "),
+    (103, 50, 137, 21, "win the match!"),
+    (18, 74, 96, 21, "Score for a "),
+    (114, 74, 128, 21, "service break!"),
+    (16, 97, 101, 23, "Score or you "),
+    (117, 97, 122, 23, "lose the match!"),
+];
+
+/// The COM players' ranks under their slot labels, one 24-px row each.
+const RANKS: &[Label<'static>] = &[
+    (0, 1, 34, 15, "Lv 5"),
+    (0, 25, 34, 15, "Lv 4"),
+    (0, 49, 34, 15, "Lv 3"),
+    (0, 73, 33, 15, "Lv 2"),
+    (0, 97, 31, 15, "Lv 1"),
+    (0, 121, 35, 14, "Hopeful"),
+    (0, 145, 29, 13, "Tier II"),
+    (0, 169, 32, 13, "Tier III"),
+    (0, 193, 33, 13, "Tier IV"),
+    (0, 217, 30, 13, "Tier V"),
+    (0, 241, 35, 13, "Master"),
+    (0, 265, 23, 13, "Elite"),
+    (0, 289, 25, 13, "Guru"),
+    (0, 313, 34, 15, "Legend"),
+    (0, 337, 25, 13, "Hero"),
+    (0, 361, 23, 15, "King"),
+    (0, 385, 37, 14, "Superstar"),
+    (0, 409, 19, 14, "Net"),
+    (0, 433, 35, 13, "Baseline"),
+    (0, 457, 36, 13, "Rounded"),
+    (0, 481, 32, 14, "Server"),
+];
+
+/// The flash's copy of a look: the same shape, all white.
+const fn white(l: Look) -> Look {
+    Look { top: [255; 3], bottom: [255; 3], edge: [255; 3], ring: [255; 3], ..l }
+}
+
+/// A word over its white flash 64 px below.
+const fn two_rows((x, y, w, h): (u16, u16, u16, u16), words: &'static str, l: Look) -> [Stamp; 2] {
+    [((x, y, w, h), words, l), ((x, y + 64, w, h), words, white(l))]
+}
+
+const ORANGE: Look = look([255, 225, 160], [220, 100, 30], [95, 40, 10], 3.0, 0.0);
+const RED_UP: Look = look([255, 170, 170], [195, 40, 55], [85, 10, 20], 3.0, 0.0);
+const BLUE: Look = look([215, 235, 255], [40, 110, 190], [15, 40, 90], 3.0, 0.0);
+const PINK: Look = look([255, 215, 225], [205, 55, 85], [90, 15, 35], 3.0, 0.0);
+const LINE: Look = look([255, 255, 150], [240, 215, 0], [70, 55, 0], 1.5, 0.0);
+const MATCH: Look = look([255, 225, 90], [230, 95, 10], [90, 30, 0], 2.5, 0.0);
+const SET_POINT: Look = look([255, 205, 215], [210, 60, 85], [90, 15, 30], 2.5, 0.0);
+const COUNTER: Look = look([225, 250, 255], [60, 170, 225], [10, 60, 105], 2.5, 0.0);
+
+/// The score pop-up's points (128×64 cells: 0, 15 / 30, 40 / Deuce, Advantage), gold, and the flash's white.
+const PANEL_POINTS: [[Stamp; 6]; 2] = [points6(GOLD), points6(white(GOLD))];
+const fn points6(l: Look) -> [Stamp; 6] {
+    [
+        ((27, 3, 50, 57), "0", l),
+        ((140, 3, 80, 57), "15", l),
+        ((3, 68, 95, 58), "30", l),
+        ((132, 68, 98, 58), "40", l),
+        ((5, 138, 118, 43), "Deuce", l),
+        ((129, 138, 126, 43), "Advantage", l),
+    ]
+}
+
+/// The tiebreak's points (64×64 cells 0–7, then Deuce and Advantage 128 wide), red, and the flash's white.
+const PANEL_TIEBREAK: [[Stamp; 10]; 2] = [tiebreak10(RED), tiebreak10(white(RED))];
+const fn tiebreak10(l: Look) -> [Stamp; 10] {
+    const S: [&str; 8] = ["0", "1", "2", "3", "4", "5", "6", "7"];
+    let mut out = [((0, 0, 0, 0), "", l); 10];
+    let mut d = 0;
+    while d < 8 {
+        out[d] = (((d % 4) as u16 * 64 + 6, (d / 4) as u16 * 65 + 1, 52, 62), S[d], l);
+        d += 1;
+    }
+    out[8] = ((3, 138, 118, 43), "Deuce", l);
+    out[9] = ((129, 138, 126, 43), "Advantage", l);
+    out
+}
+
+/// "Deuce!" and its count's digits (32-px cells, 8 to a row, then 8, 9 and the ×), gold and the tiebreak's red.
+const DEUCE: [[Stamp; 12]; 2] = [deuce12(GOLD_UP), deuce12(RED_UP)];
+const GOLD_UP: Look = look([255, 240, 130], [230, 160, 20], [90, 50, 10], 3.0, 0.0);
+const fn deuce12(l: Look) -> [Stamp; 12] {
+    const S: [&str; 11] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "x"];
+    let small = Look { ew: 2.0, rw: 1.5, ..l };
+    let mut out = [((27, 4, 204, 52), "Deuce!", l); 12];
+    let mut d = 0;
+    while d < 11 {
+        out[d + 1] = (((d % 8) as u16 * 32 + 2, 65 + (d / 8) as u16 * 32, 28, 30), S[d], small);
+        d += 1;
+    }
+    out
+}
+
+/// "Server" and "Receiver" over their white flashes, blue (the second team) and red (the first).
+const SERVER: [[Stamp; 4]; 2] = [server4(BLUE), server4(PINK)];
+const fn server4(l: Look) -> [Stamp; 4] {
+    [
+        ((0, 5, 174, 52), "Server", l),
+        ((0, 70, 222, 50), "Receiver", l),
+        ((0, 133, 174, 52), "Server", white(l)),
+        ((0, 198, 222, 50), "Receiver", white(l)),
+    ]
+}
+
+/// The result board's sets won (48-px cells 0–5 over their white flash) and its small "Set".
+const BOARD_SETS: [Stamp; 13] = {
+    const S: [&str; 6] = ["0", "1", "2", "3", "4", "5"];
+    let mut out = [((292, 2, 48, 20), "Set", Look { ew: 1.5, rw: 1.0, ..RED_UP }); 13];
+    let mut d = 0;
+    while d < 6 {
+        out[d] = ((d as u16 * 48 + 1, 1, 46, 45), S[d], RED_UP);
+        out[d + 6] = ((d as u16 * 48 + 1, 49, 46, 45), S[d], white(RED_UP));
+        d += 1;
+    }
+    out
+};
+
+/// The panel's small "Games:" (orange) and "Sets:" (red), each over its digits 0–6 in 16-px cells.
+const MINI: [[Stamp; 8]; 2] = [mini8("Games:", 72, MINI_ORANGE), mini8("Sets:", 58, MINI_RED)];
+const MINI_ORANGE: Look = look([255, 225, 160], [235, 120, 20], [90, 35, 0], 1.25, 0.0);
+const MINI_RED: Look = look([255, 180, 180], [215, 50, 60], [85, 10, 20], 1.25, 0.0);
+const fn mini8(word: &'static str, w: u16, l: Look) -> [Stamp; 8] {
+    const S: [&str; 7] = ["0", "1", "2", "3", "4", "5", "6"];
+    let mut out = [((0, 0, w, 23), word, l); 8];
+    let mut d = 0;
+    while d < 7 {
+        out[d + 1] = ((d as u16 * 16, 24, 16, 24), S[d], l);
+        d += 1;
+    }
+    out
+}
+
+/// The untouchable-shot banners: a small "Untouchable" over the shot's name, each in its colour.
+const ACES: [[Stamp; 2]; 3] = [
+    ace((13, 27, 198, 33), "Service Ace", look([215, 255, 150], [90, 185, 40], [25, 75, 10], 2.0, 0.0)),
+    ace((19, 27, 187, 33), "Return Ace", look([255, 245, 160], [205, 170, 40], [85, 65, 10], 2.0, 0.0)),
+    ace((25, 28, 173, 32), "Smash Ace", look([255, 220, 190], [225, 115, 75], [100, 40, 20], 2.0, 0.0)),
+];
+const fn ace(cell: (u16, u16, u16, u16), words: &'static str, l: Look) -> [Stamp; 2] {
+    [((34, 1, 156, 22), "Untouchable", Look { ew: 1.25, rw: 1.0, ..l }), (cell, words, l)]
+}
+
+/// [`ACES`] and "On the Line" again in white, 64 px apart (the flash's sheet).
+const ACES_WHITE: [Stamp; 7] = {
+    let mut out = [((14, 233, 146, 22), "On the Line", white(LINE)); 7];
+    let mut i = 0;
+    while i < 3 {
+        let [(c0, w0, l0), (c1, w1, l1)] = ACES[i];
+        out[2 * i] = ((c0.0, c0.1 + 64 * i as u16, c0.2, c0.3), w0, white(l0));
+        out[2 * i + 1] = ((c1.0, c1.1 + 64 * i as u16, c1.2, c1.3), w1, white(l1));
+        i += 1;
+    }
+    out
+};
 
 
 /// B141a: our look for a stylised word or digit (nothing sampled from the disc): a fill fading from `top` to `bottom`,
@@ -503,13 +736,15 @@ impl Rebuild {
     fn new(w: usize, h: usize, rgba8: &[u8], labels: Vec<(u16, u16, u16, u16, String)>, font: &'static [u8]) -> Rebuild {
         let mut rgba: Vec<[f32; 4]> = rgba8.chunks(4).map(|c| [c[0], c[1], c[2], c[3]].map(|v| v as f32 / 255.0)).collect();
         let styles: Vec<Style> = labels.iter().map(|&(x, y, lw, lh, ref t)| Style::sample(&rgba, w, h, &(x, y, lw, lh, t))).collect();
-        for (&(x, y, lw, lh, ref t), s) in labels.iter().zip(&styles) {
-            // an outline's faint outer pixel lies just past the ink box (left behind, it reads as a cut-off outline round
-            // the new one)
+        // an outline's faint outer pixel lies just past the ink box (left behind, it reads as a cut-off outline round
+        // the new one)
+        let boxes: Vec<_> = labels.iter().zip(&styles).map(|(&(x, y, lw, lh, ref t), s)| {
             let m = (s.width > 0.0) as u16;
             let (x, y) = (x.saturating_sub(m), y.saturating_sub(m));
-            let pad = 2 * m;
-            erase(&mut rgba, w, h, &(x, y, (lw + pad).min(w as u16 - x), (lh + pad).min(h as u16 - y), t));
+            (x, y, (lw + 2 * m).min(w as u16 - x), (lh + 2 * m).min(h as u16 - y), t.as_str())
+        }).collect();
+        for b in &boxes {
+            erase(&mut rgba, w, h, b, &boxes);
         }
         let pm = rgba.iter().map(|c| [c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]]).collect();
         let out = Pixmap::new(w as u32 * K, h as u32 * K).expect("sheet size");
@@ -674,14 +909,16 @@ pub(crate) fn stamp(out: &mut Pixmap, font: &ab_glyph::FontRef, [x, y, w, h]: [f
     let m = l.ew + l.rw;
     let (bw, bh) = ((w - 2.0 * m) * k, (h - 2.0 * m) * k);
     let cap = -caps.bounds().top();
-    // the slant leans the top right: room for it comes off the width
-    let sy = bh / cap;
     let b = path.bounds();
+    // a word with a descender ("Advantage") fits its tail in the cell too
+    let tail = if words.contains(['g', 'j', 'p', 'q', 'y']) { b.bottom().max(0.0) } else { 0.0 };
+    // the slant leans the top right: room for it comes off the width
+    let sy = bh / (cap + tail);
     let sx = sy.min((bw - l.slant * bh) / b.width());
     let cx = (x + w / 2.0) * k;
     // font y is 0 at the baseline, −cap at the caps' top; the slant leans about the cell's middle
     let (top, uc) = ((y + m) * k, b.left() + b.width() / 2.0);
-    let t = Transform::from_row(sx, 0.0, -l.slant * sy, sy, cx - uc * sx - l.slant * bh / 2.0, top + bh);
+    let t = Transform::from_row(sx, 0.0, -l.slant * sy, sy, cx - uc * sx - l.slant * bh / 2.0, top + bh - tail * sy);
     let Some(path) = path.transform(t) else { return };
     let rgb = |c: [u8; 3]| SkColor::from_rgba8(c[0], c[1], c[2], 255);
     let mut paint = Paint { anti_alias: true, ..Paint::default() };
@@ -691,7 +928,7 @@ pub(crate) fn stamp(out: &mut Pixmap, font: &ab_glyph::FontRef, [x, y, w, h]: [f
             out.stroke_path(&path, &paint, &Stroke { width: wd, line_join: LineJoin::Round, line_cap: LineCap::Round, ..Stroke::default() }, Transform::identity(), None);
         }
     }
-    let bot = top + bh;
+    let bot = top + bh - tail * sy;
     paint.shader = LinearGradient::new(Point::from_xy(0.0, top), Point::from_xy(0.0, bot), vec![GradientStop::new(0.0, rgb(l.top)), GradientStop::new(1.0, rgb(l.bottom))], SpreadMode::Pad, Transform::identity()).expect("gradient");
     out.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
 }
@@ -789,12 +1026,14 @@ impl Style {
 }
 
 /// Clear a label's box row by row, blending what's either side of it: nothing where it stood alone, what
-/// it stood on otherwise.
-fn erase(px: &mut [[f32; 4]], w: usize, _h: usize, &(x, y, lw, lh, _): &Label) {
+/// it stood on otherwise. A neighbour inside another label's box is that label's text (words set side by side), so
+/// counts as nothing.
+fn erase(px: &mut [[f32; 4]], w: usize, _h: usize, &(x, y, lw, lh, _): &Label, all: &[Label]) {
     let (l, r) = (x as usize, (x + lw) as usize);
+    let text = |px: usize, py: usize| all.iter().any(|&(bx, by, bw, bh, _)| (bx as usize..(bx + bw) as usize).contains(&px) && (by as usize..(by + bh) as usize).contains(&py));
     for y in y as usize..(y + lh) as usize {
-        let a = if l > 0 { px[y * w + l - 1] } else { [0.0; 4] };
-        let b = if r < w { px[y * w + r] } else { [0.0; 4] };
+        let a = if l > 0 && !text(l - 1, y) { px[y * w + l - 1] } else { [0.0; 4] };
+        let b = if r < w && !text(r, y) { px[y * w + r] } else { [0.0; 4] };
         for x in l..r {
             let t = (x + 1 - l) as f32 / (r - l + 1) as f32;
             px[y * w + x] = if a[3] < 0.5 && b[3] < 0.5 { [0.0; 4] } else { std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t) };
@@ -964,7 +1203,9 @@ fn label(out: &mut Pixmap, font: &ab_glyph::FontRef, &(x, y, w, h, s): &Label, s
     let k = K as f32;
     let e = st.width * k;
     let b = path.bounds();
-    let (bx, by, bw, bh) = (x as f32 * k + e, y as f32 * k + e, (w as f32 * k - 2.0 * e).max(1.0), (h as f32 * k - 2.0 * e).max(1.0));
+    // a trailing space keeps its room at the box's right end (a word set before the next one in its own colour)
+    let gap = (s.len() - s.trim_end().len()) as f32 * h as f32 * k / 4.0;
+    let (bx, by, bw, bh) = (x as f32 * k + e, y as f32 * k + e, (w as f32 * k - 2.0 * e - gap).max(1.0), (h as f32 * k - 2.0 * e).max(1.0));
     let t = Transform::from_row(bw / b.width(), 0.0, 0.0, bh / b.height(), bx - b.left() * bw / b.width(), by - b.top() * bh / b.height());
     let Some(path) = path.transform(t) else { return };
     let rgb = |c: [f32; 3]| SkColor::from_rgba(c[0].clamp(0.0, 1.0), c[1].clamp(0.0, 1.0), c[2].clamp(0.0, 1.0), 1.0).expect("colour");

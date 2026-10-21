@@ -517,7 +517,7 @@ fn setup(mut commands: Commands, args: Res<Args>, g: Res<Game>, mut images: ResM
                     .ends_with(&name)
             })
             .unwrap_or_else(|| panic!("{name} in INPANE"));
-        image(&mut images, &arc.read(e).expect("INPANE bytes"))
+        super::menu_art::image(&mut images, &arc.read(e).expect("INPANE bytes"), &name)
     };
     let mut art: Vec<_> = TEXTURES
         .iter()

@@ -227,7 +227,7 @@ fn start(
     commands.entity(shown.root).insert(super::popups::OnCallCamera);
     let sheets = ["/inpane_start00.tm2", "/inpane_start01.tm2", "/inpane_start02.tm2"].map(|name| {
         let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().replace('\\', "/").ends_with(name)).unwrap_or_else(|| panic!("{name} in INPANE"));
-        super::panel::image(&mut images, &arc.read(e).expect("INPANE bytes"))
+        super::menu_art::image(&mut images, &arc.read(e).expect("INPANE bytes"), name)
     });
     // a full-window root: the pill's ends reach the window's edges (`widescreen::place`)
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
