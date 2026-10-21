@@ -3641,7 +3641,7 @@ fn ai_roll(rng: &mut Rngs) -> impl FnMut() -> u32 + '_ {
 
 /// The AI object's per-frame update (`hst_sim::ai::Mind`), ahead of the routine `bot` runs for it: the point
 /// reset on its first frame (with a timing draw), the state its role gives it, the hand-over to the rally once its
-/// serve or return is played, and the point-over messages (a coin flip whether it keeps moving; an ALL-style
+/// serve is played (its return's is the receive routine's word, in `doubles_ai::step`), and the point-over messages (a coin flip whether it keeps moving; an ALL-style
 /// player's net rate moved by how its pick fared).
 /// The receive and rally routines are `doubles_ai::step`'s, the serve `bot_serve`'s; each match makes its minds afresh.
 fn ai_update(g: &mut Game, i: usize) -> hst_sim::ai::Mind {
@@ -3658,29 +3658,22 @@ fn ai_update(g: &mut Game, i: usize) -> hst_sim::ai::Mind {
         g.players[i].ai_mind = Some(m);
         return m;
     }
-    let p = g.players[i];
-    let done = match m.phase {
+    match m.phase {
         Ai::Start => {
             // the serve state's entry draws the timing errors and the count again
             if m.start(g.score.server == i as i32, g.score.receiver == i as i32) == Ai::Serve {
                 ai_draw(g, i, None);
                 m.count(&mut ai_roll(&mut g.rng));
             }
-            false
         }
         Ai::Serve => {
             // its rally's entry is the routine step's (`doubles_ai::step`): the Return roll, then the net repick
             if g.phase != Phase::Serve {
                 m.phase = Ai::Rally;
             }
-            false
         }
-        // doubles goes over on the receive routine's own word, in its step (P11k6)
-        Ai::Receive => g.players.len() != 4 && g.shots >= 2 && p.swing.is_none() && p.contact.is_none(),
-        Ai::Rally => false,
-    };
-    if done {
-        m.rally(&mut ai_roll(&mut g.rng));
+        // the receive goes over on the routine's own word, in its step, singles and doubles (P11k6, P132)
+        Ai::Receive | Ai::Rally => {}
     }
     if g.phase == Phase::Post && heard == 1 {
         m.point_over(&mut ai_roll(&mut g.rng));

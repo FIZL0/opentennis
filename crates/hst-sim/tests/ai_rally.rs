@@ -366,8 +366,29 @@ fn call(name: &str, e: &[u8], x: &[u8], mt0: &Mt, row: &AiParams, tag: u32, sing
     };
     let a = &e[A..];
     let mut h = Human { found: a[0x40] != 0, next: i32_at(a, 0x44), kind: a[0x48], min: i32_at(a, 0x4c), volley: a[0x50] != 0 };
+    let mut kept = None;
     let ret = if tag == 1 {
         r.receive(row, &mut b, &w, &mut c, &mut seen, &mut out, &mut roll)
+    } else if tag == 5 {
+        // the update in the receive state (P132): the receive, and on its word the rally's entry in the same frame
+        let over = r.receive(row, &mut b, &w, &mut c, &mut seen, &mut out, &mut roll);
+        if over {
+            r.enter_rally(&b, &mut w, &mut roll);
+        }
+        // the singles kind lock after the routine (`ai_serve.rs`): the button pressed, then on the frame before the
+        // contact (the player's +0x3ec4 flag) the stick for the kept button
+        if let Some(bt) = out.button {
+            kept = Some(row.lock_button(bt as u8, &mut roll));
+            out.button = kept.map(u32::from);
+        }
+        if u32_at(e, 0x4c4) == 1 {
+            let k = kept.unwrap_or(e[A + 0x2c]);
+            out.stick = row.lock_stick(k, out.stick, f32_at(e, 0x340), &mut roll);
+        }
+        if a[0x60] == 0 {
+            out.stick = [0.0; 4];
+        }
+        over
     } else if tag == 4 {
         let claimed = i32_at(e, 0x74c) == b.team;
         r.human_record(&mut h, row, &b, &mut w, &mut c, &mut seen, claimed, &mut roll);
@@ -386,6 +407,14 @@ fn call(name: &str, e: &[u8], x: &[u8], mt0: &Mt, row: &AiParams, tag: u32, sing
         errs.push(format!("draws {used} vs {}", u32_at(x, 0xc) - before));
     }
     let mut got = bytes(e, &r, singles);
+    if tag == 5 && ret {
+        got[0x54] = 3;
+        // the entry's Return roll writes its flag byte (the test's `flag` keeps any non-zero the game left)
+        got[back_mind(singles).0 + 4] = r.back.going as u8;
+    }
+    if let Some(k) = kept {
+        got[0x2c..0x30].copy_from_slice(&u32::from(k).to_le_bytes());
+    }
     if tag == 4 {
         got[0x44..0x48].copy_from_slice(&h.next.to_le_bytes());
         got[0x4c..0x50].copy_from_slice(&h.min.to_le_bytes());
@@ -408,7 +437,7 @@ fn call(name: &str, e: &[u8], x: &[u8], mt0: &Mt, row: &AiParams, tag: u32, sing
     if tag != 4 && button != u32_at(x, 0x30) {
         errs.push(format!("button {button} vs {}", u32_at(x, 0x30)));
     }
-    if tag != 1 && records(e, &w) != x[0x580..0x640] {
+    if tag != 1 && !(tag == 5 && !ret) && records(e, &w) != x[0x580..0x640] {
         let (got, want) = (records(e, &w), &x[0x580..0x640]);
         let diff: Vec<String> = (0..0xc0 / 4)
             .filter(|k| got[4 * k..4 * k + 4] != want[4 * k..4 * k + 4])
@@ -1281,6 +1310,45 @@ fn glue_replay(file: &str) -> Option<([usize; 2], std::collections::BTreeMap<u32
     eprintln!("updates {} messages {} {msgs:x?} skipped (serve routine) {skipped}", n[0], n[1]);
     assert_eq!(fails, 0, "{fails} of {} calls differ", n[0] + n[1]);
     Some((n, msgs))
+}
+
+/// P132: the singles AI's update in its receive state (`HST_SINGLES=1 HST_DRIVE=1 record_ai_rally.py 8 3000 … 1 5,6`,
+/// slot 8 = `singles_1p_serve.p2s`: P1 driven and serving, the COM receiving): on the frame its receive routine says
+/// the return is played, the update enters the rally in that same frame (the wait substate's entry: the Return roll
+/// first), as in doubles. Every receive-state update call bit-exact, and at least six of them going over.
+#[test]
+fn singles_receive_goes_over_in_its_frame() {
+    let Some(d) = fixture::read(format!("{}/context/fixtures/ai_glue_singles.bin", root())).ok() else { return };
+    let Some(table) = table() else { return };
+    assert_eq!(&d[..4], b"AIRL");
+    let mt0 = Mt::of(&d[8..8 + MT_SIZE]);
+    let mut o = 8 + MT_SIZE;
+    let (mut n, mut over, mut fails) = (0, 0, 0);
+    while o < d.len() {
+        let e = &d[o..o + u32_at(&d, o + 4) as usize];
+        o += e.len();
+        let x = &d[o..o + u32_at(&d, o + 4) as usize];
+        o += x.len();
+        if u32_at(e, 0) != 5 || e[A + 0x54] != 2 {
+            continue;
+        }
+        let row = &table[((u32_at(e, A + 0xc) - TABLE) / RECORD) as usize];
+        let (r, errs) = call("ai_glue_singles.bin", e, x, &mt0, row, 5, true);
+        n += 1;
+        if x[A + 0x54] == 3 {
+            over += 1;
+            assert_eq!(r.sub, hst_sim::rally::step::WAIT);
+        }
+        if !errs.is_empty() {
+            fails += 1;
+            if fails <= 15 {
+                eprintln!("v{} state {}: {}", u32_at(e, 8), r.state, errs.join("; "));
+            }
+        }
+    }
+    eprintln!("receive updates {n}, over {over}");
+    assert_eq!(fails, 0, "{fails} of {n} calls differ");
+    assert!(n > 500 && over >= 6, "{n} calls, {over} going over");
 }
 
 /// P129: the strike (0x14) and new-path (0x16) messages over slot 5's bot-only doubles, the message handler only

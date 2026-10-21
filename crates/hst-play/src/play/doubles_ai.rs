@@ -262,8 +262,8 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     let mut received = false;
     if mind.phase == Ai::Receive {
         received = x.receive(&row, &mut b, &w, c, seen, &mut out, &mut roll);
-        if received && !singles {
-            // P11k6: doubles goes over to the rally in the same frame, on the routine's own word
+        if received {
+            // P11k6, P132: it goes over to the rally in the same frame, on the routine's own word (singles too)
             x.enter_rally(&b, &mut w, &mut roll);
             me.phase = Some(Ai::Rally);
         }
@@ -289,9 +289,7 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     g.doubles_ai.records = w.records;
     let mut m = *mind;
     (m.net, m.net_rate, m.net_left) = (net, net_rate, net_left);
-    if received && singles {
-        m.rally(&mut ai_roll(&mut g.rng));
-    } else if received {
+    if received {
         m.phase = Ai::Rally;
     }
     g.players[i].ai_mind = Some(m);
