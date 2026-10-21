@@ -492,7 +492,7 @@ impl Wander {
             return true;
         }
         let mut start = *pos;
-        // a double subtract (soft float), rounded to nearest on the way back
+        // a double subtract (soft float), rounded to nearest on the way back (hst-oracle's walker test checks it)
         #[allow(clippy::float_arithmetic)]
         let y = (-(r as f64) - 0.1) as f32;
         start[1] = y;
@@ -1859,7 +1859,8 @@ impl Trigger {
                 }
             }
             (44, 2) if self.on => {
-                // ponytail: unrecorded (deciding set only); ported from the game's code
+                // deciding set only, unrecorded: presentation on the court generator (reseeded each point from
+                // `rand()`), so it can't move the match; PLAN asks it only to look right
                 self.gap -= 1;
                 if self.gap < 0 && self.voice.0 != -1 {
                     sounds.push(row.sound);
@@ -1942,7 +1943,8 @@ impl Trigger {
                 if 360 <= c {
                     (self.done, self.playing) = (true, false);
                 } else if c % 10 == 0 {
-                    // ponytail: the call's arguments read as (bearing, volume); a guess from their ranges
+                    // played at bearing `angle` (whole degrees, wrapped to 0..359) and volume `vol` (0..128), as the
+                    // game's other positioned sounds pass them
                     sounds.push(row.sound);
                     (self.bearing, self.volume) = (self.angle as i32, self.vol as i32);
                 }

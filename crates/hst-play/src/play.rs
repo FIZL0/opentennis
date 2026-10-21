@@ -3185,7 +3185,7 @@ fn ai_draw_guess(g: &mut Game, i: usize, kind: i32, lob: bool) {
     let mut roll = || rng.next();
     let p = &mut g.players[i];
     let last = hst_sim::ai::Seen { kind, vel: [0.0; 3] };
-    p.ai_hold = p.ai.reaction(&p.ai_timing, &last, lob, special_serve, beside_human, p.pos[2].abs() <= SERVICE_LINE, &mut roll);
+    p.ai_hold = p.ai.reaction(&p.ai_timing, &last, hst_sim::ai::Reacting { lob, special_serve, beside_human, near_net: p.pos[2].abs() <= SERVICE_LINE }, &mut roll);
     let guess = p.ai.guess(&p.ai_timing, kind == branch::SERVE as i32, !beside_human, &mut roll);
     p.ai_guess = guess.map(|q| (q, [p.pos[0], p.pos[2]]));
     if guess.is_some() {

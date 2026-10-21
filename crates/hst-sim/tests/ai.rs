@@ -2,7 +2,7 @@
 //! slot 5: a doubles bot match), and each bot's row and level must be the ones the game gave it.
 
 use hst_data::{iso::Iso, xb::Archive};
-use hst_sim::ai::{AiParams, Choice, ROWS, menu_row};
+use hst_sim::ai::{AiParams, Choice, ROWS, Reacting, menu_row};
 
 const TABLE: usize = 0x3174c0;
 const RECORD: usize = 0x118;
@@ -236,7 +236,7 @@ fn guesses_match_the_game() {
                         assert_eq!(levels, ob[0x5c..0x60], "vsync {} AI {k}: levels", word(b, 0));
                         // the reaction's own draws (its value is checked in reactions_match_the_game)
                         let lob = ob[0x138] == 3;
-                        row.reaction(&t, &shots.last, lob, ob[0x13d] != 0, false, false, &mut roll);
+                        row.reaction(&t, &shots.last, Reacting { lob, special_serve: ob[0x13d] != 0, ..Default::default() }, &mut roll);
                         row.guess(&t, shots.last.kind == 0, true, &mut roll)
                     })
                 })
@@ -471,7 +471,7 @@ fn reactions_match_the_game() {
                     ([t.stroke, t.volley, t.smash, t.serve] == errs(ob)).then(|| {
                         row.picks(false, &mut roll);
                         let human = int(ob, 0x28) == 1;
-                        row.reaction(&t, &shots.last, ob[0x138] == 3, ob[0x13d] != 0, human, z.abs() <= 6.4, &mut roll)
+                        row.reaction(&t, &shots.last, Reacting { lob: ob[0x138] == 3, special_serve: ob[0x13d] != 0, beside_human: human, near_net: z.abs() <= 6.4 }, &mut roll)
                     })
                 })
                 .unwrap_or_else(|| panic!("vsync {} AI {k}: timing draw not found", word(b, 0)));
@@ -492,7 +492,7 @@ fn reactions_match_the_game() {
 /// court's half width plus the row's extend (which must also be the game's width).
 #[test]
 fn stand_sides_match_the_game() {
-    use hst_sim::ai::stand_side;
+    use hst_sim::ai::Stander;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Some((_, csv)), Ok(d)) = (load(), std::fs::read(format!("{root}/context/fixtures/ai_side_s05.bin"))) else {
         return eprintln!("disc or ai_side_s05.bin missing, skipped");
@@ -514,7 +514,7 @@ fn stand_sides_match_the_game() {
         let roll = word(a, 40) != 0;
         let spot = |i: usize, o: usize| Some((int(a, i), [f(a, o), f(a, o + 4)]));
         let side = |w: Option<f32>| {
-            stand_side(spot(12, 48), spot(16, 56), [f(a, 32), f(a, 36)], f(a, 20), f(a, 28), f(a, 64), word(a, 44) as u8, w)
+            Stander { from: [f(a, 32), f(a, 36)], reach: f(a, 20), side: f(a, 28), depth: f(a, 64), strong: word(a, 44) as u8 }.stand_side(spot(12, 48), spot(16, 56), w)
         };
         let got = side(roll.then_some(width));
         let want = Some(int(b, 12) >= 1);
