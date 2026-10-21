@@ -1,4 +1,4 @@
-# Unattended runs (tools/parallel.sh) go through agent-runner: https://github.com/FIZL0/agent-runner
+# Unattended runs: `tmux new -s hst agent-runner run [N|once] [--mode d] [--force] [--shutdown]`, through agent-runner: https://github.com/FIZL0/agent-runner
 [plan]
 dir = "plan"
 journal = "research/journal"
@@ -15,8 +15,7 @@ prompt = "tools/runner-prompt.md"
 links = ["context", "mods", "replacements", "*.iso"]
 shared_files = ["play.rs"]
 joinable = ["plan/*.md", "research/journal/*", "RELEASE_NOTES.md"]
-slot_env = ["HST_PCSX2={n}", "HST_BG=1", "RUSTC_WRAPPER=sccache", "SCCACHE_CACHE_SIZE=60G"]
-pass_env = ["HST_PCSX2_MAX_HOLD"]
+slot_env = ["HST_PCSX2={n}", "HST_PCSX2_MAX_HOLD=1200", "HST_BG=1", "RUSTC_WRAPPER=sccache", "SCCACHE_CACHE_SIZE=60G"]
 on_exit = "tools/pcsx2.sh tools/pcsx2-hst.sh stop"
 before_start = "ls /run/user/$(id -u)/wayland-[0-9]* >/dev/null 2>&1"   # PCSX2 needs this user's desktop session
 untested = ["*.md", ".github/*", "tools/*", "!tools/check.sh"]

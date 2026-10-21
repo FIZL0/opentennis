@@ -75,8 +75,8 @@ its TODO/DONE line) · `"when blocked"` (a section) · `-f FILE <name>` (any mar
 
 ## Controlling the game
 `plan/REFERENCE.md` → *Controlling the real game* (PINE, virtual pad `tools/vpad.py`, `tools/screenshot.sh`; remaster `--shot`s in a fixed-size floating window: `tools/shot.sh`) and
-`PLAN.md` → *When blocked* (switch prompts, never stop while work remains). Unattended runs: `tools/single.sh`
-(one task at a time) or `tools/parallel.sh [N] [p|d] [f] [--shutdown]` (N at once in worktrees through [agent-runner](https://github.com/FIZL0/agent-runner), settings in `runner.toml`; p = TODO order (default), d = different files, f = past the 94% weekly cap; --shutdown = power the computer off once nothing is running, merging or startable; stop gently with s + Enter in its pane or `agent-runner stop`; each slot builds in its own worktree `target/`, dependencies shared through sccache; don't set `CARGO_TARGET_DIR`). Multi-step game drives
+`PLAN.md` → *When blocked* (switch prompts, never stop while work remains). Unattended runs: `tmux new -s hst agent-runner run [N|once]`
+([agent-runner](https://github.com/FIZL0/agent-runner), settings in `runner.toml`; N slots at once in worktrees, default 5, `once` = one task then stop; `--mode d` = different files instead of TODO order; `--force` = past the 94% weekly cap; `--shutdown` = power the computer off once nothing is running, merging or startable; stop gently with s + Enter in its pane or `agent-runner stop`; each slot builds in its own worktree `target/`, dependencies shared through sccache; don't set `CARGO_TARGET_DIR`). Multi-step game drives
 go under `tools/pcsx2.sh <cmd>`; pine.py tools take the same lock by themselves. In a parallel run `HST_PCSX2=N` gives
 each agent its own PCSX2 copy (tools, pad, PINE and lock all follow it). When you're done with the game for your task,
 close yours: `tools/pcsx2.sh tools/pcsx2-hst.sh stop` (waits for anything mid-use). Never `pkill pcsx2-qt`.

@@ -9,7 +9,7 @@ transcript's counts by file, so a transcript Claude Code later deletes still cou
 done.sh) and keep `cleanupPeriodDays` high in ~/.claude/settings.json.
 
 Prompt = a user message typed by the user: not a tool result, slash command, task notification, compaction summary,
-interrupt marker, or the unattended runners' (single.sh/agent-runner) and `claude -p` (todo.sh) launch prompts.
+interrupt marker, or the unattended runners' (agent-runner) and `claude -p` (todo.sh) launch prompts.
 Tokens = API usage of every assistant message (input, output, cache read, cache write), once per message id.
 """
 import json, os, subprocess, sys

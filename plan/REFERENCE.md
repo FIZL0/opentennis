@@ -44,7 +44,7 @@
 - **Singles with a human P1** (P11l4): `context/recordings/singles_1p_serve.p2s` (P1 Ashley serving vs a COM) and
   `singles_1p_select.p2s` (the singles character select); the menu route is in journal 2026-10-07-p11-ai 24.
 - Verify input effects numerically over PINE (e.g. ball/player state), not by eye.
-- `tools/single.sh` (in tmux) runs `claude continue` (TUI: attach to watch or type; it never asks) back to back and owns the virtual pad for the night.
+- Unattended runs: `tmux new -s hst agent-runner run [N|once]` (AGENT.md *Controlling the game*); each slot's session is a TUI pane you can attach to and type into, with its own PCSX2 copy and virtual pad.
 
 ## Play it now
 
