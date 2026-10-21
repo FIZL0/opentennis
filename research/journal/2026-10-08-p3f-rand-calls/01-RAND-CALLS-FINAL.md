@@ -1,12 +1,12 @@
 # The rand() calls
 
 ## Logs
-- `research/p3f_rand_log.py <slot> <frames> out.bin` patches rand()'s entry with a stub that logs vsync, caller,
+- `research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_rand_log.py <slot> <frames> out.bin` patches rand()'s entry with a stub that logs vsync, caller,
   s0, gm+0x54, the state's low word, and the match frame. `context/p3f/rand_s05.bin` is slot 5 over a change of ends.
-- `research/p3f_menu_log.py <char> <slot> out.bin [dir...]` logs from save slot 2 (the doubles character select)
+- `research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_menu_log.py <char> <slot> out.bin [dir...]` logs from save slot 2 (the doubles character select)
   through to the first serve, then saves it. On pad copy 3, ✕ confirms and ○ goes back. `menu_c1.bin` and
   `menu_c2.bin` are court 4, clear. Slots 8 and 9 are now games where two players have the same character.
-- `research/p3f_setup_seq.py` prints a menu log's calls by caller. `--fixture` writes `context/p3f/setup_rand.bin`.
+- `research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_setup_seq.py` prints a menu log's calls by caller. `--fixture` writes `context/p3f/setup_rand.bin`.
 
 ## The menus
 There were 4563 calls before the seed in c1 and 5794 in c2, for the same picks. Some menu screens draw once per

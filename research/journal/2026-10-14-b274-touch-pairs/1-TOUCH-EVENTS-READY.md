@@ -24,7 +24,7 @@ Unattended run: no phone and nobody to ask which pair blocked or what it looked 
 - The B165 rules still hold: per-finger sets per button, a tap held until one poll has seen it.
 
 ## Check
-`node tools/web_touch_taps.mjs` (extended): B165's checks, plus, with full multi-touch, 3 rounds of:
+`node research/journal/2026-10-13-b165-touch-taps/scripts/web_touch_taps.mjs` (extended): B165's checks, plus, with full multi-touch, 3 rounds of:
 - stick + each of the 8 buttons, held together; the stick moves while the button is held; the button lifts while
   the stick stays tilted; the button tapped with the stick held;
 - every ordered pair of buttons (56): both held, the first lifts while the second stays down, the first tapped

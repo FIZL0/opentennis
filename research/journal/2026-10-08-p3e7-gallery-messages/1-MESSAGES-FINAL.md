@@ -23,14 +23,14 @@
 
 ## Recordings
 
-- Court 4 doubles start (`research/p3e7_watch.py`, vsync 7029–7030): count 0 → 4 (walkers 0–3, delays 0, 3, 6, 9,
+- Court 4 doubles start (`research/journal/2026-10-08-p3e7-gallery-messages/scripts/p3e7_watch.py`, vsync 7029–7030): count 0 → 4 (walkers 0–3, delays 0, 3, 6, 9,
   +0x304 = 0..3) then 0 in the same tick: the walkers first. Walker counters −1, anim 5.
 - Select Court: internal court 5 is the menu list's 11th entry (two left of the first cursor;
-  `research/p3e7_stages.py`: −2 → 5, −1 → 1, +1 → 6, +2 → 2, +4 → 9, +5 → 11, +6 → 10; the 5th entry "Wild Green"
-  is court 8). Court-5 match: `research/p3e7_court5.py`, log `context/p3e7/court5_match.txt`.
+  `research/journal/2026-10-08-p3e7-gallery-messages/scripts/p3e7_stages.py`: −2 → 5, −1 → 1, +1 → 6, +2 → 2, +4 → 9, +5 → 11, +6 → 10; the 5th entry "Wild Green"
+  is court 8). Court-5 match: `research/journal/2026-10-08-p3e7-gallery-messages/scripts/p3e7_court5.py`, log `context/p3e7/court5_match.txt`.
 
 Court-5 doubles start (P1 pressing ✕): count 0 → 93 (kind 1) at vsync 6692 in the start phase (the walkers' 4 and
-the reset fall in one sampled tick), 0 at the first point (6913). Over 47 points (`research/p3e7_tally.py`), the
+the reset fall in one sampled tick), 0 at the first point (6913). Over 47 points (`research/journal/2026-10-08-p3e7-gallery-messages/scripts/p3e7_tally.py`), the
 93 marks went up exactly where `call 0 and (0x4230b8 > 0 or +0x560 ∈ {1, 2})` predicts:
 
 | call | +0x560 | 0x4230b8 | points | marks |

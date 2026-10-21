@@ -2,7 +2,7 @@
 
 ## Setup order (0x322d90)
 
-Confirmed offline on 7 save states (copy 3 slots 05/03/07, context/recordings bots_singles, 1p3goodcpus2, new_recording, serve_recording) via research/p3d3_setup_ram.py -> context/p3d3/setup_ram.bin.
+Confirmed offline on 7 save states (copy 3 slots 05/03/07, context/recordings bots_singles, 1p3goodcpus2, new_recording, serve_recording) via research/journal/2026-10-08-p3d3-setup-draws/scripts/p3d3_setup_ram.py -> context/p3d3/setup_ram.bin.
 
 - Weather schedule.
 - Per player, in the constructor 0x344740: voice-bank pick (0x345ad0, r15%100 >= 70 -> b); AI reseed (0x35edb0) if it has an AI object; a placement draw (0x3449f0) that the app was missing (P3d's journal didn't list it).
@@ -22,7 +22,7 @@ Per player, in object order: placement draw (always); then if players == 2 and t
 
 Voice only; no animation found in the decompile (the task text said "animation and voice").
 
-## Live capture (research/p3e5_draw_log.py, now with HST_V0 for the load vsync window)
+## Live capture (research/journal/2026-10-08-p3e5-ai-draws/scripts/p3e5_draw_log.py, now with HST_V0 for the load vsync window)
 
 Slot 8 = bots_singles court 1, then slot 9 saved at deuce of game 1.
 - First 0xe at vsync 5304: placement p0 (ra 0x344a14), p0's key draw (ra 0x35546c, caller 0x348ebc), placement p1.

@@ -750,7 +750,7 @@ fn trigger_at(s: &[u8], o: usize, row: &hst_data::exe::TriggerRow, anchor: [f32;
     }
 }
 
-/// Court 4's passing ball (type 15) against `context/fixtures/ball_c04.bin` (research/b24_rec15.py, an all-computer
+/// Court 4's passing ball (type 15) against `context/fixtures/ball_c04.bin` (research/journal/2026-10-08-b24-court-events/scripts/b24_rec15.py, an all-computer
 /// doubles match from its first change of ends: route 0) and `ball_c04_r1..3.bin` (`b24_rec15.py -9 … <mti>` from a
 /// scratch save before a change of ends, its played flags cleared, the generator's index set so the roll picks route
 /// 1–3; not in git, skipped when absent): every tick from the recorded state before, through the change of ends'
@@ -1116,7 +1116,7 @@ fn serve_setup_keeps_and_restores_like_the_game() {
     assert_eq!(restored, 2, "the poked creatures' done not put back at the replay");
 }
 
-/// Court 5's own creatures against `context/p14d/run1/c5.bin` (research/p14d_record.py: a doubles match on court 5
+/// Court 5's own creatures against `context/p14d/run1/c5.bin` (research/journal/2026-10-07-p14-npc/scripts/p14d_record.py: a doubles match on court 5
 /// from the intro; not in git, skipped when absent). Every tick of all six, from the recorded state of the tick
 /// before, must reproduce the game's tick count, cheering flag, UV frame, level and direction: seated again at the
 /// serve set-up and when a point's end is left, standing up at a point's end when [`npc::crowd_cheers_point`] says

@@ -11,7 +11,7 @@ directory entry and a `getFile()` for each file (also the lazy ones, only for th
 B227 `upscaled` cleanup) that's the one start-up step that grows with installs, and each step is a cross-process call
 in Safari, much slower on a phone.
 
-`tools/web_opfs_mods.mjs` (new) copies a native mods tree into WebKit's OPFS (manifests and pictures whole, others
+`research/journal/2026-10-20-p64-safari-start/scripts/web_opfs_mods.mjs` (new) copies a native mods tree into WebKit's OPFS (manifests and pictures whole, others
 1-byte stand-ins; `FULL=1` whole) and times the old loop against the page's current one (cut from index.html between
 its `P64 listing` markers), checking both hand the game the same files:
 

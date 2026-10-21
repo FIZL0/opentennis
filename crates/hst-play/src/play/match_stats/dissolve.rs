@@ -1,7 +1,7 @@
 //! The original's screen transition at the match's end: a still of the last frame drawn over the screen, fading out
 //! (alpha counter/length, the counter starting at length + 2 and dropping one a tick) while the new scene runs under
 //! it. 16 ticks from the match into the winners' ceremony, 60 from the ceremony into the result page (seen in the
-//! original: `research/b38_transition.py`, `b38_hold.py`).
+//! original: `research/journal/2026-10-12-b38-gameset-dissolve/scripts/b38_transition.py`, `b38_hold.py`).
 //!
 //! The still is a screenshot of the window; the caller waits for it (10 frames at most: no window, no renderer)
 //! before it changes the scene, as `mode::leave`.

@@ -8,8 +8,8 @@ Checked against slot 5 (court 10, bot-only doubles) under PINE. Captures are in 
   newlib `rand()` output when the match is set up.
 - `rand()` is the 64-bit LCG (×0x5851f42d4c957f2d + 1). Its state is 1 at boot and the game never reseeds it. Each
   call returns bits 32..62.
-- `research/p17k_schedule_rec.py` records the `rand()` state, the match seed and the schedule.
-  `research/p17k_seed_search.py` walks the LCG back and tries each earlier output as the MT seed. Slot 5's seed is
+- `research/journal/2026-10-07-p17-court-rendering/scripts/p17k_schedule_rec.py` records the `rand()` state, the match seed and the schedule.
+  `research/journal/2026-10-07-p17-court-rendering/scripts/p17k_seed_search.py` walks the LCG back and tries each earlier output as the MT seed. Slot 5's seed is
   0x28c7c4a1, and its schedule comes out bit-exact (`hst-sim/tests/weather.rs`).
 - `HST_WEATHER_SEED=<hex>` gives the seed directly. Otherwise a clock-picked number of `rand()` steps stands in
   for the menus' calls: those depend on the player's menu input, so there is no single count to port.
@@ -27,7 +27,7 @@ Checked against slot 5 (court 10, bot-only doubles) under PINE. Captures are in 
   - the count at +0;
   - 0x30-byte entries from +0x10, each with the node (u16 at +2), the period (+8), the rate (+0xc), the amp
     (+0x10..0x18) and the name (+0x20).
-- EE side, bit-exact against PINE (`research/p17k_noise_rec.py`, `context/p17k/noise5.txt`):
+- EE side, bit-exact against PINE (`research/journal/2026-10-07-p17-court-rendering/scripts/p17k_noise_rec.py`, `context/p17k/noise5.txt`):
   - wind = madd(0 + 0.2, 0x3db60b61, speed), set at every game. It is 1.0 before the first game.
   - freq = 500 · (1/period).
   - Per frame (dt 1):

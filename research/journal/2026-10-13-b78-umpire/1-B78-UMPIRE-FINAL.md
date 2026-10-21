@@ -15,7 +15,7 @@
 - New `look` system (Update, after `character::animate`): the target in `Bip01Head`'s frame at its *rest* local
   under the posed parent; yaw = clamp(0.7·atan2(y, −z), ±70°) about x, tilt = clamp(0.7·atan2(−x, √(y²+z²)),
   −25°..35°) about y; head local = rotY·rotX·rest (rows). The motion's own head keys are dropped, as the game does.
-- `research/b78_head.py`: pauses slot 5 at 14 moments, reads the head node's model rest local, parent world and
+- `research/journal/2026-10-13-b78-umpire/scripts/b78_head.py`: pauses slot 5 at 14 moments, reads the head node's model rest local, parent world and
   the actor's target, and recomputes the game's stored head local: max error 2–5e-7 in every idle sample
   (`context/b78/head_check.txt`). One sample mid-turn was 0.046 off (likely torn read / the motion player's other
   rest-matrix branch).

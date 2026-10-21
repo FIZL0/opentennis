@@ -20,7 +20,7 @@
   - Projection: fx 1359 per tangent for 320 px, fy 846 for 112 field lines, tan_v 0.1324. The port uses 0.1322.
 
 ## Measurement
-- `research/b31b_rast.py`: a software raster of the dump's five tornado draws into the 640×224 field.
+- `research/journal/2026-10-08-p17q-tornado/scripts/b31b_rast.py`: a software raster of the dump's five tornado draws into the 640×224 field.
   - MODULATE with truncation, bilinear REPEAT, s/t/q screen-linear, Gouraud, Cs·As>>7 add.
   - Textures go in `context/b31b/tex{0,1}.rgba`.
 - The port is frozen at the dump's camera, pose, scale and UVs (a temporary hook, not committed). Its on/off diff is

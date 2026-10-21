@@ -787,7 +787,7 @@ const LANES: i32 = 4;
 /// target in place (each texel the mean of its 2 × 2, 4-bit weights), and the copy of alpha's top nibble into the
 /// texture. The arithmetic is SSE's single floats (round to nearest), as PCSX2's x86 renderer does it.
 ///
-/// ponytail: the draws are taken as the GS receives them (`research/p17v2_fixture.py`); building them from the
+/// ponytail: the draws are taken as the GS receives them (`research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v2_fixture.py`); building them from the
 /// casters' models and light matrices in game floats is P17v7.
 pub fn pass_texture(draws: &[PassDraw]) -> Vec<u8> {
     let mut target = vec![0u8; TARGET * TARGET];

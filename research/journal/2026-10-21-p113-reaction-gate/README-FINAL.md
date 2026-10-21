@@ -9,7 +9,7 @@ the AI's later decisions.
 
 `context/p3d1/view_s05.bin` was gone from every checkout, so `hst-sim` `rng.rs` `reaction_views_like_the_game` and
 `shared_draws_like_the_game` had been passing by skipping. Re-recorded with
-`tools/pcsx2.sh python3 research/p3d1_view.py context/p3d1/view_s05.bin 3650` (slot 5, 1 min). Both tests now run
+`tools/pcsx2.sh python3 research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py context/p3d1/view_s05.bin 3650` (slot 5, 1 min). Both tests now run
 again and pass ("2 in close view, 1 voiced").
 
 ## What the two points are

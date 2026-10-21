@@ -19,7 +19,7 @@ was already in `sound.rs`. Missing were the skull pop-up and the hit's clank.
 - The clank: `hit_sounds` plays slot 9 program 0 key 4 at 0x80. Slot 9 is the system bank `SND/SE/SYS/SYS_SE00.XB`
   (as found for B42). The port had skipped slot 9, so the clank was silent.
 
-Capture: `research/b58_skull_rec.py 5 3000 context/b58/run1` (slot 5, bots).
+Capture: `research/journal/2026-10-13-b58-death-lob/scripts/b58_skull_rec.py 5 3000 context/b58/run1` (slot 5, bots).
 - v8351: player 2 is framed and the effects manager's flag is set; the turtle balloon has been pending since v8350.
 - v8352: the manager remembers player 2.
 - v8353: the skull spawns (kind 7, sprite 12) and fades in (43/86/128). It holds for 30, fades out, and is gone at

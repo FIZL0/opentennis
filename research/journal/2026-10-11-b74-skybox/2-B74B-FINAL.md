@@ -3,7 +3,7 @@
 ## How the shots were taken
 - No menu drive needed: PCSX2 state slot 10 is a beach (court 2) doubles game, slot 7 court 1 (P1 waits for a serve:
   ○ every 1.5 s from `tools/vpad.py` in the same `tools/pcsx2.sh` call), 3 court 4, 5 court 10.
-- `research/b74b_hunt.py slot secs tag [lim] [max]` runs the game until the main view looks level or up (forward y
+- `research/journal/2026-10-07-p17-court-rendering/scripts/b74b_hunt.py slot secs tag [lim] [max]` runs the game until the main view looks level or up (forward y
   at 0x1e7d34 < lim) and has held for a vsync. It then pauses, sends F8 and steps one frame (R1/B63's frame-exact
   recipe), and prints the view (eye 0x1e7d20, forward 0x1e7d30, down 0x1e7d40, tan 0x1e7d64 = `HST_EYE`) plus
   whether it stayed the same across the step.

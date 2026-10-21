@@ -9,7 +9,7 @@
 //!   view's pitch, the half-angle's tangent being 0.7 × the horizontal one's,
 //!
 //! k = tan 20° / tan(half the horizontal fov), at least 1 (a zoomed-in view widens the zone).
-//! Checked frame by frame against the game's own "not drawn" flag over slot 5's matches (`research/b74d_check.py`).
+//! Checked frame by frame against the game's own "not drawn" flag over slot 5's matches (`research/journal/2026-10-11-b74-skybox/scripts/b74d_check.py`).
 //!
 //! The same pass skips any other court object of categories 17–20 the eye is buried in (`buried`): a cut-away
 //! camera standing in a flower bed or bush doesn't show it filling the lens.

@@ -9,13 +9,13 @@ B93, so nothing changed there.
 
 The result object's state 0 → 1 calls a method on the game's one global screen-transition object (pointer at
 `0x1ea5d0`); the page's draw leaves out the bottom bar while it runs and the step takes no input and doesn't count
-the page timer. `research/b38_transition.py` logs the object every vsync (`context/b38/run1`, `run2`): counter +0x8
+the page timer. `research/journal/2026-10-12-b38-gameset-dissolve/scripts/b38_transition.py` logs the object every vsync (`context/b38/run1`, `run2`): counter +0x8
 starts at length + 2 and drops one a tick, length +0xc, 1/length +0x10, running flag +0x14.
 
 - Match → ceremony: length 16 (the same one runs at every camera cut between points).
 - Ceremony → result page: length 60, started 3 ticks before the ceremony clip ends.
 
-`research/b38_hold.py` holds the counter at a value while F8 is taken (`context/b38/hold/t061…t001.png`): it is a
+`research/journal/2026-10-12-b38-gameset-dissolve/scripts/b38_hold.py` holds the counter at a value while F8 is taken (`context/b38/hold/t061…t001.png`): it is a
 dissolve — a still of the last frame before the cut drawn over the live screen at alpha ≈ counter/length, the new
 scene (page, live camera, confetti) running under it.
 

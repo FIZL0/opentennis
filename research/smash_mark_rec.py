@@ -7,8 +7,9 @@ usage: smash_mark_rec.py <slot> <frames> <outdir>"""
 import sys, time, struct, os, subprocess, json
 sys.path.insert(0, "tools")
 from pine import Pine
+from rec import f32_at
 i32 = lambda u: struct.unpack("<i", struct.pack("<I", u))[0]
-f32 = lambda b, o: struct.unpack_from("<f", b, o)[0]
+f32 = f32_at  # the f32 at byte o of b
 p = Pine(); p.load_state(int(sys.argv[1])); time.sleep(2)
 want, out = int(sys.argv[2]), sys.argv[3]; os.makedirs(out, exist_ok=True)
 pid = open(f"{os.environ['XDG_RUNTIME_DIR']}/hst-pcsx2{os.environ.get('HST_PCSX2','')}.pid").read().strip()

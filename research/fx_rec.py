@@ -1,5 +1,8 @@
 """Read tools/record_effects.py captures: yields per frame a dict of the regions (see that script's docstring)."""
 import struct, sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+from rec import samples, vsync, cut
 
 def frames(path):
     d = open(path, "rb").read()
@@ -12,12 +15,8 @@ def frames(path):
         sizes += [(f"m{k}", 0x80), (f"mesh{k}", 0x60), (f"mor{k}", 0x30), (f"mta{k}", 0x30)]
         sizes += [(f"me{k}_{i}", 0x28) for i in range(nm)] + [(f"te{k}_{i}", 0x20) for i in range(nt)] + [(f"tc{k}_{i}", 0x10) for i in range(nt)]
     size = 4 + sum(s for _, s in sizes)
-    while p + size <= len(d):
-        f, q = {"vsync": struct.unpack_from("<I", d, p)[0], "counts": counts}, p + 4
-        for name, s in sizes:
-            f[name] = d[q:q + s]; q += s
-        yield f
-        p += size
+    for s in samples(path, size, p):
+        yield {"vsync": vsync(s), "counts": counts, **cut(s, 4, sizes)}
 
 def F(b, o, n=1): return struct.unpack_from(f"<{n}f", b, o) if n > 1 else struct.unpack_from("<f", b, o)[0]
 def U(b, o): return struct.unpack_from("<I", b, o)[0]

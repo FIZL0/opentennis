@@ -13,7 +13,7 @@ A bot match (chars 6, 1, court 0), with a temporary hack that counted player 0 a
   forced lob (5th frame, path 75). `LandingMarks.smash_at` held the point until the bounce.
 - No other shot (serves, normal hits, smashes, slices; peaks ≤ 2.7 m) placed one.
 
-## Original (`research/b12_lob_mark.py`, slot 4, P1 human pressing △ through `tools/vpad.py`)
+## Original (`research/journal/2026-10-13-b12-lob-marker/scripts/b12_lob_mark.py`, slot 4, P1 human pressing △ through `tools/vpad.py`)
 Two runs of 2400 frames, `context/b12/r1.out` and `r2.out`. P1's lobs (path peaks 3.7–4.2 m) placed **no** marker,
 and neither did any CPU hit after them. The marker is only for a human on the receiving team (N4a's per-slot table:
 CPU slots are −1), so your own lob never shows one.

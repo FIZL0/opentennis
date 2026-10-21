@@ -5,7 +5,7 @@
 - Browser build (WebGPU, `--keep-debug`, no wasm-opt), Chrome with mobile emulation (`MOBILE=1`, 4x CPU throttle),
   `tools/web_check.mjs` with a 10 s CPU profile 30 s into a bots doubles match on stage 1, shadows/msaa off,
   `show-fps-detailed`. Old and new wasm profiled back to back (`context/b357/cmp*-{old,new}`).
-- `research/b357_spikes.py FILE [N]`: cuts a cpuprofile into frames (`App>::update` runs) and lists what the slowest
+- `research/journal/2026-10-14-b357-mobile-dips/scripts/b357_spikes.py FILE [N]`: cuts a cpuprofile into frames (`App>::update` runs) and lists what the slowest
   frames spend beyond a typical one.
 - Natively: temporary diagnostics counting `AssetEvent::Modified` per mesh/material and naming the entities using
   them (removed again).

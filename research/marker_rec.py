@@ -5,6 +5,7 @@ usage: marker_rec.py <slot> <vsyncs>"""
 import sys, time, struct
 sys.path.insert(0, "tools")
 from pine import Pine
+from rec import f32
 
 
 def find(p):
@@ -20,7 +21,7 @@ def find(p):
 
 p = Pine(); p.load_state(int(sys.argv[1])); time.sleep(1)
 gm = p.read32(0x422f80); bm = find(p); hud = p.read32(0x42d6c0)
-f = lambda a: struct.unpack("<f", struct.pack("<I", p.read32(a)))[0]
+f = lambda a: f32(p.read32(a))
 print("cols2", [p.read32(0x43b1f0 + 4 * k) for k in range(6)], "cols4", [p.read32(0x43b210 + 4 * k) for k in range(12)],
       "fov", f(0x1e7d50), "players", p.read32(0x422fa4), "slots", [p.read32(0x422fe8 + 4 * k) for k in range(4)],
       "chars", [p.read32(0x422fa8 + 4 * k) for k in range(4)], "y", [f(bm + 0x72c + 4 * k) for k in range(4)], flush=True)

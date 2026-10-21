@@ -18,7 +18,7 @@
   extended circles still don't overlap (centres 1.7 u apart, radius 0.825 u).
 
 ## Check
-`node tools/web_touch_taps.mjs` (no build, disc or server): headless Chromium with touch, touch.js on a blank page,
+`node research/journal/2026-10-13-b165-touch-taps/scripts/web_touch_taps.mjs` (no build, disc or server): headless Chromium with touch, touch.js on a blank page,
 a stand-in game polling every 200 ms. With the stick held: a 20 ms ✕ tap between polls is seen, the stick stays tilted,
 two fingers keep ✕ down until both lift, a touch 3 px past ✕'s edge hits it. All pass; the previous touch.js fails the
 first, second-finger and edge checks.

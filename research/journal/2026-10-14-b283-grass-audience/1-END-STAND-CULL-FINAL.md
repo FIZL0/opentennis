@@ -18,10 +18,10 @@ hides them while their point fails `crowd_shown` against the drawn camera (any c
 cut-aways, replays). Unit test `crowd_shown_skips_behind_and_too_near`.
 
 ## Checks (screenshots in `context/b283/`)
-- `research/b283_ends.py` (from scratch slot 8, court picker on Queen's): original match-camera eye and screenshot
+- `research/journal/2026-10-14-b283-grass-audience/scripts/b283_ends.py` (from scratch slot 8, court picker on Queen's): original match-camera eye and screenshot
   at both ends (`orig/near|far`). Remaster at those eyes (HST_EYE), cull on/off, 4:3 and 16:9 (`run2/`): matches the
   original by eye at both ends; no stands in frame either way, so the cull makes no visible difference there.
-- `research/b283_glide.py`: original cut-away eye (`glide/g0`, from inside the court towards the side stand) vs the
+- `research/journal/2026-10-14-b283-grass-audience/scripts/b283_glide.py`: original cut-away eye (`glide/g0`, from inside the court towards the side stand) vs the
   remaster at that eye (`run3/g0_on|off.png`): same crowd blocks visible as the original, on = off.
 - HST_EYE framing matched the original only with t = tan(fov/2) unscaled (B211's ×4/3 for PCSX2's 16:9 stretch
   made it too wide); noted for whoever uses HST_EYE next.

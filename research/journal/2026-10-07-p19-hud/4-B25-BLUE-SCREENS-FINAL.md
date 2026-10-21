@@ -7,7 +7,7 @@
 - The end screen itself drew (forced with `HST_STATS`), but Start opened the pause over it (→ blue), and the match
   HUD (panels, team tags, sets/games bars, COM markers, pop-ups) stayed on top of it. The original's result screen
   shows none of them (`context/shots/b25/orig/s1_t125.png`, `page1b.png`, captured with
-  `research/p26b_result_shots.py` on slot 5, team B's games poked to 0 at 3–3 to end it).
+  `research/journal/2026-10-07-p19-hud/scripts/p26b_result_shots.py` on slot 5, team B's games poked to 0 at 3–3 to end it).
 
 ## Fix (`play/menu.rs`, `play/markers.rs`, `play/match_stats.rs`)
 - `menu::Hud` filter: root HUD nodes without the composite (`Without<UiTargetCamera>`), the pause's and the result

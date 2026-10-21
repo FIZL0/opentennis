@@ -76,7 +76,7 @@ fn tornado_s05() {
     assert!(starts > 5 && on > 300);
 }
 
-/// Forced constant ×4 slow motion (`context/fixtures/tornado_slowmo.bin`, `research/p17q_slowmo_rec.py 5`): every
+/// Forced constant ×4 slow motion (`context/fixtures/tornado_slowmo.bin`, `research/journal/2026-10-08-p17q-tornado/scripts/p17q_slowmo_rec.py 5`): every
 /// in-between frame's drawn scale, UV time, alpha, on flag and matrix match the game bit for bit.
 #[test]
 fn tornado_slowmo() {

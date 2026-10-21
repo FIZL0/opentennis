@@ -5,7 +5,7 @@
   degrees is set to the .CAM FOV key × 180/π with no ×2, and its tangent is taken of deg × π/360. The match cameras
   store a half angle and double it, so the .CAM key really is the full vertical angle.
 - **Doubles marks**: correct. Read from a save state at the ceremony's start (slot 8, saved by
-  `research/p26c_ceremony.py 5 context/b246/orig_d 20000 24`): the players' ceremony matrices sit at (0.75, 0, −6.4),
+  `research/journal/2026-10-08-p26-match-stats/scripts/p26c_ceremony.py 5 context/b246/orig_d 20000 24`): the players' ceremony matrices sit at (0.75, 0, −6.4),
   (−0.75, 0, 6.4) turned, (−0.75, 0, −6.4) and (0.75, 0, 6.4) turned, the same as `ceremony::plan`.
 - **Camera path**: the original's camera globals (eye, rows, fov) per frame match `ceremony` `view()` at the same
   clip frame (e.g. ~60 frames in: eye (0.007, −0.508, −2.212), fov 30.24°).

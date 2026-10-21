@@ -22,44 +22,15 @@ File: b"AISV", u32 0, the generator block at the first draw (0x9c8 bytes), then 
 the path at 0x424e90 (0x60 steps of 0x30)."""
 import struct, sys, time
 from pine import Pine
+from rec import R, i, lw, lbu, sw, lui, addiu, ori, j, jr, li, br, assemble
 
 VSYNC, GM_PTR, MT = 0x1d5780, 0x422f80, 0x427130
 CODE, DATA, SNAP, SCRATCH, BUF, END = 0x1e00000, 0x1e07000, 0x1e08000, 0x1e10000, 0x1e20000, 0x1f80000
 PTR, CNT = DATA, DATA + 4
-R = dict(zero=0, v0=2, a0=4, a1=5, a2=6, a3=7, t0=8, t1=9, t2=10, t3=11, t4=12, t5=13, t6=14, t7=15, ra=31)
 REC, PATH = 0x380, 0x1200
 # tag: (address, deref a1/a2/a3, keep mask: 1 draws, 2 returns 0, 4 player +0x3ec4 == 1, 8 state byte changed, path)
 HOOKS = {1: (0x364100, "12", 1 | 4, False), 2: (0x3c8f10, "12", 1 | 4 | 8, False),
          3: (0x3cee70, "12", 1 | 4 | 8, False), 4: (0x360010, "3", 2, True)}
-
-
-def i(op, rs, rt, imm): return op << 26 | R[rs] << 21 | R[rt] << 16 | imm & 0xffff
-def lw(rt, off, rs): return i(0x23, rs, rt, off)
-def lbu(rt, off, rs): return i(0x24, rs, rt, off)
-def sw(rt, off, rs): return i(0x2b, rs, rt, off)
-def lui(rt, imm): return i(0x0f, "zero", rt, imm)
-def addiu(rt, rs, imm): return i(0x09, rs, rt, imm)
-def ori(rt, rs, imm): return i(0x0d, rs, rt, imm)
-def j(a): return 0x02 << 26 | (a >> 2) & 0x3ffffff
-def jr(rs): return R[rs] << 21 | 0x08
-def li(rt, v): return [lui(rt, v >> 16), ori(rt, rt, v & 0xffff)]
-def br(op, rs, rt, label): return ("br", op, rs, rt, label)  # beq 4 / bne 5 to a label; add the delay slot yourself
-
-
-def assemble(base, prog):
-    """Words from a list of ints, branch tuples and label strings."""
-    at, labels = 0, {}
-    for x in prog:
-        if isinstance(x, str): labels[x] = at
-        else: at += 1
-    out = []
-    for x in prog:
-        if isinstance(x, str): continue
-        if isinstance(x, tuple):
-            _, op, rs, rt, label = x
-            x = i(op, rs, rt, labels[label] - len(out) - 1)
-        out.append(x)
-    return out
 
 
 def copy(src, n, at):
@@ -153,7 +124,7 @@ installed = []
 
 def patch(at, stub, build):
     a, b = p.read32(at), p.read32(at + 4)
-    words = assemble(stub, build(a, b))
+    words = assemble(build(a, b))
     assert len(words) * 4 <= 0x800, hex(at)
     for n, w in enumerate(words): p.write32(stub + 4 * n, w)
     # the jump first: until the nop lands its delay slot runs the second instruction twice, which is harmless
@@ -166,7 +137,7 @@ def patch(at, stub, build):
 p.write32(PTR, BUF)
 p.write32(CNT, 0)
 for tag in HOOKS:
-    for n, w in enumerate(assemble(exit_at(tag), leave(tag))): p.write32(exit_at(tag) + 4 * n, w)
+    for n, w in enumerate(assemble(leave(tag))): p.write32(exit_at(tag) + 4 * n, w)
 patch(0x19f5c0, CODE, counter)
 for tag, (at, *_rest) in HOOKS.items():
     patch(at, CODE + 0x1000 * tag, lambda a, b, tag=tag: entry(tag, a, b))

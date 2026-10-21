@@ -1,7 +1,7 @@
 # B42a — title plate and ✕ Skip
 
 - Recorded the plate object per match frame on courts 8 (no skip), 4 (✕ at 100, ✕ at 320 in the banner) and 5
-  (✕ at 5) with `research/b42a_plate_rec.py` (`context/b42a/*.txt`); findings in `plan/B42.md`.
+  (✕ at 5) with `research/journal/2026-10-12-b42-court-intro/scripts/b42a_plate_rec.py` (`context/b42a/*.txt`); findings in `plan/B42.md`.
 - Draw (decompiled): a 640×80 bar from `CourtPreview_00` (176,48,64,80) at alpha 64; the court's
   `CourtPreview_nameNN` at (32,20); the underline in three pieces (16/40/480, y 46); the surface label tinted
   (grass 41,120,25 · clay 114,72,31 · hard 26,100,127); two icon + 4-ball rows at x 192 and 352 (bright 184 up

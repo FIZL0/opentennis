@@ -16,7 +16,7 @@
 
 ## Port
 - `hst_sim::shade::{ground, ball_shadow, ball_shadow_stretch}`; `ball_height` now uses `ground`.
-- Test `shade.rs ball_shadow_matches_the_game`: `context/fixtures/b36_shadow.bin` from `research/b36_shadow_rec.py`
+- Test `shade.rs ball_shadow_matches_the_game`: `context/fixtures/b36_shadow.bin` from `research/journal/2026-10-08-b36-ball-shadow/scripts/b36_shadow_rec.py`
   (HST_LOCKSTEP=1, slot 5, 1500 frames): 1499 bit-exact (137 off court); the first frame has no shadow yet.
 - `crates/hst/src/play/ball_shadow.rs` places it after `draw`, 5×, blended at 0.7.
 

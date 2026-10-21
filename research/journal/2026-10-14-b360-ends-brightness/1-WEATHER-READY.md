@@ -21,7 +21,7 @@ Reproduced: with the schedule forced to `[1,0,…]` (temp `HST_DBG_W`), regions 
 frame. That's about +10 %, in one frame (`context/b360/run3/`, `ab3.png`).
 
 ## The original does the same
-`research/b360_weather_shots.py 5 context/b360/orig1 1 200 600` loads slot 5 (court 10, bot doubles, clear) and
+`research/journal/2026-10-14-b360-ends-brightness/scripts/b360_weather_shots.py 5 context/b360/orig1 1 200 600` loads slot 5 (court 10, bot doubles, clear) and
 writes cloudy into every game of its schedule (gm+0xd8). It then takes shots at load and after the change of ends.
 - Before the change of ends (clear): left edge (113, 117, 82), mid-court (107, 113, 56).
 - After it (cloudy): (101, 106, 75) / (94–96, 100–102, 52–54).

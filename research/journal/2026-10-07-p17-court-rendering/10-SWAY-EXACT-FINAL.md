@@ -17,7 +17,7 @@
 
 ## VU half against a GS dump: matches
 
-- `research/p17m_noise_dump.py` (copy 4, slot 5) finds the deformer objects (vtable 0x1d0cf8; +0x1c phase,
+- `research/journal/2026-10-07-p17-court-rendering/scripts/p17m_noise_dump.py` (copy 4, slot 5) finds the deformer objects (vtable 0x1d0cf8; +0x1c phase,
   +0x20 rate, +0x30 freq, +0x34 prev, +0x40 amp; `**(obj+0x14)` = the NOI entry, re-read every frame by the step at
   0x150700).
   - It sets each entry's rate to 0 and its amp ×30, then takes a GS dump of a single frame. The dump goes to
@@ -26,7 +26,7 @@
     `GSDumpSingleFrame` is now bound to F11.
   - Player 0 is pc00 (deformers s_body on node 1, s_maekami_00 on node 14, pony on node 69). All three had prev =
     phase = 0 (a motion set, with rate 0) before and after the dump.
-- `research/p17m_noise_gs.py` checks the dump against `noidump`'s packets (`hst-data` bin):
+- `research/journal/2026-10-07-p17-court-rendering/scripts/p17m_noise_gs.py` checks the dump against `noidump`'s packets (`hst-data` bin):
   - It finds each packet's run in the last frame by length and kick (ADC) pattern, using the textured pass only:
     the untextured pass is the shadow, and the blended pass repeats the textured one.
   - 93 of pc00's 151 packets are found exactly once.

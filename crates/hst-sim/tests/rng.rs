@@ -1,4 +1,4 @@
-//! The game's random sources against `context/p3b/rng_s05.bin` (research/p3b_rng_rec.py, slot 5; skipped when
+//! The game's random sources against `context/p3b/rng_s05.bin` (research/journal/2026-10-08-p3b-rng/scripts/p3b_rng_rec.py, slot 5; skipped when
 //! absent): from every frame's RAM-dumped generator, `Mt::next` must reach the next frame's state exactly (the
 //! words through every regeneration and the index), or a reseed with one of the `rand()` outputs drawn in between
 //! must: at a new point the shared generator takes the frame's first output and the court's the second
@@ -191,7 +191,7 @@ fn court_draws_like_the_game() {
     eprintln!("{frames} frames from {start}, the point decided at {decided}");
 }
 
-/// The sound manager's generator over a rally against `context/p3e2/sound_s05.bin` (research/p3e2_sound_rec.py 5
+/// The sound manager's generator over a rally against `context/p3e2/sound_s05.bin` (research/journal/2026-10-08-p3e2-sound-draws/scripts/p3e2_sound_rec.py 5
 /// 1600: the effects object, the hit sparks and the generator per frame) and the same run's `rng_s05.bin`: every
 /// frame's draws are the game's, word for word. A stroke flag (effects +0xd4, a byte per player) names the hitter;
 /// a dive (branch 3) throws its ring (10 puffs, two uniforms each: the court is dusty); the hit (a spark burst
@@ -345,7 +345,7 @@ fn ai_draws_like_the_game() {
 /// - the doubles team reactions (`motion::team_reaction`), which must pick the recorded motions
 /// - the reaction voice of a player on their reaction's 5th frame in the post-point camera's close view
 ///   (`sound::reaction_view`, `reaction_voice`, `Voice::react`), from `context/p3d1/view_s05.bin`
-///   (`research/p3d1_view.py`)
+///   (`research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py`)
 #[test]
 fn shared_draws_like_the_game() {
     use hst_sim::replay::{Frame, frames_live};
@@ -367,7 +367,7 @@ fn shared_draws_like_the_game() {
     let chars: Vec<i32> = (0..4).map(|p| at(rng[0].0).global(0x422fa8 + 4 * p)).collect();
     let mut voices = [sound::Voice::default(); 4];
     let Ok(view) = fixture::read(format!("{root}/context/p3d1/view_s05.bin")).map(|d| post_views(&d)) else {
-        return fixture::skip(format_args!("view_s05.bin missing (research/p3d1_view.py), skipped"));
+        return fixture::skip(format_args!("view_s05.bin missing (research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py), skipped"));
     };
     let mut g = rng[0].2.clone();
     // reseeds, placements, tosses, strokes, dives, team reactions, reaction voices
@@ -455,7 +455,7 @@ fn shared_draws_like_the_game() {
     assert_eq!(tally, [2, 2, 2, 13, 1, 1, 1]);
 }
 
-/// One player in a `research/p3d1_view.py` sample.
+/// One player in a `research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py` sample.
 struct PostPlayer {
     /// The reaction's frame count (+0x3ba0).
     count: i32,
@@ -468,7 +468,7 @@ struct PostPlayer {
     handle: i32,
 }
 
-/// A `research/p3d1_view.py` sample: the post-point camera and the four players.
+/// A `research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py` sample: the post-point camera and the four players.
 struct PostView {
     players_n: u32,
     winners: u32,
@@ -480,7 +480,7 @@ struct PostView {
     players: Vec<PostPlayer>,
 }
 
-/// `research/p3d1_view.py`'s samples by vsync.
+/// `research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py`'s samples by vsync.
 fn post_views(d: &[u8]) -> std::collections::HashMap<u32, PostView> {
     const H: usize = 4 + 24 + 0x20 + 0x80 + 8;
     const PL: usize = 0x70;
@@ -510,7 +510,7 @@ fn post_views(d: &[u8]) -> std::collections::HashMap<u32, PostView> {
         .collect()
 }
 
-/// At every reaction's 5th frame of `view_s05.bin` (`research/p3d1_view.py`, three points' ends): a player out of
+/// At every reaction's 5th frame of `view_s05.bin` (`research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py`, three points' ends): a player out of
 /// the post-point camera's close view (`sound::reaction_view`) keeps their voice handle (+0x3d38); one in it has it
 /// cleared, or set when `sound::reaction_voice` gives them a voice.
 #[test]
@@ -518,7 +518,7 @@ fn reaction_views_like_the_game() {
     use hst_sim::sound;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let Ok(d) = fixture::read(format!("{root}/context/p3d1/view_s05.bin")) else {
-        return fixture::skip(format_args!("view_s05.bin missing (research/p3d1_view.py), skipped"));
+        return fixture::skip(format_args!("view_s05.bin missing (research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py), skipped"));
     };
     let views = post_views(&d);
     let (mut seen, mut voiced) = (0, 0);
@@ -543,7 +543,7 @@ fn reaction_views_like_the_game() {
     assert!(seen >= 2 && voiced == 1);
 }
 
-/// The match setup's shared draws against `context/p3d3/setup_ram.bin` (research/p3d3_setup_ram.py over save states
+/// The match setup's shared draws against `context/p3d3/setup_ram.bin` (research/journal/2026-10-08-p3d3-setup-draws/scripts/p3d3_setup_ram.py over save states
 /// of singles and doubles matches on several courts): from the seed whose weather schedule RAM shows (found by
 /// walking `rand()` back from its saved state, past the first point's seed when one was drawn), each player draws
 /// its voice bank (`% 100 >= 70` → b), an AI reseed when it has an AI object and a placement, then the hit sparks'
@@ -559,9 +559,9 @@ fn setup_draws_like_the_game() {
     ) else {
         return fixture::skip(format_args!("setup_ram.bin or the ISO missing, skipped"));
     };
-    // P3f's states (research/p3d3_setup_ram.py --chars: the characters after each record) have players of one
+    // P3f's states (research/journal/2026-10-08-p3d3-setup-draws/scripts/p3d3_setup_ram.py --chars: the characters after each record) have players of one
     // character; p3d3's have none (all-different characters stand in)
-    // P3f4's (research/p3f4_four_of_one.py) have all four players on character 1
+    // P3f4's (research/journal/2026-10-12-p3f4-four-of-one/scripts/p3f4_four_of_one.py) have all four players on character 1
     let same: Vec<u8> = ["p3f", "p3f4"]
         .iter()
         .flat_map(|t| {
@@ -686,8 +686,8 @@ fn rand_draws_like_the_game() {
     assert_eq!(points, 2);
 }
 
-/// The match setup's `rand()` calls against `context/p3f/setup_rand.bin` (research/p3f_setup_seq.py --fixture over
-/// two research/p3f_menu_log.py logs: court 4 doubles, clear): from the match seed, `Rngs::setup_rand` (20 clouds)
+/// The match setup's `rand()` calls against `context/p3f/setup_rand.bin` (research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_setup_seq.py --fixture over
+/// two research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_menu_log.py logs: court 4 doubles, clear): from the match seed, `Rngs::setup_rand` (20 clouds)
 /// must draw the effects seed where the game does, and with the sound manager's second reseed and the intro's
 /// `Rngs::intro_ticks(4)` flare ticks land where the first point's shared reseed draws. Each record holds the state's
 /// low word only: the full state is found by stepping from boot.
@@ -715,7 +715,7 @@ fn setup_rand_like_the_game() {
     assert_eq!(d.len(), 24);
 }
 
-/// The menus' flame against research/p3f_menu_log.py's logs (`context/p3f/menu_c{1,2}.bin`, the same picks at different
+/// The menus' flame against research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_menu_log.py's logs (`context/p3f/menu_c{1,2}.bin`, the same picks at different
 /// timing): every `rand()` call before the match seed is the flame's. From its setup, each port frame must end where a
 /// game frame does, and the last on the seed. A game frame ends where its calls' particle pointer (s0, rising
 /// through the 24) falls back; frames straddle vsyncs, so the vsync can't split them.
@@ -762,7 +762,7 @@ fn menu_flame_draws_like_the_game() {
     }
 }
 
-/// The intro's length per court against `context/p3f2/intro.bin` (research/p3f2_intro_log.py --fixture over 20 logs:
+/// The intro's length per court against `context/p3f2/intro.bin` (research/journal/2026-10-08-p3f2-intro-length/scripts/p3f2_intro_log.py --fixture over 20 logs:
 /// courts 1–11, singles and doubles, clear): from the intro's first flare tick, `Rngs::intro_ticks` flare ticks must
 /// land where the first point's shared reseed draws. Records: court, players, the state's low word at both.
 #[test]
@@ -786,8 +786,8 @@ fn intro_ticks_like_the_game() {
 }
 
 /// The intro's length from its source (the court's camera file and the "Start the match!" banner's animation) against
-/// every length recorded in the game: research/p3f2_intro_log.py (P3f2: courts 1–11 but 3 in doubles and 10 in
-/// singles) and research/p3f6_intro_watch.py (P3f6: court 3 in doubles, court 10 in singles, and courts 2, 5, 6, 7,
+/// every length recorded in the game: research/journal/2026-10-08-p3f2-intro-length/scripts/p3f2_intro_log.py (P3f2: courts 1–11 but 3 in doubles and 10 in
+/// singles) and research/journal/2026-10-12-p3f6-intro-source/scripts/p3f6_intro_watch.py (P3f6: court 3 in doubles, court 10 in singles, and courts 2, 5, 6, 7,
 /// 11 in doubles again; the frame the intro phase ends, + 1).
 #[test]
 fn intro_ticks_from_the_disc() {
@@ -816,7 +816,7 @@ fn intro_ticks_from_the_disc() {
     }
 }
 
-/// Clouds remade at a weather change, against `context/p3f3/run2.bin` (research/p3f3_cloud_log.py: slot 5's
+/// Clouds remade at a weather change, against `context/p3f3/run2.bin` (research/journal/2026-10-12-p3f3-cloud-draws/scripts/p3f3_cloud_log.py: slot 5's
 /// schedule rewritten to rain 3, rain 5, 1, then 0, a point each) and its `.clouds` (the court's cloud list right after
 /// each change). From each new point's shared reseed (the state found from `rng_s05.bin`'s first sample by its
 /// low word), `Rngs::new_point_clouds` with `weather::clouds_remade`'s count must land where the

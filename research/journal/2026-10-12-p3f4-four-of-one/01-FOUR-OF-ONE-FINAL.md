@@ -1,12 +1,12 @@
 # Four of one character
 
-`research/p3f4_four_of_one.py <slot> cross [ms]` loads save slot 2 (doubles character select), walks all four
+`research/journal/2026-10-12-p3f4-four-of-one/scripts/p3f4_four_of_one.py <slot> cross [ms]` loads save slot 2 (doubles character select), walks all four
 cursors onto character 1 (P1 right, 2P left, 3P stays, 4P left left), confirms each and saves the first serve. On
 PCSX2 copy 4 ✕ confirms (○ backs out to the main menu, as on copy 3). The extra wait before the first press shifts
 the menu's draw count, so each run gets a different seed.
 
 Four runs (`context/p3f4/four{0,700,1900,3100}.p2s`, courts 2, 11, 3, 9), read by
-`research/p3d3_setup_ram.py --chars context/p3f4/setup_ram.bin`. Voice banks (1 = b):
+`research/journal/2026-10-08-p3d3-setup-draws/scripts/p3d3_setup_ram.py --chars context/p3f4/setup_ram.bin`. Voice banks (1 = b):
 
 | court | banks   | case |
 |-------|---------|------|

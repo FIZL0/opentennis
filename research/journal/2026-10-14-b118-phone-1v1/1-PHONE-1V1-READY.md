@@ -17,7 +17,7 @@
 
 ## Checks
 - `tools/check.sh -p hst`: 305 passed (new `phone_duo`, `every_page` over the shown tabs, `sideways_hud`).
-- `node tools/web_touch_taps.mjs`: all PASS, incl. "far stick reads screen right/down, near stick left, both ✕ down at
+- `node research/journal/2026-10-13-b165-touch-taps/scripts/web_touch_taps.mjs`: all PASS, incl. "far stick reads screen right/down, near stick left, both ✕ down at
   once".
 - `tools/web_duo.mjs` (new; real disc profile, WebGL2 build): entry → both pick → match; both sticks held at once
   moved both players; sideways HUD with panels at each end; long run (`HST_WEB_MATCH_SECS=1000`, cut by its 1150 s timeout) played 660 s of the match with both pads mashing ✕ and reached 4–4, Deuce; the end/result screen wasn't reached.

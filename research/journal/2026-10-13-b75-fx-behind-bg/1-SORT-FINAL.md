@@ -10,7 +10,7 @@ smaller key was drawn **before** them and painted over by their blended texels (
 flare at the camera), and the `AFTER_SCENE` (+500) effects whenever the backdrop's key went past theirs.
 
 ## The original
-GS dump `context/p17s/s5.gs` (court 10, last frame; `research/p17v_gsprims.py` + a run grouper): the sky is the first
+GS dump `context/p17s/s5.gs` (court 10, last frame; `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v_gsprims.py` + a run grouper): the sky is the first
 draw of the frame (untextured strips, Z constant 0x100 under ZTST GEQUAL), then the court's opaque draws (Z ~0x40xxxx),
 then the cloud quads at Z 0x400–0xad2 (ALPHA 0x44, Z written but at the far end), then the court's blended draws, and
 the effects much later. So the backdrops never cover anything drawn after them.

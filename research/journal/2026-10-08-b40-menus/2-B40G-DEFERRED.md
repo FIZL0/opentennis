@@ -11,7 +11,7 @@ The user moved both out of B40g (2026-10-08: "don't port the rule changes yet, a
 - Weight models: CMN EFFCT.XB0 `data/azuma/chara_eff/weight/{weight, weight_pc05, weight_pc07, weight_pc09_c}`, on
   Bip01RCalf/Bip01LCalf. Attach 0x3bc4b0 / 0x3bcd50, placement 0x3bc930, matrix registration 0x3484d0.
 - Original sub-screen screenshots: context/b40g/{confirm,hover_court,hover_handicap,handicap}.png
-  (`research/b40g_confirm.py` walks save slot 2 → confirm screen, saves scratch slot 9).
+  (`research/journal/2026-10-08-b40-menus/scripts/b40g_confirm.py` walks save slot 2 → confirm screen, saves scratch slot 9).
 
 ## Offbeat Rules (B40g2)
 - Strings 331, 343–346. Option bytes 0x2ef7e2 (rule 1) and 0x2ef7e3 (rule 2); rules 3/4 are placeholders.

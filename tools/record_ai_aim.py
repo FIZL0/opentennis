@@ -14,25 +14,10 @@ reach heights the AI holds its contact against (+8 -> +0xdc/+0xe0/+0xe4) at 0x29
 opponent's hand byte at 0x2ac. At 0x2c0 the generator's block (0x9c8 bytes: state, index at +0x9c4)."""
 import struct, sys, time
 from pine import Pine
+from rec import R, i, lw, lbu, sw, lui, addiu, ori, bne, j, jr, li
 
 VSYNC, STUB, PTR, SAVE, BUF, END = 0x1d5780, 0x1e00000, 0x1e00f00, 0x1e00f10, 0x1e01000, 0x1f80000
 MT, REC = 0x427130, 0xc90
-R = dict(zero=0, v0=2, a0=4, sp=29, ra=31, t0=8, t1=9, t2=10, t3=11, t4=12, t5=13, t6=14)
-
-
-def i(op, rs, rt, imm): return op << 26 | R[rs] << 21 | R[rt] << 16 | imm & 0xffff
-def lw(rt, off, rs): return i(0x23, rs, rt, off)
-def lbu(rt, off, rs): return i(0x24, rs, rt, off)
-def sw(rt, off, rs): return i(0x2b, rs, rt, off)
-def lui(rt, imm): return i(0x0f, "zero", rt, imm)
-def addiu(rt, rs, imm): return i(0x09, rs, rt, imm)
-def ori(rt, rs, imm): return i(0x0d, rs, rt, imm)
-def bne(rs, rt, words): return i(0x05, rs, rt, words)
-def j(a): return 0x02 << 26 | (a >> 2) & 0x3ffffff
-def jr(rs): return R[rs] << 21 | 0x08
-
-
-def li(rt, v): return [lui(rt, v >> 16), ori(rt, rt, v & 0xffff)]
 
 
 def copy(src, n, at):

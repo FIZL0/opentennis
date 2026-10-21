@@ -1,6 +1,6 @@
 # B153 — players and ball under the "Start the Match!" banner (FINAL)
 
-## Original (`research/b153_banner.py`, doubles from slot 2, court 4; log in `context/b153/run1/log.txt`)
+## Original (`research/journal/2026-10-13-b153-banner-pose/scripts/b153_banner.py`, doubles from slot 2, court 4; log in `context/b153/run1/log.txt`)
 - The match's frame counter (gm+0x58) and every player's motion clock run through the whole intro (phase 0), from
   its first frame, not just under the banner. Motion ids the whole time: the server 0x20 (its stance: the ball
   bounce loop, ~52 frames), the receiver and both partners 0 (ready). Positions stay at the serve set-up.

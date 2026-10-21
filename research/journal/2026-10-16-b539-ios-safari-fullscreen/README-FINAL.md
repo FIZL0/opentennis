@@ -16,7 +16,7 @@
 - `#swipe` card (z 15: over the touch pad, under Copy Link's sheet and errors) while the page is at the top: "Swipe up
   for full screen", Add to Home Screen hint, a tap closes it until the phone is turned.
 - B333's `fit()` no longer scrolls back to the top in swipe mode (that would bring the bars back).
-- `tools/web_swipe.mjs`: headless Chromium posing as an iPhone tab / home-screen app / Android checks the page's
+- `research/journal/2026-10-16-b539-ios-safari-fullscreen/scripts/web_swipe.mjs`: headless Chromium posing as an iPhone tab / home-screen app / Android checks the page's
   side (8 PASS).
 
 ## Not verified / not 1:1

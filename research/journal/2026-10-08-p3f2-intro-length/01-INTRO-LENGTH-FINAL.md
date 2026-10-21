@@ -1,7 +1,7 @@
 # The intro's length
 
 ## Recording
-`research/p3f2_intro_log.py <slot> out.bin <vpad route>` hooks rand() as research/p3f_rand_log.py does, drives the menu
+`research/journal/2026-10-08-p3f2-intro-length/scripts/p3f2_intro_log.py <slot> out.bin <vpad route>` hooks rand() as research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_rand_log.py does, drives the menu
 route, presses nothing once the match loads (a press may skip the intro) and prints the court (0x422f90), the players
 and the intro's flare ticks (frame gm+0x58 of the last phase-0 flare tick). On pad copy 5 ✕ confirms, ○ goes back.
 - Doubles: slot 2 → ✕ ×4 (Ashley + the COMs' first picks) → Start → confirm screen (default court 5 for these picks).

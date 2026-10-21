@@ -11,7 +11,7 @@ No. It changes in one frame, the same as the port. Nothing to port.
   whose weight was compiled to a constant, so no fade is left in the code.
 
 ## RAM, frame by frame
-`research/b377_weather_frames.py 5 context/b377/w1b.tsv 1 300` loads slot 5 (court 10, bot doubles, clear). It sets
+`research/journal/2026-10-14-b360-ends-brightness/scripts/b377_weather_frames.py 5 context/b377/w1b.tsv 1 300` loads slot 5 (court 10, bot doubles, clear). It sets
 every game of the schedule (gm+0xd8) to cloudy and logs every frame up to 300 frames after the next change of ends
 (6967 frames, no skipped vsyncs).
 - The court's look fields go from clear `-1 -1 -1 -1 -1 1` to cloudy `178.5 153 102 10 400 0.7` between vsync 8655

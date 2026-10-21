@@ -14,8 +14,8 @@
   it plays. Recorded: the new BGM started at ceremony tick 44 (when the loader thread got to it), held at 0 until
   tick 176, reached 55 at tick 235 and stayed there on the result page (state 1 from tick 330). Leaving the page
   fades it from 55 to 0 over 30 ticks; a rematch reloads the court BGM.
-- Recording: `research/b53_result_music.py 5 …` (SMF slots: slot 5 runs a track whose bytes are `bgmm_10.mid`)
-  and `research/b53_result_volume.py 5 …` (handle volume, director level), slot 5 bots doubles, team 0 poked to
+- Recording: `research/journal/2026-10-12-b53-result-music/scripts/b53_result_music.py 5 …` (SMF slots: slot 5 runs a track whose bytes are `bgmm_10.mid`)
+  and `research/journal/2026-10-12-b53-result-music/scripts/b53_result_volume.py 5 …` (handle volume, director level), slot 5 bots doubles, team 0 poked to
   one game short; logs in `context/b53/`.
 
 ## Port

@@ -55,8 +55,8 @@ fi
 
 # M97: prompt/token/commit counts for the website and donate screen; the ledger keeps transcripts Claude Code deletes
 tools/dev_stats.py >/dev/null
-git add research/dev-stats.json web/stats.json
-git diff --cached --quiet || git commit -q -m "Dev stats for $tag" research/dev-stats.json web/stats.json
+git add web/stats.json
+git diff --cached --quiet || git commit -q -m "Dev stats for $tag" web/stats.json
 
 # B492: every player build drops the dev-only HST_* variables and debug logs (hst's `ship` feature)
 for f in tools/build.sh tools/apk.sh tools/ios-ipa.sh; do

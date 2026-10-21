@@ -8,10 +8,11 @@ last positional play (angle, distance, volume: 3 × i32), u32 n and the n ring c
 between the play and n: effects object +0xb8..+0x100 (0xd0 shot kind, per-player 8-byte records at +0xd8),
 0x422fa0..0x422fc0 (player count, character ids), 0x423040..0x423080 (hitter, hit count), gm+0x340 8 bytes,
 the court marker matrix 8 (*(gm+0xb8) + 0xd130 + 8·0x40, 0x40) and players 0/1 +0x3e90..+0x3fb0.
-With `vel=V,x,y,z` the live ball's velocity is overwritten once right after vsync V (as research/b85_net_rec.py:
+With `vel=V,x,y,z` the live ball's velocity is overwritten once right after vsync V (as research/journal/2026-10-12-b85-net-words/scripts/b85_net_rec.py:
 B598 sends the ball into the net) and only frames from V − 30 on are written."""
 import struct, sys, time
 from pine import Pine
+from rec import u32
 
 VSYNC, GM_PTR, SND_PTR, RING, HEAD = 0x1d5780, 0x422f80, 0x312540, 0x305000, 0x304fc0
 p, want, out = Pine(step=True), int(sys.argv[2]), open(sys.argv[3], "wb")
@@ -50,7 +51,7 @@ while n < want:
     n += 1
     if vel and v == int(vel[0]):
         for k, x in enumerate(vel[1:]):
-            p.write32(ball + 0x130 + 4 * k, struct.unpack("<I", struct.pack("<f", x))[0])
+            p.write32(ball + 0x130 + 4 * k, u32(x))
         print(f"velocity written after vsync {v}", flush=True)
     if n % 1200 == 0: print(n, flush=True)
 print("done", n)

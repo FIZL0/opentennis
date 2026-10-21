@@ -1,7 +1,7 @@
 # B42c — court intro music and sounds (FINAL)
 
 ## Original
-- `research/b42c_sound_rec.py <out> [skip frame]` (under `tools/pcsx2.sh`): from save slot 2 into a doubles match,
+- `research/journal/2026-10-12-b42-court-intro/scripts/b42c_sound_rec.py <out> [skip frame]` (under `tools/pcsx2.sh`): from save slot 2 into a doubles match,
   records every vsync the 8 SMF player slots and the sound driver's command ring beside the match frame, phase and
   mgr+0xd94. `B42C_MUSIC=1` keeps the match music option on (slot 2's save has it off). Runs in `context/b42c/`:
   run1 court 8 (no skip, music off), run2 court 4 (✕ at ~101), run4 court 5 (music on).

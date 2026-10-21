@@ -1,15 +1,14 @@
 """Parser for tools/record_flight.py captures: per frame vsync, fx, flight ribbon, its samples, ball glow, ball,
 court marker 8."""
 import struct
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+from rec import samples, vsync, cut
 
 SIZE = 8 + 0x100 + 0xb0 + 0x320 + 0x70 + 0x290 + 0x40
 
 
 def frames(path):
-    d = open(path, "rb").read()
-    for o in range(0, len(d) - SIZE + 1, SIZE):
-        s = d[o:o + SIZE]
-        a = 8
-        fx, fl, pts, glow, ball, mark = (s[a:a + 0x100], s[a + 0x100:a + 0x1b0], s[a + 0x1b0:a + 0x4d0],
-                                         s[a + 0x4d0:a + 0x540], s[a + 0x540:a + 0x7d0], s[a + 0x7d0:a + 0x810])
-        yield dict(v=struct.unpack_from("<I", s)[0], fx=fx, fl=fl, pts=pts, glow=glow, ball=ball, mark=mark)
+    for s in samples(path, SIZE):
+        yield dict(v=vsync(s), **cut(s, 8, [("fx", 0x100), ("fl", 0xb0), ("pts", 0x320), ("glow", 0x70), ("ball", 0x290),
+                                            ("mark", 0x40)]))

@@ -1,7 +1,7 @@
 # P17b — court fog against the original (confirmation)
 
 ## Check: every fogged vertex of a slot-5 GS dump
-`research/p17b_fog_gs.py context/p17s7/s5.gs context/p17s7/s5.ram` (court 10, slot 5, 4 frames). It reads each
+`research/journal/2026-10-07-p17-court-rendering/scripts/p17b_fog_gs.py context/p17s7/s5.gs context/p17s7/s5.ram` (court 10, slot 5, 4 frames). It reads each
 packed XYZF2 vertex of a PRIM-FGE draw with its F and Q. VU1 sends Q = 1/w, so w = 1/Q. It then recomputes F from the
 court view's fog block in RAM (view 0x1e7d10 +0x520: F far 224.4, F near 255, slope −0.204, intercept 263.16):
 - Court view, F = ⌊max(min(intercept + w·slope, F near), F far)⌋: **84 972 vertices, all exact.**
@@ -19,7 +19,7 @@ interpolates F linearly in screen space and then truncates it. `gs.wgsl` now com
 the 40–190 m ramp. Large ground and backdrop triangles do, and they now shade like the PS2's.
 
 ## Screens
-`context/shots/p17b/c10_0.png` is the original (`research/b74b_hunt.py 5 120 c10 1.0 5`, a held frame; the script
+`context/shots/p17b/c10_0.png` is the original (`research/journal/2026-10-07-p17-court-rendering/scripts/b74b_hunt.py 5 120 c10 1.0 5`, a held frame; the script
 now takes the copy's snaps dir from `HST_PCSX2` and the output dir from `HST_SHOTS`).
 `port_c10.png` is `--stage 10` from the same `HST_EYE`. They show the same view, and the far wall and temple haze
 the same way. The match camera sits about 41 m from the court centre, so the court itself stays at F ≈ 255 in both.

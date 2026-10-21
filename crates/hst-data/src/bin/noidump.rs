@@ -1,5 +1,5 @@
 //! noidump <model.mdl> [<model.mtl>] — every packet's drawn vertices with their position entries, for checking the costume noise
-//! against a GS dump (`research/p17m_noise_gs.py`). Lines: `P material group drawn`, then per drawn vertex
+//! against a GS dump (`research/journal/2026-10-07-p17-court-rendering/scripts/p17m_noise_gs.py`). Lines: `P material group drawn`, then per drawn vertex
 //! `V kick r g b a` (its vertex colour) and per entry `E x y z w node noise nx ny nz` (its normal); with the MTL first `M index r g b a +0x10 +0x14 name mode header-hex` per material.
 fn main() {
     let a: Vec<String> = std::env::args().collect();

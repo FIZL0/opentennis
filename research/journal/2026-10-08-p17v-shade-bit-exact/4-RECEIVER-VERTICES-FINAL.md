@@ -4,7 +4,7 @@
 `shade::receiver_vertex` and `shade::tex_matrix` reproduce every receiver triangle vertex of the court 10 build in
 `context/p17v/cap0.pkl` bit for bit: 31 116 vertices (1 785 unique) across the 16 shadow textures, given the game's
 camera, item and caster light matrices. Test: `tests/shade.rs` `receiver_vertices_match_the_game` on
-`context/p17v/rcv.txt` (made by `research/p17v1_rcv.py`).
+`context/p17v/rcv.txt` (made by `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v1_rcv.py`).
 
 ## The model
 - **XY, Q (VU1, per draw item).** The setup multiplies the item matrix rows by the camera's world → screen matrix VP
@@ -35,7 +35,7 @@ camera, item and caster light matrices. Test: `tests/shade.rs` `receiver_vertice
   and are left out.
 
 ## How it was found
-- **The halt state.** `research/p17v1_halt.py` patches the first tile's read-back loop into a self-branch and saves
+- **The halt state.** `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v1_halt.py` patches the first tile's read-back loop into a self-branch and saves
   state 8. Its EE RAM is kept as `context/p17v/h8/eeMemory.bin`, and the VU1 microprogram listing as `h8/vu1.dis`.
 - **Where S, T come from.** The ST stream in RAM (e.g. positions 0x2c4f80, (s, t, 1, 1) at 0x2c51e0, 38-vertex batches)
   is rebuilt bit for bit from caster 12's L.

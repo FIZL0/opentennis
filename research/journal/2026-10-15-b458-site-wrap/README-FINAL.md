@@ -4,7 +4,7 @@
 whole legend was one unbreakable line and ran past the card ("Reports & se…" cut by the panel). Now the `<p>` is
 `.legend`, a flex-wrap row; each swatch + label stays together (`nowrap` per item) and items wrap onto more lines.
 
-**The rest of the page** (`tools/web_site_wrap.mjs`: headless chromium, web/ served locally, a mod with a very long
+**The rest of the page** (`research/journal/2026-10-15-b458-site-wrap/scripts/web_site_wrap.mjs`: headless chromium, web/ served locally, a mod with a very long
 name and an unbroken source URL put in OPFS; widths 280/320/360/414/600/1024; every element of `#disc` must stay
 inside its panel and the page, no sideways scroll, nothing cut off by an overflow-hidden box; legend must wrap at
 320 px). Against the old CSS/JS it failed at every width; now all pass. Two more fixes it found:
@@ -14,7 +14,7 @@ inside its panel and the page, no sideways scroll, nothing cut off by an overflo
 - At 280 px the Username input + Save (and the Hugging Face rows) ran ~25 px past the Player card: `.rows`' grid
   column is now `minmax(0, 1fr)` and `.r .end` may shrink (`min-width: 0; max-width: 100%`), so the input narrows.
 
-Screenshots: `context/B458/run4/` (storage-/modlist-<width>.png). Run: `node tools/web_site_wrap.mjs [DIR]`.
+Screenshots: `context/B458/run4/` (storage-/modlist-<width>.png). Run: `node research/journal/2026-10-15-b458-site-wrap/scripts/web_site_wrap.mjs [DIR]`.
 
 ## Not verified / not 1:1
 - The game's own boot/error screen (`#boot`, index.html) isn't covered by the script; its error text already wraps

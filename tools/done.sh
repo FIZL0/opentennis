@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Wrap a task up in one call (no subagent): tools/done.sh <ID> "<commit message>" [--blocked "<why + what unblocks>" | --spec] [-- <paths>]
-# Runs tools/audit.sh (no retail addresses), tools/patches.py (third_party/ documented), the tests and the sim's float lint; passing: ticks <ID> (moves it to plan/DONE.md) or, with --blocked, marks it [~]; then commits
+# Runs tools/audit.sh (no retail addresses), tools/patches.py (third_party/ documented), the tests and the sim's float lint; passing: ticks <ID> (moves it to plan/DONE.md, its research/<id>_* probes into its journal) or, with --blocked, marks it [~]; then commits
 # everything (in a worktree) or only plan/ + <paths> (main checkout, where other sessions' edits sit). Failing: nothing is ticked or committed.
 # --spec (clean-room ports, PLAN.md): the session wrote or questioned the task's SPEC.md; audit, commit as "<ID> spec: …"
 # without ticking, so the task stays open for its next phase (the runner may start it again the same night).
@@ -24,5 +24,7 @@ out=$(cargo clippy -q --locked --workspace --all-targets --message-format=short 
   echo "CLIPPY FAILED (same as CI's: cargo clippy --workspace --all-targets -- -D warnings)"; exit 1; }
 export HST_CTX_NOCOMMIT=1  # the tick goes into the commit below
 if [ $# = 4 ]; then tools/ctx.py block "$1" "$4"; else tools/ctx.py tick "$1"; fi || exit 1
+# T6: a done task's probes (research/<id>_*.py) move into its journal's scripts/ (the main checkout commits only <paths>)
+[ $# = 2 ] && [ -z "$main" ] && { tools/probes.py "$1" || exit 1; }
 if [ "$main" ]; then git add -- "${paths[@]}" && git commit -qm "$2" -- plan/TODO.md plan/DONE.md "${paths[@]}"
 else git add -A && git commit -qm "$2"; fi && rm -f .cleanroom && git log -1 --oneline

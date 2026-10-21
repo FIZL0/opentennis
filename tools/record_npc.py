@@ -19,21 +19,17 @@ HST_GM=1 appends the match object *(0x422f80) (0x360: +0x54 phase, +0x344 replay
 HST_BYTE="<sample>:<k>:<offset>:<value>;..." sets a byte of creature k after that sample.
 HST_REPLAY=<sample> forces an instant replay of the first point over from that sample on (as tools/record_foot.py)."""
 import os, subprocess, struct, sys, time, zipfile
-from pine import Pine
+from pine import Pine, state_file
+from rec import u32
 
 VSYNC, GM_PTR, WALKER = 0x1d5780, 0x422f80, 0x1d1de0
-STATES = "/home/ryha/Emulation/saves/ps2/states/SCUS-97610 (72326E67).%02d.p2s"
-if os.environ.get("HST_PCSX2"):  # parallel runs: copy N's own states (tools/pcsx2-hst.sh)
-    common = subprocess.check_output(["git", "-C", os.path.dirname(__file__), "rev-parse", "--path-format=absolute",
-                                      "--git-common-dir"], text=True).strip()
-    STATES = f"{os.path.dirname(common)}-slots/pcsx2/s{os.environ['HST_PCSX2']}/PCSX2/sstates/" + os.path.basename(STATES)
 slot, want, out = int(sys.argv[1]), int(sys.argv[2]), open(sys.argv[3], "wb")
 prox = sys.argv[4:] == ["prox"]
 if sys.argv[4:] in (["trig"], ["prox"]):
     WALKER, SIZE, CTRL = 0x1d2180, 0x290, 0x5c
 else:
     SIZE, CTRL = 0x310, 0x60
-ram = zipfile.ZipFile(STATES % slot).read("eeMemory.bin")
+ram = zipfile.ZipFile(state_file(slot)).read("eeMemory.bin")
 walkers = [a for a in range(0x100000, len(ram), 4) if struct.unpack_from("<I", ram, a)[0] == WALKER]
 out.write(struct.pack(f"<I{len(walkers)}I", len(walkers), *walkers))
 
@@ -109,6 +105,6 @@ while n < want:
                 mx, my, mz = struct.unpack("<3f", struct.pack("<3I", *(p.read32(src + 0x60 + 4 * c) for c in range(3))))
                 x, y, z = x + mx, y + my, z + mz
             for c, val in enumerate((x + dx, y, z + dz)):
-                p.write32(walkers[k] + 0x1e0 + 4 * c, struct.unpack("<I", struct.pack("<f", val))[0])
+                p.write32(walkers[k] + 0x1e0 + 4 * c, u32(val))
     if n % 1200 == 0: print(n, flush=True)
 print("done", n)

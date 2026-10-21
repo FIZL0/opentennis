@@ -370,7 +370,7 @@ fn rally_aims_pulled_inside_like_the_game() {
     }
 }
 
-/// P5: the game's own swings off P1's recorded pad (`research/p5_input_rec.py`, slot 4: ✕ held for seconds, two and
+/// P5: the game's own swings off P1's recorded pad (`research/journal/2026-10-08-p5-shot-input/scripts/p5_input_rec.py`, slot 4: ✕ held for seconds, two and
 /// three buttons on one frame, double taps, d-pad diagonals). Every swing the game starts (the stroke countdown
 /// +0x3ec4 leaving −1) comes on a frame `press_kind` reads a press, with its shot code (+0x3ee4: 1 ✕, 2 ○, 4 △);
 /// a button held on gives none.

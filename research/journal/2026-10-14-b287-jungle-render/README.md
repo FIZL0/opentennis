@@ -4,7 +4,7 @@ User report (2026-10-14): far-side shadows vanish, extra grass clips through the
 
 ## Method
 - Original: scratch slot 8 = court 8 doubles at the first serve (near end), slot 9 = the same match after the change of
-  ends (far end), via `research/b287_shots.py`. Screenshots plus the view (eye/forward/down/tan) read from the camera
+  ends (far end), via `research/journal/2026-10-14-b287-jungle-render/scripts/b287_shots.py`. Screenshots plus the view (eye/forward/down/tan) read from the camera
   in RAM, also 6 low cut-away views from slot 9. Images in `context/b287/run1..run4/`.
 - Remaster: `tools/shot.sh` with `HST_EYE` set to the same views and `HST_WEATHER=0` (clear, as the original's
   match). **Compare at 16:9** (`HST_SIZE="1348 758"`, no `--4x3`): the original's screenshots are a true 16:9 view,

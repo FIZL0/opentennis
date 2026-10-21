@@ -13,8 +13,8 @@ presses: if the human *could* reach it, the CPU leaves it. A human who stands st
 reach loses the point with the CPU watching. That is the behaviour the user saw, and it is the original's.
 
 ## What was checked against the original (PCSX2 copy 3, slot 3: chars 6/4/3/11, court 4, P1 human idle)
-- `research/b574_idle_partner.py <slot> <frames>`: P1 idle (taps ○ only to serve); counts the partner's follows on
-  opponents' shots and points lost unreturned while following. `research/b574_trace.py <slot> <frames>`: per-frame
+- `research/journal/2026-10-19-b574-partner-ai/scripts/b574_idle_partner.py <slot> <frames>`: P1 idle (taps ○ only to serve); counts the partner's follows on
+  opponents' shots and points lost unreturned while following. `research/journal/2026-10-19-b574-partner-ai/scripts/b574_trace.py <slot> <frames>`: per-frame
   trace of the partner's substate/follow/fresh/defer/chase, P1's record and search state, positions, the ball, and
   P1's facing/stamina/tick/run/velocity/move state. Port side: the same trace from a 1-human app run (the probe is
   kept outside git, `context/b574/probe.rs`).

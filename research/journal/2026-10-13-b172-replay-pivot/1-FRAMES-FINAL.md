@@ -40,7 +40,7 @@ got the wrong subject:
   - 1, 113, 114, 120 and the rest: identity.
 
 ## Check
-- `research/b172_frames.py` recorded slot 5's match-point replay into `context/b172/run1`, `run2` and
+- `research/journal/2026-10-13-b172-replay-pivot/scripts/b172_frames.py` recorded slot 5's match-point replay into `context/b172/run1`, `run2` and
   `context/fixtures/replay_frames_s05.bin`. Each sample has the table, the recorder's role words and the
   camera's eye and look.
   - Frame by frame, every frame above matches the rule written here. Examples: 120, 113 and 114 at identity; 5 at

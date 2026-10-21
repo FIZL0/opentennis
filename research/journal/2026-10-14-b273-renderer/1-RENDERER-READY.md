@@ -17,8 +17,8 @@
   webgpu)`, so the value is kept across the reload. The screenshot shows the row and its description fitting.
 
 ## (2) What caps WebGL2 at 60 on the phone: no cap in the build
-Frame times measured with `tools/web_check.mjs` (frames2.json, summed by `research/b273_frames.py`) and CPU profiles
-(new `WEB_CPUPROFILE=s:n` → `visit2.cpuprofile`, summed by bucket by `research/b273_profile.py`). Setup: a match
+Frame times measured with `tools/web_check.mjs` (frames2.json, summed by `research/journal/2026-10-14-b273-renderer/scripts/b273_frames.py`) and CPU profiles
+(new `WEB_CPUPROFILE=s:n` → `visit2.cpuprofile`, summed by bucket by `research/journal/2026-10-14-b273-renderer/scripts/b273_profile.py`). Setup: a match
 (`?play&stage=1`, 3 COM + 1P), headless Chromium on the desktop GPU (RX 9070 XT), `--disable-frame-rate-limit
 --disable-gpu-vsync`, so frames run as fast as the page can make them:
 

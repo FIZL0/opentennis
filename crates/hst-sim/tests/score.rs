@@ -598,7 +598,7 @@ fn match_points() {
     assert_eq!(tb.match_point(&r), Some(0));
 }
 
-/// Live toss recordings (`research/p3d4_serve_call.py`, context/p3d4, skipped when absent): slot 5's doubles serve
+/// Live toss recordings (`research/journal/2026-10-08-p3d4-serve-call/scripts/p3d4_serve_call.py`, context/p3d4, skipped when absent): slot 5's doubles serve
 /// with the server's team put at match point, left as is, the receivers at match point; slot 8's singles serve at
 /// match point. On a strong toss (kind 1) at the server's team's match point the server's partner (doubles) or the
 /// server (singles) sets its call flag and the shared generator draws once more; otherwise nothing.

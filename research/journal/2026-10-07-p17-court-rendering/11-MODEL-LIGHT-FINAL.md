@@ -15,9 +15,9 @@
   = (0.59529, 0.57906, 0.57906); same direction as the court's (the sun).
 
 ## Checked against the game
-- `research/p17s_capture.py` (slot 5, light block read before and after an F11 GS dump: `context/p17s/s5.gs`, `.png`).
+- `research/journal/2026-10-07-p17-court-rendering/scripts/p17s_capture.py` (slot 5, light block read before and after an F11 GS dump: `context/p17s/s5.gs`, `.png`).
 - `noidump <mdl> <mtl>` now prints materials (`M`), vertex colours (`V`) and normals (`E … nx ny nz`);
-  `research/p17s_light_gs.py dump model.txt` matches the model's packets and prints GS colour / (vc × material).
+  `research/journal/2026-10-07-p17-court-rendering/scripts/p17s_light_gs.py dump model.txt` matches the model's packets and prints GS colour / (vc × material).
 - Court structures: min ratio 0.62–0.63 → ambient 0.638 (court light). Characters: min 0.600/0.583; ball: min
   0.6016/0.5859, max 1.094 → the model ambient 0.5953/0.579, not the court's.
 - `gs::model_light` reproduces the RAM values from envir c10's row (test `model_light_row`).

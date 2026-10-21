@@ -1,7 +1,7 @@
 # B24d court 4's passing ball, routes 1–3 against recordings — FINAL
 
 ## Recording
-- `research/b24d_ends.py 3 9`: slot 3 (court 4, P1 human + 3 bots, 0-0) with ○ every 1.5 s until game 1 ends;
+- `research/journal/2026-10-08-b24-court-events/scripts/b24d_ends.py 3 9`: slot 3 (court 4, P1 human + 3 bots, 0-0) with ○ every 1.5 s until game 1 ends;
   scratch slot 9 saved there (state 3, change of ends next, ball not yet played).
 - The roll can't be varied through the court generator's index: entering state 1 (message 0xe) the court MT is
   reseeded from newlib `rand()` (P3b), so every load rolled the same (no play). `b24_rec15.py -9 700 out.bin <lcg>`

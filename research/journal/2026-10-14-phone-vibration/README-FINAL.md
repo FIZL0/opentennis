@@ -15,7 +15,7 @@ Vibration, sent by `web::touch_pads`). Here's why it was never felt:
   `vibration_about`): Android shows "not while the ringer is on Silent", iPhone shows "Safari has no vibration:
   iOS 18's haptic tick instead, nothing on older iOS", and any other browser shows "can't vibrate here".
 
-Check: `node tools/web_vibrate.mjs` (headless Chromium, touch.js alone). A ✕ tap calls `vibrate(15)` with the
+Check: `node research/journal/2026-10-14-phone-vibration/scripts/web_vibrate.mjs` (headless Chromium, touch.js alone). A ✕ tap calls `vibrate(15)` with the
 setting on and doesn't with it off. With an iPhone user agent and no `vibrate`, it flips the switch instead, and the
 click never reaches the page. All 7 checks pass.
 

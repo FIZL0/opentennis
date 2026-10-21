@@ -7,10 +7,10 @@ Live probe from the menus into a new match, on PCSX2 copy 4 (HST_REALTIME, 0.25 
   saved on the Confirm Settings screen ("Start the match!" under the cursor) to scratch slots 8 (singles: Ashley vs
   COM Cody, North Academy clay) and 9 (doubles: Ashley + COM Jun vs COM Cody + COM, Queen's grass). On this copy ✕
   confirms and ○ goes back (REFERENCE says ○ confirms: not on copy 4's pad mapping).
-- `research/p11m1_setup_probe.py <name> <slot> [follow s]` loads the slot, presses ✕ and polls (PINE, as fast as it
+- `research/journal/2026-10-19-p11m1-setup-order/scripts/p11m1_setup_probe.py <name> <slot> [follow s]` loads the slot, presses ✕ and polls (PINE, as fast as it
   goes) the AI generator and the shared generator (pointer at the match object +0x80: it's a pointer, not the
   object — reading +0x80 as the generator gave nonsense on the first try) at every change, until player 0 can serve.
-- `research/p11m1_setup_order.py <name>` replays the shared generator from its seed (word 0 when first seen fresh)
+- `research/journal/2026-10-19-p11m1-setup-order/scripts/p11m1_setup_order.py <name>` replays the shared generator from its seed (word 0 when first seen fresh)
   and names the shared draw each AI reseed took. Captures: `context/p11m1/{singles2,singles3,doubles1}.json`.
 
 ## Result (shared draws, 0-based, after the seed)

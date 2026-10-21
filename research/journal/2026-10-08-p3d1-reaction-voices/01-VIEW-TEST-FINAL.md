@@ -20,10 +20,10 @@ F: 0x1e7ff0[0][0] · tan(0x1e7d50/2 in degrees) = 240.00 on every frame checked,
 
 ## Recorder
 
-`research/p3d1_view.py <out> <frames>` loads slot 5, steps lock-step and writes each frame's vsync, players,
+`research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py <out> <frames>` loads slot 5, steps lock-step and writes each frame's vsync, players,
 winning side, replay flag, eye, look, view and projection matrices, fov, and per player +0x3ba0, +0x3fa4,
 +0x3db0, +0x12b8, +0x17e0, +0x3d70, the origin, +0x3d38 and +0x3b64 (layout in `tests/rng.rs` `post_views`).
-`tools/pcsx2.sh python3 research/p3d1_view.py context/p3d1/view_s05.bin 3650`: vsync 7572–11221, contiguous.
+`tools/pcsx2.sh python3 research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py context/p3d1/view_s05.bin 3650`: vsync 7572–11221, contiguous.
 
 ## Three point ends
 

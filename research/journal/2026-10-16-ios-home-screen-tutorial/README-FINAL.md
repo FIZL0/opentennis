@@ -10,7 +10,7 @@ Detection (`web/site.js` `homeScreen`): iPhone/iPod in the UA, or an iPad (its o
 with touch points); Safari = `Safari/` + `Version/` and none of CriOS/FxiOS/EdgiOS/OPiOS/GSA/DuckDuckGo/Brave/…
 (in-app views carry no `Safari/`); not when `navigator.standalone` or display-mode standalone/fullscreen.
 
-Check: `node tools/web_a2hs.mjs` (headless chromium, UA + touch + `navigator.standalone` overrides): shown for iPhone
+Check: `node research/journal/2026-10-16-ios-home-screen-tutorial/scripts/web_a2hs.mjs` (headless chromium, UA + touch + `navigator.standalone` overrides): shown for iPhone
 and iPad Safari, hidden for the home-screen app, Chrome/Firefox on iOS, an in-app view, Mac Safari, Android Chrome,
 and after Got it (also after a reload); nothing past the screen's edge at 390 px. Screenshots in `context/M123/`.
 

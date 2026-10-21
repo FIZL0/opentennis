@@ -1,9 +1,9 @@
 # P17v3 — the receiver pass, bit for bit with PCSX2 SW
 
-`research/p17v_gssim.py` now equals `context/p17v/cap0.red` on all 4 tiles the dump holds (0 reds differ, was
+`research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v_gssim.py` now equals `context/p17v/cap0.red` on all 4 tiles the dump holds (0 reds differ, was
 157 / 14 / 552 on tiles 1–3). The model is ported as `shade::receiver_tile`; test
 `hst-sim/tests/shade.rs` `receiver_tiles_match_the_game` (fixture `context/p17v/rcv_pass.txt` from
-`research/p17v3_fixture.py context/p17v/cap0.gs context/p17v/cap0.pkl context/p17v/cap0.red context/p17v/rcv_pass.txt`,
+`research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v3_fixture.py context/p17v/cap0.gs context/p17v/cap0.pkl context/p17v/cap0.red context/p17v/rcv_pass.txt`,
 run from `research/`).
 
 ## What it was

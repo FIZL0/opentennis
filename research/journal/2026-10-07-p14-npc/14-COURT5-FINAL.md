@@ -31,9 +31,9 @@ count, on flag, UV frame, level, direction.
   matrix and `draw_crowd` sets each material's UV offset to its track's key at the creature's frame.
 
 ## Proof
-`research/p14d_record.py` (drives slot 2's menu to a doubles match on court 5, P1 pressing ○ every 80 samples):
+`research/journal/2026-10-07-p14-npc/scripts/p14d_record.py` (drives slot 2's menu to a doubles match on court 5, P1 pressing ○ every 80 samples):
 `context/p14d/run1/c5.bin`, 5000 frames from the intro, 6 of the creatures (the recorder stopped looking once it had
-six), the phase, instant-replay byte, result kind, call and MT each frame. `research/p14d_dump.py` prints it.
+six), the phase, instant-replay byte, result kind, call and MT each frame. `research/journal/2026-10-07-p14-npc/scripts/p14d_dump.py` prints it.
 `tests/npc.rs court5_crowd_like_the_game`: every consecutive pair of samples, from the earlier sample's state, the
 port reproduces all six creatures' tick, on, frame, level and direction bit for bit (9444 creature ticks; the
 phase's message comes before the tick; a frame with two game ticks steps twice; frames the objects weren't ticked

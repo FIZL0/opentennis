@@ -164,7 +164,7 @@ lock, licences kept, and none can be dropped yet (wgpu 30.0.1 still has the B328
   in 46, `sys.path.insert` for pine in 156 → one `tools/hook.py`.
 - **Shell:** 16/33 scripts lack `set -e`. Unbounded waits: `tools/check.sh:13` (forever `sleep 5` for a slot — combines
   badly with the known sccache-inherited flock), `tools/pcsx2.sh` (`flock` without `-w`), `tools/single.sh:56`.
-- No decompiled C, images, binaries or secrets tracked. `research/p7c_tparam_map.py` hardcodes Ghidra names as
+- No decompiled C, images, binaries or secrets tracked. `research/journal/2026-10-07-p7-movement/scripts/p7c_tparam_map.py` hardcodes Ghidra names as
   patterns (parses the dump; fine but notable).
 
 ## 9. Plan, journal and docs drift

@@ -17,7 +17,7 @@
 
 ## Recording
 
-`research/p5_input_rec.py` drives the virtual pad on a frame-counted schedule in slot 4, with P1 human. It wrote 1800 frames with no gaps to `context/p5/presses.bin`, which is also copied to `context/fixtures/p5_presses_s04.bin`. Findings:
+`research/journal/2026-10-08-p5-shot-input/scripts/p5_input_rec.py` drives the virtual pad on a frame-counted schedule in slot 4, with P1 human. It wrote 1800 frames with no gaps to `context/p5/presses.bin`, which is also copied to `context/fixtures/p5_presses_s04.bin`. Findings:
 
 - ✕ held for 180 frames gives one swing, at the edge. No new swing comes while it is held, even after the action returns to 0.
 - ○+△ gives code 2. All three buttons give code 1.

@@ -1309,7 +1309,7 @@ fn clouds(
         let fade = hst_sim::clouds::fade(k);
         for (c, base) in children.iter().zip(&v.1) {
             // VU1 (flag bit 0): A = vc.a·mat.a·fade, highlight 0; the weather tint scales the light colour, the same
-            // product (court 10 GS dump, research/p17s7_cloud_gs.py)
+            // product (court 10 GS dump, research/journal/2026-10-07-p17-court-rendering/scripts/p17s7_cloud_gs.py)
             if let Some(mut m) = parts.get(c).ok().and_then(|m| materials.get_mut(&m.0)) {
                 m.uniform.color = (base.truncate() * tint).extend(base.w * fade);
             }

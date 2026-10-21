@@ -14,8 +14,8 @@ Ball draw, 0x37a7a0 (the ball object at b):
   texture alpha is scaled; with HIGHLIGHT2 the port drew a solid black disc.
 
 Ported: `shade::half_fov_tan` / `ball_scale` / `ball_outline` (hst-sim), test `ball_scale_and_outline_match_the_game`
-on `context/fixtures/b36b_ball.bin` (900 lock-step frames, slot 5, `research/b36b_ball_rec.py`, 183 grown) — bit-exact.
+on `context/fixtures/b36b_ball.bin` (900 lock-step frames, slot 5, `research/journal/2026-10-08-b36-ball-shadow/scripts/b36b_ball_rec.py`, 183 grown) — bit-exact.
 `play/ball_shadow.rs` places them; courts without a sun-shade map take the match world's ground.
 
 Screenshots (context/b36b): orig_510.png vs port3_11.png — shadow centre ≈0.4× grass, soft edge in both; ball with
-dark rim in both (cmp3.png, cmp_ball.png). `research/b36b_shot.sh n out.png` takes an original shot n frames after slot 5.
+dark rim in both (cmp3.png, cmp_ball.png). `research/journal/2026-10-08-b36-ball-shadow/scripts/b36b_shot.sh n out.png` takes an original shot n frames after slot 5.

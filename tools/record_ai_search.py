@@ -21,48 +21,16 @@ File: b"AISR", u32 0, the generator block at the first draw (0x9c8 bytes), then 
 each) at 0x260."""
 import struct, sys, time
 from pine import Pine
+from rec import R, i, lw, lbu, sw, lui, addiu, ori, sll, addu, sltu, j, jr, li, br, assemble
 
 VSYNC, GM_PTR, MT = 0x1d5780, 0x422f80, 0x427130
 CODE, DATA, SNAP, SCRATCH, BUF, END = 0x1e00000, 0x1e07000, 0x1e08000, 0x1e10000, 0x1e30000, 0x1f80000
 PTR, CNT = DATA, DATA + 4
 D = DATA & 0xffff  # t4 = DATA >> 16 << 16 in the stubs: DATA words are at t4 + D + off
-R = dict(zero=0, at=1, v0=2, v1=3, a0=4, a1=5, a2=6, a3=7, t0=8, t1=9, t2=10, t3=11, t4=12, t5=13, t6=14, t7=15,
-         t8=24, t9=25, sp=29, ra=31)
 ARGS = ["a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3"]
 REC, FLAGS = 0x260, 0x427050
 # tag: (address, the out pointers' argument numbers: stand, ball, frames, index)
 HOOKS = {1: (0x360150, (3, 4, 5, 6)), 2: (0x360910, (4, 5, 6, 7))}
-
-
-def i(op, rs, rt, imm): return op << 26 | R[rs] << 21 | R[rt] << 16 | imm & 0xffff
-def lw(rt, off, rs): return i(0x23, rs, rt, off)
-def lbu(rt, off, rs): return i(0x24, rs, rt, off)
-def sw(rt, off, rs): return i(0x2b, rs, rt, off)
-def lui(rt, imm): return i(0x0f, "zero", rt, imm)
-def addiu(rt, rs, imm): return i(0x09, rs, rt, imm)
-def ori(rt, rs, imm): return i(0x0d, rs, rt, imm)
-def sll(rd, rt, sa): return R[rt] << 16 | R[rd] << 11 | sa << 6
-def addu(rd, rs, rt): return R[rs] << 21 | R[rt] << 16 | R[rd] << 11 | 0x21
-def sltu(rd, rs, rt): return R[rs] << 21 | R[rt] << 16 | R[rd] << 11 | 0x2b
-def j(a): return 0x02 << 26 | (a >> 2) & 0x3ffffff
-def jr(rs): return R[rs] << 21 | 0x08
-def li(rt, v): return [lui(rt, v >> 16), ori(rt, rt, v & 0xffff)]
-def br(op, rs, rt, label): return ("br", op, rs, rt, label)  # beq 4 / bne 5; add the delay slot yourself
-
-
-def assemble(prog):
-    at, labels = 0, {}
-    for x in prog:
-        if isinstance(x, str): labels[x] = at
-        else: at += 1
-    out = []
-    for x in prog:
-        if isinstance(x, str): continue
-        if isinstance(x, tuple):
-            _, op, rs, rt, label = x
-            x = i(op, rs, rt, labels[label] - len(out) - 1)
-        out.append(x)
-    return out
 
 
 def copyn(src, nreg, at):

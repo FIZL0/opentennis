@@ -20,6 +20,7 @@ set: the replay's recorded stick, not the live pad) are never kept.
 Usage: record_aim.py <slot> <out.bin> <aims> [max frames]. A PCSX2 copy runs at 1x; the user's own PCSX2: run it slowed (NominalScalar 0.25)."""
 import os, struct, sys, time
 from pine import Pine
+from rec import f32
 from vpad import FIFO
 
 VSYNC, GM_PTR = 0x1d5780, 0x422f80
@@ -39,7 +40,6 @@ AHEAD = float(os.environ.get("AIM_AHEAD", "0.8"))  # the contact point in front 
 LEADS = [float(x) for x in os.environ.get("AIM_LEAD", "8,5,8,11").split(",")]
 
 def s32(v): return struct.unpack("<i", struct.pack("<I", v))[0]
-def f32(v): return struct.unpack("<f", struct.pack("<I", v))[0]
 
 pad = os.open(FIFO, os.O_RDWR)
 def send(*cmds): os.write(pad, ("\n".join(cmds) + "\n").encode())

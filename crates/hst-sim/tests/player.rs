@@ -283,7 +283,7 @@ fn pelvis_table_from_disc() {
 /// (character 6) and as Kaito (character 3: his speed and agility written into player 0, Carol's body and pelvis
 /// rows kept). Stats from TParam.csv; every play-state frame stepped from the previous simulated frame (resynced
 /// only when the play state starts), position, velocity, motion and facing bit-exact. Then all 14 characters as P1
-/// with their own bodies (`research/p7b_record.py`: picked on the doubles character select, whose P1 has the
+/// with their own bodies (`research/journal/2026-10-07-p7-movement/scripts/p7b_record.py`: picked on the doubles character select, whose P1 has the
 /// "switch hand" toggle on, so each plays with the hand opposite to TParam's), each with its own dumped pelvis rows.
 /// Last the human player 0 of `1p3goodcpus.bin`: Carol left-handed, against three CPUs, pelvis rows from its RAM.
 #[test]
@@ -541,7 +541,7 @@ fn reach_stats_from_tparam() {
 
 /// The server's baseline walk before the toss (play state 1): Carol in slot 4's next serve, walked by a vpad
 /// script (far and centre-mark limits, partial stick, dead square, diagonals, d-pad), and the same with her hand
-/// poked to −1 (`research/p7d_record.py`); then the left-handed human Carol's serves in `1p3goodcpus.bin`. Position and
+/// poked to −1 (`research/journal/2026-10-07-p7-movement/scripts/p7d_record.py`); then the left-handed human Carol's serves in `1p3goodcpus.bin`. Position and
 /// motion bit-exact every frame.
 #[test]
 fn serve_walk_replay() {
@@ -583,7 +583,7 @@ fn serve_walk_replay() {
     }
 }
 
-/// `research/p7f_record.py 5 3000` (slot 5, all four players computer): per frame the stick bytes the AI left at
+/// `research/journal/2026-10-07-p7-movement/scripts/p7f_record.py 5 3000` (slot 5, all four players computer): per frame the stick bytes the AI left at
 /// +0x17d4, the position, run target, motion/stamina/run, velocity, play state/mode and the AI object.
 struct BotFrame {
     phase: u8,
@@ -784,7 +784,7 @@ fn serve_follow_through() {
 }
 
 /// A computer server's stick through its follow-through (`ai_serve_stick`), frame by frame against a lock-step
-/// capture of the original (`serve_ai.bin`, research/b27b/serve_ai_step.py over new_recording): per frame the
+/// capture of the original (`serve_ai.bin`, research/journal/2026-10-08-b27-after-hit/scripts/b27b/serve_ai_step.py over new_recording): per frame the
 /// globals +0x423048.., then per player its AI's +0x50.. and +0x248 (reaction frames), its +0x3d70.., +0x3e50..,
 /// +0x3f00.. and +0x3f94... It stands still (serve state, then rally sub-state 0) until the frame it moves (sub-state
 /// 1; the rally routine's own move up to a frame after its wait), and the reaction frames drawn on the return count

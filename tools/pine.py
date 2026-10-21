@@ -14,6 +14,24 @@ SLOT = 28011 + int(INST or 0)  # PCSX2 default; non-default slots use pcsx2.sock
 OK = 0
 SPEED = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), f"hst-pcsx2{INST}.speed")  # written by pcsx2-hst.sh
 
+def pcsx2_folder(key):
+    """A folder of this agent's PCSX2 (`SaveStates`, `Snapshots`, …): the copy's own config when HST_PCSX2 is set
+    (../<repo>-slots/pcsx2/sN, as tools/pcsx2-hst.sh), else the user's; relative ini paths are from the PCSX2 dir."""
+    import configparser, subprocess
+    if INST:
+        common = subprocess.check_output(["git", "-C", os.path.dirname(os.path.abspath(__file__)), "rev-parse",
+                                          "--path-format=absolute", "--git-common-dir"], text=True).strip()
+        base = f"{os.path.dirname(common)}-slots/pcsx2/s{INST}/PCSX2"
+    else:
+        base = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "PCSX2")
+    ini = configparser.ConfigParser(interpolation=None, strict=False)
+    ini.read(os.path.join(base, "inis/PCSX2.ini"))
+    return os.path.normpath(os.path.join(base, ini.get("Folders", key, fallback=key.lower())))
+
+def state_file(slot):
+    """Save-state slot `slot`'s .p2s file (the RAM in it is what the state loads)."""
+    return os.path.join(pcsx2_folder("SaveStates"), "SCUS-97610 (72326E67).%02d.p2s" % slot)
+
 def _loud(kind, err, tb):
     # any script using PINE: a crash says so in one line instead of a traceback that reads like partial success
     if issubclass(kind, KeyboardInterrupt): return sys.__excepthook__(kind, err, tb)

@@ -16,7 +16,7 @@ All three writers use it. The mod save keeps its order: up to eight files at a t
 On an error it still cleans up as before. `opfs.js` is in the service worker's offline shell. modfs.rs,
 modstore.rs and mods.rs needed no change: the Rust side only hands bytes to the page.
 
-**Check.** `node tools/web_opfs_write.mjs` runs headless Chromium twice: once as is, and once with
+**Check.** `node research/journal/2026-10-14-ios-opfs-write/scripts/web_opfs_write.mjs` runs headless Chromium twice: once as is, and once with
 `createWritable` deleted from the prototype (the Safari path). Each run writes a 3 MB nested file, a text file,
 a card and a shorter rewrite of the text file, all at the same time, then reads them back. Both runs: PASS.
 

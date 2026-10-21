@@ -10,7 +10,7 @@
   - Otherwise the count is the court's envir count, or the exe constant (200; 50, −2, −5) in weathers 3/5. The
     constant is read by `exe::Game::rain_clouds`.
 - New-point order, recorded: shared reseed → cloud draws (only when the weather changed) → court reseed → sound reseed.
-  `research/p3f3_cloud_log.py` rewrites slot 5's schedule to 3, 5, 1, 0. Recorded draws:
+  `research/journal/2026-10-12-p3f3-cloud-draws/scripts/p3f3_cloud_log.py` rewrites slot 5's schedule to 3, 5, 1, 0. Recorded draws:
   - 0→3: 1000 (200 clouds)
   - 3→5: 0
   - 5→1: 45

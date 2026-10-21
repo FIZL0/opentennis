@@ -23,7 +23,7 @@
 - Test `hud_gamma::tests::glare_strength` (looking at a 40° sun: 102/128; level or down: off).
 
 ## Checked by eye
-- Original: `research/b31e_glare_poke.py` (slot 5, light poked to face the camera, the look-up clamp floor poked
+- Original: `research/journal/2026-10-08-p17q-tornado/scripts/b31e_glare_poke.py` (slot 5, light poked to face the camera, the look-up clamp floor poked
   to 0.8 → FIX 91): `context/b31e/lk_on.png` vs `lk_off.png`, `pcsx2_on/off.png`: the court and net mesh go soft,
   a slight blur (crop `lk_crop.png`, `pcsx2_crop.png`).
 - Port: `HST_EYE` from `context/b31e/eye_on` (court 10, looking at slot 5's sun) → `port_on.png`: the temple goes soft

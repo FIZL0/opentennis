@@ -7,6 +7,7 @@ anim object *(+0x54) 0x80."""
 import struct, sys, time
 sys.path.insert(0, "tools")
 from pine import Pine
+from rec import u32
 
 VSYNC, GM_PTR = 0x1d5780, 0x422f80
 slot, out, radius = int(sys.argv[1]), open(sys.argv[2], "wb"), float(sys.argv[3])
@@ -26,7 +27,7 @@ r = [(gm, 0x60), (p.read32(gm + 0x88), 0x290)]
 for a in pl:
     r += [(a + 0x3b40, 0x80), (a + 0x3f80, 0x40), (p.read32(a + 0x54), 0x80)]
 for a in pl:
-    p.write32(a + 0x13ec, struct.unpack("<I", struct.pack("<f", radius))[0])
+    p.write32(a + 0x13ec, u32(radius))
 print("radius set at vsync", p.read32(VSYNC), flush=True)
 last, n = p.read32(VSYNC), 0
 while n < want:

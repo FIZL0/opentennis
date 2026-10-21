@@ -1,7 +1,7 @@
 # P17t — ball shade off the court: the ground ray
 
 Checked against the P17l slot 5 recording (court 10, bot rally, 1300 frames: ball position and its model's light
-scale, `research/p17t_ball_rec.py`) with the game's own map: `crates/hst-sim/tests/shade.rs`. 1299 frames are
+scale, `research/journal/2026-10-08-p17t-ball-shade-ray/scripts/p17t_ball_rec.py`) with the game's own map: `crates/hst-sim/tests/shade.rs`. 1299 frames are
 bit-exact, all 137 off-court frames included (31 of those missed with height from y 0). The other frame is the
 between-points reset: the ball is put at the origin after that frame's light update, so the light update keeps the
 old scale.

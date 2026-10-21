@@ -131,7 +131,7 @@ Not reached:
 - `ai_human_vpad.bin` (slot 3, 1800): volley kind 2, kind 2/3 lost → tiers.
 - `ai_human_vpad_b.bin` (slot 4, 3000): the claim (4 calls), kind 2.
 - `ai_human_vpad_c.bin` (slot 3, timed pad script `context/p11k7/run.sh 1800 out context/p11k7/c_pad.txt`, P1 mid-court): the min 1 → 0 retry.
-- `research/p11k7_branches.py` counts the branches.
+- `research/journal/2026-10-08-b34-partner-ai/scripts/p11k7_branches.py` counts the branches.
 - All human records are bit-exact; _b's NET differs on 5 calls → P11k8 (skipped in the test).
 
 ### Pitfall

@@ -3,12 +3,12 @@
 ## Result
 - `shade::pass_texture` draws the 16 static casters' 128² PSMT4 shadow textures from the load pass's draws.
   - All 16 equal the pool in `context/p17v/cap0.gs`, texel for texel.
-  - The test is `shadow_textures_match_the_game` (crates/hst-sim/tests/shade.rs). It reads `context/p17v/pass.txt`, made by `research/p17v2_fixture.py context/p17v/load10.gs context/p17v/cap0.gs context/p17v/pass.txt`.
-- The Python replay (`research/p17v2_replay.py load10.gs pool.npy [384|396]`) is exact at both load frames as well.
+  - The test is `shadow_textures_match_the_game` (crates/hst-sim/tests/shade.rs). It reads `context/p17v/pass.txt`, made by `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v2_fixture.py context/p17v/load10.gs context/p17v/cap0.gs context/p17v/pass.txt`.
+- The Python replay (`research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v2_replay.py load10.gs pool.npy [384|396]`) is exact at both load frames as well.
 - The vertices still come from the GS dump. Building them from the caster models with the light matrix is P17v7, which needs P17v5.
 
 ## Capture
-- `research/p17v2_load.py` takes a multi-frame GS dump of a match load on court 10 (`context/p17v/load10.gs`).
+- `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v2_load.py` takes a multi-frame GS dump of a match load on court 10 (`context/p17v/load10.gs`).
   - PCSX2's multi-frame dump is a **hold** hotkey: it records while the key is down. Copy 5's ini binds it to F12, and the script sends key-down and key-up with `hyprctl send_key_state`.
   - The 16 static textures are drawn at vsyncs 384 and 396, and blitted to 0x3308 + 0x20·i.
 - **Pool C (cap0) is the deterministic PCSX2-SW output of that pass.** A dump taken after the load (after10b) has the same pool.
@@ -27,7 +27,7 @@
 ## Two PCSX2 details that made it exact
 - **Texel coordinate rounding** (GSState::FlushPrim). For STQ draws whose Z is constant (or sprites), each vertex's S and T lose their low 9 mantissa bits, plus however many their exponent is below Q's. Before this port, 13 of 16 textures differed.
 - **4 lanes, not 8.** Copy 5's PCSX2 runs the 128-bit SW JIT, even though the CPU has AVX2. So fst u/v are `trunc(start) + trunc(d·(lane − skip)) + group·trunc(d·4)`, with skip = left mod 4. With 8 lanes, the per-group truncation errors put the last differing texel (texture 5) on the wrong side of a 1/16 weight boundary.
-  - **P17v3:** `research/p17v_gssim.py` uses 8 lanes (`skip = left & 7`). Its span-start u/v residual on tiles 1–3 is very likely the same thing, together with texel rounding on the receivers' STQ.
+  - **P17v3:** `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v_gssim.py` uses 8 lanes (`skip = left & 7`). Its span-start u/v residual on tiles 1–3 is very likely the same thing, together with texel rounding on the receivers' STQ.
 
 ## Oracle method (for later GS questions)
 1. `cut.py` trims the dump just before a texture's halving and pads it with 1200 vsyncs.

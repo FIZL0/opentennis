@@ -5,7 +5,7 @@ Loads save slot 2 (doubles character select, cursor on character 0, Ashley), wal
 picks where their cursors start (characters 2, 1, 5), Start, "Start the match!", waits for the match to load (~30 s at 0.5 speed) with P1 serving.
 Slot 2's P1 has the character-select "switch hand" toggle on: every pick plays with the hand opposite to TParam's.
 Then drive it with tools/vpad.py (serve: circle ×3, the first press after a load is ignored) and look at it with
-tools/screenshot.sh. `from pick import pick, vpad` for scripts (research/p7b_record.py)."""
+tools/screenshot.sh. `from pick import pick, vpad` for scripts (research/journal/2026-10-07-p7-movement/scripts/p7b_record.py)."""
 import os, struct, subprocess, sys, time
 from pine import Pine
 

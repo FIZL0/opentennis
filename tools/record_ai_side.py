@@ -14,22 +14,10 @@ clear), u32 strong (player +0x12dc), f32 x/z of the minus and plus path entries,
 pointer, i32 AI +0x28."""
 import struct, sys, time
 from pine import Pine
+from rec import R, i, lw, lbu, sw, swc1, lui, addiu, sll, addu, j
 
 VSYNC, STUB, PTR, BUF, END = 0x1d5780, 0x1e00000, 0x1e00f00, 0x1e01000, 0x1f80000
 REC = 0x50
-R = dict(zero=0, at=1, v0=2, v1=3, a0=4, a1=5, a2=6, a3=7, t0=8, s4=20, sp=29)
-
-
-def i(op, rs, rt, imm): return op << 26 | R[rs] << 21 | R[rt] << 16 | imm & 0xffff
-def lw(rt, off, rs): return i(0x23, rs, rt, off)
-def lbu(rt, off, rs): return i(0x24, rs, rt, off)
-def sw(rt, off, rs): return i(0x2b, rs, rt, off)
-def swc1(ft, off, rs): return 0x39 << 26 | R[rs] << 21 | ft << 16 | off & 0xffff
-def lui(rt, imm): return i(0x0f, "zero", rt, imm)
-def addiu(rt, rs, imm): return i(0x09, rs, rt, imm)
-def sll(rd, rt, sa): return R[rt] << 16 | R[rd] << 11 | sa << 6
-def addu(rd, rs, rt): return R[rs] << 21 | R[rt] << 16 | R[rd] << 11 | 0x21
-def j(a): return 0x02 << 26 | (a >> 2) & 0x3ffffff
 
 
 def head(tag):

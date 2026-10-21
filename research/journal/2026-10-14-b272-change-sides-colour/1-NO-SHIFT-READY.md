@@ -15,7 +15,7 @@
   composite/persist shaders are neutral (glare only blurs while the camera faces the sun, at the glide's start).
 
 ## Original (copy 3, slot 5)
-- `research/b272_ends_shots.py 5 OUT 217 [k…]` saves scratch slot 8 before the change of ends. Then, per shot, it
+- `research/journal/2026-10-14-b272-change-sides-colour/scripts/b272_ends_shots.py 5 OUT 217 [k…]` saves scratch slot 8 before the change of ends. Then, per shot, it
   reloads that state and asks for a screenshot a fixed number of frames early, so the shot lands near counter k.
   vsync is game RAM, so each reload replays the same frames. (The hotkey is slow: about 217 frames until the call
   returns. It also varies, so the counters are approximate.)

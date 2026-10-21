@@ -17,7 +17,7 @@ Safari only lets a page write the clipboard inside a tap's own event handler; th
   builds keep the direct clipboard write.
 
 ## Check
-`node tools/web_copy_sheet.mjs [DIR]` — headless Chromium with touch emulation, the card cut out of index.html with
+`node research/journal/2026-10-15-ios-copy-link/scripts/web_copy_sheet.mjs [DIR]` — headless Chromium with touch emulation, the card cut out of index.html with
 touch.js: 16/16 PASS (mouse page → game copies; after a touch the card shows and survives the opening tap; Copy puts
 the link on the clipboard and closes; Done / backdrop close; Share shown only with `navigator.share` and handed the
 URL; card on screen and centred in portrait and landscape). Screenshots in `context/B464/run1/`. wasm32 `cargo check`

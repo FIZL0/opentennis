@@ -19,7 +19,7 @@
 ## Checks
 - Court lines (`line@add`, stage 11, rows 318/319, 270+ px): line − grass per channel before
   68/62/78 (dark blue channel gains most: linear-light add), after 84/83/83 (constant: gamma add of white).
-- Tornado on/off pairs (`research/p17q_freeze.py 5 1.0` + on byte cleared → `context/shots/b31/orig_on/off.png`;
+- Tornado on/off pairs (`research/journal/2026-10-08-p17q-tornado/scripts/p17q_freeze.py 5 1.0` + on byte cleared → `context/shots/b31/orig_on/off.png`;
   port: temporary hook pausing `Time<Virtual>` once on, not committed → `port_before_*`, `port_after_*`,
   `port_after53_*` frozen at a scale like the original's 5.33). Slope of the added value vs the background value
   (all changed px/channels): orig −0.09, port before −0.48, after −0.23 / −0.33 (rest is clamping at 255 where the

@@ -11,7 +11,7 @@ a character id. CPU slots hold −1. So a candidate is a human on the receiving 
 own lob, or your CPU partner's, has no candidate and is never searched. Shot type, lob height and character don't
 matter. Sophie's lob records can't change this.
 
-## The original, live (`research/b507_lob_look.py`, slot 4: doubles, 1P human + CPU partner, table `[6, −1, −1, −1]`)
+## The original, live (`research/journal/2026-10-16-b507-own-lob-marker/scripts/b507_lob_look.py`, slot 4: doubles, 1P human + CPU partner, table `[6, −1, −1, −1]`)
 Logged the hitter variable and the candidate count at every shot (`context/b507/r1`–`r4`). In r3, holding △ after
 each CPU shot made 1P actually return in rallies:
 - Every shot by slot 1 or 3 (CPU, toward 1P's team) set up 1 candidate (1P).

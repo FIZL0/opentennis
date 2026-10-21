@@ -4,7 +4,7 @@ This was the spec session. It read the decompile and wrote `SPEC.md`, but no Rus
 
 ## How it was checked
 
-- `research/p11m2_intro_probe.py <name> <slot> [follow s]` (under `tools/pcsx2.sh`) loads a Confirm Settings state,
+- `research/journal/2026-10-20-p11m2-ai-setup-draws/scripts/p11m2_intro_probe.py <name> <slot> [follow s]` (under `tools/pcsx2.sh`) loads a Confirm Settings state,
   starts the match, and logs on every change: the AI generator's index, the match phase, and each player's
   state/AI-state bytes. It runs until P0 can serve, then optionally serves and follows on.
 - The states came from P11m1's Confirm Settings saves (copy 4's slots 8/9), put into copy 3's scratch slots:

@@ -17,9 +17,9 @@
   - 0xc and 6.
 - Its draw only draws the red marker while +0x1a0 is set, and never during a replay (gm+0x344).
 - So both markers are gone from the reaction on: through the rest of the point-over and the change of ends.
-- Screenshot of the original, slot 5, change-ends tick 75 (`research/b73_hold_shot.py 5 75`,
+- Screenshot of the original, slot 5, change-ends tick 75 (`research/journal/2026-10-13-b73-markers-change-ends/scripts/b73_hold_shot.py 5 75`,
   `context/b193/run1/t75.png`): the four COM tags are up and there is no red marker on the court.
-- `research/b193_post_shot.py` takes a shot N frames before the change of ends starts. At 40 frames
+- `research/journal/2026-10-13-b193-landing-marker-ends/scripts/b193_post_shot.py` takes a shot N frames before the change of ends starts. At 40 frames
   (`pre40.png`) the screen shows the "Game" cut-away, so the court isn't in view.
 
 ## Port

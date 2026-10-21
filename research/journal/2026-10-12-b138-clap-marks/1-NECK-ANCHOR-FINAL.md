@@ -17,7 +17,7 @@
   `add` at the neck on react, and `follow` every tick while anim 5. Which walker cheers and when is unchanged.
 
 ## Checked
-- `research/b138_claps.py SLOT OUT [delay [hold]]`: freezes the mark count after a point so the slow PCSX2
+- `research/journal/2026-10-12-b138-clap-marks/scripts/b138_claps.py SLOT OUT [delay [hold]]`: freezes the mark count after a point so the slow PCSX2
   screenshot still shows the marks; dumps camera/fov/marks (`context/b138/`).
 - Court 10 (slot 5): the original's clap sits just above the pink walker's hat; the port at the same camera
   (HST_EYE from the dump) does the same. The original's left mark is hidden under the "B Team" HUD banner there.

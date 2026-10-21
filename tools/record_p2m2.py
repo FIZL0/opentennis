@@ -9,21 +9,10 @@ Sample = u32 vsync counter + the regions in REGIONS order (fixed size; layout in
 the live ball *(gm+0x88) and the rally block 0x3165f0 (not in round1.bin, which predates them)."""
 import struct, sys, time, zipfile
 from pine import Pine
+from rec import match_regions
 
 VSYNC, GM_PTR = 0x1d5780, 0x422f80
-PAD = (0x2efb00, 0x90)                  # pad manager: decoded state port0 at +0x30, port1 at +0x78 (18 bytes each)
-GLOBALS = (0x422f80, 0x180)             # gm pointer, player count 0x422fa4, ...
-GM, BALL = 0x100, 0x290
-PLAYER = ((0x1380, 0x200), (0x3c00, 0x400))   # reach/params, positions/contact state
-RALLY = (0x3165f0, 0x50)                # judge inputs, faults, let, tiebreak, deuce/advantage
-
-def regions(p):
-    gm = p.read32(GM_PTR)
-    r = [PAD, GLOBALS, (gm, GM), (p.read32(gm + 0x98), BALL)]
-    for i in range(4):
-        pl = p.read32(gm + 0xa8 + 4 * i)
-        r += [(pl + o, n) for o, n in PLAYER]
-    return gm, r + [(p.read32(gm + 0x88), BALL), RALLY]
+regions = match_regions  # the sample layout, shared with tools/play_p2m2.py
 
 p, out, want = Pine(step=True), open(sys.argv[2], "wb"), int(sys.argv[3])
 if sys.argv[1].isdigit():

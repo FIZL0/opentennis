@@ -1,6 +1,6 @@
 # B73: player markers during a change of ends (FINAL)
 
-## What the original does (slot 5, 4-COM doubles; `research/b73_marker_ends.py`, `research/b73_hold_shot.py` → `context/b73/`)
+## What the original does (slot 5, 4-COM doubles; `research/journal/2026-10-13-b73-markers-change-ends/scripts/b73_marker_ends.py`, `research/journal/2026-10-13-b73-markers-change-ends/scripts/b73_hold_shot.py` → `context/b73/`)
 
 - The marker show flag (balloon manager +0x725) turns **on** on the change-ends phase's first tick (gm+0x55 = 1,
   vsync 14154). It stays on for all 81 ticks and through the next serve set-up, then goes off at the toss (serve tick 91).

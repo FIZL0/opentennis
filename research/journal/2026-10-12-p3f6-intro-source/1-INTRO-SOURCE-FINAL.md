@@ -1,7 +1,7 @@
 # P3f6 — the intro's length from its source
 
 ## Watching the gates
-`research/p3f6_intro_watch.py <slot> <route>` polls (±1 frame, not lock-step) the intro phase's gates with the match
+`research/journal/2026-10-12-p3f6-intro-source/scripts/p3f6_intro_watch.py <slot> <route>` polls (±1 frame, not lock-step) the intro phase's gates with the match
 frame gm+0x58: the timer `*(*(gm+0x84)+0x138)+0x3c`, the streamed-sound word 0x1e9f10 and the presentation flags
 `*0x43b1d8 + 0xd94/0xd95`. `P3F6_STAGE=n` rewrites the court word 0x422f90 from the moment the menu sets it until the
 match object exists, which reaches courts the Select Court list route doesn't (the list's labels aren't the court

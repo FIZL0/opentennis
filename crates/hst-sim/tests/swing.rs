@@ -311,7 +311,7 @@ fn recorded_dives() {
         .collect();
     let mut files: Vec<String> = ["new_recording.bin", "match_s05.bin", "lob_smash_s05.bin", "human_smash_s04.bin"].map(String::from).to_vec();
     files.extend((0..14).map(|c| format!("p7b_c{c:02}.bin")));
-    // Kaito and Bull, whose root paths are their own, by research/p7e_dive_record.py (P1 dives on purpose)
+    // Kaito and Bull, whose root paths are their own, by research/journal/2026-10-07-p7-movement/scripts/p7e_dive_record.py (P1 dives on purpose)
     files.extend(["p7e_c03.bin", "p7e_c07.bin"].map(String::from));
     // the doubles match with one human (Carol, left-handed) and three CPUs on court 11
     files.push("1p3goodcpus.bin".into());
