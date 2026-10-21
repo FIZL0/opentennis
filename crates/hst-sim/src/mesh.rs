@@ -553,7 +553,8 @@ impl Object {
 /// The collision world: the court object, the props and the grid they are filed in.
 #[derive(Clone, Debug)]
 pub struct World {
-    pub models: Vec<Model>,
+    /// Shared between copies: a copy whose props move (`court::Motions`) costs only its objects.
+    pub models: std::sync::Arc<Vec<Model>>,
     pub court: Object,
     /// Props in the game's list order; the grid lists indices into this.
     pub props: Vec<Object>,

@@ -301,6 +301,9 @@ fn hold(w: &mut World) {
             intro.acc -= 1.0 / 60.0;
             intro.at += 1;
             pose_players(w);
+            if let Err(e) = w.run_system_cached(super::carts::intro) {
+                warn!("intro carts: {e}");
+            }
             if intro.at <= intro.frames {
                 intro.shot.step(Shot::court);
             }

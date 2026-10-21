@@ -6,6 +6,7 @@ use crate::mesh::{self, World};
 use crate::motion::Clock;
 use crate::pose::{self, Clip, Nodes, Skeleton};
 use crate::ps2::F;
+use std::sync::Arc;
 use crate::world::{self, IDENTITY};
 use hst_data::iso::Iso;
 use hst_data::xb::Archive;
@@ -43,8 +44,10 @@ fn walk(parent: &[Option<usize>], local: &[world::M4], root: world::M4) -> Vec<w
 pub struct PropMotion {
     /// The prop it moves, in `World::props`.
     pub prop: usize,
-    skeleton: Skeleton,
-    clip: Clip,
+    /// Its plant record's code (the draw pass's visibility tests read it).
+    pub code: [u8; 4],
+    skeleton: Arc<Skeleton>,
+    clip: Arc<Clip>,
     /// The node locals the motion samples into (the disc's until the first step).
     pub nodes: Nodes,
     /// The prop's root node matrix (its placement; it never moves).
@@ -55,11 +58,11 @@ pub struct PropMotion {
 }
 
 impl PropMotion {
-    fn new(prop: usize, m: &mdl::Model, anim: &ani::Anim, root: world::M4) -> PropMotion {
+    fn new(prop: usize, code: [u8; 4], m: &mdl::Model, anim: &ani::Anim, root: world::M4) -> PropMotion {
         let skeleton = Skeleton { names: m.node_names.clone(), parent: m.node_parent.clone(), rest: m.node_local.clone() };
-        let clip = Clip::new(&skeleton, anim);
+        let clip = Clip::new(&skeleton, anim).into();
         let nodes = Nodes::new(&skeleton);
-        PropMotion { prop, skeleton, clip, nodes, root, clock: Clock::start(1.0, true, None), resample: true }
+        PropMotion { prop, code, skeleton: skeleton.into(), clip, nodes, root, clock: Clock::start(1.0, true, None), resample: true }
     }
 
     /// The motion's length in frames.
@@ -116,6 +119,33 @@ impl Motions {
         }
         self.first = false;
     }
+
+    /// What the passes have changed so far, for a snapshot to keep.
+    pub fn phase(&self) -> Phase {
+        Phase { first: self.first, clocks: self.list.iter().map(|m| (m.clock, m.resample)).collect() }
+    }
+
+    /// Puts a kept `phase` back: each motion's clock, its locals as its last sample left them (the disc's before its
+    /// first step) and its prop's nodes in `world`. A phase from another court's motions is ignored past their count.
+    pub fn set_phase(&mut self, phase: &Phase, world: &mut World) {
+        self.first = phase.first;
+        for (m, &(clock, resample)) in self.list.iter_mut().zip(&phase.clocks) {
+            (m.clock, m.resample) = (clock, resample);
+            m.nodes = Nodes::new(&m.skeleton);
+            if !resample {
+                m.nodes.sample(&m.clip, clock.sampled);
+            }
+            world.props[m.prop].nodes = m.world_nodes();
+        }
+    }
+}
+
+/// The part of `Motions` the draw passes change: the first-pass mark and each motion's clock with its pending
+/// resample. The poses follow from it (`Motions::set_phase`).
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Phase {
+    pub first: bool,
+    pub clocks: Vec<(Clock, bool)>,
 }
 
 impl Motions {
@@ -166,7 +196,7 @@ pub fn drawn(iso: &mut Iso, n: u32, season: usize) -> Vec<(usize, Motions)> {
     for (k, p) in plants.iter().enumerate().filter(|(_, p)| p.category == category::STRUCTURE) {
         let Some(e) = layout::resolve(&list, p, season) else { continue };
         if let (Some(m), Some(anim)) = (models.get(&e.stem), anims.get(&e.stem)) {
-            out.push((k, Motions { list: vec![PropMotion::new(k, m, anim, IDENTITY)], first: true }));
+            out.push((k, Motions { list: vec![PropMotion::new(k, p.code, m, anim, IDENTITY)], first: true }));
         }
     }
     out
@@ -280,12 +310,12 @@ pub fn moving(iso: &mut Iso, n: u32) -> Result<(World, Motions), String> {
             let Some(e) = layout::resolve(&list, p, 0) else { continue };
             let (m, _) = files.get(&e.stem).ok_or_else(|| format!("court {n:02}: no model {} for a placed prop", e.stem))?;
             let (at, _) = world::place(p.category, p.pos, p.yaw, p.code);
-            created.push((e.stem.clone(), world::instance(at, p.scale, &m.node_local[0], m.center, m.radius), p.scale, p.category));
+            created.push((e.stem.clone(), world::instance(at, p.scale, &m.node_local[0], m.center, m.radius), p.scale, p.category, p.code));
         }
     }
     let (mut props, mut stems, mut spheres, mut motions) = (Vec::new(), Vec::<String>::new(), Vec::new(), Vec::new());
     for k in world::list_order(created.len()) {
-        let (stem, prop, scale, cat) = &created[k];
+        let (stem, prop, scale, cat, code) = &created[k];
         let (m, mt) = &files[stem];
         if !m.collides(mt) {
             continue;
@@ -302,11 +332,11 @@ pub fn moving(iso: &mut Iso, n: u32) -> Result<(World, Motions), String> {
         if *cat == category::STRUCTURE
             && let Some(anim) = anims.get(stem)
         {
-            motions.push(PropMotion::new(props.len(), m, anim, prop.node));
+            motions.push(PropMotion::new(props.len(), *code, m, anim, prop.node));
         }
         props.push(mesh::Object { model, scale: *scale, to_model: prop.to_model, nodes: nodes(m, prop.node), center: prop.center, radius: m.radius });
     }
-    Ok((World { models, court, props, grid: world::grid(&spheres) }, Motions { list: motions, first: true }))
+    Ok((World { models: models.into(), court, props, grid: world::grid(&spheres) }, Motions { list: motions, first: true }))
 }
 
 /// A court mod's view of disc court `w` (its layout): the mod draws its own scenery, so the disc's walls, stands,
@@ -315,7 +345,7 @@ pub fn moving(iso: &mut Iso, n: u32) -> Result<(World, Motions), String> {
 // ponytail: the mod's own scenery doesn't collide (its glb has no collision); add a mod collision mesh if wanted
 #[allow(clippy::float_arithmetic)] // load-time filter of a mod's collision faces, not ported math
 pub fn open(mut w: World) -> World {
-    let court = &mut w.models[w.court.model];
+    let court = &mut std::sync::Arc::make_mut(&mut w.models)[w.court.model];
     court.tris.retain(|t| {
         let [a, b, c] = t.pos;
         let (e, f) = ([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);

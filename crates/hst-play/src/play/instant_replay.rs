@@ -197,7 +197,9 @@ fn start(w: &mut World) {
     // the serve's state has this recorder, the replay cameras and the pacing's shots as they were then: these stay
     // (the pacing files the point being replayed first, else the serve's copy paces it with the point before)
     let keep = (r.clone(), w.get_resource::<super::replay_camera::ReplayCamera>().cloned(), w.get_resource::<super::replay_pace::Pace>().cloned());
+    let carts = super::carts::keep(w);
     snapshot::restore(w, &s);
+    super::carts::put_back(w, carts);
     w.insert_resource(keep.0);
     if let Some(c) = keep.1 {
         w.insert_resource(c);

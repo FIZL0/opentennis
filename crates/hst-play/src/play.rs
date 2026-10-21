@@ -106,6 +106,7 @@ mod weather;
 pub mod no_hud;
 mod phase_code;
 mod court_load;
+mod carts;
 pub use hst_base::widescreen;
 
 /// The original's default exhibition: one set to 4 games, deuce on.
@@ -383,6 +384,8 @@ pub struct Game {
     board: ScoreboardTiming,
     /// The stage's collision world (`--stage`, else court 10's) and the material table: court, net, posts, walls.
     world: Const<(World, Vec<Material>)>,
+    /// The court's moving structures' clocks; `world`'s carts follow them (`carts`).
+    carts: carts::Carts,
     court: usize,
     message: String,
     /// The game's generators (`hst_sim::rng`): every draw the app shares with the original comes from one.
@@ -607,6 +610,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(net_hide::plugin);
     app.add_plugins(court_load::plugin);
     app.add_plugins(crate::stage::plugin);
+    app.add_plugins(carts::plugin);
     app.add_plugins(own_camera::plugin);
     app.add_plugins(alt_camera::plugin);
     app.add_plugins(foot_fx::plugin);
@@ -1130,7 +1134,7 @@ fn disc(
 ) -> (
     (f32, hst_sim::shot::Margins),
     ScoreboardTiming,
-    (World, Vec<Material>),
+    ((World, Vec<Material>), hst_sim::court::Motions),
     ShotParams,
     Umpire,
 ) {
@@ -1156,10 +1160,10 @@ fn disc(
     (
         (game.line_margin(), hst_sim::shot::Margins { lines, angle }),
         game.scoreboard_timing(0, umpire_n),
-        (
-            court_load::world(iso, n, crate::mods_court::OPEN.load(std::sync::atomic::Ordering::Relaxed)),
-            court::materials(&game),
-        ),
+        {
+            let (world, motions) = court_load::moving(iso, n, crate::mods_court::OPEN.load(std::sync::atomic::Ordering::Relaxed));
+            ((world, court::materials(&game)), motions)
+        },
         params,
         umpire,
     )
@@ -1433,7 +1437,8 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
         post: None,
         post_press: false,
         board,
-        world: world.into(),
+        world: world.0.into(),
+        carts: carts::Carts::new(world.1),
         court: args.court.min(COURTS.len() - 1),
         message: String::new(),
         rng: match_rng.map_or_else(|| Rngs::new(Rand::default(), Mt::new(1)), |r| r.0.clone()),

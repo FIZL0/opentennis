@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use bevy::prelude::*;
 use hst_data::iso::Iso;
-use hst_sim::court;
+use hst_sim::court::{self, Motions};
 use hst_sim::mesh::World;
 
 use super::netplay::OnlineNotice;
@@ -22,15 +22,21 @@ static ERROR: Mutex<Option<String>> = Mutex::new(None);
 
 /// Disc court `n`'s collision world (opened up for a court mod when `open`), or court 10's when it can't be read,
 /// with the reason kept for the notice.
+#[cfg(test)]
 pub(super) fn world(iso: &mut Iso, n: u32, open: bool) -> World {
-    let w = court::world(iso, n).or_else(|e| {
+    moving(iso, n, open).0
+}
+
+/// `world` with its moving structures (P134: court 5's carts; none for a court mod, which drops the disc's props).
+pub(super) fn moving(iso: &mut Iso, n: u32, open: bool) -> (World, Motions) {
+    let w = court::moving(iso, n).or_else(|e| {
         let text = format!("Court {n}'s data couldn't be read ({e}).\nPlaying on court {FALLBACK}'s instead.");
         error!("{}", text.replace('\n', " "));
         *ERROR.lock().unwrap_or_else(|p| p.into_inner()) = Some(text);
-        court::world(iso, FALLBACK)
+        court::moving(iso, FALLBACK)
     });
-    let w = w.unwrap_or_else(|e| panic!("no court data to play on: {e}"));
-    if open { court::open(w) } else { w }
+    let (w, m) = w.unwrap_or_else(|e| panic!("no court data to play on: {e}"));
+    if open { (court::open(w), Motions::default()) } else { (w, m) }
 }
 
 pub(super) fn plugin(app: &mut App) {
