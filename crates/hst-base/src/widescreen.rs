@@ -222,6 +222,9 @@ pub enum Anchor {
     /// A wall or bar: its left edge kept from the window's left; it reaches the window's right edge if it ends at
     /// 640, else keeps its right edge from the left too.
     Span,
+    /// M136: centred across as `Centre`, kept to the window's top or bottom edge as `Sides` (a strip in the upper
+    /// middle stays at the top of a tall window).
+    Top,
 }
 
 /// A 640-wide screen rect `x, w` placed by `a`: left and width in percent of the window.
@@ -232,7 +235,7 @@ pub fn place(x: f32, w: f32, share: f32, a: Anchor) -> (f32, f32) {
             (x / 6.4 * share, right - x / 6.4 * share)
         }
         Anchor::Sides => pin(x, w, share),
-        Anchor::Centre => (50.0 * (1.0 - share) + x / 6.4 * share, w / 6.4 * share),
+        Anchor::Centre | Anchor::Top => (50.0 * (1.0 - share) + x / 6.4 * share, w / 6.4 * share),
     }
 }
 
