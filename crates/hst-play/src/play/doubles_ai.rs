@@ -250,7 +250,7 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
         }
         _ => {}
     }
-    // ponytail: the caller's stick quad starts zeroed each frame
+    // the caller's stick quad starts zeroed each frame, as the game's player update clears it before the AI's
     let mut out = Out::default();
     let seen = &mut g.doubles_ai.seen;
     seen.resize(SEEN, false);
