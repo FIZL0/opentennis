@@ -28,6 +28,7 @@ pub mod face;
 pub mod effect;
 pub mod court_anim;
 pub mod cutaway;
+pub mod alt_cam;
 pub mod sound;
 pub mod umpire;
 pub mod npc;

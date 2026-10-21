@@ -26,7 +26,8 @@ pub enum Action {
     /// □: asks for the post-point's instant replay (`instant_replay`). There's no serve action: the shot buttons serve,
     /// as the original (B119; an older file's `serve = …` line is ignored).
     Replay,
-    /// Select: swap the character's hand at character select (`camera`, its old name, kept for existing files).
+    /// Select: swap the character's hand at character select; in a match with one human, switch to the behind-the-player
+    /// camera and back (`alt_camera`). Named `camera` in the files.
     Camera,
     /// Emotes (`play::emote`), as the right stick flicked up, down, left, right.
     EmoteUp,
@@ -167,7 +168,7 @@ impl Bindings {
              # Keys by Bevy KeyCode name (J or KeyJ, 1 or Digit1, Space, ArrowLeft, ShiftLeft, …),\n\
              # pad buttons with a Pad prefix (PadSouth = ✕/A, PadEast = ○/B, PadNorth = △/Y, PadWest, PadLeftTrigger,\n\
              # PadRightTrigger2, PadSelect, PadDPadUp, …). The left stick always moves; the right stick flicked\n\
-             # fully up/down/left/right plays the emotes; Esc/Start pause; camera swaps the hand at character select.\n",
+             # fully up/down/left/right plays the emotes; Esc/Start pause; camera swaps the hand at character select and, with one player, the match camera.\n",
         );
         for (i, (_, name)) in ACTIONS.iter().enumerate() {
             let names: Vec<_> = self.0[i].iter().map(|x| x.name()).collect();

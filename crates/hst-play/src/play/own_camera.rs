@@ -44,6 +44,10 @@ pub(super) struct OwnCam {
     fresh: bool,
     /// B486: through a change of ends, the views of this machine's own glide the picture blends between this tick.
     glide: Option<(View, View)>,
+    /// M7: the alternate camera's views this tick (`alt_camera`), shown over everything else while set.
+    pub(super) alt: Option<(View, View)>,
+    /// M7: only carries `alt` (one local human): no own camera steps, the shared one shows.
+    passive: bool,
 }
 
 pub fn plugin(app: &mut App) {
@@ -116,7 +120,12 @@ fn own_cam(g: &Game, owner: usize) -> OwnCam {
     let mut cam = Camera::from_view(view);
     cam.turned = g.players[owner].end < 0.0;
     cam.cut();
-    OwnCam { cam, prev: view, expect: view, owner, tick: 0, cut: false, plain: true, fresh: false, glide: None }
+    OwnCam { cam, prev: view, expect: view, owner, tick: 0, cut: false, plain: true, fresh: false, glide: None, alt: None, passive: false }
+}
+
+/// M7: one that only carries the alternate camera's views (`alt_camera`), the shared camera showing otherwise.
+pub(super) fn passive(g: &Game, owner: usize) -> OwnCam {
+    OwnCam { passive: true, ..own_cam(g, owner) }
 }
 
 /// Whether player `i`'s stick is turned round: online, its machine's camera looks from the +z end; else the
@@ -130,6 +139,9 @@ pub(super) fn flipped(g: &Game, i: usize) -> bool {
 
 fn step(g: Option<Res<Game>>, own: Option<ResMut<OwnCam>>, np: Option<Res<Netplay>>) {
     let (Some(g), Some(mut o)) = (g, own) else { return };
+    if o.passive {
+        return;
+    }
     o.cut |= g.cam_cut;
     // without a lockstep (a test's own camera) every tick is new
     if let Some(np) = np {
@@ -163,6 +175,9 @@ fn step(g: Option<Res<Game>>, own: Option<ResMut<OwnCam>>, np: Option<Res<Netpla
 /// B486: and through a change of ends, this machine's glide at the tick it ends on.
 fn plain(g: Option<Res<Game>>, own: Option<ResMut<OwnCam>>, d: Option<Res<super::cutaway::Director>>) {
     let (Some(g), Some(mut o)) = (g, own) else { return };
+    if o.passive {
+        return;
+    }
     if std::mem::take(&mut o.fresh) {
         o.plain = g.cam.view == o.expect;
     }
@@ -187,10 +202,18 @@ fn glide(g: &Game, owner: usize, d: Option<&super::cutaway::Director>) -> Option
 }
 
 impl OwnCam {
+    /// M7: it only carries the alternate camera's views.
+    pub(super) fn is_passive(&self) -> bool {
+        self.passive
+    }
+
     /// Shows the view it has now, still between ticks (the match's end held, B600).
     pub(super) fn freeze(&mut self) {
         self.prev = self.cam.view;
         self.glide = None;
+        if let Some((prev, now)) = &mut self.alt {
+            *prev = *now;
+        }
     }
 }
 
@@ -201,12 +224,14 @@ pub(super) fn shown(g: &Game, own: Option<&OwnCam>) -> (View, View) {
     // (B315: the point count restarts at each serve's set-up, whose tick still shows the cut-away; the match's time
     // doesn't)
     if g.instant.ticks == 0 && g.match_stats.frames == 0 {
-        let mut c = own.map_or(g.cam, |o| o.cam);
+        let mut c = own.filter(|o| !o.passive).map_or(g.cam, |o| o.cam);
         let players: Vec<_> = g.players.iter().map(|p| p.pos).collect();
         c.step(&Scene { players: &players, ball: g.flight.ball.pos });
         return (c.view, c.view);
     }
     match own {
+        Some(OwnCam { alt: Some(v), .. }) => *v,
+        Some(OwnCam { passive: true, .. }) => (g.prev_view, g.cam.view),
         Some(OwnCam { glide: Some(v), .. }) => *v,
         Some(o) if o.plain => (o.prev, o.cam.view),
         _ => (g.prev_view, g.cam.view),
@@ -215,7 +240,7 @@ pub(super) fn shown(g: &Game, own: Option<&OwnCam>) -> (View, View) {
 
 /// Positional sounds are heard from the end this machine's match camera looks from (`audio::set_turned`).
 fn listener(g: Option<Res<Game>>, own: Option<Res<OwnCam>>) {
-    crate::audio::set_turned(g.is_some_and(|g| own.map_or(g.cam.turned, |o| o.cam.turned)));
+    crate::audio::set_turned(g.is_some_and(|g| own.filter(|o| !o.passive).map_or(g.cam.turned, |o| o.cam.turned)));
 }
 
 #[cfg(test)]
