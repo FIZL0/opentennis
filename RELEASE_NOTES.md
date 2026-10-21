@@ -2,3 +2,4 @@
 - The camera button now only switches cameras during play, not between points, in cut-aways, at the change of ends or in replays.
 - The Stretch aspect ratio is back in Settings → Display, on every platform: the picture, menus and score use the whole screen, notch and margins included.
 - A player's emote voice now stops when the point ends and the players start reacting, instead of talking over the reaction.
+- Mods → Installed: while you search, each kind tab (Characters, Courts, Umpires, Texture packs) shows how many mods it finds, and an empty tab tells you which other kinds have matches.

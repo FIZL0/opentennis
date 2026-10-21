@@ -428,6 +428,26 @@ impl View {
         self.passes(e, &Opt::Show(self.b.show), &[])
     }
 
+    /// M145: whether the search finds `e` (any kind: the kind tabs' counts).
+    pub(super) fn searched(&self, e: &Entry) -> bool {
+        matches(e, &self.b.search)
+    }
+
+    /// M145: the other kind tabs the search finds mods on, by name and count ("Courts 2, Umpires 1"; empty: none).
+    pub(super) fn found_elsewhere(&self) -> String {
+        if self.b.search.trim().is_empty() {
+            return String::new();
+        }
+        let counts = self.kind_counts();
+        mods_kind::KINDS
+            .iter()
+            .zip(counts)
+            .filter(|&(&k, n)| k != self.kind && n > 0)
+            .map(|(&k, n)| format!("{} {n}", mods_kind::name(k)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     /// Show tab `s`'s mods of every kind (the kind tabs under it split this total), before search and filters (None:
     /// its list isn't loaded yet).
     fn show_count(&self, s: Show) -> Option<usize> {
@@ -1736,6 +1756,9 @@ fn grid_tiles(d: &mut Draw, m: &Menu, a: [f32; 3], l: &Lay) {
                 Page::Mine => "None of your mods are on the store.",
                 _ => "Nobody has shared a mod yet.",
             }
+        } else if !v.found_elsewhere().is_empty() {
+            // M145: the search finds mods on other kind tabs
+            &format!("No {} match. Other kinds do: {}.", mods_kind::name(v.kind).to_lowercase(), v.found_elsewhere())
         } else {
             "No mod matches: try another filter or search."
         };
