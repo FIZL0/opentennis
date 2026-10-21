@@ -1,4 +1,6 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- On the player select, the cursor of the next computer player you pick for skips a character whose outfits are all taken instead of sitting on one it can't pick.
+- Outlined menu words (titles, panel headings) now have a clean, even outline instead of a lumpy one.
 - On the player select, a player who has readied up now sees their pick held in a solid ring of their colour while the rest of their grid dims, so it is clear they are locked in.
 - The game can now update itself in place on every platform, including Android, iPhone (through SideStore, AltStore or TrollStore), Flatpak and Program Files installs. The first time it finds a new version it asks Update? (Always, Yes, No or Never), and Settings → Updates changes the answer later.
 - Settings, controls, favourites, names and mods are now kept in your own user folder (~/.local/share/hst, %APPDATA%\hst or ~/Library/Application Support/hst) instead of beside the disc image, so moving the disc or keeping it on read-only media no longer loses them; the old files are brought over on the first start.

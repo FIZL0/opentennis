@@ -1136,6 +1136,10 @@ impl Menu {
         if let (Some(q), Some(c)) = (self.driven(dev), self.last)
             && self.seats[q].is_none() && !self.players[q].ready && !others.contains(&q)
         {
+            // a character with every costume taken passes the cursor on to the next one with a costume open
+            let roster = self.roster();
+            let at = roster.iter().position(|&r| r == c).unwrap_or(0);
+            let c = (0..roster.len()).map(|j| roster[(at + j) % roster.len()]).find(|&r| !self.full(q, r)).unwrap_or(c);
             self.put(q, c);
             self.players[q].tab = self.last_tab;
             self.skip_taken();
@@ -2955,14 +2959,15 @@ impl Draw<'_> {
     }
 
     /// B152: the words `f` draws, over a dark ring as the original's titles (confirm screen's court and umpire, a
-    /// PCSX2 shot): ~1.5 px round the glyphs, near black. Each glyph is stamped in [`RING`] eight ways round, then
+    /// PCSX2 shot): ~1.5 px round the glyphs, near black. Each glyph is stamped in [`RING`] sixteen ways round (eight
+    /// left notches between the stamps at large sizes), then
     /// the fill on top; the glyphs are vector-set at `menu_art::K`×, so the ring stays sharp at any resolution.
     fn outlined(&mut self, f: impl FnOnce(&mut Self)) {
         let start = self.out.len();
         f(self);
         let fill: Vec<Quad> = self.out.drain(start..).collect();
-        for i in 0..8 {
-            let a = i as f32 * std::f32::consts::FRAC_PI_4;
+        for i in 0..16 {
+            let a = i as f32 * std::f32::consts::FRAC_PI_8;
             for q in fill.iter().filter(|q| q.tex == Tex::Font) {
                 let mut q = *q;
                 q.dst[0] += 1.5 * a.cos();
@@ -4429,6 +4434,12 @@ mod tests {
         assert_eq!((m.players[1].cursor, m.players[1].random, m.players[1].costume), (3, false, 1));
         m.step(Dev::Keys, ok);
         assert_eq!((m.players[2].cursor, m.players[2].costume), (3, 2));
+        // a one-costume mod: the next COM can't have it, so its cursor moves on to the next character
+        let one = |i: usize| crate::mods::Mod { id: format!("m{i}"), costumes: vec!["model/c00.glb".into()], ..fake_mod(i) };
+        let mut m = Menu { screen: Screen::Chars, doubles: true, mods: (0..3).map(one).collect(), seats: [Some(Dev::Keys), None, None, None], bots: [false, true, true, true], ..default() };
+        m.players[0] = Player { modded: true, pick: 1, random: false, ..default() };
+        m.step(Dev::Keys, ok);
+        assert_eq!(m.cell(1), Some(Who::Mod(2)));
     }
 
     /// Singles ↔ Doubles while a ready 1P picks for a computer player: the card it drives after the swap carries that
