@@ -44,6 +44,16 @@ journal, files), port + verify, `tools/done.sh <ID> "<msg>"` (tests, tick into D
 control, done list, known gaps): `plan/REFERENCE.md`. `tools/ctx.py` (index) · `next` · `N1e` (plan/N1e.md, else
 its TODO/DONE line) · `"when blocked"` (a section) · `-f FILE <name>` (any markdown) · `tick <ID>` · `block <ID> <why>` · `unblock <ID> [note]` · `move <ID> top|before ID|after ID|in SECTION` · `add <PREFIX> TEXT [@ WHERE]` (next free id) · `note <ID> TEXT` · `newid <PREFIX>`. Use these for reprioritising and new tasks instead of reading/editing TODO.md.
 
+## Concept branches
+A task marked **concept** (user 2026-10-21) is an experiment the user wants to try before it reaches main: its code
+lives on `concept/<slug>` (the slug is on the task line), never on main. Pick up where the branch left off
+(`git fetch origin concept/<slug>` → `git switch concept/<slug>`, or `git switch -c concept/<slug>` the first time; merge
+main into it), build and commit there, `git push -u origin concept/<slug>`, then `git switch` back to your task
+branch so it carries only the journal and plan. Write in the task's journal what's on the branch, how to try it
+(`git switch concept/<slug>`, the flags) and what's next, then end with `tools/done.sh <ID> "<msg>" --blocked
+"concept round N on concept/<slug>: waiting on the user"`. The user unblocks it for another round, or asks for a
+merge into main as a normal task. Mode-off and the replay tests stay exact on the branch too.
+
 ## Cheap context
 - Every turn re-reads the whole conversation: pipe long output through `tail`/`grep`, read files by line range
   (`sed -n`, Read offset/limit), never dump whole logs or big files.

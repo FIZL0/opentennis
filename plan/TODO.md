@@ -53,7 +53,7 @@ index out of bounds: the len is 0 but the index is 0"
 
 ### AI
 
-- [~] **P11** Opponent AI → `play.rs` bot/bot_serve/intercept/draw_due BLOCKED: subtasks k4–k6/l4–l6/m1 blocked (journal 21, 22); everything the bot-only recordings reach is ported and bit-exact BLOCKED: umbrella: the open AI work is P11k6, P11l6 and the review P115 (user 2026-10-21)
+- [~] **P11** Opponent AI → `play.rs` bot/bot_serve/intercept/draw_due BLOCKED: subtasks k4–k6/l4–l6/m1 blocked (journal 21, 22); everything the bot-only recordings reach is ported and bit-exact BLOCKED: umbrella: the open AI work is P11k6, P11l6 and the review P116 (user 2026-10-21)
 
 ### Match
 
