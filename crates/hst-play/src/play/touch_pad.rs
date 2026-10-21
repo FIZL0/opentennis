@@ -133,6 +133,12 @@ pub fn top_row(size: Vec2) -> f32 {
     row_bottom(size, super::widescreen::safe_insets(size), super::widescreen::view(size))
 }
 
+/// B633: the top edge of the face buttons on a `size` window (logical px from the top); `None` without the pad. The
+/// split view's lower half keeps its players above them.
+pub fn face_top(size: Vec2) -> Option<f32> {
+    on().then(|| Layout::new(size, super::widescreen::safe_insets(size)).keys[..FACE].iter().fold(size.y, |t, k| t.min(k.min.y)))
+}
+
 fn row_bottom(size: Vec2, safe: [f32; 4], view: Rect) -> f32 {
     let l = Layout::new(size, safe);
     let bottom = l.keys[4..].iter().fold(l.chat.max.y, |b, k| b.max(k.max.y));
