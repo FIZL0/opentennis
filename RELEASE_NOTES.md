@@ -36,3 +36,4 @@
 - A computer server now hands over from its serve to the rally at the same moment as in the original: in singles it starts moving about half a second sooner after serving.
 - Switching Settings tabs now only nudges the options card instead of sliding the whole page, and the new tab slides in under the old one so the screen never flashes empty.
 - New Offbeat Rules for local matches: press Select (keyboard C) on the match confirm screen to mix in irregular bounces, slow motion, a rally that speeds up with every shot, a ghost ball that vanishes past the net, tiny or giant players, faster or slower players, and a sweet-spot mode where every hit is perfect.
+- On the Mods page, the Browse, Installed and other top tabs now count mods of every kind, not just the kind you're looking at.

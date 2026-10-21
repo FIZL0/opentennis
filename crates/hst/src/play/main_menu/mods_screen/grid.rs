@@ -428,16 +428,18 @@ impl View {
         self.passes(e, &Opt::Show(self.b.show), &[])
     }
 
-    /// Show tab `s`'s mods of the chosen kind, before search and filters (None: its list isn't loaded yet).
+    /// Show tab `s`'s mods of every kind (the kind tabs under it split this total), before search and filters (None:
+    /// its list isn't loaded yet).
     fn show_count(&self, s: Show) -> Option<usize> {
-        let kind = |l: &[Entry]| l.iter().filter(|e| e.meta.kind == self.kind).count();
+        let kind = |e: &Entry| mods_kind::coming(e.meta.kind).is_none();
+        let all = |l: &[Entry]| l.iter().filter(|e| kind(e)).count();
         let store = self.store.as_deref();
         match s {
-            Show::All => store.map(kind),
-            Show::Installed => Some(kind(&self.inst)),
-            Show::Mine => self.mine.as_deref().map(kind),
-            Show::Updates => store.map(|l| l.iter().filter(|e| e.meta.kind == self.kind && self.state(e) == Some("Update")).count()),
-            Show::Wish => self.b.wish.as_ref().zip(store).map(|(w, l)| l.iter().filter(|e| e.meta.kind == self.kind && w.contains(&e.key())).count()),
+            Show::All => store.map(all),
+            Show::Installed => Some(all(&self.inst)),
+            Show::Mine => self.mine.as_deref().map(all),
+            Show::Updates => store.map(|l| l.iter().filter(|e| kind(e) && self.state(e) == Some("Update")).count()),
+            Show::Wish => self.b.wish.as_ref().zip(store).map(|(w, l)| l.iter().filter(|e| kind(e) && w.contains(&e.key())).count()),
         }
     }
 
