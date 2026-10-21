@@ -77,8 +77,9 @@ pub(super) fn tick(mut menu: ResMut<Menu>, time: Res<Time>, window: Query<&Windo
     }
     let m = &mut *menu;
     m.splash.t += time.delta_secs();
-    // B623: the picture's, as the courts run on past the safe area to its edges
-    m.splash.aspect = window.single().map_or(4.0 / 3.0, super::super::widescreen::scene_aspect);
+    // B623: the window's, as the courts run on past the safe area (B629: and into a fixed Aspect Ratio's bars) to its
+    // edges
+    m.splash.aspect = window.single().map_or(4.0 / 3.0, super::super::widescreen::bleed_aspect);
     let t = m.splash.t;
     if m.p1.is_some() && m.splash.claimed.is_none() {
         m.splash.claimed = Some(t);

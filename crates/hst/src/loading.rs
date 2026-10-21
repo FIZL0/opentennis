@@ -111,10 +111,30 @@ fn png(d: &[u8]) -> Option<Image> {
 }
 
 /// M117: a `w × h` picture covering the window at its own aspect, centred and cropped: as wide as the window or as
-/// the window's height at that aspect, whichever is more.
-fn covering(w: f32, h: f32) -> Node {
+/// the window's height at that aspect, whichever is more. B629: the whole window, past the HUD's view into a fixed
+/// Aspect Ratio's bars and the safe area's strips (`Backdrop`, `widescreen::Bleed`), not just the view.
+fn covering(w: f32, h: f32) -> (Node, Backdrop, hst_base::widescreen::Bleed) {
     let aspect = w / h.max(1.0);
-    Node { width: Val::Vw(100.0), min_width: Val::Vh(100.0 * aspect), aspect_ratio: Some(aspect), flex_shrink: 0.0, ..default() }
+    let node = Node { position_type: PositionType::Absolute, ..default() };
+    (node, Backdrop(aspect), hst_base::widescreen::Bleed { order: (1 << 21) + 1, on: true })
+}
+
+/// B629: the court picture behind the loading screen, at its aspect, kept covering the window (`follow_window`).
+#[derive(Component)]
+struct Backdrop(f32);
+
+pub fn plugin(app: &mut App) {
+    app.add_systems(PostUpdate, follow_window.before(bevy::ui::UiSystems::Layout));
+}
+
+/// Keeps each `Backdrop` covering the whole window (its node in percent of the HUD's view, the cover's root).
+fn follow_window(window: Query<&Window, With<bevy::window::PrimaryWindow>>, mut q: Query<(&Backdrop, &mut Node)>) {
+    let Ok(w) = window.single() else { return };
+    let size = Vec2::new(w.width(), w.height());
+    for (b, mut node) in &mut q {
+        let [l, t, wd, h] = hst_base::widescreen::cover_window(b.0, size);
+        hst_base::widescreen::put(&mut node, l, t, wd, h);
+    }
 }
 
 /// B606: the 640×448 screen, the largest centred 4:3 box in the window: as wide as the window but at most 4/3 of its
