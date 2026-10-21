@@ -3,7 +3,7 @@
 #   tmux new -s hst tools/parallel.sh [N] [p|d] [f]    # N slots (5), p = plan order (default) | d = different files,
 #                                                      # f = keep starting past the weekly cap
 # Stop gently: s + Enter in its pane, or `agent-runner stop`. Log: context/notes/run.log, ledger.md, slotN.log.
-# Install: python3 -m pip install --user --break-system-packages "git+https://github.com/FIZL0/agent-runner@v0.3.0"
+# Install: python3 -m pip install --user --break-system-packages "git+https://github.com/FIZL0/agent-runner@v0.3.1"
 cd "$(dirname "$(realpath "$0")")/.."
 command -v agent-runner >/dev/null || { sed -n 6p "$0"; exit 2; }
 args=()
