@@ -4,7 +4,7 @@
 #                                                      # f = keep starting past the weekly cap
 #                                                      # --shutdown = power off once nothing is left to do
 # Stop gently: s + Enter in its pane, or `agent-runner stop`. Log: context/notes/run.log, ledger.md, slotN.log.
-# Install: python3 -m pip install --user --break-system-packages "git+https://github.com/FIZL0/agent-runner@v0.4.1"
+# Install: python3 -m pip install --user --break-system-packages "git+https://github.com/FIZL0/agent-runner@v0.5.0"
 cd "$(dirname "$(realpath "$0")")/.."
 command -v agent-runner >/dev/null || { sed -n 7p "$0"; exit 2; }
 args=()
