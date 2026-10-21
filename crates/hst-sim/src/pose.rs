@@ -28,46 +28,10 @@ pub struct Skeleton {
     pub rest: Vec<M4>,
 }
 
-// host arithmetic, not the game's: the first-frame approximation below and the modding preview's model matrices
+// host arithmetic, not the game's: the modding preview's model matrices
 #[allow(clippy::float_arithmetic)]
 fn mul(a: &M4, b: &M4) -> M4 {
     std::array::from_fn(|r| std::array::from_fn(|c| (0..4).map(|k| a[r][k] * b[k][c]).sum()))
-}
-
-/// Row-vector rotation of a stored key (the key is the conjugate of the column-sense local rotation, so the
-/// row-vector matrix is the key's own column-sense matrix).
-#[allow(clippy::float_arithmetic)] // host arithmetic, as `mul`
-fn rotation([x, y, z, w]: [f32; 4]) -> M4 {
-    [
-        [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w), 0.0],
-        [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w), 0.0],
-        [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y), 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-}
-
-/// Model-space matrix of every node at the motion's first frame.
-/// ponytail: first keys, unscaled (what the turn's pelvis table needs, within 1e-4); [`Clip`] is the game's
-/// exact sampler.
-pub fn first_frame(sk: &Skeleton, anim: &Anim) -> Vec<M4> {
-    let mut model: Vec<M4> = Vec::with_capacity(sk.names.len());
-    for i in 0..sk.names.len() {
-        let mut local = sk.rest[i];
-        if let Some(t) = anim.tracks.iter().find(|t| t.name == sk.names[i]) {
-            if let Some(&(_, q)) = t.rotation.first() {
-                let r = rotation(q);
-                local[..3].copy_from_slice(&r[..3]);
-            }
-            if let Some(&(_, p)) = t.position.first() {
-                local[3] = [p[0], p[1], p[2], 1.0];
-            }
-        }
-        model.push(match sk.parent[i] {
-            Some(p) => mul(&local, &model[p]),
-            None => local,
-        });
-    }
-    model
 }
 
 /// A motion bound to a skeleton as the game's ANI player holds it: per keyed track its node, position scale and
@@ -497,6 +461,14 @@ pub fn node_world(sk: &Skeleton, local: &[M4], mut n: usize, player: &M4) -> M4 
         n = p;
     }
     vmul(&m, player)
+}
+
+/// One row of the turn's pelvis table, as the game builds it at player load: `clip` sampled at frame 0, node `n`'s
+/// local matrix taken up its parents (`node_world`), and the x and z of the result's z axis.
+pub fn pelvis_row(sk: &Skeleton, clip: &Clip, n: usize) -> [f32; 2] {
+    let identity = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+    let r = node_world(sk, &clip.locals(sk, 0.0), n, &identity)[2];
+    [r[0], r[2]]
 }
 
 /// The sampler's quaternion → rotation rows (no re-orthonormalisation; the w column and row 3 are left alone).
