@@ -33,7 +33,6 @@ index out of bounds: the len is 0 but the index is 0"
 ### Match
 
 ### Presentation
-- [ ] **B617** Skybox check, stock and modded courts: some skies show texture seams that don't line up and their animation jumps (user 2026-10-21). Go through every stock court and the court mods, screenshot the sky against the original (tools/screenshot.sh vs --shot) where stock, find where the seams/jump come from (UV wrap, face order, scroll/rotation clock wrapping or resetting) and fix; looks-right only, no bit-exact proof → crates/hst-play/src/stage.rs, crates/hst-base/src/court_mod.rs, crates/hst-base/src/mods_court.rs
 
 
 ### Confirmations
