@@ -25,3 +25,4 @@
 - Main menu in a tall or 4:3 window: the Settings preview's page buttons and the empty Mods preview's words now fit inside their picture instead of running over the title and description.
 - With a fixed aspect ratio or on a phone, the loading screen's court picture now stays edge to edge for the whole load, and the pause menu's dimming and the fade after a match cover the whole screen, bars and notch areas included.
 - On high-DPI screens such as the Steam Deck, menu and HUD text now draws at the screen's full resolution instead of slightly soft.
+- Settings and Controllers opened from the pause menu during a match show again (they were invisible but still took clicks).
