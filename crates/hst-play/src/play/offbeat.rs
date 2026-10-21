@@ -210,7 +210,7 @@ mod tests {
             let s = speed(g);
             let pointing = matches!(g.phase, Phase::Serve | Phase::Rally);
             match (pointing, g.instant.ticks % 2 == 1) {
-                (true, true) => assert!(s <= 0.5 * TURBO_TOP && s >= 0.5, "after an odd tick: halved ({s})"),
+                (true, true) => assert!((0.5..=0.5 * TURBO_TOP).contains(&s), "after an odd tick: halved ({s})"),
                 (true, false) => assert!(s >= 1.0, "after an even tick: whole ({s})"),
                 (false, _) => assert_eq!(s, 1.0, "between points ({:?})", g.phase),
             }
