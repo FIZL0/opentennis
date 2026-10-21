@@ -1,6 +1,6 @@
 //! Disc import: the first start copies what the remaster reads out of the user's ISO into a pack in the user data dir
 //! (`hst_data::iso::Iso::write_pack`); from then on the game runs from the pack and the ISO can go. settings.txt,
-//! mods/ and cache/ live beside the pack, as they do beside an ISO.
+//! mods/ and cache/ live beside the pack too (`crate::store`, M143), whatever disc a run starts from.
 //!
 //! `hst [flags]` runs from the pack (importing first if there is none: a file dialog asks for the ISO);
 //! `hst --import <iso> [flags]` (re)imports; `hst <iso or pack> [flags]` runs straight from that file, as before.
@@ -9,8 +9,9 @@ use hst_data::iso::Iso;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// `$XDG_DATA_HOME/hst` (else `~/.local/share/hst`); `%APPDATA%\hst` on Windows; the app's Documents on iOS (the
-/// folder the Files app shows, so the ISO, settings.txt and mods/ go in and out there).
+/// `$XDG_DATA_HOME/hst` (else `~/.local/share/hst`); `%APPDATA%\hst` on Windows; `~/Library/Application Support/hst`
+/// on macOS; the app's Documents on iOS (the folder the Files app shows, so the ISO, settings.txt and mods/ go in and
+/// out there). The game's saved files live here too (`crate::store`, M143).
 pub fn data_dir() -> PathBuf {
     let env = |k| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     if cfg!(target_os = "ios") {
@@ -18,6 +19,17 @@ pub fn data_dir() -> PathBuf {
     }
     if cfg!(windows) {
         return env("APPDATA").unwrap_or_default().join("hst");
+    }
+    if cfg!(target_os = "macos") {
+        let home = env("HOME").unwrap_or_default();
+        let dir = home.join("Library/Application Support/hst");
+        // M143: earlier builds used the Linux folder on macOS too; its pack and files move over once
+        let old = env("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share")).join("hst");
+        if !dir.exists() && old.is_dir() {
+            let _ = std::fs::create_dir_all(dir.parent().unwrap());
+            let _ = std::fs::rename(&old, &dir);
+        }
+        return dir;
     }
     env("XDG_DATA_HOME").unwrap_or_else(|| env("HOME").unwrap_or_default().join(".local/share")).join("hst")
 }

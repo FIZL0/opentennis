@@ -528,7 +528,7 @@ struct Cached {
 /// store can't be read (busy: HF's rate limit) the last listing stays up, with a [`Event::Note`] saying why.
 pub fn list(fresh: bool) {
     let shown = |c: Cached| c.entries.into_iter().filter(|e| !crate::mods::dropped(&e.meta.id) && !retired(e)).collect::<Vec<_>>();
-    let cached = crate::store::read_to_string(CACHE).ok().and_then(|s| serde_json::from_str::<Cached>(&s).ok());
+    let cached = crate::store::read_to_string(crate::store::file(CACHE)).ok().and_then(|s| serde_json::from_str::<Cached>(&s).ok());
     if !fresh
         && let Some(c) = cached.as_ref().filter(|c| now().saturating_sub(c.at) < CACHE_SECS)
     {
@@ -538,7 +538,7 @@ pub fn list(fresh: bool) {
         match lists().await {
             Ok(l) => {
                 let all: Vec<Entry> = merge(l).into_iter().filter(|e| !retired(e)).collect();
-                let _ = crate::store::write(CACHE, serde_json::to_string(&Cached { at: now(), entries: all.clone() }).unwrap());
+                let _ = crate::store::write(crate::store::file(CACHE), serde_json::to_string(&Cached { at: now(), entries: all.clone() }).unwrap());
                 send(Event::Listing(Ok(all)));
             }
             Err(e) => match cached.filter(|c| !c.entries.is_empty()) {
@@ -555,12 +555,12 @@ pub fn list(fresh: bool) {
 /// M116: the cached listing goes stale (the next Browse reads the store), but is still what a busy store shows;
 /// `gone` (an id and rev taken down) leaves it at once.
 fn stale(gone: Option<(&str, &str)>) {
-    let Some(mut c) = crate::store::read_to_string(CACHE).ok().and_then(|s| serde_json::from_str::<Cached>(&s).ok()) else { return };
+    let Some(mut c) = crate::store::read_to_string(crate::store::file(CACHE)).ok().and_then(|s| serde_json::from_str::<Cached>(&s).ok()) else { return };
     c.at = 0;
     if let Some((id, rev)) = gone {
         c.entries.retain(|e| !(e.meta.id == id && e.rev == rev));
     }
-    let _ = crate::store::write(CACHE, serde_json::to_string(&c).unwrap());
+    let _ = crate::store::write(crate::store::file(CACHE), serde_json::to_string(&c).unwrap());
 }
 
 /// M19: `name`'s own uploads ([`Event::Mine`]): the mods on their open PRs, and those on `main` whose meta.json

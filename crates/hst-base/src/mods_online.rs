@@ -320,7 +320,7 @@ impl CourtWire {
 /// Where received mods and the choice live: `mods-online/` beside the disc (not under `mods/`, so they don't join
 /// the custom roster).
 pub fn cache(iso: &str) -> PathBuf {
-    Path::new(iso).parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(".".as_ref()).join("mods-online")
+    crate::store::path(iso, "mods-online")
 }
 
 /// A folder here with the looks `w` names: a received copy, or one of `roster` with the same id whose pack hashes the

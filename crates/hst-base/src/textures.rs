@@ -35,15 +35,12 @@ pub fn ours(id: AssetId<Image>, scale: Vec2) {
     OURS.lock().unwrap().get_or_insert_default().insert(id, scale);
 }
 
-fn root(iso: &str) -> &Path {
-    Path::new(iso)
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."))
+fn root(iso: &str) -> PathBuf {
+    crate::store::dir(iso)
 }
 
 pub fn init(iso: &str) {
-    let root = root(iso);
+    let root = &root(iso);
     // B227: the browser has no texture-replacements folder (its files are the mods' in OPFS), only packs
     let o = if cfg!(target_arch = "wasm32") { Overrides { root: root.into(), ..default() } } else { Overrides::scan(root) };
     let (packs, pack_dirs) = packs(root);
@@ -90,7 +87,7 @@ pub fn set(iso: &str, on: bool) {
     } else if STATE.lock().unwrap().is_none() {
         init(iso);
     } else {
-        let (packs, dirs) = packs(root(iso));
+        let (packs, dirs) = packs(&root(iso));
         if let Some(s) = STATE.lock().unwrap().as_mut() {
             (s.packs, s.pack_dirs) = (packs, dirs);
         }

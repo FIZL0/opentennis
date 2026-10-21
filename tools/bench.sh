@@ -10,7 +10,7 @@ log=$(realpath -m "$1"); secs=$2; shift 2
 iso=$(realpath -s "${HST_ISO:-Hot Shots Tennis (USA).iso}")
 bin=$(realpath "${HST_BIN:-${CARGO_TARGET_DIR:-target}/release/hst}")
 args=$([ $# = 0 ] || printf ' %q' "$@")
-env="${HST_ENV:-} HST_BG=1 HST_FPS=1 HST_AUTOPLAY=1 HST_WINDOW='${HST_WINDOW:-1280 800}'"
+env="${HST_ENV:-} HST_BG=1 HST_FPS=1 HST_AUTOPLAY=1 HST_DATA=$(printf %q "$(dirname "$iso")") HST_WINDOW='${HST_WINDOW:-1280 800}'"
 [ "${HST_GPU:-}" = igpu ] && env+=" WGPU_ADAPTER_NAME=raphael"
 wrap="${HST_WRAP:-}"
 [ "${HST_SLOW:-0}" = 1 ] && wrap="systemd-run --user --scope --quiet -p AllowedCPUs=0-1 -p CPUQuota=120%"

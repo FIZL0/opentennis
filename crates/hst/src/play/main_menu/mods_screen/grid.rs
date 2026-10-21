@@ -561,7 +561,7 @@ impl View {
     /// The saved mods, read once.
     pub(super) fn wish(&mut self) -> &mut HashSet<String> {
         // (the tests start with none)
-        self.b.wish.get_or_insert_with(|| if cfg!(test) { None } else { crate::store::read_to_string(WISH).ok() }.map(|s| s.lines().filter(|l| !l.is_empty()).map(String::from).collect()).unwrap_or_default())
+        self.b.wish.get_or_insert_with(|| if cfg!(test) { None } else { crate::store::read_to_string(crate::store::file(WISH)).ok() }.map(|s| s.lines().filter(|l| !l.is_empty()).map(String::from).collect()).unwrap_or_default())
     }
 
     /// □: `e` into or out of the saved mods (kept at once).
@@ -577,7 +577,7 @@ impl View {
         let text: String = l.into_iter().map(|k| format!("{k}\n")).collect();
         // (the tests' lists aren't kept)
         #[cfg(not(test))]
-        let _ = crate::store::write(WISH, text);
+        let _ = crate::store::write(crate::store::file(WISH), text);
         #[cfg(test)]
         let _ = text;
         on

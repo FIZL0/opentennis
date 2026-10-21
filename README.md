@@ -89,7 +89,7 @@ Main menu → Mods adds characters, courts and umpires from the store
 - **Browse mods**: pick one to install it.
 - **Upload my mod**: sign in with a Hugging Face *Write* token, then pick a mod to upload. It shows as
   *Not reviewed* until merged.
-- **Made your own?** Put its folder (`mod.json` + `.glb` files) in `mods/<id>/` beside the ISO; it shows in the
+- **Made your own?** Put its folder (`mod.json` + `.glb` files) in `mods/<id>/` in the game's data folder (`~/.local/share/hst`, `%APPDATA%\hst`, `~/Library/Application Support/hst`); it shows in the
   game and in Upload my mod. How to make one: [opentennis-mods](https://github.com/FIZL0/opentennis-mods).
 
 Texture replacements: texture packs (a mod whose `mod.json` says `"kind": "textures"`; several stack in an order) and
@@ -120,7 +120,7 @@ phone players can all play together.
 
 - *Code server* (short codes, Find): [tools/pkarr-relay/](tools/pkarr-relay/) has a Docker Compose file (works as a
   TrueNAS custom app) and an nginx config. Put it behind HTTPS on your domain, then add
-  `code_server = https://your.domain` to `online.txt` beside the ISO on each player. Codes go into the same public
+  `code_server = https://your.domain` to `online.txt` in the data folder on each player. Codes go into the same public
   DHT either way, so players on different code servers still find each other.
 - *Relay* (traffic when a direct path fails): `iroh-relay`, see [docs/DEVELOPING.md](docs/DEVELOPING.md). Every
   player in a lobby needs the same relay.
