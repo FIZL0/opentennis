@@ -12,3 +12,4 @@
 - The alternate camera now backs away as the ball comes past you, tilts up to keep a high ball in the picture and glides smoothly after the play, as in the original.
 - Keyboard hints in a match now show the key that switches to the alternate camera, when the switch is available.
 - With a fixed aspect ratio (4:3, 16:9…), the menu backgrounds, title and loading screens now fill the whole window instead of leaving black bars, and the bars beside a match glow softly with the court's colours (plain black in the original look); the score and menus stay inside the picture.
+- With a fixed aspect ratio or on a phone, the loading screen's court picture now stays edge to edge for the whole load, and the pause menu's dimming and the fade after a match cover the whole screen, bars and notch areas included.

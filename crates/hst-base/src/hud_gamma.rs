@@ -259,9 +259,11 @@ fn bleed(
     mut of: Local<bevy::platform::collections::HashMap<Entity, Entity>>,
 ) {
     of.retain(|node, copy| {
-        let alive = nodes.contains(*node);
-        if !alive {
-            commands.entity(*copy).despawn();
+        // B630: a copy gone with its node's mode (the mode switch takes every entity it didn't start with, the copies
+        // too, while the loading screen's cover stays) is made again
+        let alive = nodes.contains(*node) && copies.contains(*copy);
+        if !alive && let Ok(mut e) = commands.get_entity(*copy) {
+            e.despawn();
         }
         alive
     });
@@ -272,8 +274,13 @@ fn bleed(
         let rect = (|| Some([pct(node.left)?, pct(node.top)?, pct(node.width)?, pct(node.height)?]))();
         let out = rect.filter(|_| on && b.on && vis.get()).map(|r| crate::widescreen::bleed_out(r, size)).filter(|&[l, t, w, h]| l < 0.0 || t < 0.0 || l + w > 100.0 || t + h > 100.0);
         let Some(&copy) = of.get(&e) else {
-            if out.is_some() {
-                let copy = commands.spawn((BleedCopy, ImageNode::default(), BackgroundColor::default(), Node::default(), Visibility::Hidden, ZIndex(b.order), Pickable::IGNORE, ChildOf(t.bleed_root))).id();
+            if let Some(r) = out {
+                // B630: drawn from its first frame (a loading screen's cover made again under a new mode)
+                let [left, top, width, height] = crate::widescreen::view_to_window(r, size).map(Val::Percent);
+                let n = Node { position_type: PositionType::Absolute, left, top, width, height, right: Val::Auto, bottom: Val::Auto, margin: UiRect::ZERO, ..node.clone() };
+                let img = img.cloned().unwrap_or_else(|| ImageNode { color: Color::NONE, ..default() });
+                let bg = BackgroundColor(bg.map_or(Color::NONE, |b| b.0));
+                let copy = commands.spawn((BleedCopy, img, bg, n, Visibility::Inherited, ZIndex(b.order), Pickable::IGNORE, ChildOf(t.bleed_root))).id();
                 of.insert(e, copy);
             }
             continue;
@@ -407,6 +414,29 @@ mod tests {
         assert_eq!((scene_scale(67, 1.0, 1920.0, 8192.0), scene_scale(100, 2.0 / 3.0, 1920.0, 8192.0)), (0.67, 2.0 / 3.0));
         assert_eq!((scene_scale(150, 1.0, 1280.0, 8192.0), scene_scale(200, 2.0 / 3.0, 1280.0, 8192.0)), (1.5, 4.0 / 3.0));
         assert_eq!((scene_scale(200, 1.0, 5120.0, 8192.0), scene_scale(200, 1.0, 9000.0, 8192.0)), (1.6, 1.0));
+    }
+
+    #[test]
+    fn bleed_copy_made_again_after_a_mode_switch() {
+        let mut world = World::new();
+        world.spawn((Window { resolution: bevy::window::WindowResolution::new(1280, 720), ..default() }, PrimaryWindow));
+        let bleed_cam = world.spawn(Camera { is_active: true, ..default() }).id();
+        let bleed_root = world.spawn(Node::default()).id();
+        let [scene, hud] = [Handle::default(), Handle::default()];
+        world.insert_resource(Targets { scene, hud, last: [Handle::default(), Handle::default()], ui: bleed_cam, bleed: bleed_cam, bleed_root });
+        // a backdrop past the view's sides (the loading screen's court)
+        let node = Node { left: Val::Percent(-10.0), top: Val::Percent(0.0), width: Val::Percent(120.0), height: Val::Percent(100.0), ..default() };
+        world.spawn((node, crate::widescreen::Bleed { order: 7, on: true }, InheritedVisibility::VISIBLE));
+        let copies = |w: &mut World| w.query_filtered::<(&Visibility, &ZIndex), With<BleedCopy>>().iter(w).map(|(v, z)| (*v, z.0)).collect::<Vec<_>>();
+        let run = world.register_system(bleed);
+        world.run_system(run).unwrap();
+        // shown from its first frame
+        assert_eq!(copies(&mut world), [(Visibility::Inherited, 7)]);
+        // the mode switch takes the copy; the next frame has it back
+        let copy = world.query_filtered::<Entity, With<BleedCopy>>().single(&world).unwrap();
+        world.despawn(copy);
+        world.run_system(run).unwrap();
+        assert_eq!(copies(&mut world), [(Visibility::Inherited, 7)]);
     }
 
     #[test]

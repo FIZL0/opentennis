@@ -104,7 +104,7 @@ fn view_in(size: Vec2, aspect: u8, [l, t, r, b]: [f32; 4]) -> Rect {
 /// full-view one); `hud_gamma` draws a copy of it on the whole window, under all of the UI, the copies stacked by
 /// `order`. While `on`, each of its edges on the view's edge is carried out to the window's (`bleed_out`); a node
 /// already reaching past the view (the menus' own) is copied as is.
-#[derive(Component, Clone, Copy, Debug, Default)]
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
 pub struct Bleed {
     pub order: i32,
     pub on: bool,
