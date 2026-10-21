@@ -3768,6 +3768,10 @@ mod tests {
         assert!(r.live.is_empty() && r.set_doubles(false) && !r.set_doubles(false));
         assert_eq!((r.doubles, r.seats.len(), r.seats[0].as_ref().map(|s| s.peer.as_str())), (false, 2, Some("host")));
         assert!(r.set_doubles(true) && r.seats.len() == 4);
+        // a guest in singles becomes the host's partner in doubles (seats 0-1 are one team)
+        let mut r = room(false);
+        assert!(r.take("host", &[Pick::disc(0, 0)]) && r.take("g", &[Pick::disc(1, 0)]) && r.set_doubles(true));
+        assert_eq!(r.seats.iter().map(|s| s.as_ref().map(|s| s.peer.as_str())).collect::<Vec<_>>(), [Some("host"), Some("g"), None, None]);
     }
 
     /// B321: Host chosen while the Online screen's search still runs (its LAN wait alone is 3 s) opens the lobby at

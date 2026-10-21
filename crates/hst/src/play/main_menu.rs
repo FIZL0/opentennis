@@ -1402,8 +1402,8 @@ impl Menu {
         self.go(Screen::Chars, out);
     }
 
-    /// B331: Singles ↔ Doubles on the roster (B361: on its own, as devices join and leave). 1P's opponent stays
-    /// across the net (singles' 2P is doubles' 3P); going to singles keeps 1P and the first other human (opponents
+    /// B331: Singles ↔ Doubles on the roster (B361: on its own, as devices join and leave). Singles' 2P becomes 1P's
+    /// partner (doubles' 2P, user 2026-10-21); going to singles keeps 1P and the first other human (opponents
     /// first). Picks follow their seats; `keep`: a human's ready pick stays ready, else every card picks again.
     fn swap_mode(&mut self, keep: bool) {
         let (seats, players, scroll) = (self.seats, self.players, self.scroll);
@@ -1413,7 +1413,7 @@ impl Menu {
             let o = [2, 3, 1].into_iter().find(|&q| seats[q].is_some()).unwrap_or(2);
             [Some(0), Some(o), None, None]
         } else {
-            [Some(0), None, Some(1), None]
+            [Some(0), Some(1), None, None]
         };
         self.doubles = !self.doubles;
         for (p, q) in from.into_iter().enumerate() {
@@ -1735,7 +1735,7 @@ impl Menu {
     /// The character select: a device's own card.
     fn chars_step(&mut self, dev: Dev, k: Press, out: &mut Vec<Effect>) {
         use Effect::*;
-        // B361: a third device on a local singles roster makes it doubles (and takes 1P's partner's seat)
+        // B361: a third device on a local singles roster makes it doubles (and takes the first opponent's seat)
         if k.ok && !self.seats.contains(&Some(dev)) && self.join_seat().is_none() && self.can_join() {
             self.swap_mode(true);
         }
@@ -4315,13 +4315,13 @@ mod tests {
         assert_eq!(m.screen, Screen::Chars);
         m.step(pad, ok); // the pad joins as 2P
         assert_eq!((m.doubles, m.seats), (false, [Some(Dev::Keys), Some(pad), None, None]));
-        // B361: a third device makes it doubles (1P's partner, the pad across the net); leaving keeps it doubles
+        // B361: a third device makes it doubles (the pad 1P's partner, the new one across the net); leaving keeps it
+        // doubles
         let pad2 = Dev::Pad(Entity::from_raw_u32(11).unwrap());
         m.step(pad2, ok);
-        assert_eq!((m.doubles, m.seats), (true, [Some(Dev::Keys), Some(pad2), Some(pad), None]));
+        assert_eq!((m.doubles, m.seats), (true, [Some(Dev::Keys), Some(pad), Some(pad2), None]));
         m.step(pad2, press(|p| &mut p.back));
-        assert_eq!((m.doubles, m.seats), (true, [Some(Dev::Keys), None, Some(pad), None]));
-        m.seats = [Some(Dev::Keys), Some(pad), None, None];
+        assert_eq!((m.doubles, m.seats), (true, [Some(Dev::Keys), Some(pad), None, None]));
         // doubles with the pad as 1P's partner (a paused match's seats); B216: a computer player 1P picks for on 3P;
         // 4P stays open (its automatic pick)
         m.doubles = true;
@@ -4892,15 +4892,15 @@ mod tests {
         let mut m = Menu::default();
         m.step(p1, ok); // a pad chose Local: it is 1P, on the roster (B331)
         assert_eq!(m.screen, Screen::Chars);
-        // each device's ✕ joins the next free seat; B361: the third makes it doubles, 2P going across the net to 3P
+        // each device's ✕ joins the next free seat; B361: the third makes it doubles, 2P staying 1P's partner
         m.step(p2, ok);
         assert_eq!((m.doubles, m.seats), (false, [Some(p1), Some(p2), None, None]));
         m.step(p0, ok);
-        assert_eq!((m.doubles, m.seats), (true, [Some(p1), Some(p0), Some(p2), None]));
+        assert_eq!((m.doubles, m.seats), (true, [Some(p1), Some(p2), Some(p0), None]));
         m.step(Dev::Keys, ok);
-        assert_eq!(m.seats, [Some(p1), Some(p0), Some(p2), Some(Dev::Keys)]);
+        assert_eq!(m.seats, [Some(p1), Some(p2), Some(p0), Some(Dev::Keys)]);
         // every seat is a human: each readies its own player, 1P never drives another
-        for (i, d) in [p1, p0, p2, Dev::Keys].into_iter().enumerate() {
+        for (i, d) in [p1, p2, p0, Dev::Keys].into_iter().enumerate() {
             assert_eq!(m.driven(d), Some(i));
             m.step(d, press(|p| &mut p.next));
             for _ in 0..i {
@@ -4911,10 +4911,10 @@ mod tests {
         assert_eq!(m.screen, Screen::Confirm);
         let a = m.args(&[3, 9, 11].map(|n| Entity::from_raw_u32(n).unwrap()));
         let flag = |f: &str| a[a.iter().position(|x| x == f).unwrap() + 1].clone();
-        assert_eq!(flag("--pads"), "1,0,2,k");
+        assert_eq!(flag("--pads"), "1,2,0,k");
         // the match reads them back
         let seats: Vec<_> = flag("--pads").split(',').map(Seat::parse).collect();
-        assert_eq!(seats, [Some(Seat::Pad(1)), Some(Seat::Pad(0)), Some(Seat::Pad(2)), Some(Seat::Keys)]);
+        assert_eq!(seats, [Some(Seat::Pad(1)), Some(Seat::Pad(2)), Some(Seat::Pad(0)), Some(Seat::Keys)]);
         // singles: the keyboard can be 2P
         let mut m = Menu::default();
         m.step(p0, ok);
@@ -5112,7 +5112,7 @@ mod tests {
     }
 
     /// B306: one roster, no filters: Random, the disc's 14, every mod. B375: 1P's □ / Tab swaps Singles ↔ Doubles,
-    /// 2P going to 3P (across the net) and back; nobody else's does (B361: they change it by joining and leaving).
+    /// 2P becoming 1P's partner and back; nobody else's does (B361: they change it by joining and leaving).
     #[test]
     fn one_roster() {
         let from = |i: usize, s: &str| crate::mods::Mod { id: format!("m{i}"), source: s.into(), costumes: vec!["a".into()], ..fake_mod(i) };
@@ -5122,7 +5122,7 @@ mod tests {
         assert_eq!((r[0], r[1], r[CHARS + 1]), (None, Some(Who::Disc(GRID[0].0)), Some(Who::Mod(0))));
         let was = m.players;
         m.step(Dev::Keys, press(|p| &mut p.page));
-        assert_eq!((m.doubles, m.seats), (true, [Some(Dev::Keys), None, Some(Dev::Keys), None]));
+        assert_eq!((m.doubles, m.seats), (true, [Some(Dev::Keys), Some(Dev::Keys), None, None]));
         m.step(Dev::Keys, press(|p| &mut p.page));
         assert_eq!((m.doubles, m.seats), (false, [Some(Dev::Keys), Some(Dev::Keys), None, None]));
         assert_eq!(m.players[..2], was[..2]);
@@ -5132,7 +5132,7 @@ mod tests {
         m.step(pad, press(|p| &mut p.page));
         assert_eq!((m.doubles, m.seats), (false, [Some(Dev::Keys), Some(pad), None, None]));
         m.step(Dev::Keys, press(|p| &mut p.page));
-        assert_eq!((m.doubles, m.seats), (true, [Some(Dev::Keys), None, Some(pad), None]));
+        assert_eq!((m.doubles, m.seats), (true, [Some(Dev::Keys), Some(pad), None, None]));
         m.step(Dev::Keys, press(|p| &mut p.page));
         assert_eq!((m.doubles, m.seats), (false, [Some(Dev::Keys), Some(pad), None, None]));
         // the shown player: the one who pressed last while picking
@@ -5267,7 +5267,7 @@ mod tests {
         assert_eq!(mods, [("0".into(), "mods/z".into()), ("1".into(), "mods/x".into())]);
     }
 
-    /// A third device makes the local roster doubles with 2P across the net; □ moves a non-1P human to the other
+    /// A third device makes the local roster doubles, across the net from 1P and 2P; □ moves a non-1P human to the other
     /// team (onto a computer's seat, picks following), 1P's □ stays Singles / Doubles.
     #[test]
     fn doubles_team_switch() {
@@ -5278,14 +5278,14 @@ mod tests {
         m.step(a, ok);
         m.step(b, ok);
         assert!(m.doubles);
-        assert_eq!(m.seats, [Some(Dev::Keys), Some(b), Some(a), None]);
+        assert_eq!(m.seats, [Some(Dev::Keys), Some(a), Some(b), None]);
         m.players[2].cursor = 5;
-        m.step(a, page);
-        assert_eq!(m.seats, [Some(Dev::Keys), Some(b), Some(a), None], "no computer seat on 1P's team: stays");
         m.step(b, page);
-        assert_eq!(m.seats, [Some(Dev::Keys), None, Some(a), Some(b)], "b to the other team");
+        assert_eq!(m.seats, [Some(Dev::Keys), Some(a), Some(b), None], "no computer seat on 1P's team: stays");
         m.step(a, page);
-        assert_eq!((m.seats, m.players[1].cursor), ([Some(Dev::Keys), Some(a), None, Some(b)], 5), "a joins 1P, pick with it");
+        assert_eq!(m.seats, [Some(Dev::Keys), None, Some(b), Some(a)], "a to the other team");
+        m.step(b, page);
+        assert_eq!((m.seats, m.players[1].cursor), ([Some(Dev::Keys), Some(b), None, Some(a)], 5), "b joins 1P, pick with it");
         m.step(Dev::Keys, page);
         assert!(!m.doubles, "1P's □ still swaps the mode");
     }

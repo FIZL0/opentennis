@@ -47,3 +47,4 @@
 - The Ready to play? screen now shows each player's handicap with what it does (how many weights and how much slower they run) and changes it with ‹ ›, adds an Offbeat Rules box to the bottom bar that lists the rules on and opens them, and its bottom bar now rearranges onto more rows instead of shrinking its words on narrow or tall screens.
 - Settings → Controls now matches the other pages: its name on the header, the Reset button in the header's corner, and the column names under it.
 - When a controller is detected and the game asks whether to use it for 1P, the keyboard can now move between Yes and No and choose, not only dismiss it with Esc.
+- Switching a two-player local match to doubles now puts the second player on your team instead of across the net.
