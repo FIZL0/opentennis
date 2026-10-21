@@ -1166,6 +1166,13 @@ pub(super) struct Table {
     pub shown: usize,
 }
 
+/// The Settings page `s`'s cards on the screen (zoomed out as drawn): the list and side, or Controls' one table.
+pub(super) fn cards(g: &Grid, s: Screen) -> [[f32; 4]; 2] {
+    let z = zoom(g).1;
+    let [a, b] = if s == Screen::Controls { [table(g).panel, [0.0; 4]] } else { boxes(g, page(s).len()).into() };
+    [z.at(a), z.at(b)]
+}
+
 pub(super) fn table(g: &Grid) -> Table {
     let (list, side) = boxes(g, 1);
     let panel = [list[0], list[1], side[0] + side[2] - list[0], side[1] + side[3] - list[1]];
@@ -1245,7 +1252,16 @@ impl Menu {
 /// with the cursor (pad, wheel, a finger's drag) when they don't all fit, a scroll bar beside them; the footnote
 /// says what the chosen cell does.
 pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings, hand_x: f32) {
-    let names: Vec<String> = controls::action_names().map(|n| n[..1].to_uppercase() + &n[1..].replace('_', " ")).collect();
+    // the emotes by what they play (`emote::MOTIONS`), the rest by their controls.txt name
+    let names: Vec<String> = controls::action_names()
+        .map(|n| match n {
+            "emote_up" => "Emote: Game Won".into(),
+            "emote_down" => "Emote: Game Lost".into(),
+            "emote_left" => "Emote: Point Won".into(),
+            "emote_right" => "Emote: Point Lost".into(),
+            _ => n[..1].to_uppercase() + &n[1..],
+        })
+        .collect();
     let n = names.len();
     let z = zoom(&m.grid).1;
     look::backdrop(d);

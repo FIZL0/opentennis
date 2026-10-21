@@ -16,4 +16,5 @@
 - Settings: On/Off options now switch with a single press, with nothing to confirm.
 - Turning on VSync no longer freezes the game for a while on Linux.
 - Settings pages that don't fit the window now scroll, with a scroll bar, like the Controls table.
-- Switching to or from the Controls tab no longer flashes the previous page's panels.
+- Switching between Settings tabs no longer flashes the previous page's panels or text, on any window size.
+- Settings → Controls: Pause can now be rebound, and the emotes are named by what they play (Game Won, Game Lost, Point Won, Point Lost).

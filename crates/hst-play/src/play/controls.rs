@@ -29,6 +29,8 @@ pub enum Action {
     /// Select: swap the character's hand at character select; in a match with one human, switch to the behind-the-player
     /// camera and back (`alt_camera`). Named `camera` in the files.
     Camera,
+    /// Esc / Start: pauses the match (`menu.rs`).
+    Pause,
     /// Emotes (`play::emote`), as the right stick flicked up, down, left, right.
     EmoteUp,
     EmoteDown,
@@ -36,7 +38,7 @@ pub enum Action {
     EmoteRight,
 }
 
-const ACTIONS: [(Action, &str); 13] = [
+const ACTIONS: [(Action, &str); 14] = [
     (Action::Up, "up"),
     (Action::Down, "down"),
     (Action::Left, "left"),
@@ -46,6 +48,7 @@ const ACTIONS: [(Action, &str); 13] = [
     (Action::Lob, "lob"),
     (Action::Replay, "replay"),
     (Action::Camera, "camera"),
+    (Action::Pause, "pause"),
     (Action::EmoteUp, "emote_up"),
     (Action::EmoteDown, "emote_down"),
     (Action::EmoteLeft, "emote_left"),
@@ -60,7 +63,7 @@ enum Input {
 }
 
 #[derive(Resource, Clone, PartialEq, Debug)]
-pub struct Bindings([Vec<Input>; 13]);
+pub struct Bindings([Vec<Input>; 14]);
 
 impl Default for Bindings {
     fn default() -> Self {
@@ -77,6 +80,7 @@ impl Default for Bindings {
             vec![K(C::KeyL), Pad(P::North)],
             vec![K(C::Space), Pad(P::West)],
             vec![K(C::KeyC), Pad(P::Select)],
+            vec![K(C::Escape), Pad(P::Start)],
             vec![K(C::Digit1)],
             vec![K(C::Digit2)],
             vec![K(C::Digit3)],
@@ -93,7 +97,7 @@ const KEYS: &[KeyCode] = {
         KeyT, KeyU, KeyV, KeyW, KeyX, KeyY, KeyZ, Digit0, Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7,
         Digit8, Digit9, Numpad0, Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, Numpad8, Numpad9,
         NumpadAdd, NumpadSubtract, NumpadMultiply, NumpadDivide, NumpadDecimal, NumpadEnter, ArrowUp, ArrowDown,
-        ArrowLeft, ArrowRight, Space, Enter, Tab, Backspace, Insert, Delete, Home, End, PageUp, PageDown, ShiftLeft,
+        ArrowLeft, ArrowRight, Space, Escape, Enter, Tab, Backspace, Insert, Delete, Home, End, PageUp, PageDown, ShiftLeft,
         ShiftRight, ControlLeft, ControlRight, AltLeft, AltRight, Comma, Period, Slash, Backslash, Semicolon, Quote,
         BracketLeft, BracketRight, Minus, Equal, Backquote, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
     ]
@@ -168,7 +172,7 @@ impl Bindings {
              # Keys by Bevy KeyCode name (J or KeyJ, 1 or Digit1, Space, ArrowLeft, ShiftLeft, …),\n\
              # pad buttons with a Pad prefix (PadSouth = ✕/A, PadEast = ○/B, PadNorth = △/Y, PadWest, PadLeftTrigger,\n\
              # PadRightTrigger2, PadSelect, PadDPadUp, …). The left stick always moves; the right stick flicked\n\
-             # fully up/down/left/right plays the emotes; Esc/Start pause; camera swaps the hand at character select and, with one player, the match camera.\n",
+             # fully up/down/left/right plays the emotes; camera swaps the hand at character select and, with one player, the match camera.\n",
         );
         for (i, (_, name)) in ACTIONS.iter().enumerate() {
             let names: Vec<_> = self.0[i].iter().map(|x| x.name()).collect();
@@ -210,7 +214,7 @@ impl Bindings {
         self.of(a).iter().find_map(|x| match x {
             Input::Key(k) => {
                 let n = format!("{k:?}");
-                Some(["Key", "Digit", "Arrow", "Numpad"].iter().find_map(|p| n.strip_prefix(p)).unwrap_or(&n).to_string())
+                Some(if n == "Escape" { "Esc".into() } else { ["Key", "Digit", "Arrow", "Numpad"].iter().find_map(|p| n.strip_prefix(p)).unwrap_or(&n).to_string() })
             }
             Input::Pad(_) => None,
         })

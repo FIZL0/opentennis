@@ -30,8 +30,7 @@ fn items(bind: &Bindings, camera: bool) -> Vec<Item> {
     if camera {
         v.push((Act::Key, "Camera", caps(&[Action::Camera])));
     }
-    // `menu.rs`: Esc pauses (fixed, not in controls.txt)
-    v.push((Act::Key, "Pause", vec!["Esc".into()]));
+    v.push((Act::Key, "Pause", caps(&[Action::Pause])));
     v.into_iter().filter(|(_, _, keys)| !keys.is_empty()).map(|(act, label, keys)| Item { act, label: label.into(), keys, dim: [false; 2] }).collect()
 }
 

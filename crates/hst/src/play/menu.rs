@@ -597,9 +597,13 @@ fn step(
     (mouse, touches, window, mut settings): (Res<ButtonInput<MouseButton>>, Res<Touches>, Query<&Window, With<bevy::window::PrimaryWindow>>, ResMut<PauseSettings>),
     mut hovered: Local<Option<Vec2>>,
     net: Option<Res<super::netplay::Netplay>>,
+    bind: Option<Res<super::controls::Bindings>>,
 ) {
     let any = |b: GamepadButton| gamepads.iter().filter(|g| super::controls::readable(g)).any(|g| g.just_pressed(b));
-    let start = keys.just_pressed(KeyCode::Escape) || any(GamepadButton::Start);
+    // pause: Esc / Start, or what Controls binds it to
+    let bind = bind.as_deref().cloned().unwrap_or_default();
+    let pause = super::controls::Action::Pause;
+    let start = bind.key_just_pressed(&keys, pause) || gamepads.iter().filter(|g| super::controls::readable(g)).any(|g| bind.pad_just_pressed(g, pause));
     let confirm = keys.any_just_pressed([KeyCode::Enter, KeyCode::Space, KeyCode::KeyJ]) || any(GamepadButton::South);
     let cancel = keys.any_just_pressed([KeyCode::Backspace, KeyCode::KeyK]) || any(GamepadButton::East);
     // the stick as the original's menus read it: its byte's held direction (|48| of 127, past the driver's deadzone)
