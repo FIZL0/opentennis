@@ -1070,7 +1070,7 @@ pub(super) fn table(g: &Grid) -> Table {
     let (list, side) = boxes(g, 1);
     let panel = [list[0], list[1], side[0] + side[2] - list[0], side[1] + side[3] - list[1]];
     let inset = look::RIM + look::PAD;
-    let top = panel[1] + (look::RIM + look::STRIP + 2.5 + look::PAD) * PY;
+    let top = panel[1] + (look::RIM + look::STRIP + 2.5 + HEADS + look::PAD) * PY;
     let h = panel[1] + panel[3] - (inset + FOOT) * PY - top;
     let (x, w) = (panel[0] + inset * PX, panel[2] - 2.0 * inset * PX);
     let lane = (look::BAR + look::PAD) * PX;
@@ -1098,13 +1098,14 @@ impl Table {
     }
 }
 
-/// B609: the square Reset button at the right of the Settings bar (its tabs' row in a portrait view).
+/// The Controls table's column headings' row, under the strip (view units).
+const HEADS: f32 = 22.0;
+
+/// B609: the square Reset button at the right of the Controls panel's strip.
 pub(super) fn reset_button(g: &Grid) -> [f32; 4] {
-    let (portrait, z) = zoom(g);
-    let view = z.inner(g.view);
-    let right = view[2] - look::MARGIN * PX;
-    let y = if portrait { view[1] + look::TOP_BAR * PY } else { look::bar_y(view[1]) };
-    [right - look::PILL * PX, y, look::PILL * PX, look::PILL * PY]
+    let [x, y, w, _] = table(g).panel;
+    let right = x + w - (look::RIM + look::PAD) * PX;
+    [right - look::PILL * PX, y + (look::RIM + (look::STRIP - look::PILL) / 2.0) * PY, look::PILL * PX, look::PILL * PY]
 }
 
 /// B609: the Controls table's first action on view: where it was, moved just enough to show the chosen row.
@@ -1136,8 +1137,8 @@ impl Menu {
     }
 }
 
-/// The Controls page (B609: one table): the Settings bar with its square Reset button at the right end, then a panel
-/// with the column headings on its strip (Action, Controller, Keyboard & mouse) over a row per action: its name, its
+/// The Controls page (B609: one table): the Settings bar, then a panel
+/// with its name and the Reset square on its strip, the column headings under it (Action, Controller, Keyboard & mouse) over a row per action: its name, its
 /// pad buttons as the pad's own button icons (the stick that always does it beside them) and its keys as key caps,
 /// each cell rebindable (✕ on the chosen one: the next button or key pressed replaces the cell's). The rows scroll
 /// with the cursor (pad, wheel, a finger's drag) when they don't all fit, a scroll bar beside them; the footnote
@@ -1148,23 +1149,27 @@ pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings,
     let z = zoom(&m.grid).1;
     look::backdrop(d);
     let n0 = d.out.len();
+    let t = table(&m.grid);
+    settings_bar(d, m, t.panel[0] + t.panel[2], 0.0);
+    let [sx, sy, _, sh] = look::panel(d, t.panel, look::STRIP, band(m.screen));
+    // the page's name on the strip as the other pages', the Reset square at its right
+    let ts = 20.0 * PY;
+    look::bold(d, "Controls", [sx + look::PAD * PX, sy + (sh - ts) / 2.0], ts, WHITE);
     let reset = reset_button(&m.grid);
-    settings_bar(d, m, reset[0] + reset[2], look::PILL + 8.0);
     reset_square(d, reset, m.sel == n);
     d.hit(reset, pointer::Act::Row(controls_cell(n, false), pointer::OK));
-    let t = table(&m.grid);
-    let [_, sy, _, sh] = look::panel(d, t.panel, look::STRIP, band(m.screen));
-    // the column headings on the strip, over the label and each cell
+    // the column headings under the strip, over the label and each cell
     let (label, cells) = t.cells(t.row(0));
-    let hs = 16.0 * PY;
-    let hy = sy + (sh - hs) / 2.0;
+    let hs = 13.0 * PY;
+    let hy = sy + sh + (2.5 + 7.0) * PY;
+    let muted = look::c(look::MUTED);
     let fit = |d: &Draw, s: &str, room: f32| hs.min(hs * room / d.width(s, hs).max(1.0));
     let s0 = fit(d, CONTROLS_HEAD[0], label - 20.0 * PX);
-    look::bold(d, CONTROLS_HEAD[0], [t.rows[0] + 16.0 * PX, hy + (hs - s0) / 2.0], s0, WHITE);
+    d.text(CONTROLS_HEAD[0], t.rows[0] + 16.0 * PX, hy + (hs - s0) / 2.0, s0, muted);
     for (c, head) in cells.iter().zip(&CONTROLS_HEAD[1..]) {
         let s = fit(d, head, c[2] - 8.0 * PX);
         let x = c[0] + (c[2] - d.width(head, s)) / 2.0;
-        look::bold(d, head, [x, hy + (hs - s) / 2.0], s, WHITE);
+        d.text(head, x, hy + (hs - s) / 2.0, s, muted);
     }
     let waiting = m.rebinding.is_some();
     let style = legend::pad_style_shown();

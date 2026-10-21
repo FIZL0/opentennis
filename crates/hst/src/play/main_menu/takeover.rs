@@ -1,6 +1,6 @@
 //! M127: the pad takeover prompt. With 1P on the keyboard (and mouse), a button on a pad no seat holds pops
-//! "Controller detected / Use it for 1P?" over the menu instead of going nowhere: only that pad answers it (the
-//! keyboard's Esc dismisses it, a tap or click picks a pill), and the press that opened it does nothing else. Yes
+//! "Controller detected / Use it for 1P?" over the menu instead of going nowhere: that pad or the keyboard answers it
+//! (a tap or click picks a pill too), and the press that opened it does nothing else. Yes
 //! makes the pad 1P (its seat and [`Menu::p1`]: the legend's hints follow it) and frees the keyboard to join as
 //! another player, with a short toast saying so; No or Esc keep the keyboard and that pad isn't asked again until
 //! it's unplugged or 1P's device changes; [`WAIT`] seconds untouched just close it (the pad's next button asks again). Not on the splash (its first press takes 1P), the screens a press
@@ -81,15 +81,15 @@ impl Menu {
         matches!((dev, &self.takeover.ask), (Dev::Pad(e), Some(a)) if a.pad == e)
     }
 
-    /// One device's press while the prompt is up (it takes every one): the asked pad's ↑ ↓ ← → move between Yes and
-    /// No, ✕ chooses, ○ is No; the keyboard's Back (Esc) is No; anything else does nothing. `None`: no prompt up.
+    /// One device's press while the prompt is up (it takes every one): the asked pad's or the keyboard's ↑ ↓ ← → move
+    /// between Yes and No, OK chooses, Back is No; other pads do nothing. `None`: no prompt up.
     pub(super) fn takeover_step(&mut self, dev: Dev, k: Press) -> Option<Vec<Effect>> {
         let a = self.takeover.ask.as_mut()?;
         let mut out = Vec::new();
         if a.age == 0.0 {
             return Some(out);
         }
-        if self.takeover_asked(dev) {
+        if self.takeover_asked(dev) || dev == Dev::Keys {
             let a = self.takeover.ask.as_mut().unwrap();
             if k.up || k.down || k.left || k.right {
                 a.row = 1 - a.row;
@@ -100,8 +100,6 @@ impl Menu {
             } else if k.back {
                 self.takeover_answer(false, &mut out);
             }
-        } else if dev == Dev::Keys && k.back {
-            self.takeover_answer(false, &mut out);
         }
         Some(out)
     }
@@ -297,10 +295,11 @@ mod tests {
         let sel = m.sel;
         assert_eq!(m.takeover_step(Dev::Pad(p), press(|k| k.ok = true)), Some(vec![]));
         m.takeover_tick(0.016, &[p, other]);
-        // only that pad answers: another pad's and the keyboard's ✕ / arrows do nothing
-        for dev in [Dev::Pad(other), Dev::Keys] {
-            assert_eq!(m.takeover_step(dev, press(|k| k.ok = true)), Some(vec![]));
-            assert_eq!(m.takeover_step(dev, press(|k| k.down = true)), Some(vec![]));
+        // another pad's ✕ / arrows do nothing; the keyboard's arrows move between the pills
+        assert_eq!(m.takeover_step(Dev::Pad(other), press(|k| k.ok = true)), Some(vec![]));
+        assert_eq!(m.takeover_step(Dev::Pad(other), press(|k| k.down = true)), Some(vec![]));
+        for k in [press(|k| k.down = true), press(|k| k.up = true)] {
+            assert_eq!(m.takeover_step(Dev::Keys, k), Some(vec![Effect::Sound(0)]));
         }
         assert!(m.takeover_asking());
         assert_eq!(m.takeover_step(Dev::Pad(p), press(|k| k.ok = true)), Some(vec![Effect::Sound(2)]));
@@ -324,8 +323,9 @@ mod tests {
             match how {
                 0 => drop(m.takeover_step(Dev::Pad(p), press(|k| k.back = true))),
                 1 => {
-                    m.takeover_step(Dev::Pad(p), press(|k| k.down = true));
-                    m.takeover_step(Dev::Pad(p), press(|k| k.ok = true));
+                    // the keyboard picks No as the pad would
+                    m.takeover_step(Dev::Keys, press(|k| k.down = true));
+                    m.takeover_step(Dev::Keys, press(|k| k.ok = true));
                 }
                 2 => drop(m.takeover_step(Dev::Keys, press(|k| k.back = true))),
                 _ => m.takeover_tick(WAIT, &[p]),
