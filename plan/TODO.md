@@ -26,7 +26,6 @@ index out of bounds: the len is 0 but the index is 0"
 
 ### Match basics
 - [ ] **P123** Ball at rest off the flat (T8): the rally has no rest detection on steep surfaces; a ball that stops on a slope/prop without a call ends the point only at the 1800-frame timeout. Port the original's rest check, prove it with a recorded ball coming to rest on a slope or prop → crates/hst-play/src/play.rs (rally check's BallState) · crates/hst-sim/src/judge.rs · ball.rs | t: hst-sim line_calls.rs | j: 2026-10-21-repo-audit (T8 ledger)
-- [ ] **P124** Umpire tick order (T8): the umpire steps before this tick's phase messages, so she hears them a tick later than in the original; her call line gates the post-point wait (idle), so this can shift the next serve by a tick. Check post-point timing against a recording on points with an umpire call (and a match point), fix the order if it shifts → crates/hst-play/src/play.rs simulate · crates/hst-sim/src/umpire.rs · flow.rs | t: hst-sim score.rs | j: 2026-10-21-repo-audit (T8 ledger)
 - [ ] **P125** Prop collision node walk off court 10 (T8): child nodes of a court prop are placed by local · parent, checked only on court 10 where every prop is one node. Check the collision world of a court with multi-node props against the game (RAM dump of the placed collision, or a recorded ball hitting such a prop), fix if it differs → crates/hst-sim/src/court.rs nodes · world.rs | t: hst-sim world.rs, collision.rs | j: 2026-10-21-repo-audit (T8 ledger)
 
 ### Shots
