@@ -6,7 +6,7 @@
 
 use super::super::widescreen::{ASPECTS, aspect_choices};
 use super::roster::{self, PX, PY, rounded};
-use super::{legend, look, CHAT, EMOTE_VOICES, PAD_VIBRATION, UPDATE_CHECK, VIBRATION, Draw, Effect, Grid, INK, KEY_HINTS, MENU_SIZES, Menu, Press, RENDERERS, Screen, Settings, Tex, UPSCALED_DOWNLOADS, WHITE, controls, pointer};
+use super::{legend, look, CHAT, EMOTE_VOICES, UPDATE_CHECK, VIBRATION, Draw, Effect, Grid, INK, KEY_HINTS, MENU_SIZES, Menu, Press, RENDERERS, Screen, Settings, Tex, UPSCALED_DOWNLOADS, WHITE, controls, pointer};
 use crate::mods_online::Ask;
 use crate::graphics::{FPS, Graphics, MESHES, MSAA, SCALES, SHADOWS};
 use bevy::prelude::{KeyCode, default};
@@ -51,8 +51,6 @@ pub(super) enum Opt {
     Renderer,
     /// B118: the on-screen pad buzzes on each press.
     Vibration,
-    /// M138: controllers rumble.
-    PadVibration,
     /// B343: the speed-up switch (`Graphics::fewer_shadows`).
     FewerShadows,
     /// B364: the characters' share of triangles (`Graphics::mesh`, `lod.rs`).
@@ -85,7 +83,7 @@ pub(super) fn tab(page: Screen) -> usize {
 
 /// The browser build stays in its page (`graphics::KEEP_WINDOWED`), so it has no Display mode row; it has a
 /// Renderer instead (B273).
-const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, MenuSize, ShowFps, KeyHints, ButtonIcons, PadVibration] } else { &[Display, Aspect, MenuSize, ShowFps, KeyHints, ButtonIcons, PadVibration] };
+const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, MenuSize, ShowFps, KeyHints, ButtonIcons] } else { &[Display, Aspect, MenuSize, ShowFps, KeyHints, ButtonIcons] };
 /// What a preset sets, then the textures, then the way into Advanced.
 const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Upscaled, Advanced];
 /// B411: Graphics → Advanced, the speed-up switches for a slow device.
@@ -144,7 +142,6 @@ fn label(o: Opt) -> &'static str {
         Chat => "Chat",
         Renderer => "Renderer",
         Vibration => "Vibration",
-        PadVibration => "Controller Vibration",
         UpdateCheck => "Check for Updates",
         FewerShadows => "Fewer Shadows",
         Mesh => "Mesh",
@@ -188,7 +185,6 @@ fn about(o: Opt) -> &'static str {
         Chat => "Show the online lobby's and match's text chat (T, or R2/L2 on a pad), or hide it.",
         Renderer => "Auto: WebGPU when the browser has it, else WebGL2; the one in use shows in brackets, with Hardware (drawn by the graphics card) or Software (drawn by the CPU, much slower: turn on the browser's hardware acceleration). A change asks first: the page reloads into it.",
         Vibration => vibration_about(),
-        PadVibration => "Let controllers rumble: a short buzz when you pick your seat or press a button on the player select. Like the original, matches never rumble.",
         UpdateCheck => "Look for a newer version when the game starts. The main menu offers it: Update downloads and checks it, then restarts the game into it (or opens its page where the game can't replace itself).",
         FewerShadows => "At Low shadows, only the players, the umpire and what shades the court cast: fewer draws. Off: Low casts as many as High.",
         Advanced => "Switches that trade a little detail for speed on a slow device: the characters' mesh detail, fewer shadows, skipping what's off-screen.",
@@ -352,7 +348,6 @@ impl Settings {
             }
             Renderer => self.5 = (self.5 as isize + d).rem_euclid(RENDERERS.len() as isize) as u8,
             Vibration => self.0[VIBRATION] = !self.0[VIBRATION],
-            PadVibration => self.0[PAD_VIBRATION] = !self.0[PAD_VIBRATION],
             UpdateCheck => {
                 self.0[UPDATE_CHECK] = !self.0[UPDATE_CHECK];
                 crate::update::CHECK.store(self.0[UPDATE_CHECK], std::sync::atomic::Ordering::Relaxed);
@@ -426,7 +421,6 @@ impl Settings {
             Chat => on_off(self.0[CHAT]),
             Renderer => RENDERERS[self.5 as usize].1.into(),
             Vibration => on_off(self.0[VIBRATION]),
-            PadVibration => on_off(self.0[PAD_VIBRATION]),
             UpdateCheck => on_off(self.0[UPDATE_CHECK]),
             FewerShadows => on_off(g.fewer_shadows),
             Advanced => ">".into(),
