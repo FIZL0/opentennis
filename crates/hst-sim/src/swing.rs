@@ -561,7 +561,7 @@ pub fn smash_mode(plain: bool, offset: i32, from_z: f32) -> i32 {
         return 0;
     }
     let deep = (F(from_z.abs().clamp(6.4, BASELINE)) - 6.4) / 5.485;
-    -(F::ZERO + (deep * 10.0 + 0.5)).0 as i32
+    -((F::ZERO + (deep * 10.0 + 0.5)).0 as i32)
 }
 
 /// A smash's launch blend from its `mode`, as the strokes' (`timing_launch`) with the smash's stats: Serv POW
