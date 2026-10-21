@@ -32,8 +32,9 @@ const KEEP: u32 = 8;
 /// The most pipelines the record holds (the newest kept).
 const MAX: usize = 1000;
 
-/// The record's format; another one is dropped.
-const VERSION: u32 = 1;
+/// The record's format; another one is dropped. Bumped when a shader's bindings change under a recorded pipeline (a
+/// stale layout fails validation and quits): 2 = B629's composite (picture rect, glow image).
+const VERSION: u32 = 2;
 
 /// The quiet after the last newly asked-for pipeline before the record is saved.
 const SAVE_AFTER: std::time::Duration = std::time::Duration::from_secs(2);

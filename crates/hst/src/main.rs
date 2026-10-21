@@ -486,6 +486,8 @@ fn start(argv: Vec<String>) {
     app.add_plugins(device::plugin);
     // M91a1: the iPhone's on-screen pad, kept through mode switches
     app.add_plugins(play::touch_pad::plugin);
+    // B629: the loading screen's court picture over the whole window
+    app.add_plugins(loading::plugin);
     // M101: Android's controllers, which gilrs can't read
     #[cfg(target_os = "android")]
     app.add_plugins(android_pad::plugin);

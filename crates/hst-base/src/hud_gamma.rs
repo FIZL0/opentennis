@@ -42,15 +42,12 @@ pub fn plugin(app: &mut App) {
 struct Targets {
     scene: Handle<Image>,
     hud: Handle<Image>,
-    /// The camera putting the composite on the window (`out`): only in the view (B117's fixed aspect ratios), black
-    /// around it.
-    out: Entity,
     /// The persistence's two images: frame parity `i` mixes the scene and `last[1 - i]` into `last[i]`.
     last: [Handle<Image>; 2],
     /// B608: the HUD's camera, drawing only in the safe part of its image (`widescreen::view`).
     ui: Entity,
     /// B623: the camera drawing the copies of `widescreen::Bleed` nodes on the whole HUD image, under the HUD's camera
-    /// (on only while the view is smaller than the picture), and the root they're on.
+    /// (on only while the view is smaller than the window), and the root they're on.
     bleed: Entity,
     bleed_root: Entity,
 }
@@ -61,6 +58,10 @@ pub struct Persist;
 
 /// The composite camera's layer, so no sprite or mesh of the game's ends up on it.
 const LAYER: usize = 31;
+
+/// B629: how bright the bars beside a fixed Aspect Ratio's picture glow with its edges, at the picture's edge (it fades
+/// out away from it). 0 (the original mode: a 4:3 TV's black bars) leaves them black.
+const GLOW: f32 = 0.45;
 
 fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     // P57: no pixels on the CPU side: with Bevy's zero fill each window-sized target was uploaded at the first frame
@@ -90,9 +91,12 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let bleed_root = commands.spawn((full, UiTargetCamera(bleed), Pickable::IGNORE)).id();
     // raw like the scene image, so the mix lands in it unencoded
     let last = [(); 2].map(|_| images.add(target(TextureFormat::Rgba8Unorm)));
-    let out = commands.spawn(out::camera()).id();
-    commands.insert_resource(out::Frame { scene: scene.clone(), hud: hud.clone(), last: last.clone(), mix: None });
-    commands.insert_resource(Targets { scene, hud, out, last, ui, bleed, bleed_root });
+    // the camera putting the composite on the window (B629: all of it, a fixed aspect ratio's bars included)
+    commands.spawn(out::camera());
+    // B629: the bars' glow, averaged from the picture (`out`), filtered up smoothly
+    let glow = images.add(Image { sampler: ImageSampler::linear(), ..Image { data: None, ..Image::new_target_texture(out::GLOW_SIZE, out::GLOW_SIZE, TextureFormat::Rgba8Unorm, None) } });
+    commands.insert_resource(out::Frame { scene: scene.clone(), hud: hud.clone(), last: last.clone(), mix: None, picture: (Vec4::new(0.0, 0.0, 1.0, 1.0), 0.0), glow });
+    commands.insert_resource(Targets { scene, hud, last, ui, bleed, bleed_root });
 }
 
 /// A 3D camera drawing into the scene image.
@@ -158,38 +162,41 @@ fn follow_window(
     mut images: ResMut<Assets<Image>>,
     mut targets: Query<&mut RenderTarget>,
     mut cams: Query<&mut Camera>,
+    mut frame: ResMut<out::Frame>,
     device: Option<Res<bevy::render::renderer::RenderDevice>>,
 ) {
     let Ok(w) = window.single() else { return };
-    // B117: the images are the picture's size, the composite drawn only there (B608: the safe area doesn't shrink it)
+    // B117: the scene image is the picture's size (B608: the safe area doesn't shrink it); B629: the composite covers
+    // the window, the scene in the picture's rect (`picture`), the bars beside it a glow of its edges
     let phys = Vec2::new(w.physical_width() as f32, w.physical_height() as f32);
     let v = crate::widescreen::scene_view(phys);
     let (pos, vs) = (v.min.round().as_uvec2(), v.size().round().as_uvec2().max(UVec2::ONE));
-    let viewport = (vs != w.physical_size()).then(|| bevy::camera::Viewport { physical_position: pos, physical_size: vs, ..default() });
-    let key = |v: &Option<bevy::camera::Viewport>| v.as_ref().map(|v| (v.physical_position, v.physical_size));
-    if let Ok(mut cam) = cams.get_mut(t.out)
-        && key(&cam.viewport) != key(&viewport)
-    {
-        cam.viewport = viewport;
+    let rect = (pos.as_vec2() / phys.max(Vec2::ONE)).extend(0.0).extend(0.0) + Vec4::new(0.0, 0.0, vs.x as f32 / phys.x.max(1.0), vs.y as f32 / phys.y.max(1.0));
+    let picture = (rect, if g.original { 0.0 } else { GLOW });
+    if frame.picture != picture {
+        frame.picture = picture;
     }
+    let key = |v: &Option<bevy::camera::Viewport>| v.as_ref().map(|v| (v.physical_position, v.physical_size));
     let (pw, ph) = (vs.x as f32, vs.y as f32);
+    let (ww, wh) = (phys.x.max(1.0), phys.y.max(1.0));
     let size = |x: f32, y: f32| Extent3d { width: (x.round() as u32).max(1), height: (y.round() as u32).max(1), depth_or_array_layers: 1 };
     let ((scene, ks), (hud, kh)) = if g.original {
         let k = 448.0 / ph.max(1.0);
-        ((size(480.0 * pw / ph.max(1.0), 448.0), k), (size(pw * k, 448.0), k))
+        ((size(480.0 * pw / ph.max(1.0), 448.0), k), (size(ww * k, wh * k), k))
     } else {
         let cap = densest(w.scale_factor());
         let side = device.map_or(8192, |d| d.limits().max_texture_dimension_2d) as f32;
         let k = scene_scale(g.scale, cap, pw.max(ph), side);
-        ((size((pw * k).floor(), (ph * k).floor()), k), (size((pw * cap).floor(), (ph * cap).floor()), cap))
+        ((size((pw * k).floor(), (ph * k).floor()), k), (size((ww * cap).floor(), (wh * cap).floor()), cap))
     };
-    // B608: the HUD's camera draws in the view's part of its image (the whole image is still cleared each frame)
+    // B608: the HUD's camera draws in the view's part of its image (the whole image is still cleared each frame);
+    // B629: the image covers the window
     let ui = crate::widescreen::view(phys);
-    let f = Vec2::new(hud.width as f32 / pw.max(1.0), hud.height as f32 / ph.max(1.0));
-    let (at, inside) = (((ui.min - v.min) * f).round().as_uvec2(), (ui.size() * f).round().as_uvec2().max(UVec2::ONE));
+    let f = Vec2::new(hud.width as f32 / ww, hud.height as f32 / wh);
+    let (at, inside) = ((ui.min * f).round().as_uvec2(), (ui.size() * f).round().as_uvec2().max(UVec2::ONE));
     let full = UVec2::new(hud.width, hud.height);
     let ui_viewport = (inside != full).then(|| bevy::camera::Viewport { physical_position: at, physical_size: inside.min(full - at.min(full)).max(UVec2::ONE), ..default() });
-    // B623: a view inside the picture: the bleed camera clears the image and draws past the view, the HUD's over it
+    // B623: a view inside the window: the bleed camera clears the image and draws past the view, the HUD's over it
     let bleeds = ui_viewport.is_some();
     if let Ok(mut cam) = cams.get_mut(t.bleed)
         && cam.is_active != bleeds
@@ -240,7 +247,7 @@ fn follow_window(
 struct BleedCopy;
 
 /// B623: keeps a copy of each `widescreen::Bleed` node on the whole picture while its edges reach past the view: same
-/// image, tint and corners, its rect carried out to the picture's edges (`widescreen::bleed_out`). The copies go when
+/// image, tint and corners, its rect carried out to the window's edges (`widescreen::bleed_out`). The copies go when
 /// their nodes do.
 fn bleed(
     mut commands: Commands,
@@ -278,7 +285,7 @@ fn bleed(
             }
             continue;
         };
-        let [left, top, width, height] = crate::widescreen::view_to_scene(r, size).map(Val::Percent);
+        let [left, top, width, height] = crate::widescreen::view_to_window(r, size).map(Val::Percent);
         let want = Node { position_type: PositionType::Absolute, left, top, width, height, right: Val::Auto, bottom: Val::Auto, margin: UiRect::ZERO, ..node.clone() };
         if *n != want {
             *n = want;
