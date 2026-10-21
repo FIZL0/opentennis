@@ -1083,6 +1083,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **P20** Audio (see N3) → `hst-data/src/xb.rs` | j: 2026-10-06-characters/1-MODELS-ANIM-AUDIO-PART.md
 - [x] **P21a** Controller assignment screen: P1 picks which connected controller drives which player. The original shakes a controller's selector when that controller moves its right stick → `main.rs` · `play.rs` read_input/Pads
 - [x] **M138** Controller rumble like the original (user 2026-10-20): find when the original rumbles the pads (shots, smashes, net/post hits, points… which pad, strength, duration) and rumble gamepads at the same moments in the match (presentation: by eye, must not touch the sim RNG/timing). Off switch: reuse Settings' existing Vibration toggle (touch buzz) so it also covers pad rumble, or split it if one switch reads wrong → crates/hst-play/src/play.rs · crates/hst/src/play/main_menu.rs (VIBRATION) · crates/hst/src/play/main_menu/assign_shake.rs (pad rumble already used there)
+- [x] **B617** Skybox check, stock and modded courts: some skies show texture seams that don't line up and their animation jumps (user 2026-10-21). Go through every stock court and the court mods, screenshot the sky against the original (tools/screenshot.sh vs --shot) where stock, find where the seams/jump come from (UV wrap, face order, scroll/rotation clock wrapping or resetting) and fix; looks-right only, no bit-exact proof → crates/hst-play/src/stage.rs, crates/hst-base/src/court_mod.rs, crates/hst-base/src/mods_court.rs
 
 
 ### Confirmations
