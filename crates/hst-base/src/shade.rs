@@ -77,6 +77,7 @@ fn own_materials(
     rigs: Query<(Entity, Option<&Rig>), Or<(Added<Rig>, Added<Ball>)>>,
     children: Query<&Children>,
     parts: Query<(&MeshMaterial3d<StandardMaterial>, &Mesh3d, Option<&bevy::mesh::skinning::SkinnedMesh>, Option<&bevy::mesh::morph::MeshMorphWeights>, &Transform, &ChildOf)>,
+    worn: Query<&crate::character::WornGs>,
     materials: Res<Assets<StandardMaterial>>,
     mut gs: ResMut<Assets<GsMaterial>>,
     cullable: Query<(), With<crate::cull::Cullable>>,
@@ -86,7 +87,7 @@ fn own_materials(
         for e in children.iter_descendants(root) {
             let Ok((m, mesh, skin, morph, t, up)) = parts.get(e) else { continue };
             let draws = match rig {
-                Some(r) => r.data.gs.get(&m.0.id()).cloned(),
+                Some(r) => r.data.gs.get(&m.0.id()).cloned().or_else(|| worn.get(e).ok().map(|w| w.0.clone())),
                 None => materials.get(&m.0).and_then(|s| s.base_color_texture.as_ref()).and_then(|t| BALL_GS.lock().unwrap().get(&t.id()).cloned()),
             };
             for (k, d) in draws.into_iter().flatten().enumerate() {

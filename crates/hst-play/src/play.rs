@@ -68,6 +68,7 @@ pub mod name_tags;
 mod mod_match;
 mod skeleton_reach;
 pub mod hand_swap;
+pub mod handicap;
 pub mod net_hide;
 mod own_camera;
 mod alt_camera;
@@ -1266,6 +1267,7 @@ pub fn setup(
     mut gallery_used: Local<[bool; 4]>,
     match_mod: Option<Res<crate::mods::MatchMod>>,
     swap: Option<Res<hand_swap::SwapHands>>,
+    handicaps: Option<Res<handicap::Handicaps>>,
     mut fx_materials: Option<ResMut<Assets<effects::Fx>>>,
 ) {
     // the headless tests register only StandardMaterial: the effects get a store of their own
@@ -1303,6 +1305,7 @@ pub fn setup(
             mod_match::apply(&mut game, i, &mut iso, m, outfit, &mut voices);
         }
         hand_swap::apply(&mut game, i, swap.as_deref());
+        handicap::apply(&mut game, i, handicaps.as_deref());
         // a CPU gets an AI object, and so does a human beside a CPU partner; making one restarts the AI generator
         // ponytail: who is human is taken from the pads at setup
         let cpu = |k: usize| pads.slot_of(k, n).is_none();
@@ -1319,6 +1322,8 @@ pub fn setup(
         commands
             .entity(f)
             .insert((Figure(i), effects::SwingTrail::default()));
+        let look = (c, outfit, game.players[i].body.handicap, game.players[i].hand < 0.0);
+        handicap::wear(&mut commands, &mut iso, f, &data, look, &mut meshes, &mut materials, &mut images);
     }
     match_sounds(&mut commands, &mut iso, &args, &mut game, &mut voices, &mut gallery_used);
     // the match starts (the sound manager's reseed), then its first point
@@ -1710,7 +1715,7 @@ fn reset_positions(g: &mut Game) {
         );
         let end = at.facing;
         // stamina is full again every point
-        let body = loco::Body::new(at.pos, end, &stats);
+        let body = loco::Body { handicap: g.players[i].body.handicap, ..loco::Body::new(at.pos, end, &stats) };
         // the AI keeps its row and whether its team has hit yet across points
         let ai = (g.players[i].ai, g.players[i].ai_hit);
         let mind = g.players[i].ai_mind;
@@ -2521,11 +2526,11 @@ fn approach(g: &Game, i: usize) -> Option<(usize, Vec2)> {
     let r = &g.reaches[i];
     let path = predicted_path(g, r.grades.len() + 20);
     let mate = (g.players.len() == 4).then(|| g.players[i ^ 2].pos);
-    let (s, n) = (p.stats, g.players.len() as i32);
+    let (s, n, size) = (p.stats, g.players.len() as i32, p.body.size());
     let (mut run, mut stamina, mut tick) = (if p.body.running { p.body.run } else { 0 }, p.body.stamina, p.body.stamina_tick);
     let (end, y) = (p.end, p.pos[1]);
     swing::approach(r, &path, p.pos, p.end, |at, d| {
-        let speed = loco::run_speed(&s, run, stamina, 100);
+        let speed = loco::run_speed(&s, run, stamina, size);
         let delta = [hst_sim::ps2::mul(d[0], speed), 0.0, hst_sim::ps2::mul(d[1], speed)];
         let to = loco::mover([at[0], y, at[1]], delta, end, mate, false);
         run += 1;

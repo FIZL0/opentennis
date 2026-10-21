@@ -350,6 +350,7 @@ fn human_pad_replay() {
                 motion: p_i32(a, 0, 0x3df0),
                 target: p_v4(a, 0, 0x3dc0),
                 face: Facing { dir: p_v4(a, 0, 0x3d60), turned: p_u8(a, 0, 0x3dd1) != 0, reversed: p_u8(a, 0, 0x3dd0) != 0, way: p_i32(a, 0, 0x3dd4), cross: p_v4(a, 0, 0x3de0) },
+                handicap: 0,
             });
             // player 0 updates first: the hitter of this frame (a later player) hasn't changed the ball yet
             let (old, new) = (a.global(0x423058), fr.global(0x423058));
@@ -870,4 +871,35 @@ fn ai_serve_stick() {
     }
     eprintln!("ai serve stick: {frames} frames, {counted} counting down, {moves} moves; {returned} recorded off after the return");
     assert!(moves >= 2 && counted >= 8);
+}
+
+/// B40g1: a handicapped player runs at the size its weights give (one 80 %, two 70 %) every frame, with stamina and the
+/// run counter going as usual; none runs as before; the walk-to estimate's step shrinks the same way.
+#[test]
+fn b40g1_handicap_slows_the_run() {
+    use hst_sim::player::{bot_stick, handicap_size};
+    assert_eq!([0, 1, 2, 3, 255].map(handicap_size), [100, 80, 70, 100, 100]);
+    let s = Stats::new(10, 40, 40, [8, 4, 7], 0);
+    let sc = Scene { players: 2, phase: 3, last_hitter: -1, team: 0, forward: 1.0, hand: 1.0, mate: None, ball: [0.0; 3], ball_dir: [0.0, 0.0, 1.0], short: false };
+    let pelvis = vec![[0.0, 1.0]; 256];
+    let mut paths = Vec::new();
+    for h in 0..3u8 {
+        let size = handicap_size(h);
+        let mut b = Body { stamina: 40, handicap: h, ..Body::new([0.0, 0.0, -12.0], 1.0, &s) };
+        for frame in 0..60 {
+            let input = if frame % 30 < 25 { [0.0, 1.0] } else { [0.0, 0.0] };
+            b.step(&s, input, &sc, &pelvis);
+            if b.running {
+                let want = run_velocity([0.0, 0.0, 1.0], run_speed(&s, b.run, b.stamina, size));
+                assert_eq!(b.vel.map(f32::to_bits), want.map(f32::to_bits), "handicap {h} frame {frame}");
+            }
+        }
+        paths.push(b.pos[2]);
+        // the estimate stops within ⅔ of this body's own step
+        let step = run_speed(&s, 0, 40, size);
+        let est = Body { stamina: 40, handicap: h, ..Body::default() };
+        assert_eq!(bot_stick(est.toward(&s, [0.0, step * 0.6], 2, 3, false).0), [0x80, 0x80]);
+        assert!(est.toward(&s, [0.0, step * 0.7], 2, 3, false).1);
+    }
+    assert!(paths[0] > paths[1] && paths[1] > paths[2], "{paths:?}");
 }

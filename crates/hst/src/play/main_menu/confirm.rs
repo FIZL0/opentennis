@@ -2,7 +2,7 @@
 //! `frame.rs`). The title and the Singles / Doubles button (□ switches, 1P's device or a tap) along the top; the
 //! players' plates on the court, a team each side of the net (singles: near side, far side; online, no side names, B490); the scoreboard strip
 //! under it: Court (its picture; ✕ opens the court select), Umpire (her face; ✕ opens the umpire select), Sets and
-//! Games (✕, then ←→, as before, B212); Handicap is hidden until the original's handicaps are in (B482, B40g1); along the bottom
+//! Games (✕, then ←→, as before, B212); the handicap is △ on a local plate (`handicap.rs`, B40g1), none online; along the bottom
 //! ‹ Back and the big Start the match!. The arrows go about the screen as its parts lie; ✕ on a plate sends that
 //! player back to the character select. The court and umpire selects (`court_screen`, `umpire_screen`) are as before.
 

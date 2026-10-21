@@ -751,6 +751,7 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
         d.centred("Ready!", fx + fw - rw / 2.0, fy + (fh - rs) / 2.0, rs, hex(BG));
         fw -= rw + 8.0 * PX;
     }
+    fw = super::handicap::pill(d, m, p, [fx, fy, fw, fh]);
     let fs = 12.0 * PY;
     let [long, short] = tabs::foot(m, p);
     let line = if d.width(&long, fs) <= fw { long } else { short };

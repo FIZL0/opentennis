@@ -1132,6 +1132,55 @@ pub fn disc_racket(
     Ok(racket)
 }
 
+/// A rigid model's GS draws, on a part worn on a rig's joint (the handicap weights): lit with the rig as its body is
+/// (`shade`), though they aren't in the rig's own `CharacterData::gs`.
+#[derive(Component, Clone)]
+pub struct WornGs(pub Vec<crate::gs::GsMaterial>);
+
+/// A rigid model `{stem}.mdl` (with its `.mtl`/`.mti`) from `arc`, to wear on a joint: one mesh per material, in the
+/// model's own space, with its material and GS draws. Drawn two-sided: a left-hander's weight hangs unmirrored off
+/// the mirrored rig.
+pub fn worn(
+    arc: &Archive,
+    stem: &str,
+    meshes: &mut impl Store<Mesh>,
+    materials: &mut impl Store<StandardMaterial>,
+    images: &mut impl Store<Image>,
+) -> Result<Vec<(Handle<Mesh>, Handle<StandardMaterial>, WornGs)>, String> {
+    let get = |name: &str| arc.entries.iter().find(|e| e.name.replace('\\', "/").to_ascii_lowercase().ends_with(name)).and_then(|e| arc.read(e).ok());
+    let model = mdl::parse(&get(&format!("/{stem}.mdl")).ok_or(format!("{stem}.mdl missing"))?).map_err(|e| e.0)?;
+    let mats = mtl::parse(&get(&format!("/{stem}.mtl")).ok_or(format!("{stem}.mtl missing"))?, get(&format!("/{stem}.mti")).as_deref()).map_err(|e| e.0)?;
+    let _pre = crate::textures::prefetch(&mats);
+    let handles = materials_of(&mats, images, materials);
+    let mut gs = gs_of(&model, &mats, &handles, images);
+    let mut out = Vec::new();
+    for (mi, packets) in model.materials.iter().enumerate() {
+        let (mut pos, mut nrm, mut uv, mut col, mut idx) = (vec![], vec![], vec![], vec![], vec![]);
+        for pk in packets {
+            let base = pos.len() as u32;
+            for v in &pk.vertices {
+                pos.push(v.pos);
+                nrm.push(v.normal);
+                uv.push(v.uv);
+                col.push(v.color.map(|c| c as f32 / 128.0));
+            }
+            idx.extend(pk.triangles.iter().flatten().map(|i| i + base));
+        }
+        let Some(h) = handles.get(mi).filter(|_| !idx.is_empty()) else { continue };
+        let mut draws = gs.remove(&h.id()).unwrap_or_default();
+        draws.iter_mut().for_each(|d| d.key.cull = false);
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, nrm)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, col)
+            .with_inserted_indices(Indices::U32(idx));
+        crate::lod::detail(&mut mesh, &[]);
+        out.push((meshes.add(mesh), h.clone(), WornGs(draws)));
+    }
+    Ok(out)
+}
+
 /// Build a background figure (umpire, spectator, creature) from a court archive: the model `{stem}.MDL` with its
 /// MTL/MTI and the clips `anims` (motion k = the kth file; a missing file leaves k unset). Paths are matched
 /// case-blind against the archive's names, ending in `stem`.

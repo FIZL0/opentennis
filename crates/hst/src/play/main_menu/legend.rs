@@ -205,6 +205,9 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
             if m.confirm_swap() {
                 v.push((Act::Page, "Singles / Doubles"));
             }
+            if m.can_handicap(dev) {
+                v.push((Act::Card, "Handicap"));
+            }
             // the name picker, for the device's own seat
             if (0..m.players()).any(|p| m.seats[p] == Some(dev)) {
                 v.push((Act::Name, "Name"));

@@ -18,7 +18,7 @@
 //! it, and a character with none free is drawn dark and passed over by the cursor); the computer players added are
 //! picked by player 1 after the humans. B368: the select is one column per player (`roster`), each browsing and
 //! scrolling the roster on its own device, its stats card always up (△ opens its name picker, B371).
-//! `HST_MENU=<screen>` (main, rematch = main with a Rematch card, settings, graphics, sound, controls, mode, assign, chars, coms = chars with 1P ready (the COM cards), coms-random / confirm-random = 2P's computer readied on Random, chars-random = 1P on the Random card, names / names-type / names-card = chars with 1P named and its name picker open on the list / typing / closed (B371, B541), attrs / mods-attrs = chars / mods (B368: the stats card is always up), roster1–roster4 = 1–4 humans (B368), roster4-names = four humans all typing a name (B577), roster2-favs / roster4-favs = them with four favorites, 1P in Favorites and 2P on the last section (B382), roster2-deep = 2P's column scrolled to a mod far down, lobby-bot = the host's lobby with a computer player, lobby-singles = a singles lobby (B490), lobby-wait = the host's lobby waiting on a player choosing about a mod (B281), lobby-fetching = the host's lobby with a player still downloading a mod (M122), confirm-court = confirm on Nakagawa River Courts (B192), umpires-mod / confirm-umpire-mod = the umpire select / confirm on the first umpire mod (M8f3), courts-mod / confirm-court-mod = the court select / confirm on the first court mod (M8f6), chars4 = four humans on one portrait, mods = chars with 1P on the first mod, main-mods = main with the Mods row highlighted, main-update = main with B317's New version card highlighted (with `HST_LATEST`), rematch-update = both cards (M97), main-extras / extras = main on Extras / the Extras screen (M97), confirm, sets / games = confirm with that pill picked, assign-moved = assign with 1P moved to 3P, pending (B437), assign-drag = assign in doubles with 1P's card dragged most of the way onto 2P's pad (B597), online-custom / relay-url = the Relay row on Custom... / its URL entry, renderer = Display with the Renderer switch's confirm popup up (B327), takeover / takeover-toast = main with the pad takeover prompt up / its Yes's toast (M127), graphics-list / graphics-fps = Graphics with Preset's / Frame Limit's dropdown open (B498)) opens on that screen (for `--shot`).
+//! `HST_MENU=<screen>` (main, rematch = main with a Rematch card, settings, graphics, sound, controls, mode, assign, chars, coms = chars with 1P ready (the COM cards), coms-random / confirm-random = 2P's computer readied on Random, chars-random = 1P on the Random card, names / names-type / names-card = chars with 1P named and its name picker open on the list / typing / closed (B371, B541), attrs / mods-attrs = chars / mods (B368: the stats card is always up), roster1–roster4 = 1–4 humans (B368), roster4-names = four humans all typing a name (B577), roster2-favs / roster4-favs = them with four favorites, 1P in Favorites and 2P on the last section (B382), roster2-deep = 2P's column scrolled to a mod far down, lobby-bot = the host's lobby with a computer player, lobby-singles = a singles lobby (B490), lobby-wait = the host's lobby waiting on a player choosing about a mod (B281), lobby-fetching = the host's lobby with a player still downloading a mod (M122), confirm-court = confirm on Nakagawa River Courts (B192), confirm-handicap = confirm with 1P on one weight and 2P on two, 1P's plate chosen (B40g1), umpires-mod / confirm-umpire-mod = the umpire select / confirm on the first umpire mod (M8f3), courts-mod / confirm-court-mod = the court select / confirm on the first court mod (M8f6), chars4 = four humans on one portrait, mods = chars with 1P on the first mod, main-mods = main with the Mods row highlighted, main-update = main with B317's New version card highlighted (with `HST_LATEST`), rematch-update = both cards (M97), main-extras / extras = main on Extras / the Extras screen (M97), confirm, sets / games = confirm with that pill picked, assign-moved = assign with 1P moved to 3P, pending (B437), assign-drag = assign in doubles with 1P's card dragged most of the way onto 2P's pad (B597), online-custom / relay-url = the Relay row on Custom... / its URL entry, renderer = Display with the Renderer switch's confirm popup up (B327), takeover / takeover-toast = main with the pad takeover prompt up / its Yes's toast (M127), graphics-list / graphics-fps = Graphics with Preset's / Frame Limit's dropdown open (B498)) opens on that screen (for `--shot`).
 //!
 //! Custom characters (remaster-only): every standard mod under `mods/` beside the disc image (`mods::list`) is on a
 //! second page of the select, switched for everyone by Tab / □: B133: a grid like the disc characters', as many
@@ -51,6 +51,7 @@ mod child;
 mod confirm;
 mod extras;
 mod frame;
+mod handicap;
 mod home;
 mod look;
 mod names;
@@ -583,6 +584,8 @@ struct Player {
     swap: bool,
     /// B217: on the Random card (the ? card until ready; readying draws the pick, `Menu::draw`).
     random: bool,
+    /// B40g1: the handicap, 0 none, 1 or 2 weights (△ on the confirm screen's plate, `handicap.rs`).
+    handicap: u8,
     /// B369 / B382: the roster section the cursor is in (`tabs.rs`: a favorite is in two).
     tab: u8,
 }
@@ -1970,6 +1973,9 @@ impl Menu {
         } else if k.page && !self.online() {
             // doubles with more than two people here can't be singles
             out.push(Sound(1));
+        } else if k.card && self.can_handicap(dev) {
+            self.step_handicap();
+            out.push(Sound(0));
         } else if (k.back || k.ok && self.sel >= CONFIRM_ROWS) && self.online() {
             self.go(Screen::Lobby, out);
         } else if k.ok && self.sel >= CONFIRM_ROWS && !(self.seats[self.sel - CONFIRM_ROWS] == Some(dev) || self.bot(self.sel - CONFIRM_ROWS)) {
@@ -2076,6 +2082,7 @@ impl Menu {
         a.extend(self.umpire_mod_flags());
         a.extend(self.court_mod_flags());
         a.extend(self.name_flags(order));
+        a.extend(self.handicap_flags(order));
         if swaps.contains(&"1") {
             a.extend(["--swap-hands".into(), swaps.join(",")]);
         }
@@ -2494,7 +2501,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         "mode" => Screen::Mode,
         "assign" | "assign-moved" | "assign-drag" => Screen::Assign,
         "chars" | "chars2" | "chars4" | "chars4-pads" | "roster1" | "roster2" | "roster3" | "roster4" | "roster4-names" | "roster2-favs" | "roster4-favs" | "roster2-deep" | "mods" | "attrs" | "mods-attrs" | "coms" | "coms-random" | "chars-online" | "chars-hosting" | "chars-joining" | "chars-relay" | "chars-random" | "names" | "names-type" | "names-card" => Screen::Chars,
-        "confirm" | "confirm-random" | "confirm-court" | "courts" | "umpires" | "umpires-mod" | "confirm-umpire-mod" | "courts-mod" | "confirm-court-mod" | "sets" | "games" => Screen::Confirm,
+        "confirm" | "confirm-random" | "confirm-court" | "confirm-handicap" | "courts" | "umpires" | "umpires-mod" | "confirm-umpire-mod" | "courts-mod" | "confirm-court-mod" | "sets" | "games" => Screen::Confirm,
         "online" | "online-custom" | "online-unread" => Screen::Online,
         "lobbies" | "lobbies-searching" | "lobbies-more" | "lobbies-none" | "lobbies-failed" => Screen::Lobbies,
         "lobby" | "lobby-ios" | "lobby-bot" | "lobby-move" | "lobby-kick" | "lobby-singles" | "lobby-courts" | "lobby-ask" | "lobby-wait" | "lobby-fetching" | "lobby-guest" | "lobby-hosting" | "lobby-joining" | "lobby-failed" | "lobby-relay" => Screen::Lobby,
@@ -2638,6 +2645,13 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         // B192: the confirm screen on Nakagawa River Courts and Lily, as the PCSX2 shots (`context/b192`)
         if screen == "confirm-court" {
             (menu.court, menu.umpire) = (8, 2);
+        }
+        // B40g1: singles, 1P and a computer 2P ready, 1P with one weight, 2P with two, on 1P's plate
+        if screen == "confirm-handicap" {
+            (menu.doubles, menu.bots[1], menu.sel) = (false, true, CONFIRM_ROWS);
+            for (p, h) in menu.players.iter_mut().zip([1, 2]) {
+                (p.ready, p.handicap) = (true, h);
+            }
         }
         if screen == "chars4" {
             // four humans on one portrait: their hands' offsets keep them apart (B156)
