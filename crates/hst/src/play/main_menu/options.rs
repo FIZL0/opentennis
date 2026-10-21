@@ -163,7 +163,7 @@ fn about(o: Opt) -> &'static str {
         ButtonIcons => "The controller buttons the hints show. Auto: each controller's own (PlayStation, Switch, Steam Deck, else Xbox); or the same set for every controller.",
         Preset => "High draws at full quality with every speed-up off; Default looks the same with Fewer Shadows and Skip Off-Screen on; Steam Deck looks like High with vsync and the speed-ups on; Low and Phone trade detail for frame rate; Lowest is the cheapest (half resolution, no shadows, simpler characters) for the weakest devices. Auto picks one for this device, then times the first seconds of each match and lowers the resolution and shadows until it holds 60 fps.",
         Scale => "Draw the court at this share of the window's resolution, scaled up to fill it (the HUD stays sharp). Above 100 % draws it larger and scales it down: smoother edges, more work for the graphics card.",
-        Shadows => "Off, or the shadow map's detail (Low: one cascade, and only what shades the court casts).",
+        Shadows => "Off, or the shadow map's detail (Low: one cascade, and only what shades the court casts). Original: the trees' and buildings' shadows soft as on the PS2 (Original Mode always draws them so).",
         Msaa if locked(o) => "Off on WebGL2: anti-aliasing makes the browser build every drawing setup a second time, which stalls the first match for seconds. WebGPU (Display → Renderer) or the desktop app has it.",
         Msaa => "Smooth the court's jagged edges (MSAA): off, 2x or 4x samples per pixel.",
         Fps => "The most frames drawn a second (the game itself always runs at 60 Hz).",
@@ -227,7 +227,7 @@ fn fps_name(fps: u32) -> String {
 
 /// B316: the words of the rows whose values are small indices, shared by [`choices`] and [`Settings::value`].
 const SHOW_FPS_NAMES: [&str; 3] = ["Off", "On", "Detailed"];
-const SHADOW_NAMES: [&str; 3] = ["Off", "Low", "High"];
+const SHADOW_NAMES: [&str; 4] = ["Off", "Low", "High", "Original"];
 const MSAA_NAMES: [&str; 3] = ["Off", "2x", "4x"];
 
 /// B294: every value `o` can take, in order, as [`Settings::value`] words it (the side panel's choices).

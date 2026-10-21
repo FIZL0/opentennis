@@ -18,3 +18,4 @@
 - Settings → Controls is now one scrolling table: each action's controller buttons and keyboard keys side by side in bigger rows that read on a phone, either one picked to rebind (←/→ or a tap), and Reset to defaults is a square button at the top. The same in the pause menu's settings.
 - With touch controls, the score at the top of the screen now sits just below the L1/R1 buttons instead of under them.
 - The loading screen before a match keeps its shape in tall (portrait) and very wide windows: the hint panel no longer squashes, and the court picture fills the whole window without black bars.
+- Settings → Shadows has a new Original choice that draws the trees' and buildings' shadows soft, as on the PS2, instead of sharp; Original Mode uses it.
