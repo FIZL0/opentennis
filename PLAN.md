@@ -145,5 +145,5 @@ the front-end into its `play` module (`mod play { pub use hst_play::play::*; pub
 
 `tools/` — `pcsx2-hst.sh` launch · `pine.py` RAM/states · `vpad.py` virtual pad · `screenshot.sh` ·
 `record_p2m2.py` `record_live.py` `record_camera.py` `record_cutaway.py` `trace_live.py` `trace_shots.py`
-recorders · `overnight.sh` unattended runs. `research/` — RE scripts (`fn.sh`, ghidra_scripts), journal;
+recorders; unattended runs are `agent-runner run` (`runner.toml`). `research/` — RE scripts (`fn.sh`, ghidra_scripts), journal;
 `research/README.md` rebuilds `context/`.
