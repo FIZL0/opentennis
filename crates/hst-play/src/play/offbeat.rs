@@ -170,4 +170,62 @@ mod tests {
         assert_eq!(o.flag().as_deref(), Some("slow,ghost"));
         assert_eq!(Offbeat::parse("irregular,slow,turbo,ghost").flag().as_deref(), Some("irregular,slow,turbo,ghost"));
     }
+
+    /// A doubles match of computer players with every round-1 rule but irregular bounce: the ticks are the same
+    /// match as with the rules off (they only pace the clock and hide the ball), slow motion halves the speed after
+    /// each odd tick of a point, turbo builds up within a rally, and the ball goes out of sight past the net.
+    #[test]
+    fn pacing_and_ghost_leave_the_match_alone() {
+        use super::super::tick_input::{IDLE, Replay};
+        use super::super::*;
+        use crate::{Args, GameSpace};
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let set_up = |rules: Offbeat| {
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+            app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+            let iso = hst_data::fixture::ISO_PATH.into();
+            app.insert_resource(Args { iso, archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles: false, chars: vec![6, 1, 2, 3], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None });
+            app.insert_resource(Pads { seats: Some([false; 4]), autoplay: false, ..default() });
+            app.insert_resource(Replay(Default::default()));
+            app.init_resource::<super::super::tick_input::TickPads>();
+            app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
+            app.add_systems(Startup, setup);
+            app.add_systems(FixedUpdate, (remember, super::super::tick_input::systems(), control, simulate, motions, character::tick, played_out, held_ball).chain());
+            app.update();
+            app.world_mut().resource_mut::<Game>().offbeat = rules;
+            app
+        };
+        let mut off = set_up(Offbeat::default());
+        let mut on = set_up(Offbeat { slow: true, turbo: true, ghost: true, ..default() });
+        let (mut halved, mut whole, mut fast, mut ghosts) = (0, 0, 0, 0);
+        for _ in 0..4000 {
+            for app in [&mut off, &mut on] {
+                app.world_mut().resource_mut::<Replay>().0.push_back([IDLE; 4]);
+                app.world_mut().run_schedule(FixedUpdate);
+            }
+            let g = on.world().resource::<Game>();
+            let s = speed(g);
+            let pointing = matches!(g.phase, Phase::Serve | Phase::Rally);
+            match (pointing, g.instant.ticks % 2 == 1) {
+                (true, true) => assert!(s <= 0.5 * TURBO_TOP && s >= 0.5, "after an odd tick: halved ({s})"),
+                (true, false) => assert!(s >= 1.0, "after an even tick: whole ({s})"),
+                (false, _) => assert_eq!(s, 1.0, "between points ({:?})", g.phase),
+            }
+            halved += (s < 1.0) as u32;
+            whole += (s == 1.0) as u32;
+            fast += (s > 1.0) as u32;
+            ghosts += ghosted(g) as u32;
+            assert_eq!(speed(off.world().resource::<Game>()), 1.0, "rules off: the match's own speed");
+        }
+        let plain = |app: &App| {
+            let mut g = app.world().resource::<Game>().clone();
+            g.offbeat = default();
+            format!("{g:?}")
+        };
+        assert!(plain(&off) == plain(&on), "the rules changed the match");
+        assert!(halved > 500 && whole > 500 && fast > 50 && ghosts > 20, "{halved} {whole} {fast} {ghosts}");
+    }
 }

@@ -139,6 +139,8 @@ impl Menu {
             _ if self.switch.is_some() => self.switch.as_mut().map(|s| std::mem::replace(&mut s.1, i)),
             // B498: an open dropdown's choices
             _ if self.listing.is_some() => self.listing.replace(i),
+            // B40g2 (concept): the Offbeat Rules box's rules
+            Screen::Confirm if self.rules.is_some() => super::offbeat::choose(self, i),
             _ if self.mod_asking() => Some(std::mem::replace(&mut self.net.ask_row, i)),
             Screen::Mode => Some(std::mem::replace(&mut self.doubles, i == 1) as usize),
             Screen::Mods => Some(std::mem::replace(self.mods_cursor(), i)),

@@ -55,6 +55,7 @@ mod handicap;
 mod home;
 mod look;
 mod names;
+mod offbeat;
 mod online;
 mod options;
 mod osk;
@@ -698,6 +699,10 @@ struct Menu {
     update_ask: Option<usize>,
     /// B498: a many-choice Settings row's dropdown is open (row `sel`, `editing` set): the highlighted choice.
     listing: Option<usize>,
+    /// B40g2 (concept): the confirm screen's Offbeat Rules box is up: its chosen rule (`offbeat.rs`).
+    rules: Option<usize>,
+    /// B40g2 (concept): the local match's Offbeat Rules (`--offbeat`).
+    offbeat: crate::play::offbeat::Offbeat,
     /// B369: the select's favorite characters (`favorites.txt`).
     favs: tabs::Favorites,
     /// B371: the players' names (`names.rs`).
@@ -784,6 +789,8 @@ impl Default for Menu {
             quit: None,
             update_ask: None,
             listing: None,
+            rules: None,
+            offbeat: default(),
             favs: default(),
             names: default(),
             court_pick: default(),
@@ -1924,6 +1931,9 @@ impl Menu {
         use Effect::*;
         // B371: Start / N is the name picker's (its own seat, ready or not)
         let own = (0..self.players()).find(|&q| self.seats[q] == Some(dev));
+        if self.rules_step(k, out) {
+            return;
+        }
         if let Some(q) = own && self.name_step(q, dev, k, out) {
             return;
         }
@@ -2083,6 +2093,7 @@ impl Menu {
         a.extend(self.court_mod_flags());
         a.extend(self.name_flags(order));
         a.extend(self.handicap_flags(order));
+        a.extend(self.offbeat_flags());
         if swaps.contains(&"1") {
             a.extend(["--swap-hands".into(), swaps.join(",")]);
         }
@@ -2501,7 +2512,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         "mode" => Screen::Mode,
         "assign" | "assign-moved" | "assign-drag" => Screen::Assign,
         "chars" | "chars2" | "chars4" | "chars4-pads" | "roster1" | "roster2" | "roster3" | "roster4" | "roster4-names" | "roster2-favs" | "roster4-favs" | "roster2-deep" | "mods" | "attrs" | "mods-attrs" | "coms" | "coms-random" | "chars-online" | "chars-hosting" | "chars-joining" | "chars-relay" | "chars-random" | "names" | "names-type" | "names-card" => Screen::Chars,
-        "confirm" | "confirm-random" | "confirm-court" | "confirm-handicap" | "courts" | "umpires" | "umpires-mod" | "confirm-umpire-mod" | "courts-mod" | "confirm-court-mod" | "sets" | "games" => Screen::Confirm,
+        "confirm" | "confirm-random" | "confirm-court" | "confirm-handicap" | "confirm-offbeat" | "courts" | "umpires" | "umpires-mod" | "confirm-umpire-mod" | "courts-mod" | "confirm-court-mod" | "sets" | "games" => Screen::Confirm,
         "online" | "online-custom" | "online-unread" => Screen::Online,
         "lobbies" | "lobbies-searching" | "lobbies-more" | "lobbies-none" | "lobbies-failed" => Screen::Lobbies,
         "lobby" | "lobby-ios" | "lobby-bot" | "lobby-move" | "lobby-kick" | "lobby-singles" | "lobby-courts" | "lobby-ask" | "lobby-wait" | "lobby-fetching" | "lobby-guest" | "lobby-hosting" | "lobby-joining" | "lobby-failed" | "lobby-relay" => Screen::Lobby,
@@ -2652,6 +2663,12 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
             for (p, h) in menu.players.iter_mut().zip([1, 2]) {
                 (p.ready, p.handicap) = (true, h);
             }
+        }
+        // B40g2 (concept): the Offbeat Rules box up over a ready singles confirm, two rules on, Slow motion chosen
+        if screen == "confirm-offbeat" {
+            (menu.doubles, menu.bots[1], menu.rules) = (false, true, Some(1));
+            menu.players.iter_mut().take(2).for_each(|p| p.ready = true);
+            (menu.offbeat.irregular, menu.offbeat.slow) = (true, true);
         }
         if screen == "chars4" {
             // four humans on one portrait: their hands' offsets keep them apart (B156)
@@ -3273,6 +3290,7 @@ fn confirm(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity]
         }
         _ => confirm::draw(d, m, text, bind, pads),
     }
+    offbeat::draw(d, m);
 }
 
 /// B356: the random umpire's icon `size` across centred on `[x, y]`, round like the disc's umpire faces: their dark

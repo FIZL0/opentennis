@@ -194,6 +194,10 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
                 v.extend([(Act::Ok, "Select"), (Act::Back, "Cancel")]);
             }
         }
+        // B40g2 (concept): the Offbeat Rules box
+        Screen::Confirm if host && m.rules.is_some() => {
+            v.extend([(Act::UpDown, "Rule"), (Act::Ok, "On / Off"), (Act::Back, "Close")]);
+        }
         Screen::Confirm if host => {
             // B449: about the screen; ✕ on a plate sends that player back to the select
             moves(&mut v, m.confirm_axes());
@@ -207,6 +211,9 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
             }
             if m.can_handicap(dev) {
                 v.push((Act::Card, "Handicap"));
+            }
+            if let Some(words) = m.rules_label() {
+                v.push((Act::Hand, words));
             }
             // the name picker, for the device's own seat
             if (0..m.players()).any(|p| m.seats[p] == Some(dev)) {
