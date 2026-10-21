@@ -30,9 +30,9 @@ So A is the correct rebuild of the state, and C is a corrupted pool.
 - The exact PCSX2-side trigger is not pinned down. It is outside the game and outside the port.
 
 ## How to guard against it
-- Rebuild with `research/p17v4_frame.py` under HST_LOCKSTEP=1.
+- Rebuild with `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v4_frame.py` under HST_LOCKSTEP=1.
 - For a dump-driven replay, first check the pool:
-  `research/p17v4_pool.py <state.p2s> dump.gs` says whether the dump's pool equals the state's.
+  `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v4_pool.py <state.p2s> dump.gs` says whether the dump's pool equals the state's.
   - The cap0 dump fails this check. Earlier P17v sim comparisons against cap0 were made on the C pool. sw05.red/.map are the A outcome, which is what the state really gives.
 
 ## Notes

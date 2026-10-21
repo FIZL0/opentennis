@@ -1,5 +1,5 @@
 //! The court intro's camera flyover: the script built from each court's camera file reaches the file's poses
-//! (the orbit segments too), and the channels and eye follow recordings of the original (`research/b42_intro_camera.py`:
+//! (the orbit segments too), and the channels and eye follow recordings of the original (`research/journal/2026-10-12-b42-court-intro/scripts/b42_intro_camera.py`:
 //! court 8 in `context/b42/cam_c08.bin`, courts 1–7, 9, 11 in `context/b42d/cam_cNN.bin`, all doubles).
 
 use hst_data::{exe::Game, iso::Iso, xb::Archive};

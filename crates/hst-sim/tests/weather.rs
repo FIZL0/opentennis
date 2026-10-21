@@ -3,7 +3,7 @@ use hst_sim::weather::{schedule, Mt, Odds, Rand, Wind};
 
 /// Slot 5's match (court 10, doubles, 4 games, 1 set): its schedule as in RAM (match object +0xd8 weathers, +0x11c
 /// speed/direction pairs) comes out of the shared MT19937 seeded with newlib `rand()` output 0x28c7c4a1, the one
-/// 2641 calls before the match seed (research/p17k_seed_search.py walks the LCG back from the live state).
+/// 2641 calls before the match seed (research/journal/2026-10-07-p17-court-rendering/scripts/p17k_seed_search.py walks the LCG back from the live state).
 #[test]
 fn slot5_schedule_from_the_game_generator() {
     let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };

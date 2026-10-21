@@ -3,7 +3,7 @@
 ## Original
 - Captured court 8 from boot to the first serve without a monitor: `tools/screenshot.sh` now falls back to the
   copy's pad-bound PCSX2 Screenshot hotkey (L3+R3, set in the copy's PCSX2.ini) when hyprctl can't reach a window.
-  `research/b42_intro_shots.py` takes the screenshots; `research/b42_intro_camera.py` records the shot camera every
+  `research/journal/2026-10-12-b42-court-intro/scripts/b42_intro_shots.py` takes the screenshots; `research/journal/2026-10-12-b42-court-intro/scripts/b42_intro_camera.py` records the shot camera every
   frame (`context/b42/cam_c08.bin`, 681 frames).
 - Phase 0 is the intro. While the "Now Loading" tips screen is up, the camera script holds; it steps with the match
   frame counter. The court title plate and "✕ Skip" show during the flyover. After the script, the match camera

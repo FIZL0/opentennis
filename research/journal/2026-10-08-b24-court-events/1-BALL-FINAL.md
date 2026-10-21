@@ -29,7 +29,7 @@
 - `play/npcs.rs`: on entering `Phase::ChangeEnds` the type-15 triggers reset with `ends`; drawn from `world` while
   active && on && speed ≠ 0.
 - Test `passing_ball_matches_the_game` (`context/fixtures/ball_c04.bin`: samples 9200–10600 of
-  `context/b24/r15_long.bin`, recorded by `research/b24_rec15.py`, parsed by `b24_parse15.py`): 1399 ticks,
+  `context/b24/r15_long.bin`, recorded by `research/journal/2026-10-08-b24-court-events/scripts/b24_rec15.py`, parsed by `b24_parse15.py`): 1399 ticks,
   3 resets, the roll and 4 bounce sounds bit-exact (route 0).
 - Screens: `context/b24/orig_ball_100.png` vs the app's frame 100: ball at the same spot over the far court.
 

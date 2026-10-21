@@ -144,7 +144,7 @@ pub fn apply(
             // the sky's light block has no glare; none in rain
             m.uniform.glare = (w < 2 && !look.skies.contains(&id)) as u8 as f32;
             // every bg-dir model (`_bg`, `_acc`, `_clo`, `_sky`) has VU1's unlit flag: the court load builds them
-            // with object flags 2 (not in the file); checked exact on slot 4's GS dump (research/p17s6_unlit_gs.py)
+            // with object flags 2 (not in the file); checked exact on slot 4's GS dump (research/journal/2026-10-07-p17-court-rendering/scripts/p17s6_unlit_gs.py)
             if look.skies.contains(&id) || look.bg.contains(&id) {
                 m.uniform.unlit = 1.0;
             }

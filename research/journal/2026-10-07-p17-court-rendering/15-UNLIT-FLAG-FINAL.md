@@ -16,13 +16,13 @@
   blocks (0.7, 0.5, 0.02). Their file batches have 0x0c, so something sets it at load. The flag setter chain is
   15df30 ← 15dce0 ← 15c0a0 ← 155220, a vtable method. Its caller for skies and bg was not found.
 - Bit 0 is OR'd at runtime too (the ground 0x10d, alpha batches); it is not this task.
-- `research/p17s5_draws.py` maps every draw record in s4.ram to (model, material, light block, flags).
+- `research/journal/2026-10-07-p17-court-rendering/scripts/p17s5_draws.py` maps every draw record in s4.ram to (model, material, light block, flags).
 
 **House and light4: they fit; the check was wrong.**
 - Both use the court block (0.7, 0.5, 0.02) with flags 0x10c, like ry and shinpandai.
 - The old matcher (p17s_light_gs.py / p17s2_check.py) pairs each packet with the only GS run of the same kick pattern.
   Packets with repeated kick patterns (the house's mirrored halves) landed on another packet's run.
-- `research/p17s5_check.py` instead picks the run whose GS/vc ratio is most constant over equal normals, and pairs
+- `research/journal/2026-10-07-p17-court-rendering/scripts/p17s5_check.py` instead picks the run whose GS/vc ratio is most constant over equal normals, and pairs
   greedily, one-to-one. With it, light4 fits 390/394 (fitted rotation, max error 1).
 - The house's one node matrix in RAM is a ≈180° yaw (rows (−1, 0, 0.0059), (0, 1, 0), (−0.0059, 0, −1); normals n·R).
   With it and no fit, batch groups 2, 3, 5 and 6 are exact: 358/358.

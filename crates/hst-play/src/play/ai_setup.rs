@@ -69,7 +69,7 @@ pub(super) fn reset_human(g: &mut Game, i: usize) {
 }
 
 /// The AI generator's index from setup into the first point against the original's (`context/p11m2`, probed with
-/// `research/p11m2_intro_probe.py` from a Confirm Settings state): singles with a human serving to a CPU, a CPU
+/// `research/journal/2026-10-20-p11m2-ai-setup-draws/scripts/p11m2_intro_probe.py` from a Confirm Settings state): singles with a human serving to a CPU, a CPU
 /// serving to a CPU, and doubles with a human beside a CPU against two CPUs.
 #[cfg(test)]
 mod tests {

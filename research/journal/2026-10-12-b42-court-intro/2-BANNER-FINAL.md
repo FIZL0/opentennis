@@ -22,7 +22,7 @@ same model, pill, digits and positions by eye.
 
 ## Not verified / not 1:1
 - The banner's alpha/stage timeline and the model's start tick weren't recorded over PINE: the recorder
-  (`research/b42b_banner.py`) needs a route from copy 5's slot 2 (main menu) through character and court select to
+  (`research/journal/2026-10-12-b42-court-intro/scripts/b42b_banner.py`) needs a route from copy 5's slot 2 (main menu) through character and court select to
   a match, which I didn't script. Taken from the decompile; it's within a tick of it by construction, not measured.
 - The scoreboard's own copy of the banner (y 176, started by the same message, drawn only after the presentation
   flag is cleared at the first point) wasn't drawn: it's unclear whether it ever shows (its sprites' alpha is the one

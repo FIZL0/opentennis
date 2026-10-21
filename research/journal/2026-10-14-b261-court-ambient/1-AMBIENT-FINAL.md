@@ -2,7 +2,7 @@
 
 ## Beach plane (court 2, trigger type 6, model trg_M-02, sound 30)
 - Path, trigger and model were already ported (hst-sim `npc.rs`, messages 7/2/4). Checked against the running game's
-  RAM (`research/b261_plane.py`, capture in `context/b261/run2/plane.txt`): y = −60, z steps −3.9857666 per tick from
+  RAM (`research/journal/2026-10-14-b261-court-ambient/scripts/b261_plane.py`, capture in `context/b261/run2/plane.txt`): y = −60, z steps −3.9857666 per tick from
   ≈340; the game's handler has no distance cut-off, the flight only ends at message 4 (post-point reset, ≈3.1 s later,
   z ≈ −406). Same as the port; now pinned by `beach_plane_flies_over` (hst-sim `tests/npc.rs`).
 - The bug: the port played the engine with the 3-D falloff (silent beyond 128 m, i.e. most of the flight). The game

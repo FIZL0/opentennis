@@ -24,7 +24,7 @@ match) it is cleared (with +0x3b94 and the voice memory), so once per match per 
 restored from +0x3b97 (saved at each other placement) — that is the instant replay re-running a point; the app has
 no such replay, so it is left out.
 
-## Live check (research/p3d4_serve_call.py, copy 3)
+## Live check (research/journal/2026-10-08-p3d4-serve-call/scripts/p3d4_serve_call.py, copy 3)
 
 Pokes the score after the load (points 3-0, games and sets one short) and logs the shared draws until the server
 has tossed.

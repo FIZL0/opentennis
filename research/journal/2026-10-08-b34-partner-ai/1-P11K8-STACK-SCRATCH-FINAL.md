@@ -19,7 +19,7 @@ Either forcing after() false, or forcing n < 0, made the replay bit-exact.
 - `HST_PROBE=1` (tools/record_ai_rally.py) logs two things:
   - what 0x362090 reads, called from NET (ra 0x3d0c9c);
   - the mate record 0x35e560 returns right after (ra 0x3d0cc4).
-- `research/p11k8_probe.py` compares the logged reads with the entry records.
+- `research/journal/2026-10-08-b34-partner-ai/scripts/p11k8_probe.py` compares the logged reads with the entry records.
 - Captures, 4000 frames each, tag 2:
   - p5 (slot 4);
   - m3a–d and m4a–d (slots 3/4, P1 right-handed Carol as saved).

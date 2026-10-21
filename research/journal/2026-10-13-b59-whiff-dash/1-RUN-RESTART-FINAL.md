@@ -1,7 +1,7 @@
 # B59 — dash right after a whiff
 
 ## The original
-- `research/b59_whiff_dash.py 4 6 5000 30` (copy 4, slot 4, P1 human) → `context/b59/run1/log.txt`. P1 runs
+- `research/journal/2026-10-13-b59-whiff-dash/scripts/b59_whiff_dash.py 4 6 5000 30` (copy 4, slot 4, P1 human) → `context/b59/run1/log.txt`. P1 runs
   sideways with the stick held 30 frames (run count +0x3dfc 0→29, dash motion 7 from run 18), presses ✕ with the
   stick still held and keeps it held; or stands, presses ✕ and holds the stick from the next frame.
 - Every whiff: the stroke state (+0x3fa5 = 2) holds the player still from the press frame; the miss motion comes on

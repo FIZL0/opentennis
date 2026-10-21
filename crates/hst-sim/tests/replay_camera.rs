@@ -1,5 +1,5 @@
 //! The instant replay's shots on the original's own reference frames (`context/fixtures/replay_frames_s05.bin`,
-//! `research/b172_frames.py` from slot 5's match-point replay): fed the recorded frame table, the port's shot
+//! `research/journal/2026-10-13-b172-replay-pivot/scripts/b172_frames.py` from slot 5's match-point replay): fed the recorded frame table, the port's shot
 //! puts the eye where the game's camera is. Per vsync: u32 vsync, u8 camera handler +0x51, u32 shot camera +0x114, the frame
 //! table (0x79 × 0x40), 0x58 bytes of recorder roles, the camera eye/look/up/fov (0x40).
 

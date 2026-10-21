@@ -5,7 +5,7 @@
 - The startle callback (types 0, 1, 5, 31, 32, 39) writes the weight at a reset or the match start. Type 32 gets 1.0
   and its `on` set; the others get 0.0. The weight's address is the model data's +0x5c: inst = **(+0x5c),
   data = *(inst+0xc).
-- **Recorded type 32** (court 8, trg_BA-02). The script is `research/p14c3f_court8.py start`: from slot 2 it goes to
+- **Recorded type 32** (court 8, trg_BA-02). The script is `research/journal/2026-10-07-p14-npc/scripts/p14c3f_court8.py start`: from slot 2 it goes to
   Ashley vs the COMs, court 8, doubles, and saves slot 8 at P1's first serve. On copy 4, ✕ confirms.
   - Both type-32 creatures: weight 1.0, +0x281 = 1.
   - Both type-31 creatures: weight 0.0, +0x281 = 0.
@@ -17,7 +17,7 @@
   - mode 1: the model's bones have runtime flags & 0x500;
   - mode 2: the instance's projection-pass flag together with the batch header's bit 4.
   - Mode 0 packets never see the weight.
-- **Draw modes found** (`research/p14c3f_weight_modes.py 8`, computed the same way the draw does):
+- **Draw modes found** (`research/journal/2026-10-07-p14-npc/scripts/p14c3f_weight_modes.py 8`, computed the same way the draw does):
 
   | type | mode | packets |
   |---|---|---|
@@ -65,7 +65,7 @@
   | forced replay's start | yes | 4 | creature 0's bc 0→1; creature 2's bc 1→0 |
   | serve after the replay | no | 4 | kept again |
 
-- **Whether a reset ran.** `research/p14c3f_msg_e.py` prints the transitions. Byte diffs of +0x128..+0x290 across
+- **Whether a reset ran.** `research/journal/2026-10-07-p14-npc/scripts/p14c3f_msg_e.py` prints the transitions. Byte diffs of +0x128..+0x290 across
   each arrival show:
   - phase 0: only +0x283 changes, so no reset ran;
   - phases 3 and 4: the matrix and leg fields change, so a reset ran.

@@ -4,7 +4,7 @@
 pre-weighted normals, |n_e| = w_e); the port lit per fragment with Bevy's normalised skinned normal. Does the dump
 agree for the multi-bone vertices (nodes 2, 54, 55, 58, 59, 3, 35 of pc05)?
 
-**Answer: yes.** `research/p17s3_multibone.py ../s4/context/p17s/s5.gs context/p17s1/pc05_t01_c00.txt 0.60392
+**Answer: yes.** `research/journal/2026-10-07-p17-court-rendering/scripts/p17s3_multibone.py ../s4/context/p17s/s5.gs context/p17s1/pc05_t01_c00.txt 0.60392
 0.58745 0.58745` fits every bone's light direction (bone space) at once from pc05's lit vertices; it is linear,
 d = Σ n_e·L_bone(e), and then predicts GS = ⌊vc·A·(1 + max(d, 0))⌋ (A = light on court 10).
 

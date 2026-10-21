@@ -9,7 +9,7 @@ After P50/B415 the match start is sliced over frames, but in the browser two thi
   upscaled 16× in pixels).
 - **WebGL compiles every queued pipeline in one frame** (`PipelineCache::process_queue`, synchronous on the page's
   thread): 0.3–0.43 s on desktop in the same frames.
-Measured with Chrome CPU profiles (`research/b409_frames.py`, `b409_window.py`) of `tools/web_check.mjs` runs on the real
+Measured with Chrome CPU profiles (`research/journal/2026-10-15-b409-mobile-match-load/scripts/b409_frames.py`, `b409_window.py`) of `tools/web_check.mjs` runs on the real
 GPU (`CHROME_FLAGS="--enable-features=Vulkan --use-angle=vulkan --enable-gpu"`; headless SwiftShader is too slow to
 tell a load from a normal frame).
 

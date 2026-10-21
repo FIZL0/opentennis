@@ -1,6 +1,6 @@
 # P17s7: the moving clouds' light and alpha
 
-**Result: exact.** On court 10, all 9 clouds in a GS dump match the formula below to the bit (`research/p17s7_cloud_gs.py`).
+**Result: exact.** On court 10, all 9 clouds in a GS dump match the formula below to the bit (`research/journal/2026-10-07-p17-court-rendering/scripts/p17s7_cloud_gs.py`).
 
 ## The draw (decompile)
 
@@ -25,7 +25,7 @@
 
 ## The check
 
-There is no singles save state. `research/p17s7_capture.py` loads slot 5 (court 10, doubles) and sets the singles
+There is no singles save state. `research/journal/2026-10-07-p17-court-rendering/scripts/p17s7_capture.py` loads slot 5 (court 10, doubles) and sets the singles
 flag. It then holds the 9 clouds in front of the match camera at radii 1500–1990, so the fades run from 1 down to 0.05.
 The wind speed is rewritten every frame, so the script re-pokes the positions until the dump lands. It then GS-dumps
 with F11 (copy 3's GSDumpSingleFrame was Shift+F8; it is now rebound to F11 like the other copies) and saves EE RAM.

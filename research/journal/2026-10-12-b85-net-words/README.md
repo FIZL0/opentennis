@@ -26,9 +26,9 @@ The original's "thwip" is one of its material bounce words, which B39 had alread
   (0.3/0.18/0.3), no rise or swell. P25/B39's draw path (`draw_words`) already does this.
 
 ## Verification
-- **Recordings:** `research/b85_net_rec.py` loads slot 5 and overwrites the live ball's velocity once. It then records
+- **Recordings:** `research/journal/2026-10-12-b85-net-words/scripts/b85_net_rec.py` loads slot 5 and overwrites the live ball's velocity once. It then records
   the ball, its contact records and the game's pop-up object every frame, and takes screenshots.
-  `research/b85_parse.py` prints the result. Commands are in `context/b85/run.sh`:
+  `research/journal/2026-10-12-b85-net-words/scripts/b85_parse.py` prints the result. Commands are in `context/b85/run.sh`:
   | Recording | Velocity overwrite | Word |
   |---|---|---|
   | `cord_over3` | vsync 7864, (-0.056, -0.1, -0.55) | THIP |

@@ -191,7 +191,7 @@ fn goodcpus2_lobs_and_fence_hits_match_the_game() {
 }
 
 /// B85: the word a net touch pops up — THIP off the cord (rally and serve), THUP into the net, GONG off the post
-/// (`research/b85_net_rec.py`, `context/b85/*.bin`: slot 5 with one velocity overwrite, the ball and the game's pop-up
+/// (`research/journal/2026-10-12-b85-net-words/scripts/b85_net_rec.py`, `context/b85/*.bin`: slot 5 with one velocity overwrite, the ball and the game's pop-up
 /// object every frame). From the frame after the overwrite the port's ball flies on by itself; every frame its bounce
 /// words (`bodyhit::BounceWords`) must be the game's: same texture, same place (bit for bit), same opacity.
 #[test]

@@ -11,7 +11,7 @@
   the swing switches to its miss motion (0x10–0x19 → 0x27/0x28, 0x1f/0x25 → 0x29, 0x26 → 0x2a), the "missed"
   flag is set, the miss voice plays, and there's a re-press lock (30 frames for a smash, else 2).
 
-## Proof (PINE, `research/b128_net_lock.py`, copy 4, slot 5)
+## Proof (PINE, `research/journal/2026-10-12-b128-net-lock/scripts/b128_net_lock.py`, copy 4, slot 5)
 The script waits for a rally lock, then puts the ball at the cord, flying toward the locked player.
 - `context/b128/lock1.log` (`5 1 4 0 0.93 0.15 150`): P1 locked a ground stroke with countdown 10. The ball
   touched the cord 2 frames later (special count 1). The countdown ran 9…1, then −1, skipping 0, so there was

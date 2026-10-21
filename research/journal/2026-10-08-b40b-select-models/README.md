@@ -72,7 +72,7 @@ and light matches by eye. `tools/check.sh -p hst` passes.
 - +0x840 is set to 1 by the R2 and L2 handlers (0x3476e0) when the character is 5 or 13, else 0. △ (0x1000) doesn't touch it, so after a reaction the pose is pelvis-centred too. A character or costume change (0x34ce10) and the screen's init (0x322f70) clear it.
 - No root path: the menu loads only `re_pcNN_gu_set/di_set.ANI2` (+ .MOR/.UVA) from `MENU/PC/PCnn.XB` (byte-identical to PCANI's), no `_dummy` path. Live for char 0: the root matrix stays at (0, 1.5, 8) through gu_set (context/b40b3/c0_r2.tsv). The B40b gap note "apply gu_set's root path" was wrong; nothing to apply.
 - No crossfade: both switches call the motion setter 0x140360 with a null blend source, and its blend copy (0x140a70) returns at once without one. It's a cut, as the port already does.
-- Live for char 5 (context/b40b3/c5_r2.tsv, `research/b40b3_probe.py`): with +0x840 = 1 the pelvis world x/z stays (0, 8.0) and the root z moves 7.79–8.03 over gu_set; after △ the root is (−0.000284, 8.001564). The motion clock reads one frame ahead of the drawn joints (it ticks after the draw).
+- Live for char 5 (context/b40b3/c5_r2.tsv, `research/journal/2026-10-08-b40b-select-models/scripts/b40b3_probe.py`): with +0x840 = 1 the pelvis world x/z stays (0, 8.0) and the root z moves 7.79–8.03 over gu_set; after △ the root is (−0.000284, 8.001564). The motion clock reads one frame ahead of the drawn joints (it ticks after the draw).
 
 ## Built
 

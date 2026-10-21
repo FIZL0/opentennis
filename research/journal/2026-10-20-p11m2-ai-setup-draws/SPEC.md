@@ -1,7 +1,7 @@
 # P11m2 spec: the AI generator's draws between match setup and the first point
 
 Behaviour of the original, in our own words, from reading the game and checking it on the running game
-(probes in `research/p11m2_intro_probe.py`, captures in `context/p11m2/`). Terms below use the app's names:
+(probes in `research/journal/2026-10-20-p11m2-ai-setup-draws/scripts/p11m2_intro_probe.py`, captures in `context/p11m2/`). Terms below use the app's names:
 "AI generator" = `Rngs::ai`, "shared generator" = `Rngs::shared`, "reset" = the AI's per-point reset as the app
 already does it (`Mind::reset` net pick, then `timing` with no shots, then `picks` with dive allowed, then `count`).
 

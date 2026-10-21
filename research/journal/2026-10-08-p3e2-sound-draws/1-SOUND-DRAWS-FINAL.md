@@ -48,7 +48,7 @@ In the reseed frame the sparks reroll all 25 slots from the old generator, and t
 
 ## Proof
 
-`research/p3e2_sound_rec.py 5 1600 context/p3e2/sound_s05.bin`, run under `HST_LOCKSTEP=1 tools/pcsx2.sh`. It records, per frame: vsync, the effects object 0x100, the sparks object 0x70, 25 particles ×0x40, 25 rolls ×0x50, and the sound MT 0x9d0, covering vsync 7533–9133.
+`research/journal/2026-10-08-p3e2-sound-draws/scripts/p3e2_sound_rec.py 5 1600 context/p3e2/sound_s05.bin`, run under `HST_LOCKSTEP=1 tools/pcsx2.sh`. It records, per frame: vsync, the effects object 0x100, the sparks object 0x70, 25 particles ×0x40, 25 rolls ×0x50, and the sound MT 0x9d0, covering vsync 7533–9133.
 
 `crates/hst-sim/tests/rng.rs` `sound_draws_like_the_game` replays the 1599 frames:
 - The stroke flags name the hitter, and a dive throws a 20-draw ring.
@@ -62,4 +62,4 @@ Mutations both fail at 8656: dropping `new_point` before the sound reseed, and d
 
 `sparks_s05` (no sound MT in its fixture) still takes the rolls from the recording after each tick.
 
-`research/p3e2_poke.py <v> <n> <slot> [poke]` is the lock-step poke-and-diff used to find the ring's consumer.
+`research/journal/2026-10-08-p3e2-sound-draws/scripts/p3e2_poke.py <v> <n> <slot> [poke]` is the lock-step poke-and-diff used to find the ring's consumer.

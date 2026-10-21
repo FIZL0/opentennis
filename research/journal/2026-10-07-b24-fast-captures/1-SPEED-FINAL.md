@@ -7,7 +7,7 @@ the wall-clock tools (`play_p2m2.py`, `trace_*.py`, which refuse a copy at 1x or
 
 ## The sweep
 
-Same scene (slot 5, bot game), each speed against the 0.5 capture (`research/b24/sweep.sh`, `cmp.py`; captures in
+Same scene (slot 5, bot game), each speed against the 0.5 capture (`research/journal/2026-10-07-b24-fast-captures/scripts/b24/sweep.sh`, `cmp.py`; captures in
 `context/b24/`). "gaps" = frames missing from the faster capture; "differ" = common frames with other values.
 
 | recorder | speed | wall | gaps | differ |

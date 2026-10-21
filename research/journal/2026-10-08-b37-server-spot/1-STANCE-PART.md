@@ -10,7 +10,7 @@ Decompile reading so far:
   entry after a change of ends keeps the change-ends placement.
 - match_s05 / 1p3goodcpus never have a server serving again right after a change of ends, so they can't show it.
 
-Live check in progress: `research/b37_stance_probe.py` (slot 5, pokes stances 1.5/2.0/2.5 on players 1..3 and team 0
+Live check in progress: `research/journal/2026-10-08-b37-server-spot/scripts/b37_stance_probe.py` (slot 5, pokes stances 1.5/2.0/2.5 on players 1..3 and team 0
 to 40-0 once the first rally starts, prints x/stance at each phase entry until after the change). Its first run had
 not reached the change of ends after ~20 min (the 40-0 poke may not end the game quickly); rerun, perhaps poking the
 point that ends game 1 instead. If the stance survives the change, the port already matches the code read and the

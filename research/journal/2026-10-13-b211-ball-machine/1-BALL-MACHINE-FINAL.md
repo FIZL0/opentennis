@@ -13,7 +13,7 @@ several nodes (court 6's horses) were torn apart for the same reason.
   unchanged.
 
 ## Checked
-- Court 5, match camera of the serve set-up. `research/b211_shot.py` captures the original's eye and screenshot from
+- Court 5, match camera of the serve set-up. `research/journal/2026-10-13-b211-ball-machine/scripts/b211_shot.py` captures the original's eye and screenshot from
   scratch slot 8 (confirm screen, Queen's selected); our `--shot` uses the same `HST_EYE`. The machine matches the
   original: yellow launcher wheels on top of the blue body, feed tube above, wheels clear of the grass, no flashing.
   Shots: `context/b211/run2/{orig_s,orig_crop,ours,ours_crop}.png`; before the fix: `context/b211/ours_mg*.png`.

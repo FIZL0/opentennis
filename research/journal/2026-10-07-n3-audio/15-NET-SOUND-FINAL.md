@@ -4,7 +4,7 @@ Report (user 2026-10-20): a ball hitting the net seems to play no "thwip" in the
 
 ## What the original plays
 Four recordings of slot 5 (`tools/record_sound.py 5 300 context/fixtures/net_sound_<name>.bin vel=V,x,y,z`; the new
-`vel=` argument overwrites the live ball's velocity once after vsync V, as `research/b85_net_rec.py`):
+`vel=` argument overwrites the live ball's velocity once after vsync V, as `research/journal/2026-10-12-b85-net-words/scripts/b85_net_rec.py`):
 
 | Recording | Velocity overwrite | Net contact | Game's key-on (court bank program 2) |
 |---|---|---|---|

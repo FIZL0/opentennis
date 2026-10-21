@@ -32,7 +32,7 @@ static court models match slot 4's dump with it.**
   - 1383d0 copies the court's main fog with +0x10c (near F) = table[3]. If z1 ≤ z0, z1 = z0 + 1.
 
 **Checks.** The slot 4 capture is court 4 doubles, in `context/p17s2/`: s4.gs, s4.ram and s4.png, captured with
-`research/p17s2_capture.py`. In RAM:
+`research/journal/2026-10-07-p17-court-rendering/scripts/p17s2_capture.py`. In RAM:
 
 | Block | Factors (ambient, light, third) |
 |---|---|
@@ -42,7 +42,7 @@ static court models match slot 4's dump with it.**
 
 These match envir_c04.dat's season 0 row and the table. The players' L2 is (0,0,−1) at end +1 and (0,0,1) at end −1.
 
-`research/p17s2_check.py` fits one rotation per node to the single-bone vertices drawn in the dump. It compares
+`research/journal/2026-10-07-p17-court-rendering/scripts/p17s2_check.py` fits one rotation per node to the single-bone vertices drawn in the dump. It compares
 ⌊vc·mat·(A + L·max(−Rn·l1,0) + T·max(−Rn·l2,0))⌋ with T and with T = 0.
 
 | Model | Exact with the second light | Exact with T = 0 |

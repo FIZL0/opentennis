@@ -3,7 +3,7 @@
 Which hole triangles each caster's receiver pass draws, ported in game floats: `shade::receiver_tris`
 (`node_planes`, `box_out`, `receiver_strip`), test `receiver_triangles_match_the_game`: all 17 court 10 casters'
 triangle sets equal `cap0.pkl`'s receiver draws (2175 triangles, compared as x z bits since the receiver matrix
-flattens y). Prototype and fixture writer: `research/p17v6_cull.py -w` → `context/p17v/cull.txt`.
+flattens y). Prototype and fixture writer: `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v6_cull.py -w` → `context/p17v/cull.txt`.
 
 ## What the game does (at load, per caster, VU0)
 - Planes: the caster keeps two blocks of four planes (+0x50, +0x90), rows = components (nx ny nz d), lanes =

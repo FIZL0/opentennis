@@ -38,8 +38,8 @@ Options:
 - `HST_MENU_ART=DIR` dumps every rebuilt sheet as PNG.
 
 Tools:
-- `research/b136_labels.py SHEET.png` gives a first OCR guess of a sheet's label boxes.
-- `research/b136_tight.py SHEET.png 'x y w h Text'…` tightens rough boxes to the ink and prints the table lines.
+- `research/journal/2026-10-12-b136-menu-art/scripts/b136_labels.py SHEET.png` gives a first OCR guess of a sheet's label boxes.
+- `research/journal/2026-10-12-b136-menu-art/scripts/b136_tight.py SHEET.png 'x y w h Text'…` tightens rough boxes to the ink and prints the table lines.
 
 ## Checked
 

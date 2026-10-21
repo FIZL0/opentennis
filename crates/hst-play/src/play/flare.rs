@@ -189,7 +189,7 @@ fn build(f: &hst_sim::rng::Flare, sun: &crate::shadow::Sun, p: &PerspectiveProje
     let s = -sun.light.normalize();
     let el = (-s.y).clamp(-1.0, 1.0).asin();
     // `HST_FLARE_SUN=x,y,z`: the flare's sun along another direction (game space; its height stays the court's), for
-    // `--shot` checks against the original with its flare's sun poked (research/p3f5_flare_hunt.py)
+    // `--shot` checks against the original with its flare's sun poked (research/journal/2026-10-12-p3f5-lens-flare/scripts/p3f5_flare_hunt.py)
     let s = std::env::var("HST_FLARE_SUN")
         .ok()
         .map(|e| e.split(',').filter_map(|x| x.trim().parse::<f32>().ok()).collect::<Vec<_>>())

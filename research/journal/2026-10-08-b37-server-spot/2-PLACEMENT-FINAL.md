@@ -1,7 +1,7 @@
 # B37 server's spot after a change of ends — FINAL
 
 ## The original keeps the server's stance across a change of ends (live)
-`research/b37_stance_probe.py` (slot 5 bot doubles; pokes stances 1.5/2.0/2.5 on players 1..3 at the first rally
+`research/journal/2026-10-08-b37-server-spot/scripts/b37_stance_probe.py` (slot 5 bot doubles; pokes stances 1.5/2.0/2.5 on players 1..3 at the first rally
 and 40-0 for team 0 at every rally of game 1; polls the phase at ~30 Hz). Output (kept in
 `context/notes/b37_probe.txt`):
 

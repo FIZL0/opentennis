@@ -49,7 +49,7 @@ doesn't show the start view exactly, and where B174's "3° yaw" came from.
   | Slot 5 | 0.0112 | 4e-4 | 0.26 |
 
   Most ticks are within 1 mm.
-- Slot 5 re-recorded with the pivot field (`research/b174_swing_probe.py 5`, `context/b164/run1/slot5.txt`, copied
+- Slot 5 re-recorded with the pivot field (`research/journal/2026-10-13-b174-palais-change-ends/scripts/b174_swing_probe.py 5`, `context/b164/run1/slot5.txt`, copied
   over `context/b174/orig/slot5.txt`). The pivot is (3, 0, −12.25), the server's spot at the −z end, as in the port.
 - `change_of_ends_glides` and `change_of_ends_glides_on_the_players_side` still pass (glide 23.5 m, biggest step 0.64 m).
 

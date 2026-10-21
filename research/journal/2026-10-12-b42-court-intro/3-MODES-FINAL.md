@@ -13,7 +13,7 @@
 - Length per mode: already proven equal in singles and doubles for all 11 courts by `tests/rng.rs`
   (`intro_ticks_like_the_game`, `intro_ticks_from_the_disc`, P3f2/P3f6 recordings). No port change needed.
 
-## Recordings (`research/b42_intro_camera.py`, doubles from slot 2, `context/b42d/cam_cNN.bin`)
+## Recordings (`research/journal/2026-10-12-b42-court-intro/scripts/b42_intro_camera.py`, doubles from slot 2, `context/b42d/cam_cNN.bin`)
 - Courts 1, 2, 3, 4, 5, 6, 7, 9, 11 (plus court 8 from B42). The court-select steps aren't reliable (presses are
   dropped; steps 1→9, 2→2, 4→3, 5→7, 6→5 or 6, 7→1, 8→4, 9→6, 13→11): the recorder prints the court it got.
 - `crates/hst-sim/tests/intro.rs` now checks every recorded court: channels 5–10, 14 within 1e-4 (angles mod 2π)

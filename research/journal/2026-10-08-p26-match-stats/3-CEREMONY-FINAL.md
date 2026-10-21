@@ -2,7 +2,7 @@
 
 ## What the original does (result object, state 0)
 
-Recorded with `research/p26c_ceremony.py 5 context/p26c/run2 …` (slot 5, the bot-only doubles match on court 10,
+Recorded with `research/journal/2026-10-08-p26-match-stats/scripts/p26c_ceremony.py 5 context/p26c/run2 …` (slot 5, the bot-only doubles match on court 10,
 team 0's games poked to one short of the set): result state, shown team, banner rows, every player's mode and
 the sound generator's index each vsync, a screenshot every 12 frames (`context/p26c/run2/`, sheet `run2_sheet.png`).
 State 0 lasted ~318 vsyncs (the hand-slap camera clip, 319 frames), rows 4/5 (NARROW WIN), team 0 shown.

@@ -20,7 +20,7 @@
 - Draw forms: chance `(r>>16 & 0x7fff) % 100 < p`, uniform `utof(r) · 2.3283064e-10`, coin bit 16.
 
 ## Proof
-`research/p3b_rng_rec.py 5 1500 context/p3b/rng_s05.bin` (lock-step, slot 5: rand state and all four generators
+`research/journal/2026-10-08-p3b-rng/scripts/p3b_rng_rec.py 5 1500 context/p3b/rng_s05.bin` (lock-step, slot 5: rand state and all four generators
 every frame). `crates/hst-sim/tests/rng.rs`: every frame of every generator is reached from the previous frame's
 RAM state by `Mt::next` (draws shared 67, AI 1415, court 319, sound 354), or by the `Rngs` reseed: at vsync 7566
 and 8656 shared ← rand #0, court ← rand #1 (`new_point`); at 8657 sound ← rand #0 of 49 that frame

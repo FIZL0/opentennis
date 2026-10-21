@@ -10,7 +10,7 @@
 - Before this, the blend was SrcAlpha·Cs in float, with no truncation anywhere.
 
 ## Check
-- `research/b31c_add.py`: this formula in f32, compared with `b31b_rast.py`'s integer add over 1M random bilinear
+- `research/journal/2026-10-08-p17q-tornado/scripts/b31c_add.py`: this formula in f32, compared with `b31b_rast.py`'s integer add over 1M random bilinear
   texels (1/256 steps), vertex colours and alphas. 34 of 1M differ by one level. Those are products within f32
   error of an integer: the shader's +1e-4 bias, needed so exact products don't floor one level low.
 - Court 10 match `--shot` (`context/b31c/after.png`): the court's `@add@sub` lines and the other `@add` draws compile

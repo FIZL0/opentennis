@@ -23,7 +23,7 @@ Among the creature callbacks only 22 and 44 read the tiebreak flag (scan of ever
 Everything else on the courts (startled creatures, emitters, ball-hit obstacles) is ambient, not an egg.
 
 ## Checked against the original (PCSX2 copy 1)
-`research/b158_bear.py`: from save slot 2 (main menu on these copies) a singles match (Ashley vs COM) with the
+`research/journal/2026-10-13-b158-court-eggs/scripts/b158_bear.py`: from save slot 2 (main menu on these copies) a singles match (Ashley vs COM) with the
 court index poked to 6, first serve saved to scratch slot 9; `… tb` loads it, pokes a 1-set match + tiebreak flag
 and serves out points. `context/b158/run3_sheet.png`: no bear in the flyover frame or in play before the poke;
 `run4_sheet.png`: no bear in the poked point, then the bear by the net post from the next point on (tiebreak

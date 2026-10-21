@@ -2,7 +2,7 @@
 
 ## Capture
 
-`timeout 600 tools/pcsx2.sh python3 research/p3e5_draw_log.py 5 1250 context/p3e5/draws_s05.bin`: a hook on the MT
+`timeout 600 tools/pcsx2.sh python3 research/journal/2026-10-08-p3e5-ai-draws/scripts/p3e5_draw_log.py 5 1250 context/p3e5/draws_s05.bin`: a hook on the MT
 draw (0x19f5c0) logs (vsync, ra, the percent roll's caller from sp+0x10, its percent in s0, gm+0x58) for every draw
 on the AI generator (0x427130). 1186 draws over 1265 frames from vsync 7566. Its per-point totals equal rng_s05's.
 gm+0x58 (the phase frame counter) groups the draws by tick; the vsync stamps don't (samples are taken mid-tick).

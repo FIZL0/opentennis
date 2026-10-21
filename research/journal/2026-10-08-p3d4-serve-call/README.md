@@ -7,6 +7,6 @@ site gives the singles server the same call, ported too. Live recordings agree w
 
 Files:
 - 01-serve-call-FINAL.md - findings
-- research/p3d4_serve_call.py - live toss recorder (writes context/p3d4/*.bin)
+- research/journal/2026-10-08-p3d4-serve-call/scripts/p3d4_serve_call.py - live toss recorder (writes context/p3d4/*.bin)
 - crates/hst-sim/src/score.rs (`Score::match_point`), crates/hst-sim/tests/score.rs (`match_points`,
   `serve_calls_like_the_game`), crates/hst/src/play.rs (`serve_call`)

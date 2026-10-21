@@ -17,7 +17,7 @@
 
 ## Verified
 
-`research/b23_speed_rec.py 5 3000 context/b23` (slot 5): serve 71 mph left, smash 84 mph right, serve 87 right /
+`research/journal/2026-10-08-b23-speed-readout/scripts/b23_speed_rec.py 5 3000 context/b23` (slot 5): serve 71 mph left, smash 84 mph right, serve 87 right /
 78 left; the digits come from the strike frame's velocity, timing as above. Unit test `speed_tests::readout` pins
 both RAM velocities, alphas, length and layout. Port screenshots (`context/b23/port_speed.png`,
 `port_banner.png`) next to `orig_speed.png`: same place and art. Autoplay fires Service Ace, Return Ace and Counter

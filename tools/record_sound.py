@@ -8,7 +8,7 @@ last positional play (angle, distance, volume: 3 × i32), u32 n and the n ring c
 between the play and n: effects object +0xb8..+0x100 (0xd0 shot kind, per-player 8-byte records at +0xd8),
 0x422fa0..0x422fc0 (player count, character ids), 0x423040..0x423080 (hitter, hit count), gm+0x340 8 bytes,
 the court marker matrix 8 (*(gm+0xb8) + 0xd130 + 8·0x40, 0x40) and players 0/1 +0x3e90..+0x3fb0.
-With `vel=V,x,y,z` the live ball's velocity is overwritten once right after vsync V (as research/b85_net_rec.py:
+With `vel=V,x,y,z` the live ball's velocity is overwritten once right after vsync V (as research/journal/2026-10-12-b85-net-words/scripts/b85_net_rec.py:
 B598 sends the ball into the net) and only frames from V − 30 on are written."""
 import struct, sys, time
 from pine import Pine

@@ -4,7 +4,7 @@
 
 - All eight modules carry `#![deny(clippy::float_arithmetic)]` and use `ps2::F` (`F`, `f32s`, `utof`); no
   `ps2::add/…` calls left. Public fields and signatures stay `f32`.
-- The ~340 call sites were rewritten by `research/c2_convert.py` (new): it parses each `add/sub/mul/div/madd/msub/
+- The ~340 call sites were rewritten by `research/journal/2026-10-14-c2-readable-float/scripts/c2_convert.py` (new): it parses each `add/sub/mul/div/madd/msub/
   sqrt/lerp(..)` call tree and prints it as infix with the same tree (left-assoc, parentheses only where the
   tree needs them), wrapping one f32 leaf in `F(..)` and ending each top-level call in `.0`. The leftovers
   clippy flagged were done by hand (unary minus on `f32` → `-F(x)`; `let m = mul;` closures; closure arg types).

@@ -16,7 +16,7 @@ Yes. The port said no and now matches the original.
 
 ## Recording
 
-`research/b479_partner_ball.py 4 dive 120 4.0 10` (slot 4, P1 human beside a CPU partner): on the opponent's hit,
+`research/journal/2026-10-16-b479-partner-ball/scripts/b479_partner_ball.py 4 dive 120 4.0 10` (slot 4, P1 human beside a CPU partner): on the opponent's hit,
 P1 is put level with where the ball crosses the partner's z, 4 m out plus its run, runs at it and presses ○
 10 frames before the ball crosses. Log: `context/b479/dive-4.0/log.txt`.
 

@@ -10,7 +10,7 @@ one draw. Then the frame loop runs as before, with no bare draw. Both rng.rs tes
 
 ## How it was found
 
-1. **Lock-step recording.** `research/p3e1_gallery_rec.py 5 80` (HST_LOCKSTEP=1) recorded these from the slot-5
+1. **Lock-step recording.** `research/journal/2026-10-08-p3e1-first-draw/scripts/p3e1_gallery_rec.py 5 80` (HST_LOCKSTEP=1) recorded these from the slot-5
    load: the gallery manager (*0x43b1c0, 0x1bd0 bytes), the umpire (*0x42d6c0), gm, and the court generator.
    - The court generator matches rng_s05 bit for bit at every frame except 7566.
    - In this capture 7566 has index 1. rng_s05 has index 624 there: fresh from the reseed, so rng_s05's

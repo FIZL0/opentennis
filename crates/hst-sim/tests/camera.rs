@@ -56,7 +56,7 @@ fn match_s05_camera() {
     assert!(worst < 0.01, "worst error {worst}");
 }
 
-/// B49/B164: the change-ends move against the original's two recorded glides (`research/b174_swing_probe.py`:
+/// B49/B164: the change-ends move against the original's two recorded glides (`research/journal/2026-10-13-b174-palais-change-ends/scripts/b174_swing_probe.py`:
 /// slot 5, and the Grand Palais with the camera on the human's side, `context/b174/orig/`): from the saved start
 /// view (shot 2's first) to the match camera's view about court spot 0x76, every tick's eye and look as the
 /// game's (skipped without the recordings).

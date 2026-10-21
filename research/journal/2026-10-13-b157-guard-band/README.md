@@ -4,7 +4,7 @@
 Both courts draw court-model triangles the original never puts on screen.
 - **Stage 7 (Grand Palais):** `w-house2` is a box around the court, and the eye is inside it. Its node is
   0x18dec30: state 0x300 (drawn through the clip pass), centre (−0.007, −3.567, −35.168), r 21.63.
-  `research/b157_nodes.py dump.ram [all]` lists every node's state/centre/radius/eye distance.
+  `research/journal/2026-10-13-b157-guard-band/scripts/b157_nodes.py dump.ram [all]` lists every node's state/centre/radius/eye distance.
 - **Stage 8 (Wild Green):** large near-camera foliage triangles on the left. Same mechanism.
 
 ## What the original does (VU1 microcode, `context/b157/vu1.dis`)

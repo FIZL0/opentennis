@@ -19,7 +19,7 @@ have 0x0c (P17s5 gap). Who sets it, and does a sky/bg draw check out against the
 - The moving clouds (`/cloud/` dir, category 6, singles) are built by 32c4f0 → 32c780 → `15bda0(…, 3)`: alpha
   (bit 0) and unlit (bit 1).
 
-**GS dump check** (`research/p17s6_unlit_gs.py context/p17s2/s4.gs 1.2 <noidump txt>…`).
+**GS dump check** (`research/journal/2026-10-07-p17-court-rendering/scripts/p17s6_unlit_gs.py context/p17s2/s4.gs 1.2 <noidump txt>…`).
 - Unlit colour = min(⌊vc · mat · (A + L)⌋, 255). Court 4's sky/bg/clo light blocks are (0.7, 0.5, 0.02), so K = 1.2.
 - park00_sky / park01_sky: all 16 packets (8–28 vertices, 352 of 792 channels not saturated; mat 1.99) have an
   exact GS run. K = 1.19 or 1.21 gives 0/16.

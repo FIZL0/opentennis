@@ -1,6 +1,6 @@
 //! B479: in doubles a player may take a ball its partner is going for. The original's contact search looks only at
 //! which team hit last, never at the partner, and every hit sets each player's contact-cancel flag; recorded in
-//! `research/b479_partner_ball.py` (slot 4, P1 driven into a dive falling short while its CPU partner volleys).
+//! `research/journal/2026-10-16-b479-partner-ball/scripts/b479_partner_ball.py` (slot 4, P1 driven into a dive falling short while its CPU partner volleys).
 
 #[cfg(test)]
 mod tests {

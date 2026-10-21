@@ -1,6 +1,6 @@
 //! The ball's sun-shade light scale against the game, frame by frame: `context/p17t/ball05.txt` (slot 5, court 10, a
 //! bot rally; per frame the ball's position x y z w and its model's light scale, as bits; made by
-//! `research/p17t_ball_rec.py`) with the game's own map (`context/p17t/map05.bin`). On the court the height is from
+//! `research/journal/2026-10-08-p17t-ball-shade-ray/scripts/p17t_ball_rec.py`) with the game's own map (`context/p17t/map05.bin`). On the court the height is from
 //! y 0, off it from a ray cast down at court 10's collision model built from the disc; a miss keeps the last
 //! scale. Skips when the recording or the disc is absent.
 //! Also the sun-shade map built from the disc's court 10 against the game's (`context/p17l/map05.bin`, slot 5).
@@ -145,7 +145,7 @@ fn receiver_vertices_match_the_game() {
 
 /// The ball shadow's placement against the game, frame by frame: `context/fixtures/b36_shadow.bin` (slot 5, court
 /// 10, 1500 frames; per frame the ball's position, the camera's eye, the shadow's ground normal and matrix; made by
-/// `research/b36_shadow_rec.py`). Skips when the recording or the disc is absent.
+/// `research/journal/2026-10-08-b36-ball-shadow/scripts/b36_shadow_rec.py`). Skips when the recording or the disc is absent.
 #[test]
 fn ball_shadow_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
@@ -182,7 +182,7 @@ fn ball_shadow_matches_the_game() {
     assert_eq!(shade::ball_shadow_stretch([0.0, 0.0, -9.0, 1.0], [0.0, -12.0, -39.0, 1.0]), 2.0);
 }
 
-/// The casters' shadow textures bit for bit: `context/p17v/pass.txt` (`research/p17v2_fixture.py`: the load pass's
+/// The casters' shadow textures bit for bit: `context/p17v/pass.txt` (`research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v2_fixture.py`: the load pass's
 /// draws from `context/p17v/load10.gs` and the 16 static textures the game left in `context/p17v/cap0.gs`; slot 5,
 /// court 10). Skips when absent.
 #[test]
@@ -238,7 +238,7 @@ fn shadow_textures_match_the_game() {
 }
 
 /// The receiver pass bit for bit with the reds the game read back: `context/p17v/rcv_pass.txt`
-/// (`research/p17v3_fixture.py`: the receiver draws and shadow textures of `context/p17v/cap0.gs`, the reds of
+/// (`research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v3_fixture.py`: the receiver draws and shadow textures of `context/p17v/cap0.gs`, the reds of
 /// `cap0.red`; slot 5, court 10, the 4 tiles the dump holds). Skips when absent.
 #[test]
 fn receiver_tiles_match_the_game() {
@@ -281,7 +281,7 @@ fn receiver_tiles_match_the_game() {
 
 /// The ball model's draw scale and its outline billboard against the game, frame by frame:
 /// `context/fixtures/b36b_ball.bin` (slot 5, court 10, 900 frames from the serve set-up into the rally; made by
-/// `research/b36b_ball_rec.py`). Skips when the recording is absent.
+/// `research/journal/2026-10-08-b36-ball-shadow/scripts/b36b_ball_rec.py`). Skips when the recording is absent.
 #[test]
 fn ball_scale_and_outline_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
@@ -385,7 +385,7 @@ fn light_matrices_match_the_game() {
 
 /// The hole triangles each court 10 caster's receiver pass draws, culled from the disc's hole model with the
 /// caster's planes as the game left them, against the game's (`context/p17v/cull.txt` from
-/// `research/p17v6_cull.py -w`: the planes and, per caster, the receiver triangles of `context/p17v/cap0.pkl` as
+/// `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v6_cull.py -w`: the planes and, per caster, the receiver triangles of `context/p17v/cap0.pkl` as
 /// x z, slot 5). Skips when absent.
 #[test]
 fn receiver_triangles_match_the_game() {

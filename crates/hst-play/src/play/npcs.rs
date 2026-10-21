@@ -867,7 +867,7 @@ impl super::snapshot::Wire for Npcs {
 /// The umpire's head turned toward `Umpire::head`, as the game's look-at does it: the target in the frame of
 /// `Bip01Head` at its rest local under its posed parent, 0.7 of its turn about the head's x axis (atan2(y, −z), within
 /// ±70°) and of its tilt about y (atan2(−x, √(y²+z²)), −25°..35°), applied before the rest local (the motion's own
-/// head keys are dropped). Checked against the game's stored head local by `research/b78_head.py`.
+/// head keys are dropped). Checked against the game's stored head local by `research/journal/2026-10-13-b78-umpire/scripts/b78_head.py`.
 fn look(g: Res<Game>, npcs: Option<Res<Npcs>>, rigs: Query<(&character::Rig, &Transform)>, mut joints: Query<&mut Transform, Without<character::Rig>>) {
     let Some((e, _)) = npcs.as_ref().and_then(|n| n.umpire.as_ref()) else { return };
     let Ok((rig, at)) = rigs.get(*e) else { return };

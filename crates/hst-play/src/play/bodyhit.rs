@@ -132,7 +132,7 @@ fn detect(mut g: ResMut<Game>, mut hits: ResMut<Hits>, posed: Res<Posed>, bones:
 }
 
 /// `HST_BALL=x,y,z,vx,vy,vz` (game space): the ball is put there 30 frames into each rally, for `--shot` checks of
-/// a net touch's word against `research/b85_net_rec.py` (which overwrites the original's ball the same way).
+/// a net touch's word against `research/journal/2026-10-12-b85-net-words/scripts/b85_net_rec.py` (which overwrites the original's ball the same way).
 fn place_ball(mut g: ResMut<Game>) {
     let Some(v) = std::env::var("HST_BALL").ok().map(|e| e.split(',').filter_map(|x| x.trim().parse::<f32>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 6) else { return };
     if g.phase == Phase::Rally && g.since_hit == 30 {

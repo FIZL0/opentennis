@@ -17,7 +17,7 @@ Shot 0x61 (the game-end close-up) looks at frames 0, 29 and 45. Two port bugs ma
     24 subjects match within 1e-4, including the game-ending cut-away. With w = 2 it fails.
   - `cutaway_s05` now also asserts that the port's frame 0 equals the recording each sample.
   - Its per-tick replay of every shot, game end included, stays under 1e-3.
-- By eye: `research/b98_game_end_shot.py 5 context/b98/orig/game_end1.png` (original, shot 0x61, eye
+- By eye: `research/journal/2026-10-13-b98-game-end-camera/scripts/b98_game_end_shot.py 5 context/b98/orig/game_end1.png` (original, shot 0x61, eye
   (-2.38,-0.52,0.16) fwd (0.11,-0.13,0.99)). Port (slot-5 lineup, court 10, bots), `context/b98/port/game_end1.png`:
   shot 0x61, fwd (0.09,-0.17,0.98) toward the winner, the same full-body front close-up. Before the fix, fwd was
   (-0.93,-0.34,-0.14): sideways and up.

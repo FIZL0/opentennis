@@ -9,7 +9,7 @@ the parts measured as eye − pivot and raw atan2 headings. With the camera on t
 the other side of the court (heading −π), so the glide went ~235° the long way round and the eye passed x ≈ −24 m,
 outside the Grand Palais hall's side wall (roof underside, wall structure on screen).
 
-What the original does (two recordings with `research/b174_swing_probe.py`: slot 5, a bot match, and a fresh Grand
+What the original does (two recordings with `research/journal/2026-10-13-b174-palais-change-ends/scripts/b174_swing_probe.py`: slot 5, a bot match, and a fresh Grand
 Palais doubles match, P1 human + 3 COM, recorded to scratch slot 9; output in `context/b174/orig/`):
 
 - The start view is **not** the view on screen. The change-ends set-up starts scripted camera shot 2 and copies

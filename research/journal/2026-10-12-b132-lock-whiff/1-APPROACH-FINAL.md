@@ -4,7 +4,7 @@
 - A press with the ball on the player's side runs the auto-approach (stroke state 1, +0x3f24 flag, +0x3f28 count).
   It plans with the **player's own** reach fields (+0x13ac base, +0x13b0 reach, +0x13bc/+0x13c0/+0x13c8 heights),
   its own timing table (+0x1510) and its horizon (+0x154c) + 20.
-- `research/b132_approach.py 4 10 6000` (copy 2, slot 4, P1 human, stick let go on the press, ✕ at leads 5–20,
+- `research/journal/2026-10-12-b132-lock-whiff/scripts/b132_approach.py 4 10 6000` (copy 2, slot 4, P1 human, stick let go on the press, ✕ at leads 5–20,
   standing 1.8–3.0 m off the ball's line) → `context/b132/run1/log.txt`. Every approach (planned 8, 6, 4, 18
   frames) runs exactly that many frames, the press frame included. The next frame is the stroke state (+0x3fa5 = 2):
   the search runs there and **the player doesn't move on it**. All four approaches locked (countdowns 6, 14, 4, 5).

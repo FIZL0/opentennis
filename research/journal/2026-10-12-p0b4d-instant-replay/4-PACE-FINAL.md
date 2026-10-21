@@ -1,6 +1,6 @@
 # P0b4d3: the replay's pacing (`play/replay_pace.rs`)
 
-## The original (slot 5's match point, `research/p0b4d3_pace.py`, run in `context/p0b4d3/run2/pace.txt`)
+## The original (slot 5's match point, `research/journal/2026-10-12-p0b4d-instant-replay/scripts/p0b4d3_pace.py`, run in `context/p0b4d3/run2/pace.txt`)
 
 `near 5 9` saves slot 9 in the match point's post-point phase with the replay pending. `rec 9 500 …` then logs one
 line per vsync: the match tick, the skip words, the slow-motion block and the replay director's (camera handler's)

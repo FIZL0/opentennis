@@ -15,7 +15,7 @@
   (kind 0: z ≤ 4.5 m, kind 1: z ≤ 17 m).
 - Table 0x4131e0 stride 0x14: kind 0 [0.3, 0.1, 0.4, 0.5, 300], kind 1 [0.75, 0.08, 0.4, 0, 80].
 
-## Check (`research/p3e6_marks.py`, `research/p3e6_fit.py`)
+## Check (`research/journal/2026-10-08-p3e6-cheer-sprites/scripts/p3e6_marks.py`, `research/journal/2026-10-08-p3e6-cheer-sprites/scripts/p3e6_fit.py`)
 Slot 3 (court 4, waiting for the serve): 7 marks poked into the manager (delay 10⁶ so they don't jump) at depths
 10–40 m, kind 0 and kind 1, screenshot each vs none. Projecting the ported quads through the game's matrices
 (GS 2048 centre, a 640×224 field): every visible sprite's blob lies inside its quad, x spans to ~2 px, y to the

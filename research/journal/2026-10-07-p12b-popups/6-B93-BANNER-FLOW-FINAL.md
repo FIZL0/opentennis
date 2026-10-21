@@ -6,7 +6,7 @@ unit test. The visible difference between points is the camera (B48), not the ba
 
 ## What was checked in the original (copy 4, slot 5 doubles)
 
-- `research/b93_banner_log.py 5 7000 context/b93/slot5_phase.txt`: per-vsync log of the banner (+0x571/+0x574/+0x578),
+- `research/journal/2026-10-07-p12b-popups/scripts/b93_banner_log.py 5 7000 context/b93/slot5_phase.txt`: per-vsync log of the banner (+0x571/+0x574/+0x578),
   server 0x42304c, winner 0x4230a8, result kind 0x4230b8, games and the match phase gm+0x55/0x56. Two game ends
   (0-1 receiver win with a change of ends, 0-2 server win without): the banner starts in the 90-tick game wait at 45,
   flashes 14 then 16, is held from wait 77 and goes off on the tick the post-point phase (4) ends, which is also the
@@ -15,7 +15,7 @@ unit test. The visible difference between points is the camera (B48), not the ba
   0xe clears it); the change-ends message 0xc itself doesn't, but the log shows it is gone by then. Port: dropped with
   the post-point phase (`tick_result`): same. (I first changed the port to keep it through the change of ends, from
   reading the 0xc handler alone; the log disproved it, reverted.)
-- `research/b93_banner_cases.py context/b93/orig`: save at the first held banner (scratch slot 8), then per case load
+- `research/journal/2026-10-07-p12b-popups/scripts/b93_banner_cases.py context/b93/orig`: save at the first held banner (scratch slot 8), then per case load
   it, poke the three words the draw reads every frame and screenshot. All six cases (`context/b93/orig/grid.png`):
   Game/Receiver blue (winner team 1, receiver) at the left position, Game/Server blue, Game/Server red, Game/Receiver
   red, Set/Server red, Set/Receiver blue. The rule: word by kind (1 game, 2 set), sheet by winning team (0 red,

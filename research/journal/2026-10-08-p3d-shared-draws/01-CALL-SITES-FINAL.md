@@ -2,7 +2,7 @@
 
 ## Capture
 
-`timeout 600 tools/pcsx2.sh python3 research/p3e5_draw_log.py 5 1470 context/p3d/shared_s05.bin shared 40`: the
+`timeout 600 tools/pcsx2.sh python3 research/journal/2026-10-08-p3e5-ai-draws/scripts/p3e5_draw_log.py 5 1470 context/p3d/shared_s05.bin shared 40`: the
 P3e5 hook with the `shared` switch logs every draw on `*(gm+0x80)` with (vsync, ra, the word at sp+0x40). sp+0x40
 holds the caller of 0x3553d0 (the shout) where ra is 0x35546c. 80 draws from vsync 7566 to 9035. The per-transition
 totals equal rng_s05's (67 plus 4 placement draws at each of the two reseeds).

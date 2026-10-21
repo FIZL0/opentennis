@@ -14,7 +14,7 @@
   → 1), even in the bot game; the port cuts away at once. Replays are P0b4d (not ported); replay count stays 0, so
   the game-end long-shot skip and the every-third-replay swap differ only once replays exist. Likely what the user
   saw on game/set points (and after human winners, which also replay).
-- Body hit (`research/b22_bodyhit_cutaway.py 5`): the original cuts away on body-hit points too (shot 0x61/0x0c,
+- Body hit (`research/journal/2026-10-06-p16-cutaway/scripts/b22_bodyhit_cutaway.py 5`): the original cuts away on body-hit points too (shot 0x61/0x0c,
   shown = last hitter, the hit player plays 0x2b as its reaction). The port had no reaction root for the standing
   hit player, so `predicted` returned None and no cut-away started when they were shown/other; it now poses them on
   their current motion. Faults/lets (state 4, winner −1): no cut-away in either.

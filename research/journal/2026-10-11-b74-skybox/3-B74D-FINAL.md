@@ -5,7 +5,7 @@ object, the net, and skips its draw while the camera is close in front of it loo
 the same test (`crates/hst/src/play/net_hide.rs`).
 
 ## How it was found
-- **The frame-exact pair from `research/b74b_hunt.py` wasn't needed.** The hunt pauses, then F8, then steps a frame,
+- **The frame-exact pair from `research/journal/2026-10-07-p17-court-rendering/scripts/b74b_hunt.py` wasn't needed.** The hunt pauses, then F8, then steps a frame,
   but the stepping is gone from pine.py and F8 doesn't work while paused. The compositor also crashed mid-task
   (Hyprland restarted in safe mode, `hyprctl clients` empty), so no PNG or GS dump could be taken. Reading RAM
   settled the question instead:
@@ -30,7 +30,7 @@ the same test (`crates/hst/src/play/net_hide.rs`).
   - Three outer gates must also be open. They were open in every state checked.
 
 ## Verification
-- `research/b74d_check.py 5 8000 36000 1940890` (slot 5) runs the rule against the game's byte on every vsync,
+- `research/journal/2026-10-11-b74-skybox/scripts/b74d_check.py 5 8000 36000 1940890` (slot 5) runs the rule against the game's byte on every vsync,
   taking L from the game's own cut-away byte. Result: 28,001 frames, 3 mismatches. The shorter runs before it showed
   that every mismatch falls on a camera-cut frame (8537, 8657, 13907): the draw pass writes the byte a frame after
   the camera block changes. Two cut-aways hid the net: 8538–8657 and 13908–14154.

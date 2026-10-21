@@ -8,7 +8,7 @@ match's x mirror (`scale.x = hand`), so every lefty in the ceremony faced the ot
 ceremony motions (Carol 6 and Will 11, the `_n` files) are made for the z mirror, so in the port Carol and Will
 stood with their backs to the camera. That was the "sometimes".
 
-How it was checked in the original (`research/b129_lefty.py`, slot 5, PCSX2 copy 1). The result object's matrices
+How it was checked in the original (`research/journal/2026-10-12-b129-ceremony-facing/scripts/b129_lefty.py`, slot 5, PCSX2 copy 1). The result object's matrices
 (+0x2230 + 0x40·i):
 - run1, all righty: near p0 = diag(1,1,1) at (0.75, 0, −6.4); far p1 = diag(−1,1,−1). These match the port's marks.
 - run2, the hand word of p0's and p1's characters poked to 2: near p0 = diag(1,1,−1), far p1 = diag(−1,1,1),

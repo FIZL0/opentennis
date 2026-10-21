@@ -16,7 +16,7 @@ const FIXTURES: [(&str, Option<&str>); 10] = [
     ("1p3goodcpus.bin", Some("1p3goodcpus_ee.bin")),
     ("new_recording.bin", None),
     ("human_smash_s04.bin", None),
-    // P1 driven into dives (research/p7e_dive_record.py) and pressing over the virtual pad
+    // P1 driven into dives (research/journal/2026-10-07-p7-movement/scripts/p7e_dive_record.py) and pressing over the virtual pad
     ("p7e_c03.bin", None),
     ("p7e_c07.bin", None),
     ("p5_presses_s04.bin", None),

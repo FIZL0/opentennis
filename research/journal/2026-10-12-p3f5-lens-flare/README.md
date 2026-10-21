@@ -11,7 +11,7 @@ The flare's 24 rays used to be only stepped (their `rand()` draws kept the sim R
   - rays per the draw function: sun offset r = |d|/16 ≤ 400 boosts the rays facing away (scale 0x808 = 133.33 live),
     length L = fade·(p5>>2)·bright·boost (capped), width min(p5>>3, L/(0x7f8·(0.2 + 0.8·el/(π/2)))), 0x7f8 = 10 live.
   - Gouraud centre → black drawn in 6 bands so the falloff is shaded on gamma values as the GS does.
-- Checked with `research/p3f5_flare_hunt.py` (pokes the flare's sun direction over PINE so slot 5's cameras look into it;
+- Checked with `research/journal/2026-10-12-p3f5-lens-flare/scripts/p3f5_flare_hunt.py` (pokes the flare's sun direction over PINE so slot 5's cameras look into it;
   screenshots via pad L3+R3 — copy 2 binds no F8) against `HST_EYE` + `HST_FLARE_SUN` port shots. Captures: `context/p3f5/`
   (`up_2.png` original, `port_up2.png`, `cmp_up2_crop.png`).
 

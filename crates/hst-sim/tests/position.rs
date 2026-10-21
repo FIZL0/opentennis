@@ -109,14 +109,14 @@ fn formation_matches_the_game() {
     assert!(starts >= 8 && repicks >= 30 && holds >= 3 && stops >= 30);
 }
 
-/// One JSON line's integer list `key` (research/p3d2_formation.py writes flat lines).
+/// One JSON line's integer list `key` (research/journal/2026-10-08-p3d2-formation/scripts/p3d2_formation.py writes flat lines).
 fn list(line: &str, key: &str) -> Vec<u32> {
     let s = &line[line.find(&format!("\"{key}\": [")).unwrap() + key.len() + 5..];
     s[..s.find(']').unwrap()].split(", ").map(|v| v.parse().unwrap()).collect()
 }
 
 /// Slot 5's new points with the first-point flag forced, the controller words, setup bytes and row bytes poked
-/// (`context/fixtures/p3d2_formation_h{-1,0}.jsonl`: four bots, player 0 human; research/p3d2_formation.py; skipped
+/// (`context/fixtures/p3d2_formation_h{-1,0}.jsonl`: four bots, player 0 human; research/journal/2026-10-08-p3d2-formation/scripts/p3d2_formation.py; skipped
 /// when missing): every player's +0x13f4 is `Team::pick` from the point's four placement draws in player order,
 /// players 2 and 3 their partner's. A pick that didn't run (0x77) and each run's first line (its +0x13f4 not yet
 /// marked: slot 5's first point can keep the state's placement) are left out. With player 2 poked human mid-match

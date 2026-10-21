@@ -7,7 +7,7 @@
 - Function names: `wasm-bindgen --keep-debug` on `target-wasm/.../hst.wasm` (no wasm-opt) into
   `context/b328/pkgnames`, served from a copy of `web/` on :8766 (another session was rebuilding `web/`). That
   build was the WebGL2 one; the WebGPU run (run1) has no names.
-- Summed with `research/b273_profile.py` (self time) and the new `research/b328_inclusive.py` (inclusive).
+- Summed with `research/journal/2026-10-14-b273-renderer/scripts/b273_profile.py` (self time) and the new `research/journal/2026-10-14-b328-mobile-fps/scripts/b328_inclusive.py` (inclusive).
 
 ## Numbers
 | run | fps | idle |

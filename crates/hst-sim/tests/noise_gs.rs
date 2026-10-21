@@ -1,4 +1,4 @@
-//! The costume noise's VU half against a GS dump (`context/fixtures/noise_gs_s05.txt`, `research/p17m_noise_gs.py`):
+//! The costume noise's VU half against a GS dump (`context/fixtures/noise_gs_s05.txt`, `research/journal/2026-10-07-p17-court-rendering/scripts/p17m_noise_gs.py`):
 //! slot 5 with the deformers frozen (rate 0) and their amp boosted, so the skirt (node 1) and fringe (node 14) of
 //! player 0 sway by pixels. Each noise vertex is its position entries moved by `noise::deform`, carried through its
 //! bones' matrices fitted to the same frame, and must land where the GS drew it; unmoved entries must not.

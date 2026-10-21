@@ -4,7 +4,7 @@
 - There are two SW outcomes, A and C, and each one repeats exactly.
   - A = sw05: 38841 reds > 0x6f.
   - C = cap0: 39074 reds > 0x6f; it differs from A in 16277 reds and 4789 threshold bits.
-- **Rebuilds from the same frame agree.** Every lock-step `research/p17v4_frame.py` rebuild gave A: frames 8, 9, 10, 11 and 200, some of them repeated, and a free-running variant too. The build frame doesn't matter.
+- **Rebuilds from the same frame agree.** Every lock-step `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v4_frame.py` rebuild gave A: frames 8, 9, 10, 11 and 200, some of them repeated, and a free-running variant too. The build frame doesn't matter.
 - **The varying input is the 16 shadow-caster textures in GS VRAM**: PSMT4 128×128 at TBP 0x3308 + 0x20·i, the textures the build's receiver pass samples.
   - The receiver prims (vertices, TEX0, XYOFFSET) are identical in C (cap0) and A (d1).
   - The textures differ in 15909 texels.

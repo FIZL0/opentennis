@@ -6,6 +6,6 @@ Outcome: DONE. Setup order confirmed offline on 7 save states; the app was missi
 
 Files:
 - 01-setup-and-serve-draws-FINAL.md - findings
-- research/p3d3_setup_ram.py - offline setup check (writes context/p3d3/setup_ram.bin)
-- research/p3e5_draw_log.py - live draw capture (now with HST_V0)
+- research/journal/2026-10-08-p3d3-setup-draws/scripts/p3d3_setup_ram.py - offline setup check (writes context/p3d3/setup_ram.bin)
+- research/journal/2026-10-08-p3e5-ai-draws/scripts/p3e5_draw_log.py - live draw capture (now with HST_V0)
 - crates/hst-sim/src/rng.rs (`Rngs::setup_gallery`), crates/hst-sim/tests/rng.rs (`setup_draws_like_the_game`), crates/hst/src/play.rs, crates/hst/src/audio.rs

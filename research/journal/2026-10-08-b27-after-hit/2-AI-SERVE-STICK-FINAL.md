@@ -1,6 +1,6 @@
 # B27b — the computer server's stick through its follow-through (FINAL)
 
-- **Capture**: `research/b27b/serve_ai_step.py` replays `new_recording.p2m2` lock-step on a copy (launched
+- **Capture**: `research/journal/2026-10-08-b27-after-hit/scripts/b27b/serve_ai_step.py` replays `new_recording.p2m2` lock-step on a copy (launched
   `HST_REALTIME=1`; one PINE connection; pad bytes match the recording at d=1) and records, per frame, the globals
   +0x423048.. and per player its AI's +0x50.. / +0x248 and its +0x3d70.., +0x3e50.., +0x3f00.., +0x3f94... It drifts
   from the recorded game after a while (contacts land at other frames) but is a genuine run of the original. Kept as
