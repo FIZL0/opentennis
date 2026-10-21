@@ -714,7 +714,7 @@ fn character_tables(
 
 /// Character `c`'s base stroke tables (`strk` 0..5) and volley tables (`voly` 0..5; 0 and 1 sit in the A
 /// archive, 2..4 in B).
-// ponytail: only the base tables; the up1/dw1/dw2 variants come with the timing/mode pick (P3)
+// the up1/dw1/dw2 variants are the timing's (`timing::load`)
 fn rally_tables(iso: &mut Iso, c: usize) -> [Vec<Table>; 2] {
     let mut volleys = character_tables(iso, c, "A", "voly", "", 2);
     volleys.extend((2..5).map(|k| character_table(iso, c, "B", "voly", "", k)));
@@ -761,7 +761,7 @@ mod every_character_tables {
 }
 
 /// A stroke's or volley's spin, first-bounce spin and restitution from the hitter's base shot record
-/// (`params::rally_spin`). ponytail: the up1/dw1/dw2 variant records go with the table mode choice (P3).
+/// (`params::rally_spin`); a variant record's is `record_spin`.
 fn rally_spin(g: &mut Game, who: usize, class: u8, kind: i32, at: V3, target: V3) -> f32 {
     let record = &g.rally_records[who][class as usize - 1][kind as usize];
     let (spin, first, rest) = params::rally_spin(record, class as usize, kind as usize, at, target);
@@ -1048,7 +1048,7 @@ fn reach(iso: &mut Iso) -> Reach {
         smash_ahead: 0.3578,
         body_low: 0.5535,
         body_high: 0.5828,
-        // ponytail: character 0's timing grades (28-frame horizon); their source is P3
+        // character 0's timing grades (28-frame horizon); each player's own replace them (`reach_of`)
         grades: vec![
             0, 0, 4, 4, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
         ],
@@ -2407,7 +2407,7 @@ fn aim_target(g: &mut Game, i: usize, stick: Vec2, branch: u8, kind: i32, offset
     let h = hst_sim::shot::Hitter { end: p.end, branch, kind, offset, body, from: p.aim_from, height };
     // the ball being struck was a slice (not a smash) in a rally under way: the angle narrows
     let incoming = (g.shots > 0 && g.shot.class != class::SMASH && g.shot.kind == kind::SLICE).then_some(g.last_sweet);
-    // ponytail: bots aim through this too with a random stick; the original AI's own aim is P11
+    // bots aim through this too, with the stick their AI picked (`ai_aim`)
     g.aim = hst_sim::shot::aim(&h, &g.aim_stats[i], [stick.x, stick.y], g.rules.players == 4, false, incoming, &mut || g.rng.shared.next());
     g.aim.target
 }
@@ -3815,7 +3815,7 @@ fn simulate(mut g: ResMut<Game>) {
 
 /// Every player's reaction to the point (`hst_sim::motion::reaction`): winners `gu`, losers `di` (`_set` when the
 /// point ends a game), in doubles sometimes a team reaction instead, each player's own pick.
-/// ponytail: the app's random numbers stand in for the game's
+/// The team pick draws from the shared generator.
 fn react(g: &mut Game, event: Event) {
     doubles_ai::heard(g, msg::REACTION);
     // the players' handler: the reaction cancels every lock (B128)
