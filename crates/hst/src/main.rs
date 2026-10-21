@@ -345,6 +345,8 @@ fn android_main(app: bevy::android::android_activity::AndroidApp) {
 /// The app for `argv` = disc, flags (see the module doc).
 fn start(argv: Vec<String>) {
     let Cli { args, mut gfx, upscale, viewer_mod, mod_slot, slot_mods, roster, swap_hands, names, umpire_mod, court_mod } = parse(argv.into_iter());
+    // M142: the disc a lobby's host checks a guest's against (an imported pack's hash; an ISO's ID was checked)
+    handshake::set_pack(Iso::open(&args.iso).ok().and_then(|i| i.pack_hash));
     // nothing asked for: the main menu, which starts matches in this app (`mode.rs`) with the flags above
     // a bad archive name would otherwise panic inside `load` and take the renderer down with it
     if !args.archives.is_empty() && let Ok(mut iso) = Iso::open(&args.iso) {
@@ -629,7 +631,7 @@ fn load(
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut gs_materials: ResMut<Assets<gs::GsMaterial>>,
-    (seed, mods): (Option<Res<handshake::MatchSeed>>, Option<Res<mods::MatchMod>>),
+    seed: Option<Res<handshake::MatchSeed>>,
     court_mod: Option<Res<mods_court::MatchCourt>>,
 ) {
     let mut iso = Iso::open(&args.iso).expect("open iso");
@@ -732,7 +734,6 @@ fn load(
                     hst_sim::rng::Seed::shared,
                 )
             });
-            commands.insert_resource(handshake::Handshake::of(&args, iso.pack_hash, mods.as_deref(), seed));
             let r = seed.rand;
             let mut mt = hst_sim::weather::Mt::new(seed.shared);
             let schedule = hst_sim::weather::schedule(&odds, &wind, args.games, args.sets, players, || mt.next());

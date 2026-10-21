@@ -8,3 +8,4 @@
 - Once your mod downloads and uploads have all finished, a Reload Mods button appears at the top of the menus, and if you put off reloading, picking Local or Online asks once more (Reload now or Play without them). Nothing asks you to reload while a download or upload is still going.
 - The mod download and upload progress at the top of the menus now fills as mods download, counts every mod downloading at once, names the mod uploading now, and no longer moves your cursor on the screen you're on when the mod store list refreshes.
 - Your Hugging Face sign-in for uploading mods is now saved where only you can read it, next to your settings (in the app's private storage on Android).
+- Joining an online lobby from a different imported game disc than the host's is now refused straight away with a message saying so, instead of the match drifting out of sync later.

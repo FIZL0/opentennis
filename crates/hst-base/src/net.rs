@@ -51,6 +51,8 @@ use n0_mainline::{Dht, Id, MutableItem, SigningKey};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc as amp;
 
+use crate::handshake::Handshake;
+
 pub mod rtc;
 pub mod keeper;
 pub mod rejoin;
@@ -71,7 +73,7 @@ const REPUBLISH: Duration = Duration::from_secs(60);
 const STALE: u64 = 150;
 /// B518: the shortest gap between two of a host's lobby listings outside a republish.
 const LIST_GAP: Duration = Duration::from_secs(10);
-/// The build peers must share (M22: the handshake's, version and commit; M2e checks the disc pack, rules and mods).
+/// The build peers must share (M22: the handshake's, version and commit; M142 checks the disc pack with it at the door).
 fn our_build() -> &'static str {
     crate::handshake::build()
 }
@@ -695,6 +697,9 @@ pub enum Msg {
         /// M126: rejoining after a refresh or crash, the seat this player had (the host gives it back first).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seat: Option<u8>,
+        /// M142: its disc pack's hash (`handshake::Handshake::pack`), checked with the build at the door.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pack: Option<u64>,
     },
     Room(Room),
     Refused(String),
@@ -1553,7 +1558,7 @@ async fn announce(cx: &Ctx, n: u16, room: &Room) {
 /// A joiner's side, inside the host task.
 #[allow(clippy::large_enum_variant)] // `Said` keeps its `Msg` by value so the host's match arms destructure it
 enum Guest {
-    In { peer: String, name: String, picks: Vec<Pick>, build: String, link: Link, conn: Conn, courts: Vec<String>, device: crate::device::Device, seat: Option<u8> },
+    In { peer: String, name: String, picks: Vec<Pick>, hand: Handshake, link: Link, conn: Conn, courts: Vec<String>, device: crate::device::Device, seat: Option<u8> },
     Said(String, Msg),
     /// B551: the peer's connection whose link this is ended (a newer one of the same peer's stays).
     Gone(String, Link),
@@ -1662,14 +1667,14 @@ fn micros(t0: n0_future::time::Instant) -> u64 {
 
 /// A guest's arrivals into the host task: its Hello first (else it's dropped), then what it says and sends, then gone.
 async fn guest(gtx: amp::UnboundedSender<Guest>, peer: String, conn: Conn, link: Link, mut inbox: Inbox) {
-    let Some(Ok(Msg::Hello { build, picks, name, courts, device, seat })) = inbox.msgs.recv().await else {
+    let Some(Ok(Msg::Hello { build, picks, name, courts, device, seat, pack })) = inbox.msgs.recv().await else {
         conn.close(b"no hello");
         return;
     };
     let g = gtx.clone();
     let p = gtx.clone();
     n0_future::task::spawn(read_packs(conn.clone(), move |h, b| drop(g.send(Guest::Pack(h, b))), move |h, got, n| drop(p.send(Guest::Progress(h, got, n)))));
-    let _ = gtx.send(Guest::In { peer: peer.clone(), name, picks, build, link: link.clone(), conn, courts, device, seat });
+    let _ = gtx.send(Guest::In { peer: peer.clone(), name, picks, hand: Handshake { build, pack }, link: link.clone(), conn, courts, device, seat });
     loop {
         tokio::select! {
             m = inbox.msgs.recv() => match m {
@@ -2013,7 +2018,7 @@ async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) 
                 }
             },
             Some(g) = guests.recv() => match g {
-                Guest::In { peer, name, picks, build, link, conn, courts, device, .. } => {
+                Guest::In { peer, name, picks, hand, link, conn, courts, device, .. } => {
                     // B551: the same peer on a new connection (it left and came back before its old one was seen to
                     // drop): the old one goes, its seats free for it to take back
                     let mut back = Vec::new();
@@ -2026,8 +2031,8 @@ async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) 
                         cx.say(Event::Room(room.clone()));
                         dirty = true;
                     }
-                    let why = if build != our_build() {
-                        Some(version_differs(our_build(), &build))
+                    let why = if let Err(e) = hand.check(&Handshake::here()) {
+                        Some(e)
                     } else if let Err(e) = picks_ok(&picks) {
                         Some(e)
                     } else if starting.is_some() || !room.take_from(&peer, &picks, &back) {
@@ -2411,11 +2416,11 @@ async fn relay(cx: &Ctx, mut room: Room, mut joined: Vec<(String, Link, Conn)>, 
                     cx.say(Event::Match(m));
                 }
                 Guest::Gone(peer, link) => joined.retain(|(p, l, _)| !(*p == peer && l.same(&link))),
-                Guest::In { peer, name, build, link, conn, seat, .. } => {
+                Guest::In { peer, name, hand, link, conn, seat, .. } => {
                     // ponytail: the rejoiner plays the seat's old picks (a mod pick it lacks shows its stand-in)
                     let back = back_for(&room, &away, &name, seat);
                     match back {
-                        Some(_) if build != our_build() => refuse(&link, conn, version_differs(our_build(), &build)),
+                        Some(_) if let Err(e) = hand.check(&Handshake::here()) => refuse(&link, conn, e),
                         Some(old) => {
                             bevy::log::info!("{name} ({}) rejoins for {}", short(&peer), short(&old));
                             away.retain(|p| *p != old);
@@ -2697,17 +2702,17 @@ fn picks_ok(p: &[Pick]) -> Result<(), String> {
 
 /// Join by code; true once seated (the lobby then runs until it starts or someone leaves).
 async fn join(cx: &Ctx, code: &str, picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>) -> bool {
-    join_as(cx, code, picks, cmds, our_build()).await
+    join_as(cx, code, picks, cmds, &Handshake::here()).await
 }
 
-/// `join`, saying it is build `build` (M22's test plays another build).
-async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>, build: &str) -> bool {
+/// `join`, with handshake `hand` (M22's and M142's tests play another build and disc).
+async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>, hand: &Handshake) -> bool {
     // a home relay first, as when bind waited for it (B224 moved that here; bounded: a dead relay still leaves LAN)
     if let Some(ep) = cx.ep.as_ref().filter(|_| cx.relays) {
         let _ = n0_future::time::timeout(Duration::from_secs(10), ep.online()).await;
     }
     let Some((conn, link, inbox, me)) = connect(cx, code, cmds).await else { return false };
-    link.send(&Msg::Hello { build: build.into(), picks: picks.clone(), name: cx.name.clone(), courts: cx.courts.clone(), device: *cx.device.lock().unwrap(), seat: cx.seat });
+    link.send(&Msg::Hello { build: hand.build.clone(), picks: picks.clone(), name: cx.name.clone(), courts: cx.courts.clone(), device: *cx.device.lock().unwrap(), seat: cx.seat, pack: hand.pack });
     cx.say(Event::Me(me.clone()));
     let Inbox { msgs: mut inbox, mut dgrams } = inbox;
     let ev = cx.ev.clone();
@@ -4138,7 +4143,7 @@ mod tests {
     }
 
     /// M22: a guest of another build is refused at its Hello, saying both builds, before any seat; Find greys out
-    /// such a host's lobby and Quickplay passes it by.
+    /// such a host's lobby and Quickplay passes it by. M142: so is one on another disc.
     #[test]
     fn another_build_is_refused_at_the_door() {
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -4161,7 +4166,8 @@ mod tests {
                 }
                 tokio::time::sleep(Duration::from_millis(20)).await;
             };
-            let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, "0.0.0 1a2b3c4").await });
+            let code2 = code.clone();
+            let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &Handshake { build: "0.0.0 1a2b3c4".into(), pack: None }).await });
             let why = loop {
                 match gev.try_recv() {
                     Ok(Event::Failed(w)) => break w,
@@ -4171,6 +4177,23 @@ mod tests {
             };
             assert!(why.starts_with("Refused: a different version"), "{why}");
             assert!(why.contains(&format!("host {}, you 0.0.0 1a2b3c4", our_build())) && why.contains("Update"), "{why}");
+            assert!(!seated.await.unwrap(), "never seated");
+            // M142: the same build on another imported disc is refused too (this process's disc is the host's; a
+            // guest from an ISO, as every other test's, still passes it)
+            crate::handshake::set_pack(Some(1));
+            let (gcx, gev) = cx().await;
+            let (_gcmd, mut grx) = amp::unbounded_channel();
+            let code = code2;
+            let other = Handshake { build: our_build().into(), pack: Some(2) };
+            let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &other).await });
+            let why = loop {
+                match gev.try_recv() {
+                    Ok(Event::Failed(w)) => break w,
+                    Ok(Event::Room(_)) => panic!("seated with another disc"),
+                    _ => tokio::time::sleep(Duration::from_millis(20)).await,
+                }
+            };
+            assert!(why.starts_with("Refused: your imported disc (0000000000000002) isn't the same as the host's (0000000000000001)"), "{why}");
             assert!(!seated.await.unwrap(), "never seated");
         });
         let l = |build: &str| Listing { id: build.into(), name: String::new(), doubles: false, court: 0, taken: 1, seats: 2, time: 0, code: String::new(), build: build.into() };
@@ -4215,7 +4238,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(500)).await;
             joinable |= std::iter::from_fn(|| hev.try_recv().ok()).any(|e| matches!(e, Event::Joinable));
             assert!(!joinable, "joinable with no code out and nobody in");
-            tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, our_build()).await });
+            tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &Handshake::here()).await });
             let t = tokio::time::Instant::now();
             while !matches!(gev.try_recv(), Ok(Event::Room(_))) {
                 assert!(t.elapsed() < Duration::from_secs(10), "the guest never got in");
