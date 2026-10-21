@@ -12,6 +12,7 @@
 use crate::camera::{ASPECT, View};
 use crate::cutaway::{CameraShot, IDENTITY, M4, Shot, frame};
 use crate::ps2::F;
+use crate::quat;
 
 /// The shots: singles, doubles.
 pub const SINGLES: u8 = 8;
@@ -23,32 +24,120 @@ const SUBJECT: u8 = 113;
 const LOOK_AT: u8 = 114;
 /// How far out the look-at point lies.
 const FAR: f32 = 100.0;
-/// The share of the way to the live ball the followed ball moves each frame (B621: measured against the original,
-/// whose turn after the ball lags it so).
-const BALL_EASE: f32 = 0.05;
+/// The share of the way from last frame's view to this frame's the picture moves, from the shot's third frame on.
+const SMOOTH: f32 = 0.05;
+/// The pull-back: the ball depth's lift before the first shot, how much of the ball's lead behind the human it
+/// pushes further back and at most, the baseline's depth, how far behind it the ball depth stops, and the most
+/// extra gap at the net.
+const QUIET_LIFT: f32 = 0.3;
+const PUSH: f32 = 0.5;
+const PUSH_MAX: f32 = -3.0;
+const BASELINE: f32 = -11.885;
+const BEHIND: f32 = 6.0;
+const NET_GAP: f32 = -3.0;
+/// Rally frames the pull-back stays quiet for.
+const QUIET_FRAMES: u32 = 30;
+
+/// Where the rally stands, for the pull-back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Play {
+    /// Nothing struck yet this point, or the rally just begun ([`Play::new`]): the eye backs away only as far as the
+    /// ball, a little ahead of it, lies behind the human.
+    Quiet,
+    /// The rally under way, or the point over.
+    Rally,
+}
+
+impl Play {
+    /// From the shots struck this point and, while the rally phase is on, how many frames it has run.
+    pub fn new(shots: u32, rally: Option<u32>) -> Self {
+        if shots == 0 || rally.is_some_and(|n| n < QUIET_FRAMES) { Play::Quiet } else { Play::Rally }
+    }
+}
 
 /// The camera following the human.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Follow {
     shot: Shot,
-    /// The ball the shot turns after: eased toward the live one, from where it was at the first frame.
-    ball: Option<[f32; 3]>,
+    /// Frames shown so far and the last one, which the next eases from.
+    shown: u32,
+    last: Option<View>,
 }
 
 impl Follow {
     pub fn new(shots: &[CameraShot], doubles: bool) -> Self {
-        Follow { shot: Shot::new(shots, if doubles { DOUBLES } else { SINGLES }, false), ball: None }
+        Follow { shot: Shot::new(shots, if doubles { DOUBLES } else { SINGLES }, false), shown: 0, last: None }
     }
 
-    /// One frame on: the human stands at `spot` (game space) at the −z end when `near`, the ball at `ball`.
-    pub fn step(&mut self, spot: [f32; 3], near: bool, ball: [f32; 3]) -> View {
-        let eased = match self.ball {
-            Some(b) => std::array::from_fn(|i| (F(b[i]) + (F(ball[i]) - b[i]) * BALL_EASE).0),
-            None => ball,
-        };
-        self.ball = Some(eased);
-        self.shot.step(frames(spot, near, eased));
+    /// One frame on, as shown: [`Follow::aim`] then [`Follow::show`].
+    pub fn step(&mut self, spot: [f32; 3], near: bool, ball: [f32; 3], play: Play) -> View {
+        let v = self.aim(spot, near, ball, play);
+        self.show(v)
+    }
+
+    /// The shot's own view one frame on: the human stands at `spot` (game space) at the −z end when `near`, the
+    /// ball at `ball` (the live one, held where the rally left it once the point is over, across the shot's
+    /// restarts). The eye backs away along the view as the ball comes past the human, and the view tilts up to
+    /// keep the ball in the picture.
+    pub fn aim(&mut self, spot: [f32; 3], near: bool, ball: [f32; 3], play: Play) -> View {
+        self.shot.step_with(frames(spot, near, ball), |s| {
+            pull_back(s, spot, ball, play == Play::Quiet);
+            let dead = s.pitch_dead_zone();
+            s.head(dead, ball);
+        });
         self.shot.view()
+    }
+
+    /// The view on screen this frame, from `now` (the shot's view, or a switch's glide toward it): from the shot's
+    /// third frame on, 5 % of the way from the last one shown.
+    pub fn show(&mut self, now: View) -> View {
+        let v = match self.last {
+            Some(last) if self.shown >= 2 => ease(&last, &now),
+            _ => now,
+        };
+        self.shown += 1;
+        self.last = Some(v);
+        v
+    }
+}
+
+/// Backs the eye away along the view, on the ground, by how far the ball has come past the human (`quiet`: before
+/// the rally is under way) or, with the human inside their baseline, at least by a share of 3 m.
+fn pull_back(s: &mut Shot, spot: [f32; 3], ball: [f32; 3], quiet: bool) {
+    let [fx, _, fz, _] = s.cam[2];
+    let end = F(if fz < 0.0 { -1.0 } else { 1.0 });
+    let (p, b) = (end * spot[2], end * ball[2]);
+    let depth = if quiet {
+        b + QUIET_LIFT
+    } else {
+        let mut d = b;
+        if d < p {
+            d += (F(PUSH) * (d - p)).max(F(PUSH_MAX));
+        }
+        d.max(F(BASELINE) - BEHIND)
+    };
+    let inside = (p / BASELINE).min(F::ONE);
+    let limit = F(NET_GAP) * (1.0 - inside);
+    let shift = (depth - p).min(limit);
+    let inv = F::ONE / (F(fz) * fz).madd(fx, fx).sqrt();
+    let along = [F(fx) * inv, F(fz) * inv];
+    for (i, u) in [(0, along[0]), (2, along[1])] {
+        s.cam[3][i] = (F::ZERO + s.cam[3][i]).madd(u, shift).0;
+    }
+}
+
+/// 5 % of the way from `last` to `now`: the rotation slerped, the eye and the half-angle eased.
+fn ease(last: &View, now: &View) -> View {
+    let m = |v: &View| {
+        let r = |i: usize| [v.rot[i][0], v.rot[i][1], v.rot[i][2], 0.0];
+        [r(0), r(1), r(2), [0.0, 0.0, 0.0, 1.0]]
+    };
+    let r = quat::to_matrix(quat::slerp(quat::from_matrix(&m(last)), quat::from_matrix(&m(now)), SMOOTH));
+    let toward = |a: f32, b: f32| (F::ZERO + a).madd(F(b) - a, SMOOTH).0;
+    View {
+        rot: [0, 1, 2].map(|i| [r[i][0], r[i][1], r[i][2]]),
+        eye: std::array::from_fn(|i| toward(last.eye[i], now.eye[i])),
+        fov: toward(last.fov, now.fov),
     }
 }
 

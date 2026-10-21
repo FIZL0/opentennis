@@ -37,6 +37,8 @@ pub(super) struct AltCamera {
     serving: bool,
     /// A Select press waiting for the next tick.
     press: bool,
+    /// The ball the shot looks at: the live one, held where the rally left it once the point is over (B628).
+    held: [f32; 3],
 }
 
 impl AltCamera {
@@ -81,7 +83,7 @@ fn save(iso: &str, on: bool) {
 }
 
 /// The one human playing on this machine, if exactly one does and the match isn't online.
-fn human(g: &Game, pads: &Pads, online: bool) -> Option<usize> {
+pub(super) fn human(g: &Game, pads: &Pads, online: bool) -> Option<usize> {
     let n = g.players.len();
     let mut humans = (0..n).filter(|&i| pads.slot_of(i, n).is_some());
     let first = humans.next()?;
@@ -148,6 +150,10 @@ fn step(
     let placed = g.phase == Phase::Serve && !std::mem::replace(&mut alt.serving, g.phase == Phase::Serve);
     let p = &g.players[i];
     let (spot, near, ball) = ([p.pos[0], p.pos[1], p.pos[2]], p.end > 0.0, g.flight.ball.pos);
+    if matches!(g.phase, Phase::Serve | Phase::Rally) {
+        alt.held = ball;
+    }
+    let play = alt_cam::Play::new(g.shots.max(0) as u32, (g.phase == Phase::Rally).then_some(alt.rally));
     // this tick's target: the shot behind the human, the reset match camera, else none (the shared camera shows)
     // B621: a post-point cut-away shows on the shared camera as with the normal one; the next point cuts back to a
     // fresh shot behind the human
@@ -160,7 +166,7 @@ fn step(
         if alt.follow.as_ref().is_none_or(|f| (f.0, f.1) != (i, near)) {
             alt.follow = Some((i, near, Follow::new(&d.shots, g.players.len() == 4)));
         }
-        Some(alt.follow.as_mut().expect("made").2.step(spot, near, ball))
+        Some(alt.follow.as_mut().expect("made").2.aim(spot, near, alt.held, play))
     } else {
         alt.follow = None;
         // the shared camera's cut to the next point (or the change of ends' glide) drops the reset one
@@ -183,6 +189,11 @@ fn step(
             v
         }
         None => to,
+    })
+    // B628: the picture eases after the shot's view, the glide into it included
+    .map(|v| match &mut alt.follow {
+        Some((.., f)) => f.show(v),
+        None => v,
     });
     // the fade, behind the human only
     let post = g.phase == Phase::Post;
