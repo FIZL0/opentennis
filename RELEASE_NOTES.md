@@ -35,3 +35,4 @@
 - In singles, a computer opponent returning serve now moves on to its rally play at the same moment as in the original game (once its return is really done), not as soon as it has hit the ball.
 - A computer server now hands over from its serve to the rally at the same moment as in the original: in singles it starts moving about half a second sooner after serving.
 - Switching Settings tabs now only nudges the options card instead of sliding the whole page.
+- Importing a disc image now checks its contents against known good copies of the game: a bad rip or a different version is refused with a message showing its fingerprint, which you can report so a good copy can be added.
