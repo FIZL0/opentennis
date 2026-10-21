@@ -35,3 +35,4 @@
 - In singles, a computer opponent returning serve now moves on to its rally play at the same moment as in the original game (once its return is really done), not as soon as it has hit the ball.
 - A computer server now hands over from its serve to the rally at the same moment as in the original: in singles it starts moving about half a second sooner after serving.
 - Switching Settings tabs now only nudges the options card instead of sliding the whole page.
+- New Offbeat Rules for local matches: press Select (keyboard C) on the match confirm screen to mix in irregular bounces, slow motion, a rally that speeds up with every shot, a ghost ball that vanishes past the net, tiny or giant players, faster or slower players, and a sweet-spot mode where every hit is perfect.
