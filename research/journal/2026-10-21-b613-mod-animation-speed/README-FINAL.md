@@ -28,10 +28,20 @@ Repackaged all 21 Open Tee 2 mods (all share the cause); Lauryn's reactions leng
 frames). Every OT2 mod's `mod.json` version bumped by 1 (Lauryn 9→10) in out/mods. Her swings are the
 donor's (pc12) HST clips, not retargeted from OT2, so untouched (user 2026-10-21: it's the celebration emote).
 
+## The other source games (follow-up, user 2026-10-21)
+Same test (face track length vs body clip length, both on the exporter's clock):
+- Get a Grip (PSP, same motion format as Open Tee 2): the face track ends exactly where the body clip does (ratio
+  1.0 wherever it spans the clip, shorter where it stops early); never 2×. 60 Hz is right.
+- Fore! (PS2, HST's own motion format at 80 ticks/frame): face tracks on their own timeline end with their clips
+  (ratio 1.0 or a little under, across 144 clips with faces). 60 Hz is right.
+- Out of Bounds (PS3): its clock (2400 ticks/s) was already set from the motion itself (4800 made jumps hang 0.2 s);
+  its faces share the body's file, so the ratio (1.0) doesn't test it independently.
+Only Open Tee 2 needed the 30 Hz rate. Noted in package.py (opentennis-mods, pushed).
+
 ## Not verified / not 1:1
 - No A/B screenshots or video vs pc07/pc12: playback speed doesn't show in a still; the 30 Hz rate rests on the
   TAT/clip length ratio (consistent ~2× across every clip measured), not on running Open Tee 2 (PSP; no emulator here).
-- Fore! and Out of Bounds clips were not checked for the same issue (their exporters/data differ); only Open Tee 2.
+- Out of Bounds' rate rests on the earlier jump-timing calibration, not an independent face/body check.
 - The repackaged OT2 mods are not uploaded to the mod store (outward-facing; the user uploads them): installed
   copies refresh once they are.
 - Chief's change has no PCSX2 check: a mod's pace has no original to compare against; stock play is unchanged by
