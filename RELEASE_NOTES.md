@@ -33,3 +33,4 @@
 - A dive cut short by the sideline, the net or your partner now plays the rest of its animation from the right moment, as in the original.
 - Computer players now walk back into position after serving, and at the start of every point in doubles, as they do in the original; a computer server's aim is also picked at the same moment as the original's.
 - A dive now needs you to have been running just before you press, as in the original: the automatic step toward the ball after a press no longer makes a dive possible, and computer partners dive by the same rule.
+- A computer server now hands over from its serve to the rally at the same moment as in the original: in singles it starts moving about half a second sooner after serving.

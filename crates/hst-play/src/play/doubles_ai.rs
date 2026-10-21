@@ -166,6 +166,17 @@ fn frame(g: &mut Game, i: usize, phase: u8, mark: bool) -> (Body, World) {
 
 /// One frame of computer player `i` in the receive or rally: false (nothing done) outside them and between ends.
 pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
+    run(g, i, mind, true)
+}
+
+/// P131: computer server `i`'s hand-over from its serve to the rally, in the AI update that leaves the serve state:
+/// the rally's entry only (the Return roll, the put-none record, the net repick). The routine first runs next frame;
+/// this frame gives no stick or press. False (nothing done) where `step` does nothing.
+pub(super) fn hand_over(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
+    run(g, i, mind, false)
+}
+
+fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool {
     let phase = match g.phase {
         Phase::Serve => phase::SERVE,
         Phase::Rally => phase::RALLY,
@@ -184,10 +195,12 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     // the miss mark lasts until the stroke update after this step: a miss from here on is seen next frame
     let mark = std::mem::take(&mut d.me[i].mark);
     // the stand-in's preamble: the recovery, the whiff, the press's approach run
-    follow_through(&mut g.players[i], true);
-    whiff_frame(g, i, true);
-    if let Some(dir) = g.players[i].approach {
-        locomote(g, i, dir);
+    if routine {
+        follow_through(&mut g.players[i], true);
+        whiff_frame(g, i, true);
+        if let Some(dir) = g.players[i].approach {
+            locomote(g, i, dir);
+        }
     }
     let (mut b, mut w) = frame(g, i, phase, mark);
     let p = g.players[i];
@@ -253,6 +266,14 @@ pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
             }
         }
         _ => {}
+    }
+    if !routine {
+        (me.lost, me.lost_log) = (b.lost, b.lost_log);
+        g.doubles_ai.records = w.records;
+        let mut m = *mind;
+        (m.net, m.net_rate, m.net_left) = (x.mind.net, x.mind.net_rate, x.mind.net_left);
+        g.players[i].ai_mind = Some(m);
+        return true;
     }
     // the caller's stick quad starts zeroed each frame, as the game's player update clears it before the AI's
     let mut out = Out::default();
@@ -641,6 +662,9 @@ mod handover;
 mod serve_over;
 
 #[cfg(test)]
+mod serve_end;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{Args, GameSpace};
@@ -697,6 +721,7 @@ mod tests {
         app.update();
         let (mut stepped, mut pinned, mut rallies) = (0, 0, 0);
         for _ in 0..60 * 60 {
+            let set_up: Vec<bool> = app.world().resource::<Game>().doubles_ai.me.iter().map(|m| m.set_up).collect();
             app.world_mut().run_schedule(FixedUpdate);
             let g = app.world().resource::<Game>();
             if g.phase != Phase::Rally {
@@ -705,7 +730,8 @@ mod tests {
             rallies += 1;
             for (i, p) in g.players.iter().enumerate() {
                 let me = &g.doubles_ai.me[i];
-                if me.set_up {
+                // the set-up's spot as made (a NET pick's after-shot step moves it on later, also off a serve: P131)
+                if me.set_up && !set_up.get(i).copied().unwrap_or(false) {
                     stepped += 1;
                     let z = if p.ai.style == style::NET { -10.0 } else { -11.0 };
                     assert_eq!((me.rally.spot[0], me.rally.spot[2]), (0.0, p.end * z), "p{i}");
