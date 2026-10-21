@@ -1,0 +1,26 @@
+# Unattended runs (tools/parallel.sh) go through agent-runner: https://github.com/FIZL0/agent-runner
+[plan]
+dir = "plan"
+journal = "research/journal"
+brief = "tools/ctx.py brief {id}"   # in a slot's worktree it also writes the .cleanroom lock for a port phase
+
+[run]
+test = "tools/check.sh"
+slots = 5
+mode = "p"
+weekly_max = 94
+notes = "context/notes"
+rules = "AGENT.md"
+prompt = "tools/runner-prompt.md"
+links = ["context", "mods", "replacements", "*.iso"]
+shared_files = ["play.rs"]
+joinable = ["plan/*.md", "research/journal/*", "RELEASE_NOTES.md"]
+slot_env = ["HST_PCSX2={n}", "HST_BG=1", "RUSTC_WRAPPER=sccache", "SCCACHE_CACHE_SIZE=60G"]
+pass_env = ["HST_PCSX2_MAX_HOLD"]
+on_exit = "tools/pcsx2.sh tools/pcsx2-hst.sh stop"
+before_start = "ls /run/user/$(id -u)/wayland-[0-9]* >/dev/null 2>&1"   # PCSX2 needs this user's desktop session
+untested = ["*.md", ".github/*", "tools/*", "!tools/check.sh"]
+failures = '^---- (\S+) stdout ----'
+retest = "tools/check.sh -- --exact {names}"
+not_attempt = '^{id} spec:'         # a clean-room spec phase; the port phase starts once it merges
+suspect = 'BLOCKED:.*(pcsx2|pine|capture|record|screenshot|save state|unattended)'
