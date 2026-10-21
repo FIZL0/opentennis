@@ -4239,6 +4239,10 @@ fn motions(mut g: ResMut<Game>, mut q: Query<(&Figure, &mut Motion)>) {
             }
         }
         m.clock.speed = c.speed;
+        // a dive whose slide a blocked move cut short: the receive motion restarts at time 5 and plays on
+        if g.players[i].dive.is_some_and(|d| d.restarted()) {
+            (m.clock.time, m.clock.speed) = (5.0, 1.0);
+        }
     }
 }
 

@@ -29,3 +29,4 @@
 - A mistimed ✕ or ○ smash from deep in the court now aims a little further inside the lines, as in the original.
 - Online lobbies now support handicaps: the host presses L2 / R2 on any player's card to give them one or two leg weights, and every player's game plays the match with them.
 - In an online lobby the host can now tap a player's handicap pill to change it, on any player's card, which helps on touch screens.
+- A dive cut short by the sideline, the net or your partner now plays the rest of its animation from the right moment, as in the original.

@@ -953,6 +953,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **P9d** Ball trail ribbon (in P9) → `effect.rs` · `play.rs` | j: 2026-10-07-p9-hit-effects
 - [x] **P9e** Flight effects (in P9) → `effect.rs` · `play.rs` | j: 2026-10-07-p9-hit-effects
 - [x] **P9f** Bounce and smash-bounce effects (in P9) → `effect.rs` · `play.rs` bounce | j: 2026-10-07-p9-hit-effects
+- [x] **P121** Dive slide early end, unrecorded (T8): the dive slide that stops early (blocked within its first frames) restarts the motion at time 5, written from the decompile with no recording behind it. Force the case (a dive into the net/partner/court edge, tools/vpad.py) and record it, or check it with the oracle; fix if it differs → crates/hst-sim/src/swing.rs (dive slide) | t: hst-sim swing.rs | j: 2026-10-21-repo-audit (T8 ledger)
 
 
 ### AI
