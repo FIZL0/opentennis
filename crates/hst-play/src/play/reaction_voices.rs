@@ -1,5 +1,6 @@
 //! The reaction voices after a point (`hst_sim::sound::reaction_voice`): on the reactions' 5th frame each player
-//! the post-point camera has in close view (`sound::reaction_view`) cheers or groans by their reaction motion.
+//! the post-point camera has in close view (`sound::reaction_view`) cheers or groans by their reaction motion. The
+//! view test takes the model's origin, its pelvis as last posed, and the player's spot.
 
 use bevy::prelude::*;
 use hst_sim::sound;
@@ -14,7 +15,7 @@ pub fn plugin(app: &mut App) {
 #[derive(Resource, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct Frames(u32);
 
-fn step(mut g: ResMut<Game>, mut frames: ResMut<Frames>) {
+fn step(mut g: ResMut<Game>, mut frames: ResMut<Frames>, posed: Option<Res<super::bodyhit::Posed>>, bones: Option<Res<super::bodyhit::Bones>>) {
     let frames = &mut frames.0;
     if !g.post.as_ref().is_some_and(|p| p.reacted) {
         return *frames = 0;
@@ -34,9 +35,10 @@ fn step(mut g: ResMut<Game>, mut frames: ResMut<Frames>) {
     let n = g.players.len() as u32;
     for i in 0..g.players.len() {
         let p = &g.players[i];
-        // ponytail: the player's position stands for both the model origin and the spot the game tests
+        // ponytail: character 13 tests another spot of its own (no recording has it); every other character's is its position
         let at = [p.pos[0], p.pos[1], p.pos[2], 1.0];
-        if !sound::reaction_view(eye, look, &view, focal, at, at) {
+        let origin = pelvis(&g, i, posed.as_deref(), bones.as_deref()).unwrap_or(at);
+        if !sound::reaction_view(eye, look, &view, focal, origin, at) {
             continue;
         }
         // ponytail: a body-hit player standing has no reaction motion; any other motion voices alike
@@ -47,6 +49,15 @@ fn step(mut g: ResMut<Game>, mut frames: ResMut<Frames>) {
             g.lines.push(super::emote::Line::Reaction(i, play));
         }
     }
+}
+
+/// Player `i`'s `Bip01Pelvis` in game space as the motion player last posed it (`step` runs before this tick's
+/// pose), or `None` before the first pose.
+fn pelvis(g: &Game, i: usize, posed: Option<&super::bodyhit::Posed>, bones: Option<&super::bodyhit::Bones>) -> Option<[f32; 4]> {
+    let data = g.data.get(i)?;
+    let n = bones?.of(i, data).at[4]?;
+    let w = hst_sim::pose::node_world(&data.skeleton, posed?.locals(i)?, n, &super::player_matrix(&g.players[i]));
+    Some([w[3][0], w[3][1], w[3][2], 1.0])
 }
 
 /// `v`'s world → camera matrix as `vu0::transform` takes it (column k is camera axis k).
