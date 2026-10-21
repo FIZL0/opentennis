@@ -374,3 +374,97 @@ extern "C" fn set_frame_rate(fps: *mut std::ffi::c_void) {
     });
     eprintln!("display link: {}–{} Hz, preferred {}", range.minimum, range.maximum, range.preferred);
 }
+
+// CoreMotion's accelerometer for `orientation`'s gravity check
+#[link(name = "CoreMotion", kind = "framework")]
+unsafe extern "C" {}
+
+/// CoreMotion's `CMAcceleration`, in g along the device's axes (x right, y up the screen held upright).
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Acceleration {
+    x: f64,
+    y: f64,
+    _z: f64,
+}
+
+/// `orientation`'s state: the orientation the game is held to (landscape or not), the device's last reported
+/// orientation and since when, and the accelerometer.
+#[derive(Default)]
+pub struct Orientation {
+    held: Option<bool>,
+    device: isize,
+    since: f32,
+    motion: usize,
+}
+
+/// M144: the game turns into portrait and back with the device, and holds its orientation while rotation lock is on.
+/// Info.plist allows both; the window's view controller is kept to the orientation the game is in (landscape or
+/// portrait, `ValidOrientations`), and moves to the other only when the device turns there. An iPhone's rotation lock
+/// makes UIDevice report portrait however the phone is held, so a turn to portrait the accelerometer doesn't agree
+/// with is the lock going on, not a turn: ignored, the game stays as it is, landscape included. Under the lock the
+/// device's orientation doesn't change again, so the game stays put until it's off. An iPad's lock holds the
+/// current orientation itself. Main thread (UIKit, winit's windows).
+pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_thread: bevy::ecs::system::NonSendMarker) {
+    use winit::platform::ios::{ValidOrientations, WindowExtIOS};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    type Id = *mut std::ffi::c_void;
+    let now = time.elapsed_secs();
+    // SAFETY: on the main thread (NonSendMarker); objc_msgSend cast to each message's signature as UIKit and
+    // CoreMotion declare it; the motion manager is retained in `state` for the app's life
+    let (device, gravity) = unsafe {
+        let obj: extern "C" fn(Id, Id) -> Id = std::mem::transmute(objc_msgSend as *const ());
+        let int: extern "C" fn(Id, Id) -> isize = std::mem::transmute(objc_msgSend as *const ());
+        let accel: extern "C" fn(Id, Id) -> Acceleration = std::mem::transmute(objc_msgSend as *const ());
+        let ui_device = obj(objc_getClass(c"UIDevice".as_ptr()), sel_registerName(c"currentDevice".as_ptr()));
+        if state.motion == 0 {
+            obj(ui_device, sel_registerName(c"beginGeneratingDeviceOrientationNotifications".as_ptr()));
+            let class = objc_getClass(c"CMMotionManager".as_ptr());
+            if !class.is_null() {
+                let m = obj(obj(class, sel_registerName(c"alloc".as_ptr())), sel_registerName(c"init".as_ptr()));
+                obj(m, sel_registerName(c"startAccelerometerUpdates".as_ptr()));
+                state.motion = m as usize;
+            }
+        }
+        let data = if state.motion == 0 { std::ptr::null_mut() } else { obj(state.motion as Id, sel_registerName(c"accelerometerData".as_ptr())) };
+        // landscape when gravity runs across the screen more than along it; none while the device lies flat
+        let gravity = (!data.is_null()).then(|| accel(data, sel_registerName(c"acceleration".as_ptr()))).filter(|a| a.x.abs().max(a.y.abs()) > 0.5).map(|a| a.x.abs() > a.y.abs());
+        (int(ui_device, sel_registerName(c"orientation".as_ptr())), gravity)
+    };
+    bevy::winit::WINIT_WINDOWS.with_borrow(|w| {
+        let Some(win) = w.windows.values().next() else { return };
+        let size = win.inner_size();
+        let window = size.width > size.height;
+        if device != state.device {
+            state.device = device;
+            state.since = now;
+        }
+        // portrait, upside down, landscape left/right; face up/down and unknown say nothing
+        let turned = (1..=4).contains(&device).then_some(device >= 3);
+        // the accelerometer has a moment to agree with a new orientation (turning the phone past 45° fires it)
+        let want = match (state.held, turned) {
+            (None, _) => Some(window),
+            (Some(held), Some(to)) if to != held && now - state.since < 0.5 && gravity.is_none_or(|g| g == to) => Some(to),
+            _ => None,
+        };
+        let Some(landscape) = want else { return };
+        state.held = Some(landscape);
+        win.set_valid_orientations(if landscape { ValidOrientations::Landscape } else { ValidOrientations::Portrait });
+        // iOS 16 rotates on this rather than winit's attemptRotationToDeviceOrientation
+        if let Ok(h) = win.window_handle()
+            && let RawWindowHandle::UiKit(h) = h.as_raw()
+            && let Some(vc) = h.ui_view_controller
+        {
+            // SAFETY: the view controller lives as long as the window; respondsToSelector: guards iOS 15
+            unsafe {
+                let obj: extern "C" fn(Id, Id) -> Id = std::mem::transmute(objc_msgSend as *const ());
+                let responds: extern "C" fn(Id, Id, Id) -> bool = std::mem::transmute(objc_msgSend as *const ());
+                let sel = sel_registerName(c"setNeedsUpdateOfSupportedInterfaceOrientations".as_ptr());
+                if responds(vc.as_ptr(), sel_registerName(c"respondsToSelector:".as_ptr()), sel) {
+                    obj(vc.as_ptr(), sel);
+                }
+            }
+        }
+        eprintln!("orientation: held {}", if landscape { "landscape" } else { "portrait" });
+    });
+}
