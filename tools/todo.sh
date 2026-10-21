@@ -11,7 +11,7 @@
 set -u
 export HST_CTX_NOCOMMIT=1  # ctx.py edits go into this script's own commit
 root=$(cd "$(dirname "$(realpath "$0")")/.." && pwd)
-cd "$root"
+cd "$root" || exit 1
 text="$*"
 [ -z "$text" ] && read -e -r -p 'todo: ' text
 [ -z "$text" ] && exit 1

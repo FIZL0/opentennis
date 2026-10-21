@@ -8,9 +8,9 @@
 # --original, pause → Settings by HST_KEYS, 3-set singles and court-7 doubles to the result screens; not in `all`). Matches are all-computer (HST_AUTOPLAY), 1 game a set,
 # shot (and quit) after SECS (HST_SWEEP_SECS, 200) so most reach the result screens.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 out=$(realpath -m "${1:?usage: tools/asset_sweep.sh OUT_DIR [N]}"); n=${2:-2}
-mkdir -p "$out"
+mkdir -p "$out" || exit 1
 secs=${HST_SWEEP_SECS:-200}
 part=${HST_SWEEP:-all}
 jobs=()

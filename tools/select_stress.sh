@@ -3,9 +3,9 @@
 # cards) with `HST_STRESS=SECS` jumping every card to a random character, costume, page and mod each frame, under
 # tools/vram_watch.sh. DIR gets log.txt (the app's output; `panicked` = a crash) and vram.txt (time, card VRAM, own VRAM, RSS; MB).
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 secs=$1 dir=$2; shift 2
-mkdir -p "$dir"
+mkdir -p "$dir" || exit 1
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1} HST_BG=1 HST_MENU=chars HST_SELECT=0,1,2,3 HST_STRESS=$secs
 bin=${HST_BIN:-${CARGO_TARGET_DIR:-target}/release/hst}
 env HST_DATA="$PWD" "$@" "$bin" "Hot Shots Tennis (USA).iso" > "$dir/log.txt" 2>&1 &
