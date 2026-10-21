@@ -8,6 +8,9 @@ cd "$(dirname "$(realpath "$0")")/.." || exit 1
 paths=(); for ((i = 1; i <= $#; i++)); do [ "${!i}" = -- ] && { paths=("${@:i+1}"); set -- "${@:1:i-1}"; break; }; done
 [ $# = 2 ] || { [ $# = 4 ] && [ "$3" = --blocked ]; } || { [ $# = 3 ] && [ "$3" = --spec ]; } || { sed -n 2,6p "$0"; exit 2; }
 main=; [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] && main=1
+# T11: a worktree's own context/ recordings go into the main checkout's context/ too (new files only), so they
+# outlive the worktree; a failed copy is reported, not fatal
+[ "$main" ] || tools/context_sync.py -q || true
 [ "$main" ] && [ ${#paths[@]} = 0 ] && { echo "main checkout: name the paths you changed: tools/done.sh <ID> \"<msg>\" -- <paths> (git add -A would commit other sessions' edits)"; exit 2; }
 if [ "$3" = --spec ]; then
   tools/audit.sh || exit 1

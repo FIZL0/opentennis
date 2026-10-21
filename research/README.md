@@ -92,6 +92,15 @@ python3 research/mkirx_elf.py context/iso/MODULES2/SG2IOPM1.IRX context/elf/sg2i
 Each test names the recording it needs in its header comment and skips itself when that recording is missing.
 `HST_FIXTURES` points the tests at another fixtures folder.
 
+**Worktrees.** The main checkout's `context/` is the one to keep. A git worktree (a runner slot, `git worktree add`)
+that has its own real `context/` directory, rather than the runner's symlink to main's, records into that directory.
+Three things carry those files into the main checkout's `context/`. They are reflink copies, so they take no extra
+space on btrfs, and an existing file is never overwritten. First, every PINE tool (`tools/pine.py`) runs the copy
+when it exits cleanly; a file the run rewrote replaces main's copy. Second, `tools/done.sh` runs it at the end of a
+task. Third, `tools/context_sync.py --all` copies the backlog from every worktree; a different file under the same
+new path is kept as `<name>.from-<worktree>`. A test reads through `hst_data::fixture`, which takes a file this
+checkout lacks from the main checkout's `context/`, or else from another worktree's.
+
 ## PCSX2 save states
 
 The recorders and `TODO.md` refer to save-state slots. They are yours to make: load the game, get to the moment,
