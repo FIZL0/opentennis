@@ -1218,8 +1218,15 @@ fn glue_call(e: &[u8], x: &[u8], mt: &mut Mt, row: &AiParams, winner: i32, stash
 /// are skipped, but for its hand-over to the rally.
 #[test]
 fn glue_matches_the_game() {
-    let Some(d) = fixture::read(format!("{}/context/fixtures/ai_glue_s05.bin", root())).ok() else { return };
-    let Some(table) = table() else { return };
+    let Some((n, msgs)) = glue_replay("ai_glue_s05.bin") else { return };
+    assert!(n[0] > 5000 && msgs.get(&0x15).is_some_and(|&k| k > 40), "{n:?} {msgs:?}");
+}
+
+/// Replays every update and message call of a tag 5/6 recording through `glue_call` and fails on any difference:
+/// the calls replayed (updates, messages) and the messages by id. None without the recording or the disc.
+fn glue_replay(file: &str) -> Option<([usize; 2], std::collections::BTreeMap<u32, usize>)> {
+    let d = fixture::read(format!("{}/context/fixtures/{file}", root())).ok()?;
+    let table = table()?;
     assert_eq!(&d[..4], b"AIRL");
     let mut mt = Mt::of(&d[8..8 + MT_SIZE]);
     let mut drawn = 0u32;
@@ -1255,7 +1262,7 @@ fn glue_matches_the_game() {
         // on this call the game read what this AI's stand left there the frame before (left alone in between); on
         // every other call the recorded one gives the game's result (carrying it everywhere breaks a dozen calls
         // whose slot was overwritten between frames)
-        let carried = u32_at(e, 8) == 8455 && slot == 2 && tag == 5;
+        let carried = file == "ai_glue_s05.bin" && u32_at(e, 8) == 8455 && slot == 2 && tag == 5;
         let Some(errs) = glue_call(e, x, &mut probe, row, winner, &mut stash[slot], carried) else {
             skipped += 1;
             continue;
@@ -1272,6 +1279,20 @@ fn glue_matches_the_game() {
         }
     }
     eprintln!("updates {} messages {} {msgs:x?} skipped (serve routine) {skipped}", n[0], n[1]);
-    assert!(n[0] > 5000 && msgs.get(&0x15).is_some_and(|&k| k > 40), "{n:?} {msgs:?}");
     assert_eq!(fails, 0, "{fails} of {} calls differ", n[0] + n[1]);
+    Some((n, msgs))
+}
+
+/// P129: the strike (0x14) and new-path (0x16) messages over slot 5's bot-only doubles, the message handler only
+/// (`record_ai_rally.py 5 15000 … 1 6`, about four minutes each), every message call bit-exact as in
+/// `glue_matches_the_game`. `ai_netcord_s05.bin` as the match plays: balls clip the net cord on serves (shot count
+/// 1: the hold flag) and in rallies (an AI in its rally goes back to its wait substate at the message).
+/// `ai_strike_s05.bin` with `HST_STRIKE=43`: once a point one of court 10's figures is moved onto the ball, which
+/// strikes it, at shot counts 1 to 4 (AIs receiving, rallying, and swinging: those keep their swing).
+#[test]
+fn strike_and_new_path_match_the_game() {
+    let Some((_, net)) = glue_replay("ai_netcord_s05.bin") else { return };
+    assert!(net.get(&0x16).is_some_and(|&k| k >= 20), "{net:?}");
+    let Some((_, strike)) = glue_replay("ai_strike_s05.bin") else { return };
+    assert!(strike.get(&0x14).is_some_and(|&k| k >= 40) && strike.get(&0x16).is_some_and(|&k| k >= 20), "{strike:?}");
 }

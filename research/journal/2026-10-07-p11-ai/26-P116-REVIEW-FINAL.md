@@ -64,7 +64,7 @@ is `hst-oracle` over ≥10k generated inputs. Fixtures are in `context/fixtures/
 | Human partner's records (CPU beside a human) | `doubles_ai::human` (P11k7) | `human_record_matches_the_game` |
 | Hit message (doubles: repick, re-entry) | `Rally::heard_hit_doubles` | `glue_matches_the_game` |
 | Hit message (singles), shot target, under_min | `doubles_ai.rs` | **Open: P11l6** (spec written, port pending) |
-| Strike (0x14) / new path (0x16) messages | `Rally::heard_strike` | Spec only, no recording. **Gap P129** |
+| Strike (0x14) / new path (0x16) messages | `Rally::heard_strike` | `strike_and_new_path_match_the_game` (P129) |
 | The app's `doubles_ai::step` wiring as a whole | `play/doubles_ai.rs` | Only the sim glue replays; the app's step is checked by its playing tests. **Gap P128** (with P11l6 for singles) |
 | Path object (mode, gap, window) | `hst_sim::path` (P11n1) | Per-frame record test; `path_mode_and_gap` |
 
