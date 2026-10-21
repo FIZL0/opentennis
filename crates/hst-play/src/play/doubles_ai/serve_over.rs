@@ -137,3 +137,55 @@ fn the_serve_aims_on_the_frame_before_its_contact() {
         assert!(serves >= 6, "singles {singles}: {serves} serves");
     }
 }
+
+/// P132: a singles receiver goes over to the rally as the doubles one does, in the frame its receive routine says
+/// so (recorded: `ai_glue_singles.bin`, 2 → 3 with one draw in the same update): the Return roll, then the net
+/// pick and the count. Its net count forced to 0 while it receives, so the entry's repick draws: each hand-over's
+/// draws must hold the Return and the repick back to back in that order (the other player steps in the same tick,
+/// so where they start is searched), and the old order (the repick after the routine, the Return the next step)
+/// must not fit there at least twice.
+#[test]
+fn a_singles_receiver_enters_its_rally_in_the_same_frame() {
+    if !hst_data::fixture::has_iso() {
+        return;
+    }
+    let mut app = cpus(true);
+    let (mut overs, mut telling) = (0, 0);
+    for _ in 0..12000 {
+        let g = &mut *app.world_mut().resource_mut::<Game>();
+        let r = g.score.receiver as usize;
+        let Some(mut mind) = g.players.get(r).and_then(|p| p.ai_mind).filter(|m| m.phase == Ai::Receive) else {
+            tick(&mut app);
+            continue;
+        };
+        mind.net_left = 0;
+        g.players[r].ai_mind = Some(mind);
+        let before = g.rng.ai.clone();
+        let g = tick(&mut app);
+        let Some(got) = g.players[r].ai_mind.filter(|m| m.phase == Ai::Rally) else { continue };
+        let me = &g.doubles_ai.me[r];
+        assert_eq!(me.phase, Some(Ai::Rally), "the step went over itself");
+        assert_eq!(me.rally.sub, hst_sim::rally::step::WAIT);
+        let rate = g.players[r].ai.singles_center_rate;
+        let n = drawn(&before, &g.rng.ai);
+        let fits = |k: usize, old: bool| {
+            let mut m = before.clone();
+            (0..k).for_each(|_| _ = m.next());
+            let mut want = mind;
+            let back = if old {
+                want.rally(&mut || m.next());
+                hst_sim::position::Return::new(rate, &mut || m.next())
+            } else {
+                let back = hst_sim::position::Return::new(rate, &mut || m.next());
+                want.rally(&mut || m.next());
+                back
+            };
+            want == got && back.going == me.rally.back.going
+        };
+        let at: Vec<usize> = (0..n).filter(|&k| fits(k, false)).collect();
+        assert!(!at.is_empty(), "hand-over {overs}: no Return roll then repick in its {n} draws");
+        telling += at.iter().all(|&k| !fits(k, true)) as i32;
+        overs += 1;
+    }
+    assert!(overs >= 6 && telling >= 2, "{overs} hand-overs, {telling} telling");
+}

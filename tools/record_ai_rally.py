@@ -53,6 +53,8 @@ HOOKS[4] = 0x3646a0
 # 0x20/0x30 stay zero. Both run the routines inside them, so record them without tags 1-3 (a nested hooked call
 # would share nothing, but the outer record then spans the inner one's). Not with HST_PROBE (its stubs sit at tag 5's).
 if not SINGLES: HOOKS.update({5: 0x3cebf0, 6: 0x3ce7c0})
+# P132: with HST_SINGLES=1 they are the singles AI's update 0x3c8c60 and message handler 0x3c8850 (same arguments).
+if SINGLES: HOOKS.update({5: 0x3c8c60, 6: 0x3c8850})
 # (at, source: list of (base, offsets to load through), first offset, bytes)
 PLAYER = [(0x340, 0x12b0, 0x20), (0x360, 0x1370, 0x20), (0x380, 0x13f0, 0x10), (0x390, 0x3050, 0x10),
           (0x3a0, 0x38f0, 0x10), (0x3b0, 0x3a90, 0xd0), (0x480, 0x3d60, 0x20), (0x4a0, 0x3df0, 0x20),
