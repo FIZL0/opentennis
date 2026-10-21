@@ -719,11 +719,17 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
         d.hit(rect, pointer::Act::Section(p, k));
     }
     let foot = at.grid[1] + at.grid[3];
+    // a ready player's pick is locked in: the grid dims under it and its tile is drawn last, over the dim
+    let mut locked = None;
     for (k, cell, hit) in tiles {
         // B426: a row peeking under the last whole line comes cut at the grid's foot: drawn whole, then cut
         let rect = [hit[0], hit[1], c.tile[0], c.tile[1]];
         let n0 = d.out.len();
         let on = active && Some(k) == mine_at;
+        if on && pl.ready {
+            locked = Some((k, cell, hit, rect));
+            continue;
+        }
         if on {
             // B422: the cursor's tile filled in the seat's colour
             rounded(d, rect, 10.0, s.ring, 128.0);
@@ -742,6 +748,20 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
             tabs::star(d, rect);
         }
         // B422: a 1P–4P tag for each player whose cursor is on this tile (this column's own and the others')
+        let on_it: Vec<usize> = (0..n).filter(|&q| active_at[q] == Some(k)).collect();
+        tags(d, rect, &on_it);
+        cut(d, n0, foot);
+        d.hit(hit, pointer::Act::Cell(p, k));
+    }
+    if let Some((k, cell, hit, rect @ [cx, cy, cw, ch])) = locked {
+        rounded(d, at.grid, 10.0, hex(look::INK), 56.0);
+        let n0 = d.out.len();
+        // the locked tile: a thick ring in the seat's colour round a white well, the face whole
+        ringed(d, rect, 10.0, 4.0, s.ring, WHITE);
+        let inset = 6.0;
+        let (tex, src) = tile_face(cell);
+        d.q(tex, src, [cx + inset * PX, cy + inset * PY, cw - 2.0 * inset * PX, ch - 2.0 * inset * PY], WHITE, 128.0);
+        d.out.last_mut().unwrap().round = [(10.0 - inset) * PX; 4];
         let on_it: Vec<usize> = (0..n).filter(|&q| active_at[q] == Some(k)).collect();
         tags(d, rect, &on_it);
         cut(d, n0, foot);
