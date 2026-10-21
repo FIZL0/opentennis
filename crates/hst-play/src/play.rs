@@ -1236,7 +1236,7 @@ fn serve_specials(iso: &mut Iso, params: &ShotParams, c: usize) -> (hst_data::ex
 
 /// The serve bends (the character bends this kind and the special condition holds): its aim keeps the box
 /// margins unscaled.
-// ponytail: the kind before the stick turns a topspin flat; the original's order there is unchecked
+/// `kind` is the one launched: a topspin the stick turned flat no longer bends.
 fn serve_bent(g: &Game, who: usize, toss: Toss, kind: i32, grade: u8, offset: i32) -> bool {
     let bend = g.specials[who].0.bend;
     kind < 2 && bend[kind as usize] != 0.0 && hst_sim::shot::special(0, kind, toss == Toss::Strong, grade, offset)
@@ -2196,6 +2196,11 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             coins,
         );
         let hit = g.flight.ball.pos;
+        // the stick toward the net turns a topspin serve flat, before the bend is tested on the kind
+        let sw = ServeSwing {
+            kind: hst_sim::shot::stick_kind(branch::SERVE, sw.kind, [aim.x, aim.y], end),
+            ..sw
+        };
         let target = serve::inside(pos[0], hit, target, serve_bent(g, i, toss, sw.kind, sw.grade, sw.offset));
         let error = serve::depth_error(
             d,
@@ -2205,11 +2210,6 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             -hit[1],
         );
         g.serving.scatter = serve::scatter(d, toss, miss, error, hit, target);
-        // the stick toward the net turns a topspin serve flat
-        let sw = ServeSwing {
-            kind: hst_sim::shot::stick_kind(branch::SERVE, sw.kind, [aim.x, aim.y], end),
-            ..sw
-        };
         debug!(
             "player {i} serve {toss:?} kind {}: offset {} grade {} -> {target:?}",
             sw.kind, sw.offset, sw.grade
