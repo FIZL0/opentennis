@@ -49,3 +49,4 @@
 - Settings → Controls now matches the other pages: its name on the header, the Reset button (now labelled) in the header's corner, and the column names under it. △ resets from any row, and asks first when your controls aren't already the defaults.
 - When a controller is detected and the game asks whether to use it for 1P, the keyboard can now move between Yes and No and choose, not only dismiss it with Esc.
 - Switching a two-player local match to doubles now puts the second player on your team instead of across the net.
+- Custom characters' select pictures are drawn again to match how the game draws them now, instead of showing older pictures from the store or the mod itself. Uploading a character sends the game's current picture of it, and an updated mod shows its new picture.

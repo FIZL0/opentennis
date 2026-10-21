@@ -1968,7 +1968,8 @@ fn page(
                 };
             }
             Event::Thumb(sha, png) => {
-                let png = png.or_else(|| installed_card(&menu, &sha));
+                // an installed character's own drawing over a store picture drawn by an older game
+                let png = if stale_picture(&menu, &sha) { installed_card(&menu, &sha).or(png) } else { png.or_else(|| installed_card(&menu, &sha)) };
                 let v = &mut menu.add;
                 let pic = png.and_then(|b| thumb_image(&b)).map(|(i, a)| (shelf.slot(images.add(i)), a));
                 grid::got(v, sha, pic);
@@ -2101,6 +2102,11 @@ fn own_picture(dir: &Path, kind: Kind) -> Option<Vec<u8>> {
         _ => return None,
     };
     crate::modfs::read(&dir.join(f)).ok()
+}
+
+/// The store character with zip sha256 `sha`'s picture isn't this game's drawing of it ([`modstore::RENDER`]).
+fn stale_picture(m: &Menu, sha: &str) -> bool {
+    m.add.entries().iter().find(|e| e.meta.sha256 == sha).is_some_and(|e| e.meta.kind == Kind::Character && e.meta.render != Some(modstore::RENDER))
 }
 
 /// A store mod with no picture of its own that's installed: the select's picture of it (drawn when it has none).

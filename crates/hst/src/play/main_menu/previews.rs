@@ -10,9 +10,10 @@
 //! off-screen preview (the baker: [`BAKE`] pixels, the cards' crop and lighting) and read back into a local cache
 //! beside settings.txt (`cache/previews/<disc boot file>-r<RENDER>/`): disc characters' images are made from the
 //! user's disc, so they are never shipped, and are all baked in the background from the first launch on (the hovered
-//! uncached one first); a later launch only reads them. A mod may ship its own as `previews/<costume>.png` (the mods
-//! repo's standard); else its costumes bake in the background after the disc's (a hovered one first). `HST_BAKE=all`
-//! quits once every mod's costumes are baked (the mods repo's packaging). Bump [`RENDER`] when the preview's drawing changes.
+//! uncached one first); a later launch only reads them. A mod's costumes bake in the background after the disc's (a
+//! hovered one first; a mod's own `previews/<costume>.png` isn't read: it was drawn by an older game, and a store
+//! mod's costume 0 is its store picture when that is this [`RENDER`]'s drawing). `HST_BAKE=all` quits once every
+//! mod's costumes are baked. Bump [`RENDER`] when the preview's drawing changes.
 //! B120: in the browser the cache is OPFS `previews/` (`web.rs`; the page reads it all before the game starts), and
 //! a held hover keeps the card (the live model loads only for a press); a live rig stays hidden until it's posed
 //! (`inspect.rs`), never showing its rest T-pose.
@@ -53,8 +54,7 @@ use crate::inspect::{self, Act, Preview, PreviewMaterial};
 use crate::Args;
 use crate::play::controls::Bindings;
 
-/// The baked previews' drawing version: part of the cache folder's name.
-const RENDER: u32 = 12;
+use crate::modstore::RENDER;
 /// B219: Ashley's face square, grown about its centre to sit like the rest of the cast's.
 const ASHLEY_ZOOM: f32 = 1.25;
 /// A baked preview's size: the card's 128×160 at 3× (sharp on a window up to 1344 lines); a multiple of 64 bytes a
@@ -204,7 +204,7 @@ impl Loader {
         handle
     }
 
-    /// Where `key`'s PNG is (a mod's own `previews/<costume>.png` if it ships one), or None for a mod index gone.
+    /// Where `key`'s PNG is, or None for a mod index gone.
     fn path(&mut self, (w, k): Key, menu: &Menu) -> Option<PathBuf> {
         match w {
             Who::Disc(c) => Some(self.dir.join(format!("d{c:02}-{k}.png"))),
@@ -213,7 +213,7 @@ impl Loader {
                 // B259: a mod installed since the start (the Mods page's) can be updated again: never kept; B484: nor a
                 // lobby's borrowed one (after the roster), whose index changes with the lobby's line-up
                 let stamp = if i < menu.own_mods() { self.stamps.entry(i).or_insert_with(|| stamp(m)).clone() } else { stamp(m) };
-                Some(mod_png(&self.dir, m, k, &stamp))
+                Some(mod_png(&self.dir, k, &stamp))
             }
         }
     }
@@ -259,11 +259,9 @@ impl Loader {
     }
 }
 
-/// Where mod `m`'s costume `k` preview is in cache folder `dir` (`stamp`: [`stamp`]'s), or its own
-/// `previews/<costume's glb stem>.png` if it ships one.
-fn mod_png(dir: &Path, m: &Mod, k: usize, stamp: &str) -> PathBuf {
-    let own = m.costumes.get(k).and_then(|c| Path::new(c).file_stem()).map(|s| m.dir.join("previews").join(s).with_extension("png"));
-    own.filter(|p| crate::modfs::is_file(p)).unwrap_or_else(|| dir.join(format!("m-{stamp}-{k}.png")))
+/// Where mod `m`'s costume `k` preview is in cache folder `dir` (`stamp`: [`stamp`]'s).
+fn mod_png(dir: &Path, k: usize, stamp: &str) -> PathBuf {
+    dir.join(format!("m-{stamp}-{k}.png"))
 }
 
 /// The cache folder's name: the disc's boot file and [`RENDER`].
@@ -288,7 +286,7 @@ fn cache_dir(iso: &str, name: &str) -> PathBuf {
 pub(crate) fn face(iso: &str, m: Option<&Mod>, c: usize, k: usize) -> Option<Image> {
     let dir = cache_dir(iso, &cache_name(iso));
     let path = match m {
-        Some(m) => mod_png(&dir, m, k, &stamp(m)),
+        Some(m) => mod_png(&dir, k, &stamp(m)),
         None => dir.join(format!("d{c:02}-{k}.png")),
     };
     face_from(&path, 40)
@@ -296,11 +294,11 @@ pub(crate) fn face(iso: &str, m: Option<&Mod>, c: usize, k: usize) -> Option<Ima
 
 /// The players' picks all have their face close-up (the match HUD's, [`face`]) drawn, or one that can't be drawn
 /// (gone, failed): a launch waits on it so a quick start shows the baked faces, not the disc's (the baker draws the picks
-/// first once the menu is on `Playing`). A mod's own `previews/` picture counts as drawn (its face is cut from it).
+/// first once the menu is on `Playing`).
 pub(super) fn picks_drawn(menu: &Menu, loader: &mut Loader, baker: &Baker) -> bool {
     (0..menu.players()).map(|p| menu.pick(p)).all(|key| {
         baker.failed.contains(&key)
-            || loader.path(key, menu).is_none_or(|p| !p.starts_with(&loader.dir) || cached(&face_path(&p)))
+            || loader.path(key, menu).is_none_or(|p| cached(&face_path(&p)))
     })
 }
 
@@ -321,13 +319,13 @@ pub(super) struct ModCard {
     pub baked: u32,
 }
 
-/// M17: mod `m`'s select picture (costume 0) as PNG bytes, once the select has baked it (or it ships its own).
+/// M17: mod `m`'s select picture (costume 0) as PNG bytes, once the select has baked it.
 pub(super) fn card(iso: &str, m: &Mod) -> Option<Vec<u8>> {
-    read(&mod_png(&cache_dir(iso, &cache_name(iso)), m, 0, &stamp(m)))
+    read(&mod_png(&cache_dir(iso, &cache_name(iso)), 0, &stamp(m)))
 }
 
 /// B133: the select's face icons (each character's costume 0, as the disc grid shows each character's first face;
-/// B160: the disc grid's too; the main screen's pictures' too), read from the face close-ups as they're baked (a mod's own preview PNG: cut from it);
+/// B160: the disc grid's too; the main screen's pictures' too), read from the face close-ups as they're baked;
 /// [`ICON_READS`] new ones a frame so a page turn doesn't stall.
 fn icons(menu: Res<Menu>, mut loader: ResMut<Loader>, mut icons: ResMut<super::Icons>, mut images: ResMut<Assets<Image>>, mut failed: Local<HashSet<Who>>, (card, mut baked, mut baker, mut redrawn): (Res<ModCard>, Local<u32>, Option<ResMut<Baker>>, Local<HashSet<Who>>)) {
     // B571: one that didn't read (caught mid-write, or a drawing since replaced it) is tried again after each drawing
@@ -352,8 +350,7 @@ fn icons(menu: Res<Menu>, mut loader: ResMut<Loader>, mut icons: ResMut<super::I
         }
         let Some(path) = loader.path((w, 0), &menu) else { continue };
         // a baked preview's close-up lands a few frames after it
-        let own = !path.starts_with(&loader.dir);
-        if !cached(&if own { path.clone() } else { face_path(&path) }) {
+        if !cached(&face_path(&path)) {
             continue;
         }
         reads += 1;
@@ -364,7 +361,7 @@ fn icons(menu: Res<Menu>, mut loader: ResMut<Loader>, mut icons: ResMut<super::I
             None => {
                 failed.insert(w);
                 // B571: a cut or empty file of ours: gone, and drawn again (once a run)
-                if !own && let Some(b) = baker.as_mut().filter(|_| redrawn.insert(w)) {
+                if let Some(b) = baker.as_mut().filter(|_| redrawn.insert(w)) {
                     warn!("{}: its face doesn't read; drawn again", path.display());
                     forget(&path);
                     loader.pngs.remove(&(w, 0));
@@ -1059,7 +1056,7 @@ fn bake(
         }
         let path = loader.path(key, &menu);
         // B160: a baked one without its face close-up (a run quit between the two) is drawn again
-        let done = |p: &PathBuf| cached(p) && (!p.starts_with(&loader.dir) || cached(&face_path(p)));
+        let done = |p: &PathBuf| cached(p) && cached(&face_path(p));
         let Some(path) = path.filter(|p| !done(p) && !baker.failed.contains(&key)) else {
             baker.queue.pop();
             continue;
@@ -1192,8 +1189,8 @@ fn from_store(png: &[u8], path: &Path, head: Option<f32>) -> bool {
     save(head.into_raw(), face, &face_path(path)) && save(img.into_raw(), bake, path)
 }
 
-/// B160: a face icon (`inner` out of 64, [`inspect::face_icon`]) from `preview`'s close-up, else (a mod's own preview
-/// PNG, which has none) cut from the preview itself; None until baked.
+/// B160: a face icon (`inner` out of 64, [`inspect::face_icon`]) from `preview`'s close-up, else cut from the preview
+/// itself; None until baked.
 fn face_from(preview: &Path, inner: u32) -> Option<Image> {
     match read(&face_path(preview)) {
         Some(b) => inspect::icon(&b, inner),
@@ -1204,15 +1201,14 @@ fn face_from(preview: &Path, inner: u32) -> Option<Image> {
 /// Whether the card cache has `path`: a file natively, an OPFS file in the browser (B120, `web.rs`).
 fn cached(path: &Path) -> bool {
     #[cfg(target_arch = "wasm32")]
-    return crate::web::card(&card_name(path)).is_some() || crate::modfs::is_file(path);
+    return crate::web::card(&card_name(path)).is_some();
     #[cfg(not(target_arch = "wasm32"))]
     path.is_file()
 }
 
 fn read(path: &Path) -> Option<Vec<u8>> {
     #[cfg(target_arch = "wasm32")]
-    // a mod's own previews/ (its files are in modfs, not the card cache)
-    return crate::web::card(&card_name(path)).map(|b| b.to_vec()).or_else(|| crate::modfs::read(path).ok());
+    return crate::web::card(&card_name(path)).map(|b| b.to_vec());
     #[cfg(not(target_arch = "wasm32"))]
     std::fs::read(path).ok()
 }
