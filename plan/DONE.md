@@ -947,6 +947,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B624** **Stretch aspect option is missing** (user 2026-10-21): the Stretch choice in the aspect-ratio setting has disappeared; find what removed it (git log on the settings/aspect code) and bring it back on every platform. → `hst-base/src/graphics.rs` · `hst-base/src/widescreen.rs`
 - [x] **B619** **Emote sound cut at post-point** (user 2026-10-21): when a point ends and the post-point animations start while a player is emoting, stop that player's emote sound so it doesn't play over the reaction. → `play.rs` (react/next_point, emotes) · `hst-base/src/audio.rs`
 - [x] **M145** **Installed mods filter** (user 2026-10-21): Mods → Installed gets a filter (by kind: characters / courts / umpires / texture packs, plus a name search) so a long installed list is quick to narrow; pad and touch, any aspect ratio. → `play/main_menu/mods_screen/grid.rs` · `play/main_menu/mods_screen/packs.rs`
+- [x] **B626** **Web app: instant Settings category switch** (user 2026-10-21): in the web build switching between categories (tabs) inside Settings animates badly; make the switch instant (no transition) there. → `play/main_menu.rs` · `hst-base/src/web.rs`
 
 
 ### Shots
