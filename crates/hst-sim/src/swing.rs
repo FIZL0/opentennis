@@ -187,6 +187,13 @@ pub const DIVE_HORIZON: usize = 16;
 /// Frames on the ground after the dive's slide (the receive motion's recovery).
 pub const DIVE_RECOVERY: usize = 50;
 
+/// Whether a press may dive: the player ran on the frame before the press. Taken at the start of each of the
+/// player's frames from `running` (the body ran last frame) and held while a press is live (`press_live`), so a
+/// run that starts or stops on the press frame itself, or the approach run a press plans, doesn't count.
+pub fn dive_run(held: bool, running: bool, press_live: bool) -> bool {
+    if press_live { held } else { running }
+}
+
 /// A dive: what a running player does when the press finds no stroke, a lunge toward the ball along `dir`.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Dive {

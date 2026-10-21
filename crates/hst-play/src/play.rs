@@ -168,6 +168,8 @@ pub struct Player {
     pending: Option<u32>,
     /// The auto-approach's run direction (game x, z) while `pending` counts down to its one search.
     approach: Option<Vec2>,
+    /// Ran on the frame before the press (`swing::dive_run`): the dive check reads it.
+    dive_run: bool,
     contact: Option<Contact>,
     /// Frames of wind-up before contact (sets the animation clock).
     wind: u32,
@@ -2571,11 +2573,11 @@ fn approach(g: &Game, i: usize) -> Option<(usize, Vec2)> {
     .map(|(f, d)| (f, Vec2::new(d[0], d[1])))
 }
 
-/// The search's last branch: a running player whose press finds no stroke dives toward the ball.
+/// The search's last branch: a player who ran on the frame before the press (`Player::dive_run`) and whose press
+/// finds no stroke dives toward the ball.
 fn find_dive(g: &Game, i: usize) -> Option<swing::Dive> {
     let p = &g.players[i];
-    // ponytail: this frame's run stands in for the game's previous-frame locomotion state
-    if !theirs(g, i) || !p.body.running {
+    if !theirs(g, i) || !p.dive_run {
         return None;
     }
     let path = predicted_path(g, swing::DIVE_HORIZON);
@@ -3169,6 +3171,8 @@ fn control(mut g: ResMut<Game>, pads: Res<Pads>, tick: Res<tick_input::TickPads>
         .map(|i| pads.slot_of(i, g.players.len()).is_some())
         .collect();
     for i in 0..g.players.len() {
+        let p = &mut g.players[i];
+        p.dive_run = swing::dive_run(p.dive_run, p.body.running, p.pending.is_some());
         match pads.slot_of(i, g.players.len()) {
             Some(s) => {
                 ai_setup::reset_human(g, i);
@@ -3310,13 +3314,27 @@ fn bot_run(g: &Game, i: usize, goal: V3) -> Vec2 {
     Vec2::new(x, z)
 }
 
-/// The AI's stick through its serve's follow-through (`motion::ai_serve_stick`); the return's own frame is the
-/// fresh flight's.
-/// True once the wait is over: then the rally step's own stick decides (`ai_serve_step`).
-fn ai_serve_stick(g: &mut Game, i: usize) -> bool {
-    let p = &mut g.players[i];
-    let Some(a) = p.served.map(|a| a + 1) else { return false };
-    motion::ai_serve_stick(a, p.recover, g.shots, g.flight.frame == 0, &mut p.ai_hold)
+/// P131: whether computer server `i`'s serve stroke is over, as its AI update sees it (before this tick's step):
+/// served, with its frames since contact at the serve's recovery (or its follow-through already let go). The stick
+/// and the motion's end don't count; they only end the follow-through (`serve_follow`).
+fn serve_stroke_over(g: &Game, i: usize) -> bool {
+    let p = &g.players[i];
+    g.shots > 0 && p.served.is_none_or(|a| a >= p.recover)
+}
+
+/// Computer server `i`'s frame from its serve's contact until its rally routine runs (its serve state's last step,
+/// the hand-over): no stick and no press. Its follow-through plays on; once let go (or ended by the point's
+/// reaction) it stands.
+fn ai_served(g: &mut Game, i: usize) {
+    if serve_follow(&mut g.players[i], false) {
+        return;
+    }
+    follow_through(&mut g.players[i], false);
+    whiff_frame(g, i, false);
+    let p = &g.players[i];
+    if p.contact.is_none() && p.pending.is_none() && p.swing.is_none() && p.whiff.is_none() && p.dive.is_none() {
+        locomote(g, i, Vec2::ZERO);
+    }
 }
 
 /// The rally step's stick `dir` ends a computer server's follow-through once its wait is over; none (the step
@@ -3342,12 +3360,18 @@ fn bot(g: &mut Game, i: usize) {
     if mind.phase == hst_sim::ai::Phase::Start || mind.phase == hst_sim::ai::Phase::Serve && was == Some(hst_sim::ai::Phase::Start) {
         return;
     }
-    if mind.phase == hst_sim::ai::Phase::Serve {
+    if mind.phase == hst_sim::ai::Phase::Serve && g.shots == 0 {
         return bot_serve(g, i);
     }
-    // past its wait the rally step below decides the break-off (`ai_serve_step`)
-    let stick = ai_serve_stick(g, i);
-    if !stick && serve_follow(&mut g.players[i], false) || doubles_ai::step(g, i, &mind) {
+    // served: its serve state's last step until the hand-over (between ends it walks off as the others do)
+    if mind.phase == hst_sim::ai::Phase::Serve && !matches!(g.phase, Phase::ChangeEnds(_)) {
+        return ai_served(g, i);
+    }
+    if was == Some(hst_sim::ai::Phase::Serve) && mind.phase == hst_sim::ai::Phase::Rally && doubles_ai::hand_over(g, i, &mind) {
+        return ai_served(g, i);
+    }
+    // the rally step's stick decides the break-off of a serve's follow-through (`ai_serve_step`)
+    if doubles_ai::step(g, i, &mind) {
         return;
     }
     // ponytail: the stand-in AI always wants to move on, so it breaks off at the recovery
@@ -3652,7 +3676,7 @@ fn ai_roll(rng: &mut Rngs) -> impl FnMut() -> u32 + '_ {
 
 /// The AI object's per-frame update (`hst_sim::ai::Mind`), ahead of the routine `bot` runs for it: the point
 /// reset on its first frame (with a timing draw), the state its role gives it, the hand-over to the rally once its
-/// serve or return is played, and the point-over messages (a coin flip whether it keeps moving; an ALL-style
+/// serve is played (its return's is the receive routine's word, in `doubles_ai::step`), and the point-over messages (a coin flip whether it keeps moving; an ALL-style
 /// player's net rate moved by how its pick fared).
 /// The receive and rally routines are `doubles_ai::step`'s, the serve `bot_serve`'s; each match makes its minds afresh.
 fn ai_update(g: &mut Game, i: usize) -> hst_sim::ai::Mind {
@@ -3669,29 +3693,23 @@ fn ai_update(g: &mut Game, i: usize) -> hst_sim::ai::Mind {
         g.players[i].ai_mind = Some(m);
         return m;
     }
-    let p = g.players[i];
-    let done = match m.phase {
+    match m.phase {
         Ai::Start => {
             // the serve state's entry draws the timing errors and the count again
             if m.start(g.score.server == i as i32, g.score.receiver == i as i32) == Ai::Serve {
                 ai_draw(g, i, None);
                 m.count(&mut ai_roll(&mut g.rng));
             }
-            false
         }
         Ai::Serve => {
-            // its rally's entry is the routine step's (`doubles_ai::step`): the Return roll, then the net repick
-            if g.phase != Phase::Serve {
+            // P131: over once its stroke is (`serve_stroke_over`), in the serve or rally phase only; the rally's
+            // entry is made in this tick (`bot`, `doubles_ai::hand_over`), its routine runs from the next
+            if matches!(g.phase, Phase::Serve | Phase::Rally) && serve_stroke_over(g, i) {
                 m.phase = Ai::Rally;
             }
-            false
         }
-        // doubles goes over on the receive routine's own word, in its step (P11k6)
-        Ai::Receive => g.players.len() != 4 && g.shots >= 2 && p.swing.is_none() && p.contact.is_none(),
-        Ai::Rally => false,
-    };
-    if done {
-        m.rally(&mut ai_roll(&mut g.rng));
+        // the receive goes over on the routine's own word, in its step, singles and doubles (P11k6, P132)
+        Ai::Receive | Ai::Rally => {}
     }
     if g.phase == Phase::Post && heard == 1 {
         m.point_over(&mut ai_roll(&mut g.rng));
