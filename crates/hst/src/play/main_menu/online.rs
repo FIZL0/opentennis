@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 use super::osk::{self, Did};
 use super::pointer::{Act, OK};
-use super::{Draw, Effect, Menu, Press, Screen, Tex, WHITE};
+use super::{Draw, Effect, Menu, Press, Screen, Tex, WHITE, step_rows};
 
 mod arrange;
 mod lobby;
@@ -987,151 +987,22 @@ impl Menu {
 
     /// One device's presses on the Online screens.
     pub(super) fn online_step(&mut self, k: Press, out: &mut Vec<Effect>) {
-        use Effect::Sound;
         // B393: the lobby screen seen, the select is its again
         if self.screen == Screen::Lobby {
             self.net.first = false;
         }
-        let rows = |n: usize, sel: &mut usize, out: &mut Vec<Effect>| {
-            if k.up || k.down {
-                *sel = if k.down { (*sel + 1) % n } else { (*sel + n - 1) % n };
-                out.push(Sound(0));
-            }
-        };
         match self.screen {
-            Screen::Online => {
-                let to = pill_step(&row_rects(self.grid.extra), self.sel.min(5), k);
-                if to != self.sel {
-                    self.sel = to;
-                    out.push(Sound(0));
-                }
-                // B323: off the Relay row, Custom... is the relay it's on again
-                self.net.custom &= self.sel == 5 && !k.back;
-                let cfg = self.net.cfg.get_or_insert_with(Online::default);
-                if self.sel == 5 && k.ok && self.net.custom {
-                    // B323: type a relay URL (the last one to start from)
-                    (self.net.naming, self.net.url) = (true, true);
-                    self.net.entry = if cfg.relay_url.is_empty() { "https://".into() } else { cfg.relay_url.clone() };
-                    self.net.status.clear();
-                    self.go(Screen::Code, out);
-                } else if self.sel == 5 && k.ok && matches!(cfg.relay, Relay::Own(_)) || self.sel == 5 && k.ok && cfg.relay == Relay::Off && cfg.relay_url.is_empty() {
-                    // B323: the cycle's last choice, for advanced players: their own relay's URL
-                    self.net.custom = true;
-                    out.push(Sound(0));
-                } else if self.sel == 5 && k.ok {
-                    cfg.next_relay();
-                    (self.net.list, self.net.finding) = (vec![], 0);
-                    out.extend([Sound(0), Effect::Online(Fx::SaveCfg), Effect::Online(Fx::Off)]);
-                } else if k.ok && (self.sel == 3 || self.sel == 4) {
-                    self.net.naming = self.sel == 4;
-                    self.net.entry = if self.net.naming { cfg.name.to_ascii_uppercase().chars().take(NAME_MAX).collect() } else { String::new() };
-                    self.net.status.clear();
-                    self.go(Screen::Code, out);
-                } else if k.ok && self.sel == 2 {
-                    // B195: every open lobby first, singles and doubles; the players after choosing one
-                    self.net.go = Some(Go::Find);
-                    self.net.list.clear();
-                    self.net.fit = 0;
-                    self.go(Screen::Lobbies, out);
-                    (self.net.finding, self.net.fail) = (crate::net::FINDS, None);
-                    out.push(Effect::Online(Fx::Net(Cmd::Find)));
-                } else if k.ok && self.sel < 3 {
-                    // B392: no singles/doubles or controllers screens: singles, 1P alone (the host swaps it on the roster)
-                    (self.net.go, self.net.fit, self.doubles) = (Some([Go::Quick, Go::Host, Go::Find][self.sel]), 0, false);
-                    self.online_enter(out);
-                } else if (k.ok && self.sel == 6) || k.back {
-                    self.net.go = None;
-                    self.sel = self.main_at(super::home::Row::Online);
-                    self.screen = Screen::Main;
-                    out.extend([Sound(1), Effect::Online(Fx::Off)]);
-                }
-            }
-            Screen::Lobbies => {
-                let n = self.net.list.len();
-                rows(n + 3, &mut self.sel, out);
-                if (k.ok && self.sel == n + 1) || k.page {
-                    // B496: discovery can lag or miss a lobby: Join by Code one press away (its row, or □)
-                    self.net.go = None;
-                    (self.net.naming, self.net.entry) = (false, String::new());
-                    self.net.status.clear();
-                    self.go(Screen::Code, out);
-                } else if k.ok && self.sel < n && !self.net.list[self.sel].same_build() {
-                    // M22: another build's lobby is greyed out: it would refuse this one at the door
-                    let l = &self.net.list[self.sel];
-                    self.net.status = format!("Can't join {}: {}", l.name, crate::net::version_differs(&other_build(l), crate::handshake::build()));
-                    out.push(Sound(1));
-                } else if k.ok && self.sel < n {
-                    // the lobby's kind and room: this machine's controllers next, then join it
-                    let l = &self.net.list[self.sel];
-                    (self.net.go, self.net.paste, self.doubles, self.net.fit) = (Some(Go::Find), l.dial().into(), l.doubles, l.open());
-                    self.online_enter(out);
-                } else if k.ok && self.sel == n {
-                    self.net.list.clear();
-                    (self.net.finding, self.net.fail) = (self.net.finding.saturating_add(crate::net::FINDS), None);
-                    out.extend([Sound(2), Effect::Online(Fx::Net(Cmd::Find))]);
-                } else if k.ok || k.back {
-                    self.back_to_online(out);
-                }
-            }
+            Screen::Online => self.online_menu_step(k, out),
+            Screen::Lobbies => self.lobbies_step(k, out),
             // B441: the name types in the Mods page's keyboard popup (`osk`) over the Online menu
             Screen::Code if self.net.naming && !self.net.url => self.online_name_step(k, out),
-            Screen::Code => {
-                // 8 columns of symbols, 4 rows (the name's: 5), then Delete, Paste (Clear), Join (Save), Back (two
-                // columns each)
-                let (s, keys) = (self.sel, self.keys().len());
-                let rows = keys / 8;
-                if k.left || k.right {
-                    self.sel = if s < keys { s / 8 * 8 + (s % 8 + if k.right { 1 } else { 7 }) % 8 } else { keys + (s - keys + if k.right { 1 } else { 3 }) % 4 };
-                    out.push(Sound(0));
-                }
-                if k.up || k.down {
-                    let (row, col) = if s < keys { (s / 8, s % 8) } else { (rows, (s - keys) * 2) };
-                    let row = (row + if k.down { 1 } else { rows }) % (rows + 1);
-                    self.sel = if row == rows { keys + col / 2 } else { row * 8 + col };
-                    out.push(Sound(0));
-                }
-                if k.ok {
-                    match self.sel.checked_sub(keys) {
-                        None => {
-                            self.type_char(self.keys()[self.sel] as char);
-                            out.push(Sound(0));
-                        }
-                        Some(0) => out.push(Sound(if self.net.entry.pop().is_some() { 1 } else { 0 })),
-                        Some(1) => out.push(Effect::Online(Fx::Paste)),
-                        // B323: Save a relay URL that parses: Host, Find and Join use it from now on (the network
-                        // restarts on it), and online.txt keeps it
-                        Some(2) if self.net.url => match crate::net::relay_url(&self.net.entry) {
-                            Ok(url) => {
-                                self.net.cfg.get_or_insert_with(Online::default).set_own(url);
-                                (self.net.list, self.net.finding, self.net.custom) = (vec![], 0, false);
-                                out.extend([Sound(2), Effect::Online(Fx::SaveCfg), Effect::Online(Fx::Off)]);
-                                self.code_back(out);
-                            }
-                            Err(e) => {
-                                self.net.status = format!("Not a relay URL ({e}): type it as https://your.relay");
-                                out.push(Sound(1));
-                            }
-                        },
-                        Some(2) if !self.net.naming && is_short(&self.net.entry) => {
-                            self.net.paste = self.net.entry.clone();
-                            self.join_code(out);
-                        }
-                        Some(2) => out.push(Sound(1)),
-                        _ => self.code_back(out),
-                    }
-                } else if k.back {
-                    // B239: ○ (Esc) leaves the entry; □ deletes (Backspace too, `typing`)
-                    self.code_back(out);
-                } else if k.page {
-                    out.push(Sound(if self.net.entry.pop().is_some() { 1 } else { 0 }));
-                }
-            }
+            Screen::Code => self.code_step(k, out),
             Screen::Lobby if let Some(h) = self.net.ask.filter(|_| !k.back) => {
                 // the prompt may have come up on another screen (the select's cursor, say 15): its first row
                 if self.sel >= ASK_ROWS.len() {
                     self.sel = 0;
                 }
-                rows(ASK_ROWS.len(), &mut self.sel, out);
+                step_rows(k, ASK_ROWS.len(), &mut self.sel, out);
                 if k.ok {
                     self.answer_ask(h, self.sel, out);
                 }
@@ -1140,7 +1011,7 @@ impl Menu {
                 if self.sel >= KEEP_ROWS.len() {
                     self.sel = 0;
                 }
-                rows(KEEP_ROWS.len(), &mut self.sel, out);
+                step_rows(k, KEEP_ROWS.len(), &mut self.sel, out);
                 if k.ok || k.back {
                     self.answer_keep(if k.back { NOT_NOW } else { self.sel }, out);
                 }
@@ -1149,143 +1020,287 @@ impl Menu {
             Screen::Lobby if self.net.kick.is_some() => self.kick_step(k, out),
             Screen::Lobby if self.net.leave.is_some() => self.leave_step(k, out),
             Screen::Lobby if self.net.grab.is_some() => self.carry_step(k, out),
-            Screen::Lobby => {
-                let items = self.items();
-                let bot = match items.get(self.sel) {
-                    Some(Item::Seat(i)) if self.net.room.as_ref().is_some_and(|r| r.seats[*i].as_ref().is_some_and(|s| !s.human())) => Some(*i),
-                    _ => None,
-                };
-                let rects = self.lobby_rects();
-                // B449: a tap on a value's ‹ › halves (✕ with ← or →): back or on
-                if let (Some(&Item::Set(i @ 2..)), true) = (items.get(self.sel), k.ok && (k.left || k.right)) {
-                    return self.change_setting(i, if k.right { 1 } else { -1 }, out);
-                }
-                // B449: the host's □ switches singles / doubles; Start starts
-                if k.page && self.net.hosting {
-                    return match self.net.room.as_ref() {
-                        Some(r) if self.can_switch() => out.extend([Sound(2), Effect::Online(Fx::Net(Cmd::Doubles(!r.doubles)))]),
-                        _ => out.push(Sound(1)),
-                    };
-                }
-                // B522: a guest's □ moves its player to the other team instead
-                if k.page && !self.net.hosting {
-                    return self.switch_team(self.lobby_team_seat(), out);
-                }
-                if k.name && self.net.hosting && self.net.room.is_some() && self.counting() == 0 {
-                    return self.start(out);
-                }
-                // B449: the arrows go about the screen as its parts lie
-                let to = pill_step(&rects, self.sel, k);
-                // B396: on this machine's own seat L1 / R1 step the costume and Select the hand, sent to everyone
-                let own = match items.get(self.sel) {
-                    Some(Item::Seat(i)) if self.lobby_own() => Some(*i),
-                    _ => None,
-                };
-                if let Some(p) = own.filter(|_| k.prev || k.next || k.hand) {
-                    if k.hand {
-                        self.players[p].swap = !self.players[p].swap;
-                    } else {
-                        let (who, n) = (self.who(p), self.costumes(self.who(p)));
-                        let from = (self.players[p].costume + if k.prev { n - 1 } else { 1 }) % n;
-                        match self.next_free(p, who, from, k.prev) {
-                            Some(c) => self.players[p].costume = c,
-                            None => return out.push(Sound(1)),
-                        }
-                    }
-                    return out.extend([Sound(0), Effect::Online(Fx::Net(Cmd::Picks(self.picks())))]);
-                }
-                // B201: on a computer's seat L1 / R1 change its costume (and so its level); ←→ reach its ✕
-                if let Some(i) = bot.filter(|_| k.prev || k.next) {
-                    // a Random computer stays Random: a new costume doesn't show who it drew
-                    let random = self.net.room.as_ref().is_some_and(|r| r.seats[i].as_ref().is_some_and(|s| s.pick.random));
-                    match self.bot_pick(i, 0, k.next as isize - k.prev as isize).map(|p| Pick { random, ..p }) {
-                        Some(p) => out.extend([Sound(0), Effect::Online(Fx::Net(Cmd::Bot(i, Some(p))))]),
-                        None => out.push(Sound(1)),
-                    }
-                } else if to != self.sel {
-                    self.sel = to;
-                    self.net.status.clear();
+            Screen::Lobby => self.lobby_step(k, out),
+            _ => {}
+        }
+    }
+
+    /// The Online menu: Quickplay, Host, Find, Join by code, Name, Relay, Back.
+    fn online_menu_step(&mut self, k: Press, out: &mut Vec<Effect>) {
+        use Effect::Sound;
+        let to = pill_step(&row_rects(self.grid.extra), self.sel.min(5), k);
+        if to != self.sel {
+            self.sel = to;
+            out.push(Sound(0));
+        }
+        // B323: off the Relay row, Custom... is the relay it's on again
+        self.net.custom &= self.sel == 5 && !k.back;
+        let cfg = self.net.cfg.get_or_insert_with(Online::default);
+        if self.sel == 5 && k.ok && self.net.custom {
+            // B323: type a relay URL (the last one to start from)
+            (self.net.naming, self.net.url) = (true, true);
+            self.net.entry = if cfg.relay_url.is_empty() { "https://".into() } else { cfg.relay_url.clone() };
+            self.net.status.clear();
+            self.go(Screen::Code, out);
+        } else if self.sel == 5 && k.ok && matches!(cfg.relay, Relay::Own(_)) || self.sel == 5 && k.ok && cfg.relay == Relay::Off && cfg.relay_url.is_empty() {
+            // B323: the cycle's last choice, for advanced players: their own relay's URL
+            self.net.custom = true;
+            out.push(Sound(0));
+        } else if self.sel == 5 && k.ok {
+            cfg.next_relay();
+            (self.net.list, self.net.finding) = (vec![], 0);
+            out.extend([Sound(0), Effect::Online(Fx::SaveCfg), Effect::Online(Fx::Off)]);
+        } else if k.ok && (self.sel == 3 || self.sel == 4) {
+            self.net.naming = self.sel == 4;
+            self.net.entry = if self.net.naming { cfg.name.to_ascii_uppercase().chars().take(NAME_MAX).collect() } else { String::new() };
+            self.net.status.clear();
+            self.go(Screen::Code, out);
+        } else if k.ok && self.sel == 2 {
+            // B195: every open lobby first, singles and doubles; the players after choosing one
+            self.net.go = Some(Go::Find);
+            self.net.list.clear();
+            self.net.fit = 0;
+            self.go(Screen::Lobbies, out);
+            (self.net.finding, self.net.fail) = (crate::net::FINDS, None);
+            out.push(Effect::Online(Fx::Net(Cmd::Find)));
+        } else if k.ok && self.sel < 3 {
+            // B392: no singles/doubles or controllers screens: singles, 1P alone (the host swaps it on the roster)
+            (self.net.go, self.net.fit, self.doubles) = (Some([Go::Quick, Go::Host, Go::Find][self.sel]), 0, false);
+            self.online_enter(out);
+        } else if (k.ok && self.sel == 6) || k.back {
+            self.net.go = None;
+            self.sel = self.main_at(super::home::Row::Online);
+            self.screen = Screen::Main;
+            out.extend([Sound(1), Effect::Online(Fx::Off)]);
+        }
+    }
+
+    /// The list of open lobbies found.
+    fn lobbies_step(&mut self, k: Press, out: &mut Vec<Effect>) {
+        use Effect::Sound;
+        let n = self.net.list.len();
+        step_rows(k, n + 3, &mut self.sel, out);
+        if (k.ok && self.sel == n + 1) || k.page {
+            // B496: discovery can lag or miss a lobby: Join by Code one press away (its row, or □)
+            self.net.go = None;
+            (self.net.naming, self.net.entry) = (false, String::new());
+            self.net.status.clear();
+            self.go(Screen::Code, out);
+        } else if k.ok && self.sel < n && !self.net.list[self.sel].same_build() {
+            // M22: another build's lobby is greyed out: it would refuse this one at the door
+            let l = &self.net.list[self.sel];
+            self.net.status = format!("Can't join {}: {}", l.name, crate::net::version_differs(&other_build(l), crate::handshake::build()));
+            out.push(Sound(1));
+        } else if k.ok && self.sel < n {
+            // the lobby's kind and room: this machine's controllers next, then join it
+            let l = &self.net.list[self.sel];
+            (self.net.go, self.net.paste, self.doubles, self.net.fit) = (Some(Go::Find), l.dial().into(), l.doubles, l.open());
+            self.online_enter(out);
+        } else if k.ok && self.sel == n {
+            self.net.list.clear();
+            (self.net.finding, self.net.fail) = (self.net.finding.saturating_add(crate::net::FINDS), None);
+            out.extend([Sound(2), Effect::Online(Fx::Net(Cmd::Find))]);
+        } else if k.ok || k.back {
+            self.back_to_online(out);
+        }
+    }
+
+    /// The on-screen keyboard: a join code or a relay URL.
+    fn code_step(&mut self, k: Press, out: &mut Vec<Effect>) {
+        use Effect::Sound;
+        // 8 columns of symbols, 4 rows (the name's: 5), then Delete, Paste (Clear), Join (Save), Back (two
+        // columns each)
+        let (s, keys) = (self.sel, self.keys().len());
+        let rows = keys / 8;
+        if k.left || k.right {
+            self.sel = if s < keys { s / 8 * 8 + (s % 8 + if k.right { 1 } else { 7 }) % 8 } else { keys + (s - keys + if k.right { 1 } else { 3 }) % 4 };
+            out.push(Sound(0));
+        }
+        if k.up || k.down {
+            let (row, col) = if s < keys { (s / 8, s % 8) } else { (rows, (s - keys) * 2) };
+            let row = (row + if k.down { 1 } else { rows }) % (rows + 1);
+            self.sel = if row == rows { keys + col / 2 } else { row * 8 + col };
+            out.push(Sound(0));
+        }
+        if k.ok {
+            match self.sel.checked_sub(keys) {
+                None => {
+                    self.type_char(self.keys()[self.sel] as char);
                     out.push(Sound(0));
                 }
-                let item = items.get(self.sel).copied().unwrap_or(Item::Button("Leave"));
-                if let Some(i) = self.kickable().filter(|_| k.card) {
-                    // B523: △ on a guest's card: kick them, once confirmed
-                    self.ask_kick(i, out);
-                } else if let Some(i) = bot.filter(|_| k.card) {
-                    // B216: △ takes the computer player off its seat
-                    out.extend([Sound(1), Effect::Online(Fx::Net(Cmd::Bot(i, None)))]);
-                } else if k.back && self.seats[0].is_some_and(|d| d != super::Dev::Open) {
-                    // concept: ○ steps back one at a time: 1P's pick undone here, 1P off its seat on the select
-                    // (`step`), then out of the lobby
-                    self.pick_again(out);
-                } else if (k.back || (k.ok && item == Item::Button("Leave"))) && !self.ask_leave(out) {
-                    self.chars_back(out);
-                } else if !k.ok {
-                } else if let Item::Seat(i) = item {
-                    if self.movable(i) {
-                        // B523: the host picks up another player's card, to put it down on another
-                        self.pick_up(i, out);
-                    } else if self.mine(i) {
-                        // B396: their own card: pick again, not ready meanwhile
-                        self.pick_again(out);
-                    } else if self.guest(i).is_some() {
-                        // a guest's card: △ takes them out
-                        out.push(Sound(1));
-                    } else if bot.is_some() {
-                        // B216: its character, costume and level on the select
-                        self.edit_bot(i, None, out);
-                    } else if let Some(p) = self.bot_added(i) {
-                        // B311's starting pick (B217's Random only after a Random ready), then B216's select on it
-                        out.push(Effect::Online(Fx::Net(Cmd::Bot(i, Some(p.clone())))));
-                        self.edit_bot(i, Some(&p), out);
+                Some(0) => out.push(Sound(if self.net.entry.pop().is_some() { 1 } else { 0 })),
+                Some(1) => out.push(Effect::Online(Fx::Paste)),
+                // B323: Save a relay URL that parses: Host, Find and Join use it from now on (the network
+                // restarts on it), and online.txt keeps it
+                Some(2) if self.net.url => match crate::net::relay_url(&self.net.entry) {
+                    Ok(url) => {
+                        self.net.cfg.get_or_insert_with(Online::default).set_own(url);
+                        (self.net.list, self.net.finding, self.net.custom) = (vec![], 0, false);
+                        out.extend([Sound(2), Effect::Online(Fx::SaveCfg), Effect::Online(Fx::Off)]);
+                        self.code_back(out);
                     }
-                } else if let Item::Set(i @ (0 | 1)) = item {
-                    self.pick_venue(i, out);
-                } else if let Item::Set(i) = item {
-                    // OK steps it on, as →
-                    self.change_setting(i, 1, out);
-                } else if item == Item::Mode && !self.net.hosting {
-                    // a guest's pill is Swap team (its □)
-                    self.switch_team(self.lobby_team_seat(), out);
-                } else if item == Item::Mode {
-                    let r = self.net.room.as_ref();
-                    // singles only while the taken seats fit in two
-                    if !self.can_switch() {
-                        // the help line says why
+                    Err(e) => {
+                        self.net.status = format!("Not a relay URL ({e}): type it as https://your.relay");
                         out.push(Sound(1));
-                    } else if let Some(r) = r {
-                        out.extend([Sound(2), Effect::Online(Fx::Net(Cmd::Doubles(!r.doubles)))]);
                     }
-                } else if let Some(r) = self.net.room.as_ref().filter(|_| item == Item::Button("Public")) {
-                    // B213: listed in Find and Quickplay or not; Host remembers it
-                    let p = !r.private;
-                    self.net.cfg.get_or_insert_with(Online::default).private = p;
-                    out.extend([Sound(2), Effect::Online(Fx::Net(Cmd::Private(p))), Effect::Online(Fx::SaveCfg)]);
-                } else if matches!(item, Item::Button("Code" | "Copy Link")) && shared(&self.net).is_some() {
-                    out.extend([Sound(2), Effect::Online(Fx::Copy)]);
-                } else if item == Item::Button("Paste") {
-                    // B526: a guest's link back to this LAN lobby, off the clipboard
-                    out.extend([Sound(2), Effect::Online(Fx::Paste)]);
-                } else if matches!(item, Item::Button("Start" | "Ready")) && self.counting() > 0 {
-                    // B215: stop the countdown for everyone
-                    self.net.status.clear();
-                    out.extend([Sound(1), Effect::Online(Fx::Net(Cmd::Cancel))]);
-                } else if item == Item::Button("Start") {
-                    // B215: a countdown, ready or not
-                    self.start(out);
-                } else if item == Item::Button("Chat") {
-                    // B396: the chat box; B512: the typed line on a pad or a touch screen too, a second press closes it
-                    crate::chat::ASK.store(1, std::sync::atomic::Ordering::Relaxed);
-                    out.push(Sound(2));
-                } else if item == Item::Button("Ready") {
-                    self.net.prepared = !self.net.prepared;
-                    self.net.status.clear();
-                    out.extend([Sound(if self.net.prepared { 2 } else { 1 }), Effect::Online(Fx::Net(Cmd::Prepared(self.net.prepared)))]);
-                } else {
-                    out.push(Sound(1));
+                },
+                Some(2) if !self.net.naming && is_short(&self.net.entry) => {
+                    self.net.paste = self.net.entry.clone();
+                    self.join_code(out);
+                }
+                Some(2) => out.push(Sound(1)),
+                _ => self.code_back(out),
+            }
+        } else if k.back {
+            // B239: ○ (Esc) leaves the entry; □ deletes (Backspace too, `typing`)
+            self.code_back(out);
+        } else if k.page {
+            out.push(Sound(if self.net.entry.pop().is_some() { 1 } else { 0 }));
+        }
+    }
+
+    /// The lobby with no prompt up: moving about it, then the press on its item.
+    fn lobby_step(&mut self, k: Press, out: &mut Vec<Effect>) {
+        use Effect::Sound;
+        let items = self.items();
+        let bot = match items.get(self.sel) {
+            Some(Item::Seat(i)) if self.net.room.as_ref().is_some_and(|r| r.seats[*i].as_ref().is_some_and(|s| !s.human())) => Some(*i),
+            _ => None,
+        };
+        let rects = self.lobby_rects();
+        // B449: a tap on a value's ‹ › halves (✕ with ← or →): back or on
+        if let (Some(&Item::Set(i @ 2..)), true) = (items.get(self.sel), k.ok && (k.left || k.right)) {
+            return self.change_setting(i, if k.right { 1 } else { -1 }, out);
+        }
+        // B449: the host's □ switches singles / doubles; Start starts
+        if k.page && self.net.hosting {
+            return match self.net.room.as_ref() {
+                Some(r) if self.can_switch() => out.extend([Sound(2), Effect::Online(Fx::Net(Cmd::Doubles(!r.doubles)))]),
+                _ => out.push(Sound(1)),
+            };
+        }
+        // B522: a guest's □ moves its player to the other team instead
+        if k.page && !self.net.hosting {
+            return self.switch_team(self.lobby_team_seat(), out);
+        }
+        if k.name && self.net.hosting && self.net.room.is_some() && self.counting() == 0 {
+            return self.start(out);
+        }
+        // B449: the arrows go about the screen as its parts lie
+        let to = pill_step(&rects, self.sel, k);
+        // B396: on this machine's own seat L1 / R1 step the costume and Select the hand, sent to everyone
+        let own = match items.get(self.sel) {
+            Some(Item::Seat(i)) if self.lobby_own() => Some(*i),
+            _ => None,
+        };
+        if let Some(p) = own.filter(|_| k.prev || k.next || k.hand) {
+            if k.hand {
+                self.players[p].swap = !self.players[p].swap;
+            } else {
+                let (who, n) = (self.who(p), self.costumes(self.who(p)));
+                let from = (self.players[p].costume + if k.prev { n - 1 } else { 1 }) % n;
+                match self.next_free(p, who, from, k.prev) {
+                    Some(c) => self.players[p].costume = c,
+                    None => return out.push(Sound(1)),
                 }
             }
-            _ => {}
+            return out.extend([Sound(0), Effect::Online(Fx::Net(Cmd::Picks(self.picks())))]);
+        }
+        // B201: on a computer's seat L1 / R1 change its costume (and so its level); ←→ reach its ✕
+        if let Some(i) = bot.filter(|_| k.prev || k.next) {
+            // a Random computer stays Random: a new costume doesn't show who it drew
+            let random = self.net.room.as_ref().is_some_and(|r| r.seats[i].as_ref().is_some_and(|s| s.pick.random));
+            match self.bot_pick(i, 0, k.next as isize - k.prev as isize).map(|p| Pick { random, ..p }) {
+                Some(p) => out.extend([Sound(0), Effect::Online(Fx::Net(Cmd::Bot(i, Some(p))))]),
+                None => out.push(Sound(1)),
+            }
+        } else if to != self.sel {
+            self.sel = to;
+            self.net.status.clear();
+            out.push(Sound(0));
+        }
+        let item = items.get(self.sel).copied().unwrap_or(Item::Button("Leave"));
+        self.lobby_press(k, item, bot, out);
+    }
+
+    /// The lobby: what a press does on the item under the cursor (`bot`: a computer's seat).
+    fn lobby_press(&mut self, k: Press, item: Item, bot: Option<usize>, out: &mut Vec<Effect>) {
+        use Effect::Sound;
+        if let Some(i) = self.kickable().filter(|_| k.card) {
+            // B523: △ on a guest's card: kick them, once confirmed
+            self.ask_kick(i, out);
+        } else if let Some(i) = bot.filter(|_| k.card) {
+            // B216: △ takes the computer player off its seat
+            out.extend([Sound(1), Effect::Online(Fx::Net(Cmd::Bot(i, None)))]);
+        } else if k.back && self.seats[0].is_some_and(|d| d != super::Dev::Open) {
+            // concept: ○ steps back one at a time: 1P's pick undone here, 1P off its seat on the select
+            // (`step`), then out of the lobby
+            self.pick_again(out);
+        } else if (k.back || (k.ok && item == Item::Button("Leave"))) && !self.ask_leave(out) {
+            self.chars_back(out);
+        } else if !k.ok {
+        } else if let Item::Seat(i) = item {
+            if self.movable(i) {
+                // B523: the host picks up another player's card, to put it down on another
+                self.pick_up(i, out);
+            } else if self.mine(i) {
+                // B396: their own card: pick again, not ready meanwhile
+                self.pick_again(out);
+            } else if self.guest(i).is_some() {
+                // a guest's card: △ takes them out
+                out.push(Sound(1));
+            } else if bot.is_some() {
+                // B216: its character, costume and level on the select
+                self.edit_bot(i, None, out);
+            } else if let Some(p) = self.bot_added(i) {
+                // B311's starting pick (B217's Random only after a Random ready), then B216's select on it
+                out.push(Effect::Online(Fx::Net(Cmd::Bot(i, Some(p.clone())))));
+                self.edit_bot(i, Some(&p), out);
+            }
+        } else if let Item::Set(i @ (0 | 1)) = item {
+            self.pick_venue(i, out);
+        } else if let Item::Set(i) = item {
+            // OK steps it on, as →
+            self.change_setting(i, 1, out);
+        } else if item == Item::Mode && !self.net.hosting {
+            // a guest's pill is Swap team (its □)
+            self.switch_team(self.lobby_team_seat(), out);
+        } else if item == Item::Mode {
+            let r = self.net.room.as_ref();
+            // singles only while the taken seats fit in two
+            if !self.can_switch() {
+                // the help line says why
+                out.push(Sound(1));
+            } else if let Some(r) = r {
+                out.extend([Sound(2), Effect::Online(Fx::Net(Cmd::Doubles(!r.doubles)))]);
+            }
+        } else if let Some(r) = self.net.room.as_ref().filter(|_| item == Item::Button("Public")) {
+            // B213: listed in Find and Quickplay or not; Host remembers it
+            let p = !r.private;
+            self.net.cfg.get_or_insert_with(Online::default).private = p;
+            out.extend([Sound(2), Effect::Online(Fx::Net(Cmd::Private(p))), Effect::Online(Fx::SaveCfg)]);
+        } else if matches!(item, Item::Button("Code" | "Copy Link")) && shared(&self.net).is_some() {
+            out.extend([Sound(2), Effect::Online(Fx::Copy)]);
+        } else if item == Item::Button("Paste") {
+            // B526: a guest's link back to this LAN lobby, off the clipboard
+            out.extend([Sound(2), Effect::Online(Fx::Paste)]);
+        } else if matches!(item, Item::Button("Start" | "Ready")) && self.counting() > 0 {
+            // B215: stop the countdown for everyone
+            self.net.status.clear();
+            out.extend([Sound(1), Effect::Online(Fx::Net(Cmd::Cancel))]);
+        } else if item == Item::Button("Start") {
+            // B215: a countdown, ready or not
+            self.start(out);
+        } else if item == Item::Button("Chat") {
+            // B396: the chat box; B512: the typed line on a pad or a touch screen too, a second press closes it
+            crate::chat::ASK.store(1, std::sync::atomic::Ordering::Relaxed);
+            out.push(Sound(2));
+        } else if item == Item::Button("Ready") {
+            self.net.prepared = !self.net.prepared;
+            self.net.status.clear();
+            out.extend([Sound(if self.net.prepared { 2 } else { 1 }), Effect::Online(Fx::Net(Cmd::Prepared(self.net.prepared)))]);
+        } else {
+            out.push(Sound(1));
         }
     }
 

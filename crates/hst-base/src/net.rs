@@ -1737,108 +1737,11 @@ async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) 
     // fresh one each time one is answered
     let mut answers = rtc::answers();
     let mut offer = None;
-    let mut code: Option<String> = None;
     let (ctx_, mut rolled) = amp::unbounded_channel::<Option<String>>();
-    // B266: the host's home relay, last seen (its code's record keeps it while a net report has none)
+    // B266: the host's home relay as it changes
     let (htx, mut homes) = amp::unbounded_channel::<RelayUrl>();
-    let mut home: Option<RelayUrl> = None;
     match &cx.ep {
-        Some(ep) => {
-            cx.say(Event::Code(EndpointTicket::new(ep.addr()).to_string()));
-            // B224: the short code shown at once, checked and published in the background (re-rolled if taken)
-            let first = new_short();
-            bevy::log::info!("short code {first} shown");
-            cx.say(Event::Short(first.clone()));
-            cx.say(Event::Status("Putting the code online...".into()));
-            let mut addrs = iroh::Watcher::stream(ep.watch_addr());
-            let (dht, ep, relays, ev) = (cx.dht.clone(), ep.clone(), cx.relays, cx.ev.clone());
-            n0_future::task::spawn(async move {
-                let t = n0_future::time::Instant::now();
-                // B175: a browser dials only the ticket's relay, so a code without one (the relay slower than bind's
-                // 10 s) would time out there; native joiners would still find the host by the DHT
-                // B266: and never without one while the relays are on (the 30 s cap published a relay-less code,
-                // which a browser read as Relay off): a code without a relay is a Relay off host's
-                if relays && ep.addr().relay_urls().next().is_none() {
-                    // B549: the stage a host stuck on "Connecting to the relay" is at
-                    bevy::log::info!("short code: waiting for a home relay");
-                }
-                while relays && ep.addr().relay_urls().next().is_none() {
-                    if n0_future::time::timeout(Duration::from_secs(30), ep.online()).await.is_err() {
-                        if ctx_.is_closed() {
-                            return;
-                        }
-                        // B515: why (iOS Safari reaches the relays, yet its host waited here for good): none picked
-                        // yet (the latency probes didn't finish) or the picked one's last error
-                        let st = iroh::Watcher::get(&mut ep.home_relay_status());
-                        bevy::log::warn!("no home relay yet: {st:?}");
-                        let why = match st.iter().find_map(|r| r.last_error()) {
-                            Some(e) => format!("relay error: {e}"),
-                            None if st.is_empty() => "no relay picked yet".into(),
-                            None => "relay not connected yet".into(),
-                        };
-                        let _ = ev.send(Event::Status(format!("Waiting for a relay to put the code online (no internet?): {why}...")));
-                    }
-                }
-                // B114: relays off, right after bind the address can still be empty; a bare ID in the code fails
-                // the join with "no addressing information" when the DHT has no record of the host yet
-                for _ in 0..50 {
-                    if ep.addr().ip_addrs().next().is_some() || ep.addr().relay_urls().next().is_some() {
-                        break;
-                    }
-                    n0_future::time::sleep(Duration::from_millis(100)).await;
-                }
-                bevy::log::info!("ticket with its addresses in {:?}", t.elapsed());
-                // B321: a put that fails (the pkarr relay answers 429 for a while after Find's slot reads, the first
-                // host after a page load) is tried again; meanwhile the lobby shows its whole ticket as the link
-                let shown = std::sync::Mutex::new(first);
-                let mut pause = Duration::from_secs(2);
-                let c = loop {
-                    let ticket = code_ticket(&ep, None);
-                    let code = shown.lock().unwrap().clone();
-                    bevy::log::info!("short code {code}: checking and publishing it ({:?} in)", t.elapsed());
-                    // B549: a put that never answers (a stalled request on Android) counts as a failed one: the ticket
-                    // instead, joinable, tried again
-                    let c = roll(&dht, code, &ticket, |c| {
-                        *shown.lock().unwrap() = c.into();
-                        drop(ev.send(Event::Short(c.into())))
-                    });
-                    let c = n0_future::time::timeout(ROLL_CAP, c).await.unwrap_or_else(|_| Err(format!("no answer in {} s", ROLL_CAP.as_secs())));
-                    let why = match c {
-                        Ok(c) => break Some(c),
-                        _ if !relays || ctx_.is_closed() => break None,
-                        Err(why) => why,
-                    };
-                    bevy::log::warn!("short code not out in {:?} ({why}): the ticket instead, again in {pause:?}", t.elapsed());
-                    bevy::log::info!("lobby link {}", link(&ticket));
-                    let _ = ev.send(Event::Short(String::new()));
-                    let _ = ev.send(Event::Code(ticket));
-                    let _ = ev.send(Event::Joinable);
-                    // B467: the reason too, so a host whose friend can't find the lobby sees what's wrong
-                    let _ = ev.send(Event::Status(format!("No short code yet (retrying: {why}): share the lobby's link meanwhile.")));
-                    n0_future::time::sleep(pause).await;
-                    pause = (pause * 2).min(Duration::from_secs(30));
-                };
-                bevy::log::info!("short code {c:?} in {:?}", t.elapsed());
-                let _ = ctx_.send(c);
-            });
-            // B266: the home relay as it changes (a new one picked, or a net report without one), so the code's
-            // record follows it at once instead of sending browsers to the old relay until the next REPUBLISH
-            n0_future::task::spawn(async move {
-                let mut last = None;
-                while let Some(a) = addrs.next().await {
-                    let r = a.relay_urls().next().cloned();
-                    if let Some(url) = &r
-                        && r != last
-                    {
-                        bevy::log::info!("home relay {r:?}");
-                        if htx.send(url.clone()).is_err() {
-                            return;
-                        }
-                        last = r;
-                    }
-                }
-            });
-        }
+        Some(ep) => roll_code(cx, ep, ctx_, htx),
         None => {
             offer = new_offer(cx).await;
             cx.say(Event::Joinable);
@@ -1846,96 +1749,294 @@ async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) 
         }
     }
     let (gtx, mut guests) = amp::unbounded_channel::<Guest>();
-    let mut joined: Vec<(String, Link, Conn)> = Vec::new();
     let mut tick = n0_future::time::interval(REPUBLISH);
-    let mut dirty = true;
-    let mut listed_at = None;
+    let mut ping = n0_future::time::interval(Duration::from_secs(1));
+    let mut h = Hosted::new(room);
+    loop {
+        h.settle(cx);
+        h.list(cx);
+        if h.start(cx) {
+            // B196: back from the match to this lobby with the players still in
+            let Some((r, j, g)) = relay(cx, std::mem::take(&mut h.room), std::mem::take(&mut h.joined), gtx.clone(), guests, cmds).await else { return };
+            h.back(r, j);
+            guests = g;
+            continue;
+        }
+        tokio::select! {
+            Some(inc) = accept(&cx.ep) => {
+                let gtx = gtx.clone();
+                n0_future::task::spawn(async move {
+                    let Ok(conn) = async { inc.accept()?.await.map_err(Into::into) }.await.map_err(|e: Box<dyn std::error::Error + Send + Sync>| e) else { return };
+                    let peer = conn.remote_id().to_string();
+                    let Ok((tx, rx)) = conn.accept_bi().await else { return };
+                    let (conn, link, inbox) = quic(conn, tx, rx);
+                    guest(gtx, peer, conn, link, inbox).await;
+                });
+            }
+            Some(a) = answers.recv() => match offer.take() {
+                Some(o) if o.answers(&a) => {
+                    let (gtx, ev) = (gtx.clone(), cx.ev.clone());
+                    n0_future::task::spawn(async move {
+                        match o.accept(&a).await {
+                            Ok((peer, conn, link, inbox)) => guest(gtx, peer, conn, link, inbox).await,
+                            Err(e) => drop(ev.send(Event::Status(e))),
+                        }
+                    });
+                    cx.say(Event::Status("Connecting a player...".into()));
+                    offer = new_offer(cx).await;
+                }
+                o => {
+                    offer = o;
+                    cx.say(Event::Status("That link answers an older one: send them this lobby's link again (Copy Link).".into()));
+                }
+            },
+            Some(g) = guests.recv() => h.on_guest(cx, g),
+            _ = ping.tick() => h.ping(cx),
+            // B215: the countdown's next second (shown on every peer), and at 0 the start
+            _ = n0_future::time::sleep(next_second(h.count)), if h.count.is_some() => h.count_down(cx),
+            // B281: the wait's next second, and at 0 the stand-ins for every mod still not chosen
+            _ = n0_future::time::sleep(next_second(h.wait)), if h.wait.is_some() => h.wait_down(cx),
+            _ = tick.tick() => (h.dirty, h.republish) = (true, true),
+            Some(r) = homes.recv() => h.home(r),
+            Some(c) = rolled.recv() => h.rolled(cx, c),
+            c = cmds.recv() => if !h.on_cmd(cx, c) { return },
+        }
+    }
+}
+
+/// iroh: the ticket, and the short code rolled in the background (sent on `rolled`), its home relay as it
+/// changes on `homes`.
+fn roll_code(cx: &Ctx, ep: &Endpoint, ctx_: amp::UnboundedSender<Option<String>>, htx: amp::UnboundedSender<RelayUrl>) {
+    cx.say(Event::Code(EndpointTicket::new(ep.addr()).to_string()));
+    // B224: the short code shown at once, checked and published in the background (re-rolled if taken)
+    let first = new_short();
+    bevy::log::info!("short code {first} shown");
+    cx.say(Event::Short(first.clone()));
+    cx.say(Event::Status("Putting the code online...".into()));
+    let mut addrs = iroh::Watcher::stream(ep.watch_addr());
+    let (dht, ep, relays, ev) = (cx.dht.clone(), ep.clone(), cx.relays, cx.ev.clone());
+    n0_future::task::spawn(async move {
+        let t = n0_future::time::Instant::now();
+        // B175: a browser dials only the ticket's relay, so a code without one (the relay slower than bind's
+        // 10 s) would time out there; native joiners would still find the host by the DHT
+        // B266: and never without one while the relays are on (the 30 s cap published a relay-less code,
+        // which a browser read as Relay off): a code without a relay is a Relay off host's
+        if relays && ep.addr().relay_urls().next().is_none() {
+            // B549: the stage a host stuck on "Connecting to the relay" is at
+            bevy::log::info!("short code: waiting for a home relay");
+        }
+        while relays && ep.addr().relay_urls().next().is_none() {
+            if n0_future::time::timeout(Duration::from_secs(30), ep.online()).await.is_err() {
+                if ctx_.is_closed() {
+                    return;
+                }
+                // B515: why (iOS Safari reaches the relays, yet its host waited here for good): none picked
+                // yet (the latency probes didn't finish) or the picked one's last error
+                let st = iroh::Watcher::get(&mut ep.home_relay_status());
+                bevy::log::warn!("no home relay yet: {st:?}");
+                let why = match st.iter().find_map(|r| r.last_error()) {
+                    Some(e) => format!("relay error: {e}"),
+                    None if st.is_empty() => "no relay picked yet".into(),
+                    None => "relay not connected yet".into(),
+                };
+                let _ = ev.send(Event::Status(format!("Waiting for a relay to put the code online (no internet?): {why}...")));
+            }
+        }
+        // B114: relays off, right after bind the address can still be empty; a bare ID in the code fails
+        // the join with "no addressing information" when the DHT has no record of the host yet
+        for _ in 0..50 {
+            if ep.addr().ip_addrs().next().is_some() || ep.addr().relay_urls().next().is_some() {
+                break;
+            }
+            n0_future::time::sleep(Duration::from_millis(100)).await;
+        }
+        bevy::log::info!("ticket with its addresses in {:?}", t.elapsed());
+        // B321: a put that fails (the pkarr relay answers 429 for a while after Find's slot reads, the first
+        // host after a page load) is tried again; meanwhile the lobby shows its whole ticket as the link
+        let shown = std::sync::Mutex::new(first);
+        let mut pause = Duration::from_secs(2);
+        let c = loop {
+            let ticket = code_ticket(&ep, None);
+            let code = shown.lock().unwrap().clone();
+            bevy::log::info!("short code {code}: checking and publishing it ({:?} in)", t.elapsed());
+            // B549: a put that never answers (a stalled request on Android) counts as a failed one: the ticket
+            // instead, joinable, tried again
+            let c = roll(&dht, code, &ticket, |c| {
+                *shown.lock().unwrap() = c.into();
+                drop(ev.send(Event::Short(c.into())))
+            });
+            let c = n0_future::time::timeout(ROLL_CAP, c).await.unwrap_or_else(|_| Err(format!("no answer in {} s", ROLL_CAP.as_secs())));
+            let why = match c {
+                Ok(c) => break Some(c),
+                _ if !relays || ctx_.is_closed() => break None,
+                Err(why) => why,
+            };
+            bevy::log::warn!("short code not out in {:?} ({why}): the ticket instead, again in {pause:?}", t.elapsed());
+            bevy::log::info!("lobby link {}", link(&ticket));
+            let _ = ev.send(Event::Short(String::new()));
+            let _ = ev.send(Event::Code(ticket));
+            let _ = ev.send(Event::Joinable);
+            // B467: the reason too, so a host whose friend can't find the lobby sees what's wrong
+            let _ = ev.send(Event::Status(format!("No short code yet (retrying: {why}): share the lobby's link meanwhile.")));
+            n0_future::time::sleep(pause).await;
+            pause = (pause * 2).min(Duration::from_secs(30));
+        };
+        bevy::log::info!("short code {c:?} in {:?}", t.elapsed());
+        let _ = ctx_.send(c);
+    });
+    // B266: the home relay as it changes (a new one picked, or a net report without one), so the code's
+    // record follows it at once instead of sending browsers to the old relay until the next REPUBLISH
+    n0_future::task::spawn(async move {
+        let mut last = None;
+        while let Some(a) = addrs.next().await {
+            let r = a.relay_urls().next().cloned();
+            if let Some(url) = &r
+                && r != last
+            {
+                bevy::log::info!("home relay {r:?}");
+                if htx.send(url.clone()).is_err() {
+                    return;
+                }
+                last = r;
+            }
+        }
+    });
+}
+
+/// A mod's pack to `to`: the host's own game, or a guest.
+fn deliver(cx: &Ctx, to: &str, h: u64, b: &std::sync::Arc<Vec<u8>>, joined: &[(String, Link, Conn)]) {
+    if to == "host" {
+        cx.say(Event::Pack(h, b.to_vec()));
+    } else if let Some((.., c)) = joined.iter().find(|(p, ..)| p == to) {
+        send_pack(c, h, b.clone());
+    }
+}
+
+/// The host's lobby, kept across its loop's events (and its matches, B196).
+struct Hosted {
+    room: Room,
+    joined: Vec<(String, Link, Conn)>,
+    // the short code once out, and the host's home relay, last seen (B266: its code's record keeps it while a net
+    // report has none)
+    code: Option<String>,
+    home: Option<RelayUrl>,
+    dirty: bool,
+    listed_at: Option<n0_future::time::Instant>,
     // B275: the code's record goes out every REPUBLISH, not on every lobby change (the pkarr relay allows 10 puts)
-    let mut republish = true;
-    let mut listed = false;
+    republish: bool,
+    listed: bool,
     // the board slot this lobby is listed in (B116; SLOTS: none yet)
-    let slot = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(SLOTS));
+    slot: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     // B467: the last code or board put failed (the lobby says why until one goes out again)
     // B518: republishes in a row that didn't go out
-    let unlisted = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+    unlisted: std::sync::Arc<std::sync::atomic::AtomicU8>,
     // the round trips: each guest's last, and (full) the guests not yet answered since the start's probe, until when
-    let t0 = n0_future::time::Instant::now();
-    let mut rtt: std::collections::HashMap<String, Duration> = Default::default();
+    t0: n0_future::time::Instant,
+    rtt: std::collections::HashMap<String, Duration>,
     // the lobby cards' last 5 round trips a guest (ms): the cards show the lowest, steady through a slow probe
-    let mut recent: std::collections::HashMap<String, std::collections::VecDeque<u32>> = Default::default();
+    recent: std::collections::HashMap<String, std::collections::VecDeque<u32>>,
     // a host with every seat (`HST_NET_SYNCTEST`) starts at once
-    let mut starting: Option<(Vec<String>, n0_future::time::Instant)> = room.seats.iter().all(Option::is_some).then(|| (Vec::new(), t0));
+    starting: Option<(Vec<String>, n0_future::time::Instant)>,
     // B215: the countdown's end (Start, or everyone ready), then the match starts once (with mods) everyone's settled;
     // `auto`: everyone being ready may start one (not again after a cancel until someone readies)
-    let mut go = false;
-    let mut count: Option<n0_future::time::Instant> = None;
-    let mut auto = true;
+    go: bool,
+    count: Option<n0_future::time::Instant>,
+    auto: bool,
     // B281: after Start, until when the players still choosing about a mod may (then they get its stand-in)
-    let mut wait: Option<n0_future::time::Instant> = None;
-    let mut ping = n0_future::time::interval(Duration::from_secs(1));
+    wait: Option<n0_future::time::Instant>,
     // mods (M2i): the packs passed through, who waits for which, who has settled every mod's looks for this line-up
-    let mut packs: Packs = Default::default();
-    let mut wants: std::collections::HashMap<u64, Vec<String>> = Default::default();
-    let mut ready: std::collections::HashSet<String> = Default::default();
-    let mut rates = Rates::default();
-    let mut emoted = [None; 4];
-    let deliver = |to: &str, h: u64, b: &std::sync::Arc<Vec<u8>>, joined: &[(String, Link, Conn)]| {
-        if to == "host" {
-            cx.say(Event::Pack(h, b.to_vec()));
-        } else if let Some((.., c)) = joined.iter().find(|(p, ..)| p == to) {
-            send_pack(c, h, b.clone());
+    packs: Packs,
+    wants: std::collections::HashMap<u64, Vec<String>>,
+    ready: std::collections::HashSet<String>,
+    rates: Rates,
+    emoted: [Option<n0_future::time::Instant>; 4],
+}
+
+impl Hosted {
+    fn new(room: Room) -> Hosted {
+        let t0 = n0_future::time::Instant::now();
+        Hosted {
+            starting: room.seats.iter().all(Option::is_some).then(|| (Vec::new(), t0)),
+            room,
+            joined: Vec::new(),
+            code: None,
+            home: None,
+            dirty: true,
+            listed_at: None,
+            republish: true,
+            listed: false,
+            slot: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(SLOTS)),
+            unlisted: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0)),
+            t0,
+            rtt: Default::default(),
+            recent: Default::default(),
+            go: false,
+            count: None,
+            auto: true,
+            wait: None,
+            packs: Default::default(),
+            wants: Default::default(),
+            ready: Default::default(),
+            rates: Rates::default(),
+            emoted: [None; 4],
         }
-    };
-    loop {
-        // started, everyone ready, and with mods everyone has their looks or stand-ins: a last round trip first
-        if starting.is_none() && count.is_none() && !go && auto && room.all_set() {
-            auto = false;
-            count = Some(n0_future::time::Instant::now() + Duration::from_millis(COUNTDOWN_MS.load(std::sync::atomic::Ordering::Relaxed)));
-            room.count = left(count);
-            broadcast(&joined, &Msg::Room(room.clone()));
-            cx.say(Event::Room(room.clone()));
+    }
+
+    /// Started, everyone ready, and with mods everyone has their looks or stand-ins: a countdown, a last round trip;
+    /// B281's wait for the players still choosing about a mod.
+    fn settle(&mut self, cx: &Ctx) {
+        if self.starting.is_none() && self.count.is_none() && !self.go && self.auto && self.room.all_set() {
+            self.auto = false;
+            self.count = Some(n0_future::time::Instant::now() + Duration::from_millis(COUNTDOWN_MS.load(std::sync::atomic::Ordering::Relaxed)));
+            self.room.count = left(self.count);
+            broadcast(&self.joined, &Msg::Room(self.room.clone()));
+            cx.say(Event::Room(self.room.clone()));
         }
-        if starting.is_none()
-            && go
-            && (room.mods().next().is_none() || std::iter::once("host").chain(joined.iter().map(|(p, ..)| p.as_str())).all(|p| ready.contains(p)))
+        if self.starting.is_none()
+            && self.go
+            && (self.room.mods().next().is_none() || std::iter::once("host").chain(self.joined.iter().map(|(p, ..)| p.as_str())).all(|p| self.ready.contains(p)))
         {
             // a fresh round trip from everyone before the input delay is picked (3 s at most)
-            broadcast(&joined, &Msg::Ping(micros(t0)));
-            starting = Some((joined.iter().map(|(p, ..)| p.clone()).collect(), n0_future::time::Instant::now() + Duration::from_secs(3)));
+            broadcast(&self.joined, &Msg::Ping(micros(self.t0)));
+            self.starting = Some((self.joined.iter().map(|(p, ..)| p.clone()).collect(), n0_future::time::Instant::now() + Duration::from_secs(3)));
         }
         // B281: Start waits DECIDE_MS for the players still choosing about a mod; none left or no start: no wait
-        let was = (room.wait, room.stand_in);
-        if !go || room.deciding.is_empty() {
-            wait = None;
-            room.wait = 0;
-        } else if wait.is_none() && !room.stand_in && starting.is_none() {
-            wait = Some(n0_future::time::Instant::now() + Duration::from_millis(DECIDE_MS.load(std::sync::atomic::Ordering::Relaxed)));
-            room.wait = left(wait);
+        let was = (self.room.wait, self.room.stand_in);
+        if !self.go || self.room.deciding.is_empty() {
+            self.wait = None;
+            self.room.wait = 0;
+        } else if self.wait.is_none() && !self.room.stand_in && self.starting.is_none() {
+            self.wait = Some(n0_future::time::Instant::now() + Duration::from_millis(DECIDE_MS.load(std::sync::atomic::Ordering::Relaxed)));
+            self.room.wait = left(self.wait);
         }
-        room.stand_in &= go;
-        if was != (room.wait, room.stand_in) {
-            broadcast(&joined, &Msg::Room(room.clone()));
-            cx.say(Event::Room(room.clone()));
+        self.room.stand_in &= self.go;
+        if was != (self.room.wait, self.room.stand_in) {
+            broadcast(&self.joined, &Msg::Room(self.room.clone()));
+            cx.say(Event::Room(self.room.clone()));
         }
+    }
+
+    /// The lobby's listing: its code's record and board slot (in the background), LAN data.
+    fn list(&mut self, cx: &Ctx) {
         // B518: a join changes the room a few times in a row (join, pick, ready) and each listing is a read and a put
         // on the pkarr relay, which with the guest's own lookups on the same Wi-Fi went past its rate limit: "Others
         // may not find this lobby" as someone joined. Between republishes a listing goes out at most every
         // `LIST_GAP`; the changes in between go with the next one (the next event, or the tick at the latest)
-        if dirty && (republish || listed_at.is_none_or(|t: n0_future::time::Instant| t.elapsed() >= LIST_GAP)) {
-            dirty = false;
-            listed_at = Some(n0_future::time::Instant::now());
+        if self.dirty && (self.republish || self.listed_at.is_none_or(|t: n0_future::time::Instant| t.elapsed() >= LIST_GAP)) {
+            self.dirty = false;
+            self.listed_at = Some(n0_future::time::Instant::now());
             // listing in the background: a slow DHT put never holds up a join
             if let Some(ep) = &cx.ep {
-                let l = room.clone();
+                let l = self.room.clone();
                 // B213: a private lobby keeps only its short code; once, its public listing is overwritten as full
-                let put = !l.private || std::mem::take(&mut listed);
-                listed |= !l.private;
+                let put = !l.private || std::mem::take(&mut self.listed);
+                self.listed |= !l.private;
                 ep.set_user_data_for_address_lookup(lan_data(&Listing::of(ep.id(), &l)).filter(|_| !l.private));
                 let cx2 = Ctx { ep: cx.ep.clone(), dht: cx.dht.clone(), lan: cx.lan.clone(), ev: cx.ev.clone(), name: String::new(), courts: cx.courts.clone(), device: cx.device.clone(), seat: None, relays: cx.relays };
                 let n = lobby_number(ep.id());
-                let (code, ticket) = (code.clone(), code_ticket(ep, home.as_ref()));
-                let (id, slot, unlisted) = (ep.id(), slot.clone(), unlisted.clone());
-                let again = std::mem::take(&mut republish);
+                let (code, ticket) = (self.code.clone(), code_ticket(ep, self.home.as_ref()));
+                let (id, slot, unlisted) = (ep.id(), self.slot.clone(), self.unlisted.clone());
+                let again = std::mem::take(&mut self.republish);
                 n0_future::task::spawn(async move {
                     if let Some(c) = code {
                         let mut r = Ok(());
@@ -1972,380 +2073,371 @@ async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) 
                 });
             }
         }
-        if let Some((waiting, until)) = &starting
+    }
+
+    /// Everyone's round trip in (or the probe's time up): the match starts. True if it did.
+    fn start(&mut self, cx: &Ctx) -> bool {
+        if let Some((waiting, until)) = &self.starting
             && (waiting.is_empty() || n0_future::time::Instant::now() >= *until)
         {
             // ponytail: no probe answer in time counts as 250 ms; a slower peer just stalls the match more
-            let worst = joined.iter().map(|(p, ..)| rtt.get(p).copied().unwrap_or(Duration::from_millis(250))).max().unwrap_or_default();
-            room.delay = delay_for(worst);
-            room.lockstep = std::env::var_os("HST_NET_LOCKSTEP").is_some();
-            room.seed = (SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos()) as u32) | 1;
-            room.bots();
-            broadcast(&joined, &Msg::Start(room.clone()));
-            cx.say(Event::Status(format!("Round trip {} ms, input delay {} ticks.", worst.as_millis(), room.delay)));
-            cx.say(Event::Start(room.clone(), "host".into()));
+            let worst = self.joined.iter().map(|(p, ..)| self.rtt.get(p).copied().unwrap_or(Duration::from_millis(250))).max().unwrap_or_default();
+            self.room.delay = delay_for(worst);
+            self.room.lockstep = std::env::var_os("HST_NET_LOCKSTEP").is_some();
+            self.room.seed = (SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos()) as u32) | 1;
+            self.room.bots();
+            broadcast(&self.joined, &Msg::Start(self.room.clone()));
+            cx.say(Event::Status(format!("Round trip {} ms, input delay {} ticks.", worst.as_millis(), self.room.delay)));
+            cx.say(Event::Start(self.room.clone(), "host".into()));
             if let Some(ep) = &cx.ep {
                 ep.set_user_data_for_address_lookup(None);
             }
-            // B196: back from the match to this lobby with the players still in
-            let Some((r, j, g)) = relay(cx, room, joined, gtx.clone(), guests, cmds).await else { return };
-            (room, joined, guests, starting, go, count, auto) = (r, j, g, None, false, None, true);
-            ready.clear();
-            dirty = true;
-            continue;
+            return true;
         }
-        tokio::select! {
-            Some(inc) = accept(&cx.ep) => {
-                let gtx = gtx.clone();
-                n0_future::task::spawn(async move {
-                    let Ok(conn) = async { inc.accept()?.await.map_err(Into::into) }.await.map_err(|e: Box<dyn std::error::Error + Send + Sync>| e) else { return };
-                    let peer = conn.remote_id().to_string();
-                    let Ok((tx, rx)) = conn.accept_bi().await else { return };
-                    let (conn, link, inbox) = quic(conn, tx, rx);
-                    guest(gtx, peer, conn, link, inbox).await;
-                });
-            }
-            Some(a) = answers.recv() => match offer.take() {
-                Some(o) if o.answers(&a) => {
-                    let (gtx, ev) = (gtx.clone(), cx.ev.clone());
-                    n0_future::task::spawn(async move {
-                        match o.accept(&a).await {
-                            Ok((peer, conn, link, inbox)) => guest(gtx, peer, conn, link, inbox).await,
-                            Err(e) => drop(ev.send(Event::Status(e))),
-                        }
-                    });
-                    cx.say(Event::Status("Connecting a player...".into()));
-                    offer = new_offer(cx).await;
+        false
+    }
+
+    /// Back from a match with the players still in.
+    fn back(&mut self, room: Room, joined: Vec<(String, Link, Conn)>) {
+        (self.room, self.joined, self.starting, self.go, self.count, self.auto) = (room, joined, None, false, None, true);
+        self.ready.clear();
+        self.dirty = true;
+    }
+
+    /// A guest's connection, message, pack or leaving.
+    fn on_guest(&mut self, cx: &Ctx, g: Guest) {
+        match g {
+            Guest::In { peer, name, picks, hand, link, conn, courts, device, .. } => {
+                // B551: the same peer on a new connection (it left and came back before its old one was seen to
+                // drop): the old one goes, its seats free for it to take back
+                let mut back = Vec::new();
+                if let Some(i) = self.joined.iter().position(|(p, ..)| *p == peer) {
+                    self.joined.remove(i).2.close(b"rejoined");
+                    back = self.room.reclaim(&peer);
+                    self.ready.clear();
+                    (self.starting, self.go, self.count, self.room.count) = (None, false, None, 0);
+                    broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                    cx.say(Event::Room(self.room.clone()));
+                    self.dirty = true;
                 }
-                o => {
-                    offer = o;
-                    cx.say(Event::Status("That link answers an older one: send them this lobby's link again (Copy Link).".into()));
-                }
-            },
-            Some(g) = guests.recv() => match g {
-                Guest::In { peer, name, picks, hand, link, conn, courts, device, .. } => {
-                    // B551: the same peer on a new connection (it left and came back before its old one was seen to
-                    // drop): the old one goes, its seats free for it to take back
-                    let mut back = Vec::new();
-                    if let Some(i) = joined.iter().position(|(p, ..)| *p == peer) {
-                        joined.remove(i).2.close(b"rejoined");
-                        back = room.reclaim(&peer);
-                        ready.clear();
-                        (starting, go, count, room.count) = (None, false, None, 0);
-                        broadcast(&joined, &Msg::Room(room.clone()));
-                        cx.say(Event::Room(room.clone()));
-                        dirty = true;
-                    }
-                    let why = if let Err(e) = hand.check(&Handshake::here()) {
-                        Some(e)
-                    } else if let Err(e) = picks_ok(&picks) {
-                        Some(e)
-                    } else if starting.is_some() || !room.take_from(&peer, &picks, &back) {
-                        Some(format!("not enough open seats ({} open, you bring {})", room.open(), picks.len()))
-                    } else {
-                        None
-                    };
-                    if let Some(why) = why {
-                        refuse(&link, conn, why);
-                        continue;
-                    }
-                    let name = if name.trim().is_empty() { short(&peer).to_string() } else { name.chars().take(16).collect() };
-                    // B549: someone reached the lobby (board, LAN or link) before its short code went out: friends can
-                    // join, whatever stage the code is stuck at
-                    if cx.relays && code.is_none() {
-                        bevy::log::info!("joinable: {name} joined before the short code went out");
-                        cx.say(Event::Joinable);
-                    }
-                    cx.say(Event::Status(format!("{name} joined.")));
-                    room.names.insert(peer.clone(), name);
-                    room.courts.insert(peer.clone(), courts);
-                    room.devices.insert(peer.clone(), device);
-                    room.picking.insert(peer.clone());
-                    link.send(&Msg::Ping(micros(t0)));
-                    joined.push((peer, link, conn));
-                    ready.clear();
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                    dirty = true;
-                }
-                Guest::Said(peer, Msg::Ready(v)) if v == room.ver => drop(ready.insert(peer)),
-                Guest::Said(peer, Msg::Deciding(d)) => deciding(cx, &joined, &mut room, peer, d),
-                Guest::Said(peer, Msg::Fetching(f)) => fetching(cx, &joined, &mut room, peer, f),
-                Guest::Said(peer, Msg::Prepared(p)) => {
-                    let changed = if p { room.ready.insert(peer) } else { room.ready.remove(&peer) };
-                    auto |= p;
-                    if changed && !p && count.take().is_some() {
-                        room.count = 0;
-                    }
-                    if changed {
-                        broadcast(&joined, &Msg::Room(room.clone()));
-                        cx.say(Event::Room(room.clone()));
-                    }
-                }
-                // B522: a guest's player to the other team (a line-up change, as the host's Doubles)
-                Guest::Said(peer, Msg::Team(i)) => {
-                    if starting.is_none() && room.switch_team(&peer, i as usize) {
-                        ready.clear();
-                        broadcast(&joined, &Msg::Room(room.clone()));
-                        cx.say(Event::Room(room.clone()));
-                        dirty = true;
-                    }
-                }
-                Guest::Said(peer, Msg::Picks(p)) => {
-                    let ok = room.allowed(&p);
-                    // B275: a refused pick is a message to both, not a seat change (the guest stays)
-                    if let Err(why) = &ok {
-                        let name = room.names.get(&peer).cloned().unwrap_or_else(|| short(&peer).into());
-                        cx.say(Event::Status(format!("{name}'s pick was refused: {why}")));
-                        if let Some((_, l, _)) = joined.iter().find(|(p, ..)| *p == peer) {
-                            l.send(&Msg::Chat { from: "host".into(), name: "Lobby".into(), text: format!("Your pick was refused: {why}") });
-                        }
-                    }
-                    if starting.is_none() && ok.is_ok() && room.repick(&peer, &p) {
-                        ready.clear();
-                        broadcast(&joined, &Msg::Room(room.clone()));
-                        cx.say(Event::Room(room.clone()));
-                        dirty = true;
-                    }
-                }
-                // B201: a guest's cursors, shown live to everyone (not a line-up change: no relisting, no ready reset)
-                Guest::Said(peer, Msg::Live(l)) => {
-                    if starting.is_none() && room.names.contains_key(&peer) && room.live.get(&peer) != Some(&l) {
-                        room.live.insert(peer, l);
-                        broadcast(&joined, &Msg::Room(room.clone()));
-                        cx.say(Event::Room(room.clone()));
-                    }
-                }
-                Guest::Said(_, Msg::Cancel) if count.take().is_some() => {
-                    room.count = 0;
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                }
-                Guest::Said(peer, Msg::Want(h)) => {
-                    if let Some(b) = want(&peer, h, &room, &joined, &mut packs, &mut wants) {
-                        deliver(&peer, h, &b, &joined);
-                    }
-                }
-                Guest::Pack(h, b) if crate::mods_online::hash(&b) == h => {
-                    let b = std::sync::Arc::new(b);
-                    for to in wants.remove(&h).unwrap_or_default() {
-                        deliver(&to, h, &b, &joined);
-                    }
-                    packs.insert(h, b);
-                }
-                // B537: the host's own wait for a guest's mod shows how far it is
-                Guest::Progress(h, got, n) if wants.get(&h).is_some_and(|w| w.iter().any(|p| p == "host")) => cx.say(Event::Progress(h, got, n)),
-                Guest::Said(peer, Msg::Chat { text, .. }) => chat(cx, &peer, &text, &room.names, &joined, &mut rates),
-                Guest::Said(peer, Msg::Emote { seat, dir }) => emote(cx, &peer, seat, dir, &room, &joined, &mut emoted),
-                // M95: a guest's input changed (shown only: no relisting, no ready reset)
-                Guest::Said(peer, Msg::Device(d)) => {
-                    if room.names.contains_key(&peer) && room.devices.get(&peer) != Some(&d) {
-                        room.devices.insert(peer, d);
-                        broadcast(&joined, &Msg::Room(room.clone()));
-                        cx.say(Event::Room(room.clone()));
-                    }
-                }
-                Guest::Said(peer, Msg::Pong(sent)) => {
-                    rtt.insert(peer.clone(), Duration::from_micros(micros(t0).saturating_sub(sent)));
-                    let r = recent.entry(peer.clone()).or_default();
-                    r.push_back(rtt[&peer].as_millis() as u32);
-                    if r.len() > 5 {
-                        r.pop_front();
-                    }
-                    if let Some((waiting, _)) = &mut starting {
-                        waiting.retain(|p| *p != peer);
-                    }
-                }
-                Guest::Said(..) | Guest::Datagram(..) | Guest::Pack(..) | Guest::Progress(..) => {}
-                Guest::Gone(peer, link) => {
-                    // B551: an old connection's end, the peer back on a newer one, frees nothing
-                    if !joined.iter().any(|(p, l, _)| *p == peer && l.same(&link)) {
-                        continue;
-                    }
-                    recent.remove(&peer);
-                    ready.clear();
-                    let name = room.names.get(&peer).cloned().unwrap_or_else(|| short(&peer).into());
-                    room.leave(&peer);
-                    joined.retain(|(p, ..)| *p != peer);
-                    (starting, go, count, room.count) = (None, false, None, 0);
-                    cx.say(Event::Status(format!("{name} left.")));
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                    dirty = true;
-                }
-            },
-            _ = ping.tick() => {
-                broadcast(&joined, &Msg::Ping(micros(t0)));
-                // B370: the round trips the lobby's cards show (each guest's lowest of its last 5), to everyone when one
-                // moves 10 ms or a guest comes or goes: a Room sent each small wobble queued the next probe behind it
-                let ms: std::collections::BTreeMap<String, u32> = joined.iter().filter_map(|(p, ..)| Some((p.clone(), recent.get(p)?.iter().min()?.div_ceil(5) * 5))).collect();
-                let moved = ms.len() != room.ping.len() || ms.iter().any(|(p, v)| room.ping.get(p).is_none_or(|o| v.abs_diff(*o) >= 10));
-                if starting.is_none() && moved {
-                    room.ping = ms;
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                }
-            }
-            // B215: the countdown's next second (shown on every peer), and at 0 the start
-            _ = n0_future::time::sleep(next_second(count)), if count.is_some() => {
-                room.count = left(count);
-                if room.count == 0 {
-                    (count, go) = (None, true);
-                }
-                broadcast(&joined, &Msg::Room(room.clone()));
-                cx.say(Event::Room(room.clone()));
-            }
-            // B281: the wait's next second, and at 0 the stand-ins for every mod still not chosen
-            _ = n0_future::time::sleep(next_second(wait)), if wait.is_some() => {
-                room.wait = left(wait);
-                if room.wait == 0 {
-                    (wait, room.stand_in) = (None, true);
-                }
-                broadcast(&joined, &Msg::Room(room.clone()));
-                cx.say(Event::Room(room.clone()));
-            }
-            _ = tick.tick() => (dirty, republish) = (true, true),
-            Some(r) = homes.recv() => {
-                if code.is_some() && home.as_ref() != Some(&r) {
-                    (dirty, republish) = (true, true);
-                }
-                home = Some(r);
-            }
-            Some(c) = rolled.recv() => {
-                code = c;
-                cx.say(Event::Short(code.clone().unwrap_or_default()));
-                // B322: the guests show it too
-                room.short = code.clone().unwrap_or_default();
-                broadcast(&joined, &Msg::Room(room.clone()));
-                cx.say(Event::Room(room.clone()));
-                if code.is_some() {
-                    cx.say(Event::Joinable);
-                }
-                cx.say(Event::Status(if code.is_some() { "Waiting for players..." } else { "No short code (no internet?): players on this network find the lobby with Find." }.into()));
-                dirty = true;
-            }
-            c = cmds.recv() => match c {
-                Some(Cmd::Ready(v)) if v == room.ver => drop(ready.insert("host".into())),
-                Some(Cmd::Deciding(d)) => deciding(cx, &joined, &mut room, "host".into(), d),
-                Some(Cmd::Fetching(f)) => fetching(cx, &joined, &mut room, "host".into(), f),
-                Some(Cmd::Start) if count.is_none() && !go && starting.is_none() => {
-                    auto = false;
-                    count = Some(n0_future::time::Instant::now() + Duration::from_millis(COUNTDOWN_MS.load(std::sync::atomic::Ordering::Relaxed)));
-                    room.count = left(count);
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                }
-                Some(Cmd::Cancel) if count.take().is_some() => {
-                    room.count = 0;
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                }
-                Some(Cmd::Picks(p)) if room.allowed(&p).is_err() => cx.say(Event::Status(format!("Pick refused: {}", room.allowed(&p).unwrap_err()))),
-                Some(Cmd::Bot(_, Some(p))) if room.allowed(std::slice::from_ref(&p)).is_err() => {
-                    cx.say(Event::Status(format!("Pick refused: {}", room.allowed(std::slice::from_ref(&p)).unwrap_err())));
-                }
-                Some(Cmd::Picks(p)) if starting.is_none() && room.repick("host", &p) => {
-                    auto = true;
-                    ready.clear();
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                    dirty = true;
-                }
-                Some(Cmd::Live(l)) if starting.is_none() => {
-                    room.live.insert("host".into(), l);
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                }
-                Some(c @ (Cmd::Bot(..) | Cmd::Doubles(_) | Cmd::Swap(..))) if starting.is_none() => {
-                    let changed = match c {
-                        Cmd::Bot(i, p) => room.bot(i, p),
-                        Cmd::Doubles(d) => room.set_doubles(d),
-                        Cmd::Swap(a, b) => room.swap(a, b),
-                        _ => false,
-                    };
-                    if changed {
-                        ready.clear();
-                        broadcast(&joined, &Msg::Room(room.clone()));
-                        cx.say(Event::Room(room.clone()));
-                        dirty = true;
-                    }
-                }
-                Some(Cmd::Vanilla(v)) if starting.is_none() && room.set_vanilla(v) => {
-                    ready.clear();
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                    dirty = true;
-                }
-                Some(Cmd::NoMarks(v)) if starting.is_none() && v != room.no_marks => {
-                    room.no_marks = v;
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                    dirty = true;
-                }
-                Some(Cmd::Private(p)) if starting.is_none() && p != room.private => {
-                    room.private = p;
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                    // B518: the host's own Public/Private goes on (or off) the list at once
-                    (dirty, listed_at) = (true, None);
-                }
-                Some(Cmd::Venue(court, sets, games, umpire)) if starting.is_none() => {
-                    (room.court, room.sets, room.games, room.umpire) = (court, sets, games, umpire);
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                    dirty = true;
-                }
-                Some(Cmd::UmpireMod(u)) if starting.is_none() && u != room.umpire_mod => {
-                    room.umpire_mod = u;
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                    dirty = true;
-                }
-                Some(Cmd::CourtMod(c)) if starting.is_none() && c != room.court_mod => {
-                    room.court_mod = c;
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                    dirty = true;
-                }
-                Some(Cmd::Kick(peer)) => {
-                    if let Some((_, l, c)) = joined.iter().find(|(p, ..)| *p == peer) {
-                        refuse(l, c.clone(), "the host took you out of the lobby".into());
-                        let name = room.names.get(&peer).cloned().unwrap_or_else(|| short(&peer).into());
-                        ready.clear();
-                        room.leave(&peer);
-                        joined.retain(|(p, ..)| *p != peer);
-                        (starting, go, count, room.count) = (None, false, None, 0);
-                        cx.say(Event::Status(format!("{name} was taken out.")));
-                        broadcast(&joined, &Msg::Room(room.clone()));
-                        cx.say(Event::Room(room.clone()));
-                        dirty = true;
-                    }
-                }
-                Some(Cmd::Chat(t)) => chat(cx, "host", &t, &room.names, &joined, &mut rates),
-                Some(Cmd::Emote(seat, dir)) => emote(cx, "host", seat, dir, &room, &joined, &mut emoted),
-                Some(Cmd::Device(d)) if room.devices.get("host") != Some(&d) => {
-                    room.devices.insert("host".into(), d);
-                    broadcast(&joined, &Msg::Room(room.clone()));
-                    cx.say(Event::Room(room.clone()));
-                }
-                Some(Cmd::Want(h)) => {
-                    if let Some(b) = want("host", h, &room, &joined, &mut packs, &mut wants) {
-                        deliver("host", h, &b, &joined);
-                    }
-                }
-                Some(Cmd::Leave) | None => {
-                    for (_, _, conn) in &joined {
-                        conn.close(b"host left");
-                    }
-                    if let Some(ep) = &cx.ep {
-                        ep.set_user_data_for_address_lookup(None);
-                    }
-                    // an empty listing ages out in STALE; a full one isn't shown
+                let why = if let Err(e) = hand.check(&Handshake::here()) {
+                    Some(e)
+                } else if let Err(e) = picks_ok(&picks) {
+                    Some(e)
+                } else if self.starting.is_some() || !self.room.take_from(&peer, &picks, &back) {
+                    Some(format!("not enough open seats ({} open, you bring {})", self.room.open(), picks.len()))
+                } else {
+                    None
+                };
+                if let Some(why) = why {
+                    refuse(&link, conn, why);
                     return;
                 }
-                Some(_) => {}
-            },
+                let name = if name.trim().is_empty() { short(&peer).to_string() } else { name.chars().take(16).collect() };
+                // B549: someone reached the lobby (board, LAN or link) before its short code went out: friends can
+                // join, whatever stage the code is stuck at
+                if cx.relays && self.code.is_none() {
+                    bevy::log::info!("joinable: {name} joined before the short code went out");
+                    cx.say(Event::Joinable);
+                }
+                cx.say(Event::Status(format!("{name} joined.")));
+                self.room.names.insert(peer.clone(), name);
+                self.room.courts.insert(peer.clone(), courts);
+                self.room.devices.insert(peer.clone(), device);
+                self.room.picking.insert(peer.clone());
+                link.send(&Msg::Ping(micros(self.t0)));
+                self.joined.push((peer, link, conn));
+                self.ready.clear();
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+                self.dirty = true;
+            }
+            Guest::Said(peer, Msg::Ready(v)) if v == self.room.ver => drop(self.ready.insert(peer)),
+            Guest::Said(peer, Msg::Deciding(d)) => deciding(cx, &self.joined, &mut self.room, peer, d),
+            Guest::Said(peer, Msg::Fetching(f)) => fetching(cx, &self.joined, &mut self.room, peer, f),
+            Guest::Said(peer, Msg::Prepared(p)) => {
+                let changed = if p { self.room.ready.insert(peer) } else { self.room.ready.remove(&peer) };
+                self.auto |= p;
+                if changed && !p && self.count.take().is_some() {
+                    self.room.count = 0;
+                }
+                if changed {
+                    broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                    cx.say(Event::Room(self.room.clone()));
+                }
+            }
+            // B522: a guest's player to the other team (a line-up change, as the host's Doubles)
+            Guest::Said(peer, Msg::Team(i)) => {
+                if self.starting.is_none() && self.room.switch_team(&peer, i as usize) {
+                    self.ready.clear();
+                    broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                    cx.say(Event::Room(self.room.clone()));
+                    self.dirty = true;
+                }
+            }
+            Guest::Said(peer, Msg::Picks(p)) => {
+                let ok = self.room.allowed(&p);
+                // B275: a refused pick is a message to both, not a seat change (the guest stays)
+                if let Err(why) = &ok {
+                    let name = self.room.names.get(&peer).cloned().unwrap_or_else(|| short(&peer).into());
+                    cx.say(Event::Status(format!("{name}'s pick was refused: {why}")));
+                    if let Some((_, l, _)) = self.joined.iter().find(|(p, ..)| *p == peer) {
+                        l.send(&Msg::Chat { from: "host".into(), name: "Lobby".into(), text: format!("Your pick was refused: {why}") });
+                    }
+                }
+                if self.starting.is_none() && ok.is_ok() && self.room.repick(&peer, &p) {
+                    self.ready.clear();
+                    broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                    cx.say(Event::Room(self.room.clone()));
+                    self.dirty = true;
+                }
+            }
+            // B201: a guest's cursors, shown live to everyone (not a line-up change: no relisting, no ready reset)
+            Guest::Said(peer, Msg::Live(l)) => {
+                if self.starting.is_none() && self.room.names.contains_key(&peer) && self.room.live.get(&peer) != Some(&l) {
+                    self.room.live.insert(peer, l);
+                    broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                    cx.say(Event::Room(self.room.clone()));
+                }
+            }
+            Guest::Said(_, Msg::Cancel) if self.count.take().is_some() => {
+                self.room.count = 0;
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+            }
+            Guest::Said(peer, Msg::Want(h)) => {
+                if let Some(b) = want(&peer, h, &self.room, &self.joined, &mut self.packs, &mut self.wants) {
+                    deliver(cx, &peer, h, &b, &self.joined);
+                }
+            }
+            Guest::Pack(h, b) if crate::mods_online::hash(&b) == h => {
+                let b = std::sync::Arc::new(b);
+                for to in self.wants.remove(&h).unwrap_or_default() {
+                    deliver(cx, &to, h, &b, &self.joined);
+                }
+                self.packs.insert(h, b);
+            }
+            // B537: the host's own wait for a guest's mod shows how far it is
+            Guest::Progress(h, got, n) if self.wants.get(&h).is_some_and(|w| w.iter().any(|p| p == "host")) => cx.say(Event::Progress(h, got, n)),
+            Guest::Said(peer, Msg::Chat { text, .. }) => chat(cx, &peer, &text, &self.room.names, &self.joined, &mut self.rates),
+            Guest::Said(peer, Msg::Emote { seat, dir }) => emote(cx, &peer, seat, dir, &self.room, &self.joined, &mut self.emoted),
+            // M95: a guest's input changed (shown only: no relisting, no ready reset)
+            Guest::Said(peer, Msg::Device(d)) => {
+                if self.room.names.contains_key(&peer) && self.room.devices.get(&peer) != Some(&d) {
+                    self.room.devices.insert(peer, d);
+                    broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                    cx.say(Event::Room(self.room.clone()));
+                }
+            }
+            Guest::Said(peer, Msg::Pong(sent)) => {
+                self.rtt.insert(peer.clone(), Duration::from_micros(micros(self.t0).saturating_sub(sent)));
+                let r = self.recent.entry(peer.clone()).or_default();
+                r.push_back(self.rtt[&peer].as_millis() as u32);
+                if r.len() > 5 {
+                    r.pop_front();
+                }
+                if let Some((waiting, _)) = &mut self.starting {
+                    waiting.retain(|p| *p != peer);
+                }
+            }
+            Guest::Said(..) | Guest::Datagram(..) | Guest::Pack(..) | Guest::Progress(..) => {}
+            Guest::Gone(peer, link) => {
+                // B551: an old connection's end, the peer back on a newer one, frees nothing
+                if !self.joined.iter().any(|(p, l, _)| *p == peer && l.same(&link)) {
+                    return;
+                }
+                self.recent.remove(&peer);
+                self.ready.clear();
+                let name = self.room.names.get(&peer).cloned().unwrap_or_else(|| short(&peer).into());
+                self.room.leave(&peer);
+                self.joined.retain(|(p, ..)| *p != peer);
+                (self.starting, self.go, self.count, self.room.count) = (None, false, None, 0);
+                cx.say(Event::Status(format!("{name} left.")));
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+                self.dirty = true;
+            }
         }
+    }
+
+    /// The round-trip probe, and the cards' round trips (B370).
+    fn ping(&mut self, cx: &Ctx) {
+        broadcast(&self.joined, &Msg::Ping(micros(self.t0)));
+        // B370: the round trips the lobby's cards show (each guest's lowest of its last 5), to everyone when one
+        // moves 10 ms or a guest comes or goes: a Room sent each small wobble queued the next probe behind it
+        let ms: std::collections::BTreeMap<String, u32> = self.joined.iter().filter_map(|(p, ..)| Some((p.clone(), self.recent.get(p)?.iter().min()?.div_ceil(5) * 5))).collect();
+        let moved = ms.len() != self.room.ping.len() || ms.iter().any(|(p, v)| self.room.ping.get(p).is_none_or(|o| v.abs_diff(*o) >= 10));
+        if self.starting.is_none() && moved {
+            self.room.ping = ms;
+            broadcast(&self.joined, &Msg::Room(self.room.clone()));
+            cx.say(Event::Room(self.room.clone()));
+        }
+    }
+
+    fn count_down(&mut self, cx: &Ctx) {
+        self.room.count = left(self.count);
+        if self.room.count == 0 {
+            (self.count, self.go) = (None, true);
+        }
+        broadcast(&self.joined, &Msg::Room(self.room.clone()));
+        cx.say(Event::Room(self.room.clone()));
+    }
+
+    fn wait_down(&mut self, cx: &Ctx) {
+        self.room.wait = left(self.wait);
+        if self.room.wait == 0 {
+            (self.wait, self.room.stand_in) = (None, true);
+        }
+        broadcast(&self.joined, &Msg::Room(self.room.clone()));
+        cx.say(Event::Room(self.room.clone()));
+    }
+
+    fn home(&mut self, r: RelayUrl) {
+        if self.code.is_some() && self.home.as_ref() != Some(&r) {
+            (self.dirty, self.republish) = (true, true);
+        }
+        self.home = Some(r);
+    }
+
+    /// The short code rolled (or none).
+    fn rolled(&mut self, cx: &Ctx, c: Option<String>) {
+        self.code = c;
+        cx.say(Event::Short(self.code.clone().unwrap_or_default()));
+        // B322: the guests show it too
+        self.room.short = self.code.clone().unwrap_or_default();
+        broadcast(&self.joined, &Msg::Room(self.room.clone()));
+        cx.say(Event::Room(self.room.clone()));
+        if self.code.is_some() {
+            cx.say(Event::Joinable);
+        }
+        cx.say(Event::Status(if self.code.is_some() { "Waiting for players..." } else { "No short code (no internet?): players on this network find the lobby with Find." }.into()));
+        self.dirty = true;
+    }
+
+    /// The host's own command; false once it leaves.
+    fn on_cmd(&mut self, cx: &Ctx, c: Option<Cmd>) -> bool {
+        match c {
+            Some(Cmd::Ready(v)) if v == self.room.ver => drop(self.ready.insert("host".into())),
+            Some(Cmd::Deciding(d)) => deciding(cx, &self.joined, &mut self.room, "host".into(), d),
+            Some(Cmd::Fetching(f)) => fetching(cx, &self.joined, &mut self.room, "host".into(), f),
+            Some(Cmd::Start) if self.count.is_none() && !self.go && self.starting.is_none() => {
+                self.auto = false;
+                self.count = Some(n0_future::time::Instant::now() + Duration::from_millis(COUNTDOWN_MS.load(std::sync::atomic::Ordering::Relaxed)));
+                self.room.count = left(self.count);
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+            }
+            Some(Cmd::Cancel) if self.count.take().is_some() => {
+                self.room.count = 0;
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+            }
+            Some(Cmd::Picks(p)) if self.room.allowed(&p).is_err() => cx.say(Event::Status(format!("Pick refused: {}", self.room.allowed(&p).unwrap_err()))),
+            Some(Cmd::Bot(_, Some(p))) if self.room.allowed(std::slice::from_ref(&p)).is_err() => {
+                cx.say(Event::Status(format!("Pick refused: {}", self.room.allowed(std::slice::from_ref(&p)).unwrap_err())));
+            }
+            Some(Cmd::Picks(p)) if self.starting.is_none() && self.room.repick("host", &p) => {
+                self.auto = true;
+                self.ready.clear();
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+                self.dirty = true;
+            }
+            Some(Cmd::Live(l)) if self.starting.is_none() => {
+                self.room.live.insert("host".into(), l);
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+            }
+            Some(c @ (Cmd::Bot(..) | Cmd::Doubles(_) | Cmd::Swap(..))) if self.starting.is_none() => {
+                let changed = match c {
+                    Cmd::Bot(i, p) => self.room.bot(i, p),
+                    Cmd::Doubles(d) => self.room.set_doubles(d),
+                    Cmd::Swap(a, b) => self.room.swap(a, b),
+                    _ => false,
+                };
+                if changed {
+                    self.ready.clear();
+                    broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                    cx.say(Event::Room(self.room.clone()));
+                    self.dirty = true;
+                }
+            }
+            Some(Cmd::Vanilla(v)) if self.starting.is_none() && self.room.set_vanilla(v) => {
+                self.ready.clear();
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+                self.dirty = true;
+            }
+            Some(Cmd::NoMarks(v)) if self.starting.is_none() && v != self.room.no_marks => {
+                self.room.no_marks = v;
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+                self.dirty = true;
+            }
+            Some(Cmd::Private(p)) if self.starting.is_none() && p != self.room.private => {
+                self.room.private = p;
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+                // B518: the host's own Public/Private goes on (or off) the list at once
+                (self.dirty, self.listed_at) = (true, None);
+            }
+            Some(Cmd::Venue(court, sets, games, umpire)) if self.starting.is_none() => {
+                (self.room.court, self.room.sets, self.room.games, self.room.umpire) = (court, sets, games, umpire);
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+                self.dirty = true;
+            }
+            Some(Cmd::UmpireMod(u)) if self.starting.is_none() && u != self.room.umpire_mod => {
+                self.room.umpire_mod = u;
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+                self.dirty = true;
+            }
+            Some(Cmd::CourtMod(c)) if self.starting.is_none() && c != self.room.court_mod => {
+                self.room.court_mod = c;
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+                self.dirty = true;
+            }
+            Some(Cmd::Kick(peer)) => {
+                if let Some((_, l, c)) = self.joined.iter().find(|(p, ..)| *p == peer) {
+                    refuse(l, c.clone(), "the host took you out of the lobby".into());
+                    let name = self.room.names.get(&peer).cloned().unwrap_or_else(|| short(&peer).into());
+                    self.ready.clear();
+                    self.room.leave(&peer);
+                    self.joined.retain(|(p, ..)| *p != peer);
+                    (self.starting, self.go, self.count, self.room.count) = (None, false, None, 0);
+                    cx.say(Event::Status(format!("{name} was taken out.")));
+                    broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                    cx.say(Event::Room(self.room.clone()));
+                    self.dirty = true;
+                }
+            }
+            Some(Cmd::Chat(t)) => chat(cx, "host", &t, &self.room.names, &self.joined, &mut self.rates),
+            Some(Cmd::Emote(seat, dir)) => emote(cx, "host", seat, dir, &self.room, &self.joined, &mut self.emoted),
+            Some(Cmd::Device(d)) if self.room.devices.get("host") != Some(&d) => {
+                self.room.devices.insert("host".into(), d);
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+            }
+            Some(Cmd::Want(h)) => {
+                if let Some(b) = want("host", h, &self.room, &self.joined, &mut self.packs, &mut self.wants) {
+                    deliver(cx, "host", h, &b, &self.joined);
+                }
+            }
+            Some(Cmd::Leave) | None => {
+                for (_, _, conn) in &self.joined {
+                    conn.close(b"host left");
+                }
+                if let Some(ep) = &cx.ep {
+                    ep.set_user_data_for_address_lookup(None);
+                }
+                // an empty listing ages out in STALE; a full one isn't shown
+                return false;
+            }
+            Some(_) => {}
+        }
+        true
     }
 }
 

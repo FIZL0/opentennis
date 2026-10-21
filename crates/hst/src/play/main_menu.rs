@@ -828,6 +828,14 @@ enum Effect {
     SaveFavorites,
 }
 
+/// ↑↓ about `n` rows, wrapping.
+fn step_rows(k: Press, n: usize, sel: &mut usize, out: &mut Vec<Effect>) {
+    if k.up || k.down {
+        *sel = if k.down { (*sel + 1) % n } else { (*sel + n - 1) % n };
+        out.push(Effect::Sound(0));
+    }
+}
+
 impl Menu {
     fn players(&self) -> usize {
         if self.doubles { 4 } else { 2 }
@@ -1423,12 +1431,6 @@ impl Menu {
         if k.ok && matches!(self.screen, Screen::Online | Screen::Lobbies | Screen::Code) && matches!(dev, Dev::Keys | Dev::Pad(_)) && self.seats[0] != Some(dev) && (dev == Dev::Keys || self.p1 == Some(dev)) {
             (self.seats[0], self.p1) = (Some(dev), Some(dev));
         }
-        let rows = |n: usize, sel: &mut usize, out: &mut Vec<Effect>| {
-            if k.up || k.down {
-                *sel = if k.down { (*sel + 1) % n } else { (*sel + n - 1) % n };
-                out.push(Sound(0));
-            }
-        };
         // a lobby link's start (`online::linked`): the first device to press anything is this machine's player
         if self.screen == Screen::Press {
             if !self.splash_quit(k, &mut out) && (self.splash_step(dev, k.ok) || self.splash_update(k.card)) {
@@ -1478,81 +1480,14 @@ impl Menu {
         // concept: the local select is one screen; the strip under it is the confirm rows, the others keep picking
         let screen = if self.screen == Screen::Confirm && !self.online() && !self.drives_foot(dev) { Screen::Chars } else { self.screen };
         match screen {
-            Screen::Main => {
-                let main = self.main_rows();
-                rows(main.len(), &mut self.sel, &mut out);
-                // B374: ○ on the update notice: not again this run (the row above takes the hand)
-                if k.back && main.get(self.sel) == Some(&home::Row::Update) {
-                    crate::update::later();
-                    if crate::update::latest().is_none() {
-                        self.sel = self.sel.saturating_sub(1);
-                        out.push(Sound(1));
-                    }
-                } else if k.back {
-                    // B533: back to the splash, which gives 1P up to the next press
-                    self.splash_back();
-                    out.push(Sound(1));
-                    return out;
-                }
-                if k.ok {
-                    use home::Row;
-                    match main.get(self.sel).copied().unwrap_or(Row::Local) {
-                        // M141: new mods waiting and the Reload popup put off: asks first
-                        Row::Local | Row::Online if mods_screen::play_ask(self, dev) => out.push(Sound(2)),
-                        Row::Rematch => {
-                            // the same setup; a random court or umpire is drawn again, as Start does
-                            self.roll = std::hash::BuildHasher::hash_one(&std::hash::RandomState::new(), 0u8);
-                            out.extend([Sound(2), Launch]);
-                            self.screen = Screen::Playing;
-                        }
-                        // B516: whoever chose it, 1P is the splash's
-                        Row::Local => self.local_start(self.p1.unwrap_or(dev), &mut out),
-                        Row::Online if !self.stale.1 && crate::update::latest().is_some() => {
-                            self.stale = (Some(0), true);
-                            out.push(Effect::Sound(2));
-                        }
-                        Row::Online => self.go_online(dev, &mut out),
-                        Row::Settings => self.go(Screen::Display, &mut out),
-                        Row::Mods => self.mods_open(&mut out),
-                        Row::Extras => self.go(Screen::Extras, &mut out),
-                        Row::Update => crate::update::act(),
-                        Row::ModUpdates => self.update_all(&mut out),
-                        #[cfg(target_arch = "wasm32")]
-                        Row::Quit => crate::web::launcher(),
-                        #[cfg(not(target_arch = "wasm32"))]
-                        Row::Quit => out.push(Quit),
-                    }
-                }
-            }
+            Screen::Main => self.main_step(dev, k, &mut out),
             Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::ModSettings | Screen::Mobile => {
                 if self.editing.is_none() {
-                    rows(options::page(self.screen).len(), &mut self.sel, &mut out);
+                    step_rows(k, options::page(self.screen).len(), &mut self.sel, &mut out);
                 }
                 self.step_page(k, &mut out);
             }
-            Screen::Controls => {
-                if self.rebinding.is_some() {
-                    return out;
-                }
-                // B609: ↑↓ walk the table's rows with the banner's Reset over the first (`sel` past the actions: it
-                // resets every binding, as a stick on a phone's pad can't be bound back), ←→ the row's two cells
-                let n = controls::action_names().count();
-                let mut at = (self.sel + 1) % (n + 1);
-                rows(n + 1, &mut at, &mut out);
-                self.sel = (at + n) % (n + 1);
-                if (k.left || k.right) && self.sel < n && self.keys_tab != k.right {
-                    self.keys_tab = k.right;
-                    out.push(Sound(0));
-                } else if k.ok && self.sel == n {
-                    out.extend([ResetControls, Sound(2)]);
-                } else if k.ok {
-                    self.rebinding = Some(self.sel);
-                    out.push(Sound(2));
-                } else {
-                    self.step_tabs(k, &mut out);
-                }
-                self.controls_top = options::controls_top(self);
-            }
+            Screen::Controls => self.controls_step(k, &mut out),
             Screen::Mode if self.hosts(dev) => {
                 if k.up || k.down || k.left || k.right {
                     self.doubles = !self.doubles;
@@ -1569,390 +1504,12 @@ impl Menu {
                     out.push(Sound(1));
                 }
             }
-            Screen::Assign => {
-                let n = self.players();
-                let seated = self.seats[..n].iter().position(|s| *s == Some(dev));
-                if host == Some(dev) {
-                    let p = self.sel.min(n - 1);
-                    self.held &= self.pickable(p);
-                    if let Some(a) = self.keep {
-                        // over a match, ○ after a change: Keep / Undo (○ again stays on the screen)
-                        if k.up || k.down || k.left || k.right {
-                            self.keep = Some(1 - a);
-                            out.push(Sound(0));
-                        } else if k.ok {
-                            self.keep = None;
-                            self.assign_leave(a == 0, host, &mut out);
-                        } else if k.back {
-                            self.keep = None;
-                            out.push(Sound(1));
-                        }
-                    } else if k.ok && seated.is_none() && self.open(p) && !(self.online() && p >= self.local_max()) {
-                        // a driver that gave up its seat takes the focused free one back
-                        self.seats[p] = Some(dev);
-                        out.push(Sound(2));
-                    } else if k.ok && (self.held || self.pickable(p)) {
-                        // ✕ picks up the focused seat's controller, or puts it down
-                        self.held = !self.held;
-                        out.push(Sound(if self.held { 2 } else { 1 }));
-                    } else if k.name {
-                        // Start (a pad's Start, N); ✕ only selects
-                        self.assign_leave(true, host, &mut out);
-                    } else if self.held && (k.left || k.right) {
-                        // the held controller trades places with the next seat that way (1P is never left empty)
-                        if let Some((p, q)) = self.host_swap(k.right) {
-                            // B437: the swap is shown at once, but this device drives the screen until it leaves
-                            self.assign_lead = host;
-                            self.seats.swap(p, q);
-                            if !self.paused {
-                                self.bots.swap(p, q);
-                            }
-                            self.sel = q;
-                            out.push(Sound(0));
-                        }
-                    } else if self.held && k.back {
-                        self.held = false;
-                        out.push(Sound(1));
-                    } else if !self.held && (k.left || k.right || k.up || k.down) {
-                        // the focus goes about the cards as they lie (two rows of two on a tall view)
-                        let per = self.assign_per();
-                        let (row, col) = (p / per, p % per);
-                        self.sel = if k.left || k.right {
-                            row * per + if k.right { (col + 1) % per } else { (col + per - 1) % per }
-                        } else if per < n {
-                            (p + per) % n
-                        } else {
-                            p
-                        };
-                        if self.sel != p {
-                            out.push(Sound(0));
-                        }
-                    } else if k.page && self.drop_seat(p) {
-                        out.push(Sound(1));
-                    } else if k.card && self.can_bot(p) {
-                        // B216: △ adds a computer player to the focused empty seat (or takes it off)
-                        self.bots[p] = !self.bots[p];
-                        out.push(Sound(if self.bots[p] { 2 } else { 1 }));
-                    } else if k.back && self.paused && self.assign_was.is_some_and(|w| w != (self.seats, self.bots)) {
-                        self.keep = Some(0);
-                        out.push(Sound(2));
-                    } else if k.back {
-                        self.assign_leave(false, host, &mut out);
-                    }
-                } else if k.ok && dev == Dev::Keys && let Some(q) = self.keys_target(seated) {
-                    // the keyboard's ✕ takes the seat the pointer / 1P's focus is on: a free one, or 1P's from a pad
-                    // (which goes to the keyboard's old seat, else the first free one, else off)
-                    let bumped = self.seats[q].take();
-                    if let Some(s) = seated {
-                        self.seats[s] = bumped;
-                    } else if let Some(f) = (0..n).find(|&f| self.open(f) && f != q && !(self.online() && f >= self.local_max())) {
-                        self.seats[f] = bumped;
-                    }
-                    self.seats[q] = Some(dev);
-                    self.assign_lead = None;
-                    self.held = false;
-                    out.push(Sound(2));
-                } else if k.ok && seated.is_none() {
-                    let n = if self.online() { self.local_max() } else { n };
-                    if let Some(p) = (0..n).find(|&p| self.seats[p].is_none() && !self.bots[p]) {
-                        if p == 0 {
-                            // concept: a new controller takes 1P (left by the old one): it drives from here
-                            (self.assign_lead, self.p1) = (None, Some(dev));
-                        }
-                        self.seats[p] = Some(dev);
-                        out.push(Sound(2));
-                    }
-                } else if (k.left || k.right || k.up || k.down) && let Some(p) = seated.filter(|&p| p > 0) {
-                    // the next free seat that way (1P stays the host's)
-                    let d = if k.right || k.down { 1 } else { n - 2 };
-                    let to = (1..n - 1).map(|j| 1 + (p - 1 + d * j) % (n - 1)).find(|&q| self.seats[q].is_none() && !self.bots[q] && !(self.online() && q >= self.local_max()));
-                    if let Some(q) = to {
-                        self.seats.swap(p, q);
-                        out.push(Sound(0));
-                    }
-                } else if k.back && let Some(p) = seated.filter(|&p| p > 0) {
-                    // B437: (the device the driver moved onto 1P stays there; the driver can take it off)
-                    self.seats[p] = None;
-                    out.push(Sound(1));
-                }
-            }
-            Screen::Chars => {
-                // B361: a third device on a local singles roster makes it doubles (and takes 1P's partner's seat)
-                if k.ok && !self.seats.contains(&Some(dev)) && self.join_seat().is_none() && self.can_join() {
-                    self.swap_mode(true);
-                }
-                // B238: a device not seated takes the first seat held open for one
-                if k.ok && !self.seats.contains(&Some(dev)) && let Some(p) = self.join_seat() {
-                    self.seats[p] = Some(dev);
-                    if p == 0 && self.local_roster() {
-                        // concept: whoever takes 1P's open seat drives the menus from here
-                        self.p1 = Some(dev);
-                    }
-                    self.unready(p);
-                    out.push(Sound(1));
-                    return out;
-                }
-                // concept: nobody seated (1P left, alone): any device's ○ leaves the screen; so does the keyboard's
-                // Esc when it has no seat (the pads seated may be unplugged)
-                if k.back && self.local_roster() && (self.humans() == 0 || dev == Dev::Keys && !self.seats.contains(&Some(dev))) {
-                    self.seats = [None; 4];
-                    self.sel = self.main_at(home::Row::Local);
-                    self.screen = Screen::Main;
-                    out.push(Sound(1));
-                    return out;
-                }
-                let Some(p) = self.driven(dev) else { return out };
-                self.focus = p;
-                // B375: a seated pad's Start is the name picker's, not ✕
-                let k = Press { ok: k.ok && !k.name, ..k };
-                // B371: Start the name picker for the device's own seat; while open it takes the presses
-                // concept: ready too
-                let np = (0..self.players()).find(|&q| self.seats[q] == Some(dev)).unwrap_or(p);
-                if self.name_step(np, dev, k, &mut out) {
-                    return out;
-                }
-                // B392: online, the host's 1P swaps the lobby's
-                if k.page && self.online_swap(dev, &mut out) {
-                    return out;
-                }
-                // B522: a guest's moves its player to the other team
-                if k.page && self.online_team_step(dev, &mut out) {
-                    return out;
-                }
-                // B375: 1P's device (only) swaps Singles ↔ Doubles with □ / Tab (or a tap on the mode pill)
-                if k.page && self.can_swap(dev) {
-                    self.swap_mode(true);
-                    out.push(Sound(0));
-                    return out;
-                }
-                // the other humans' □ / Tab: the other team (doubles)
-                if k.page && let Some((p, q)) = self.team_switch(dev) {
-                    self.seats.swap(p, q);
-                    self.players.swap(p, q);
-                    self.scroll.swap(p, q);
-                    out.push(Sound(0));
-                    return out;
-                }
-                let costumes = self.costumes(self.who(p));
-                let costume_to = |back: bool| self.next_free(p, self.who(p), (self.players[p].costume + if back { costumes - 1 } else { 1 }) % costumes, back);
-                let (next_c, prev_c) = (costume_to(false), costume_to(true));
-                if k.hand && !self.players[p].ready {
-                    self.players[p].swap = !self.players[p].swap;
-                    out.push(Sound(0));
-                }
-                // B369 / B375: △ a favorite (not Random's); B382: the moves and L2 / R2 on the grid
-                if k.card && !self.players[p].ready && !self.players[p].random {
-                    self.toggle_favorite(p, &mut out);
-                }
-                if !self.players[p].ready && self.grid_move(p, k) {
-                    self.follow(p);
-                    out.push(Sound(0));
-                } else if k.down && self.players[p].ready && !self.online() && self.lead() == Some(dev) {
-                    // concept: 1P's ↓, once its pick is in, to the court and umpire strip
-                    (self.screen, self.sel) = (Screen::Confirm, 1);
-                    out.push(Sound(0));
-                    return out;
-                }
-                if !self.players[p].ready && (k.prev || k.next) {
-                    // M1n / B66: past a costume that failed to load or that someone else is ready on
-                    if let Some(c) = if k.next { next_c } else { prev_c } {
-                        self.players[p].costume = c;
-                    }
-                    out.push(Sound(0));
-                }
-                // B66: landing on a taken costume moves on to the next free one
-                self.skip_taken();
-                if k.ok && !self.players[p].ready {
-                    if (self.players[p].random && !self.roll_random(p)) || self.blocked(p) {
-                        out.push(Sound(1));
-                    } else {
-                        self.players[p].ready = true;
-                        self.skip_taken();
-                        out.push(Sound(2));
-                        self.last = Some(self.cell(p));
-                        self.last_tab = self.players[p].tab;
-                        if self.online() && self.net.edit == Some(p) {
-                            self.online_bot_ready(p, &mut out);
-                        } else if self.online() && (0..self.players()).all(|q| self.seats[q].is_none() || self.players[q].ready) {
-                            self.online_ready(&mut out);
-                        } else {
-                            self.chars_done(&mut out);
-                            self.carry_pick(dev);
-                        }
-                    }
-                } else if k.back {
-                    if self.players[p].ready && p == 0 && self.online() && !self.net.first {
-                        // concept: 1P back on the lobby while another local player picks (its pick stays)
-                        self.screen = Screen::Lobby;
-                        out.push(Sound(1));
-                    } else if self.players[p].ready {
-                        self.unready(p);
-                        out.push(Sound(1));
-                    } else if self.online() && self.net.edit == Some(p) {
-                        // B216: the host leaves its computer player as it was in the lobby
-                        self.bot_to_lobby(p, &mut out);
-                        out.push(Sound(1));
-                    } else if self.seats[p].is_none() {
-                        // player 1 driving a computer player (one added or an open seat's COM card): back to the last
-                        // one readied, never a pick for the computer (B355); B572: a computer's, else the driver's
-                        // own (not another human's, who may still be picking)
-                        let own = self.seats.iter().position(|&s| s == Some(dev));
-                        if let Some(q) = (0..self.players()).rev().find(|&q| self.bot(q) && self.players[q].ready).or(own) {
-                            self.unready(q);
-                        }
-                        out.push(Sound(1));
-                    } else if self.seats[p] == Some(dev) && self.drop_seat(p) {
-                        // B238: a joined device's ○ takes it off its seat
-                        out.push(Sound(LEAVE_SOUND));
-                    } else if p == 0 && self.online() && self.net.first {
-                        if !self.ask_leave(&mut out) {
-                            self.chars_back(&mut out);
-                        }
-                    } else if p == 0 && self.online() {
-                        // concept: online, 1P off its seat (held open for a pad's ✕) and back on the lobby it still
-                        // works; ○ there leaves
-                        self.seats[0] = Some(Dev::Open);
-                        self.screen = Screen::Lobby;
-                        out.push(Sound(LEAVE_SOUND));
-                    } else if p == 0 {
-                        // B331: the local roster is the first screen past the main menu
-                        self.seats[1..].fill(None);
-                        self.sel = self.main_at(home::Row::Local);
-                        self.screen = Screen::Main;
-                        out.push(Sound(1));
-                    }
-                }
-            }
+            Screen::Assign => self.assign_step(dev, k, host, &mut out),
+            Screen::Chars => self.chars_step(dev, k, &mut out),
             // B451: the umpire picker's rows
             Screen::Confirm if self.drives_foot(dev) && self.picking.is_some() && self.sel == 4 => umpire_picker::step(self, k, &mut out),
-            Screen::Confirm if self.drives_foot(dev) && self.picking.is_some() => {
-                // the pickers: the court and umpire strips' ←→ (Random first, stop at the ends); ✕ keeps, ○ puts back
-                let d = k.right as i32 - k.left as i32;
-                if self.sel == 1 {
-                    // B450: the court picker's rows
-                    court_picker::step(self, k, &mut out);
-                } else if self.sel == 4 {
-                    let order = strip_order(self);
-                    let at = strip_at(self);
-                    let to = (at as i32 + d).clamp(0, order.len() as i32 - 1) as usize;
-                    if to != at {
-                        self.umpire = order[to] as u8;
-                        out.push(Sound(0));
-                    }
-                    if k.card && self.sel == 4 && self.umpire as usize != UMPIRES {
-                        // the lob key (△): Preview Voice
-                        let (program, key) = CALLS[self.calls % CALLS.len()];
-                        self.calls += 1;
-                        out.push(Hear(self.umpire, program, key));
-                    }
-                } else if d != 0 {
-                    // B212: Sets and Games stop at the ends like the umpire cards (the original's ◀ ▶ go there)
-                    let was = (self.umpire, self.sets, self.games);
-                    let step = |v: usize, n: usize| (v as i32 + d).clamp(0, n as i32 - 1) as usize;
-                    match self.sel {
-                        2 => self.sets = step(self.sets, SETS.len()),
-                        3 => self.games = GAMES[step(GAMES.iter().position(|&n| n >= self.games).unwrap_or(1), GAMES.len())],
-                        _ => self.umpire = step(self.umpire as usize, UMPIRES + 1) as u8,
-                    }
-                    if was != (self.umpire, self.sets, self.games) {
-                        out.push(Sound(0));
-                    }
-                }
-                if k.ok {
-                    self.picking = None;
-                    out.push(Sound(2));
-                    // B191: the umpire pick is the next confirm screen's (and the next run's) starting choice
-                    if self.sel != 1 && self.settings.umpire != self.umpire && self.umpire as usize <= UMPIRES {
-                        self.settings.umpire = self.umpire;
-                        out.push(SaveSettings);
-                    }
-                } else if k.back {
-                    let v = self.picking.take().unwrap_or_default();
-                    match self.sel {
-                        1 => self.court = v,
-                        2 => self.sets = v,
-                        3 => self.games = v as i32,
-                        _ => self.umpire = v as u8,
-                    }
-                    out.push(Sound(1));
-                }
-                if self.picking.is_none() {
-                    // opened from the lobby's settings row: back there
-                    self.venue_picked(&mut out);
-                }
-            }
-            Screen::Confirm if self.drives_foot(dev) => {
-                // B371: Start / N is the name picker's (its own seat, ready or not)
-                let own = (0..self.players()).find(|&q| self.seats[q] == Some(dev));
-                if let Some(q) = own && self.name_step(q, dev, k, &mut out) {
-                    return out;
-                }
-                // B449: the arrows go about the screen as its parts lie; ✕ on Start starts once every card is ready
-                let k = Press { ok: k.ok && !k.name, ..k };
-                let all = (0..self.players()).all(|q| self.players[q].ready);
-                let start = k.ok && self.sel == 0 && (all || self.online());
-                if k.ok && self.sel == 0 && !start {
-                    out.push(Sound(1));
-                    return out;
-                }
-                let to = self.confirm_step(k);
-                if to != self.sel {
-                    self.sel = to;
-                    out.push(Sound(0));
-                }
-                // B212: the court, Sets, Games and the umpire open their picker on ✕ (the value it puts back on ○)
-                if k.ok && self.sel == MARKS_ROW {
-                    self.no_marks = !self.no_marks;
-                    out.push(Sound(0));
-                    if self.online() {
-                        out.push(Effect::Online(online::Fx::Net(crate::net::Cmd::NoMarks(self.no_marks))));
-                    }
-                } else if k.ok && (1..MARKS_ROW).contains(&self.sel) {
-                    self.picking = Some([0, self.court, self.sets, self.games as usize, self.umpire as usize][self.sel]);
-                    out.push(Sound(2));
-                }
-                if start {
-                    // ponytail: std's per-call hasher keys as the dice (not the match's RNG, which this never touches)
-                    self.roll = std::hash::BuildHasher::hash_one(&std::hash::RandomState::new(), 0u8);
-                }
-                if start && self.online() {
-                    self.online_host(&mut out);
-                } else if start {
-                    out.extend([Sound(2), Launch]);
-                    self.screen = Screen::Playing;
-                    self.rematch = true;
-                } else if k.page && self.confirm_swap() {
-                    // B449: 1P's □ swaps Singles ↔ Doubles here too; new computer partners are picked on the select
-                    self.swap_mode(true);
-                    self.preset_coms();
-                    self.sel = 0;
-                    out.push(Sound(0));
-                    if !(0..self.players()).all(|q| self.players[q].ready) {
-                        self.screen = Screen::Chars;
-                    }
-                } else if k.page && !self.online() {
-                    // doubles with more than two people here can't be singles
-                    out.push(Sound(1));
-                } else if (k.back || k.ok && self.sel >= CONFIRM_ROWS) && self.online() {
-                    self.go(Screen::Lobby, &mut out);
-                } else if k.ok && self.sel >= CONFIRM_ROWS && !(self.seats[self.sel - CONFIRM_ROWS] == Some(dev) || self.bot(self.sel - CONFIRM_ROWS)) {
-                    // another person's card is theirs to pick again
-                    out.push(Sound(1));
-                } else if k.back || k.ok && self.sel >= CONFIRM_ROWS {
-                    // ✕ on a plate: that card picked again; ○: off the strip, with every card ready the last computer
-                    // player's picked again (B355), else this device's own
-                    let n = self.players();
-                    let again = if k.ok { Some(self.sel - CONFIRM_ROWS) } else if all { (0..n).rev().find(|&q| self.bot(q)).or(own).or(Some(0)) } else { None };
-                    if let Some(q) = again {
-                        self.unready(q);
-                    }
-                    if self.foot == Some(dev) {
-                        self.foot = None;
-                    }
-                    (self.screen, self.sel) = (Screen::Chars, 0);
-                    out.push(Sound(1));
-                }
-            }
+            Screen::Confirm if self.drives_foot(dev) && self.picking.is_some() => self.venue_step(k, &mut out),
+            Screen::Confirm if self.drives_foot(dev) => self.confirm_rows_step(dev, k, &mut out),
             Screen::Online | Screen::Lobbies | Screen::Lobby | Screen::Code => self.online_step(k, &mut out),
             Screen::Mods => {
                 // B383: the search box's ✕ types in place from the keyboard, a pad gets the keyboard on screen
@@ -1963,6 +1520,475 @@ impl Menu {
             _ => {}
         }
         out
+    }
+
+    /// The main menu's rows.
+    fn main_step(&mut self, dev: Dev, k: Press, out: &mut Vec<Effect>) {
+        use Effect::*;
+        let main = self.main_rows();
+        step_rows(k, main.len(), &mut self.sel, out);
+        // B374: ○ on the update notice: not again this run (the row above takes the hand)
+        if k.back && main.get(self.sel) == Some(&home::Row::Update) {
+            crate::update::later();
+            if crate::update::latest().is_none() {
+                self.sel = self.sel.saturating_sub(1);
+                out.push(Sound(1));
+            }
+        } else if k.back {
+            // B533: back to the splash, which gives 1P up to the next press
+            self.splash_back();
+            out.push(Sound(1));
+            return;
+        }
+        if k.ok {
+            use home::Row;
+            match main.get(self.sel).copied().unwrap_or(Row::Local) {
+                // M141: new mods waiting and the Reload popup put off: asks first
+                Row::Local | Row::Online if mods_screen::play_ask(self, dev) => out.push(Sound(2)),
+                Row::Rematch => {
+                    // the same setup; a random court or umpire is drawn again, as Start does
+                    self.roll = std::hash::BuildHasher::hash_one(&std::hash::RandomState::new(), 0u8);
+                    out.extend([Sound(2), Launch]);
+                    self.screen = Screen::Playing;
+                }
+                // B516: whoever chose it, 1P is the splash's
+                Row::Local => self.local_start(self.p1.unwrap_or(dev), out),
+                Row::Online if !self.stale.1 && crate::update::latest().is_some() => {
+                    self.stale = (Some(0), true);
+                    out.push(Effect::Sound(2));
+                }
+                Row::Online => self.go_online(dev, out),
+                Row::Settings => self.go(Screen::Display, out),
+                Row::Mods => self.mods_open(out),
+                Row::Extras => self.go(Screen::Extras, out),
+                Row::Update => crate::update::act(),
+                Row::ModUpdates => self.update_all(out),
+                #[cfg(target_arch = "wasm32")]
+                Row::Quit => crate::web::launcher(),
+                #[cfg(not(target_arch = "wasm32"))]
+                Row::Quit => out.push(Quit),
+            }
+        }
+    }
+
+    /// The Controls page: a binding's rows, Reset, the tabs.
+    fn controls_step(&mut self, k: Press, out: &mut Vec<Effect>) {
+        use Effect::*;
+        if self.rebinding.is_some() {
+            return;
+        }
+        // B609: ↑↓ walk the table's rows with the banner's Reset over the first (`sel` past the actions: it
+        // resets every binding, as a stick on a phone's pad can't be bound back), ←→ the row's two cells
+        let n = controls::action_names().count();
+        let mut at = (self.sel + 1) % (n + 1);
+        step_rows(k, n + 1, &mut at, out);
+        self.sel = (at + n) % (n + 1);
+        if (k.left || k.right) && self.sel < n && self.keys_tab != k.right {
+            self.keys_tab = k.right;
+            out.push(Sound(0));
+        } else if k.ok && self.sel == n {
+            out.extend([ResetControls, Sound(2)]);
+        } else if k.ok {
+            self.rebinding = Some(self.sel);
+            out.push(Sound(2));
+        } else {
+            self.step_tabs(k, out);
+        }
+        self.controls_top = options::controls_top(self);
+    }
+
+    /// The controllers screen: seats, computers, Keep / Undo (`host`: the device that drives it).
+    fn assign_step(&mut self, dev: Dev, k: Press, host: Option<Dev>, out: &mut Vec<Effect>) {
+        use Effect::*;
+        let n = self.players();
+        let seated = self.seats[..n].iter().position(|s| *s == Some(dev));
+        if host == Some(dev) {
+            let p = self.sel.min(n - 1);
+            self.held &= self.pickable(p);
+            if let Some(a) = self.keep {
+                // over a match, ○ after a change: Keep / Undo (○ again stays on the screen)
+                if k.up || k.down || k.left || k.right {
+                    self.keep = Some(1 - a);
+                    out.push(Sound(0));
+                } else if k.ok {
+                    self.keep = None;
+                    self.assign_leave(a == 0, host, out);
+                } else if k.back {
+                    self.keep = None;
+                    out.push(Sound(1));
+                }
+            } else if k.ok && seated.is_none() && self.open(p) && !(self.online() && p >= self.local_max()) {
+                // a driver that gave up its seat takes the focused free one back
+                self.seats[p] = Some(dev);
+                out.push(Sound(2));
+            } else if k.ok && (self.held || self.pickable(p)) {
+                // ✕ picks up the focused seat's controller, or puts it down
+                self.held = !self.held;
+                out.push(Sound(if self.held { 2 } else { 1 }));
+            } else if k.name {
+                // Start (a pad's Start, N); ✕ only selects
+                self.assign_leave(true, host, out);
+            } else if self.held && (k.left || k.right) {
+                // the held controller trades places with the next seat that way (1P is never left empty)
+                if let Some((p, q)) = self.host_swap(k.right) {
+                    // B437: the swap is shown at once, but this device drives the screen until it leaves
+                    self.assign_lead = host;
+                    self.seats.swap(p, q);
+                    if !self.paused {
+                        self.bots.swap(p, q);
+                    }
+                    self.sel = q;
+                    out.push(Sound(0));
+                }
+            } else if self.held && k.back {
+                self.held = false;
+                out.push(Sound(1));
+            } else if !self.held && (k.left || k.right || k.up || k.down) {
+                // the focus goes about the cards as they lie (two rows of two on a tall view)
+                let per = self.assign_per();
+                let (row, col) = (p / per, p % per);
+                self.sel = if k.left || k.right {
+                    row * per + if k.right { (col + 1) % per } else { (col + per - 1) % per }
+                } else if per < n {
+                    (p + per) % n
+                } else {
+                    p
+                };
+                if self.sel != p {
+                    out.push(Sound(0));
+                }
+            } else if k.page && self.drop_seat(p) {
+                out.push(Sound(1));
+            } else if k.card && self.can_bot(p) {
+                // B216: △ adds a computer player to the focused empty seat (or takes it off)
+                self.bots[p] = !self.bots[p];
+                out.push(Sound(if self.bots[p] { 2 } else { 1 }));
+            } else if k.back && self.paused && self.assign_was.is_some_and(|w| w != (self.seats, self.bots)) {
+                self.keep = Some(0);
+                out.push(Sound(2));
+            } else if k.back {
+                self.assign_leave(false, host, out);
+            }
+        } else if k.ok && dev == Dev::Keys && let Some(q) = self.keys_target(seated) {
+            // the keyboard's ✕ takes the seat the pointer / 1P's focus is on: a free one, or 1P's from a pad
+            // (which goes to the keyboard's old seat, else the first free one, else off)
+            let bumped = self.seats[q].take();
+            if let Some(s) = seated {
+                self.seats[s] = bumped;
+            } else if let Some(f) = (0..n).find(|&f| self.open(f) && f != q && !(self.online() && f >= self.local_max())) {
+                self.seats[f] = bumped;
+            }
+            self.seats[q] = Some(dev);
+            self.assign_lead = None;
+            self.held = false;
+            out.push(Sound(2));
+        } else if k.ok && seated.is_none() {
+            let n = if self.online() { self.local_max() } else { n };
+            if let Some(p) = (0..n).find(|&p| self.seats[p].is_none() && !self.bots[p]) {
+                if p == 0 {
+                    // concept: a new controller takes 1P (left by the old one): it drives from here
+                    (self.assign_lead, self.p1) = (None, Some(dev));
+                }
+                self.seats[p] = Some(dev);
+                out.push(Sound(2));
+            }
+        } else if (k.left || k.right || k.up || k.down) && let Some(p) = seated.filter(|&p| p > 0) {
+            // the next free seat that way (1P stays the host's)
+            let d = if k.right || k.down { 1 } else { n - 2 };
+            let to = (1..n - 1).map(|j| 1 + (p - 1 + d * j) % (n - 1)).find(|&q| self.seats[q].is_none() && !self.bots[q] && !(self.online() && q >= self.local_max()));
+            if let Some(q) = to {
+                self.seats.swap(p, q);
+                out.push(Sound(0));
+            }
+        } else if k.back && let Some(p) = seated.filter(|&p| p > 0) {
+            // B437: (the device the driver moved onto 1P stays there; the driver can take it off)
+            self.seats[p] = None;
+            out.push(Sound(1));
+        }
+    }
+
+    /// The character select: a device's own card.
+    fn chars_step(&mut self, dev: Dev, k: Press, out: &mut Vec<Effect>) {
+        use Effect::*;
+        // B361: a third device on a local singles roster makes it doubles (and takes 1P's partner's seat)
+        if k.ok && !self.seats.contains(&Some(dev)) && self.join_seat().is_none() && self.can_join() {
+            self.swap_mode(true);
+        }
+        // B238: a device not seated takes the first seat held open for one
+        if k.ok && !self.seats.contains(&Some(dev)) && let Some(p) = self.join_seat() {
+            self.seats[p] = Some(dev);
+            if p == 0 && self.local_roster() {
+                // concept: whoever takes 1P's open seat drives the menus from here
+                self.p1 = Some(dev);
+            }
+            self.unready(p);
+            out.push(Sound(1));
+            return;
+        }
+        // concept: nobody seated (1P left, alone): any device's ○ leaves the screen; so does the keyboard's
+        // Esc when it has no seat (the pads seated may be unplugged)
+        if k.back && self.local_roster() && (self.humans() == 0 || dev == Dev::Keys && !self.seats.contains(&Some(dev))) {
+            self.seats = [None; 4];
+            self.sel = self.main_at(home::Row::Local);
+            self.screen = Screen::Main;
+            out.push(Sound(1));
+            return;
+        }
+        let Some(p) = self.driven(dev) else { return };
+        self.focus = p;
+        // B375: a seated pad's Start is the name picker's, not ✕
+        let k = Press { ok: k.ok && !k.name, ..k };
+        // B371: Start the name picker for the device's own seat; while open it takes the presses
+        // concept: ready too
+        let np = (0..self.players()).find(|&q| self.seats[q] == Some(dev)).unwrap_or(p);
+        if self.name_step(np, dev, k, out) {
+            return;
+        }
+        // B392: online, the host's 1P swaps the lobby's
+        if k.page && self.online_swap(dev, out) {
+            return;
+        }
+        // B522: a guest's moves its player to the other team
+        if k.page && self.online_team_step(dev, out) {
+            return;
+        }
+        // B375: 1P's device (only) swaps Singles ↔ Doubles with □ / Tab (or a tap on the mode pill)
+        if k.page && self.can_swap(dev) {
+            self.swap_mode(true);
+            out.push(Sound(0));
+            return;
+        }
+        // the other humans' □ / Tab: the other team (doubles)
+        if k.page && let Some((p, q)) = self.team_switch(dev) {
+            self.seats.swap(p, q);
+            self.players.swap(p, q);
+            self.scroll.swap(p, q);
+            out.push(Sound(0));
+            return;
+        }
+        let costumes = self.costumes(self.who(p));
+        let costume_to = |back: bool| self.next_free(p, self.who(p), (self.players[p].costume + if back { costumes - 1 } else { 1 }) % costumes, back);
+        let (next_c, prev_c) = (costume_to(false), costume_to(true));
+        if k.hand && !self.players[p].ready {
+            self.players[p].swap = !self.players[p].swap;
+            out.push(Sound(0));
+        }
+        // B369 / B375: △ a favorite (not Random's); B382: the moves and L2 / R2 on the grid
+        if k.card && !self.players[p].ready && !self.players[p].random {
+            self.toggle_favorite(p, out);
+        }
+        if !self.players[p].ready && self.grid_move(p, k) {
+            self.follow(p);
+            out.push(Sound(0));
+        } else if k.down && self.players[p].ready && !self.online() && self.lead() == Some(dev) {
+            // concept: 1P's ↓, once its pick is in, to the court and umpire strip
+            (self.screen, self.sel) = (Screen::Confirm, 1);
+            out.push(Sound(0));
+            return;
+        }
+        if !self.players[p].ready && (k.prev || k.next) {
+            // M1n / B66: past a costume that failed to load or that someone else is ready on
+            if let Some(c) = if k.next { next_c } else { prev_c } {
+                self.players[p].costume = c;
+            }
+            out.push(Sound(0));
+        }
+        // B66: landing on a taken costume moves on to the next free one
+        self.skip_taken();
+        if k.ok && !self.players[p].ready {
+            if (self.players[p].random && !self.roll_random(p)) || self.blocked(p) {
+                out.push(Sound(1));
+            } else {
+                self.players[p].ready = true;
+                self.skip_taken();
+                out.push(Sound(2));
+                self.last = Some(self.cell(p));
+                self.last_tab = self.players[p].tab;
+                if self.online() && self.net.edit == Some(p) {
+                    self.online_bot_ready(p, out);
+                } else if self.online() && (0..self.players()).all(|q| self.seats[q].is_none() || self.players[q].ready) {
+                    self.online_ready(out);
+                } else {
+                    self.chars_done(out);
+                    self.carry_pick(dev);
+                }
+            }
+        } else if k.back {
+            if self.players[p].ready && p == 0 && self.online() && !self.net.first {
+                // concept: 1P back on the lobby while another local player picks (its pick stays)
+                self.screen = Screen::Lobby;
+                out.push(Sound(1));
+            } else if self.players[p].ready {
+                self.unready(p);
+                out.push(Sound(1));
+            } else if self.online() && self.net.edit == Some(p) {
+                // B216: the host leaves its computer player as it was in the lobby
+                self.bot_to_lobby(p, out);
+                out.push(Sound(1));
+            } else if self.seats[p].is_none() {
+                // player 1 driving a computer player (one added or an open seat's COM card): back to the last
+                // one readied, never a pick for the computer (B355); B572: a computer's, else the driver's
+                // own (not another human's, who may still be picking)
+                let own = self.seats.iter().position(|&s| s == Some(dev));
+                if let Some(q) = (0..self.players()).rev().find(|&q| self.bot(q) && self.players[q].ready).or(own) {
+                    self.unready(q);
+                }
+                out.push(Sound(1));
+            } else if self.seats[p] == Some(dev) && self.drop_seat(p) {
+                // B238: a joined device's ○ takes it off its seat
+                out.push(Sound(LEAVE_SOUND));
+            } else if p == 0 && self.online() && self.net.first {
+                if !self.ask_leave(out) {
+                    self.chars_back(out);
+                }
+            } else if p == 0 && self.online() {
+                // concept: online, 1P off its seat (held open for a pad's ✕) and back on the lobby it still
+                // works; ○ there leaves
+                self.seats[0] = Some(Dev::Open);
+                self.screen = Screen::Lobby;
+                out.push(Sound(LEAVE_SOUND));
+            } else if p == 0 {
+                // B331: the local roster is the first screen past the main menu
+                self.seats[1..].fill(None);
+                self.sel = self.main_at(home::Row::Local);
+                self.screen = Screen::Main;
+                out.push(Sound(1));
+            }
+        }
+    }
+
+    /// The confirm screen with a court or umpire picker open.
+    fn venue_step(&mut self, k: Press, out: &mut Vec<Effect>) {
+        use Effect::*;
+        // the pickers: the court and umpire strips' ←→ (Random first, stop at the ends); ✕ keeps, ○ puts back
+        let d = k.right as i32 - k.left as i32;
+        if self.sel == 1 {
+            // B450: the court picker's rows
+            court_picker::step(self, k, out);
+        } else if self.sel == 4 {
+            let order = strip_order(self);
+            let at = strip_at(self);
+            let to = (at as i32 + d).clamp(0, order.len() as i32 - 1) as usize;
+            if to != at {
+                self.umpire = order[to] as u8;
+                out.push(Sound(0));
+            }
+            if k.card && self.sel == 4 && self.umpire as usize != UMPIRES {
+                // the lob key (△): Preview Voice
+                let (program, key) = CALLS[self.calls % CALLS.len()];
+                self.calls += 1;
+                out.push(Hear(self.umpire, program, key));
+            }
+        } else if d != 0 {
+            // B212: Sets and Games stop at the ends like the umpire cards (the original's ◀ ▶ go there)
+            let was = (self.umpire, self.sets, self.games);
+            let step = |v: usize, n: usize| (v as i32 + d).clamp(0, n as i32 - 1) as usize;
+            match self.sel {
+                2 => self.sets = step(self.sets, SETS.len()),
+                3 => self.games = GAMES[step(GAMES.iter().position(|&n| n >= self.games).unwrap_or(1), GAMES.len())],
+                _ => self.umpire = step(self.umpire as usize, UMPIRES + 1) as u8,
+            }
+            if was != (self.umpire, self.sets, self.games) {
+                out.push(Sound(0));
+            }
+        }
+        if k.ok {
+            self.picking = None;
+            out.push(Sound(2));
+            // B191: the umpire pick is the next confirm screen's (and the next run's) starting choice
+            if self.sel != 1 && self.settings.umpire != self.umpire && self.umpire as usize <= UMPIRES {
+                self.settings.umpire = self.umpire;
+                out.push(SaveSettings);
+            }
+        } else if k.back {
+            let v = self.picking.take().unwrap_or_default();
+            match self.sel {
+                1 => self.court = v,
+                2 => self.sets = v,
+                3 => self.games = v as i32,
+                _ => self.umpire = v as u8,
+            }
+            out.push(Sound(1));
+        }
+        if self.picking.is_none() {
+            // opened from the lobby's settings row: back there
+            self.venue_picked(out);
+        }
+    }
+
+    /// The confirm screen's rows: venue, settings, Start.
+    fn confirm_rows_step(&mut self, dev: Dev, k: Press, out: &mut Vec<Effect>) {
+        use Effect::*;
+        // B371: Start / N is the name picker's (its own seat, ready or not)
+        let own = (0..self.players()).find(|&q| self.seats[q] == Some(dev));
+        if let Some(q) = own && self.name_step(q, dev, k, out) {
+            return;
+        }
+        // B449: the arrows go about the screen as its parts lie; ✕ on Start starts once every card is ready
+        let k = Press { ok: k.ok && !k.name, ..k };
+        let all = (0..self.players()).all(|q| self.players[q].ready);
+        let start = k.ok && self.sel == 0 && (all || self.online());
+        if k.ok && self.sel == 0 && !start {
+            out.push(Sound(1));
+            return;
+        }
+        let to = self.confirm_step(k);
+        if to != self.sel {
+            self.sel = to;
+            out.push(Sound(0));
+        }
+        // B212: the court, Sets, Games and the umpire open their picker on ✕ (the value it puts back on ○)
+        if k.ok && self.sel == MARKS_ROW {
+            self.no_marks = !self.no_marks;
+            out.push(Sound(0));
+            if self.online() {
+                out.push(Effect::Online(online::Fx::Net(crate::net::Cmd::NoMarks(self.no_marks))));
+            }
+        } else if k.ok && (1..MARKS_ROW).contains(&self.sel) {
+            self.picking = Some([0, self.court, self.sets, self.games as usize, self.umpire as usize][self.sel]);
+            out.push(Sound(2));
+        }
+        if start {
+            // ponytail: std's per-call hasher keys as the dice (not the match's RNG, which this never touches)
+            self.roll = std::hash::BuildHasher::hash_one(&std::hash::RandomState::new(), 0u8);
+        }
+        if start && self.online() {
+            self.online_host(out);
+        } else if start {
+            out.extend([Sound(2), Launch]);
+            self.screen = Screen::Playing;
+            self.rematch = true;
+        } else if k.page && self.confirm_swap() {
+            // B449: 1P's □ swaps Singles ↔ Doubles here too; new computer partners are picked on the select
+            self.swap_mode(true);
+            self.preset_coms();
+            self.sel = 0;
+            out.push(Sound(0));
+            if !(0..self.players()).all(|q| self.players[q].ready) {
+                self.screen = Screen::Chars;
+            }
+        } else if k.page && !self.online() {
+            // doubles with more than two people here can't be singles
+            out.push(Sound(1));
+        } else if (k.back || k.ok && self.sel >= CONFIRM_ROWS) && self.online() {
+            self.go(Screen::Lobby, out);
+        } else if k.ok && self.sel >= CONFIRM_ROWS && !(self.seats[self.sel - CONFIRM_ROWS] == Some(dev) || self.bot(self.sel - CONFIRM_ROWS)) {
+            // another person's card is theirs to pick again
+            out.push(Sound(1));
+        } else if k.back || k.ok && self.sel >= CONFIRM_ROWS {
+            // ✕ on a plate: that card picked again; ○: off the strip, with every card ready the last computer
+            // player's picked again (B355), else this device's own
+            let n = self.players();
+            let again = if k.ok { Some(self.sel - CONFIRM_ROWS) } else if all { (0..n).rev().find(|&q| self.bot(q)).or(own).or(Some(0)) } else { None };
+            if let Some(q) = again {
+                self.unready(q);
+            }
+            if self.foot == Some(dev) {
+                self.foot = None;
+            }
+            (self.screen, self.sel) = (Screen::Chars, 0);
+            out.push(Sound(1));
+        }
     }
 
     fn go(&mut self, s: Screen, out: &mut Vec<Effect>) {
