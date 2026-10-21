@@ -3,7 +3,7 @@
 //! themselves), Yes, No (the notice stays put away for the run, as its Later does) or Never (remembered: no more
 //! checks, Settings → Updates on Never). Like the mods' online prompt (`mods_online::Ask`), and changeable in Settings.
 
-use super::{Draw, Effect, INK, Menu, Press, Screen, Tex, UPDATE_CHECK, WHITE, pointer};
+use super::{Draw, Effect, INK, Menu, Press, Screen, Tex, WHITE, pointer};
 
 /// The popup's pills, top to bottom.
 pub(super) const CHOICES: [&str; 4] = ["Always", "Yes", "No", "Never"];
@@ -50,14 +50,14 @@ impl Menu {
         out.push(Effect::Sound(if a == NO { 1 } else { 2 }));
         match CHOICES[a] {
             "Always" => {
-                self.settings.11 = true;
+                self.settings.updates_always = true;
                 crate::update::ALWAYS.store(true, Relaxed);
                 out.push(Effect::SaveSettings);
                 crate::update::act();
             }
             "Yes" => crate::update::act(),
             "Never" => {
-                self.settings.0[UPDATE_CHECK] = false;
+                self.settings.update_check = false;
                 crate::update::CHECK.store(false, Relaxed);
                 out.push(Effect::SaveSettings);
             }
@@ -116,7 +116,7 @@ mod tests {
         m.update_ask_step(Press { up: true, ..default() }, &mut out);
         assert_eq!(m.update_ask, Some(3));
         m.update_ask_step(Press { ok: true, ..default() }, &mut out);
-        assert!(!m.settings.0[UPDATE_CHECK] && out.contains(&Effect::SaveSettings));
+        assert!(!m.settings.update_check && out.contains(&Effect::SaveSettings));
         m.update_ask = Some(YES);
         m.update_ask_step(Press { back: true, ..default() }, &mut out);
         assert_eq!(m.update_ask, None);

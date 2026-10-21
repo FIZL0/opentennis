@@ -4,6 +4,8 @@
 //! frames through the port and diff them; `cargo run -p hst-sim --bin replay` dumps them.
 #![deny(clippy::float_arithmetic)]
 
+use hst_data::{f32_at, i32_at};
+
 pub const GLOBALS_ADDR: usize = 0x422f80;
 const PAD: usize = 4;
 const GLOBALS: usize = PAD + 0x90;
@@ -49,13 +51,6 @@ pub fn frames(data: &[u8]) -> Vec<Frame<'_>> {
 /// Every whole sample of a recording with the live ball and rally block.
 pub fn frames_live(data: &[u8]) -> Vec<Frame<'_>> {
     data.as_chunks::<SAMPLE_LIVE>().0.iter().map(|s| Frame(s)).collect()
-}
-
-fn i32_at(b: &[u8], o: usize) -> i32 {
-    i32::from_le_bytes(b[o..o + 4].try_into().unwrap())
-}
-fn f32_at(b: &[u8], o: usize) -> f32 {
-    f32::from_le_bytes(b[o..o + 4].try_into().unwrap())
 }
 
 impl<'a> Frame<'a> {

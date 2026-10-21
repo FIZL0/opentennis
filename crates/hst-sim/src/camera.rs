@@ -299,7 +299,8 @@ fn scale(a: V3, k: impl Into<F>) -> V3 {
 fn dot(a: V3, b: V3) -> f32 {
     (F(a[0]) * b[0] + F(a[1]) * b[1] + F(a[2]) * b[2]).0
 }
-fn cross(a: V3, b: V3) -> V3 {
+/// a × b on the FPU (chopped products and differences); the cut-aways' frames use it too.
+pub(crate) fn cross(a: V3, b: V3) -> V3 {
     let [a, b] = [a, b].map(|v| v.map(F));
     [(a[1] * b[2] - a[2] * b[1]).0, (a[2] * b[0] - a[0] * b[2]).0, (a[0] * b[1] - a[1] * b[0]).0]
 }

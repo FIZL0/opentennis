@@ -25,6 +25,7 @@
 //! model space to node space. Only batches whose material has an attribute map collide ([`Model::colliding`]).
 
 use crate::xb::Error;
+use crate::{f32_at, i32_at};
 
 /// GS PRIM bits a batch carries.
 pub mod prim {
@@ -273,12 +274,6 @@ impl<'a> Cursor<'a> {
     }
 }
 
-fn i32_at(b: &[u8], o: usize) -> i32 {
-    i32::from_le_bytes(b[o..o + 4].try_into().unwrap())
-}
-fn f32_at(b: &[u8], o: usize) -> f32 {
-    f32::from_le_bytes(b[o..o + 4].try_into().unwrap())
-}
 fn size_at(b: &[u8], o: usize) -> Result<usize, Error> {
     usize::try_from(i32_at(b, o)).map_err(|_| Error("mdl: negative size".into()))
 }

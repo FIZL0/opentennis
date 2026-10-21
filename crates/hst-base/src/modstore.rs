@@ -263,7 +263,7 @@ pub fn take() -> Vec<Event> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn spawn(f: impl std::future::Future<Output = ()> + Send + 'static) {
-    std::thread::spawn(move || tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f));
+    std::thread::spawn(move || crate::runtime().block_on(f));
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -514,10 +514,6 @@ fn retired(e: &Entry) -> bool {
     crate::mods::retired(&e.meta.id, &e.meta.source)
 }
 
-fn now() -> u64 {
-    web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
 #[derive(Serialize, Deserialize)]
 struct Cached {
     at: u64,
@@ -530,7 +526,7 @@ pub fn list(fresh: bool) {
     let shown = |c: Cached| c.entries.into_iter().filter(|e| !crate::mods::dropped(&e.meta.id) && !retired(e)).collect::<Vec<_>>();
     let cached = crate::store::read_to_string(crate::store::file(CACHE)).ok().and_then(|s| serde_json::from_str::<Cached>(&s).ok());
     if !fresh
-        && let Some(c) = cached.as_ref().filter(|c| now().saturating_sub(c.at) < CACHE_SECS)
+        && let Some(c) = cached.as_ref().filter(|c| crate::unix_secs().saturating_sub(c.at) < CACHE_SECS)
     {
         return send(Event::Listing(Ok(shown(Cached { at: c.at, entries: c.entries.clone() }))));
     }
@@ -538,7 +534,7 @@ pub fn list(fresh: bool) {
         match lists().await {
             Ok(l) => {
                 let all: Vec<Entry> = merge(l).into_iter().filter(|e| !retired(e)).collect();
-                let _ = crate::store::write(crate::store::file(CACHE), serde_json::to_string(&Cached { at: now(), entries: all.clone() }).unwrap());
+                let _ = crate::store::write(crate::store::file(CACHE), serde_json::to_string(&Cached { at: crate::unix_secs(), entries: all.clone() }).unwrap());
                 send(Event::Listing(Ok(all)));
             }
             Err(e) => match cached.filter(|c| !c.entries.is_empty()) {
@@ -1521,7 +1517,7 @@ mod tests {
     #[test]
     #[ignore]
     fn store_meta_matches_its_zips() {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = crate::runtime();
         let lists = rt.block_on(lists()).unwrap();
         let mut trees = std::collections::HashMap::new();
         let (mut n, mut bad) = (0, Vec::new());
@@ -1548,7 +1544,7 @@ mod tests {
     #[test]
     #[ignore]
     fn ranged_install_leaves_the_upscaled_set_on_the_store() {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = crate::runtime();
         let meta: Meta = rt.block_on(async { serde_json::from_slice(&get(&file_url("refs/pr/2", "mods/oob_pc12_anya/meta.json"), MAX_META).await.unwrap()).unwrap() });
         let e = Entry { meta, rev: "refs/pr/2".into(), verified: false };
         let root = Path::new("t_ranged/mods");
@@ -1735,7 +1731,7 @@ mod tests {
         // isn't the listed id leaves the older copy as it was; nothing is kept in memory, the zip goes when done
         let disk = std::env::temp_dir().join(format!("hst-store-{}", std::process::id()));
         std::fs::create_dir_all(disk.join(&m.id).join("old")).unwrap();
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let rt = crate::runtime();
         let got = rt
             .block_on(async {
                 let mut z = Zip::create(&disk, "-x").await.unwrap();
@@ -1945,7 +1941,7 @@ mod tests {
     #[test]
     fn live_looks() {
         let Ok(id) = std::env::var("HST_LIVE_LOOKS") else { return eprintln!("HST_LIVE_LOOKS unset (skipped)") };
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = crate::runtime();
         let tmp = std::env::temp_dir().join(format!("hst-looks-{}", std::process::id()));
         let lists = rt.block_on(lists()).unwrap();
         let e = lists.iter().flatten().find(|e| e.meta.id == id).expect("not in the store").clone();
@@ -2040,7 +2036,7 @@ mod tests {
         if std::env::var("HST_LIVE").is_err() {
             return eprintln!("HST_LIVE unset (skipped)");
         }
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = crate::runtime();
         let before = REQUESTS.load(std::sync::atomic::Ordering::Relaxed);
         let ((ix, open), heads) = rt.block_on(n0_future::future::zip(n0_future::future::zip(index(), pulls()), heads()));
         let (ix, open, heads) = (ix.unwrap().expect("no index.json on the store"), open.unwrap(), heads.unwrap());

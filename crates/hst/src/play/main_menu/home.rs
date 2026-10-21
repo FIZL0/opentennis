@@ -427,7 +427,7 @@ fn preview(d: &mut Draw, m: &Menu, text: &Text, r: Row, pads: usize, [x, y, w, h
         Row::Update if cfg!(target_os = "ios") => vec![("Download", "GitHub release page".into()), ("Install", ".ipa over this app".into())],
         Row::Update if cfg!(target_os = "android") => vec![("Download", "GitHub release page".into()), ("Install", ".apk over this app".into())],
         Row::Update => vec![("Download", "GitHub release page".into()), ("Builds", "Linux, Windows".into())],
-        Row::Settings => vec![("Pages", options::tabs_shown().len().to_string()), ("Texture replacements", on(m.settings.0[0])), ("Menu music", on(m.settings.0[1]))],
+        Row::Settings => vec![("Pages", options::tabs_shown().len().to_string()), ("Texture replacements", on(m.settings.upscaled_textures)), ("Menu music", on(m.settings.menu_music))],
         Row::Extras => match super::extras::stats() {
             Some(s) => vec![("Prompts", super::extras::short(s.prompts)), ("Tokens", super::extras::short(s.tokens)), ("Commits", super::extras::short(s.commits))],
             None => vec![("Donate", "ko-fi.com/fizlo".into())],

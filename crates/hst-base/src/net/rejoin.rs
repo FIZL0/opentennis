@@ -19,13 +19,6 @@ pub struct Rejoin {
 
 const KEY: &str = "hst-rejoin";
 
-fn now() -> f64 {
-    #[cfg(target_arch = "wasm32")]
-    return js_sys::Date::now() / 1000.0;
-    #[cfg(not(target_arch = "wasm32"))]
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64())
-}
-
 /// `code seat seconds` in one line.
 fn encode(r: &Rejoin, at: f64) -> String {
     format!("{} {} {}", r.code, r.seat, at as u64)
@@ -39,13 +32,13 @@ fn decode(text: &str, now: f64) -> Option<Rejoin> {
 
 /// Remember `r` (the menu's `iso`: natively the record is beside its settings).
 pub fn save(iso: &str, r: &Rejoin) {
-    write(iso, Some(&encode(r, now())));
+    write(iso, Some(&encode(r, crate::unix_secs() as f64)));
 }
 
 /// The match to rejoin, if one was saved lately; read once (it's forgotten here, and saved again when the rejoin
 /// starts).
 pub fn take(iso: &str) -> Option<Rejoin> {
-    let r = read(iso).and_then(|t| decode(&t, now()));
+    let r = read(iso).and_then(|t| decode(&t, crate::unix_secs() as f64));
     forget(iso);
     r
 }

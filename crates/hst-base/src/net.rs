@@ -619,7 +619,7 @@ pub struct Listing {
 impl Listing {
     fn of(id: EndpointId, room: &Room) -> Listing {
         let seats = room.seats.len();
-        Listing { id: id.to_string(), name: room.name.clone(), doubles: room.doubles, court: room.court, taken: seats - room.open(), seats, time: now(), code: String::new(), build: our_build().into() }
+        Listing { id: id.to_string(), name: room.name.clone(), doubles: room.doubles, court: room.court, taken: seats - room.open(), seats, time: crate::unix_secs(), code: String::new(), build: our_build().into() }
     }
 
     /// M22: hosted by this same build, so joining it can work (else the host refuses at the Hello).
@@ -642,10 +642,6 @@ pub fn quick_pick(list: &[Listing], doubles: bool, need: usize) -> Vec<Listing> 
     let mut fit: Vec<_> = list.iter().filter(|l| l.doubles == doubles && l.open() >= need && l.same_build()).cloned().collect();
     fit.sort_by_key(|l| (std::cmp::Reverse(l.taken), std::cmp::Reverse(l.time)));
     fit
-}
-
-fn now() -> u64 {
-    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -682,7 +678,7 @@ fn lan_data(l: &Listing) -> Option<UserData> {
 /// The listing in endpoint `id`'s mDNS user data, if it's hosting.
 fn lan_listing(id: EndpointId, data: Option<&UserData>) -> Option<Listing> {
     let l: Listing = serde_json::from_str(data?.as_ref().strip_prefix(LAN_TAG)?).ok()?;
-    Some(Listing { id: id.to_string(), time: now(), ..l })
+    Some(Listing { id: id.to_string(), time: crate::unix_secs(), ..l })
 }
 
 // ---------------------------------------------------------------- wire
@@ -1045,6 +1041,8 @@ impl Net {
         std::thread::Builder::new()
             .name("net".into())
             .spawn(move || {
+                // its own runtime, not the shared `crate::runtime`: dropping it when the session ends cancels the
+                // lobby's detached tasks (listings, pack readers) with it
                 let rt = tokio::runtime::Builder::new_multi_thread().enable_all().worker_threads(2).build().unwrap();
                 rt.block_on(run(cfg, cmd_rx, ev, d));
             })
@@ -1535,7 +1533,7 @@ pub async fn find(dht: &Dht) -> Vec<Listing> {
         let dht = dht.clone();
         gets.spawn(async move { unseal(n, dht.get_mutable_most_recent(&board, Some(&salt(n))).await.ok().flatten()?.value()) });
     }
-    let mut list: Vec<Listing> = gets.join_all().await.into_iter().flatten().filter(|l| now().saturating_sub(l.time) <= STALE && l.open() > 0).collect();
+    let mut list: Vec<Listing> = gets.join_all().await.into_iter().flatten().filter(|l| crate::unix_secs().saturating_sub(l.time) <= STALE && l.open() > 0).collect();
     list.sort_by(|a, b| (&a.id, b.time).cmp(&(&b.id, a.time)));
     list.dedup_by(|a, b| a.id == b.id);
     list
@@ -3916,7 +3914,7 @@ mod tests {
             r.name = "🎾".repeat(24);
             r.take("host", &[Pick::disc(0, 0)]);
             let l = Listing { code: "TEST".into(), ..Listing::of(SecretKey::generate().public(), &r) };
-            let name = format!("t{}", now() % 1_000_000_000);
+            let name = format!("t{}", crate::unix_secs() % 1_000_000_000);
             relay_put(&name, &serde_json::to_string(&l).unwrap()).await.unwrap();
             let (t, seq) = relay_get(&name).await.unwrap().expect("read back");
             assert!(fresh(seq));

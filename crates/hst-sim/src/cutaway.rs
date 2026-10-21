@@ -280,9 +280,10 @@ fn local(cam: &M4, p: [f32; 3]) -> [f32; 3] {
     std::array::from_fn(|i| (d[0] * cam[i][0] + d[1] * cam[i][1] + d[2] * cam[i][2]).0)
 }
 
+/// a × b (w = 0).
 fn cross(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-    let (a, b) = (fs(a), fs(b));
-    [(a[1] * b[2] - a[2] * b[1]).0, (a[2] * b[0] - a[0] * b[2]).0, (a[0] * b[1] - a[1] * b[0]).0, 0.0]
+    let [x, y, z] = crate::camera::cross([a[0], a[1], a[2]], [b[0], b[1], b[2]]);
+    [x, y, z, 0.0]
 }
 
 fn normalize(v: [f32; 4]) -> [f32; 4] {

@@ -52,10 +52,7 @@ const STYLE_Y: f32 = 63.0;
 const STYLE_H: f32 = 20.0;
 const GRADES_Y: f32 = 87.0;
 
-/// `#rrggbb` in the menus' 0–128 colour.
-pub(super) fn hex(c: u32) -> [f32; 3] {
-    [(c >> 16) & 255, (c >> 8) & 255, c & 255].map(|v| v as f32 * 128.0 / 255.0)
-}
+pub(super) use super::frame::hex;
 
 /// The screen's background.
 pub(super) const BG: u32 = 0x0e1a2e;
