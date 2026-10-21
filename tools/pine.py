@@ -14,7 +14,11 @@ SLOT = 28011 + int(INST or 0)  # PCSX2 default; non-default slots use pcsx2.sock
 OK = 0
 SPEED = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), f"hst-pcsx2{INST}.speed")  # written by pcsx2-hst.sh
 
+_failed = False  # a crashed or cut-off run: its outputs stay out of the main checkout's context/ (see _carry)
+
 def _loud(kind, err, tb):
+    global _failed
+    _failed = True
     # any script using PINE: a crash says so in one line instead of a traceback that reads like partial success
     if issubclass(kind, KeyboardInterrupt): return sys.__excepthook__(kind, err, tb)
     sys.exit(f"CAPTURE FAILED: {kind.__name__}: {err}. Anything this run wrote is incomplete; don't use it. "
@@ -34,12 +38,28 @@ def _take_lock():
         print("waiting for PCSX2 (another agent is using it)", file=sys.stderr, flush=True)
         fcntl.flock(_lock, fcntl.LOCK_EX)
     if hold := int(os.environ.get("HST_PCSX2_MAX_HOLD", 0)):  # as tools/pcsx2.sh: a hung run can't starve the others
-        signal.signal(signal.SIGALRM, lambda *_: sys.exit(f"pine: held PCSX2 for {hold}s (the parallel-run cap); stopping"))
+        def held(*_):
+            global _failed
+            _failed = True
+            sys.exit(f"pine: held PCSX2 for {hold}s (the parallel-run cap); stopping")
+        signal.signal(signal.SIGALRM, held)
         signal.alarm(hold)
+
+def _carry(start):
+    # T11: in a worktree with its own context/, what this run recorded goes into the main checkout's context/ too
+    # (new files, and files rewritten since `start`), so deleting the worktree can't lose it
+    if not _failed:
+        import subprocess
+        subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "context_sync.py"),
+                        "--since", str(start), "-q"], stdout=sys.stderr)
 
 class Pine:
     def __init__(self, step=False):  # step: ignored (lock-step removed), kept so old callers still run
         _take_lock()
+        if not getattr(Pine, "_carrying", False):
+            import atexit
+            Pine._carrying = True
+            atexit.register(_carry, time.time())
         path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "pcsx2.sock" if SLOT == 28011 else f"pcsx2.sock.{SLOT}")
         self.s = socket.socket(socket.AF_UNIX); self.s.settimeout(10); self.s.connect(path)  # a frozen PCSX2 fails, not hangs
         self.speed = speed = open(SPEED).read().strip() if INST and os.path.exists(SPEED) else None

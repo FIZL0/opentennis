@@ -7,7 +7,8 @@
 //!
 //! A git worktree (a runner slot, `git worktree add`) has its own `context/`, often an old copy or none, and a
 //! recording made in one stays there: a file missing here is taken from the main checkout's or another worktree's,
-//! so every checkout checks against every recording on the machine.
+//! so every checkout checks against every recording on the machine. Recordings are kept in the main checkout's:
+//! `tools/context_sync.py` copies a worktree's into it (run by `tools/pine.py` and `tools/done.sh`).
 
 use crate::iso::Iso;
 use std::io;
