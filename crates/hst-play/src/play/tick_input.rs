@@ -99,14 +99,23 @@ pub(super) fn decode(p: Pad, last: Pad) -> SlotPad {
 
 /// The local devices' source: the latched presses go out once and are spent.
 /// ponytail: a second press of the same button within one tick of the first is lost (held bits on the wire)
-fn local(mut pads: ResMut<Pads>, mut tick: ResMut<TickPads>, g: Option<Res<super::Game>>) {
+fn local(
+    mut pads: ResMut<Pads>,
+    mut tick: ResMut<TickPads>,
+    g: Option<Res<super::Game>>,
+    personal: Option<Res<super::split_view::StickTurn>>,
+) {
     let mut now = pads.slots.each_mut().map(|s| {
         let p = encode(s);
         (s.shot, s.serve, s.emote) = (None, false, None);
         p
     });
-    // B635: a split picture's far-team half looks from that team's end: its humans' sticks turn to match
-    if let Some(g) = g {
+    // M146: the personal split's sticks turn with each half's picture
+    let personal = personal.filter(|t| t.0.contains(&true));
+    if personal.is_some() {
+        super::split_view::turn_sticks(&mut now, personal.as_deref());
+    } else if let Some(g) = g {
+        // B635: a split picture's far-team half looks from that team's end: its humans' sticks turn to match
         let n = g.players.len();
         for i in (0..n).filter(|&i| super::split_view::turned(&g, i)) {
             if let Some(s) = pads.slot_of(i, n) {
