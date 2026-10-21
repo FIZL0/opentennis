@@ -3440,7 +3440,7 @@ fn step(
         return;
     }
     #[cfg(target_arch = "wasm32")]
-    crate::web::touch_buzz(menu.settings.0[VIBRATION]);
+    crate::web::touch_buzz(menu.settings.vibration);
     #[cfg(not(target_arch = "wasm32"))]
     super::touch_pad::BUZZ.store(menu.settings.vibration, std::sync::atomic::Ordering::Relaxed);
     let dt = time.delta_secs();
@@ -3563,7 +3563,7 @@ fn step(
                         warn!("{}: {e}", path.display());
                     }
                     #[cfg(target_arch = "wasm32")]
-                    crate::web::renderer(RENDERERS[menu.settings.5 as usize].0);
+                    crate::web::renderer(RENDERERS[menu.settings.renderer as usize].0);
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 Effect::Quit => {
