@@ -580,7 +580,9 @@ fn show_loading(world: &mut World) {
     }
     // a plain black cover while the new mode loads (the old "Loading..." text was a placeholder: user 2026-10-11)
     let node = Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
-    let e = world.spawn((Loading::default(), node, BackgroundColor(Color::BLACK), GlobalZIndex(i32::MAX - 1))).id();
+    // B623: black under the notch and the home indicator too, over the menus' walls there
+    let bleed = hst_base::widescreen::Bleed { order: 1 << 21, on: true };
+    let e = world.spawn((Loading::default(), node, BackgroundColor(Color::BLACK), GlobalZIndex(i32::MAX - 1), bleed)).id();
     if let Some(cover) = world.resource_mut::<Next>().0.as_mut().and_then(|m| m.cover.take()) {
         cover(world, e);
     }
