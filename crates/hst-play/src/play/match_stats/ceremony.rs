@@ -146,10 +146,10 @@ pub(super) fn quads(plan: &Plan, doubles: bool) -> Vec<Quad> {
     let mut out = vec![q(Tex::Gameset, [0, plan.row as i32 * 80, 256, 80], [192, 360, 256, 80], WHITE)];
     if doubles {
         let tint = if plan.shown == 0 { [127.0, 77.0, 77.0] } else { [67.0, 101.0, 127.0] };
-        for (v, rgb) in [(96, WHITE), (64, tint)] {
-            out.push(q(Tex::Team, [0, v, 16, 32], [240, 320, 16, 32], rgb));
-            out.push(q(Tex::Team, [16, v, 16, 32], [256, 320, 128, 32], rgb));
-            out.push(q(Tex::Team, [32, v, 16, 32], [384, 320, 16, 32], rgb));
+        for (i, rgb) in [[15.0; 3], WHITE, tint].into_iter().enumerate() {
+            for (src, dst) in crate::play::menu_art::pill_quads(i, [240.0, 320.0, 160.0, 32.0]) {
+                out.push(Quad { tex: Tex::Pill, src, dst, rgb, alpha: 128.0 });
+            }
         }
         out.push(q(Tex::Team, [0, if plan.shown == 0 { 0 } else { 32 }, 96, 32], [272, 320, 96, 32], WHITE));
     }
@@ -753,7 +753,7 @@ mod tests {
         let p = plan(&[false; 4], &[0; 4], 1, false, 70.0);
         let q = quads(&p, true);
         assert_eq!((q[0].src, q[0].dst), ([0.0, 160.0, 256.0, 80.0], [192.0, 360.0, 256.0, 80.0]));
-        assert_eq!((q[4].rgb, q[7].src), ([67.0, 101.0, 127.0], [0.0, 32.0, 96.0, 32.0]));
+        assert_eq!((q[7].rgb, q[10].src), ([67.0, 101.0, 127.0], [0.0, 32.0, 96.0, 32.0]));
         assert_eq!(quads(&p, false).len(), 1);
     }
 

@@ -33,3 +33,4 @@
 - The alternate camera choice is no longer remembered: every match starts on the normal camera.
 - Characters with only one costume now show the costume button greyed out on the character select, and pressing it does nothing.
 - Menu text too long for its space (like a doubles Rematch card's names) now slides along to show the rest instead of being squashed.
+- The team name plate at the end of a doubles match is now drawn sharp instead of the original blurry plate.

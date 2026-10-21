@@ -57,6 +57,8 @@ enum Tex {
     /// The ceremony's "NARROW WIN" etc. rows and the team name plate.
     Gameset,
     Team,
+    /// Our own pill sheet ([`super::menu_art::pill_layers`]), behind the team's name.
+    Pill,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -483,6 +485,7 @@ fn setup(
             commands.insert_resource(Banner(effect, shown));
         }
     }
+    art.push(super::menu_art::pill_layers(&mut images));
     let bank = crate::audio::SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd");
     commands.insert_resource(Art(art, bank.map(std::sync::Arc::new)));
     commands
@@ -760,6 +763,7 @@ fn draw(
             Tex::Gameset => art.0[3].clone(),
             Tex::Back => art.0[5].clone(),
             Tex::Team => art.0[7].clone(),
+            Tex::Pill => art.0[8].clone(),
             Tex::Face(p) => panel_art.0[panel::FACES + p].clone(),
             Tex::Rank => panel_art.0[6].clone(),
             Tex::Slot => panel_art.0[1].clone(),
