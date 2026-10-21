@@ -22,6 +22,11 @@
 //! distorted: the 3D view widens to its rect and the HUD keeps its 4:3 screen in its own. `hud_gamma` draws the HUD's
 //! camera into the view's part of the picture. The touch pad keeps to the whole window (`touch_pad`), its buttons
 //! clear of the device's safe area.
+//!
+//! B623: the menus run edge to edge too: their walls, bars and backdrops (and the key legend's strip, the loading
+//! cover) carry on past the safe area to the picture's edges (`Bleed`, copied by `hud_gamma` onto a camera under the
+//! HUD's), while their text, cards and buttons stay inside it. The phones hide their system bars (`phone_window`,
+//! Android's `HstActivity`), so the safe area is only the notch, the island, the cutout and the home indicator.
 
 use bevy::prelude::*;
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
@@ -88,6 +93,53 @@ fn view_in(size: Vec2, aspect: u8, [l, t, r, b]: [f32; 4]) -> Rect {
     if v.width() > 0.0 && v.height() > 0.0 { v } else { scene }
 }
 
+/// B623: a UI node that runs on past the safe area to the picture's edges (a menu's wall, a bar, a backdrop), under the
+/// notch, the Dynamic Island or the home indicator, where the HUD's camera doesn't draw. Its node is in percent of the
+/// view (a root of the HUD's camera, or the child of a full-view one); `hud_gamma` draws a copy of it on the whole
+/// picture, under all of the UI, the copies stacked by `order`. While `on`, each of its edges on the view's edge is
+/// carried out to the picture's (`bleed_out`); a node already reaching past the view (the menus' own) is copied as is.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct Bleed {
+    pub order: i32,
+    pub on: bool,
+}
+
+/// B623: the rect `[left, top, width, height]` (percent of a `size` window's view) with each edge on the view's edge
+/// moved out to the picture's (`scene_view`); as it is where they're the same.
+pub fn bleed_out(rect: [f32; 4], size: Vec2) -> [f32; 4] {
+    bleed_in(rect, view(size), scene_view(size))
+}
+
+fn bleed_in([mut left, mut top, mut width, mut height]: [f32; 4], v: Rect, s: Rect) -> [f32; 4] {
+    // on an edge: within half a percent (the menus snap theirs to whole pixels, a little short of it)
+    const ON: f32 = 0.5;
+    let (vw, vh) = (v.width().max(1e-3), v.height().max(1e-3));
+    let [l, t, r, b] = [(v.min.x - s.min.x) / vw, (v.min.y - s.min.y) / vh, (s.max.x - v.max.x) / vw, (s.max.y - v.max.y) / vh].map(|e| e.max(0.0) * 100.0);
+    if left + width >= 100.0 - ON {
+        width = 100.0 + r - left;
+    }
+    if left <= ON {
+        width += left + l;
+        left = -l;
+    }
+    if top + height >= 100.0 - ON {
+        height = 100.0 + b - top;
+    }
+    if top <= ON {
+        height += top + t;
+        top = -t;
+    }
+    [left, top, width, height]
+}
+
+/// B623: a rect in percent of a `size` window's view → in percent of its picture (`scene_view`).
+pub fn view_to_scene([left, top, width, height]: [f32; 4], size: Vec2) -> [f32; 4] {
+    let (v, s) = (view(size), scene_view(size));
+    let (sw, sh) = (s.width().max(1e-3), s.height().max(1e-3));
+    let (x, y) = (v.min.x - s.min.x, v.min.y - s.min.y);
+    [(x + left / 100.0 * v.width()) / sw * 100.0, (y + top / 100.0 * v.height()) / sh * 100.0, width / 100.0 * v.width() / sw * 100.0, height / 100.0 * v.height() / sh * 100.0]
+}
+
 /// M106: the window's safe-area insets (left, top, right, bottom) as shares of its width and height, f32 bits: zero
 /// but in the native phone apps (or with `HST_SAFE`), whose windows reach under the notch and the home indicator.
 static SAFE: [AtomicU32; 4] = [const { AtomicU32::new(0) }; 4];
@@ -96,6 +148,20 @@ static SAFE: [AtomicU32; 4] = [const { AtomicU32::new(0) }; 4];
 pub fn safe_insets(size: Vec2) -> [f32; 4] {
     let s = SAFE.each_ref().map(|a| f32::from_bits(a.load(Ordering::Relaxed)));
     [s[0] * size.x, s[1] * size.y, s[2] * size.x, s[3] * size.y]
+}
+
+/// B623: the game's window on a phone: on iOS the home indicator fades out while the game is played and a swipe from
+/// an edge needs a second one before the system takes it (as games do), the status bar off. Android's activity does
+/// the same (`HstActivity`: immersive, edge to edge). Elsewhere as it is.
+pub fn phone_window(w: Window) -> Window {
+    #[cfg(target_os = "ios")]
+    let w = Window {
+        prefers_home_indicator_hidden: true,
+        prefers_status_bar_hidden: true,
+        preferred_screen_edges_deferring_system_gestures: bevy::window::ScreenEdge::All,
+        ..w
+    };
+    w
 }
 
 /// `HST_SAFE=l,t,r,b`: fixed insets in logical px, instead of the phone's.
@@ -452,4 +518,22 @@ mod point_tests {
         win.resolution.set(800.0, 600.0);
         assert_eq!(screen_point(&win, Vec2::new(400.0, 300.0)), Vec2::new(320.0, 224.0));
     }
+}
+
+#[test]
+fn walls_bleed_to_the_picture() {
+    // B623: the sideways iPhone again: the HUD's view 59..793 × 0..372 of the 852×393 picture
+    let (v, s) = (Rect::new(59.0, 0.0, 793.0, 372.0), Rect::new(0.0, 0.0, 852.0, 393.0));
+    let px = |[l, t, w, h]: [f32; 4]| [v.min.x + l / 100.0 * v.width(), v.min.y + t / 100.0 * v.height(), w / 100.0 * v.width(), h / 100.0 * v.height()];
+    let close = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-2);
+    // a wall: every side out to the window's, a whole-pixel snap a little short of the edge included
+    assert!(close(px(bleed_in([0.0, 0.0, 99.9, 99.8], v, s)), [0.0, 0.0, 852.0, 393.0]));
+    // a top bar: out to the sides (no inset above); a bar across the bottom: down under the home indicator
+    assert!(close(px(bleed_in([0.0, 0.0, 100.0, 10.0], v, s)), [0.0, 0.0, 852.0, 37.2]));
+    assert!(close(px(bleed_in([0.0, 90.0, 100.0, 10.0], v, s)), [0.0, 334.8, 852.0, 58.2]));
+    // a box inside the view stays as it is; one from the left edge only grows to the left
+    assert_eq!(bleed_in([10.0, 10.0, 50.0, 50.0], v, s), [10.0, 10.0, 50.0, 50.0]);
+    assert!(close(px(bleed_in([0.0, 20.0, 30.0, 10.0], v, s)), [0.0, 74.4, 279.2, 37.2]));
+    // no safe area: nothing moves
+    assert_eq!(bleed_in([0.0, 0.0, 100.0, 100.0], s, s), [0.0, 0.0, 100.0, 100.0]);
 }

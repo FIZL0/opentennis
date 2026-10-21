@@ -426,7 +426,7 @@ fn start(argv: Vec<String>) {
         // P47: `HST_SYNC_PIPELINES=1` compiles pipelines on the render thread, as the browser and macOS always do
         synchronous_pipeline_compilation: std::env::var_os("HST_SYNC_PIPELINES").is_some(),
         ..default()
-    }).set(WindowPlugin { primary_window: Some(Window { title: title.into(), name: Some("opentennis".into()), present_mode, mode, resolution, ..default() }), ..default() });
+    }).set(WindowPlugin { primary_window: Some(widescreen::phone_window(Window { title: title.into(), name: Some("opentennis".into()), present_mode, mode, resolution, ..default() })), ..default() });
     // iOS: the log goes to Documents/hst-log.txt too (`ios.rs`); winit logs every redraw at info there, a line a frame,
     // and warns of each event it hands over while redrawing (P49: 14.5k of a 4-minute log's 15.8k lines)
     #[cfg(target_os = "ios")]

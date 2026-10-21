@@ -34,6 +34,7 @@ pub fn plugin(app: &mut App) {
     app.add_systems(Startup, setup)
         .add_systems(Update, encode_pbr_output)
         .add_systems(PostUpdate, (retarget, clear, follow_window, persist).chain().before(bevy::camera::CameraUpdateSystems))
+        .add_systems(PostUpdate, bleed.before(bevy::ui::UiSystems::Layout))
         .add_systems(PostUpdate, pixel_aspect.after(bevy::camera::CameraUpdateSystems));
 }
 
@@ -48,6 +49,10 @@ struct Targets {
     last: [Handle<Image>; 2],
     /// B608: the HUD's camera, drawing only in the safe part of its image (`widescreen::view`).
     ui: Entity,
+    /// B623: the camera drawing the copies of `widescreen::Bleed` nodes on the whole HUD image, under the HUD's camera
+    /// (on only while the view is smaller than the picture), and the root they're on.
+    bleed: Entity,
+    bleed_root: Entity,
 }
 
 /// Present while a match runs (the game's match scene turns its frame persistence on, menus have none).
@@ -73,11 +78,21 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         // UI only: no layer, so the per-view visibility check rejects every mesh at once (P41)
         RenderLayers::none(),
     )).id();
+    // B623: before the HUD's camera, into the same image; it clears it then, the HUD's camera draws over it
+    let bleed = commands.spawn((
+        Camera2d,
+        Camera { order: 49, is_active: false, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
+        RenderTarget::Image(ImageRenderTarget { handle: hud.clone(), scale_factor: 1.0 }),
+        Msaa::Off,
+        RenderLayers::none(),
+    )).id();
+    let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+    let bleed_root = commands.spawn((full, UiTargetCamera(bleed), Pickable::IGNORE)).id();
     // raw like the scene image, so the mix lands in it unencoded
     let last = [(); 2].map(|_| images.add(target(TextureFormat::Rgba8Unorm)));
     let out = commands.spawn(out::camera()).id();
     commands.insert_resource(out::Frame { scene: scene.clone(), hud: hud.clone(), last: last.clone(), mix: None });
-    commands.insert_resource(Targets { scene, hud, out, last, ui });
+    commands.insert_resource(Targets { scene, hud, out, last, ui, bleed, bleed_root });
 }
 
 /// A 3D camera drawing into the scene image.
@@ -174,10 +189,21 @@ fn follow_window(
     let (at, inside) = (((ui.min - v.min) * f).round().as_uvec2(), (ui.size() * f).round().as_uvec2().max(UVec2::ONE));
     let full = UVec2::new(hud.width, hud.height);
     let ui_viewport = (inside != full).then(|| bevy::camera::Viewport { physical_position: at, physical_size: inside.min(full - at.min(full)).max(UVec2::ONE), ..default() });
-    if let Ok(mut cam) = cams.get_mut(t.ui)
-        && key(&cam.viewport) != key(&ui_viewport)
+    // B623: a view inside the picture: the bleed camera clears the image and draws past the view, the HUD's over it
+    let bleeds = ui_viewport.is_some();
+    if let Ok(mut cam) = cams.get_mut(t.bleed)
+        && cam.is_active != bleeds
     {
-        cam.viewport = ui_viewport;
+        cam.is_active = bleeds;
+    }
+    if let Ok(mut cam) = cams.get_mut(t.ui) {
+        let clear = if bleeds { ClearColorConfig::None } else { ClearColorConfig::Custom(Color::NONE) };
+        if key(&cam.viewport) != key(&ui_viewport) {
+            cam.viewport = ui_viewport;
+        }
+        if std::mem::discriminant(&cam.clear_color) != std::mem::discriminant(&clear) {
+            cam.clear_color = clear;
+        }
     }
     let sampler = if g.original { ImageSampler::nearest() } else { ImageSampler::Default };
     let last = if persist.is_some() { scene } else { size(1.0, 1.0) };
@@ -205,6 +231,71 @@ fn follow_window(
         {
             let handle = i.handle.clone();
             *target = RenderTarget::Image(ImageRenderTarget { handle, scale_factor: scale });
+        }
+    }
+}
+
+/// B623: a `widescreen::Bleed` node's copy, on the bleed camera's root.
+#[derive(Component)]
+struct BleedCopy;
+
+/// B623: keeps a copy of each `widescreen::Bleed` node on the whole picture while its edges reach past the view: same
+/// image, tint and corners, its rect carried out to the picture's edges (`widescreen::bleed_out`). The copies go when
+/// their nodes do.
+fn bleed(
+    mut commands: Commands,
+    t: Res<Targets>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    cams: Query<&Camera>,
+    nodes: Query<(Entity, &crate::widescreen::Bleed, &Node, Option<&ImageNode>, Option<&BackgroundColor>, &InheritedVisibility)>,
+    mut copies: Query<(&mut Node, &mut ImageNode, &mut BackgroundColor, &mut Visibility, &mut ZIndex), (With<BleedCopy>, Without<crate::widescreen::Bleed>)>,
+    mut of: Local<bevy::platform::collections::HashMap<Entity, Entity>>,
+) {
+    of.retain(|node, copy| {
+        let alive = nodes.contains(*node);
+        if !alive {
+            commands.entity(*copy).despawn();
+        }
+        alive
+    });
+    let on = cams.get(t.bleed).is_ok_and(|c| c.is_active);
+    let size = window.single().map_or(Vec2::ONE, |w| Vec2::new(w.width(), w.height()));
+    for (e, b, node, img, bg, vis) in &nodes {
+        let pct = |v: Val| if let Val::Percent(p) = v { Some(p) } else { None };
+        let rect = (|| Some([pct(node.left)?, pct(node.top)?, pct(node.width)?, pct(node.height)?]))();
+        let out = rect.filter(|_| on && b.on && vis.get()).map(|r| crate::widescreen::bleed_out(r, size)).filter(|&[l, t, w, h]| l < 0.0 || t < 0.0 || l + w > 100.0 || t + h > 100.0);
+        let Some(&copy) = of.get(&e) else {
+            if out.is_some() {
+                let copy = commands.spawn((BleedCopy, ImageNode::default(), BackgroundColor::default(), Node::default(), Visibility::Hidden, ZIndex(b.order), Pickable::IGNORE, ChildOf(t.bleed_root))).id();
+                of.insert(e, copy);
+            }
+            continue;
+        };
+        let Ok((mut n, mut i, mut c, mut v, mut z)) = copies.get_mut(copy) else { continue };
+        let Some(r) = out else {
+            if *v != Visibility::Hidden {
+                *v = Visibility::Hidden;
+            }
+            continue;
+        };
+        let [left, top, width, height] = crate::widescreen::view_to_scene(r, size).map(Val::Percent);
+        let want = Node { position_type: PositionType::Absolute, left, top, width, height, right: Val::Auto, bottom: Val::Auto, margin: UiRect::ZERO, ..node.clone() };
+        if *n != want {
+            *n = want;
+        }
+        let img = img.cloned().unwrap_or_else(|| ImageNode { color: Color::NONE, ..default() });
+        if i.image != img.image || i.color != img.color || i.rect != img.rect || i.image_mode != img.image_mode || i.flip_x != img.flip_x || i.flip_y != img.flip_y {
+            *i = img;
+        }
+        let bg = bg.map_or(Color::NONE, |b| b.0);
+        if c.0 != bg {
+            c.0 = bg;
+        }
+        if *v != Visibility::Inherited {
+            *v = Visibility::Inherited;
+        }
+        if z.0 != b.order {
+            z.0 = b.order;
         }
     }
 }
