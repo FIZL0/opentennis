@@ -37,5 +37,15 @@ if [ $# = 2 ]; then
     paths+=("$d")
   done < <(find research/journal -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -iregex ".*/[0-9]{4}-[0-9]{2}-[0-9]{2}-$1(-.*)?")
 fi
+# A ticked task's browser profiles and cargo target dirs under context/<id>*/ go: the next run re-makes them, and
+# no task has reused another's (they once filled context/ with 120 GB); its recordings and dumps stay
+if [ $# = 2 ]; then
+  id=${1,,}
+  for d in context/*/ "$(git rev-parse --path-format=absolute --git-common-dir)"/../context/*/; do
+    n=$(basename "$d"); n=${n,,}; [[ $n == "$id" || $n == "$id"[-_]* ]] || continue
+    find "$d" -type d -name profile -prune -print 2>/dev/null
+    find "$d" \( -name 'Local State' -o -name prefs.js -o -name CACHEDIR.TAG \) -printf '%h\n' 2>/dev/null
+  done | sort -u | while read -r p; do rm -rf -- "$p"; done
+fi
 if [ "$main" ]; then git add -- "${paths[@]}" && git commit -qm "$2" -- plan/TODO.md plan/DONE.md "${paths[@]}"
 else git add -A && git commit -qm "$2"; fi && rm -f .cleanroom && git log -1 --oneline

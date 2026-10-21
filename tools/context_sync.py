@@ -74,9 +74,16 @@ def clone(src, dst, replace=False):
     return True
 
 
+def throwaway(d):
+    """A browser profile (the web checks' `profile/`, Chrome's `Local State`, Firefox's `prefs.js`) or a cargo target
+    dir: each re-made on the next run, and they once filled context/ with 120 GB. tools/done.sh deletes them."""
+    return os.path.basename(d) == "profile" or any(
+        os.path.exists(os.path.join(d, f)) for f in ("Local State", "prefs.js", "CACHEDIR.TAG"))
+
+
 def files(ctx):
     for d, dirs, names in os.walk(ctx):
-        dirs.sort()
+        dirs[:] = sorted(n for n in dirs if not throwaway(os.path.join(d, n)))
         for n in sorted(names):
             if not n.endswith(".sync-tmp"):
                 yield os.path.join(d, n)
