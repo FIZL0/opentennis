@@ -1,7 +1,8 @@
 //! The AI tuning table read from the disc's AIParam.csv must equal the game's own copy in RAM (`context/ram/s05.bin`,
 //! slot 5: a doubles bot match), and each bot's row and level must be the ones the game gave it.
 
-use hst_data::{iso::Iso, xb::Archive};
+use hst_data::fixture;
+use hst_data::xb::Archive;
 use hst_sim::ai::{AiParams, Choice, ROWS, Reacting, menu_row};
 
 const TABLE: usize = 0x3174c0;
@@ -9,8 +10,8 @@ const RECORD: usize = 0x118;
 
 fn load() -> Option<(Vec<u8>, Vec<u8>)> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let ram = std::fs::read(format!("{root}/context/ram/s05.bin")).ok()?;
-    let mut iso = Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")).ok()?;
+    let ram = fixture::read(format!("{root}/context/ram/s05.bin")).ok()?;
+    let mut iso = fixture::iso().ok()?;
     let data = iso.read("PCDATA/PCDATA.XB").ok()?;
     let arc = Archive::parse(&data).ok()?;
     let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("aiparam.csv"))?;
@@ -23,7 +24,7 @@ fn word(ram: &[u8], a: usize) -> usize {
 
 #[test]
 fn table_equals_ram() {
-    let Some((ram, csv)) = load() else { return eprintln!("RAM dump or disc missing, skipped") };
+    let Some((ram, csv)) = load() else { return };
     let table = AiParams::table(&csv);
     for (r, a) in table.iter().enumerate() {
         let want = &ram[TABLE + r * RECORD..TABLE + (r + 1) * RECORD];
@@ -36,12 +37,12 @@ fn table_equals_ram() {
 /// `context/fixtures/1p3goodcpus_ee.bin`): Carol, Will, 2 and 10 in outfits 9, 9, 4, 9, the hardest block.
 #[test]
 fn bots_get_their_rows() {
-    let Some((s05, csv)) = load() else { return eprintln!("RAM dump or disc missing, skipped") };
+    let Some((s05, csv)) = load() else { return };
     let table = AiParams::table(&csv);
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let good = std::fs::read(format!("{root}/context/fixtures/1p3goodcpus_ee.bin"));
+    let good = fixture::read(format!("{root}/context/fixtures/1p3goodcpus_ee.bin"));
     if good.is_err() {
-        eprintln!("1p3goodcpus_ee.bin absent, only slot 5");
+        fixture::skip(format_args!("1p3goodcpus_ee.bin absent, only slot 5"));
     }
     for ram in [Some(s05), good.ok()].into_iter().flatten() {
         let gm = word(&ram, 0x422f80);
@@ -107,8 +108,8 @@ impl Mt {
 fn timing_errors_match_the_game() {
     use hst_sim::ai::{Picks, Seen, Shots};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), std::fs::read(format!("{root}/context/fixtures/ai_s05.bin"))) else {
-        return eprintln!("disc or ai_s05.bin missing, skipped");
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_s05.bin"))) else {
+        return fixture::skip(format_args!("disc or ai_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
     let (glob, mt, ai) = (4, 4 + 0x18, 4 + 0x18 + 0x9d0);
@@ -191,8 +192,8 @@ fn timing_errors_match_the_game() {
 fn guesses_match_the_game() {
     use hst_sim::ai::{Guess, Seen, Shots};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), std::fs::read(format!("{root}/context/fixtures/ai_s05.bin"))) else {
-        return eprintln!("disc or ai_s05.bin missing, skipped");
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_s05.bin"))) else {
+        return fixture::skip(format_args!("disc or ai_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
     let (glob, mt, ai) = (4, 4 + 0x18, 4 + 0x18 + 0x9d0);
@@ -268,8 +269,8 @@ fn guesses_match_the_game() {
 fn guess_verdicts_match_the_game() {
     use hst_sim::ai::{Guess, Verdict};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), std::fs::read(format!("{root}/context/fixtures/ai_guess_s05.bin"))) else {
-        return eprintln!("disc or ai_guess_s05.bin missing, skipped");
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_guess_s05.bin"))) else {
+        return fixture::skip(format_args!("disc or ai_guess_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
     let (size_ai, ai) = (0x260, 4 + 0x18 + 0x9d0);
@@ -314,8 +315,8 @@ fn guess_verdicts_match_the_game() {
 fn minds_match_the_game() {
     use hst_sim::ai::{Mind, NET_RATE, Phase, serve_spot, serve_wait};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((ram, csv)), Ok(d)) = (load(), std::fs::read(format!("{root}/context/fixtures/ai_mind_s05.bin"))) else {
-        return eprintln!("disc or ai_mind_s05.bin missing, skipped");
+    let (Some((ram, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_mind_s05.bin"))) else {
+        return fixture::skip(format_args!("disc or ai_mind_s05.bin missing, skipped"));
     };
     // the clamp the point reaction keeps the rate in: doubles, then singles
     for (lo, hi) in [(0x4179b8, 0x4179c0), (0x4178d0, 0x4178d8)] {
@@ -427,8 +428,8 @@ fn minds_match_the_game() {
 fn reactions_match_the_game() {
     use hst_sim::ai::{Seen, Shots};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), std::fs::read(format!("{root}/context/fixtures/ai_pos_s05.bin"))) else {
-        return eprintln!("disc or ai_pos_s05.bin missing, skipped");
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_pos_s05.bin"))) else {
+        return fixture::skip(format_args!("disc or ai_pos_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
     const AI: usize = 0x280;
@@ -494,8 +495,8 @@ fn reactions_match_the_game() {
 fn stand_sides_match_the_game() {
     use hst_sim::ai::Stander;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), std::fs::read(format!("{root}/context/fixtures/ai_side_s05.bin"))) else {
-        return eprintln!("disc or ai_side_s05.bin missing, skipped");
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_side_s05.bin"))) else {
+        return fixture::skip(format_args!("disc or ai_side_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
     let recs: Vec<&[u8]> = d.as_chunks::<0x50>().0.iter().map(|s| s.as_slice()).collect();
@@ -539,8 +540,8 @@ fn stand_sides_match_the_game() {
 fn aims_match_the_game() {
     use hst_sim::aim::Pair;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), std::fs::read(format!("{root}/context/fixtures/ai_aim_s05.bin"))) else {
-        return eprintln!("disc or ai_aim_s05.bin missing, skipped");
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_aim_s05.bin"))) else {
+        return fixture::skip(format_args!("disc or ai_aim_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
     let f = |b: &[u8], o: usize| f32::from_bits(word(b, o) as u32);
@@ -581,8 +582,8 @@ fn aims_match_the_game() {
 fn singles_aims_match_the_game() {
     use hst_sim::aim::Look;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), std::fs::read(format!("{root}/context/fixtures/ai_aim_singles.bin"))) else {
-        return eprintln!("disc or ai_aim_singles.bin missing, skipped");
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_aim_singles.bin"))) else {
+        return fixture::skip(format_args!("disc or ai_aim_singles.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
     let f = |b: &[u8], o: usize| f32::from_bits(word(b, o) as u32);
@@ -640,8 +641,8 @@ fn singles_aims_match_the_game() {
 fn ai_dives_match_the_game() {
     use hst_sim::swing::{DIVE_HORIZON, PathPoint, Reach, dive};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = std::fs::read(format!("{root}/context/fixtures/ai_dive_s05.bin")) else {
-        return eprintln!("ai_dive_s05.bin absent, skipped");
+    let Ok(d) = fixture::read(format!("{root}/context/fixtures/ai_dive_s05.bin")) else {
+        return fixture::skip(format_args!("ai_dive_s05.bin absent, skipped"));
     };
     const PL: [(usize, usize); 7] = [(0x12b0, 8), (0x13a8, 0x18), (0x3d60, 0x20), (0x3e00, 0x10), (0x3f58, 8), (0x3f80, 0x10), (0x3fa4, 8)];
     let (pls, path0) = (PL.iter().map(|r| r.1).sum::<usize>(), 4 + 0x18);

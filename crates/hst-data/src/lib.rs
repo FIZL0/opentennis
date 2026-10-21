@@ -1,5 +1,7 @@
 //! Reading Hot Shots Tennis game data: the disc image and its `.XB` archives.
 pub mod exe;
+#[cfg(any(test, feature = "testing"))]
+pub mod fixture;
 pub mod iso;
 pub mod layout;
 pub mod ani;

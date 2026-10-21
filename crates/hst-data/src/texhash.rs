@@ -610,9 +610,7 @@ mod tests {
     /// M5c: the disc pass a pack upload makes (the whole disc, keys of a few). Skips without the ISO.
     #[test]
     fn prints_from_the_disc() {
-        let Ok(mut iso) = crate::iso::Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-            return eprintln!("no ISO, skipped");
-        };
+        let Ok(mut iso) = crate::fixture::iso() else { return };
         let mut all = Vec::new();
         let t = std::time::Instant::now();
         disc_textures(&mut iso, |d| all.push((d.key, d.width, d.height, d.rgba)));

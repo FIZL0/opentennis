@@ -1,13 +1,14 @@
 //! The umpire's call pop-ups (`AZUMA/INPANE/INPANE.XB0`, `azuma/inpane/mdl`): each model's channels bind to its nodes,
 //! morph targets and materials, and its animation ends where the game's settle test waits for it.
 
-use hst_data::{ani, iso::Iso, mdl, mor, mtl, xb::Archive};
+use hst_data::fixture;
+use hst_data::{ani, mdl, mor, mtl, xb::Archive};
 use hst_sim::effect::Effect;
 
 #[test]
 fn call_models() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("ISO absent, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("ISO absent, skipped"));
     };
     let data = iso.read("AZUMA/INPANE/INPANE.XB0").unwrap();
     let arc = Archive::parse(&data).unwrap();

@@ -4,6 +4,7 @@
 //! target, all bit for bit; mis-hits too: a dull hit's launch takes one of `mis_hit`'s scales, a framed hit's
 //! one of `wild_aim`'s spots and errors.
 
+use hst_data::fixture;
 use hst_sim::player::ReachStats;
 use hst_sim::replay::{Frame, frames_live};
 use hst_sim::shot::{Bounds, Margins, Table, launch, lookup};
@@ -39,9 +40,9 @@ struct Disc {
 }
 
 fn disc() -> Option<Disc> {
-    use hst_data::{iso::Iso, xb::Archive};
+    use hst_data::xb::Archive;
     let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
-    let mut iso = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")).ok()?;
+    let mut iso = fixture::iso().ok()?;
     let data = iso.read("PCDATA/PCDATA.XB").unwrap();
     let arc = Archive::parse(&data).unwrap();
     let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("tparam.csv")).unwrap();
@@ -50,8 +51,8 @@ fn disc() -> Option<Disc> {
     Some(Disc {
         stats: rows.iter().map(|r| ReachStats::from_tparam(&String::from_utf8_lossy(r))).collect(),
         right: rows.iter().map(|r| r.split(|&b| b == b',').nth(6).unwrap().starts_with(&[0x89, 0x45])).collect(),
-        game_bin: std::fs::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")).ok()?,
-        cnf: std::fs::read(format!("{ctx}/iso/SYSTEM.CNF")).ok()?,
+        game_bin: fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")).ok()?,
+        cnf: fixture::read(format!("{ctx}/iso/SYSTEM.CNF")).ok()?,
     })
 }
 
@@ -63,10 +64,10 @@ fn dir() -> String {
 /// timing uses (+0x138c..+0x139c) against its character's TParam row.
 #[test]
 fn timing_tables_like_the_game() {
-    let Some(d) = disc() else { return eprintln!("disc absent, skipped") };
+    let Some(d) = disc() else { return };
     let mut n = 0;
     for (fx, _) in FIXTURES {
-        let Ok(data) = std::fs::read(format!("{}/{fx}", dir())) else { continue };
+        let Ok(data) = fixture::read(format!("{}/{fx}", dir())) else { continue };
         let fr = *frames_live(&data).last().unwrap();
         for p in 0..4 {
             let c = fr.global(0x422fa8 + 4 * p) as usize;
@@ -89,14 +90,14 @@ fn timing_tables_like_the_game() {
 /// and the ball: velocity, flight frames and target (the aim pulled inside, plus the scatter).
 #[test]
 fn timed_launches_like_the_game() {
-    let Some(d) = disc() else { return eprintln!("disc absent, skipped") };
+    let Some(d) = disc() else { return };
     let game = hst_data::exe::Game::new(&d.cnf, &d.game_bin).unwrap();
     let (lines, angle) = game.court_margins();
     let m = Margins { lines, angle };
     let down2 = game.down2_blend();
     let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
     let table = |c: usize, name: &str| {
-        ["A", "B"].iter().find_map(|ab| std::fs::read(format!("{ctx}/xb/TRAJ/TRAJ{c:02}{ab}.XB/data/hatsuyama/traj/tr_pc{c:02}_{name}.dat")).ok()).and_then(|b| Table::parse(&b))
+        ["A", "B"].iter().find_map(|ab| std::fs::read(fixture::path(format!("{ctx}/xb/TRAJ/TRAJ{c:02}{ab}.XB/data/hatsuyama/traj/tr_pc{c:02}_{name}.dat"))).ok()).and_then(|b| Table::parse(&b))
     };
     let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let i = |b: &[u8], o: usize| i32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -104,8 +105,8 @@ fn timed_launches_like_the_game() {
     let (mut seen, mut scattered, mut moded, mut bad) = (0, 0, 0, vec![]);
     let (mut dulls, mut framed, mut dives, mut awkwards, mut high_volleys) = (0, 0, 0, 0, 0);
     for (fx, ram) in FIXTURES {
-        let Ok(data) = std::fs::read(format!("{}/{fx}", dir())) else { continue };
-        let ram = ram.and_then(|r| std::fs::read(format!("{}/{r}", dir())).ok());
+        let Ok(data) = fixture::read(format!("{}/{fx}", dir())) else { continue };
+        let ram = ram.and_then(|r| std::fs::read(fixture::path(format!("{}/{r}", dir()))).ok());
         let frames = frames_live(&data);
         let hand = |p: usize, c: usize| match &ram {
             Some(ram) => {
@@ -312,20 +313,20 @@ fn wild_aims_by_draw() {
 #[test]
 fn timed_smashes_like_the_game() {
     use hst_sim::swing::{smash_scale, smash_scatter};
-    let Some(d) = disc() else { return eprintln!("disc absent, skipped") };
+    let Some(d) = disc() else { return };
     let game = hst_data::exe::Game::new(&d.cnf, &d.game_bin).unwrap();
     let (lines, angle) = game.court_margins();
     let m = Margins { lines, angle };
     let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
     let table = |c: usize, kind: i32| {
-        ["A", "B"].iter().find_map(|ab| std::fs::read(format!("{ctx}/xb/TRAJ/TRAJ{c:02}{ab}.XB/data/hatsuyama/traj/tr_pc{c:02}_smsh{kind}.dat")).ok()).and_then(|b| Table::parse(&b)).unwrap()
+        ["A", "B"].iter().find_map(|ab| std::fs::read(fixture::path(format!("{ctx}/xb/TRAJ/TRAJ{c:02}{ab}.XB/data/hatsuyama/traj/tr_pc{c:02}_smsh{kind}.dat"))).ok()).and_then(|b| Table::parse(&b)).unwrap()
     };
     let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let i = |b: &[u8], o: usize| i32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
     let (mut seen, mut scattered, mut held, mut scaled, mut bad) = (0, 0, 0, 0, vec![]);
     for (fx, _) in FIXTURES {
-        let Ok(data) = std::fs::read(format!("{}/{fx}", dir())) else { continue };
+        let Ok(data) = fixture::read(format!("{}/{fx}", dir())) else { continue };
         let frames = frames_live(&data);
         for k in 1..frames.len() {
             let (w0, w1) = (frames[k - 1], frames[k]);

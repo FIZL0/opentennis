@@ -3,6 +3,7 @@
 //! hashes. aarch64 is built with `cargo zigbuild` and run through qemu's binfmt; wasm32 runs under `wasmtime` (PATH
 //! or `context/tools/wasmtime-*/`). Skipped when the fixture, a target or a runner is missing.
 
+use hst_data::fixture;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -42,10 +43,12 @@ fn wasmtime() -> Option<PathBuf> {
 #[test]
 fn same_state_hash_on_x86_64_aarch64_wasm32() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{ROOT}/context/fixtures"));
-    let fixture = format!("{dir}/camera_s05.bin");
-    if !Path::new(&fixture).exists() {
-        return eprintln!("camera_s05.bin absent, skipped");
+    let fixture = fixture::path(format!("{dir}/camera_s05.bin"));
+    if !fixture::exists(&fixture) {
+        return;
     }
+    let dir = fixture.parent().unwrap().to_string_lossy().into_owned();
+    let fixture = fixture.to_string_lossy().into_owned();
     let tdir = PathBuf::from(std::env::var("CARGO_TARGET_DIR").unwrap_or(format!("{ROOT}/target"))).join("platforms");
     let host = build(None, &tdir).expect("host build of state_hash");
     let want = run({

@@ -2,6 +2,7 @@
 //! `tools/record_foot.py 5`): from each player's toe bones, motion and matrix, every frame's step state, dust puffs
 //! (the first 32) and footprints match the game bit for bit.
 
+use hst_data::fixture;
 use hst_data::exe;
 use hst_sim::foot::{Bit, DiveWatch, Feet, Print, Puff, Runner};
 
@@ -104,11 +105,11 @@ fn footsteps_rain_s05() {
 fn footsteps(name: &str) {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(cnf), Ok(bin)) = (
-        std::fs::read(format!("{root}/context/fixtures/foot_s05{name}.bin")),
-        std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/context/fixtures/foot_s05{name}.bin")),
+        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
     ) else {
-        return eprintln!("foot_s05{name}.bin or disc absent, skipped");
+        return fixture::skip(format_args!("foot_s05{name}.bin or disc absent, skipped"));
     };
     let t = exe::Game::new(&cnf, &bin).unwrap().foot();
     let court = i(&data, 0) as usize;
@@ -228,15 +229,15 @@ fn mt(fr: &[u8]) -> hst_sim::weather::Mt {
 #[test]
 fn foot_extras_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(cnf), Ok(bin)) = (std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")), std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN"))) else {
-        return eprintln!("disc absent, skipped");
+    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{root}/context/iso/SYSTEM.CNF")), fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN"))) else {
+        return fixture::skip(format_args!("disc absent, skipped"));
     };
     let t = exe::Game::new(&cnf, &bin).unwrap().foot();
     let (mut kinds, mut rings, mut dashes) = ([0; 3], 0, 0);
     // the w and d recordings force the court wet and dusty (`FOOT_POKE`) for the dive rings
     for name in ["x", "w", "d"] {
-    let Ok(data) = std::fs::read(format!("{root}/context/fixtures/foot_s05{name}.bin")) else {
-        eprintln!("foot_s05{name}.bin absent, skipped");
+    let Ok(data) = fixture::read(format!("{root}/context/fixtures/foot_s05{name}.bin")) else {
+        fixture::skip(format_args!("foot_s05{name}.bin absent, skipped"));
         continue;
     };
     let court = i(&data, 0) as usize;
@@ -376,14 +377,14 @@ fn debris_key(a: &Feet, want: &Feet) -> (usize, [i32; 3], Vec<Vec<u32>>) {
 #[test]
 fn foot_debris_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(cnf), Ok(bin)) = (std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")), std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN"))) else {
-        return eprintln!("disc absent, skipped");
+    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{root}/context/iso/SYSTEM.CNF")), fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN"))) else {
+        return fixture::skip(format_args!("disc absent, skipped"));
     };
     let t = exe::Game::new(&cnf, &bin).unwrap().foot();
     let mut thrown = [0; 2];
     for (name, kind) in [("g", 1), ("c", 0)] {
-        let Ok(data) = std::fs::read(format!("{root}/context/fixtures/foot_s05{name}.bin")) else {
-            eprintln!("foot_s05{name}.bin absent, skipped");
+        let Ok(data) = fixture::read(format!("{root}/context/fixtures/foot_s05{name}.bin")) else {
+            fixture::skip(format_args!("foot_s05{name}.bin absent, skipped"));
             continue;
         };
         let mut t = t.clone();
@@ -474,8 +475,8 @@ fn dive_inputs_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let mut dives = 0;
     for name in ["x", "w", "d"] {
-        let Ok(data) = std::fs::read(format!("{root}/context/fixtures/foot_s05{name}.bin")) else {
-            eprintln!("foot_s05{name}.bin absent, skipped");
+        let Ok(data) = fixture::read(format!("{root}/context/fixtures/foot_s05{name}.bin")) else {
+            fixture::skip(format_args!("foot_s05{name}.bin absent, skipped"));
             continue;
         };
         let frames: Vec<&[u8]> = data[8..].as_chunks::<{ EX + 4 * EXSZ }>().0.iter().map(|s| s.as_slice()).collect();
@@ -509,7 +510,7 @@ fn puff_look_is_view_forward() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/ram/");
     let mut n = 0;
     for s in ["s03", "s04", "s05", "s08", "s09", "npc_c01"] {
-        let Ok(ram) = std::fs::read(format!("{root}{s}.bin")) else { continue };
+        let Ok(ram) = fixture::read(format!("{root}{s}.bin")) else { continue };
         let w = |a: usize| u32::from_le_bytes(ram[a..a + 4].try_into().unwrap());
         assert_eq!([0, 4, 8, 12].map(|o| w(0x1e7d30 + o)), [0, 4, 8].map(|o| w(0x1e7f30 + 0x20 + o)).into_iter().chain([0]).collect::<Vec<_>>()[..], "{s}");
         n += 1;

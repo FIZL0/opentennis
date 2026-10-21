@@ -63,6 +63,8 @@ merge into main as a normal task. Mode-off and the replay tests stay exact on th
 - Tests: `tools/check.sh [-p crate --test name]`, not bare `cargo test`; full log in `context/notes/check.log`.
   While working, run only the tests you touched (`tools/check.sh -p hst <filter>`): three check slots serve every
   agent, and a full-suite run holds one for many minutes. The full suite runs once, in `tools/done.sh`.
+  A test reads the disc and `context/` recordings through `hst_data::fixture` (`iso()`, `read`, `skip`), never by
+  its own path: it skips without them, and fails instead under check.sh's `HST_REQUIRE_DISC=1`.
   Keep each test under ~10 s: share one match between checks, force the rare case (e.g. set the replay camera's
   closing-shot list) instead of playing on until it happens. Slower ones are `#[ignore]` with a doc line saying
   how and when to run them (`tools/check.sh -p hst <name> -- --ignored`). `check.sh` skips the netplay match tests

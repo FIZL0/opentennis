@@ -14,7 +14,7 @@ fn rng(seed: &mut u64) -> u64 {
 /// `rand()` from random 64-bit states: the result and the state it leaves.
 #[test]
 fn newlib_rand() {
-    let Some(mut ee) = Ee::game() else { return eprintln!("skip: no context/iso") };
+    let Some(mut ee) = Ee::game() else { return };
     let (at, state) = (addr("newlib_rand"), ee.read(addr("newlib_impure_ptr"), 4) as u32 + 0xa8);
     assert_ne!(state, 0xa8, "impure pointer unset");
     let mut seed = 0x2545_f491_4f6c_dd1du64;
@@ -49,7 +49,7 @@ fn put(ee: &mut Ee, m: &Mt) {
 /// (624 and past it: the regeneration) match result and state.
 #[test]
 fn mt19937() {
-    let Some(mut ee) = Ee::game() else { return eprintln!("skip: no context/iso") };
+    let Some(mut ee) = Ee::game() else { return };
     let (seed_at, next_at) = (addr("mt_seed"), addr("mt_next"));
     ee.write(OBJ + 0x9c8, 4, 0);
     ee.write(OBJ + 0x9cc, 4, 0x9908_b0df);

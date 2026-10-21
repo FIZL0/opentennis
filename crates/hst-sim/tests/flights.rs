@@ -2,6 +2,7 @@
 //! made by `research/tools/fixture_flights.py`) from frame 3 through every bounce to the end of the
 //! game's own path, requiring every frame's position and velocity to match bit for bit. Skips when the fixture is absent.
 
+use hst_data::fixture;
 use hst_sim::ball::{Ball, COURTS, Flight, Params, Shot, rows4};
 
 struct Case {
@@ -16,7 +17,7 @@ struct Case {
 
 fn load() -> Option<Vec<Case>> {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let text = std::fs::read_to_string(format!("{dir}/flights_s05.csv")).ok()?;
+    let text = fixture::read_to_string(format!("{dir}/flights_s05.csv")).ok()?;
     let mut cases: Vec<Case> = Vec::new();
     for line in text.lines() {
         let (kind, rest) = line.split_once(',').unwrap();
@@ -53,7 +54,7 @@ fn load() -> Option<Vec<Case>> {
 #[test]
 fn whole_shots_match_the_game() {
     let Some(cases) = load() else {
-        eprintln!("fixture missing, skipped");
+        fixture::skip(format_args!("fixture missing, skipped"));
         return;
     };
     let (mut frames, mut failures) = (0, Vec::new());

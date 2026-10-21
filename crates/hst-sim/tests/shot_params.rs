@@ -1,6 +1,7 @@
 //! The shot parameter table built from the disc must equal the game's own runtime table (captured from a
 //! save state's RAM: `context/fixtures/shot_params_ram.bin`). Needs the extracted disc under `context/iso`.
 
+use hst_data::fixture;
 use hst_data::exe::Game;
 use hst_sim::params::ShotParams;
 
@@ -8,11 +9,11 @@ use hst_sim::params::ShotParams;
 fn built_table_equals_the_games_runtime_table() {
     let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
     let (Ok(cnf), Ok(bin), Ok(ram)) = (
-        std::fs::read(format!("{ctx}/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
-        std::fs::read(format!("{ctx}/fixtures/shot_params_ram.bin")),
+        fixture::read(format!("{ctx}/iso/SYSTEM.CNF")),
+        fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{ctx}/fixtures/shot_params_ram.bin")),
     ) else {
-        eprintln!("fixture missing, skipped");
+        fixture::skip(format_args!("fixture missing, skipped"));
         return;
     };
     let src = Game::new(&cnf, &bin).unwrap().shot_params();
@@ -39,11 +40,11 @@ fn built_table_equals_the_games_runtime_table() {
 fn variant_records_equal_the_games() {
     let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
     let (Ok(cnf), Ok(bin), Ok(ram)) = (
-        std::fs::read(format!("{ctx}/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
-        std::fs::read(format!("{ctx}/fixtures/slot5_ee.bin")),
+        fixture::read(format!("{ctx}/iso/SYSTEM.CNF")),
+        fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{ctx}/fixtures/slot5_ee.bin")),
     ) else {
-        eprintln!("fixture missing, skipped");
+        fixture::skip(format_args!("fixture missing, skipped"));
         return;
     };
     let game = Game::new(&cnf, &bin).unwrap();

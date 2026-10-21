@@ -1,6 +1,6 @@
 # T4: the checks a beta waits for. Runs on pull requests and pushes to other branches by itself; pushes to main run it
 # from pages.yml (`ci` job), whose beta and site deploy only go out when it passes.
-# - tests: hst-sim and hst-data, the ones that run without the disc (CI has no ISO; most disc tests skip themselves)
+# - tests: hst-sim and hst-data, the ones that run without the disc (CI has no ISO; the disc tests skip themselves through hst_data::fixture)
 # - clippy, warnings are errors: the whole workspace, the same command tools/done.sh runs before a task lands
 # - cargo-deny (deny.toml): RustSec advisories, licences, sources
 # No `cargo fmt --check` yet: the code isn't rustfmt-formatted and a repo-wide reformat waits for the user (plan/HUMAN.md).
@@ -20,10 +20,7 @@ jobs:
       # the version in rust-toolchain.toml
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0  # v2.9.3
-      # the skipped three read recordings from context/ and fail without them, instead of skipping (T5's helper)
-      - run: |
-          cargo test --locked -p hst-sim -p hst-data -- \
-            --skip match_serve_walk --skip beach_plane_flies_over --skip serve_follow_through
+      - run: cargo test --locked -p hst-sim -p hst-data
       # the Bevy crates' system libraries (alsa, udev; wayland/xkbcommon headers for winit), as in Bevy's linux setup
       - run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings

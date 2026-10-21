@@ -2,6 +2,7 @@
 //! game's own rolls, every burst it throws matches the port's spark for spark, and every frame after it every
 //! spark's position, velocity, size and life, bit for bit.
 
+use hst_data::fixture;
 use hst_sim::effect::{Roll, SPARKS, Spark, Sparks};
 
 fn f(b: &[u8], o: usize) -> f32 {
@@ -40,7 +41,7 @@ fn bits(s: &Spark) -> Vec<u32> {
 #[test]
 fn sparks_s05() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/sparks_s05.bin")) else { return eprintln!("sparks_s05.bin absent, skipped") };
+    let Ok(data) = fixture::read(format!("{dir}/sparks_s05.bin")) else { return };
     let frames: Vec<&[u8]> = data.as_chunks::<SIZE>().0.iter().map(|s| s.as_slice()).collect();
     let mut sp = Sparks::new(rolls(frames[0]));
     let (mut bursts, mut kinds) = (0, [0; 5]);

@@ -95,7 +95,7 @@ fn sweep_case(s: &mut u64) -> (V4, V4, f32, V4, V4, f32) {
 
 #[test]
 fn plane_sweep() {
-    let Some(mut ee) = Ee::game() else { return eprintln!("skip: no context/iso") };
+    let Some(mut ee) = Ee::game() else { return };
     let at = addr("plane_sweep");
     let (mut seed, mut bad, n) = (0x9e37_79b9_7f4a_7c15u64, vec![], 40_000);
     let mut kinds = [0usize; 3]; // miss, t > 0, inside the skin (t = 0, penetration < 0)
@@ -136,7 +136,7 @@ fn plane_sweep() {
 
 #[test]
 fn contact_points() {
-    let Some(mut ee) = Ee::game() else { return eprintln!("skip: no context/iso") };
+    let Some(mut ee) = Ee::game() else { return };
     let at = addr("contact_point");
     let (mut seed, mut bad, n) = (0x2545_f491_4f6c_dd1du64, vec![], 40_000);
     let mut kinds = [0usize; 5]; // no hit, pushed out, t == 0, held back to start, lerped
@@ -226,7 +226,7 @@ fn matrix(s: &mut u64) -> M4 {
 
 #[test]
 fn matrix_to_quat() {
-    let Some(mut ee) = Ee::game() else { return eprintln!("skip: no context/iso") };
+    let Some(mut ee) = Ee::game() else { return };
     let at = addr("quat_from_matrix");
     let (mut seed, mut bad, n) = (0x51_7cc1_b727_220au64, vec![], 30_000);
     let mut kinds = [0usize; 4]; // trace ≥ 0, largest m00, m11, m22
@@ -254,7 +254,7 @@ fn unit_quat(s: &mut u64) -> V4 {
 
 #[test]
 fn quat_to_matrix() {
-    let Some(mut ee) = Ee::game() else { return eprintln!("skip: no context/iso") };
+    let Some(mut ee) = Ee::game() else { return };
     let at = addr("quat_to_matrix");
     let (mut seed, mut bad, n) = (0x6a09_e667_f3bc_c908u64, vec![], 30_000);
     for k in 0..n {
@@ -277,7 +277,7 @@ fn quat_to_matrix() {
 
 #[test]
 fn quat_slerp() {
-    let Some(mut ee) = Ee::game() else { return eprintln!("skip: no context/iso") };
+    let Some(mut ee) = Ee::game() else { return };
     let at = addr("quat_slerp");
     let (mut seed, mut bad, n) = (0xbb67_ae85_84ca_a73bu64, vec![], 30_000);
     let mut kinds = [0usize; 4]; // t = 0, t = 1, flipped (dot < 0), as is
@@ -318,7 +318,7 @@ fn quat_slerp() {
 /// sign bit —, sin²θ = 0, dot > 0.999) and the arctan/sine polynomial path, on unit and off-unit quaternions.
 #[test]
 fn quat_micro_slerp() {
-    let Some(mut ee) = Ee::game() else { return eprintln!("skip: no context/iso") };
+    let Some(mut ee) = Ee::game() else { return };
     let at = addr("quat_micro_slerp");
     let (mut seed, mut bad, n) = (0x3c6e_f372_fe94_f82bu64, vec![], 30_000);
     let mut kinds = [0usize; 3]; // negative dot, nearly equal (dot ≥ 0.999), the polynomial path

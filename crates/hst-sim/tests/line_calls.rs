@@ -5,6 +5,7 @@
 //! with line calls on: the call (+0xa5) and line distance (+0x230) must match bit for bit, and so must the
 //! position and velocity. Needs the extracted disc under `context/iso` for the line margin.
 
+use hst_data::fixture;
 use hst_data::exe::Game;
 use hst_sim::ball::{Ball, COURTS, Flight, Params, Shot};
 use hst_sim::judge::{Call, Lines};
@@ -60,11 +61,11 @@ fn flight(b: &[u8]) -> (Flight, Shot) {
 fn round1_line_calls() {
     let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
     let (Ok(cnf), Ok(bin), Ok(data)) = (
-        std::fs::read(format!("{ctx}/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
-        std::fs::read(format!("{ctx}/fixtures/round1.bin")),
+        fixture::read(format!("{ctx}/iso/SYSTEM.CNF")),
+        fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{ctx}/fixtures/round1.bin")),
     ) else {
-        return eprintln!("disc or round1.bin absent, skipped");
+        return fixture::skip(format_args!("disc or round1.bin absent, skipped"));
     };
     let margin = Game::new(&cnf, &bin).unwrap().line_margin();
     let frames = frames(&data);

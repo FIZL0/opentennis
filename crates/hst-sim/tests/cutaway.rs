@@ -2,7 +2,8 @@
 //! `tools/record_cutaway.py`): shots and scripts from the disc's GAME.BIN, subject frames from the recorded
 //! reference table; every frame's channels and view (eye, axes, field of view) follow the game's.
 
-use hst_data::{exe::Game, iso::Iso};
+use hst_data::fixture;
+use hst_data::exe::Game;
 use hst_sim::cutaway::{M4, Shot};
 
 const GM: usize = 4;
@@ -21,8 +22,8 @@ fn mat(b: &[u8], o: usize) -> M4 {
 #[test]
 fn cutaway_s05() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let (Ok(data), Ok(mut iso)) = (std::fs::read(format!("{dir}/cutaway_s05.bin")), Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso"))) else {
-        return eprintln!("cutaway_s05.bin or ISO absent, skipped");
+    let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{dir}/cutaway_s05.bin")), fixture::iso()) else {
+        return fixture::skip(format_args!("cutaway_s05.bin or ISO absent, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let shots = Game::new(&cnf, &bin).unwrap().camera_shots();
@@ -81,31 +82,6 @@ fn cutaway_s05() {
     assert!(n > 1000 && stale < 5 && worst < 1e-3, "worst {worst}");
 }
 
-#[test]
-#[ignore]
-fn debug_frame() {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures");
-    let data = std::fs::read(format!("{dir}/cutaway_s05.bin")).unwrap();
-    let mut iso = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")).unwrap();
-    let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
-    let shots = Game::new(&cnf, &bin).unwrap().camera_shots();
-    let k: usize = std::env::var("K").unwrap().parse().unwrap();
-    let s = data.as_chunks::<SAMPLE>().0.get(k).unwrap();
-    let number = s[CAM + 0x114];
-    let table = |i: u8| mat(s, TAB + i as usize * 0x40);
-    let mut sh = Shot::new(&shots, number, s[CAM + 0x50] == 0xff);
-    eprintln!("script {:?}", shots[number as usize].script);
-    for _ in 0..400 {
-        if (sh.ch(6) - f(s, CAM + 0x2d58 + 6 * 0x1c)).abs() < 1e-5 { break; }
-        sh.step(table);
-    }
-    sh.build(&table);
-    for c in 5..17 { eprintln!("ch{c} ours {} game {}", sh.ch(c), f(s, CAM + 0x2d58 + c * 0x1c)); }
-    eprintln!("ours {:?}\ngame {:?} fov {}", sh.view(), mat(s, CAM + 0x60), f(s, CAM + 0xa4));
-    eprintln!("basis ours {:?}\n      game {:?}", sh.basis(&table), mat(s, CAM + 0x2f50));
-    for i in [0x1d, 0x1e, 0x2e, 0x3e] { eprintln!("frame {i:#x} {:?}", table(i)[3]); }
-}
-
 /// The director against `cutaway2_s05.bin` (`record_cutaway.py --players`: the same samples plus the point's
 /// globals, the pick counters and each player's head/Spine2 bones, predicted head, matrix, reaction, motion):
 /// every cut-away's shot pick and orbit side, the shown players' frames from their bones posed where the reaction
@@ -116,8 +92,8 @@ fn director_s05() {
     const X: usize = SAMPLE;
     const PL: usize = X + 0xd8;
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let (Ok(data), Ok(mut iso)) = (std::fs::read(format!("{dir}/cutaway2_s05.bin")), Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso"))) else {
-        return eprintln!("cutaway2_s05.bin or ISO absent, skipped");
+    let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{dir}/cutaway2_s05.bin")), fixture::iso()) else {
+        return fixture::skip(format_args!("cutaway2_s05.bin or ISO absent, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let lists = Game::new(&cnf, &bin).unwrap().cutaway_lists();
@@ -198,8 +174,8 @@ fn prediction_s05() {
     const X: usize = SAMPLE;
     const PL: usize = X + 0xd8;
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let (Ok(data), Ok(mut iso)) = (std::fs::read(format!("{dir}/cutaway2_s05.bin")), Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso"))) else {
-        return eprintln!("cutaway2_s05.bin or ISO absent, skipped");
+    let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{dir}/cutaway2_s05.bin")), fixture::iso()) else {
+        return fixture::skip(format_args!("cutaway2_s05.bin or ISO absent, skipped"));
     };
     let i32_ = |s: &[u8], o: usize| i32::from_le_bytes(s[o..o + 4].try_into().unwrap());
     let v4 = |s: &[u8], o: usize| [0, 4, 8, 12].map(|d| f(s, o + d));
@@ -286,8 +262,8 @@ fn prediction_s05() {
 /// in the picture (it used to take the asin of a zero-length look, and the view's axes blew up to ~1e38).
 #[test]
 fn low_angle_shot_stays_finite() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("ISO absent, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("ISO absent, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let shots = Game::new(&cnf, &bin).unwrap().camera_shots();

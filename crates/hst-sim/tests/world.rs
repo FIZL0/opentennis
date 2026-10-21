@@ -5,7 +5,7 @@
 //! net-post flag, scale, world matrix, root node matrices, bounding sphere centre and — for collision models — the
 //! world → model matrix. The 20 m grid built from the collision props must match the game's bounds and cell lists.
 
-use hst_data::iso::Iso;
+use hst_data::fixture;
 use hst_data::xb::Archive;
 use hst_data::{layout, mdl, mtl};
 use hst_sim::world::{self, M4};
@@ -43,9 +43,9 @@ fn bits<const N: usize>(v: &[[f32; 4]; N]) -> Vec<u32> {
 #[test]
 fn court_10_props_and_grid_match_ram() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(ram), Ok(mut iso)) = (std::fs::read(format!("{root}/context/ram/s05.bin")), Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")))
+    let (Ok(ram), Ok(mut iso)) = (fixture::read(format!("{root}/context/ram/s05.bin")), fixture::iso())
     else {
-        eprintln!("RAM dump or disc missing, skipped");
+        fixture::skip(format_args!("RAM dump or disc missing, skipped"));
         return;
     };
     let r = Ram(ram);

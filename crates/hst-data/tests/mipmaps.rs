@@ -1,11 +1,12 @@
 //! Court 10's mip levels (MTL texture header MXL) and per-material LOD bias K (MDL material header), against
 //! the values the game's draw records hold in RAM. Skipped without the disc image.
 
-use hst_data::{iso::Iso, mdl, mtl, xb::Archive};
+use hst_data::fixture;
+use hst_data::{mdl, mtl, xb::Archive};
 
 #[test]
 fn court_10_mips_and_lod_k() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let (mut ks, mut mipped) = (Vec::new(), 0);
     for arc in ["CMN.XB", "GRD01.XB", "HOL01.XB"] {
         let data = iso.read(&format!("COURT/10/{arc}")).unwrap();

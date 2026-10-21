@@ -2,7 +2,8 @@
 //! `tools/record_bounce.py 5`): from the ball's bounce count and contact records alone, every frame's marks (matrix,
 //! life, length, alpha), dust puffs, the ring model's matrix, clocks, weights and life match the game bit for bit.
 
-use hst_data::{ani, exe, iso::Iso, mdl, mor, mtl, xb::Archive};
+use hst_data::fixture;
+use hst_data::{ani, exe, mdl, mor, mtl, xb::Archive};
 use hst_sim::effect::{Bounce, Contact, Effect};
 
 fn f(b: &[u8], o: usize) -> f32 {
@@ -22,12 +23,12 @@ fn bits<const N: usize>(v: [f32; N]) -> [u32; N] {
 fn bounces_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(mut iso), Ok(cnf), Ok(bin)) = (
-        std::fs::read(format!("{root}/context/fixtures/bounce_s05.bin")),
-        Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")),
-        std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/context/fixtures/bounce_s05.bin")),
+        fixture::iso(),
+        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
     ) else {
-        return eprintln!("bounce_s05.bin or disc absent, skipped");
+        return fixture::skip(format_args!("bounce_s05.bin or disc absent, skipped"));
     };
     let game = exe::Game::new(&cnf, &bin).unwrap();
     let materials = hst_sim::court::materials(&game);

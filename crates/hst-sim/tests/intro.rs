@@ -2,7 +2,8 @@
 //! (the orbit segments too), and the channels and eye follow recordings of the original (`research/b42_intro_camera.py`:
 //! court 8 in `context/b42/cam_c08.bin`, courts 1–7, 9, 11 in `context/b42d/cam_cNN.bin`, all doubles).
 
-use hst_data::{exe::Game, iso::Iso, xb::Archive};
+use hst_data::fixture;
+use hst_data::{exe::Game, xb::Archive};
 use hst_sim::cutaway::{self, Shot};
 
 const CAM: usize = 4 + 0x100 + 0x200;
@@ -14,8 +15,8 @@ fn f(b: &[u8], o: usize) -> f32 {
 
 #[test]
 fn intro_cameras() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("ISO absent, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("ISO absent, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let shots = Game::new(&cnf, &bin).unwrap().camera_shots();
@@ -48,7 +49,7 @@ fn intro_cameras() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
         let rec = [format!("{root}/b42/cam_c{n:02}.bin"), format!("{root}/b42d/cam_c{n:02}.bin")]
             .iter()
-            .find_map(|p| std::fs::read(p).ok());
+            .find_map(|p| std::fs::read(fixture::path(p)).ok());
         if let Some(rec) = rec {
             follows(n, &shots, &dat, &rec);
             recorded += 1;

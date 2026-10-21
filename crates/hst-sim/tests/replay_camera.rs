@@ -3,7 +3,8 @@
 //! puts the eye where the game's camera is. Per vsync: u32 vsync, u8 camera handler +0x51, u32 shot camera +0x114, the frame
 //! table (0x79 × 0x40), 0x58 bytes of recorder roles, the camera eye/look/up/fov (0x40).
 
-use hst_data::{exe::Game, iso::Iso};
+use hst_data::fixture;
+use hst_data::exe::Game;
 use hst_sim::cutaway::{M4, Shot};
 
 const TAB: usize = 9;
@@ -20,8 +21,8 @@ fn mat(b: &[u8], o: usize) -> M4 {
 #[test]
 fn replay_shots_on_the_games_frames() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let (Ok(data), Ok(mut iso)) = (std::fs::read(format!("{dir}/replay_frames_s05.bin")), Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso"))) else {
-        return eprintln!("replay_frames_s05.bin or ISO absent, skipped");
+    let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{dir}/replay_frames_s05.bin")), fixture::iso()) else {
+        return fixture::skip(format_args!("replay_frames_s05.bin or ISO absent, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let shots = Game::new(&cnf, &bin).unwrap().camera_shots();

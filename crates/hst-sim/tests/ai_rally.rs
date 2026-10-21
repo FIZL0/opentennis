@@ -9,7 +9,8 @@
 //! 5 level 0, both BASE); the AI fields 0x234..0x260 sit 0x10 lower there. `ai_rally_s05_weak.bin`: slot 5 with level-0
 //! doubles rows (`HST_AI=0:89:0,1:84:0,2:86:0,3:97:0`).
 
-use hst_data::{iso::Iso, xb::Archive};
+use hst_data::fixture;
+use hst_data::xb::Archive;
 use hst_sim::ai::{AiParams, Mind, Play};
 use hst_sim::player::{ReachStats, Stats};
 use hst_sim::position::Return;
@@ -25,7 +26,7 @@ fn root() -> &'static str {
 }
 
 fn table() -> Option<Vec<AiParams>> {
-    let mut iso = Iso::open(format!("{}/Hot Shots Tennis (USA).iso", root())).ok()?;
+    let mut iso = fixture::iso().ok()?;
     let data = iso.read("PCDATA/PCDATA.XB").ok()?;
     let arc = Archive::parse(&data).ok()?;
     let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("aiparam.csv"))?;
@@ -439,7 +440,7 @@ fn call(name: &str, e: &[u8], x: &[u8], mt0: &Mt, row: &AiParams, tag: u32, sing
 /// Replays every call with `tag` (1 receive, 2 NET, 3 BASE) of a fixture; returns (calls, per substate on entry).
 fn replay(name: &str, tag: u32) -> Option<(usize, [usize; 4])> {
     let singles = name.contains("singles");
-    let d = std::fs::read(format!("{}/context/fixtures/{name}", root())).ok()?;
+    let d = fixture::read(format!("{}/context/fixtures/{name}", root())).ok()?;
     let mut table = table()?;
     if name.contains("let_go") {
         // recorded with every CPU row's let-go margin poked to -3 m (`HST_MARGIN=-3`)
@@ -492,14 +493,15 @@ fn replay(name: &str, tag: u32) -> Option<(usize, [usize; 4])> {
 
 #[test]
 fn receive_matches_the_game() {
-    let Some(n) = replay("ai_rally_s05.bin", 1) else { return eprintln!("fixture or disc missing, skipped") };
+    let Some(n) = replay("ai_rally_s05.bin", 1) else { return };
     eprintln!("calls, per substate: {n:?}");
+    assert!(n.1.iter().all(|&k| k > 0), "{n:?}");
 }
 
 #[test]
 fn receive_matches_the_game_long() {
     for name in ["ai_rally_s05_fix.bin", "ai_rally_s05_all.bin", "ai_rally_s05_long.bin", "ai_rally_s05_slow.bin", "ai_rally_s05_slow2.bin", "ai_rally_s05_weak.bin"] {
-        let Some(n) = replay(name, 1) else { return eprintln!("fixture or disc missing, skipped") };
+        let Some(n) = replay(name, 1) else { return };
         eprintln!("{name}: calls, per substate {n:?}");
         assert!(n.1.iter().all(|&k| k > 0), "{n:?}");
     }
@@ -518,9 +520,9 @@ fn receive_matches_the_game_long() {
 fn vpad_serves_receive_matches_the_game() {
     let (mut plans, mut short, mut smash) = ([0; 2], 0, 0);
     for name in ["ai_rally_vpad_wide.bin", "ai_rally_vpad_wide_b.bin", "ai_rally_vpad_last.bin", "ai_rally_vpad_smash.bin"] {
-        let Some(n) = replay(name, 1) else { return eprintln!("{name} or disc missing, skipped") };
+        let Some(n) = replay(name, 1) else { return };
         eprintln!("{name}: calls, per substate: {n:?}");
-        let d = std::fs::read(format!("{}/context/fixtures/{name}", root())).unwrap();
+        let d = std::fs::read(fixture::path(format!("{}/context/fixtures/{name}", root()))).unwrap();
         let mut counts = [0; 4];
         for (_, _, e, x) in calls(&d, &[1]) {
             let (from, to, plan) = (e[A + 0x56], x[A + 0x56], x[A + 0xb2]);
@@ -663,14 +665,14 @@ fn vpad_rallies_net_and_base_match_the_game() {
     let new = ["ai_rally_vpad_lob.bin", "ai_rally_vpad_fast.bin", "ai_rally_vpad_base_lob.bin", "ai_rally_vpad_slice.bin", "ai_rally_vpad_window10.bin", "ai_rally_vpad_window14.bin"];
     for name in new {
         for (tag, what) in [(1, "receive"), (2, "NET"), (3, "BASE")] {
-            let Some(n) = replay(name, tag) else { return eprintln!("{name} or disc missing, skipped") };
+            let Some(n) = replay(name, tag) else { return };
             eprintln!("{name} {what}: calls, per substate {n:?}");
         }
     }
     let old = ["ai_human_1p.bin", "ai_human_1p_b.bin", "ai_human_1p_c.bin", "ai_human_vpad.bin", "ai_human_vpad_b.bin", "ai_human_vpad_c.bin"];
     let (mut unpoked, mut all) = (NetBase::default(), NetBase::default());
     for name in new.iter().chain(&old) {
-        let Ok(d) = std::fs::read(format!("{}/context/fixtures/{name}", root())) else { return eprintln!("{name} missing, skipped") };
+        let Ok(d) = fixture::read(format!("{}/context/fixtures/{name}", root())) else { return };
         for (_, _, e, x) in calls(&d, &[2, 3]) {
             all.add(e, x);
             if !name.contains("window") {
@@ -701,9 +703,9 @@ fn singles_vpad_serves_receive_matches_the_game() {
     let table = table();
     let (mut out, mut upgrade, mut short, mut smash) = ([0; 2], 0, 0, 0);
     for name in ["ai_rally_singles_vpad_wide.bin", "ai_rally_singles_vpad_wide_b.bin", "ai_rally_singles_vpad_upgrade.bin", "ai_rally_singles_vpad_last.bin", "ai_rally_singles_vpad_smash.bin"] {
-        let Some(n) = replay(name, 1) else { return eprintln!("{name} or disc missing, skipped") };
+        let Some(n) = replay(name, 1) else { return };
         eprintln!("{name}: calls, per substate: {n:?}");
-        let d = std::fs::read(format!("{}/context/fixtures/{name}", root())).unwrap();
+        let d = std::fs::read(fixture::path(format!("{}/context/fixtures/{name}", root()))).unwrap();
         for (_, _, e, x) in calls(&d, &[1]) {
             let (from, to, plan) = (e[A + 0x56], x[A + 0x56], x[A + 0xb2]);
             if from == 2 && to == 3 && (10..=11).contains(&plan) {
@@ -730,7 +732,7 @@ fn singles_vpad_serves_receive_matches_the_game() {
 fn net_and_base_match_the_game() {
     for (tag, what) in [(2, "NET"), (3, "BASE")] {
         for name in ["ai_net_s05.bin", "ai_rally_s05_weak.bin"] {
-            let Some(n) = replay(name, tag) else { return eprintln!("fixture or disc missing, skipped") };
+            let Some(n) = replay(name, tag) else { return };
             eprintln!("{name} {what}: calls, per substate {n:?}");
         }
     }
@@ -744,7 +746,7 @@ fn human_record_matches_the_game() {
     // P11k7: ai_human_vpad.bin is slot 3 with P1 driven by the pad (`context/p11k7/drive.sh 3 1800`; _b slot 4, 3000; _c the timed pad script `context/p11k7/run.sh 1800 out context/p11k7/c_pad.txt`)
     for name in ["ai_human_1p.bin", "ai_human_1p_b.bin", "ai_human_1p_c.bin", "ai_human_vpad.bin", "ai_human_vpad_b.bin", "ai_human_vpad_c.bin"] {
         for (tag, what) in [(4, "human"), (1, "receive"), (2, "NET"), (3, "BASE")] {
-            let Some(n) = replay(name, tag) else { return eprintln!("fixture or disc missing, skipped") };
+            let Some(n) = replay(name, tag) else { return };
             eprintln!("{name} {what}: calls, per substate {n:?}");
         }
     }
@@ -753,7 +755,7 @@ fn human_record_matches_the_game() {
 #[test]
 fn singles_receive_matches_the_game() {
     for name in ["ai_rally_singles.bin", "ai_rally_singles_long.bin", "ai_rally_singles_rows.bin", "ai_rally_singles_spec.bin", "ai_rally_singles_base.bin"] {
-        let Some(n) = replay(name, 1) else { return eprintln!("fixture or disc missing, skipped") };
+        let Some(n) = replay(name, 1) else { return };
         eprintln!("{name}: calls, per substate {n:?}");
     }
 }
@@ -762,7 +764,7 @@ fn singles_receive_matches_the_game() {
 fn singles_net_and_base_match_the_game() {
     for name in ["ai_rally_singles_net.bin", "ai_rally_singles_rows.bin", "ai_rally_singles_spec.bin", "ai_rally_singles_base.bin"] {
         for (tag, what) in [(2, "NET"), (3, "BASE")] {
-            let Some(n) = replay(name, tag) else { return eprintln!("fixture or disc missing, skipped") };
+            let Some(n) = replay(name, tag) else { return };
             eprintln!("{name} {what}: calls, per substate {n:?}");
         }
     }
@@ -793,10 +795,10 @@ fn net_rush_matches_the_game() {
             if tag == 1 && name.contains("singles") {
                 continue;
             }
-            let Some(n) = replay(name, tag) else { return eprintln!("{name} or disc missing, skipped") };
+            let Some(n) = replay(name, tag) else { return };
             eprintln!("{name} {what}: calls, per substate {n:?}");
         }
-        let d = std::fs::read(format!("{}/context/fixtures/{name}", root())).unwrap();
+        let d = std::fs::read(fixture::path(format!("{}/context/fixtures/{name}", root()))).unwrap();
         for (_, _, e, x) in calls(&d, &[2, 3]) {
             let near = [0x500, 0x510].iter().any(|&o| f32_at(e, o + 8) != 0.0 && f32_at(e, o + 8).abs() < 4.1);
             lobs += (u32_at(x, 0x30) == 4 && x[A + 0x9a] == 0 && x[A + 0xb2] == 10 && near) as usize;
@@ -811,10 +813,10 @@ fn singles_vpad_net_and_base_match_the_game() {
     let (mut redraw, mut arrive, mut hold) = (0, 0, 0);
     for name in ["ai_rally_singles_vpad_redraw.bin", "ai_rally_singles_vpad_chase.bin", "ai_rally_singles_vpad_let_go.bin"] {
         for (tag, what) in [(2, "NET"), (3, "BASE")] {
-            let Some(n) = replay(name, tag) else { return eprintln!("{name} or disc missing, skipped") };
+            let Some(n) = replay(name, tag) else { return };
             eprintln!("{name} {what}: calls, per substate {n:?}");
         }
-        let d = std::fs::read(format!("{}/context/fixtures/{name}", root())).unwrap();
+        let d = std::fs::read(fixture::path(format!("{}/context/fixtures/{name}", root()))).unwrap();
         for (_, _, e, x) in calls(&d, &[2, 3]) {
             let (from, to) = (e[A + 0x57], x[A + 0x57]);
             redraw += (from == 0 && i32_at(e, A + 0x250) == 59 && i32_at(x, A + 0x250) == 0) as usize;
@@ -834,10 +836,10 @@ fn singles_vpad_net_and_base_match_the_game() {
 fn cpus_let_out_balls_go() {
     let name = "ai_let_go_s05.bin";
     for tag in [1, 2, 3] {
-        let Some(n) = replay(name, tag) else { return eprintln!("fixture or disc missing, skipped") };
+        let Some(n) = replay(name, tag) else { return };
         eprintln!("{name} tag {tag}: calls, per substate {n:?}");
     }
-    let d = std::fs::read(format!("{}/context/fixtures/{name}", root())).unwrap();
+    let d = std::fs::read(fixture::path(format!("{}/context/fixtures/{name}", root()))).unwrap();
     let (mut o, mut holds) = (8 + MT_SIZE, 0);
     while o < d.len() {
         let e = &d[o..o + u32_at(&d, o + 4) as usize];
@@ -894,9 +896,9 @@ fn calls<'a>(d: &'a [u8], tags: &[u32]) -> Vec<(u32, usize, &'a [u8], &'a [u8])>
 #[test]
 fn rally_state_tick_by_tick_on_match_s05() {
     let dir = format!("{}/context/fixtures", root());
-    let read = |f: &str| std::fs::read(format!("{dir}/{f}")).ok();
+    let read = |f: &str| fixture::read(format!("{dir}/{f}")).ok();
     let (Some(rd), Some(nd), Some(md), Some(table)) = (read("ai_rally_s05_all.bin"), read("ai_net_s05.bin"), read("match_s05.bin"), table()) else {
-        return eprintln!("skip: ai_rally_s05_all.bin, ai_net_s05.bin, match_s05.bin or the disc missing");
+        return fixture::skip(format_args!("skip: ai_rally_s05_all.bin, ai_net_s05.bin, match_s05.bin or the disc missing"));
     };
     let m = hst_sim::replay::frames_live(&md);
     let sample = hst_sim::replay::SAMPLE_LIVE;

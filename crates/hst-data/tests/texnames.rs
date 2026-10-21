@@ -2,14 +2,15 @@
 //! find their disc textures: every key-named file's key is a disc texture's key.
 //! Skips without the ISO or with no key-named files.
 
-use hst_data::{iso::Iso, texhash};
+use hst_data::fixture;
+use hst_data::texhash;
 use std::collections::HashSet;
 
 #[test]
 fn replacements_match_disc_keys() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
-    let Ok(mut iso) = Iso::open(format!("{root}Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("no ISO, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("no ISO, skipped"));
     };
     let mods = texhash::Overrides::scan_mods(root.as_ref());
     // a PCSX2 pack in the same folder parses to short keys; only ours are checked

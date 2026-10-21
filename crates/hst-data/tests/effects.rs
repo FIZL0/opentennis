@@ -1,11 +1,12 @@
 //! Every hit-effect model in `AZUMA/C_EFF/EFFCT.XB0` parses: models, materials, hierarchical `.ANI` byte-exact
 //! to the end, `.MOR`/`.MTA`/`.UVA` key tracks. Skips without the ISO.
 
-use hst_data::{ani, iso::Iso, mdl, mor, mtl, xb::Archive};
+use hst_data::fixture;
+use hst_data::{ani, mdl, mor, mtl, xb::Archive};
 
 #[test]
 fn every_effect_parses() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let data = iso.read("AZUMA/C_EFF/EFFCT.XB0").unwrap();
     let arc = Archive::parse(&data).unwrap();
     let get = |name: &str| arc.entries.iter().find(|e| e.name.replace('\\', "/").to_ascii_lowercase().ends_with(&name.to_ascii_lowercase())).map(|e| arc.read(e).unwrap());
@@ -43,7 +44,7 @@ fn every_effect_parses() {
 /// Court 10's wind (slot 5 blew from 315° at 2) and cloud count (9 in doubles as in RAM, 11 in singles).
 #[test]
 fn court10_wind_and_clouds() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = hst_data::exe::Game::new(&cnf, &bin).unwrap();
     assert_eq!(game.wind(10), (vec![315.0, 0.0, 45.0], 2.0));
@@ -71,7 +72,7 @@ fn court10_wind_and_clouds() {
 /// The ceremony's camera clips parse to the end: track `Camera01`, 229/240/319 frames, the FOV in radians.
 #[test]
 fn ceremony_cameras() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let data = iso.read("AZUMA/C_EFF/EFFCT.XB0").unwrap();
     let arc = Archive::parse(&data).unwrap();
     for (name, frames) in [("win_99", 229), ("lost_99", 240), ("hand_99", 319)] {

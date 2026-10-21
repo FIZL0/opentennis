@@ -8,7 +8,8 @@
 //! `context/fixtures/ai_serve_s05.bin`: save slot 5, the bot-only doubles match. Characters 0, 2 / 1, 5 in
 //! costume 0: rows 84, 86 / 85, 89, level 3 (P11a). Doubles has no kind lock and its serve aim has no net dash.
 
-use hst_data::{exe, iso::Iso, xb::Archive};
+use hst_data::fixture;
+use hst_data::{exe, xb::Archive};
 use hst_sim::ai::AiParams;
 use hst_sim::aim::button;
 use hst_sim::serve::ai_pick;
@@ -37,7 +38,7 @@ fn root() -> &'static str {
 
 /// The AIParam table and the characters' second-serve strong-toss chances, from the disc.
 fn disc() -> Option<(Vec<AiParams>, [i32; 14])> {
-    let mut iso = Iso::open(format!("{}/Hot Shots Tennis (USA).iso", root())).ok()?;
+    let mut iso = fixture::iso().ok()?;
     let data = iso.read("PCDATA/PCDATA.XB").ok()?;
     let arc = Archive::parse(&data).ok()?;
     let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("aiparam.csv"))?;
@@ -122,7 +123,7 @@ fn calls(d: &[u8]) -> (Mt, Vec<Call<'_>>) {
 
 /// Replays every call of a fixture through the port; returns how many of each kind were checked.
 fn replay(name: &str) -> Option<[usize; 5]> {
-    let d = std::fs::read(format!("{}/context/fixtures/{name}", root())).ok()?;
+    let d = fixture::read(format!("{}/context/fixtures/{name}", root())).ok()?;
     let (table, second) = disc()?;
     let (mt0, calls) = calls(&d);
     let mut n = [0; 5];
@@ -215,14 +216,14 @@ fn replay(name: &str) -> Option<[usize; 5]> {
 
 #[test]
 fn singles_serves_and_kind_lock() {
-    let Some(n) = replay("ai_serve_singles.bin") else { return eprintln!("fixture or disc missing, skipped") };
+    let Some(n) = replay("ai_serve_singles.bin") else { return };
     eprintln!("button locks, stick locks, tosses, swings, aims: {n:?}");
     assert!(n.iter().all(|&k| k > 0), "{n:?}");
 }
 
 #[test]
 fn doubles_serves() {
-    let Some(n) = replay("ai_serve_s05.bin") else { return eprintln!("fixture or disc missing, skipped") };
+    let Some(n) = replay("ai_serve_s05.bin") else { return };
     eprintln!("tosses, swings, aims: {:?}", &n[2..]);
     assert!(n[2..].iter().all(|&k| k > 0), "{n:?}");
 }

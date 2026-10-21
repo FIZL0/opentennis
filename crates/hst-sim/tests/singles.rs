@@ -3,6 +3,7 @@
 //! and dash spot is one `Single::after_hit` gives, a dash is switched on only by the paths ported, and a bot stops
 //! walking back just as it gets inside the centre radius.
 
+use hst_data::fixture;
 use hst_sim::position::{Court, Return, Single};
 
 const AI: usize = 0x280;
@@ -42,8 +43,8 @@ impl<'a> Frame<'a> {
 #[test]
 fn singles_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = std::fs::read(format!("{root}/context/fixtures/ai_pos_singles.bin")) else {
-        return eprintln!("ai_pos_singles.bin missing, skipped");
+    let Ok(d) = fixture::read(format!("{root}/context/fixtures/ai_pos_singles.bin")) else {
+        return fixture::skip(format_args!("ai_pos_singles.bin missing, skipped"));
     };
     assert_eq!(u32::from_le_bytes(d[..4].try_into().unwrap()), N as u32 | 0x100);
     let frames: Vec<Frame> = d[4 + 32 * N + 8..].as_chunks::<FRAME>().0.iter().map(|s| Frame(s)).collect();

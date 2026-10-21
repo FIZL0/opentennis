@@ -5,6 +5,7 @@
 //! programs) and the word countdown. The voice's end isn't recorded: a word is taken to have ended on the
 //! tick the game played the next one.
 
+use hst_data::fixture;
 use hst_sim::flow::PostPoint;
 use hst_sim::judge::Rally;
 use hst_sim::score::{Event, Score};
@@ -116,11 +117,11 @@ fn run(name: &str, mid: bool) {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{root}/context/fixtures"));
     let (Ok(data), Ok(cnf), Ok(bin)) = (
-        std::fs::read(format!("{dir}/{name}.bin")),
-        std::fs::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        std::fs::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{dir}/{name}.bin")),
+        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
     ) else {
-        return eprintln!("{name}.bin or disc files absent, skipped");
+        return fixture::skip(format_args!("{name}.bin or disc files absent, skipped"));
     };
     let game = exe::Game::new(&cnf, &bin).unwrap();
     let timing = game.scoreboard_timing(0, 4);
@@ -212,8 +213,8 @@ fn run(name: &str, mid: bool) {
 /// Her chair on court 10 where the recording's game put her (umpire +0xa0, read live from slot 5).
 #[test]
 fn chair_c10() {
-    let Ok(mut iso) = hst_data::iso::Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else {
-        return eprintln!("no ISO, skipped");
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("no ISO, skipped"));
     };
     let at = hst_sim::court::umpire_chair(&mut iso, 10).unwrap();
     let live = [6.515_601, -1.771_156_1, -0.010_923_3];

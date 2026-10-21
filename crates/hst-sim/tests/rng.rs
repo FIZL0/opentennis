@@ -4,6 +4,8 @@
 //! must: at a new point the shared generator takes the frame's first output and the court's the second
 //! (`Rngs::new_point`), and the sound manager's (`Rngs::change_ends`) the next (8656's sample is torn between them:
 //! `sound_draws_like_the_game` has the order).
+
+use hst_data::fixture;
 use hst_sim::rng::{MenuFlame, Mt, Rand, Rngs};
 
 /// Draws from `a` that land on `b`, if any within `max`.
@@ -18,8 +20,8 @@ fn reach(a: &Mt, b: &Mt, max: usize) -> Option<usize> {
 #[test]
 fn generators_step_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = std::fs::read(format!("{root}/context/p3b/rng_s05.bin")) else {
-        return eprintln!("rng_s05.bin missing, skipped");
+    let Ok(d) = fixture::read(format!("{root}/context/p3b/rng_s05.bin")) else {
+        return fixture::skip(format_args!("rng_s05.bin missing, skipped"));
     };
     const NAMES: [&str; 4] = ["shared", "ai", "court", "sound"];
     let size = 4 + 8 + 4 * 0x9d0;
@@ -67,16 +69,16 @@ fn generators_step_like_the_game() {
 /// decided where the walkers react.
 #[test]
 fn court_draws_like_the_game() {
-    use hst_data::{exe::Game, iso::Iso};
+    use hst_data::exe::Game;
     use hst_sim::{npc, sound};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(rng), Ok(walk), Ok(trig), Ok(mut iso)) = (
-        std::fs::read(format!("{root}/context/p3b/rng_s05.bin")),
-        std::fs::read(format!("{root}/context/fixtures/npc_s05.bin")),
-        std::fs::read(format!("{root}/context/fixtures/trig_s05.bin")),
-        Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")),
+        fixture::read(format!("{root}/context/p3b/rng_s05.bin")),
+        fixture::read(format!("{root}/context/fixtures/npc_s05.bin")),
+        fixture::read(format!("{root}/context/fixtures/trig_s05.bin")),
+        fixture::iso(),
     ) else {
-        return eprintln!("rng_s05.bin, npc_s05.bin, trig_s05.bin or the disc missing, skipped");
+        return fixture::skip(format_args!("rng_s05.bin, npc_s05.bin, trig_s05.bin or the disc missing, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     let game = Game::new(&cnf, &bin).unwrap();
@@ -202,8 +204,8 @@ fn court_draws_like_the_game() {
 fn sound_draws_like_the_game() {
     use hst_sim::effect::{Roll, SPARKS, Spark, Sparks};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(d), Ok(r)) = (std::fs::read(format!("{root}/context/p3e2/sound_s05.bin")), std::fs::read(format!("{root}/context/p3b/rng_s05.bin"))) else {
-        return eprintln!("sound_s05.bin or rng_s05.bin missing, skipped");
+    let (Ok(d), Ok(r)) = (fixture::read(format!("{root}/context/p3e2/sound_s05.bin")), fixture::read(format!("{root}/context/p3b/rng_s05.bin"))) else {
+        return fixture::skip(format_args!("sound_s05.bin or rng_s05.bin missing, skipped"));
     };
     const FX: usize = 4;
     const SP: usize = FX + 0x100;
@@ -289,8 +291,8 @@ fn ai_draws_like_the_game() {
     use hst_sim::ai::{AiParams, Mind, serve_spot, serve_wait};
     use hst_sim::position::Return;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = std::fs::read(format!("{root}/context/p3b/rng_s05.bin")) else {
-        return eprintln!("rng_s05.bin missing, skipped");
+    let Ok(d) = fixture::read(format!("{root}/context/p3b/rng_s05.bin")) else {
+        return fixture::skip(format_args!("rng_s05.bin missing, skipped"));
     };
     let size = 4 + 8 + 4 * 0x9d0;
     let ai_at = |v: u32| {
@@ -349,8 +351,8 @@ fn shared_draws_like_the_game() {
     use hst_sim::replay::{Frame, frames_live};
     use hst_sim::{motion, sound, swing};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(d), Ok(m)) = (std::fs::read(format!("{root}/context/p3b/rng_s05.bin")), std::fs::read(format!("{root}/context/fixtures/match_s05.bin"))) else {
-        return eprintln!("rng_s05.bin or match_s05.bin missing, skipped");
+    let (Ok(d), Ok(m)) = (fixture::read(format!("{root}/context/p3b/rng_s05.bin")), fixture::read(format!("{root}/context/fixtures/match_s05.bin"))) else {
+        return fixture::skip(format_args!("rng_s05.bin or match_s05.bin missing, skipped"));
     };
     let size = 4 + 8 + 4 * 0x9d0;
     let rng: Vec<(u32, Rand, Mt)> = d
@@ -364,8 +366,8 @@ fn shared_draws_like_the_game() {
     let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let chars: Vec<i32> = (0..4).map(|p| at(rng[0].0).global(0x422fa8 + 4 * p)).collect();
     let mut voices = [sound::Voice::default(); 4];
-    let Ok(view) = std::fs::read(format!("{root}/context/p3d1/view_s05.bin")).map(|d| post_views(&d)) else {
-        return eprintln!("view_s05.bin missing (research/p3d1_view.py), skipped");
+    let Ok(view) = fixture::read(format!("{root}/context/p3d1/view_s05.bin")).map(|d| post_views(&d)) else {
+        return fixture::skip(format_args!("view_s05.bin missing (research/p3d1_view.py), skipped"));
     };
     let mut g = rng[0].2.clone();
     // reseeds, placements, tosses, strokes, dives, team reactions, reaction voices
@@ -515,8 +517,8 @@ fn post_views(d: &[u8]) -> std::collections::HashMap<u32, PostView> {
 fn reaction_views_like_the_game() {
     use hst_sim::sound;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = std::fs::read(format!("{root}/context/p3d1/view_s05.bin")) else {
-        return eprintln!("view_s05.bin missing (research/p3d1_view.py), skipped");
+    let Ok(d) = fixture::read(format!("{root}/context/p3d1/view_s05.bin")) else {
+        return fixture::skip(format_args!("view_s05.bin missing (research/p3d1_view.py), skipped"));
     };
     let views = post_views(&d);
     let (mut seen, mut voiced) = (0, 0);
@@ -552,10 +554,10 @@ fn setup_draws_like_the_game() {
     use hst_sim::weather::{Odds, Wind, schedule};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(d), Ok(mut iso)) = (
-        std::fs::read(format!("{root}/context/p3d3/setup_ram.bin")),
-        hst_data::iso::Iso::open(format!("{root}/Hot Shots Tennis (USA).iso")),
+        fixture::read(format!("{root}/context/p3d3/setup_ram.bin")),
+        fixture::iso(),
     ) else {
-        return eprintln!("setup_ram.bin or the ISO missing, skipped");
+        return fixture::skip(format_args!("setup_ram.bin or the ISO missing, skipped"));
     };
     // P3f's states (research/p3d3_setup_ram.py --chars: the characters after each record) have players of one
     // character; p3d3's have none (all-different characters stand in)
@@ -563,8 +565,8 @@ fn setup_draws_like_the_game() {
     let same: Vec<u8> = ["p3f", "p3f4"]
         .iter()
         .flat_map(|t| {
-            std::fs::read(format!("{root}/context/{t}/setup_ram.bin")).unwrap_or_else(|_| {
-                eprintln!("{t}/setup_ram.bin missing: no same-character states from {t}");
+            fixture::read(format!("{root}/context/{t}/setup_ram.bin")).unwrap_or_else(|_| {
+                fixture::skip(format_args!("{t}/setup_ram.bin missing: no same-character states from {t}"));
                 Vec::new()
             })
         })
@@ -632,8 +634,8 @@ fn setup_draws_like_the_game() {
 fn rand_draws_like_the_game() {
     use hst_sim::npc;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(rng), Ok(trig)) = (std::fs::read(format!("{root}/context/p3b/rng_s05.bin")), std::fs::read(format!("{root}/context/fixtures/trig_s05.bin"))) else {
-        return eprintln!("rng_s05.bin or trig_s05.bin missing, skipped");
+    let (Ok(rng), Ok(trig)) = (fixture::read(format!("{root}/context/p3b/rng_s05.bin")), fixture::read(format!("{root}/context/fixtures/trig_s05.bin"))) else {
+        return fixture::skip(format_args!("rng_s05.bin or trig_s05.bin missing, skipped"));
     };
     let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let at = |d: &[u8], size: usize, head: usize, v: u32| d[head..].chunks_exact(size).find(|s| u(s, 0) == v).map(|s| s.to_vec());
@@ -692,8 +694,8 @@ fn rand_draws_like_the_game() {
 #[test]
 fn setup_rand_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = std::fs::read(format!("{root}/context/p3f/setup_rand.bin")) else {
-        return eprintln!("setup_rand.bin missing, skipped");
+    let Ok(d) = fixture::read(format!("{root}/context/p3f/setup_rand.bin")) else {
+        return fixture::skip(format_args!("setup_rand.bin missing, skipped"));
     };
     let low = |r: &Rand| r.0 as u32;
     let find = |mut r: Rand, w: u32, max: usize| (0..max).find(|_| low(&r) == w || { r.next(); false }).map(|_| r);
@@ -721,8 +723,8 @@ fn setup_rand_like_the_game() {
 fn menu_flame_draws_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     for name in ["menu_c1", "menu_c2"] {
-        let Ok(d) = std::fs::read(format!("{root}/context/p3f/{name}.bin")) else {
-            return eprintln!("{name}.bin missing, skipped");
+        let Ok(d) = fixture::read(format!("{root}/context/p3f/{name}.bin")) else {
+            return fixture::skip(format_args!("{name}.bin missing, skipped"));
         };
         // records: vsync, caller, s0, gm+0x54, rand()'s low word before the call, match frame
         let rec: Vec<[u32; 6]> =
@@ -766,8 +768,8 @@ fn menu_flame_draws_like_the_game() {
 #[test]
 fn intro_ticks_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = std::fs::read(format!("{root}/context/p3f2/intro.bin")) else {
-        return eprintln!("intro.bin missing, skipped");
+    let Ok(d) = fixture::read(format!("{root}/context/p3f2/intro.bin")) else {
+        return fixture::skip(format_args!("intro.bin missing, skipped"));
     };
     let low = |r: &Rand| r.0 as u32;
     for rec in d.as_chunks::<16>().0 {
@@ -789,9 +791,9 @@ fn intro_ticks_like_the_game() {
 /// 11 in doubles again; the frame the intro phase ends, + 1).
 #[test]
 fn intro_ticks_from_the_disc() {
-    let Ok(mut iso) = hst_data::iso::Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso"))
+    let Ok(mut iso) = fixture::iso()
     else {
-        return eprintln!("ISO absent, skipped");
+        return fixture::skip(format_args!("ISO absent, skipped"));
     };
     // (court, singles, doubles)
     let recorded = [
@@ -825,11 +827,11 @@ fn clouds_remade_like_the_game() {
     use hst_sim::{clouds, weather};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(d), Ok(c), Ok(rng)) = (
-        std::fs::read(format!("{root}/context/p3f3/run2.bin")),
-        std::fs::read(format!("{root}/context/p3f3/run2.bin.clouds")),
-        std::fs::read(format!("{root}/context/p3b/rng_s05.bin")),
+        fixture::read(format!("{root}/context/p3f3/run2.bin")),
+        fixture::read(format!("{root}/context/p3f3/run2.bin.clouds")),
+        fixture::read(format!("{root}/context/p3b/rng_s05.bin")),
     ) else {
-        return eprintln!("p3f3/run2.bin(.clouds) or rng_s05.bin missing, skipped");
+        return fixture::skip(format_args!("p3f3/run2.bin(.clouds) or rng_s05.bin missing, skipped"));
     };
     let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());

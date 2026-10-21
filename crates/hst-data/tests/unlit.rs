@@ -2,11 +2,12 @@
 //! poles have it, as their draw records in slot 4's RAM do (flag 0x10e/0x20e; every other model 0x..c/0x..d), and
 //! they draw at ⌊vc · (ambient + light)⌋ in its GS dump. Skipped without the disc image.
 
-use hst_data::{iso::Iso, mdl, mtl, xb::Archive};
+use hst_data::fixture;
+use hst_data::{mdl, mtl, xb::Archive};
 
 #[test]
 fn court_4_unlit_batches() {
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("no ISO, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let data = iso.read("COURT/04/HOL01.XB").unwrap();
     let a = Archive::parse(&data).unwrap();
     let read = |n: &str| a.entries.iter().find(|e| e.name.rsplit(['\\', '/']).next().unwrap().eq_ignore_ascii_case(n)).map(|e| a.read(e).unwrap());

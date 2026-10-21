@@ -6,7 +6,8 @@
 //! `context/fixtures/ai_search_s05.bin`: save slot 5, the bot-only doubles match (rows 84, 86 / 85, 89).
 //! `context/fixtures/ai_search_singles.bin`: the bot-only singles match of `ai_serve_singles.bin`.
 
-use hst_data::{iso::Iso, xb::Archive};
+use hst_data::fixture;
+use hst_data::xb::Archive;
 use hst_sim::ai::{AiParams, PathBall, Runner, Searcher};
 use hst_sim::player::{ReachStats, Stats};
 
@@ -20,7 +21,7 @@ fn root() -> &'static str {
 }
 
 fn table() -> Option<Vec<AiParams>> {
-    let mut iso = Iso::open(format!("{}/Hot Shots Tennis (USA).iso", root())).ok()?;
+    let mut iso = fixture::iso().ok()?;
     let data = iso.read("PCDATA/PCDATA.XB").ok()?;
     let arc = Archive::parse(&data).ok()?;
     let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("aiparam.csv"))?;
@@ -65,7 +66,7 @@ impl Mt {
 
 /// Replays every call of a fixture; returns (reach searches, tiered searches, calls that found the ball).
 fn replay(name: &str) -> Option<[usize; 3]> {
-    let d = std::fs::read(format!("{}/context/fixtures/{name}", root())).ok()?;
+    let d = fixture::read(format!("{}/context/fixtures/{name}", root())).ok()?;
     let table = table()?;
     assert_eq!(&d[..4], b"AISR");
     let mt0 = Mt::of(&d[8..8 + MT_SIZE]);
@@ -159,14 +160,14 @@ fn replay(name: &str) -> Option<[usize; 3]> {
 
 #[test]
 fn doubles_searches_match_the_game() {
-    let Some(n) = replay("ai_search_s05.bin") else { return eprintln!("fixture or disc missing, skipped") };
+    let Some(n) = replay("ai_search_s05.bin") else { return };
     eprintln!("reach searches, tiered searches, found: {n:?}");
     assert!(n[1] > 0 && n[2] > 0, "{n:?}");
 }
 
 #[test]
 fn singles_searches_match_the_game() {
-    let Some(n) = replay("ai_search_singles.bin") else { return eprintln!("fixture or disc missing, skipped") };
+    let Some(n) = replay("ai_search_singles.bin") else { return };
     eprintln!("reach searches, tiered searches, found: {n:?}");
     assert!(n[2] > 0, "{n:?}");
 }

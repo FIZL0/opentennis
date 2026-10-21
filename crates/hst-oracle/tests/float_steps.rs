@@ -29,7 +29,7 @@ fn sx(v: u32) -> u64 {
 /// SPE column (the parser's 42nd integer read), which reads `spe`.
 #[test]
 fn speed_is_spe_over_ten() {
-    let Some(mut ee) = Ee::game() else { return eprintln!("skip: no context/iso") };
+    let Some(mut ee) = Ee::game() else { return };
     const SPE_READ: u32 = 42;
     let (reads, value) = (Rc::new(Cell::new(0u32)), Rc::new(Cell::new(0i32)));
     let token = 0x01e0_0000u32;
@@ -78,7 +78,7 @@ fn speed_is_spe_over_ten() {
 /// truncate to a different frame count, and requires some.
 #[test]
 fn lookup_frames() {
-    let Some(mut ee) = Ee::from_ram("s03.bin") else { return eprintln!("skip: no context/iso or context/ram/s03.bin") };
+    let Some(mut ee) = Ee::from_ram("s03.bin") else { return };
     let (at, table, hit_at, tgt_at, out) = (addr("shot_lookup"), 0x01e0_0000u32, 0x01e1_0000u32, 0x01e1_0010u32, 0x01e1_0100u32);
     let bounds = Rc::new(Cell::new(Bounds::smash(0)));
     ee.hooks.insert(addr("shot_table"), Box::new(move |e: &mut Ee| e.set(2, sx(table))));
@@ -190,7 +190,7 @@ fn lookup_frames() {
 /// (the game turns the direction by π; the port's `turned`).
 #[test]
 fn run_direction() {
-    let Some(mut ee) = Ee::from_ram("s03.bin") else { return eprintln!("skip: no context/iso or context/ram/s03.bin") };
+    let Some(mut ee) = Ee::from_ram("s03.bin") else { return };
     let gm = ee.read(0x42_2f80, 4) as u32;
     let player = ee.read(gm + 0xa8, 4) as u32;
     let pad = ee.read(gm + 0x60 + 4 * ee.read(player + 0x12b8, 4) as u32, 4) as u32;

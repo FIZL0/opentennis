@@ -9,3 +9,10 @@ license = "MIT OR Apache-2.0"
 serde = { version = "1", features = ["derive"] }
 png = "0.18.1"
 twox-hash = { version = "2.1", default-features = false, features = ["xxhash3_64", "alloc"] }
+
+[features]
+# `fixture`: the disc and context/ recordings for every crate's tests (on through the dev-dependencies)
+testing = []
+
+[dev-dependencies]
+hst-data = { path = ".", features = ["testing"] }

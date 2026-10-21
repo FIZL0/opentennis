@@ -23,7 +23,7 @@ fn input(seed: &mut u64) -> f32 {
 }
 
 fn check(name: &str, n: usize, args: impl Fn(&mut u64) -> Vec<f32>, port: impl Fn(&[f32]) -> f32) {
-    let Some(mut ee) = Ee::game() else { return eprintln!("skip: no context/iso") };
+    let Some(mut ee) = Ee::game() else { return };
     let (at, mut seed, mut bad) = (addr(name), 0x9e37_79b9_7f4a_7c15u64, vec![]);
     for _ in 0..n {
         let a = args(&mut seed);

@@ -67,7 +67,7 @@ fn point(s: &mut u64) -> Point {
 /// (that award is `hst_sim::score`'s, checked by its own tests; its event is an input here).
 #[test]
 fn decides_like_the_game() {
-    let Some(mut ee) = Ee::from_ram("s05.bin") else { return eprintln!("skip: no context/iso or context/ram/s05.bin") };
+    let Some(mut ee) = Ee::from_ram("s05.bin") else { return };
     let r32 = |ee: &Ee, a: u32| ee.read(a, 4) as u32;
     let gm = r32(&ee, 0x42_2f80);
     let (ball, rec, cut) = (r32(&ee, gm + 0x88), r32(&ee, gm + 0xb8), r32(&ee, gm + 0xbc));

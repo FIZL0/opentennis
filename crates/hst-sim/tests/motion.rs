@@ -2,6 +2,7 @@
 //! `context/fixtures/match_s05.bin`, right-handed characters 0, 2, 1, 5; `1p3goodcpus.bin`, characters 6, 11, 2, 10,
 //! the first two left-handed), from the recorded contact-search results and point outcomes.
 
+use hst_data::fixture;
 use hst_sim::motion::{reaction, serve_walk, soft_follow, stroke_start, team_reactions, whiff, SWING_LEAD};
 use hst_sim::replay::{Frame, frames_live};
 
@@ -25,8 +26,8 @@ fn matches() -> Vec<Match> {
     MATCHES
         .iter()
         .filter_map(|&(name, ram)| {
-            let (Ok(data), Ok(ram)) = (std::fs::read(format!("{dir}/{name}")), std::fs::read(format!("{dir}/{ram}"))) else {
-                eprintln!("{name} or {ram} absent, skipped");
+            let (Ok(data), Ok(ram)) = (fixture::read(format!("{dir}/{name}")), fixture::read(format!("{dir}/{ram}"))) else {
+                fixture::skip(format_args!("{name} or {ram} absent, skipped"));
                 return None;
             };
             let ru = |a: usize| u32::from_le_bytes(ram[a & 0x1ff_ffff..][..4].try_into().unwrap()) as usize;
@@ -91,8 +92,12 @@ fn match_stroke_motions() {
 #[test]
 fn match_serve_walk() {
     // only Carol serves in 1p3goodcpus.bin, and she doesn't walk
+    let ms = matches();
+    if ms.is_empty() {
+        return;
+    }
     let mut total = 0;
-    for (name, data, lineup) in matches() {
+    for (name, data, lineup) in ms {
         let frames = frames_live(&data);
         let mut n = 0;
         for k in 1..frames.len() {
@@ -162,13 +167,12 @@ fn match_reactions() {
 /// the skeleton's rest bones.
 #[test]
 fn clip_sampler_ram() {
-    use hst_data::iso::Iso;
     use hst_sim::pose::{Clip, q_matrix};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
-    let Ok(mut iso) = Iso::open(format!("{root}Hot Shots Tennis (USA).iso")) else { return eprintln!("ISO absent, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let (mut tracks, mut players) = (0, 0);
     for s in ["s03", "s04", "s05", "s08", "s09"] {
-        let Ok(ram) = std::fs::read(format!("{root}context/ram/{s}.bin")) else { return eprintln!("{s}.bin absent, skipped") };
+        let Ok(ram) = fixture::read(format!("{root}context/ram/{s}.bin")) else { return };
         let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
         let fr = |a: usize| f32::from_bits(u(a) as u32);
         let cstr = |a: usize| { let a = a & 0x1ff_ffff; String::from_utf8_lossy(&ram[a..a + ram[a..].iter().position(|&b| b == 0).unwrap()]).into_owned() };
@@ -219,10 +223,10 @@ fn clip_sampler_ram() {
 /// (held at the motion's length), counted in game frames (gm+0x50): a sample can catch two or none (spot unchanged).
 #[test]
 fn match_reaction_root() {
-    use hst_data::{ani, iso::Iso, xb::Archive};
+    use hst_data::{ani, xb::Archive};
     use hst_sim::motion::reaction_root;
     use hst_sim::pose::Path;
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("ISO absent, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let cg = iso.read("PCDATA/PCCG0.XB").unwrap();
     let carc = Archive::parse(&cg).unwrap();
     let file = |stem: String| {
@@ -297,7 +301,7 @@ fn match_reaction_root() {
 fn anim_s05_clock() {
     use hst_sim::motion::Clock;
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/anim_s05.bin")) else { return eprintln!("anim_s05.bin absent, skipped") };
+    let Ok(data) = fixture::read(format!("{dir}/anim_s05.bin")) else { return };
     const S: usize = 4 + 0x100 + 4 * 0x484;
     // (motion, clip, sampled, time, speed, loop, countdown, held, length)
     let read = |k: usize, p: usize| {
@@ -373,13 +377,12 @@ fn ram_arm_table(iso: &mut hst_data::iso::Iso, ram: &[u8], pl: usize) -> (hst_si
 /// averages), bit-exact against the player structs of every RAM image.
 #[test]
 fn arm_table_ram() {
-    use hst_data::iso::Iso;
     use hst_sim::pose::M4;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
-    let Ok(mut iso) = Iso::open(format!("{root}Hot Shots Tennis (USA).iso")) else { return eprintln!("ISO absent, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let mut players = 0;
     for s in ["s03", "s04", "s05", "s08", "s09"] {
-        let Ok(ram) = std::fs::read(format!("{root}context/ram/{s}.bin")) else { return eprintln!("{s}.bin absent, skipped") };
+        let Ok(ram) = fixture::read(format!("{root}context/ram/{s}.bin")) else { return };
         let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
         let gm = u(0x422f80);
         for p in 0..4 {
@@ -418,12 +421,11 @@ fn arm_table_ram() {
 /// second already advanced once that frame). Arm tables from `context/ram/s05.bin` (same match).
 #[test]
 fn contact_solve_anim() {
-    use hst_data::iso::Iso;
     use hst_sim::pose::{contact_solve, ik_frames};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
-    let Ok(mut iso) = Iso::open(format!("{root}Hot Shots Tennis (USA).iso")) else { return eprintln!("ISO absent, skipped") };
-    let (Ok(ram), Ok(anim)) = (std::fs::read(format!("{root}context/ram/s05.bin")), std::fs::read(format!("{root}context/fixtures/anim_s05.bin"))) else {
-        return eprintln!("s05 captures absent, skipped");
+    let Ok(mut iso) = fixture::iso() else { return };
+    let (Ok(ram), Ok(anim)) = (fixture::read(format!("{root}context/ram/s05.bin")), fixture::read(format!("{root}context/fixtures/anim_s05.bin"))) else {
+        return fixture::skip(format_args!("s05 captures absent, skipped"));
     };
     let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
     let gm = u(0x422f80);
@@ -468,7 +470,7 @@ fn contact_solve_anim() {
 fn arm_ik_anim() {
     use hst_sim::pose::{ArmIk, ArmSolve};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
-    let Ok(anim) = std::fs::read(format!("{root}context/fixtures/anim_s05.bin")) else { return eprintln!("anim_s05 absent, skipped") };
+    let Ok(anim) = fixture::read(format!("{root}context/fixtures/anim_s05.bin")) else { return };
     const S: usize = 4 + 0x100 + 4 * 0x484;
     let blk = |k: usize, p: usize| &anim[k * S + 0x104 + p * 0x484..][..0x400];
     let v4 = |b: &[u8], o: usize| [0, 4, 8, 12].map(|j| f(b, o - 0x3c00 + j));
@@ -517,7 +519,7 @@ fn arm_ik_anim() {
 fn anim_s05_fade() {
     use hst_sim::motion::{Clock, Fade};
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/anim_s05.bin")) else { return eprintln!("anim_s05.bin absent, skipped") };
+    let Ok(data) = fixture::read(format!("{dir}/anim_s05.bin")) else { return };
     const S: usize = 4 + 0x100 + 4 * 0x484;
     // (motion, clip, clock, fade, old clip, length)
     let read = |k: usize, p: usize| {
@@ -629,13 +631,12 @@ fn ram_clip(iso: &mut hst_data::iso::Iso, ram: &[u8], an: usize, clip: usize, mo
 /// the position new + (outgoing − new)·w, with w the weight before this frame's step, bit-exact.
 #[test]
 fn fade_mix_ram() {
-    use hst_data::iso::Iso;
     use hst_sim::{motion::mix, pose::{Clip, q_matrix}};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
-    let Ok(mut iso) = Iso::open(format!("{root}Hot Shots Tennis (USA).iso")) else { return eprintln!("ISO absent, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let (mut tracks, mut players) = (0, 0);
     for s in ["s03", "s04", "s05", "s08", "s09"] {
-        let Ok(ram) = std::fs::read(format!("{root}context/ram/{s}.bin")) else { return eprintln!("{s}.bin absent, skipped") };
+        let Ok(ram) = fixture::read(format!("{root}context/ram/{s}.bin")) else { return };
         let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
         let fr = |a: usize| f32::from_bits(u(a) as u32);
         let gm = u(0x422f80);
@@ -681,13 +682,12 @@ fn fade_mix_ram() {
 /// writes only rows (position w 1) and mixes from the held values, which only sampling changes.
 #[test]
 fn nodes_ram() {
-    use hst_data::iso::Iso;
     use hst_sim::pose::{Clip, Nodes};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
-    let Ok(mut iso) = Iso::open(format!("{root}Hot Shots Tennis (USA).iso")) else { return eprintln!("ISO absent, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let (mut players, mut fading, mut nodes_n) = (0, 0, 0);
     for s in ["s03", "s04", "s05", "s08", "s09"] {
-        let Ok(ram) = std::fs::read(format!("{root}context/ram/{s}.bin")) else { return eprintln!("{s}.bin absent, skipped") };
+        let Ok(ram) = fixture::read(format!("{root}context/ram/{s}.bin")) else { return };
         let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
         let fr = |a: usize| f32::from_bits(u(a) as u32);
         let gm = u(0x422f80);
@@ -761,7 +761,7 @@ fn nodes_ram() {
 fn anim_s05_follow_through() {
     use hst_sim::motion::{follow_over, recovery};
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
-    let Ok(data) = std::fs::read(format!("{dir}/anim_s05.bin")) else { return eprintln!("anim_s05.bin absent, skipped") };
+    let Ok(data) = fixture::read(format!("{dir}/anim_s05.bin")) else { return };
     const S: usize = 4 + 0x100 + 4 * 0x484;
     let blk = |k: usize, p: usize| &data[k * S + 0x104 + p * 0x484..][..0x484];
     let i = |b: &[u8], o: usize| i32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -801,8 +801,8 @@ fn recorded_whiffs() {
     let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
     let (mut whiffs, mut repress, mut freed) = (0, 0, 0);
     for name in ["new_recording.bin", "round1.bin", "match_s05.bin", "lob_smash_s05.bin", "1p3goodcpus.bin"] {
-        let Ok(data) = std::fs::read(format!("{dir}/{name}")) else {
-            eprintln!("{name} absent, skipped");
+        let Ok(data) = fixture::read(format!("{dir}/{name}")) else {
+            fixture::skip(format_args!("{name} absent, skipped"));
             continue;
         };
         let frames = if data.len() % hst_sim::replay::SAMPLE_LIVE == 0 { frames_live(&data) } else { hst_sim::replay::frames(&data) };
@@ -868,9 +868,9 @@ fn recorded_whiffs() {
 /// VU0 program's polynomial sine/arctangent against musl's), positions ~1e-7.
 #[test]
 fn drawn_sampler_close() {
-    use hst_data::{ani, iso::Iso, mdl, xb::Archive};
+    use hst_data::{ani, mdl, xb::Archive};
     use hst_sim::pose::{Clip, Skeleton};
-    let Ok(mut iso) = Iso::open(concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso")) else { return eprintln!("ISO absent, skipped") };
+    let Ok(mut iso) = fixture::iso() else { return };
     let (mut samples, mut worst) = (0, [0.0f32; 2]);
     for c in [1, 6] {
         let mdata = iso.read(&format!("PC/PC{c:02}C00.XB")).unwrap();

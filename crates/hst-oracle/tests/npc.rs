@@ -40,7 +40,7 @@ fn matrix(s: &mut u64, at: [f32; 3]) -> [[f32; 4]; 4] {
 
 #[test]
 fn obstacle_boxes() {
-    let Some(mut ee) = Ee::from_ram("s03.bin") else { return eprintln!("skip: no context/iso or context/ram/s03.bin") };
+    let Some(mut ee) = Ee::from_ram("s03.bin") else { return };
     let (at, a, b) = (addr("obstacle_box"), 0x01e0_0000u32, 0x01e0_0100u32);
     let (mut seed, mut bad, mut hits, n) = (0x9e37_79b9_7f4a_7c15u64, vec![], 0, 30_000);
     for k in 0..n {
@@ -70,7 +70,7 @@ fn obstacle_boxes() {
 
 #[test]
 fn ball_speed() {
-    let Some(mut ee) = Ee::from_ram("s03.bin") else { return eprintln!("skip: no context/iso or context/ram/s03.bin") };
+    let Some(mut ee) = Ee::from_ram("s03.bin") else { return };
     let (at, ball) = (addr("ball_kmh"), 0x01e0_0000u32);
     let (mut seed, mut bad, n) = (0x2545_f491_4f6c_dd1du64, vec![], 20_000);
     for _ in 0..n {
