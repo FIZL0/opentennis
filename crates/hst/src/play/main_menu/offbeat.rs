@@ -10,7 +10,7 @@ const RULES: [(&str, &str); 4] = [
     ("Irregular bounce", "Every bounce kicks off at an angle: up to 15° flatter and 15° to either side (20° for a lob)."),
     ("Slow motion", "The whole point plays at two-thirds speed, from the serve to the last bounce."),
     ("Turbo rally", "Each shot after the return speeds the rally up a tenth, up to double speed."),
-    ("Ghost ball", "The ball vanishes once it crosses the net and shows again where it bounces. Watch the shadow."),
+    ("Ghost ball", "The ball vanishes once it crosses the net; only its bounce gives it away."),
 ];
 
 impl Menu {

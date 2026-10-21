@@ -3580,7 +3580,8 @@ fn step(
                     *baking = None;
                     info!("starting the match: {}", a.join(" "));
                     // the match in this app; its quit comes back to this menu as it is now
-                    let (base, kept) = (args.clone(), menu.clone());
+                    // the offbeat rules don't carry over: back from this match (rematch too), they're all off
+                    let (base, kept) = (args.clone(), Menu { offbeat: default(), ..menu.clone() });
                     let back = crate::mode::Mode::new(move |app| {
                         app.insert_resource(base).insert_resource(Kept(kept));
                         crate::menu_mode(app);

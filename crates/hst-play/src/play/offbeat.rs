@@ -9,8 +9,8 @@
 //!
 //! and two of ours (the round-1 prototypes of the journal's proposal):
 //! - **Turbo rally**: the rally speeds up 10 % a shot after the serve's return, up to ×2.
-//! - **Ghost ball**: the ball disappears once it is past the net and shows again at its first bounce; its shadow
-//!   stays.
+//! - **Ghost ball**: the ball, its shadow and its trail disappear once it is past the net and stay gone until the
+//!   next hit (or the point ends); only its bounce effects show where it went.
 //!
 //! Only irregular bounce changes the sim; the others change the clock or the picture, so the ticks, inputs and
 //! results stay the same. With every rule off the match is the original's.
@@ -133,28 +133,26 @@ fn pace(g: Option<Res<Game>>, mut virt: ResMut<Time<Virtual>>) {
 /// Past this distance beyond the net (m) the ghost ball is gone.
 const GHOST_PAST: f32 = 1.0;
 
-/// Ghost ball: the ball is out of sight, past the net on its way to its first bounce.
+/// Ghost ball: the ball is out of sight, past the net on the far side from its hitter, until the next hit or the
+/// point's end; only its bounce effects show where it went.
 pub fn ghosted(g: &Game) -> bool {
     let z = g.flight.ball.pos[2];
     g.offbeat.ghost
         && g.phase == Phase::Rally
         && g.shots > 0
-        && g.flight.bounces == 0
         && g.players.get(g.last_hitter as usize).is_some_and(|p| p.pos[2] * z < 0.0 && z.abs() > GHOST_PAST)
 }
 
-/// Hide the ball and its outline (not its shadow) while it is a ghost; only on a change, so the other hidings
+/// Hide the ball, its shadow and its outline while it is a ghost; only on a change, so the other hidings
 /// (`emote::hide_ball`, the ceremony's) stay.
-fn ghost(g: Option<Res<Game>>, mut q: Query<(&mut Visibility, Option<&BallView>), With<crate::shade::Ball>>, mut hidden: Local<bool>) {
+fn ghost(g: Option<Res<Game>>, mut q: Query<&mut Visibility, Or<(With<BallView>, With<crate::shade::Ball>)>>, mut hidden: Local<bool>) {
     let Some(g) = g else { return };
     let hide = ghosted(&g);
     if std::mem::replace(&mut *hidden, hide) == hide {
         return;
     }
-    for (mut v, view) in &mut q {
-        if !matches!(view, Some(BallView(true))) {
-            *v = if hide { Visibility::Hidden } else { Visibility::Inherited };
-        }
+    for mut v in &mut q {
+        *v = if hide { Visibility::Hidden } else { Visibility::Inherited };
     }
 }
 
