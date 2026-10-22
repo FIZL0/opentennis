@@ -478,7 +478,10 @@ fn notice_draw(
         let [u, v, w, h] = quad.src;
         let rect = (quad.tex != Tex::Solid && three_d.is_none()).then(|| Rect::new(u, v, u + w, v + h));
         let [r, g, b] = quad.rgb.map(|c| c / 128.0);
-        crate::ui_pool::paint(&mut img, image, rect, Color::srgba(r, g, b, quad.alpha / 128.0));
+        let colour = Color::srgba(r, g, b, quad.alpha / 128.0);
+        // B646a: the two-channel letter sheet (`hud_gamma::letters`)
+        let colour = if quad.tex == Tex::Font { crate::hud_gamma::letters(colour) } else { colour };
+        crate::ui_pool::paint(&mut img, image, rect, colour);
         let [mut x, mut y, mut w, mut h] = quad.dst;
         if three_d.is_some() {
             // the hand's image covers `PAD` times its quad, around the same centre (B146)

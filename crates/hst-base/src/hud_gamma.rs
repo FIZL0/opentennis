@@ -32,7 +32,7 @@ pub fn plugin(app: &mut App) {
     bevy::asset::embedded_asset!(app, "hud_gamma.wgsl");
     out::plugin(app);
     app.add_systems(Startup, setup)
-        .add_systems(Update, encode_pbr_output)
+        .add_systems(Update, (encode_pbr_output, two_channel_letters))
         .add_systems(PostUpdate, (retarget, clear, follow_window, persist).chain().before(bevy::camera::CameraUpdateSystems))
         .add_systems(PostUpdate, bleed.before(bevy::ui::UiSystems::Layout))
         .add_systems(PostUpdate, pixel_aspect.after(bevy::camera::CameraUpdateSystems));
@@ -142,6 +142,56 @@ fn encode_pbr_output(mut events: MessageReader<AssetEvent<Shader>>, mut shaders:
         let patched = src.replace(AT, &format!("{ENC}{AT}"));
         shaders.get_mut(*id).unwrap().source = bevy::shader::Source::Wgsl(patched.into());
     }
+}
+
+/// B646a: the menus' letter sheet (`glyph_sheet`) holds two channels, not four: R the white letter's coverage, G the
+/// whole letter's (white, and its outline's ink round it), both linear and premultiplied, so the GPU's filtering of
+/// them is the blend of the white-over-ink texels it stands for. A node drawing from it says so by its colour's alpha
+/// ([`letters`]); Bevy's UI shader rebuilds the colour from the two there.
+pub const LETTER_INK: u8 = 40;
+
+/// What [`letters`] adds to a node's alpha: past any alpha a node is given, so the shader can tell.
+const LETTER_FLAG: f32 = 16.0;
+
+/// A node's colour (tint, alpha) for drawing a quad of the two-channel letter sheet.
+pub fn letters(c: Color) -> Color {
+    let a = c.alpha();
+    if a > 0.0 { c.with_alpha(a + LETTER_FLAG) } else { c }
+}
+
+/// [`LETTER_INK`] in linear light.
+pub fn letter_ink() -> f32 {
+    let c = LETTER_INK as f32 / 255.0;
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
+
+/// Bevy's UI shader taking a node flagged by [`letters`] as one drawing the two-channel sheet: colour
+/// `tint · (white + ink · (cover − white)) / cover`, alpha `alpha · cover`.
+fn two_channel_letters(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
+    const AT: &str = "    let color = select(in.color, in.color * texture_color, enabled(in.flags, TEXTURED));";
+    if *done {
+        return;
+    }
+    let Some((id, has)) = shaders.iter().find(|(_, s)| s.path.ends_with("bevy_ui_render/ui.wgsl")).map(|(id, s)| (id, matches!(&s.source, bevy::shader::Source::Wgsl(w) if w.contains(AT)))) else { return };
+    *done = true;
+    if !has {
+        error!("UI shader: no `{AT}`: the menus' letters won't draw");
+        return;
+    }
+    if let Some(mut s) = shaders.get_mut(id)
+        && let bevy::shader::Source::Wgsl(w) = &mut s.source
+    {
+        *w = w.replace(AT, &letters_wgsl(AT)).into();
+    }
+}
+
+/// `at` (the UI shader's colour line) made mutable and followed by the two-channel letters' colour.
+fn letters_wgsl(at: &str) -> String {
+    let (flag, half, ink) = (LETTER_FLAG, LETTER_FLAG / 2.0, letter_ink());
+    format!(
+        "{}\n    if in.color.a >= {half:?} {{\n        let cover = texture_color.g;\n        let white = min(texture_color.r, cover);\n        color = vec4(in.color.rgb * (white + (cover - white) * {ink:?}) / max(cover, 1e-6), (in.color.a - {flag:?}) * cover);\n    }}",
+        at.replacen("let color", "var color", 1)
+    )
 }
 
 /// B547: the most device pixels per CSS px (logical px) the images get: a phone's DPR 3 drew and held 2.25× the pixels
@@ -455,5 +505,18 @@ mod tests {
         // looking level: 40° off (cos 0.766 < 0.8) → off; looking down → off
         assert_eq!(glare(light, &p, look(0.0)), 0.0);
         assert_eq!(glare(light, &p, look(-20.0)), 0.0);
+    }
+
+    /// B646a: a letter node's alpha carries the flag, a hidden one stays hidden; the shader line is made mutable and
+    /// followed by the decode, which reads the flag back off.
+    #[test]
+    fn two_channel_letters_flagged() {
+        let c = letters(Color::srgba(0.5, 0.25, 1.0, 0.75));
+        assert_eq!((c.alpha(), c.to_srgba().red), (16.75, 0.5));
+        assert_eq!(letters(Color::NONE).alpha(), 0.0);
+        let at = "    let color = select(in.color, in.color * texture_color, enabled(in.flags, TEXTURED));";
+        let w = letters_wgsl(at);
+        assert!(w.starts_with("    var color = select(") && w.contains("in.color.a >= 8.0") && w.contains("(in.color.a - 16.0) * cover"), "{w}");
+        assert!((letter_ink() - 0.0212).abs() < 1e-4);
     }
 }

@@ -1,6 +1,6 @@
 //! The menus' letters, set from our own font (M PLUS Rounded 1c Bold, OFL) at `K`×: every letter `word_label::FONT`
 //! has, twice: plain, and again with its dark outline round it, so outlined words are one quad a letter with a
-//! clean round ring. Units are the disc sheet's: a line is 32 high, the baseline 28 down, a capital 22 tall.
+//! clean round ring (B646a: kept as two channels, `hud_gamma::letters`; draw it with that colour). Units are the disc sheet's: a line is 32 high, the baseline 28 down, a capital 22 tall.
 
 use super::menu_art::{BOLD, K, outline, text_path, unpremultiply};
 use bevy::asset::RenderAssetUsages;
@@ -14,7 +14,7 @@ pub const PAD: f32 = 8.0;
 /// The outline's width (units): 2 px at a 16-px line, 4 on a 32-px title, thick as the original's.
 const RING: f32 = 4.0;
 /// The outline's colour (the menus' near-black).
-const INK: u8 = 40;
+const INK: u8 = crate::hud_gamma::LETTER_INK;
 const BASELINE: f32 = 28.0;
 const CAP: f32 = 22.0;
 /// The sheet's width (units).
@@ -75,7 +75,7 @@ pub fn image(images: &mut Assets<Image>) -> Handle<Image> {
     if let Some(h) = kept.as_ref().filter(|h| images.get(h.id()).is_some_and(|i| (i.width(), i.height()) == size)) {
         return h.clone();
     }
-    let handle = images.add(sheet(k));
+    let handle = images.add(two_channels(sheet(k)));
     crate::textures::ours(handle.id(), Vec2::splat(k as f32));
     *kept = Some(handle.clone());
     handle
@@ -114,6 +114,31 @@ fn sheet(k: u32) -> Image {
     }
     let img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
     crate::mips::MipSteps::new(img, levels, None, 1.5).finish()
+}
+
+/// B646a: the sheet (`Rgba8UnormSrgb`, straight, all its levels) as `Rg8Unorm` in the same buffer: R the white's
+/// coverage, G the letter's, linear and premultiplied (`hud_gamma::letters`): half the bytes, here and on the GPU.
+/// Each texel is white over the ink, so its colour and alpha say how much of each it holds.
+fn two_channels(mut img: Image) -> Image {
+    let ink = crate::hud_gamma::letter_ink();
+    let lin: [f32; 256] = std::array::from_fn(|i| {
+        let c = i as f32 / 255.0;
+        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    });
+    if let Some(data) = img.data.as_mut() {
+        let n = data.len() / 4;
+        // texel i's two bytes land at or before its own four, so it's read before anything writes over it
+        for i in 0..n {
+            let (c, a) = (data[i * 4], data[i * 4 + 3]);
+            let cover = a as f32 / 255.0;
+            let white = ((lin[c as usize] - ink) / (1.0 - ink) * cover).clamp(0.0, cover);
+            (data[i * 2], data[i * 2 + 1]) = ((white * 255.0 + 0.5) as u8, a);
+        }
+        data.truncate(n * 2);
+        data.shrink_to_fit();
+    }
+    img.texture_descriptor.format = TextureFormat::Rg8Unorm;
+    img
 }
 
 #[cfg(test)]
@@ -174,4 +199,28 @@ mod tests {
         assert_eq!(unpremultiply(p), want);
     }
 
+    /// B646a: white is all white, the ink none, the half-covered keep their coverage; the sheet comes back with its
+    /// levels at half the bytes, a texel's colour rebuilt from the two (as the UI shader does) within a step of it.
+    #[test]
+    fn two_channels_halve_the_sheet() {
+        let ink = crate::hud_gamma::letter_ink();
+        let lin = |c: u8| {
+            let c = c as f32 / 255.0;
+            if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+        };
+        let px = [[255, 255, 255, 200], [INK, INK, INK, 255], [0; 4], [180, 180, 180, 128]];
+        let img = Image::new(Extent3d { width: 2, height: 2, depth_or_array_layers: 1 }, TextureDimension::D2, px.concat(), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
+        let rg = two_channels(img);
+        let d = rg.data.as_ref().unwrap();
+        assert_eq!(rg.texture_descriptor.format, TextureFormat::Rg8Unorm);
+        assert_eq!(&d[..6], &[200, 200, 0, 255, 0, 0]);
+        let (white, cover) = (d[6] as f32 / 255.0, d[7] as f32 / 255.0);
+        assert_eq!(d[7], 128);
+        assert!(((white + (cover - white) * ink) / cover - lin(180)).abs() < 2e-3);
+        let k = K / 2;
+        let rgba = sheet(k);
+        let two = two_channels(rgba.clone());
+        assert_eq!(two.texture_descriptor.mip_level_count, rgba.texture_descriptor.mip_level_count);
+        assert_eq!(two.data.as_ref().unwrap().len() * 2, rgba.data.as_ref().unwrap().len());
+    }
 }
