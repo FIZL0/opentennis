@@ -429,7 +429,7 @@ mod tests {
         assert!(w > 80.0 && h == HEAD[1], "{w} {h}");
         let ([_, h], above) = tag_size("Éy", Style::Plate);
         assert!(above > 0.0 && h > 19.0 + above, "{h} {above}");
-        for (name, style) in [("1P", Style::Head), ("ANNA", Style::Head), ("WWWWWW", Style::Head), ("Jégy", Style::Head), ("1P", Style::Plate), ("KIM-LI", Style::Plate), ("Jégy", Style::Plate)] {
+        for (name, style) in [("1P", Style::Head), ("ANNA", Style::Head), ("WWWWWW", Style::Head), ("Jégy", Style::Head), ("1P", Style::Plate), ("KIM-LI", Style::Plate), ("Jégy", Style::Plate), ("Grass", Style::Plate)] {
             let img = tag_image(name, style, 1.0);
             let k = menu_art::K as f32;
             let ([w, h], _) = tag_size(name, style);

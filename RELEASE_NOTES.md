@@ -41,4 +41,4 @@
 - Online: if the host starts the countdown while you're still choosing your character, the match now uses the character you're on (a Random card draws one) instead of the first one on the grid, and a custom character you're on is offered to everyone else to download before the match begins.
 - Online: a custom character you didn't download now plays as the character it's based on in different colours, so it can't be mistaken for that character.
 - Online: the question about downloading another player's custom character now closes the Settings pages if you have them open, so you see it before its time runs out.
-- Menu titles with a dark outline no longer show specks of background inside small letter holes, like the middle of an "a".
+- Outlined words (menu titles, player names, score panel and pop-up text) no longer show specks of background inside small letter holes, like the middle of an "a".

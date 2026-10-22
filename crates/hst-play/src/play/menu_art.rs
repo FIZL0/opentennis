@@ -858,6 +858,76 @@ pub(crate) fn stroke_rgb(out: &mut Pixmap, path: &tiny_skia::Path, c: [u8; 3], w
     out.stroke_path(path, &paint, &Stroke { width: w, line_join: LineJoin::Round, line_cap: LineCap::Round, ..Stroke::default() }, t, None);
 }
 
+/// `path`'s outline `r` px wide in `c`, grown round its filled shape by distance rather than stroked: a thick stroke
+/// round a small counter (an `a`'s, an `e`'s) leaves holes where its inner edges cross. Under a fill drawn after it.
+pub(crate) fn outline(out: &mut Pixmap, path: &tiny_skia::Path, c: SkColor, r: f32) {
+    let b = path.bounds();
+    let pad = r.ceil() + 2.0;
+    let (ow, oh) = (out.width() as f32, out.height() as f32);
+    let (x0, y0) = ((b.left() - pad).floor().clamp(0.0, ow), (b.top() - pad).floor().clamp(0.0, oh));
+    let (x1, y1) = ((b.right() + pad).ceil().clamp(0.0, ow), (b.bottom() + pad).ceil().clamp(0.0, oh));
+    let Some(mut mask) = tiny_skia::Mask::new((x1 - x0) as u32, (y1 - y0) as u32) else { return };
+    mask.fill_path(path, FillRule::Winding, true, Transform::from_translate(-x0, -y0));
+    let w = mask.width() as usize;
+    let c = c.premultiply().to_color_u8();
+    let stride = out.width() as usize;
+    for (i, a) in ring(mask.data(), w, r).into_iter().enumerate() {
+        if a <= 0.0 {
+            continue;
+        }
+        let p = &mut out.pixels_mut()[(y0 as usize + i / w) * stride + x0 as usize + i % w];
+        let mix = |s: u8, d: u8| (s as f32 * a + d as f32 * (1.0 - a)).round() as u8;
+        *p = tiny_skia::PremultipliedColorU8::from_rgba(mix(c.red(), p.red()), mix(c.green(), p.green()), mix(c.blue(), p.blue()), mix(c.alpha(), p.alpha())).unwrap_or(*p);
+    }
+}
+
+/// How much of a ring `r` px wide round the inked (alpha ≥ half) pixels of `alpha` (`w` wide) covers each pixel.
+fn ring(alpha: &[u8], w: usize, r: f32) -> Vec<f32> {
+    let h = alpha.len() / w;
+    let mut d: Vec<f32> = alpha.iter().map(|&a| if a >= 128 { 0.0 } else { 1e20 }).collect();
+    let mut line = Vec::new();
+    for y in 0..h {
+        line.clear();
+        line.extend_from_slice(&d[y * w..(y + 1) * w]);
+        edt(&line, &mut d[y * w..(y + 1) * w]);
+    }
+    let mut out = vec![0.0; h];
+    for x in 0..w {
+        line.clear();
+        line.extend((0..h).map(|y| d[y * w + x]));
+        edt(&line, &mut out);
+        (0..h).for_each(|y| d[y * w + x] = out[y]);
+    }
+    d.into_iter().map(|d2| (r + 0.5 - d2.sqrt()).clamp(0.0, 1.0)).collect()
+}
+
+/// Felzenszwalb–Huttenlocher's squared distance transform of one line `f` into `d`.
+fn edt(f: &[f32], d: &mut [f32]) {
+    let n = f.len();
+    let (mut v, mut z, mut k) = (vec![0usize; n], vec![0f32; n + 1], 0);
+    z[0] = f32::NEG_INFINITY;
+    z[1] = f32::INFINITY;
+    let cross = |q: usize, p: usize| ((f[q] + (q * q) as f32) - (f[p] + (p * p) as f32)) / (2.0 * (q as f32 - p as f32));
+    for q in 1..n {
+        let mut s = cross(q, v[k]);
+        while s <= z[k] {
+            k -= 1;
+            s = cross(q, v[k]);
+        }
+        k += 1;
+        v[k] = q;
+        z[k] = s;
+        z[k + 1] = f32::INFINITY;
+    }
+    k = 0;
+    for (q, d) in d.iter_mut().enumerate() {
+        while z[k + 1] < q as f32 {
+            k += 1;
+        }
+        *d = (q as f32 - v[k] as f32).powi(2) + f[v[k]];
+    }
+}
+
 /// Clear `[x, y, w, h]` (disc px, clipped to the sheet).
 fn clear(out: &mut Pixmap, [x, y, w, h]: [f32; 4]) {
     let k = K as f32;
@@ -890,10 +960,9 @@ pub(crate) fn stamp(out: &mut Pixmap, font: &ab_glyph::FontRef, [x, y, w, h]: [f
     let Some(path) = path.transform(t) else { return };
     let rgb = |c: [u8; 3]| SkColor::from_rgba8(c[0], c[1], c[2], 255);
     let mut paint = Paint { anti_alias: true, ..Paint::default() };
-    for (c, wd) in [(l.ring, 2.0 * m * k), (l.edge, 2.0 * l.ew * k)] {
-        if wd > 0.0 {
-            paint.set_color(rgb(c));
-            out.stroke_path(&path, &paint, &Stroke { width: wd, line_join: LineJoin::Round, line_cap: LineCap::Round, ..Stroke::default() }, Transform::identity(), None);
+    for (c, r) in [(l.ring, m * k), (l.edge, l.ew * k)] {
+        if r > 0.0 {
+            outline(out, &path, rgb(c), r);
         }
     }
     let bot = top + bh - tail * sy;
@@ -1181,10 +1250,8 @@ fn label(out: &mut Pixmap, font: &ab_glyph::FontRef, &(x, y, w, h, s): &Label, s
     let Some(path) = path.transform(t) else { return };
     let rgb = |c: [f32; 3]| SkColor::from_rgba(c[0].clamp(0.0, 1.0), c[1].clamp(0.0, 1.0), c[2].clamp(0.0, 1.0), 1.0).expect("colour");
     let mut paint = Paint { anti_alias: true, ..Paint::default() };
-    let stroke = Stroke { width: 2.0 * e.max(k * 0.5), line_join: LineJoin::Round, line_cap: LineCap::Round, ..Stroke::default() };
     if e > 0.0 {
-        paint.set_color(rgb(st.edge));
-        out.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
+        outline(out, &path, rgb(st.edge), e.max(k * 0.5));
     }
     let (top, bot) = (y as f32 * k, (y + h) as f32 * k);
     let stops: Vec<GradientStop> = st.rows.iter().map(|&(t, c)| GradientStop::new(t, rgb(c))).collect();
@@ -1211,6 +1278,24 @@ fn dot(out: &mut Pixmap, [x, y, w, h]: [f32; 4], st: &Style) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// The ring fills a gap narrower than itself whole and reaches its width round a dot.
+    #[test]
+    fn ring_fills_small_counters() {
+        let w = 40;
+        let mut a = vec![0u8; w * w];
+        // a box with a 3-px hole, and nothing past it
+        for y in 10..20 {
+            for x in 10..20 {
+                a[y * w + x] = if (14..17).contains(&x) && (14..17).contains(&y) { 0 } else { 255 };
+            }
+        }
+        let r = ring(&a, w, 4.0);
+        assert_eq!(r[15 * w + 15], 1.0);
+        assert_eq!(r[15 * w + 22], 1.0);
+        assert_eq!(r[15 * w + 23], 0.5);
+        assert_eq!(r[15 * w + 25], 0.0);
+    }
+
 
     /// A wall's grid lines survive at `K`×, its stray wobble pixels don't.
     /// P50: a sheet rebuilt on the async pool while a start defers them lands the same as one drawn right away, and
