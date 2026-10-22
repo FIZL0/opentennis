@@ -674,7 +674,16 @@ pub(crate) fn relabel(images: &mut Assets<Image>, w: usize, h: usize, rgba: &[u8
 }
 
 pub(crate) fn unpremultiply(p: Pixmap) -> Vec<u8> {
-    p.pixels().iter().map(|c| c.demultiply()).flat_map(|c| [c.red(), c.green(), c.blue(), c.alpha()]).collect()
+    // B645: in the pixmap's own buffer (a sheet is tens of MB: a second one, grown as it fills, was most of a menu's
+    // start peak in the browser)
+    let mut data = p.take();
+    for px in data.as_chunks_mut::<4>().0 {
+        if let Some(c) = tiny_skia::PremultipliedColorU8::from_rgba(px[0], px[1], px[2], px[3]) {
+            let c = c.demultiply();
+            *px = [c.red(), c.green(), c.blue(), c.alpha()];
+        }
+    }
+    data
 }
 
 /// The sheet at `K`×: labels erased and set again, the rest snapped sharp.

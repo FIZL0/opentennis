@@ -80,13 +80,26 @@ pub struct MipSteps {
 const STEP: usize = 1 << 15;
 
 impl MipSteps {
-    pub fn new(img: Image, levels: u32, cell: Option<usize>, gain: f32) -> MipSteps {
+    pub fn new(mut img: Image, levels: u32, cell: Option<usize>, gain: f32) -> MipSteps {
         let d = img.texture_descriptor.size;
         let fits = img.texture_descriptor.format == TextureFormat::Rgba8UnormSrgb
             && img.texture_descriptor.mip_level_count == 1
             && d.depth_or_array_layers == 1
             && img.data.as_ref().is_some_and(|p| p.len() == d.width as usize * d.height as usize * 4);
         let levels = if fits { levels } else { 1 };
+        // B645: room for every level up front, so the sheet isn't copied into a bigger buffer (twice its size) as
+        // they're added: in the browser a heap never gives back what a start peaked at
+        let (mut lw, mut lh, mut rest) = (d.width as usize, d.height as usize, 0);
+        for _ in 1..levels {
+            if lw <= 1 && lh <= 1 {
+                break;
+            }
+            (lw, lh) = ((lw / 2).max(1), (lh / 2).max(1));
+            rest += lw * lh * 4;
+        }
+        if let Some(data) = img.data.as_mut() {
+            data.reserve_exact(rest);
+        }
         MipSteps { img, levels, cell, gain, n: 1, w: d.width as usize, h: d.height as usize, src: None, next: Vec::new() }
     }
 
@@ -119,6 +132,9 @@ impl MipSteps {
         // cells on whole texels at this level and the next, or the sheet as one
         self.cell = self.cell.filter(|&c| c >= 2 && c % 2 == 0 && w % c == 0 && h % c == 0);
         let (cx, cy) = self.cell.map_or((w, h), |c| (c, c));
+        if self.next.is_empty() {
+            self.next.reserve_exact(nw * nh);
+        }
         let r0 = self.next.len() / nw;
         let r1 = (r0 + (STEP / nw).max(1)).min(nh);
         let data = self.img.data.as_ref().expect("checked in new");

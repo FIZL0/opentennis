@@ -63,9 +63,20 @@ fn em(font: &ab_glyph::FontRef) -> f32 {
 }
 
 /// The sheet ([`glyphs`] says where each letter is), its levels down to a quarter, `textures::ours` scaled.
+/// B645: built once and kept: the menus and the match's pause screen each want it, and drawing it again on every
+/// switch between them (a 4096-wide sheet and its levels) was the biggest part of a start's memory peak in the browser,
+/// where the heap never shrinks.
 pub fn image(images: &mut Assets<Image>) -> Handle<Image> {
+    static KEPT: std::sync::Mutex<Option<Handle<Image>>> = std::sync::Mutex::new(None);
+    let mut kept = KEPT.lock().unwrap();
+    // the sheet's own size, so a handle another app's store gave out (tests) isn't taken for it
+    let size = ((WIDE * K as f32) as u32, (2.0 * glyphs().outlined * K as f32) as u32);
+    if let Some(h) = kept.as_ref().filter(|h| images.get(h.id()).is_some_and(|i| (i.width(), i.height()) == size)) {
+        return h.clone();
+    }
     let handle = images.add(sheet());
     crate::textures::ours(handle.id(), Vec2::splat(K as f32));
+    *kept = Some(handle.clone());
     handle
 }
 
@@ -110,6 +121,31 @@ mod tests {
             assert!(w[0].0 != w[1].0 || w[0].2 <= w[1].1, "{w:?} overlap");
         }
         assert!(cells.iter().all(|c| c.2 <= WIDE));
+    }
+
+    /// B645: the sheet is drawn once and handed out again while its store holds it; a store that doesn't gets its own.
+    #[test]
+    fn the_sheet_is_drawn_once() {
+        let mut images = Assets::<Image>::default();
+        let a = image(&mut images);
+        assert_eq!(image(&mut images), a);
+        assert_eq!(images.len(), 1);
+        let mut other = Assets::<Image>::default();
+        let b = image(&mut other);
+        assert!(other.get(&b).is_some_and(|i| i.data == images.get(&a).unwrap().data));
+    }
+
+    /// B645: straight alpha in the pixmap's own buffer, as each pixel's own `demultiply`.
+    #[test]
+    fn unpremultiplied_in_place() {
+        let mut p = Pixmap::new(37, 23).unwrap();
+        let path = text_path(&ab_glyph::FontRef::try_from_slice(BOLD).unwrap(), "Ag").unwrap();
+        let mut paint = Paint::default();
+        paint.set_color(SkColor::from_rgba8(200, 90, 30, 170));
+        p.fill_path(&path, &paint, tiny_skia::FillRule::Winding, Transform::from_scale(0.02, 0.02).post_translate(2.0, 20.0), None);
+        let want: Vec<u8> = p.pixels().iter().map(|c| c.demultiply()).flat_map(|c| [c.red(), c.green(), c.blue(), c.alpha()]).collect();
+        assert!(want.chunks(4).any(|c| c[3] > 0 && c[3] < 255), "no part-covered pixel to check");
+        assert_eq!(unpremultiply(p), want);
     }
 
 }
