@@ -5,7 +5,7 @@ Usage: tools/context_prune.py [--delete | --empty] [--days N] [--cheap BYTES] [-
 
 Without --delete it only reports what it would delete. --delete moves those files into `context/.trash/<date>/`
 (a rename, instant, same layout), so a test run can prove nothing needed went; a mistake goes back with `cp -al`
-or `mv`. --empty then deletes the trash for good. A file in the main checkout's `context/` is kept when:
+or `mv`. Each --delete also deletes trash older than 7 days for good; --empty deletes all of it now. A file in the main checkout's `context/` is kept when:
 
   live        a tracked file outside the journals (code, tests, tools, research scripts, AGENT/PLAN/REFERENCE, TODO)
               names it, or names its folder, or a glob/`{name}` path into its folder: the whole folder is kept,
@@ -118,6 +118,9 @@ def main(argv):
     print(f"{'moved to context/.trash' if delete else 'would delete'} {len(doomed)} files, {gb(gone)}; keeping {gb(kept)} "
           f"({', '.join(f'{k} {gb(v)}' for k, v in sorted(why.items()))})")
     if delete:
+        for old in os.listdir(trash) if os.path.isdir(trash) else []:
+            if os.lstat(os.path.join(trash, old)).st_mtime < time.time() - 7 * 86400:
+                subprocess.run(["rm", "-rf", "--", os.path.join(trash, old)], check=True)
         bin_ = os.path.join(trash, time.strftime("%Y-%m-%d-%H%M%S"))
         for rel, _ in doomed:
             dst = os.path.join(bin_, os.path.relpath(rel, "context"))
