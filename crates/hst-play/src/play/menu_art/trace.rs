@@ -4,7 +4,7 @@
 //! and shading, without its blur.
 
 use std::collections::HashMap;
-use tiny_skia::{FillRule, Mask, PathBuilder, Pixmap, Transform};
+use tiny_skia::{FillRule, LineJoin, Mask, PathBuilder, Pixmap, Stroke, Transform};
 
 /// Out, rim, edge, fill: each layer lies inside the one before it.
 const LAYERS: usize = 4;
@@ -47,13 +47,45 @@ pub(crate) fn trace(w: usize, h: usize, rgba: &[u8], k: u32) -> Pixmap {
     let kf = k as f32;
     // each layer's outline as clean paths, filled sharp at k×: disc pixel i's centre lands on output (i + 0.5)·k
     let at = Transform::from_row(kf, 0.0, 0.0, kf, kf / 2.0, kf / 2.0);
-    let masks: Vec<Mask> = fields.iter().map(|f| {
-        let mut m = Mask::new(ow, oh).expect("traced size");
-        if let Some(path) = outline(w, h, f) {
-            m.fill_path(&path, FillRule::EvenOdd, true, at);
+    let mut masks: Vec<Mask> = (0..fields.len()).map(|_| Mask::new(ow, oh).expect("traced size")).collect();
+    // word by word (a word's letters share one rim): its fill traced, its edge and rim the disc's widths for that word
+    // laid evenly round the fill, so thin outlines come out clean; a word with no fill (the white flash) by its outline
+    let part = parts(w, h, &layer);
+    // the bevel (output px): + a light lip inside the fill's top-left edge, − a dark one inside its bottom-right, as
+    // wide as 0.4 of the word's edge
+    let mut bevel = vec![0.0f32; (ow * oh) as usize];
+    for n in 1..=part.iter().copied().max().unwrap_or(0) {
+        let mine: Vec<Vec<f32>> = fields.iter().map(|f| (0..w * h).map(|i| if part[i] == n { f[i] } else { 0.0 }).collect()).collect();
+        let area = |f: &[f32]| f.iter().filter(|&&v| v > 0.5).count() as f32;
+        let Some((fill, len)) = outline(w, h, &mine[2]).filter(|_| area(&mine[2]) >= 4.0) else {
+            for (m, f) in masks.iter_mut().zip(&mine) {
+                if let Some((path, _)) = outline(w, h, f) {
+                    m.fill_path(&path, FillRule::EvenOdd, true, at);
+                }
+            }
+            continue;
+        };
+        // the anti-aliased pixels either side count whole: a third of a pixel off
+        let edge = (area(&mine[1]) - area(&mine[2])) / len - 0.3;
+        let rim = (area(&mine[0]) - area(&mine[1])) / len;
+        let mut word = Mask::new(ow, oh).expect("traced size");
+        word.fill_path(&fill, FillRule::EvenOdd, true, at);
+        let d = (edge * kf * 0.4).round() as i32;
+        let f = |x: i32, y: i32| if x < 0 || y < 0 || x >= ow as i32 || y >= oh as i32 { 0.0 } else { word.data()[(y * ow as i32 + x) as usize] as f32 / 255.0 };
+        for (o, b) in bevel.iter_mut().enumerate().filter(|(o, _)| word.data()[*o] > 0) {
+            let (x, y) = ((o as u32 % ow) as i32, (o as u32 / ow) as i32);
+            *b = f(x, y) * ((1.0 - f(x - d, y - d)) * 0.6 - (1.0 - f(x + d, y + d)) * 0.2);
         }
-        m
-    }).collect();
+        masks[2].fill_path(&fill, FillRule::EvenOdd, true, at);
+        for (l, wd, join) in [(1, edge, LineJoin::Miter), (0, edge + rim, LineJoin::Round)] {
+            let m = &mut masks[l];
+            m.fill_path(&fill, FillRule::EvenOdd, true, at);
+            let stroke = Stroke { width: 2.0 * wd.max(0.0), line_join: join, miter_limit: 2.0, ..Stroke::default() };
+            if let Some(ring) = fill.stroke(&stroke, kf) {
+                m.fill_path(&ring, FillRule::Winding, true, at);
+            }
+        }
+    }
     for (o, p) in out.pixels_mut().iter_mut().enumerate() {
         let outer = masks[0].data()[o] as f32 / 255.0;
         if outer == 0.0 {
@@ -70,6 +102,8 @@ pub(crate) fn trace(w: usize, h: usize, rgba: &[u8], k: u32) -> Pixmap {
                 c = std::array::from_fn(|i| c[i] + (lc[i] - c[i]) * t);
             }
         }
+        let b = bevel[o];
+        c = std::array::from_fn(|i| if i == 3 { c[3] } else if b > 0.0 { c[i] + (255.0 - c[i]) * b } else { c[i] * (1.0 + b) });
         let a = outer * c[3] / 255.0;
         *p = tiny_skia::ColorU8::from_rgba(c[0] as u8, c[1] as u8, c[2] as u8, (a * 255.0) as u8).premultiply();
     }
@@ -178,7 +212,7 @@ fn corners(w: usize, h: usize, u: f32, v: f32) -> ([usize; 4], [f32; 4]) {
 }
 
 /// The level-0.5 contour of `f` (disc px, pixel centres at integers) as closed loops, straightened and rounded.
-fn outline(w: usize, h: usize, f: &[f32]) -> Option<tiny_skia::Path> {
+fn outline(w: usize, h: usize, f: &[f32]) -> Option<(tiny_skia::Path, f32)> {
     // marching squares over the field padded with a clear border, so every loop closes; a crossing is keyed by its
     // grid edge (0 across, 1 down, at its top-left corner) and shared by the two cells either side
     let v = |x: i32, y: i32| if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 { 0.0 } else { f[y as usize * w + x as usize] };
@@ -216,7 +250,7 @@ fn outline(w: usize, h: usize, f: &[f32]) -> Option<tiny_skia::Path> {
         }
     }
     let mut used = vec![false; segs.len()];
-    let mut pb = PathBuilder::new();
+    let (mut pb, mut len) = (PathBuilder::new(), 0.0);
     for start in 0..segs.len() {
         if used[start] {
             continue;
@@ -233,13 +267,45 @@ fn outline(w: usize, h: usize, f: &[f32]) -> Option<tiny_skia::Path> {
         if pts.len() < 3 {
             continue;
         }
+        len += (0..pts.len()).map(|i| {
+            let (a, b) = (pts[i], pts[(i + 1) % pts.len()]);
+            ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt()
+        }).sum::<f32>();
         pb.move_to(pts[0].0, pts[0].1);
         for p in &pts[1..] {
             pb.line_to(p.0, p.1);
         }
         pb.close();
     }
-    pb.finish()
+    pb.finish().map(|p| (p, len))
+}
+
+/// Each pixel's word (1, 2, …; 0 clear): the touching (8 ways) pixels that aren't clear.
+fn parts(w: usize, h: usize, layer: &[u8]) -> Vec<u32> {
+    let mut part = vec![0u32; w * h];
+    let mut n = 0;
+    for start in 0..w * h {
+        if layer[start] == 0 || part[start] != 0 {
+            continue;
+        }
+        n += 1;
+        part[start] = n;
+        let mut todo = vec![start];
+        while let Some(i) = todo.pop() {
+            let (x, y) = ((i % w) as i32, (i / w) as i32);
+            for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if nx >= 0 && ny >= 0 && nx < w as i32 && ny < h as i32 {
+                    let j = ny as usize * w + nx as usize;
+                    if layer[j] != 0 && part[j] == 0 {
+                        part[j] = n;
+                        todo.push(j);
+                    }
+                }
+            }
+        }
+    }
+    part
 }
 
 /// A closed loop's points cut to straight runs (Douglas–Peucker): none strays more than [`STRAY`] from them.
