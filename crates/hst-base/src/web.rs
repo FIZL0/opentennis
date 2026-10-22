@@ -273,6 +273,22 @@ unsafe impl std::alloc::GlobalAlloc for Counted {
 fn grew(n: usize) {
     let live = LIVE.fetch_add(n, std::sync::atomic::Ordering::Relaxed) + n;
     PEAK.fetch_max(live, std::sync::atomic::Ordering::Relaxed);
+    SPAN_PEAK.fetch_max(live, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The most bytes live at once since [`span`] last started one.
+static SPAN_PEAK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// B645: starts a measured span (one at a time) and returns the bytes live now; [`span_peak`] is the most live since.
+pub fn span() -> usize {
+    let live = LIVE.load(std::sync::atomic::Ordering::Relaxed);
+    SPAN_PEAK.store(live, std::sync::atomic::Ordering::Relaxed);
+    live
+}
+
+/// B645: the bytes live now and the most live at once since [`span`].
+pub fn span_peak() -> (usize, usize) {
+    (LIVE.load(std::sync::atomic::Ordering::Relaxed), SPAN_PEAK.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 /// B468: the wasm heap's size in the console each time it has grown another 32 MB, and once a second while the bytes

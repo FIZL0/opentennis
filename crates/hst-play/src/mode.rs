@@ -456,12 +456,17 @@ impl bevy::ecs::schedule::SystemExecutor for Sliced {
             skip.insert_range(..);
             skip.set(self.next, false);
             let t = bevy::platform::time::Instant::now();
+            #[cfg(target_arch = "wasm32")]
+            let before = crate::web::span();
             self.inner.run(schedule, world, Some(&skip), handler);
             let ms = t.elapsed().as_secs_f32() * 1e3;
             if ms > SLOW {
                 // SAFETY: as above
                 info!("start: {} {ms:.1} ms", unsafe { schedule.systems_mut() }[self.next].system().name());
             }
+            // SAFETY: as above
+            #[cfg(target_arch = "wasm32")]
+            start_memory(before, || unsafe { schedule.systems_mut() }[self.next].system().name().to_string());
             self.next += 1;
             if bevy::platform::time::Instant::now() >= until {
                 break;
@@ -472,6 +477,18 @@ impl bevy::ecs::schedule::SystemExecutor for Sliced {
 
     fn set_apply_final_deferred(&mut self, value: bool) {
         self.inner.set_apply_final_deferred(value);
+    }
+}
+
+/// B645: a start system that held 4 MB more at its peak than before it, in the browser's log: what it peaked at and
+/// what it kept (`start: NAME peak +P MB, kept +K MB`). Wasm memory never shrinks, so a start's peak is what the tab
+/// keeps.
+#[cfg(target_arch = "wasm32")]
+fn start_memory(before: usize, name: impl FnOnce() -> String) {
+    let (live, peak) = crate::web::span_peak();
+    if peak >= before + (4 << 20) {
+        let mb = |n: isize| n as f32 / (1 << 20) as f32;
+        info!("start: {} peak +{:.1} MB, kept {:+.1} MB (live {:.0} MB)", name(), mb((peak - before) as isize), mb(live as isize - before as isize), mb(live as isize));
     }
 }
 
