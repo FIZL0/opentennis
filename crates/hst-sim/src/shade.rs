@@ -389,7 +389,9 @@ pub fn build(f: &Frame, casters: &[Caster], hole: &hst_data::mdl::Model, mats: &
     let texs: Vec<Vec<u8>> = casters.iter().map(texture).collect();
     let (sz, sx) = (f.scale[0] as f64, f.scale[1] as f64);
     let (cz, cx) = (f.origin[0] as f64 + 640.0 / sz, f.origin[1] as f64 + 448.0 / sx);
-    let mut red = vec![0u32; COLS * ROWS];
+    // the reds are only read clamped to 0xff, so they're added up saturating in bytes (B647: a quarter of the
+    // buffer, the browser's court load peaked on it)
+    let mut red = vec![0u8; COLS * ROWS];
     for (c, tex) in casters.iter().zip(&texs) {
         for t in receiver_tris(&c.planes, hole, mats) {
             let p = t.map(|p| p.map(f64::from));
@@ -397,13 +399,14 @@ pub fn build(f: &Frame, casters: &[Caster], hole: &hst_data::mdl::Model, mats: &
             raster(v, 16, COLS, ROWS, |col, r, w| {
                 let g: [f64; 3] = std::array::from_fn(|k| w[0] * p[0][k] + w[1] * p[1][k] + w[2] * p[2][k]);
                 let [u, v] = light_uv(&c.light, g);
-                red[col + r * COLS] += sample(tex, 0.5 * u + 0.5, 0.5 * v + 0.5);
+                let r = &mut red[col + r * COLS];
+                *r = r.saturating_add(sample(tex, 0.5 * u + 0.5, 0.5 * v + 0.5) as u8);
             });
         }
     }
     let mut map = vec![0u8; BYTES];
     for (i, &r) in red.iter().enumerate() {
-        if r.min(0xff) > SHADE_RED {
+        if u32::from(r) > SHADE_RED {
             map[i >> 3] |= 1 << (i & 7);
         }
     }

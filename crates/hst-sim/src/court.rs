@@ -188,7 +188,8 @@ pub fn drawn(iso: &mut Iso, n: u32, season: usize) -> Vec<(usize, Motions)> {
             } else if let Some(s) = stem(".mdl")
                 && let Ok(m) = mdl::parse(&bytes)
             {
-                models.insert(s, m);
+                // B647: the motion reads the nodes only, not the drawn geometry
+                models.insert(s, mdl::Model { materials: Vec::new(), ..m });
             }
         }
     }
@@ -284,10 +285,14 @@ pub fn moving(iso: &mut Iso, n: u32) -> Result<(World, Motions), String> {
                 if m.collision.iter().any(|t| t.node >= m.node_count) {
                     return Err(format!("{path} {}: a collision face on a node the model doesn't have", e.name));
                 }
+                // B647: no drawn geometry either (every model's held at once peaked the browser's court load)
+                let m = mdl::Model { materials: Vec::new(), ..m };
                 let mtl_name = format!("{base}.MTL");
                 let mti = read(&format!("{base}.MTI"))?;
-                let mt = mtl::parse(&read(&mtl_name)?.ok_or_else(|| format!("{path}: no {mtl_name}"))?, mti.as_deref())
+                let mut mt = mtl::parse(&read(&mtl_name)?.ok_or_else(|| format!("{path}: no {mtl_name}"))?, mti.as_deref())
                     .map_err(|err| format!("{path} {mtl_name}: {err}"))?;
+                // and no textures: collision reads the materials only
+                mt.textures = Vec::new();
                 if arc == "GRD01.XB" && m.collides(&mt) {
                     if court.is_some() {
                         return Err(format!("{path}: more than one collision model"));

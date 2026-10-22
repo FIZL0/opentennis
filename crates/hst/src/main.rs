@@ -760,8 +760,13 @@ fn load_court(
     let dir = format!("COURT/{n:02}");
     // the game's season is 1 in singles (hole archive SSN1/HOL01.XB, which differs by the net), 0 in doubles
     let season = args.singles as usize;
+    // the shade map's collision world (court 7 has no shade map), read before the models are built: its read peaks
+    // on top of what's live (B647)
+    let mut shade_world = (n != 7).then(|| hst_sim::court::world(iso, n));
+    // P135: structures that play their own motion (court 5's carts' wheels, court 6's horses), by plant record
+    let mut posed: std::collections::HashMap<usize, _> = hst_sim::court::drawn(iso, n, season).into_iter().collect();
     let CourtLibrary { library, mut anims, sky_colour, hole_box, raw_models, model_shapes } =
-        court_library(iso, n, args.singles, skip, images, meshes, gs_materials);
+        court_library(iso, n, args.singles, skip, &posed.keys().copied().collect::<Vec<_>>(), images, meshes, gs_materials);
     // the season's fog on every court material (FGE batches use it)
     let envir = iso.read(&format!("{dir}/CMN.XB")).ok().and_then(|d| {
         let arc = Archive::parse(&d).ok()?;
@@ -847,8 +852,6 @@ fn load_court(
     if let Some(sun) = sun {
         commands.insert_resource(sun);
     }
-    // P135: structures that play their own motion (court 5's carts' wheels, court 6's horses), by plant record
-    let mut posed: std::collections::HashMap<usize, _> = hst_sim::court::drawn(iso, n, season).into_iter().collect();
     for (k, p) in plants.iter().enumerate() {
         let Some(e) = layout::resolve(&list, p, season) else { continue };
         if !matches!(e.dir.as_str(), "tree" | "prop" | "structure" | "billboard") {
@@ -916,12 +919,13 @@ fn load_court(
         commands.insert_resource(look);
     }
     if let (Some((frame, hole)), Some(_)) = (shade_frame, sun)
-        && let Some((model, mats)) = raw_models.get(&hole)
+        && let Some((model, Some(mats))) = raw_models.get(&hole)
+        && let Some(world) = shade_world.take()
     {
         // B605: a court whose collision can't be read gets no shade map (the match says why, `court_load`)
         // G2: Shadows Original draws the props' shadows the game's way
         shadow::projected::spawn(commands, root, &shade_casters, model, mats);
-        match hst_sim::court::world(iso, n) {
+        match world {
             Ok(world) => commands.insert_resource(shade::build(frame, &shade_casters, model, mats, world)),
             Err(e) => error!("court {n} shade map: {e}"),
         }
@@ -954,16 +958,20 @@ struct CourtLibrary {
     anims: std::collections::HashMap<String, (hst_sim::court_anim::CourtAnim, Vec<(usize, usize)>)>,
     sky_colour: std::collections::HashMap<String, [f32; 3]>,
     hole_box: std::collections::HashMap<String, ([f32; 3], [f32; 3])>,
-    raw_models: std::collections::HashMap<String, (mdl::Model, mtl::Mtl)>,
+    /// the posed structures' and the hole's models; its materials and textures only for the hole (the shade map's)
+    raw_models: std::collections::HashMap<String, (mdl::Model, Option<mtl::Mtl>)>,
     model_shapes: std::collections::HashMap<String, hst_sim::shade::Shape>,
 }
 
-/// Court `n`'s library: every model its layout spawns (`skip` aside), from its common, ground and hole archives.
+/// Court `n`'s library: every model its layout spawns (`skip` aside), from its common, ground and hole archives;
+/// `posed`: the plant records whose structures play their own motion.
+#[allow(clippy::too_many_arguments)]
 fn court_library(
     iso: &mut Iso,
     n: u32,
     singles: bool,
     skip: &impl Fn(&str) -> bool,
+    posed: &[usize],
     images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
     gs_materials: &mut Assets<gs::GsMaterial>,
@@ -984,22 +992,27 @@ fn court_library(
         });
     }
     // Z2: only the models the court below spawns are built (the archives hold every hole, season and sky variant)
-    let wanted = court_layout(iso, n as usize).map(|(list, plants)| court_models(&list, &plants, season, singles, &sky_colour));
+    let layout = court_layout(iso, n as usize);
+    let wanted = layout.as_ref().map(|(list, plants)| court_models(list, plants, season, singles, &sky_colour));
+    let holes: std::collections::HashSet<&str> = layout.iter().flat_map(|(list, _)| list.iter().filter(|e| e.dir == "hole").map(|e| e.stem.as_str())).collect();
+    let posed: std::collections::HashSet<&str> = layout.iter().flat_map(|(list, plants)| posed.iter().filter_map(|&k| layout::resolve(list, plants.get(k)?, season)).map(|e| e.stem.as_str())).collect();
     let keep = |n: &str| !skip(n) && wanted.as_ref().is_none_or(|w| w.contains(n.rsplit(['\\', '/']).next().unwrap_or(n).trim_end_matches(".mdl")));
-    for data in &archives {
-        let data = data.as_slice();
-        // the sun-shade map: the hole model's box frames it, the casters' triangles shade it
-        for_models(data, keep, |stem, model, mats| {
+    // B647: each model is built and added as it's read, and only the hole's textures outlive it (the browser's
+    // court load peaked at every kept model's textures and meshes held at once); each archive goes once read
+    for data in archives {
+        gs_models_anim(&data, keep, images, |stem, parts, anim, model, mats| {
+            // the sun-shade map: the hole model's box frames it, the casters' triangles shade it
             hole_box.insert(stem.clone(), shade::packet_box(&model));
             model_shapes.insert(stem.clone(), hst_sim::shade::Shape::new(&model, &mats));
-            raw_models.insert(stem, (model, mats));
-        });
-        for (stem, parts, anim) in gs_models_anim(data, keep, images) {
             let tags: Vec<_> = parts.iter().flat_map(|(_, g, t)| std::iter::repeat_n(*t, g.len())).collect();
             let parts = add_parts(parts.into_iter().map(|(m, g, _)| (m, g)).collect(), meshes, gs_materials);
             anims.insert(stem.clone(), (anim, tags));
-            library.insert(stem, parts);
-        }
+            library.insert(stem.clone(), parts);
+            let hole = holes.contains(stem.as_str());
+            if hole || posed.contains(stem.as_str()) {
+                raw_models.insert(stem, (model, hole.then_some(mats)));
+            }
+        });
     }
     CourtLibrary { library, anims, sky_colour, hole_box, raw_models, model_shapes }
 }
@@ -1103,11 +1116,11 @@ fn sky_top(model: &mdl::Model, mats: &mtl::Mtl) -> [f32; 3] {
 /// Like [`models`], drawn as the GS draws them ([`gs`]): one mesh per material and batch PRIM, its texture raw and
 /// wrapped per the MDL's material header.
 fn gs_models(data: &[u8], keep: impl Fn(&str) -> bool, images: &mut Assets<Image>) -> Vec<(String, Vec<(Mesh, Vec<gs::GsMaterial>)>)> {
-    gs_models_anim(data, keep, images).into_iter().map(|(stem, parts, _)| (stem, parts.into_iter().map(|(m, g, _)| (m, g)).collect())).collect()
+    let mut out = Vec::new();
+    gs_models_anim(data, keep, images, |stem, parts, _, _, _| out.push((stem, parts.into_iter().map(|(m, g, _)| (m, g)).collect())));
+    out
 }
 
-/// [`gs_models`] with each model's `.UVA`/`.MTA` ([`court_anim`]): meshes are further split per UV track, and each
-/// part carries the (material, packet) its animation is read from.
 /// The model stems the court load spawns from `library` (the same picks as its loops): this hole's in-season ground and
 /// backdrops up to the first sky with a colour, the props the plant records resolve to, and in singles the in-season
 /// clouds.
@@ -1140,18 +1153,21 @@ fn court_models(
     out
 }
 
+/// [`gs_models`] with each model's `.UVA`/`.MTA` ([`court_anim`]): meshes are further split per UV track, and each
+/// part carries the (material, packet) its animation is read from. Each model goes to `f` as it's built, with its
+/// parsed model and materials.
 fn gs_models_anim(
     data: &[u8],
     keep: impl Fn(&str) -> bool,
     images: &mut Assets<Image>,
-) -> Vec<(String, Vec<(Mesh, Vec<gs::GsMaterial>, (usize, usize))>, hst_sim::court_anim::CourtAnim)> {
+    mut f: impl FnMut(String, Vec<(Mesh, Vec<gs::GsMaterial>, (usize, usize))>, hst_sim::court_anim::CourtAnim, mdl::Model, mtl::Mtl),
+) {
     let arc = Archive::parse(data).expect("xb archive");
     let tracks = |stem: &str, ext: &str, width| {
         let suffix = format!("{stem}.{ext}");
         let e = arc.entries.iter().find(|e| e.name.rsplit(['\\', '/']).next().is_some_and(|n| n.eq_ignore_ascii_case(&suffix)))?;
         hst_data::mor::parse(&arc.read(e).ok()?, width).ok()
     };
-    let mut out = Vec::new();
     for_models(data, keep, |stem, model, mats| {
         let _pre = textures::prefetch(&mats);
         let anim = hst_sim::court_anim::CourtAnim::new(&model, tracks(&stem, "uva", 4).as_ref(), tracks(&stem, "mta", 1).as_ref(), &mats.materials);
@@ -1251,9 +1267,8 @@ fn gs_models_anim(
                 parts.extend(split);
             }
         }
-        out.push((stem, parts, anim));
+        f(stem, parts, anim, model, mats);
     });
-    out
 }
 
 /// [`gs::hsl_shift`] on these parts' vertex colours (PS2 units, 0x80 = 1.0), each mesh once.
