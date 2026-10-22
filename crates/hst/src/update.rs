@@ -23,8 +23,8 @@
 //! start, hands over to the newest such copy that's newer than itself (Unix: `exec`, the same process for Steam or
 //! Flatpak to follow). Android downloads the release's .apk, checks it the same way and gives it to the system's
 //! installer (the player confirms; same signing key, so it installs over the app and keeps its files). iOS can't run
-//! new code it downloads: Update hands the release's .ipa to the sideload installer that's on the phone (SideStore,
-//! AltStore, TrollStore), which installs it over the app; with none, the release page. Settings → Updates (Ask,
+//! new code it downloads, and an installer's URL scheme can't be trusted to be that installer (B652: stock iOS opens
+//! `apple-magnifier` itself): Download opens the release page in Safari. Settings → Updates (Ask,
 //! Always, Never; `updates` in settings.txt, Never being the older Check for Updates off) and the main menu's Update?
 //! popup the first time a release is found ([`offer`]).
 
@@ -343,9 +343,6 @@ enum Way {
     /// Android: the .apk, checked, to the system's installer.
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     Apk,
-    /// iOS: the sideload installer's link that installs the release's .ipa.
-    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
-    Installer(String),
     /// The release page.
     Page,
 }
@@ -359,8 +356,13 @@ fn way(f: &Found) -> Way {
         let _ = files;
         return if from_store() { Way::Page } else { Way::Apk };
     }
+    // B652: an app can't replace itself on iOS, and the sideload installers' schemes aren't safe to guess (stock iOS
+    // answers TrollStore's `apple-magnifier` itself and offers to restore Magnifier): the release page, in Safari
     #[cfg(target_os = "ios")]
-    return installer().map_or(Way::Page, |i| Way::Installer(format!("{i}{}", escape(&files[0]))));
+    {
+        let _ = files;
+        return Way::Page;
+    }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let _ = files;
@@ -475,25 +477,6 @@ fn from_store() -> bool {
     *PLAY.get_or_init(crate::android::from_store)
 }
 
-/// iOS: the sideload installers' install-from-a-link URLs, in the order they're tried; each takes the .ipa's URL
-/// (escaped) after it. SideStore and AltStore install over the app with the player's own signing; TrollStore
-/// (`apple-magnifier`) installs it as is.
-#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
-const INSTALLERS: [&str; 3] = ["sidestore://install?url=", "altstore://install?url=", "apple-magnifier://install?url="];
-
-/// iOS: the first of [`INSTALLERS`] the phone has (the IPA's Info.plist lists their schemes, `tools/ios-ipa.sh`; none
-/// until UIKit has answered, a frame or so after the first ask).
-#[cfg(target_os = "ios")]
-fn installer() -> Option<&'static str> {
-    INSTALLERS.into_iter().find(|i| crate::ios::can_open(i) == Some(true))
-}
-
-/// `s` as one URL query value (everything but RFC 3986's unreserved characters percent-escaped).
-#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
-fn escape(s: &str) -> String {
-    s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
-}
-
 /// The notice's button: the page reloads (once its mod saves are done, `web.rs`) into the new build, which the
 /// service worker has already downloaded in the background (`web/sw.js`, B470); a newer release installs (B374, M140's
 /// [`Way`]); else the release page opens.
@@ -515,10 +498,6 @@ pub fn act() {
             (Way::Page, _) | (_, None) => {
                 drop(s);
                 return crate::modstore::open(&f.page);
-            }
-            (Way::Installer(link), _) => {
-                drop(s);
-                return crate::modstore::open(link);
             }
             (_, Some(files)) => files,
         };
@@ -547,7 +526,7 @@ pub fn act() {
                     }
                 }
                 Way::Apk => apk(rt, &files, &f.tag, &shown, &job),
-                Way::Installer(_) | Way::Page => unreachable!(),
+                Way::Page => unreachable!(),
             };
             match done {
                 Ok(says) => job(says),
@@ -621,8 +600,7 @@ pub fn button() -> &'static str {
     if installs() { "Update" } else { "Download" }
 }
 
-/// Whether the button installs in place (M140: here, or through the phone's sideload installer), else it opens the
-/// release page.
+/// Whether the button installs in place (M140; never on iOS, B652), else it opens the release page.
 pub fn installs() -> bool {
     #[cfg(target_arch = "wasm32")]
     return false;
@@ -631,7 +609,7 @@ pub fn installs() -> bool {
 }
 
 /// M140: whether an install runs to its end here with no one at the controls but the system's own confirm (Always
-/// starts it by itself): not iOS's, which leaves for another app.
+/// starts it by itself).
 #[cfg(not(target_arch = "wasm32"))]
 fn installs_alone() -> bool {
     STATE.lock().unwrap().found.as_ref().is_some_and(|f| matches!(way(f), Way::Swap(_) | Way::Copy(_) | Way::Apk))
@@ -991,15 +969,9 @@ PGdwmy/sa9Kqh1f1dYqI+JP0Iweg2dLM/mEgnRNTVfsQ9pI1u5aeusKILuRdn61QcyAsnzeOSfS5RRAE
         assert!(!steams(std::path::Path::new("/home/deck/Games/opentennis/opentennis")));
     }
 
-    /// M140: the iOS installers' links carry the .ipa's URL as one escaped query value; the settings word.
+    /// M140: the settings word.
     #[test]
-    fn installer_links_and_the_updates_word() {
-        let ipa = "https://github.com/FIZL0/opentennis/releases/download/v1.2.3/opentennis-ios.ipa";
-        assert_eq!(
-            format!("{}{}", INSTALLERS[0], escape(ipa)),
-            "sidestore://install?url=https%3A%2F%2Fgithub.com%2FFIZL0%2Fopentennis%2Freleases%2Fdownload%2Fv1.2.3%2Fopentennis-ios.ipa"
-        );
-        assert_eq!(escape("a b&c=d~_.-"), "a%20b%26c%3Dd~_.-");
+    fn the_updates_word() {
         assert_eq!([settings_line(true, false), settings_line(true, true), settings_line(false, true)], ["updates = ask\n", "updates = always\n", "updates = never\n"]);
     }
 
