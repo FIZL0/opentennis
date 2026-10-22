@@ -1,15 +1,19 @@
 //! A disc word card traced sharp: its white rim, dark edge and fill each cut out of the disc's pixels, the outline of
-//! each upscaled as a smooth contour (a distance field sampled between pixels) and coloured from the disc's own
-//! pixels of that layer, so the letters keep the disc's exact shapes (the 1's curved stem, the 4's notch) and shading.
+//! each traced as an outline, straightened into clean runs (corners and chips kept, the low-res wobble gone) and filled
+//! sharp, coloured from the disc's own pixels of that layer: the disc's shapes (the 1's curved stem, the 4's notch)
+//! and shading, without its blur.
 
-use tiny_skia::Pixmap;
+use std::collections::HashMap;
+use tiny_skia::{FillRule, Mask, PathBuilder, Pixmap, Transform};
 
 /// Out, rim, edge, fill: each layer lies inside the one before it.
 const LAYERS: usize = 4;
 /// How far (disc px) a layer's colour spreads past its own pixels.
 const REACH: i32 = 3;
-/// A level's slope per disc px where the disc anti-aliases an edge (a pixel's width from in to out), and more: crisp.
-const GAIN: f32 = 1.5;
+/// How far (disc px) an outline may stray from the disc's to run straight: the low-res wobble goes, the chips stay.
+const STRAY: f32 = 0.35;
+/// A turn sharper than this (radians) is a corner and stays sharp; gentler ones are rounded off as curves.
+const CORNER: f32 = 0.6;
 
 /// The picture `w`×`h` (straight RGBA) at `k`× as a premultiplied pixmap.
 pub(crate) fn trace(w: usize, h: usize, rgba: &[u8], k: u32) -> Pixmap {
@@ -17,7 +21,7 @@ pub(crate) fn trace(w: usize, h: usize, rgba: &[u8], k: u32) -> Pixmap {
     let thr = (0..w * h).map(|i| px(i)[3]).max().unwrap_or(0) / 2;
     let layer = classify(w, h, &px, thr);
     let a_max = thr as f32 * 2.0;
-    // each layer's boundary as a level (0.5) of a smooth value: the disc's own anti-aliasing places it between
+    // each layer's boundary as a level (0.5) of a softened value: the disc's own anti-aliasing places it between
     // pixels. The outline by alpha; the rim's inside by how dark (the rim is white, the edge dark); the fill's by how
     // bright (the edge is dark, the fill coloured)
     let fields: Vec<Vec<f32>> = (1..LAYERS as u8).map(|l| (0..w * h).map(|i| {
@@ -29,10 +33,9 @@ pub(crate) fn trace(w: usize, h: usize, rgba: &[u8], k: u32) -> Pixmap {
             (2, 1) => 1.0 - lo / 255.0,
             (2, _) => 1.0,
             (3, 3) => ((hi - 40.0) / 160.0).clamp(0.0, 1.0),
-            (3, 2) => ((hi - 40.0) / 160.0).clamp(0.0, 0.45),
             _ => 0.0,
         }
-    }).collect::<Vec<f32>>()).map(|f| blur(w, h, &blur(w, h, &f))).collect();
+    }).collect::<Vec<f32>>()).map(|f| blur(w, h, &f)).collect();
     // the rim and the edge one colour each (the disc's in-between pixels are greys), the fill
     // shaded as the disc's
     let colours: Vec<Vec<[f32; 4]>> = (1..LAYERS).map(|l| match l {
@@ -42,19 +45,26 @@ pub(crate) fn trace(w: usize, h: usize, rgba: &[u8], k: u32) -> Pixmap {
     let (ow, oh) = (w as u32 * k, h as u32 * k);
     let mut out = Pixmap::new(ow, oh).expect("traced size");
     let kf = k as f32;
+    // each layer's outline as clean paths, filled sharp at k×: disc pixel i's centre lands on output (i + 0.5)·k
+    let at = Transform::from_row(kf, 0.0, 0.0, kf, kf / 2.0, kf / 2.0);
+    let masks: Vec<Mask> = fields.iter().map(|f| {
+        let mut m = Mask::new(ow, oh).expect("traced size");
+        if let Some(path) = outline(w, h, f) {
+            m.fill_path(&path, FillRule::EvenOdd, true, at);
+        }
+        m
+    }).collect();
     for (o, p) in out.pixels_mut().iter_mut().enumerate() {
-        // pixel centres: disc pixel i's centre is at i
-        let u = ((o as u32 % ow) as f32 + 0.5) / kf - 0.5;
-        let v = ((o as u32 / ow) as f32 + 0.5) / kf - 0.5;
-        let cover = |f: &[f32]| (0.5 + (cubic(w, h, f, u, v) - 0.5) * kf * GAIN).clamp(0.0, 1.0);
-        let outer = cover(&fields[0]);
+        let outer = masks[0].data()[o] as f32 / 255.0;
         if outer == 0.0 {
             continue;
         }
+        let u = ((o as u32 % ow) as f32 + 0.5) / kf - 0.5;
+        let v = ((o as u32 / ow) as f32 + 0.5) / kf - 0.5;
         // the rim's colour, the edge's over it, the fill's over that, each as far as its layer covers
         let mut c = bilinear4(w, h, &colours[0], u, v);
-        for (f, col) in fields.iter().zip(&colours).skip(1) {
-            let t = cover(f);
+        for (m, col) in masks.iter().zip(&colours).skip(1) {
+            let t = m.data()[o] as f32 / 255.0;
             if t > 0.0 {
                 let lc = bilinear4(w, h, col, u, v);
                 c = std::array::from_fn(|i| c[i] + (lc[i] - c[i]) * t);
@@ -126,7 +136,11 @@ fn pick(layer: &[u8], px: &impl Fn(usize) -> [u8; 4], l: u8, a: f32) -> [f32; 4]
 /// Layer `l`'s colours (straight RGBA), softened among its own pixels and spread out past them, so sampling between
 /// pixels near its edge never takes another layer's colour.
 fn colours(w: usize, h: usize, layer: &[u8], px: &impl Fn(usize) -> [u8; 4], l: u8) -> Vec<[f32; 4]> {
-    let mine = |i: usize| layer[i] == l;
+    // its inner pixels only: those against another layer are the disc's anti-aliasing, half the neighbour's colour
+    let mine = |i: usize| {
+        let (x, y) = (i % w, i / w);
+        layer[i] == l && x > 0 && y > 0 && x + 1 < w && y + 1 < h && [i - 1, i + 1, i - w, i + w].iter().all(|&n| layer[n] == l)
+    };
     let mut known: Vec<Option<[f32; 4]>> = (0..w * h).map(|i| mine(i).then(|| px(i).map(f32::from))).collect();
     // a 3×3 average among the layer's own pixels: the disc's dithering smoothed
     let soft: Vec<Option<[f32; 4]>> = (0..w * h).map(|i| known[i].map(|_| average(w, h, &known, i).unwrap())).collect();
@@ -163,13 +177,123 @@ fn corners(w: usize, h: usize, u: f32, v: f32) -> ([usize; 4], [f32; 4]) {
     ([y0 * w + x0, y0 * w + x1, y1 * w + x0, y1 * w + x1], [(1.0 - fx) * (1.0 - fy), fx * (1.0 - fy), (1.0 - fx) * fy, fx * fy])
 }
 
-/// Catmull-Rom: smooth between pixels, so a level's contour curves instead of stepping.
-fn cubic(w: usize, h: usize, f: &[f32], u: f32, v: f32) -> f32 {
-    let weights = |t: f32| [((-0.5 * t + 1.0) * t - 0.5) * t, (1.5 * t - 2.5) * t * t + 1.0, ((-1.5 * t + 2.0) * t + 0.5) * t, (0.5 * t - 0.5) * t * t];
-    let (x0, y0) = (u.floor(), v.floor());
-    let (wx, wy) = (weights(u - x0), weights(v - y0));
-    let at = |x: i32, y: i32| f[y.clamp(0, h as i32 - 1) as usize * w + x.clamp(0, w as i32 - 1) as usize];
-    (0..4).map(|j| wy[j] * (0..4).map(|i| wx[i] * at(x0 as i32 - 1 + i as i32, y0 as i32 - 1 + j as i32)).sum::<f32>()).sum()
+/// The level-0.5 contour of `f` (disc px, pixel centres at integers) as closed loops, straightened and rounded.
+fn outline(w: usize, h: usize, f: &[f32]) -> Option<tiny_skia::Path> {
+    // marching squares over the field padded with a clear border, so every loop closes; a crossing is keyed by its
+    // grid edge (0 across, 1 down, at its top-left corner) and shared by the two cells either side
+    let v = |x: i32, y: i32| if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 { 0.0 } else { f[y as usize * w + x as usize] };
+    let mut segs: Vec<[(u8, i32, i32); 2]> = vec![];
+    for y in -1..h as i32 {
+        for x in -1..w as i32 {
+            let c = [v(x, y), v(x + 1, y), v(x + 1, y + 1), v(x, y + 1)];
+            let inside = c.map(|c| c > 0.5);
+            let (t, r, b, l) = ((0, x, y), (1, x + 1, y), (0, x, y + 1), (1, x, y));
+            let middle = c.iter().sum::<f32>() / 4.0 > 0.5;
+            match inside {
+                // saddles: the middle says which diagonal joins
+                [true, false, true, false] if middle => segs.extend([[t, r], [b, l]]),
+                [true, false, true, false] => segs.extend([[t, l], [r, b]]),
+                [false, true, false, true] if middle => segs.extend([[t, l], [r, b]]),
+                [false, true, false, true] => segs.extend([[t, r], [b, l]]),
+                _ => {
+                    let cross: Vec<_> = [(t, 0, 1), (r, 1, 2), (b, 3, 2), (l, 0, 3)].into_iter().filter(|e| inside[e.1] != inside[e.2]).map(|e| e.0).collect();
+                    if let [a, b] = cross[..] {
+                        segs.push([a, b]);
+                    }
+                }
+            }
+        }
+    }
+    let point = |(d, x, y): (u8, i32, i32)| {
+        let (a, b) = (v(x, y), if d == 0 { v(x + 1, y) } else { v(x, y + 1) });
+        let t = (0.5 - a) / (b - a);
+        if d == 0 { (x as f32 + t, y as f32) } else { (x as f32, y as f32 + t) }
+    };
+    let mut ends: HashMap<(u8, i32, i32), Vec<usize>> = HashMap::new();
+    for (i, s) in segs.iter().enumerate() {
+        for e in s {
+            ends.entry(*e).or_default().push(i);
+        }
+    }
+    let mut used = vec![false; segs.len()];
+    let mut pb = PathBuilder::new();
+    for start in 0..segs.len() {
+        if used[start] {
+            continue;
+        }
+        let (mut loop_, mut i, mut at) = (vec![], start, segs[start][1]);
+        while !used[i] {
+            used[i] = true;
+            loop_.push(point(at));
+            let Some(&n) = ends[&at].iter().find(|&&n| n != i) else { break };
+            at = if segs[n][0] == at { segs[n][1] } else { segs[n][0] };
+            i = n;
+        }
+        let pts = round(&straighten(&loop_));
+        if pts.len() < 3 {
+            continue;
+        }
+        pb.move_to(pts[0].0, pts[0].1);
+        for p in &pts[1..] {
+            pb.line_to(p.0, p.1);
+        }
+        pb.close();
+    }
+    pb.finish()
+}
+
+/// A closed loop's points cut to straight runs (Douglas–Peucker): none strays more than [`STRAY`] from them.
+fn straighten(pts: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    fn run(p: &[(f32, f32)], out: &mut Vec<(f32, f32)>) {
+        let (a, b) = (p[0], p[p.len() - 1]);
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let len = (dx * dx + dy * dy).sqrt().max(1e-6);
+        let off = |q: &(f32, f32)| ((q.0 - a.0) * dy - (q.1 - a.1) * dx).abs() / len;
+        match (1..p.len() - 1).max_by(|&i, &j| off(&p[i]).total_cmp(&off(&p[j]))) {
+            Some(i) if off(&p[i]) > STRAY => {
+                run(&p[..=i], out);
+                run(&p[i..], out);
+            }
+            _ => out.push(a),
+        }
+    }
+    if pts.len() < 4 {
+        return pts.to_vec();
+    }
+    // split at the point farthest from the first, so both halves are open runs
+    let d = |q: &(f32, f32)| (q.0 - pts[0].0).powi(2) + (q.1 - pts[0].1).powi(2);
+    let far = (0..pts.len()).max_by(|&i, &j| d(&pts[i]).total_cmp(&d(&pts[j]))).unwrap();
+    let mut closed = pts.to_vec();
+    closed.push(pts[0]);
+    let mut out = vec![];
+    run(&closed[..=far], &mut out);
+    run(&closed[far..], &mut out);
+    out
+}
+
+/// Gentle turns rounded off (Chaikin, three passes), corners sharper than [`CORNER`] kept.
+fn round(pts: &[(f32, f32)]) -> Vec<(f32, f32)> {
+    let mut pts = pts.to_vec();
+    for _ in 0..3 {
+        let n = pts.len();
+        if n < 3 {
+            break;
+        }
+        let mut out = Vec::with_capacity(n * 2);
+        for i in 0..n {
+            let (a, p, b) = (pts[(i + n - 1) % n], pts[i], pts[(i + 1) % n]);
+            let turn = ((p.1 - a.1).atan2(p.0 - a.0) - (b.1 - p.1).atan2(b.0 - p.0)).abs();
+            let turn = turn.min(std::f32::consts::TAU - turn);
+            let lerp = |q: (f32, f32), t: f32| (p.0 + (q.0 - p.0) * t, p.1 + (q.1 - p.1) * t);
+            if turn > CORNER {
+                out.push(p);
+            } else {
+                out.extend([lerp(a, 0.25), lerp(b, 0.25)]);
+            }
+        }
+        pts = out;
+    }
+    pts
 }
 
 fn bilinear4(w: usize, h: usize, f: &[[f32; 4]], u: f32, v: f32) -> [f32; 4] {
