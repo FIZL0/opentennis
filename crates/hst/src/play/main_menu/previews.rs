@@ -302,6 +302,13 @@ pub(super) fn picks_drawn(menu: &Menu, loader: &mut Loader, baker: &Baker) -> bo
     })
 }
 
+/// B649: how long a launch waits on [`picks_drawn`] (s): a mod pick's drawing loads its model first, or its store
+/// picture comes over the network, so it gets longer than a disc pick's (~0.5 s bake); the match's panel shows a mod's
+/// face as soon as it's there, never its donor's.
+pub(super) fn picks_wait(menu: &Menu) -> f32 {
+    if (0..menu.players()).any(|p| matches!(menu.pick(p).0, Who::Mod(_))) { 8.0 } else { 3.0 }
+}
+
 /// B589: the players' picks once the select is left (the confirm, a launch waiting on [`picks_drawn`]), which the baker
 /// draws there: a Random draw is made as the player readies and the select moves on at once.
 fn picks_past_select(menu: &Menu) -> Vec<Key> {
