@@ -478,7 +478,70 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Clock>()
         .add_systems(PostStartup, setup.after(super::setup))
         .add_systems(FixedUpdate, tick.after(super::simulate))
-        .add_systems(Update, draw);
+        .add_systems(Update, draw)
+        .add_systems(Update, await_faces.run_if(resource_exists::<WaitingFaces>));
+}
+
+/// B649: players on a mod whose own face wasn't there when the match began (the select's drawing of it still under
+/// way, or a launch that didn't wait for it): their face slot, and the store's picture of the mod once asked for.
+#[derive(Resource, Default)]
+struct WaitingFaces(Vec<WaitingFace>);
+
+struct WaitingFace {
+    player: usize,
+    /// The donor (disc character) and costume the player is on.
+    char: usize,
+    outfit: usize,
+    face: Handle<Image>,
+    /// The mod's store picture: asked for (Some), then come (Some(Some(Some(png))) or not (Some(Some(None))).
+    store: Option<std::sync::Arc<std::sync::Mutex<Option<Option<Vec<u8>>>>>>,
+}
+
+/// A transparent face, INPANE's 64×64.
+fn clear_face() -> Image {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    Image::new_fill(Extent3d { width: 64, height: 64, depth_or_array_layers: 1 }, TextureDimension::D2, &[0; 4], TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)
+}
+
+/// B649: how often a waiting face looks in the select's cache again.
+const FACE_RETRY: f32 = 0.5;
+
+/// B649: fills a waiting mod face in place (same handle, so the panel and pop-ups pick it up) with the select's baked
+/// close-up once it's there, else the face cut from the mod's store picture (a store mod's listing picture is the
+/// select's own drawing of costume 0), asked for once.
+fn await_faces(mut waiting: ResMut<WaitingFaces>, args: Res<Args>, mods: Option<Res<crate::mods::MatchMod>>, front: Option<Res<super::front_end::FrontEnd>>, mut images: ResMut<Assets<Image>>, time: Res<Time>, mut next: Local<f32>) {
+    if waiting.0.is_empty() || time.elapsed_secs() < *next {
+        return;
+    }
+    *next = time.elapsed_secs() + FACE_RETRY;
+    waiting.0.retain_mut(|w| {
+        let Some(m) = mods.as_ref().and_then(|m| m.get(w.player)) else { return false };
+        let mut face = front.as_ref().and_then(|f| (f.face)(&args.iso, Some(m), w.char, w.outfit));
+        if face.is_none() && w.outfit == 0 {
+            match &w.store {
+                None => {
+                    let got = std::sync::Arc::new(std::sync::Mutex::new(None));
+                    let to = got.clone();
+                    if crate::modstore::installed_preview(&m.dir, &m.id, move |png| *to.lock().unwrap() = Some(png)) {
+                        w.store = Some(got);
+                    } else {
+                        w.store = Some(std::sync::Arc::new(std::sync::Mutex::new(Some(None))));
+                    }
+                }
+                Some(got) => {
+                    if let Some(png) = got.lock().unwrap().as_ref() {
+                        face = png.as_deref().and_then(|b| crate::inspect::face_icon(b, 40));
+                    }
+                }
+            }
+        }
+        let Some(img) = face else { return true };
+        if let Some(mut slot) = images.get_mut(&w.face) {
+            *slot = img;
+        }
+        false
+    });
 }
 
 /// An INPANE sheet (alpha authored 0–255: the board's 0x80 centre shows the court through it on the PS2).
@@ -523,18 +586,25 @@ fn setup(mut commands: Commands, args: Res<Args>, g: Res<Game>, mut images: ResM
         .iter()
         .map(|t| get(format!("/{}.tm2", t.to_ascii_lowercase())))
         .collect();
-    // B133: a mod's own face, cut from its select preview (the donor's until that's baked); B160: a disc one's too
+    // B133: a mod's own face, cut from its select preview (B649: never the donor's, `await_faces`); B160: a disc one's too
     let own: Vec<_> = g.chars.iter().enumerate().map(|(i, &c)| {
         let o = args.outfits.get(i).copied().unwrap_or(0);
         front.as_ref().and_then(|f| (f.face)(&args.iso, mods.as_ref().and_then(|m| m.get(i)), c as usize, o))
     }).collect();
     // Z2: the disc face is only made where there's no own one (it was made and never drawn)
     let mut drawn = Vec::new();
+    let mut waiting = WaitingFaces::default();
     for (i, (&c, own)) in g.chars.iter().zip(own).enumerate() {
         let o = args.outfits.get(i).copied().unwrap_or(0);
         match own {
             Some(img) => {
                 drawn.push((art.len(), img));
+                art.push(Handle::default());
+            }
+            // B649: a mod not baked yet never shows its donor's face: a clear one until its own comes
+            None if mods.as_ref().and_then(|m| m.get(i)).is_some() => {
+                waiting.0.push(WaitingFace { player: i, char: c as usize, outfit: o, face: Handle::default(), store: None });
+                drawn.push((art.len(), clear_face()));
                 art.push(Handle::default());
             }
             None => art.push(get(format!("face/face_{c:02}_{o:02}.tm2"))),
@@ -543,6 +613,10 @@ fn setup(mut commands: Commands, args: Res<Args>, g: Res<Game>, mut images: ResM
     for (k, img) in drawn {
         art[k] = images.add(img);
     }
+    for w in &mut waiting.0 {
+        w.face = art[FACES + w.player].clone();
+    }
+    commands.insert_resource(waiting);
     commands.insert_resource(Art(art));
     let (cnf, bin) = (
         iso.read("SYSTEM.CNF").expect("SYSTEM.CNF"),
@@ -835,5 +909,50 @@ mod tests {
         // the line's team has no banner (the other's is still there)
         let banners = |v: &View| layout(v).iter().filter(|q| q.tex == Tex::Team && q.rgb == [128.0; 3]).map(|q| q.src[1]).collect::<Vec<_>>();
         assert_eq!(banners(&v), [0.0]);
+    }
+
+    /// B649: a mod player's face waits clear (never the donor's) and fills in place, on the same handle the panel and
+    /// pop-ups draw, once the select's drawing of it is there; a mod with no store picture doesn't ask the store.
+    #[test]
+    fn a_mods_face_fills_in_when_its_drawing_lands() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static BAKED: AtomicBool = AtomicBool::new(false);
+        fn face(_: &str, m: Option<&crate::mods::Mod>, c: usize, k: usize) -> Option<Image> {
+            assert_eq!((m.map(|m| m.id.as_str()), c, k), (Some("x"), 3, 0));
+            BAKED.load(Ordering::Relaxed).then(|| {
+                let mut img = clear_face();
+                img.data.as_mut().unwrap().fill(200);
+                img
+            })
+        }
+        let dir = std::env::temp_dir().join(format!("hst-b649-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("model")).unwrap();
+        std::fs::write(dir.join("model/c00.glb"), b"").unwrap();
+        std::fs::write(dir.join("mod.json"), r#"{"standard":1,"id":"x","name":"X","costumes":["model/c00.glb"],"donor":3,"hand":"right","params":{"base":3,"override":{}},"ai_row":3,"face":"morph"}"#).unwrap();
+        let m = crate::mods::read(&dir).unwrap();
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default())).init_asset::<Image>();
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f32(FACE_RETRY)));
+        app.insert_resource(Args { iso: String::new(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles: true, chars: vec![3, 1], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 1, pads: None });
+        let mut mods = crate::mods::MatchMod::default();
+        mods.set(0, m);
+        app.insert_resource(mods);
+        app.insert_resource(super::super::front_end::FrontEnd { paused: |_| false, set_paused: |_, _| {}, face });
+        let h = app.world_mut().resource_mut::<Assets<Image>>().add(clear_face());
+        app.insert_resource(WaitingFaces(vec![WaitingFace { player: 0, char: 3, outfit: 0, face: h.clone(), store: None }]));
+        app.add_systems(Update, await_faces.run_if(resource_exists::<WaitingFaces>));
+        let px = |app: &App| app.world().resource::<Assets<Image>>().get(&h).unwrap().data.as_ref().unwrap()[0];
+        for _ in 0..4 {
+            app.update();
+        }
+        assert_eq!(px(&app), 0, "a face before its drawing");
+        assert_eq!(app.world().resource::<WaitingFaces>().0.len(), 1);
+        BAKED.store(true, Ordering::Relaxed);
+        for _ in 0..4 {
+            app.update();
+        }
+        assert_eq!(px(&app), 200, "the drawing never came in");
+        assert!(app.world().resource::<WaitingFaces>().0.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

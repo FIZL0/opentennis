@@ -3598,13 +3598,14 @@ fn step(
                         *launching = true;
                         continue;
                     }
-                    // ponytail: a fixed 3 s cap on the wait (a first bake takes ~0.5 s; one that never lands can't hold the start)
+                    // ponytail: a fixed cap on the wait (a first bake takes ~0.5 s; one that never lands can't hold the start;
+                    // B649: a mod pick's longer, `picks_wait`)
                     let since = *baking.get_or_insert(time.elapsed_secs());
                     let drawn = match (loader.as_deref_mut(), baker.as_deref()) {
                         (Some(l), Some(b)) => previews::picks_drawn(&menu, l, b),
                         _ => true,
                     };
-                    if !drawn && time.elapsed_secs() - since < 3.0 {
+                    if !drawn && time.elapsed_secs() - since < previews::picks_wait(&menu) {
                         *launching = true;
                         continue;
                     }
