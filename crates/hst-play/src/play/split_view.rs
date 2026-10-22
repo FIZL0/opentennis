@@ -1,6 +1,7 @@
-//! B633/M146: split screen for humans on both teams on one machine (singles, or doubles with humans on opposite
-//! sides; never online, not in the original look). Every match starts on the normal shared camera; 1P's Select (only
-//! 1P's) switches the split on and off in live play, and the choice isn't kept (user 2026-10-21). Split, each half
+//! B633/M146: split screen for exactly one human on each team on one machine (singles, or doubles with one human a
+//! side: each half is a one-player camera, so a team with two humans plays on the shared picture; never online, not
+//! in the original look). Every match starts on the normal shared camera; 1P's Select (only 1P's) switches the split
+//! on and off in live play, and the choice isn't kept (user 2026-10-21). Split, each half
 //! shows the original's alternate camera (`alt_camera`) low behind that team's human, so everyone plays from behind
 //! themselves. Side by side on a wide window (1P's team left),
 //! stacked on a tall one (1P's team on top). Shown only on the plain match view (serve and rally): the intro,
@@ -204,11 +205,12 @@ fn start_on() -> bool {
     std::env::var("HST_SPLIT2").is_ok_and(|v| v == "on")
 }
 
-/// The split can play: humans on both teams on this device (singles or doubles), not online, the remaster's own look.
+/// The split can play: exactly one human on each team on this device (singles or doubles; each half is a one-player
+/// camera), not online, the remaster's own look.
 fn eligible(g: &Game, pads: &Pads, online: bool, original: bool) -> bool {
     let n = g.players.len();
-    let human = |team: usize| (0..n).any(|i| i & 1 == team && pads.slot_of(i, n).is_some());
-    !online && !original && n >= 2 && human(0) && human(1)
+    let humans = |team: usize| (0..n).filter(|&i| i & 1 == team && pads.slot_of(i, n).is_some()).count();
+    !online && !original && n >= 2 && humans(0) == 1 && humans(1) == 1
 }
 
 /// Latches 1P's Select (their keyboard or pad) for the next tick.
@@ -282,7 +284,7 @@ fn step_teams(g: Option<Res<Game>>, p: Option<Res<Personal>>, pads: Option<Res<P
     let play = alt_cam::Play::new(g.shots.max(0) as u32, (g.phase == Phase::Rally).then_some(t.1));
     let ball = g.flight.ball.pos;
     for team in 0..2 {
-        // the team's first human (eligible: every team has one)
+        // the team's human (eligible: every team has exactly one)
         let Some(human) = (0..n).find(|&i| i & 1 == team && pads.slot_of(i, n).is_some()) else { return };
         let pl = &g.players[human];
         let (spot, near) = (pl.pos, pl.end > 0.0);
@@ -417,6 +419,22 @@ mod tests {
         app.add_systems(FixedUpdate, (remember, control, simulate, time, motions, character::tick, played_out, held_ball).chain());
         app.update();
         app
+    }
+
+    /// A team with two humans (1P, 2P and 3P) can't split: each half is a one-player camera.
+    #[test]
+    fn two_humans_on_a_team_never_split() {
+        use super::super::*;
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let mut a = match_app(true, false, [true, true, true, false]);
+        a.world_mut().run_schedule(FixedUpdate);
+        a.world_mut().resource_mut::<super::Personal>().on = true;
+        for _ in 0..30 {
+            a.world_mut().run_schedule(FixedUpdate);
+        }
+        assert!(!a.world().resource::<super::Personal>().showing);
     }
 
     /// B637: in doubles with a human on each team (1P and 3P), split on, each half's camera looks from behind that
