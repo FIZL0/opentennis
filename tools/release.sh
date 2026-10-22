@@ -38,9 +38,9 @@ last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
 [ -f "$key" ] || { echo "no signing key at $key (minisign -G -p ~/.config/hst/release.pub -s $key)" >&2; exit 1; }
 command -v minisign >/dev/null || { echo "minisign missing: sudo pacman -S minisign" >&2; exit 1; }
 # the key's password up front, checked on a scratch file, so a typo fails now and not after the builds
-# (from the keyring when stored there: secret-tool store --label='OpenTennis release key' service hst-release)
-pw=$(secret-tool lookup service hst-release 2>/dev/null) || pw=
-[ -n "$pw" ] || { read -rsp "release key password: " pw; echo; }
+# (from ~/.config/hst/release.pass when it exists, mode 600, so an unattended run needs no prompt)
+pwfile=~/.config/hst/release.pass
+if [ -f "$pwfile" ]; then pw=$(<"$pwfile"); else read -rsp "release key password: " pw; echo; fi
 t=$(mktemp); trap 'rm -f "$t" "$t.minisig"' EXIT
 printf %s "$pw" | minisign -S -s "$key" -m "$t" >/dev/null 2>&1 || { echo "wrong password for $key" >&2; exit 1; }
 [ -z "$(git status --porcelain --untracked-files=no)" ] || { echo "commit first: the release is tagged at HEAD" >&2; exit 1; }
