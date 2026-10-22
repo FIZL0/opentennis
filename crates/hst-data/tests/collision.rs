@@ -1,4 +1,4 @@
-//! Collision data read from the disc against the game's own copy in RAM (`context/ram/s05.bin`, a dump of
+//! Collision data read from the disc against the game's own copy in RAM (`fixtures/ram/s05.bin`, a dump of
 //! save-state slot 5 on court 10; not in git, skipped when absent along with the disc image). Every collision
 //! object the live ball queries — the court model and each prop in the world grid (net, umpire chair, trees, …) —
 //! is matched to its `.mdl` on the disc by content (the file is loaded in place), then the game's triangle walk (node tree pre-order, the
@@ -105,7 +105,7 @@ fn objects(r: &Ram) -> Vec<u32> {
 #[test]
 fn court_10_collision_matches_ram() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(ram), Ok(mut iso)) = (fixture::read(format!("{root}/context/ram/s05.bin")), fixture::iso())
+    let (Ok(ram), Ok(mut iso)) = (fixture::read(format!("{root}/fixtures/ram/s05.bin")), fixture::iso())
     else {
         fixture::skip(format_args!("RAM dump or disc missing, skipped"));
         return;

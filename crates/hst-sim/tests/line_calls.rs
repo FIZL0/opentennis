@@ -1,9 +1,9 @@
-//! Line calls against the user's round1 recording (fixture `context/fixtures/round1.bin` from
+//! Line calls against the user's round1 recording (fixture `fixtures/round1.bin` from
 //! `tools/record_p2m2.py`, not in git; skipped when absent). The recorded ball object (`gm+0x98`) is the game's
 //! path predictor, which steps 15 frames per game frame and makes the same line calls as the live ball. Every
 //! recorded frame before its landing is called is replayed from the previous frame's object through `Flight`
 //! with line calls on: the call (+0xa5) and line distance (+0x230) must match bit for bit, and so must the
-//! position and velocity. Needs the extracted disc under `context/iso` for the line margin.
+//! position and velocity. Needs the extracted disc under `fixtures/iso` for the line margin.
 
 use hst_data::fixture;
 use hst_data::exe::Game;
@@ -59,11 +59,11 @@ fn flight(b: &[u8]) -> (Flight, Shot) {
 
 #[test]
 fn round1_line_calls() {
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let (Ok(cnf), Ok(bin), Ok(data)) = (
         fixture::read(format!("{ctx}/iso/SYSTEM.CNF")),
         fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
-        fixture::read(format!("{ctx}/fixtures/round1.bin")),
+        fixture::read(format!("{ctx}/round1.bin")),
     ) else {
         return fixture::skip(format_args!("disc or round1.bin absent, skipped"));
     };
@@ -141,7 +141,7 @@ fn live(b: &[u8]) -> (Flight, Shot) {
 #[test]
 fn live_ball_comes_to_rest_as_the_game() {
     use hst_sim::{court, judge, replay::frames_live};
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let (Ok(mut iso), Ok(cnf), Ok(bin)) = (fixture::iso(), fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
         return fixture::skip("disc absent");
     };
@@ -152,7 +152,7 @@ fn live_ball_comes_to_rest_as_the_game() {
     let mut turned = Vec::new();
     let mut bad = Vec::new();
     for name in files {
-        let Ok(data) = fixture::read(format!("{ctx}/fixtures/{name}.bin")) else {
+        let Ok(data) = fixture::read(format!("{ctx}/{name}.bin")) else {
             fixture::skip(format_args!("{name}.bin absent"));
             continue;
         };
@@ -198,7 +198,7 @@ fn live_ball_comes_to_rest_as_the_game() {
     }
     eprintln!("{exact} live steps bit-exact ({inexact} not, skipped), {rests} rests ({slopes} off flat ground), {frozen} frozen steps, {carried} carried rests not stepped; calls {turned:?}");
     assert!(bad.is_empty(), "{} mismatches:\n{}", bad.len(), bad[..bad.len().min(20)].join("\n"));
-    if fixture::exists(format!("{ctx}/fixtures/p7b_c03.bin")) {
+    if fixture::exists(format!("{ctx}/p7b_c03.bin")) {
         assert!(slopes >= 1 && rests >= 50 && frozen > 1000, "{rests} rests, {slopes} on a slope, {frozen} frozen");
         assert!([(Call::In, Call::Out), (Call::NetOut, Call::Out), (Call::Net, Call::NetOut)].iter().all(|t| turned.contains(t)), "{turned:?}");
     }
@@ -213,7 +213,7 @@ fn live_ball_comes_to_rest_as_the_game() {
 #[test]
 fn live_ball_contact_normal_as_the_game() {
     use hst_sim::{court, replay::frames_live};
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let (Ok(mut iso), Ok(cnf), Ok(bin)) = (fixture::iso(), fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
         return fixture::skip("disc absent");
     };
@@ -222,7 +222,7 @@ fn live_ball_contact_normal_as_the_game() {
     let (mut exact, mut inexact, mut ghosts, mut ghosts_exact) = (0, 0, 0, 0);
     let mut bad = Vec::new();
     for name in ["p7e_c07", "p7b_c01", "p7b_c08", "p7b_c03", "p7b_c13"] {
-        let Ok(data) = fixture::read(format!("{ctx}/fixtures/{name}.bin")) else {
+        let Ok(data) = fixture::read(format!("{ctx}/{name}.bin")) else {
             fixture::skip(format_args!("{name}.bin absent"));
             continue;
         };
@@ -257,7 +257,7 @@ fn live_ball_contact_normal_as_the_game() {
     }
     eprintln!("{exact} live steps bit-exact ({inexact} not, skipped); {ghosts} ghost-touch steps, {ghosts_exact} of them stepped");
     assert!(bad.is_empty(), "{} mismatches:\n{}", bad.len(), bad[..bad.len().min(20)].join("\n"));
-    if fixture::exists(format!("{ctx}/fixtures/p7e_c07.bin")) && fixture::exists(format!("{ctx}/fixtures/p7b_c01.bin")) {
+    if fixture::exists(format!("{ctx}/p7e_c07.bin")) && fixture::exists(format!("{ctx}/p7b_c01.bin")) {
         assert_eq!(ghosts_exact, ghosts, "ghost-touch steps not bit-exact");
         assert!(ghosts >= 15, "{ghosts} ghost touches");
     }
@@ -272,9 +272,9 @@ fn live_ball_contact_normal_as_the_game() {
 fn rally_timeout_rests_the_ball_and_ends_the_point() {
     use hst_sim::judge::{BallState, Rally, verdict};
     use hst_sim::{court, replay::frames_live};
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let (Ok(mut iso), Ok(cnf), Ok(bin), Ok(data)) =
-        (fixture::iso(), fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")), fixture::read(format!("{ctx}/fixtures/p7e_c03.bin")))
+        (fixture::iso(), fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")), fixture::read(format!("{ctx}/p7e_c03.bin")))
     else {
         return fixture::skip("disc or p7e_c03.bin absent");
     };

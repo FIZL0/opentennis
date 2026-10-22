@@ -82,10 +82,10 @@ Open tasks: `plan/TODO.md` (index: `tools/ctx.py`, next: `tools/ctx.py next`). F
   materials · `ani.rs` ANI2 motions · `layout.rs` court layout/plant records · `exe.rs` GAME.BIN data offsets
   (the only place with retail offsets) · `mor.rs` face morph/UV tracks · `noi.rs` costume noise deformers · `snd.rs`
   sound banks, SPU pitch · `texhash.rs` PCSX2 texture-replacement names · `uselog.rs` `HST_ASSET_LOG` asset-use log ·
-  `fixture.rs` test-only disc/recording access · `bin/` xbdump, tm2png, mdlstat, bankwav, noidump, texkeys, texnames
+  `fixture.rs` test-only access to the disc and `fixtures/` (never `context/`) · `bin/` xbdump, tm2png, mdlstat, bankwav, noidump, texkeys, texnames
 - tests: `characters.rs`, `collision.rs`, `effects.rs`, `sound.rs`, `npcs.rs`, `texnames.rs`, … (`tests/`)
 
-`crates/hst-gltf` — exports HST's own characters (all motions, faces) to `.glb` as modding reference rigs (`hst-gltf hst context/xb DIR`); other games' extraction and mod packaging live in ../opentennis-mods
+`crates/hst-gltf` — exports HST's own characters (all motions, faces) to `.glb` as modding reference rigs (`hst-gltf hst fixtures/xb DIR`); other games' extraction and mod packaging live in ../opentennis-mods
 
 `docs/DEVELOPING.md` *Character mods* — links the mods repo (../opentennis-mods: standard, tutorial, extract/rerig tools); `crates/hst/hst_skeleton.json` is the game's copy of its skeleton
 

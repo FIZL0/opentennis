@@ -1,4 +1,4 @@
-//! The costume noise's VU half against a GS dump (`context/fixtures/noise_gs_s05.txt`, `research/journal/2026-10-07-p17-court-rendering/scripts/p17m_noise_gs.py`):
+//! The costume noise's VU half against a GS dump (`fixtures/noise_gs_s05.txt`, `research/journal/2026-10-07-p17-court-rendering/scripts/p17m_noise_gs.py`):
 //! slot 5 with the deformers frozen (rate 0) and their amp boosted, so the skirt (node 1) and fringe (node 14) of
 //! player 0 sway by pixels. Each noise vertex is its position entries moved by `noise::deform`, carried through its
 //! bones' matrices fitted to the same frame, and must land where the GS drew it; unmoved entries must not.
@@ -12,7 +12,7 @@ fn bits(h: &str) -> f32 {
 
 #[test]
 fn skirt_sway_gs_s05() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(text) = fixture::read_to_string(format!("{dir}/noise_gs_s05.txt")) else {
         return fixture::skip(format_args!("noise_gs_s05.txt absent, skipped"));
     };

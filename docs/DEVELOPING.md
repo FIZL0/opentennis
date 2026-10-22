@@ -134,7 +134,7 @@ soon as one guest is in and ready, and the computer plays the open seats.
   the private analysis folder (decompilation, save states, recordings) from your own disc.
 
 `cargo test` runs everywhere. Tests that need the disc or recordings of the original game look in the repository
-folder and in `context/fixtures` (or `HST_FIXTURES`), and **skip themselves when those are missing** (with
+folder and in `fixtures` (or `HST_FIXTURES`), and **skip themselves when those are missing** (with
 `HST_REQUIRE_DISC=1`, as `tools/check.sh` sets, they fail instead). The recordings
 are made from the original game and are not distributed.
 

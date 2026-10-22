@@ -89,7 +89,7 @@ pub(super) fn apply(g: &mut Game, i: usize, iso: &mut Iso, m: &Mod, outfit: usiz
     }
 }
 
-/// A bot singles match with a rerigged mod (local `context/mods/test_pc00`, see the M1a journal) on court: the mod's
+/// A bot singles match with a rerigged mod (local `fixtures/mods/test_pc00`, see the M1a journal) on court: the mod's
 /// player gets its row, hand and AI and plays a rally (needs the ISO at the repository root; skipped without it).
 #[cfg(test)]
 mod tests {
@@ -98,14 +98,14 @@ mod tests {
     use std::path::Path;
 
     const ISO: &str = hst_data::fixture::ISO_PATH;
-    /// The converted mod (`context/mods/test_pc00`, from another checkout when this one lacks it).
+    /// The converted mod (`fixtures/mods/test_pc00`, from another checkout when this one lacks it).
     fn mod_dir() -> std::path::PathBuf {
-        hst_data::fixture::path("context/mods/test_pc00")
+        hst_data::fixture::path("fixtures/mods/test_pc00")
     }
 
     #[test]
     fn bot_match_with_a_mod_plays_a_rally() {
-        if !hst_data::fixture::has_iso() || !hst_data::fixture::exists("context/mods/test_pc00") {
+        if !hst_data::fixture::has_iso() || !hst_data::fixture::exists("fixtures/mods/test_pc00") {
             return;
         }
         let m = mods::read(&mod_dir()).unwrap();
@@ -272,7 +272,7 @@ mod tests {
     /// motions, so a peer that declined the looks plays the same match.
     #[test]
     fn stand_in_simulates_like_the_mod() {
-        if !hst_data::fixture::has_iso() || !hst_data::fixture::exists("context/mods/test_pc00") {
+        if !hst_data::fixture::has_iso() || !hst_data::fixture::exists("fixtures/mods/test_pc00") {
             return;
         }
         let w = crate::mods_online::Wire::of(&mods::read(&mod_dir()).unwrap(), 0).unwrap();

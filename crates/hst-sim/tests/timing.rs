@@ -41,7 +41,7 @@ struct Disc {
 
 fn disc() -> Option<Disc> {
     use hst_data::xb::Archive;
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let mut iso = fixture::iso().ok()?;
     let data = iso.read("PCDATA/PCDATA.XB").unwrap();
     let arc = Archive::parse(&data).unwrap();
@@ -57,7 +57,7 @@ fn disc() -> Option<Disc> {
 }
 
 fn dir() -> String {
-    std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into())
+    std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into())
 }
 
 /// Every player's grade (+0x1510, length +0x154c) and bias (+0x1420) tables and the power / pressure stats the
@@ -95,7 +95,7 @@ fn timed_launches_like_the_game() {
     let (lines, angle) = game.court_margins();
     let m = Margins { lines, angle };
     let down2 = game.down2_blend();
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let table = |c: usize, name: &str| {
         ["A", "B"].iter().find_map(|ab| std::fs::read(fixture::path(format!("{ctx}/xb/TRAJ/TRAJ{c:02}{ab}.XB/data/hatsuyama/traj/tr_pc{c:02}_{name}.dat"))).ok()).and_then(|b| Table::parse(&b))
     };
@@ -322,7 +322,7 @@ fn timed_smashes_like_the_game() {
     let game = hst_data::exe::Game::new(&d.cnf, &d.game_bin).unwrap();
     let (lines, angle) = game.court_margins();
     let m = Margins { lines, angle };
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let table = |c: usize, kind: i32| {
         ["A", "B"].iter().find_map(|ab| std::fs::read(fixture::path(format!("{ctx}/xb/TRAJ/TRAJ{c:02}{ab}.XB/data/hatsuyama/traj/tr_pc{c:02}_smsh{kind}.dat"))).ok()).and_then(|b| Table::parse(&b)).unwrap()
     };

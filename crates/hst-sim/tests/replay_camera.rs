@@ -1,4 +1,4 @@
-//! The instant replay's shots on the original's own reference frames (`context/fixtures/replay_frames_s05.bin`,
+//! The instant replay's shots on the original's own reference frames (`fixtures/replay_frames_s05.bin`,
 //! `research/journal/2026-10-13-b172-replay-pivot/scripts/b172_frames.py` from slot 5's match-point replay): fed the recorded frame table, the port's shot
 //! puts the eye where the game's camera is. Per vsync: u32 vsync, u8 camera handler +0x51, u32 shot camera +0x114, the frame
 //! table (0x79 × 0x40), 0x58 bytes of recorder roles, the camera eye/look/up/fov (0x40).
@@ -20,7 +20,7 @@ fn mat(b: &[u8], o: usize) -> M4 {
 
 #[test]
 fn replay_shots_on_the_games_frames() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{dir}/replay_frames_s05.bin")), fixture::iso()) else {
         return fixture::skip(format_args!("replay_frames_s05.bin or ISO absent, skipped"));
     };

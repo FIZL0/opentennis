@@ -1,6 +1,6 @@
-//! Every stroke decision of the slot-5 doubles match (`context/fixtures/match_s05.bin`) through the ported
+//! Every stroke decision of the slot-5 doubles match (`fixtures/match_s05.bin`) through the ported
 //! contact search: same frame, branch, swing side and contact ball as the game. The players' animation-measured
-//! reach values come from the slot-5 save state's RAM (`context/fixtures/slot5_ee.bin`).
+//! reach values come from the slot-5 save state's RAM (`fixtures/slot5_ee.bin`).
 
 use hst_data::fixture;
 use hst_data::{ani, xb::Archive};
@@ -123,7 +123,7 @@ fn goodcpus_approaches() {
 
 /// How many approach runs `name` holds (None when it or `ram_name` is absent); panics unless all match.
 fn approaches(name: &str, ram_name: &str) -> Option<usize> {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(data), Ok(ram)) = (fixture::read(format!("{dir}/{name}")), fixture::read(format!("{dir}/{ram_name}"))) else {
         fixture::skip(format_args!("{name} or {ram_name} absent, skipped"));
         return None;
@@ -177,7 +177,7 @@ fn approaches(name: &str, ram_name: &str) -> Option<usize> {
 
 /// Every stroke decision of `name` through the contact search, with the reach from its save state's RAM (`ram_name`).
 fn contact_search(name: &str, ram_name: &str) -> usize {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(data), Ok(ram)) = (fixture::read(format!("{dir}/{name}")), fixture::read(format!("{dir}/{ram_name}"))) else {
         fixture::skip(format_args!("{name} or {ram_name} absent, skipped"));
         return 0;
@@ -261,7 +261,7 @@ fn contact_search(name: &str, ram_name: &str) -> usize {
 /// the test needs them to share the root path too.
 #[test]
 fn recorded_dives() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(mut iso) = fixture::iso() else {
         return fixture::skip(format_args!("disc absent, skipped"));
     };
@@ -459,7 +459,7 @@ fn goodcpus_smash_flights() {
 
 /// Frames each smash launched in `name` flies as the game's ball before its first bounce (None when absent).
 fn smash_flights(name: &str) -> Option<Vec<usize>> {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/{name}")) else {
         fixture::skip(format_args!("{name} absent, skipped"));
         return None;
@@ -523,7 +523,7 @@ fn whiff_uses_own_horizon_and_middle_cell() {
 /// the receive motion's root path (from its time 5); one blocked in the root phase stops moving there.
 #[test]
 fn blocked_dives() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(data), Ok(pokes)) = (fixture::read(format!("{dir}/p121_blocked.bin")), fixture::read(format!("{dir}/p121_blocked.bin.pokes"))) else {
         return fixture::skip(format_args!("p121_blocked.bin absent, skipped"));
     };
@@ -638,7 +638,7 @@ fn blocked_dives() {
 #[test]
 fn dive_reads_the_run_before_the_press() {
     use hst_sim::swing::dive_run;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(d) = fixture::read(format!("{dir}/dive_frame_s04.bin")) else {
         return fixture::skip(format_args!("dive_frame_s04.bin absent, skipped"));
     };

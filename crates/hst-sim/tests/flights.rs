@@ -1,4 +1,4 @@
-//! Replays whole shots recorded from a bot match (fixture `context/fixtures/flights_s05.csv`, not in git;
+//! Replays whole shots recorded from a bot match (fixture `fixtures/flights_s05.csv`, not in git;
 //! made by `research/tools/fixture_flights.py`) from frame 3 through every bounce to the end of the
 //! game's own path, requiring every frame's position and velocity to match bit for bit. Skips when the fixture is absent.
 
@@ -16,7 +16,7 @@ struct Case {
 }
 
 fn load() -> Option<Vec<Case>> {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let text = fixture::read_to_string(format!("{dir}/flights_s05.csv")).ok()?;
     let mut cases: Vec<Case> = Vec::new();
     for line in text.lines() {

@@ -68,7 +68,7 @@ fn the_human_fades_to_half_over_5_frames() {
 
 
 /// B621/B628: shot 9 lock-step against the original through ten points of slot 4's doubles (recorded over PINE in
-/// PCSX2 copy 4, 2026-10-21, Select pressed after the load, Cross tapped every second: `context/b621/alt_follow_s04.bin`,
+/// PCSX2 copy 4, 2026-10-21, Select pressed after the load, Cross tapped every second: `fixtures/b621/alt_follow_s04.bin`,
 /// per frame vsync, the match's state (its phase at +5: 2 the serve's set-up, 3 the rally, 4 after the point, 1 the
 /// change of ends; frames in it at +8), the camera director, the shot camera's view and number, four player matrices
 /// and the ball). Each run of the shot starts fresh at its first frame (the serve's set-up after a cut-away or the
@@ -84,7 +84,7 @@ fn follows_through_the_rally_as_the_original() {
     const PL: usize = NUM + 8;
     const BALL: usize = PL + 4 * 0x40;
     const SAMPLE: usize = BALL + 0x10;
-    let Ok(data) = fixture::read("context/b621/alt_follow_s04.bin") else {
+    let Ok(data) = fixture::read("fixtures/b621/alt_follow_s04.bin") else {
         return fixture::skip(format_args!("alt_follow_s04.bin absent, skipped"));
     };
     let Ok(mut iso) = fixture::iso() else {

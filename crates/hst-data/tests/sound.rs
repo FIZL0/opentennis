@@ -1,4 +1,4 @@
-//! Sound banks, pitch and voices against the game's sound state in save states (`context/fixtures/spu_s0{3,4,5}.csv`
+//! Sound banks, pitch and voices against the game's sound state in save states (`fixtures/spu_s0{3,4,5}.csv`
 //! from `research/tools/fixture_spu.py`): every voice the game keyed on is a tone our bank lookup resolves — same
 //! ADSR, same sample in SPU RAM, same note, root and fine tune — every voice's SPU pitch register equals our pitch,
 //! every sounding voice stepped from its key-on with our `Voice` reaches PCSX2's decoder and envelope state, and
@@ -9,7 +9,7 @@ use hst_data::{exe, snd::{self, Bank, Level, Voice}, xb::Archive};
 
 #[test]
 fn key_ons_pitch_and_voices_match_save_states() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(mut iso) = fixture::iso() else {
         return fixture::skip(format_args!("no ISO, skipped"));
     };

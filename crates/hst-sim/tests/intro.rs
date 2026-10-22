@@ -1,6 +1,6 @@
 //! The court intro's camera flyover: the script built from each court's camera file reaches the file's poses
 //! (the orbit segments too), and the channels and eye follow recordings of the original (`research/journal/2026-10-12-b42-court-intro/scripts/b42_intro_camera.py`:
-//! court 8 in `context/b42/cam_c08.bin`, courts 1–7, 9, 11 in `context/b42d/cam_cNN.bin`, all doubles).
+//! court 8 in `fixtures/b42/cam_c08.bin`, courts 1–7, 9, 11 in `fixtures/b42d/cam_cNN.bin`, all doubles).
 
 use hst_data::fixture;
 use hst_data::{exe::Game, xb::Archive};
@@ -46,7 +46,7 @@ fn intro_cameras() {
         }
         let cuts = dat.as_chunks::<40>().0.iter().skip(1).filter(|r| r[0] == 0 && r[1] == 0).count() as u32;
         assert_eq!(at, cutaway::intro_frames(&dat) + 2 * cuts);
-        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
         let rec = [format!("{root}/b42/cam_c{n:02}.bin"), format!("{root}/b42d/cam_c{n:02}.bin")]
             .iter()
             .find_map(|p| std::fs::read(fixture::path(p)).ok());

@@ -312,7 +312,7 @@ fn decode_now(w: &mut World, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Save → 300 ticks → restore → the same 300 ticks: the same hash every tick, on the app's singles match driven by
-/// a PCSX2 recording's 1P pads (`context/fixtures/round1.bin`; needs the ISO at the repository root, skipped without).
+/// a PCSX2 recording's 1P pads (`fixtures/round1.bin`; needs the ISO at the repository root, skipped without).
 #[cfg(test)]
 mod tests {
     use super::super::*;
@@ -320,7 +320,7 @@ mod tests {
     use crate::{Args, GameSpace};
 
     const ISO: &str = hst_data::fixture::ISO_PATH;
-    const FIXTURE: &str = "context/fixtures/round1.bin";
+    const FIXTURE: &str = "fixtures/round1.bin";
 
     fn app() -> App {
         let mut app = App::new();

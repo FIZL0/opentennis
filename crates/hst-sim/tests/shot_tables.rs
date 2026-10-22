@@ -1,14 +1,14 @@
 //! Stroke launches recorded from a bot match whose table lookups were confirmed exactly (speed, elevation and
-//! flight frames) by `research/tools/traj_inverse2.py`. Fixture `context/fixtures/shot_tables_s05.csv` and the
-//! tables under `context/xb` stay out of git; skips when absent.
+//! flight frames) by `research/tools/traj_inverse2.py`. Fixture `fixtures/shot_tables_s05.csv` and the
+//! tables under `fixtures/xb` stay out of git; skips when absent.
 
 use hst_data::fixture;
 use hst_sim::shot::{Bounds, Table, launch, launch_frame, lookup};
 
 #[test]
 fn strokes_launch_like_the_game() {
-    let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context").into());
-    let Ok(text) = fixture::read_to_string(format!("{ctx}/fixtures/shot_tables_s05.csv")) else {
+    let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
+    let Ok(text) = fixture::read_to_string(format!("{ctx}/shot_tables_s05.csv")) else {
         fixture::skip(format_args!("fixture missing, skipped"));
         return;
     };
@@ -42,8 +42,8 @@ fn strokes_launch_like_the_game() {
 fn stick_turns_topspin_flat_and_slice_drop() {
     use hst_sim::replay::frames;
     use hst_sim::shot::stick_kind;
-    let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context").into());
-    let Ok(data) = fixture::read(format!("{ctx}/fixtures/round1.bin")) else {
+    let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
+    let Ok(data) = fixture::read(format!("{ctx}/round1.bin")) else {
         fixture::skip(format_args!("fixture missing, skipped"));
         return;
     };
@@ -121,12 +121,12 @@ fn goodcpus_lob_smashes_launch_like_the_game() {
 /// (smashes of `kind` launched in `fixture`, how many exactly), None when absent.
 fn smashes(fixture: &str, kind: i32) -> Option<(usize, usize)> {
     use hst_sim::replay::frames_live;
-    let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context").into());
+    let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let table = |c: i32| {
         ["A", "B"].iter().find_map(|ab| std::fs::read(fixture::path(format!("{ctx}/xb/TRAJ/TRAJ{c:02}{ab}.XB/data/hatsuyama/traj/tr_pc{c:02}_smsh{kind}.dat"))).ok())
             .and_then(|b| Table::parse(&b))
     };
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{ctx}/fixtures"));
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| ctx.to_string());
     let (Ok(data), Some(_)) = (fixture::read(format!("{dir}/{fixture}")), table(0)) else {
         fixture::skip(format_args!("fixture missing, skipped"));
         return None;
@@ -199,8 +199,8 @@ fn goodcpus_lobs_launch_like_the_game() {
 /// (+0x3f07: perfect timing against a stronger hitter's topspin or flat) launches from the incoming hitter's tables.
 fn launches(fixtures: &[&str], class: u8, only: Option<i32>) -> (usize, usize) {
     use hst_sim::replay::{frames_live, SAMPLE_LIVE};
-    let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context").into());
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{ctx}/fixtures"));
+    let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| ctx.to_string());
     let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let i = |b: &[u8], o: usize| i32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
@@ -265,8 +265,8 @@ fn launches(fixtures: &[&str], class: u8, only: Option<i32>) -> (usize, usize) {
 fn rally_spins_like_the_game() {
     use hst_sim::params::{ShotParams, rally_spin, record_of};
     use hst_sim::replay::frames_live;
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{ctx}/fixtures"));
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| ctx.to_string());
     let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
         return fixture::skip(format_args!("extracted disc absent, skipped"));
     };
@@ -319,14 +319,14 @@ fn rally_spins_like_the_game() {
 fn rally_aims_pulled_inside_like_the_game() {
     use hst_sim::replay::frames_live;
     use hst_sim::shot::Margins;
-    let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context").into());
+    let ctx = std::env::var("HST_CONTEXT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
         return fixture::skip(format_args!("the extracted disc absent, skipped"));
     };
     let game = hst_data::exe::Game::new(&cnf, &bin).unwrap();
     let (lines, angle) = game.court_margins();
     let m = Margins { lines, angle };
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{ctx}/fixtures"));
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| ctx.to_string());
     let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let i = |b: &[u8], o: usize| i32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
@@ -386,7 +386,7 @@ fn rally_aims_pulled_inside_like_the_game() {
 fn presses_start_swings_like_the_game() {
     use hst_sim::replay::frames_live;
     use hst_sim::shot::press_kind;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(rec) = fixture::read(format!("{dir}/p5_presses_s04.bin")) else {
         return fixture::skip(format_args!("p5_presses_s04.bin absent, skipped"));
     };

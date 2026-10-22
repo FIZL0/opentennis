@@ -1,5 +1,5 @@
 //! The swept-sphere plane test, its contact point and the rotation helpers (matrix ↔ quaternion, slerp) against
-//! `hst_sim::contact` and `hst_sim::quat`, through the oracle. Needs `context/iso/` (skips without it).
+//! `hst_sim::contact` and `hst_sim::quat`, through the oracle. Needs `fixtures/iso/` (skips without it).
 //!
 //! The slerp's core is a VU0 micro program, run by the interpreter's micro mode (pipeline latencies and flag timing
 //! included) from the micro memory the game's boot DMA chain fills; it is checked bare (as the motion sampler's squad

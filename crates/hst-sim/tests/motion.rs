@@ -1,5 +1,5 @@
 //! The motion numbers of strokes, serves and post-point reactions through two doubles matches (slot 5's
-//! `context/fixtures/match_s05.bin`, right-handed characters 0, 2, 1, 5; `1p3goodcpus.bin`, characters 6, 11, 2, 10,
+//! `fixtures/match_s05.bin`, right-handed characters 0, 2, 1, 5; `1p3goodcpus.bin`, characters 6, 11, 2, 10,
 //! the first two left-handed), from the recorded contact-search results and point outcomes.
 
 use hst_data::fixture;
@@ -22,7 +22,7 @@ type Match = (&'static str, Vec<u8>, [(i32, f32); 4]);
 
 /// Every match present: its name, recording and per player the character (+0x12bc) and hand (+0x12b4) in its RAM.
 fn matches() -> Vec<Match> {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     MATCHES
         .iter()
         .filter_map(|&(name, ram)| {
@@ -162,7 +162,7 @@ fn match_reactions() {
 }
 
 /// The ANI sampler (squad rotations, Hermite positions, bone-length scale) against the players' skeletons in
-/// five save-state RAM dumps (`context/ram/s0N.bin`): every multi-key track's quaternion, rotation rows and
+/// five save-state RAM dumps (`fixtures/ram/s0N.bin`): every multi-key track's quaternion, rotation rows and
 /// position at the time last sampled, bit for bit. Character and costume are found by the motion's keys and
 /// the skeleton's rest bones.
 #[test]
@@ -172,7 +172,7 @@ fn clip_sampler_ram() {
     let Ok(mut iso) = fixture::iso() else { return };
     let (mut tracks, mut players) = (0, 0);
     for s in ["s03", "s04", "s05", "s08", "s09"] {
-        let Ok(ram) = fixture::read(format!("{root}context/ram/{s}.bin")) else { return };
+        let Ok(ram) = fixture::read(format!("{root}fixtures/ram/{s}.bin")) else { return };
         let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
         let fr = |a: usize| f32::from_bits(u(a) as u32);
         let cstr = |a: usize| { let a = a & 0x1ff_ffff; String::from_utf8_lossy(&ram[a..a + ram[a..].iter().position(|&b| b == 0).unwrap()]).into_owned() };
@@ -293,14 +293,14 @@ fn match_reaction_root() {
     }
 }
 
-/// Each player's motion clock through 9000 frames of the slot-5 match (`context/fixtures/anim_s05.bin`,
+/// Each player's motion clock through 9000 frames of the slot-5 match (`fixtures/anim_s05.bin`,
 /// `tools/record_anim.py`): sampled time (+0x38) and time (+0x3c) bit-exact after every tick, held through the soft
 /// follow-through's crossfade. The motion player's own countdown (+0x60, one step per tick whether held or not)
 /// counts the ticks: the game skips a phase change's frame and runs two the next.
 #[test]
 fn anim_s05_clock() {
     use hst_sim::motion::Clock;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/anim_s05.bin")) else { return };
     const S: usize = 4 + 0x100 + 4 * 0x484;
     // (motion, clip, sampled, time, speed, loop, countdown, held, length)
@@ -382,7 +382,7 @@ fn arm_table_ram() {
     let Ok(mut iso) = fixture::iso() else { return };
     let mut players = 0;
     for s in ["s03", "s04", "s05", "s08", "s09"] {
-        let Ok(ram) = fixture::read(format!("{root}context/ram/{s}.bin")) else { return };
+        let Ok(ram) = fixture::read(format!("{root}fixtures/ram/{s}.bin")) else { return };
         let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
         let gm = u(0x422f80);
         for p in 0..4 {
@@ -415,16 +415,16 @@ fn arm_table_ram() {
     eprintln!("{players} players' arm tables bit-exact");
 }
 
-/// The contact solve at every stroke of the slot-5 match (`context/fixtures/anim_s05.bin`, player +0x3c00..+0x4000
+/// The contact solve at every stroke of the slot-5 match (`fixtures/anim_s05.bin`, player +0x3c00..+0x4000
 /// per frame): on the frame the solve flag +0x3fc8 rises, the body step +0x3fd0 from the contact point +0x3fb0 and
 /// the position +0x3fe0, for the stroke whose solve reproduces it; the frames +0x3fc0/+0x3fc4 from +0x3ec4 (the
-/// second already advanced once that frame). Arm tables from `context/ram/s05.bin` (same match).
+/// second already advanced once that frame). Arm tables from `fixtures/ram/s05.bin` (same match).
 #[test]
 fn contact_solve_anim() {
     use hst_sim::pose::{contact_solve, ik_frames};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
     let Ok(mut iso) = fixture::iso() else { return };
-    let (Ok(ram), Ok(anim)) = (fixture::read(format!("{root}context/ram/s05.bin")), fixture::read(format!("{root}context/fixtures/anim_s05.bin"))) else {
+    let (Ok(ram), Ok(anim)) = (fixture::read(format!("{root}fixtures/ram/s05.bin")), fixture::read(format!("{root}fixtures/anim_s05.bin"))) else {
         return fixture::skip(format_args!("s05 captures absent, skipped"));
     };
     let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
@@ -470,7 +470,7 @@ fn contact_solve_anim() {
 fn arm_ik_anim() {
     use hst_sim::pose::{ArmIk, ArmSolve};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
-    let Ok(anim) = fixture::read(format!("{root}context/fixtures/anim_s05.bin")) else { return };
+    let Ok(anim) = fixture::read(format!("{root}fixtures/anim_s05.bin")) else { return };
     const S: usize = 4 + 0x100 + 4 * 0x484;
     let blk = |k: usize, p: usize| &anim[k * S + 0x104 + p * 0x484..][..0x400];
     let v4 = |b: &[u8], o: usize| [0, 4, 8, 12].map(|j| f(b, o - 0x3c00 + j));
@@ -510,7 +510,7 @@ fn arm_ik_anim() {
     assert!(runs > 40);
 }
 
-/// The motion player's crossfade through 9000 frames of the slot-5 match (`context/fixtures/anim_s05.bin`, motion
+/// The motion player's crossfade through 9000 frames of the slot-5 match (`fixtures/anim_s05.bin`, motion
 /// object +0x44..+0x6c): outgoing motion, its sampled time and clock, length, countdown, weight and hold flag
 /// bit-exact after every frame, from the setter's length rule (8 for looping motions and whiffs 0x27/0x28, the
 /// recorded count for the held soft follow-through, else a cut) and the per-frame steps. The outgoing clip's
@@ -518,7 +518,7 @@ fn arm_ik_anim() {
 #[test]
 fn anim_s05_fade() {
     use hst_sim::motion::{Clock, Fade};
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/anim_s05.bin")) else { return };
     const S: usize = 4 + 0x100 + 4 * 0x484;
     // (motion, clip, clock, fade, old clip, length)
@@ -636,7 +636,7 @@ fn fade_mix_ram() {
     let Ok(mut iso) = fixture::iso() else { return };
     let (mut tracks, mut players) = (0, 0);
     for s in ["s03", "s04", "s05", "s08", "s09"] {
-        let Ok(ram) = fixture::read(format!("{root}context/ram/{s}.bin")) else { return };
+        let Ok(ram) = fixture::read(format!("{root}fixtures/ram/{s}.bin")) else { return };
         let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
         let fr = |a: usize| f32::from_bits(u(a) as u32);
         let gm = u(0x422f80);
@@ -687,7 +687,7 @@ fn nodes_ram() {
     let Ok(mut iso) = fixture::iso() else { return };
     let (mut players, mut fading, mut nodes_n) = (0, 0, 0);
     for s in ["s03", "s04", "s05", "s08", "s09"] {
-        let Ok(ram) = fixture::read(format!("{root}context/ram/{s}.bin")) else { return };
+        let Ok(ram) = fixture::read(format!("{root}fixtures/ram/{s}.bin")) else { return };
         let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
         let fr = |a: usize| f32::from_bits(u(a) as u32);
         let gm = u(0x422f80);
@@ -753,14 +753,14 @@ fn nodes_ram() {
     assert!(fading >= 3);
 }
 
-/// Every stroke's hand-off in the slot-5 match (`context/fixtures/anim_s05.bin`; player +0x3f00 frames since contact,
+/// Every stroke's hand-off in the slot-5 match (`fixtures/anim_s05.bin`; player +0x3f00 frames since contact,
 /// +0x3e50 recovery, +0x3ec1 branch, +0x3ee4 shot code): played out the frame after the motion's sampled time
 /// reached its length, broken off into standing or running no earlier than `follow_over` allows with input, and the
 /// recovery from the shot.
 #[test]
 fn anim_s05_follow_through() {
     use hst_sim::motion::{follow_over, recovery};
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/anim_s05.bin")) else { return };
     const S: usize = 4 + 0x100 + 4 * 0x484;
     let blk = |k: usize, p: usize| &data[k * S + 0x104 + p * 0x484..][..0x484];
@@ -798,7 +798,7 @@ fn anim_s05_follow_through() {
 #[test]
 fn recorded_whiffs() {
     use hst_sim::motion::{WHIFF_RECOVERY, Whiff};
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (mut whiffs, mut repress, mut freed) = (0, 0, 0);
     for name in ["new_recording.bin", "round1.bin", "match_s05.bin", "lob_smash_s05.bin", "1p3goodcpus.bin"] {
         let Ok(data) = fixture::read(format!("{dir}/{name}")) else {

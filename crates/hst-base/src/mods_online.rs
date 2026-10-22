@@ -449,9 +449,9 @@ mod tests {
     /// differently) is found here by id and rig, not asked to download; one on another rig isn't.
     #[test]
     fn the_same_mod_in_another_version_is_found() {
-        let src = &hst_data::fixture::path("context/mods/test_pc00");
+        let src = &hst_data::fixture::path("fixtures/mods/test_pc00");
         if !src.is_dir() {
-            return hst_data::fixture::skip("no context/mods/test_pc00");
+            return hst_data::fixture::skip("no fixtures/mods/test_pc00");
         }
         let tmp = std::env::temp_dir().join(format!("hst-b588-{}", std::process::id()));
         let copy = |to: &Path| {

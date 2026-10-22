@@ -1,4 +1,4 @@
-//! Replays the live ball of a recorded bot match (`context/live/net_s05.bin`, not in git; made by
+//! Replays the live ball of a recorded bot match (`fixtures/live/net_s05.bin`, not in git; made by
 //! `tools/record_live.py 5 …` from save-state slot 5, court 10) one frame at a time: each frame's ball object is
 //! loaded into a `Flight`, stepped once against court 10's collision world (built from the disc: the court model
 //! and the grid of props) and compared bit for bit with the next recorded frame: airborne frames and every contact
@@ -101,8 +101,8 @@ fn disc(court: u32) -> Option<(hst_sim::mesh::World, Vec<Material>)> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(mut iso), Ok(cnf), Ok(bin)) = (
         fixture::iso(),
-        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN")),
     ) else {
         return None;
     };
@@ -112,7 +112,7 @@ fn disc(court: u32) -> Option<(hst_sim::mesh::World, Vec<Material>)> {
 #[test]
 fn live_ball_frames_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(data), Some((world, materials))) = (fixture::read(format!("{root}/context/live/net_s05.bin")), disc(COURT as u32)) else {
+    let (Ok(data), Some((world, materials))) = (fixture::read(format!("{root}/fixtures/live/net_s05.bin")), disc(COURT as u32)) else {
         fixture::skip(format_args!("recording or disc missing, skipped"));
         return;
     };
@@ -122,13 +122,13 @@ fn live_ball_frames_match_the_game() {
     assert!(r.exact > 12000);
 }
 
-/// Aimed shots from slot 5 (`record_live.py 5 … --aim`, `context/live/p15/*.bin`): balls into the net post (22),
+/// Aimed shots from slot 5 (`record_live.py 5 … --aim`, `fixtures/live/p15/*.bin`): balls into the net post (22),
 /// the net (26) and the cord (2) — clipped cords that dribble over, in rallies and on serves, and balls the net stops.
 #[test]
 fn aimed_net_cord_and_post_hits_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(dir), Some((world, materials))) = (std::fs::read_dir(fixture::path(format!("{root}/context/live/p15"))), disc(COURT as u32)) else {
-        return fixture::skip("context/live/p15 or the disc");
+    let (Ok(dir), Some((world, materials))) = (std::fs::read_dir(fixture::path(format!("{root}/fixtures/live/p15"))), disc(COURT as u32)) else {
+        return fixture::skip("fixtures/live/p15 or the disc");
     };
     let mut files: Vec<_> = dir.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "bin")).collect();
     files.sort();
@@ -149,14 +149,14 @@ fn aimed_net_cord_and_post_hits_match_the_game() {
     }
 }
 
-/// The live ball of `1p3goodcpus` (`context/fixtures/1p3goodcpus.bin`, tools/play_p2m2.py; a doubles match on court
+/// The live ball of `1p3goodcpus` (`fixtures/1p3goodcpus.bin`, tools/play_p2m2.py; a doubles match on court
 /// 11 with one human): every flying frame bit-exact against court 11's world, including two net-cord balls that
 /// drop over the net (vsyncs 19805, 20193) and one that falls back (21615).
 #[test]
 fn goodcpus_live_ball_matches_the_game() {
     use hst_sim::replay::frames_live;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(data), Some((world, materials))) = (fixture::read(format!("{root}/context/fixtures/1p3goodcpus.bin")), disc(11)) else {
+    let (Ok(data), Some((world, materials))) = (fixture::read(format!("{root}/fixtures/1p3goodcpus.bin")), disc(11)) else {
         return fixture::skip(format_args!("1p3goodcpus.bin or disc missing, skipped"));
     };
     let frames = frames_live(&data);
@@ -168,14 +168,14 @@ fn goodcpus_live_ball_matches_the_game() {
     assert!(r.exact > 2000 && r.touches.get(&2).is_some_and(|&n| n >= 5), "{:?}", r.touches);
 }
 
-/// B39: `1p3goodcpus2` (`context/fixtures/1p3goodcpus2.bin`, four `tools/play_p2m2.py` segments stitched; a doubles
+/// B39: `1p3goodcpus2` (`fixtures/1p3goodcpus2.bin`, four `tools/play_p2m2.py` segments stitched; a doubles
 /// match on court 4 with one human): every flying frame bit-exact, including the five lobs (kind 3) and the six balls that
 /// run on into the back fences (material 14) behind either baseline.
 #[test]
 fn goodcpus2_lobs_and_fence_hits_match_the_game() {
     use hst_sim::replay::frames_live;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(data), Some((world, materials))) = (fixture::read(format!("{root}/context/fixtures/1p3goodcpus2.bin")), disc(4)) else {
+    let (Ok(data), Some((world, materials))) = (fixture::read(format!("{root}/fixtures/1p3goodcpus2.bin")), disc(4)) else {
         return fixture::skip(format_args!("1p3goodcpus2.bin or disc missing, skipped"));
     };
     let frames = frames_live(&data);
@@ -190,7 +190,7 @@ fn goodcpus2_lobs_and_fence_hits_match_the_game() {
 }
 
 /// B85: the word a net touch pops up — THIP off the cord (rally and serve), THUP into the net, GONG off the post
-/// (`research/journal/2026-10-12-b85-net-words/scripts/b85_net_rec.py`, `context/b85/*.bin`: slot 5 with one velocity overwrite, the ball and the game's pop-up
+/// (`research/journal/2026-10-12-b85-net-words/scripts/b85_net_rec.py`, `fixtures/b85/*.bin`: slot 5 with one velocity overwrite, the ball and the game's pop-up
 /// object every frame). From the frame after the overwrite the port's ball flies on by itself; every frame its bounce
 /// words (`bodyhit::BounceWords`) must be the game's: same texture, same place (bit for bit), same opacity.
 #[test]
@@ -213,7 +213,7 @@ fn net_touch_words_match_the_game() {
     ];
     let mut seen = 0;
     for (name, poke, word) in cases {
-        let Ok(data) = fixture::read(format!("{root}/context/{name}.bin")) else {
+        let Ok(data) = fixture::read(format!("{root}/fixtures/{name}.bin")) else {
             fixture::skip(format_args!("{name}.bin missing, skipped"));
             continue;
         };
@@ -288,7 +288,7 @@ fn net_touch_keeps_the_predicted_contacts() {
     // from the live ball but keeps the court contacts the old prediction had reached: in a rally those are 2,
     // past every contact search, so a net cord that drops over goes unplayed and wins the point for the hitter.
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(data) = fixture::read(format!("{root}/context/live/net_s05.bin")) else {
+    let Ok(data) = fixture::read(format!("{root}/fixtures/live/net_s05.bin")) else {
         return fixture::skip(format_args!("recording missing, skipped"));
     };
     let s: Vec<&[u8]> = data.as_chunks::<SAMPLE>().0.iter().map(|s| s.as_slice()).collect();

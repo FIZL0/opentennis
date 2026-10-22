@@ -1,4 +1,4 @@
-//! Collision world placement from the disc against the game's own objects in RAM (`context/ram/s05.bin`, save-state
+//! Collision world placement from the disc against the game's own objects in RAM (`fixtures/ram/s05.bin`, save-state
 //! slot 5 on court 10; not in git, skipped when absent along with the disc image). The plant records that become
 //! props (trees, props, structures with a model and a non-zero scale) are instanced with `world::place` /
 //! `world::instance` and walked in the game's list order; each must match its RAM object bit for bit: model,
@@ -43,7 +43,7 @@ fn bits<const N: usize>(v: &[[f32; 4]; N]) -> Vec<u32> {
 #[test]
 fn court_10_props_and_grid_match_ram() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(ram), Ok(mut iso)) = (fixture::read(format!("{root}/context/ram/s05.bin")), fixture::iso())
+    let (Ok(ram), Ok(mut iso)) = (fixture::read(format!("{root}/fixtures/ram/s05.bin")), fixture::iso())
     else {
         fixture::skip(format_args!("RAM dump or disc missing, skipped"));
         return;
@@ -127,13 +127,13 @@ fn court_10_props_and_grid_match_ram() {
 }
 
 /// Court 5's colliding props have child nodes (the ball-boy cart: wheels and balls under the body, the balls two
-/// levels down), unlike court 10's. Against `context/p125/court05.bin` (a doubles match on court 5 at P1's first serve,
-/// `context/p125/p125_court.py`, journal 2026-10-21-p125-prop-nodes): every node of every colliding prop has the
+/// levels down), unlike court 10's. Against `fixtures/p125/court05.bin` (a doubles match on court 5 at P1's first serve,
+/// `fixtures/p125/p125_court.py`, journal 2026-10-21-p125-prop-nodes): every node of every colliding prop has the
 /// matrix `court::world` gives it — local · parent from the disc — except the cart's two wheels, which its own motion
 /// (`ballboy01.ani`) turns: their axles sit where the walk puts them, their rotation is the motion's (not ported yet).
 #[test]
 fn court_5_prop_nodes_match_ram() {
-    let (Ok(ram), Ok(mut iso)) = (fixture::read("context/p125/court05.bin"), fixture::iso()) else {
+    let (Ok(ram), Ok(mut iso)) = (fixture::read("fixtures/p125/court05.bin"), fixture::iso()) else {
         fixture::skip(format_args!("court 5 RAM dump or disc missing, skipped"));
         return;
     };
@@ -204,7 +204,7 @@ fn prop_nodes(r: &Ram) -> Vec<u32> {
 /// clock and locals bit for bit, and its world nodes are the 35 pose the next sweep sees.
 #[test]
 fn court_5_cart_clocks_match_ram() {
-    let (Ok(ram), Ok(mut iso)) = (fixture::read("context/p125/court05.bin"), fixture::iso()) else {
+    let (Ok(ram), Ok(mut iso)) = (fixture::read("fixtures/p125/court05.bin"), fixture::iso()) else {
         fixture::skip(format_args!("court 5 RAM dump or disc missing, skipped"));
         return;
     };
@@ -234,14 +234,14 @@ fn court_5_cart_clocks_match_ram() {
 }
 
 /// P133: the carts' wheels over 7200 frames of a doubles match on court 5 (`research/journal/2026-10-21-p133-prop-motions/scripts/p133_wheels.py`:
-/// `context/p133/run2.bin`, P1's first serve on, two pauses). Each record: vsync, match phase, the four carts'
+/// `fixtures/p133/run2.bin`, P1's first serve on, two pauses). Each record: vsync, match phase, the four carts'
 /// clocks (sampled, time) and their two wheels' world matrices, read just after a frame's draw pass. Every record's
 /// wheels are the port's pose at the sampled time or the one before (composed at the pass's start, or recomposed
 /// since), its time one frame ahead (or, read inside the step, not yet moved on); the clock steps once per vsync, holding only through the two pauses (a read
 /// landing on either side of a pass shows as a 0 next to a 2).
 #[test]
 fn court_5_cart_wheels_follow_their_clock() {
-    let (Ok(rec), Ok(mut iso)) = (fixture::read("context/p133/run2.bin"), fixture::iso()) else {
+    let (Ok(rec), Ok(mut iso)) = (fixture::read("fixtures/p133/run2.bin"), fixture::iso()) else {
         fixture::skip(format_args!("court 5 wheel recording or disc missing, skipped"));
         return;
     };

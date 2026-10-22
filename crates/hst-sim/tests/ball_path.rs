@@ -1,11 +1,11 @@
 //! Replays flight segments of a path recorded from the real game (fixture CSV, not in git:
-//! `context/fixtures/ball_path_s08.csv`, made by `research/tools/fixture_ball_path.py`). Skips when absent.
+//! `fixtures/ball_path_s08.csv`, made by `research/tools/fixture_ball_path.py`). Skips when absent.
 
 use hst_data::fixture;
 use hst_sim::ball::{Ball, Params};
 
 fn load() -> Option<Vec<[f32; 6]>> {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let text = fixture::read_to_string(format!("{dir}/ball_path_s08.csv")).ok()?;
     Some(
         text.lines()
@@ -40,7 +40,7 @@ fn flight_matches_recorded_path() {
 
 #[test]
 fn flight_matches_bot_match_shots() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(text) = fixture::read_to_string(format!("{dir}/shots_s05.csv")) else {
         fixture::skip(format_args!("fixture missing, skipped"));
         return;

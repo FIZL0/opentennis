@@ -1,9 +1,9 @@
-//! The ball's sun-shade light scale against the game, frame by frame: `context/p17t/ball05.txt` (slot 5, court 10, a
+//! The ball's sun-shade light scale against the game, frame by frame: `fixtures/p17t/ball05.txt` (slot 5, court 10, a
 //! bot rally; per frame the ball's position x y z w and its model's light scale, as bits; made by
-//! `research/journal/2026-10-08-p17t-ball-shade-ray/scripts/p17t_ball_rec.py`) with the game's own map (`context/p17t/map05.bin`). On the court the height is from
+//! `research/journal/2026-10-08-p17t-ball-shade-ray/scripts/p17t_ball_rec.py`) with the game's own map (`fixtures/p17t/map05.bin`). On the court the height is from
 //! y 0, off it from a ray cast down at court 10's collision model built from the disc; a miss keeps the last
 //! scale. Skips when the recording or the disc is absent.
-//! Also the sun-shade map built from the disc's court 10 against the game's (`context/p17l/map05.bin`, slot 5).
+//! Also the sun-shade map built from the disc's court 10 against the game's (`fixtures/p17l/map05.bin`, slot 5).
 
 use hst_data::fixture;
 use hst_data::{layout, mdl, mtl, xb::Archive};
@@ -14,8 +14,8 @@ use hst_sim::shade::{self, Caster, Frame, Shape};
 fn ball_light_scale_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(rec), Ok(map), Ok(mut iso)) = (
-        fixture::read_to_string(format!("{root}/context/p17t/ball05.txt")),
-        fixture::read(format!("{root}/context/p17t/map05.bin")),
+        fixture::read_to_string(format!("{root}/fixtures/p17t/ball05.txt")),
+        fixture::read(format!("{root}/fixtures/p17t/map05.bin")),
         fixture::iso(),
     ) else {
         fixture::skip(format_args!("recording or disc missing, skipped"));
@@ -62,7 +62,7 @@ fn ball_light_scale_matches_the_game() {
 fn court10_map_near_game() {
     let (Ok(mut iso), Ok(game)) = (
         fixture::iso(),
-        fixture::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/p17l/map05.bin")),
+        fixture::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/p17l/map05.bin")),
     ) else {
         return;
     };
@@ -110,13 +110,13 @@ fn court10_map_near_game() {
     assert!(iou >= 0.975, "IoU {iou}");
 }
 
-/// The shade receiver vertices bit for bit against the game's (`context/p17v/rcv.txt`: every receiver triangle
-/// vertex of the hole drawn in `context/p17v/cap0.pkl` with the camera, model and caster light matrices from game
+/// The shade receiver vertices bit for bit against the game's (`fixtures/p17v/rcv.txt`: every receiver triangle
+/// vertex of the hole drawn in `fixtures/p17v/cap0.pkl` with the camera, model and caster light matrices from game
 /// RAM; slot 5, court 10). Skips when absent.
 #[test]
 fn receiver_vertices_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(txt) = fixture::read_to_string(format!("{root}/context/p17v/rcv.txt")) else {
+    let Ok(txt) = fixture::read_to_string(format!("{root}/fixtures/p17v/rcv.txt")) else {
         fixture::skip(format_args!("recording missing, skipped"));
         return;
     };
@@ -144,13 +144,13 @@ fn receiver_vertices_match_the_game() {
     assert!(n > 1700);
 }
 
-/// The ball shadow's placement against the game, frame by frame: `context/fixtures/b36_shadow.bin` (slot 5, court
+/// The ball shadow's placement against the game, frame by frame: `fixtures/b36_shadow.bin` (slot 5, court
 /// 10, 1500 frames; per frame the ball's position, the camera's eye, the shadow's ground normal and matrix; made by
 /// `research/journal/2026-10-08-b36-ball-shadow/scripts/b36_shadow_rec.py`). Skips when the recording or the disc is absent.
 #[test]
 fn ball_shadow_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(rec), Ok(mut iso)) = (fixture::read(format!("{root}/context/fixtures/b36_shadow.bin")), fixture::iso()) else {
+    let (Ok(rec), Ok(mut iso)) = (fixture::read(format!("{root}/fixtures/b36_shadow.bin")), fixture::iso()) else {
         fixture::skip(format_args!("recording or disc missing, skipped"));
         return;
     };
@@ -183,13 +183,13 @@ fn ball_shadow_matches_the_game() {
     assert_eq!(shade::ball_shadow_stretch([0.0, 0.0, -9.0, 1.0], [0.0, -12.0, -39.0, 1.0]), 2.0);
 }
 
-/// The casters' shadow textures bit for bit: `context/p17v/pass.txt` (`research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v2_fixture.py`: the load pass's
-/// draws from `context/p17v/load10.gs` and the 16 static textures the game left in `context/p17v/cap0.gs`; slot 5,
+/// The casters' shadow textures bit for bit: `fixtures/p17v/pass.txt` (`research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v2_fixture.py`: the load pass's
+/// draws from `fixtures/p17v/load10.gs` and the 16 static textures the game left in `fixtures/p17v/cap0.gs`; slot 5,
 /// court 10). Skips when absent.
 #[test]
 fn shadow_textures_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(txt) = fixture::read_to_string(format!("{root}/context/p17v/pass.txt")) else {
+    let Ok(txt) = fixture::read_to_string(format!("{root}/fixtures/p17v/pass.txt")) else {
         fixture::skip(format_args!("pass.txt missing, skipped"));
         return;
     };
@@ -238,13 +238,13 @@ fn shadow_textures_match_the_game() {
     assert_eq!(n, 16);
 }
 
-/// The receiver pass bit for bit with the reds the game read back: `context/p17v/rcv_pass.txt`
-/// (`research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v3_fixture.py`: the receiver draws and shadow textures of `context/p17v/cap0.gs`, the reds of
+/// The receiver pass bit for bit with the reds the game read back: `fixtures/p17v/rcv_pass.txt`
+/// (`research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v3_fixture.py`: the receiver draws and shadow textures of `fixtures/p17v/cap0.gs`, the reds of
 /// `cap0.red`; slot 5, court 10, the 4 tiles the dump holds). Skips when absent.
 #[test]
 fn receiver_tiles_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(txt) = fixture::read_to_string(format!("{root}/context/p17v/rcv_pass.txt")) else {
+    let Ok(txt) = fixture::read_to_string(format!("{root}/fixtures/p17v/rcv_pass.txt")) else {
         fixture::skip(format_args!("rcv_pass.txt missing, skipped"));
         return;
     };
@@ -281,12 +281,12 @@ fn receiver_tiles_match_the_game() {
 }
 
 /// The ball model's draw scale and its outline billboard against the game, frame by frame:
-/// `context/fixtures/b36b_ball.bin` (slot 5, court 10, 900 frames from the serve set-up into the rally; made by
+/// `fixtures/b36b_ball.bin` (slot 5, court 10, 900 frames from the serve set-up into the rally; made by
 /// `research/journal/2026-10-08-b36-ball-shadow/scripts/b36b_ball_rec.py`). Skips when the recording is absent.
 #[test]
 fn ball_scale_and_outline_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(rec) = fixture::read(format!("{root}/context/fixtures/b36b_ball.bin")) else {
+    let Ok(rec) = fixture::read(format!("{root}/fixtures/b36b_ball.bin")) else {
         fixture::skip(format_args!("recording missing, skipped"));
         return;
     };
@@ -314,13 +314,13 @@ fn ball_scale_and_outline_match_the_game() {
 }
 
 /// The 17 court 10 casters' light matrices and shadow-volume planes built from the disc (plant records, model boxes,
-/// the sun from the court's time-of-day row 0 at hour 1) against the game's (`context/p17v/rcv.txt` `L` rows and
-/// `context/p17v/cull.txt` `P` rows, slot 5): the planes bit for bit, the matrices to a few ulps (our own inverse;
+/// the sun from the court's time-of-day row 0 at hour 1) against the game's (`fixtures/p17v/rcv.txt` `L` rows and
+/// `fixtures/p17v/cull.txt` `P` rows, slot 5): the planes bit for bit, the matrices to a few ulps (our own inverse;
 /// rendering only has to look right). Skips when absent.
 #[test]
 fn light_matrices_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(txt), Ok(mut iso)) = (fixture::read_to_string(format!("{root}/context/p17v/rcv.txt")), fixture::iso()) else {
+    let (Ok(txt), Ok(mut iso)) = (fixture::read_to_string(format!("{root}/fixtures/p17v/rcv.txt")), fixture::iso()) else {
         fixture::skip(format_args!("recording or disc missing, skipped"));
         return;
     };
@@ -357,8 +357,8 @@ fn light_matrices_match_the_game() {
         })
         .collect();
     let (built, planes): (Vec<[[u32; 4]; 4]>, Vec<shade::Planes>) = built.into_iter().unzip();
-    // the planes against the game's (`context/p17v/cull.txt` `P` rows, the caster's two blocks as it left them)
-    if let Ok(cull) = fixture::read_to_string(format!("{root}/context/p17v/cull.txt")) {
+    // the planes against the game's (`fixtures/p17v/cull.txt` `P` rows, the caster's two blocks as it left them)
+    if let Ok(cull) = fixture::read_to_string(format!("{root}/fixtures/p17v/cull.txt")) {
         let want: Vec<Vec<u32>> = cull.lines().filter(|l| l.starts_with("P ")).map(|l| l.split_whitespace().skip(2).map(|h| u32::from_str_radix(h, 16).unwrap()).collect()).collect();
         let got: Vec<Vec<u32>> = planes.iter().map(|p| p.as_flattened().as_flattened().iter().map(|x| x.to_bits()).collect()).collect();
         assert_eq!(got.len(), want.len());
@@ -385,13 +385,13 @@ fn light_matrices_match_the_game() {
 }
 
 /// The hole triangles each court 10 caster's receiver pass draws, culled from the disc's hole model with the
-/// caster's planes as the game left them, against the game's (`context/p17v/cull.txt` from
-/// `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v6_cull.py -w`: the planes and, per caster, the receiver triangles of `context/p17v/cap0.pkl` as
+/// caster's planes as the game left them, against the game's (`fixtures/p17v/cull.txt` from
+/// `research/journal/2026-10-08-p17v-shade-bit-exact/scripts/p17v6_cull.py -w`: the planes and, per caster, the receiver triangles of `fixtures/p17v/cap0.pkl` as
 /// x z, slot 5). Skips when absent.
 #[test]
 fn receiver_triangles_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(txt), Ok(mut iso)) = (fixture::read_to_string(format!("{root}/context/p17v/cull.txt")), fixture::iso()) else {
+    let (Ok(txt), Ok(mut iso)) = (fixture::read_to_string(format!("{root}/fixtures/p17v/cull.txt")), fixture::iso()) else {
         fixture::skip(format_args!("recording or disc missing, skipped"));
         return;
     };

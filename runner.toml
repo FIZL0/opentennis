@@ -12,7 +12,7 @@ weekly_max = 94
 notes = "context/notes"
 rules = "AGENT.md"
 prompt = "tools/runner-prompt.md"
-links = ["context", "mods", "replacements", "*.iso"]
+links = ["context", "fixtures", "mods", "replacements", "*.iso"]
 shared_files = ["play.rs"]
 joinable = ["plan/*.md", "research/journal/*", "RELEASE_NOTES.md"]
 slot_env = ["HST_PCSX2={n}", "HST_PCSX2_MAX_HOLD=1200", "HST_BG=1", "RUSTC_WRAPPER=sccache", "SCCACHE_CACHE_SIZE=60G"]

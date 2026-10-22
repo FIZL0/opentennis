@@ -1,4 +1,4 @@
-//! The AI tuning table read from the disc's AIParam.csv must equal the game's own copy in RAM (`context/ram/s05.bin`,
+//! The AI tuning table read from the disc's AIParam.csv must equal the game's own copy in RAM (`fixtures/ram/s05.bin`,
 //! slot 5: a doubles bot match), and each bot's row and level must be the ones the game gave it.
 
 use hst_data::fixture;
@@ -10,7 +10,7 @@ const RECORD: usize = 0x118;
 
 fn load() -> Option<(Vec<u8>, Vec<u8>)> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let ram = fixture::read(format!("{root}/context/ram/s05.bin")).ok()?;
+    let ram = fixture::read(format!("{root}/fixtures/ram/s05.bin")).ok()?;
     let mut iso = fixture::iso().ok()?;
     let data = iso.read("PCDATA/PCDATA.XB").ok()?;
     let arc = Archive::parse(&data).ok()?;
@@ -34,13 +34,13 @@ fn table_equals_ram() {
 }
 
 /// The rows the game gave each player: slot 5's bots in outfit 0, and `1p3goodcpus` (EE RAM of its save state,
-/// `context/fixtures/1p3goodcpus_ee.bin`): Carol, Will, 2 and 10 in outfits 9, 9, 4, 9, the hardest block.
+/// `fixtures/1p3goodcpus_ee.bin`): Carol, Will, 2 and 10 in outfits 9, 9, 4, 9, the hardest block.
 #[test]
 fn bots_get_their_rows() {
     let Some((s05, csv)) = load() else { return };
     let table = AiParams::table(&csv);
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let good = fixture::read(format!("{root}/context/fixtures/1p3goodcpus_ee.bin"));
+    let good = fixture::read(format!("{root}/fixtures/1p3goodcpus_ee.bin"));
     if good.is_err() {
         fixture::skip(format_args!("1p3goodcpus_ee.bin absent, only slot 5"));
     }
@@ -100,7 +100,7 @@ impl Mt {
     }
 }
 
-/// Every timing-error draw of the slot-5 bots (`context/fixtures/ai_s05.bin`, tools/record_ai.py; skipped when
+/// Every timing-error draw of the slot-5 bots (`fixtures/ai_s05.bin`, tools/record_ai.py; skipped when
 /// absent): from the frame before, the doubles AI's four errors must come out of consecutive draws of the game's
 /// generator (other draws of that frame come first), given the opponent shot it just saw, its serve history, whether
 /// it receives and whether its team has hit yet. The change of pace must show up in some of them.
@@ -108,7 +108,7 @@ impl Mt {
 fn timing_errors_match_the_game() {
     use hst_sim::ai::{Picks, Seen, Shots};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_s05.bin"))) else {
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/fixtures/ai_s05.bin"))) else {
         return fixture::skip(format_args!("disc or ai_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
@@ -192,7 +192,7 @@ fn timing_errors_match_the_game() {
 fn guesses_match_the_game() {
     use hst_sim::ai::{Guess, Seen, Shots};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_s05.bin"))) else {
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/fixtures/ai_s05.bin"))) else {
         return fixture::skip(format_args!("disc or ai_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
@@ -269,7 +269,7 @@ fn guesses_match_the_game() {
 fn guess_verdicts_match_the_game() {
     use hst_sim::ai::{Guess, Verdict};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_guess_s05.bin"))) else {
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/fixtures/ai_guess_s05.bin"))) else {
         return fixture::skip(format_args!("disc or ai_guess_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
@@ -315,7 +315,7 @@ fn guess_verdicts_match_the_game() {
 fn minds_match_the_game() {
     use hst_sim::ai::{Mind, NET_RATE, Phase, serve_spot, serve_wait};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((ram, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_mind_s05.bin"))) else {
+    let (Some((ram, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/fixtures/ai_mind_s05.bin"))) else {
         return fixture::skip(format_args!("disc or ai_mind_s05.bin missing, skipped"));
     };
     // the clamp the point reaction keeps the rate in: doubles, then singles
@@ -428,7 +428,7 @@ fn minds_match_the_game() {
 fn reactions_match_the_game() {
     use hst_sim::ai::{Seen, Shots};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_pos_s05.bin"))) else {
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/fixtures/ai_pos_s05.bin"))) else {
         return fixture::skip(format_args!("disc or ai_pos_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
@@ -488,14 +488,14 @@ fn reactions_match_the_game() {
 }
 
 /// Every time a slot-5 bot's contact search finds the ball on both sides of it
-/// (`context/fixtures/ai_side_s05.bin`, tools/record_ai_side.py: the game's decision hooked), the side the port keeps
+/// (`fixtures/ai_side_s05.bin`, tools/record_ai_side.py: the game's decision hooked), the side the port keeps
 /// must be the game's: the nearer stand spot, or the strong side when the run-round roll passed and it is inside the
 /// court's half width plus the row's extend (which must also be the game's width).
 #[test]
 fn stand_sides_match_the_game() {
     use hst_sim::ai::Stander;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_side_s05.bin"))) else {
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/fixtures/ai_side_s05.bin"))) else {
         return fixture::skip(format_args!("disc or ai_side_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
@@ -533,14 +533,14 @@ fn stand_sides_match_the_game() {
     assert!(checked >= 30 && ran > 0, "{checked} sides, {ran} run-rounds");
 }
 
-/// Every aim choice of the slot-5 bots (`context/fixtures/ai_aim_s05.bin`, tools/record_ai_aim.py; skipped when
+/// Every aim choice of the slot-5 bots (`fixtures/ai_aim_s05.bin`, tools/record_ai_aim.py; skipped when
 /// absent): from the AI object, the four players' spots and the generator at the doubles chooser's entry, the stick,
 /// the plan byte and the generator's index at its exit must come out as the game's.
 #[test]
 fn aims_match_the_game() {
     use hst_sim::aim::Pair;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_aim_s05.bin"))) else {
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/fixtures/ai_aim_s05.bin"))) else {
         return fixture::skip(format_args!("disc or ai_aim_s05.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
@@ -582,7 +582,7 @@ fn aims_match_the_game() {
 fn singles_aims_match_the_game() {
     use hst_sim::aim::Look;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/context/fixtures/ai_aim_singles.bin"))) else {
+    let (Some((_, csv)), Ok(d)) = (load(), fixture::read(format!("{root}/fixtures/ai_aim_singles.bin"))) else {
         return fixture::skip(format_args!("disc or ai_aim_singles.bin missing, skipped"));
     };
     let table = AiParams::table(&csv);
@@ -641,7 +641,7 @@ fn singles_aims_match_the_game() {
 fn ai_dives_match_the_game() {
     use hst_sim::swing::{DIVE_HORIZON, PathPoint, Reach, dive};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = fixture::read(format!("{root}/context/fixtures/ai_dive_s05.bin")) else {
+    let Ok(d) = fixture::read(format!("{root}/fixtures/ai_dive_s05.bin")) else {
         return fixture::skip(format_args!("ai_dive_s05.bin absent, skipped"));
     };
     const PL: [(usize, usize); 7] = [(0x12b0, 8), (0x13a8, 0x18), (0x3d60, 0x20), (0x3e00, 0x10), (0x3f58, 8), (0x3f80, 0x10), (0x3fa4, 8)];

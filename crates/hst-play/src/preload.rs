@@ -164,16 +164,16 @@ mod tests {
     use super::*;
 
     const ISO: &str = hst_data::fixture::ISO_PATH;
-    /// The converted mod (`context/mods/getagrip_pc00_emi`, from another checkout when this one lacks it).
+    /// The converted mod (`fixtures/mods/getagrip_pc00_emi`, from another checkout when this one lacks it).
     fn mod_dir() -> std::path::PathBuf {
-        hst_data::fixture::path("context/mods/getagrip_pc00_emi")
+        hst_data::fixture::path("fixtures/mods/getagrip_pc00_emi")
     }
 
     /// B550: a mod's costume loaded on the pool and taken by the start is the one the start would load itself, its
     /// assets in the world's stores (needs the ISO at the repository root and a converted mod; skipped without).
     #[test]
     fn a_mod_loaded_early_is_the_one_the_start_loads() {
-        if !hst_data::fixture::has_iso() || !hst_data::fixture::exists("context/mods/getagrip_pc00_emi") {
+        if !hst_data::fixture::has_iso() || !hst_data::fixture::exists("fixtures/mods/getagrip_pc00_emi") {
             return;
         }
         let m = crate::mods::read(&mod_dir()).unwrap();

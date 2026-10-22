@@ -1,5 +1,5 @@
 //! The AI's predicted ball path (`hst_sim::path`) against the game's own, frame by frame. Recordings
-//! (`context/live/p11n1/*.bin`, not in git) come from `tools/record_live.py <slot> <frames> <out> --path` (the commands
+//! (`fixtures/live/p11n1/*.bin`, not in git) come from `tools/record_live.py <slot> <frames> <out> --path` (the commands
 //! are in the P11n1 journal): each frame's live ball, predictor and path record. Each frame starts from the previous
 //! frame's record and predictor, runs what the game ran that frame (the update; a launch, a net touch) and must give
 //! the next frame's end, start, active, mode, gap, new entries and predictor bit for bit.
@@ -258,8 +258,8 @@ fn run(fs: &[Frame], court: usize, margin: f32, poke: &Poke, t: &mut Tally) {
 #[test]
 fn the_path_record_matches_the_game_frame_by_frame() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let dir = format!("{root}/context/live/p11n1");
-    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{root}/context/iso/SYSTEM.CNF")), fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN"))) else {
+    let dir = format!("{root}/fixtures/live/p11n1");
+    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")), fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN"))) else {
         fixture::skip(format_args!("disc missing, skipped"));
         return;
     };

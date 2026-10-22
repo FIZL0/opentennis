@@ -1,4 +1,4 @@
-//! The ball's wind tornado against the recorded bot doubles match (`context/fixtures/foot_s05.bin`,
+//! The ball's wind tornado against the recorded bot doubles match (`fixtures/foot_s05.bin`,
 //! `tools/record_foot.py 5`): from the ball and the hit messages, every frame's on flag, scale, fade, alpha and
 //! matrix match the game bit for bit.
 
@@ -31,9 +31,9 @@ fn key(t: &Tornado) -> (bool, i32, Vec<u32>) {
 fn tornado_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(cnf), Ok(bin)) = (
-        fixture::read(format!("{root}/context/fixtures/foot_s05.bin")),
-        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/fixtures/foot_s05.bin")),
+        fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN")),
     ) else {
         return fixture::skip(format_args!("foot_s05.bin or disc absent, skipped"));
     };
@@ -76,15 +76,15 @@ fn tornado_s05() {
     assert!(starts > 5 && on > 300);
 }
 
-/// Forced constant ×4 slow motion (`context/fixtures/tornado_slowmo.bin`, `research/journal/2026-10-08-p17q-tornado/scripts/p17q_slowmo_rec.py 5`): every
+/// Forced constant ×4 slow motion (`fixtures/tornado_slowmo.bin`, `research/journal/2026-10-08-p17q-tornado/scripts/p17q_slowmo_rec.py 5`): every
 /// in-between frame's drawn scale, UV time, alpha, on flag and matrix match the game bit for bit.
 #[test]
 fn tornado_slowmo() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(cnf), Ok(bin)) = (
-        fixture::read(format!("{root}/context/fixtures/tornado_slowmo.bin")),
-        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/fixtures/tornado_slowmo.bin")),
+        fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN")),
     ) else {
         return fixture::skip(format_args!("tornado_slowmo.bin or disc absent, skipped"));
     };

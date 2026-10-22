@@ -1,4 +1,4 @@
-//! The game's random sources against `context/p3b/rng_s05.bin` (research/journal/2026-10-08-p3b-rng/scripts/p3b_rng_rec.py, slot 5; skipped when
+//! The game's random sources against `fixtures/p3b/rng_s05.bin` (research/journal/2026-10-08-p3b-rng/scripts/p3b_rng_rec.py, slot 5; skipped when
 //! absent): from every frame's RAM-dumped generator, `Mt::next` must reach the next frame's state exactly (the
 //! words through every regeneration and the index), or a reseed with one of the `rand()` outputs drawn in between
 //! must: at a new point the shared generator takes the frame's first output and the court's the second
@@ -20,7 +20,7 @@ fn reach(a: &Mt, b: &Mt, max: usize) -> Option<usize> {
 #[test]
 fn generators_step_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = fixture::read(format!("{root}/context/p3b/rng_s05.bin")) else {
+    let Ok(d) = fixture::read(format!("{root}/fixtures/p3b/rng_s05.bin")) else {
         return fixture::skip(format_args!("rng_s05.bin missing, skipped"));
     };
     const NAMES: [&str; 4] = ["shared", "ai", "court", "sound"];
@@ -61,8 +61,8 @@ fn generators_step_like_the_game() {
     assert!(draws.iter().all(|&n| n > 0), "every generator draws over the recording");
 }
 
-/// The court generator's draws over a point against `context/p3b/rng_s05.bin` and the same run's
-/// `context/fixtures/npc_s05.bin` (walkers) and `trig_s05.bin` (figures): from the generator reseeded at the
+/// The court generator's draws over a point against `fixtures/p3b/rng_s05.bin` and the same run's
+/// `fixtures/npc_s05.bin` (walkers) and `trig_s05.bin` (figures): from the generator reseeded at the
 /// new point (vsync 7566) to the frame before the next one (8654), the walkers (their state at the start), the
 /// gallery's pick of cheerers, its cheer and cheer marks, and the emitters, each frame stepping the ticks the game
 /// ran in it (its emitters' countdowns), must leave the generator where the game's is every frame. The point is
@@ -73,9 +73,9 @@ fn court_draws_like_the_game() {
     use hst_sim::{npc, sound};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(rng), Ok(walk), Ok(trig), Ok(mut iso)) = (
-        fixture::read(format!("{root}/context/p3b/rng_s05.bin")),
-        fixture::read(format!("{root}/context/fixtures/npc_s05.bin")),
-        fixture::read(format!("{root}/context/fixtures/trig_s05.bin")),
+        fixture::read(format!("{root}/fixtures/p3b/rng_s05.bin")),
+        fixture::read(format!("{root}/fixtures/npc_s05.bin")),
+        fixture::read(format!("{root}/fixtures/trig_s05.bin")),
         fixture::iso(),
     ) else {
         return fixture::skip(format_args!("rng_s05.bin, npc_s05.bin, trig_s05.bin or the disc missing, skipped"));
@@ -191,7 +191,7 @@ fn court_draws_like_the_game() {
     eprintln!("{frames} frames from {start}, the point decided at {decided}");
 }
 
-/// The sound manager's generator over a rally against `context/p3e2/sound_s05.bin` (research/journal/2026-10-08-p3e2-sound-draws/scripts/p3e2_sound_rec.py 5
+/// The sound manager's generator over a rally against `fixtures/p3e2/sound_s05.bin` (research/journal/2026-10-08-p3e2-sound-draws/scripts/p3e2_sound_rec.py 5
 /// 1600: the effects object, the hit sparks and the generator per frame) and the same run's `rng_s05.bin`: every
 /// frame's draws are the game's, word for word. A stroke flag (effects +0xd4, a byte per player) names the hitter;
 /// a dive (branch 3) throws its ring (10 puffs, two uniforms each: the court is dusty); the hit (a spark burst
@@ -204,7 +204,7 @@ fn court_draws_like_the_game() {
 fn sound_draws_like_the_game() {
     use hst_sim::effect::{Roll, SPARKS, Spark, Sparks};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(d), Ok(r)) = (fixture::read(format!("{root}/context/p3e2/sound_s05.bin")), fixture::read(format!("{root}/context/p3b/rng_s05.bin"))) else {
+    let (Ok(d), Ok(r)) = (fixture::read(format!("{root}/fixtures/p3e2/sound_s05.bin")), fixture::read(format!("{root}/fixtures/p3b/rng_s05.bin"))) else {
         return fixture::skip(format_args!("sound_s05.bin or rng_s05.bin missing, skipped"));
     };
     const FX: usize = 4;
@@ -291,7 +291,7 @@ fn ai_draws_like_the_game() {
     use hst_sim::ai::{AiParams, Mind, serve_spot, serve_wait};
     use hst_sim::position::Return;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = fixture::read(format!("{root}/context/p3b/rng_s05.bin")) else {
+    let Ok(d) = fixture::read(format!("{root}/fixtures/p3b/rng_s05.bin")) else {
         return fixture::skip(format_args!("rng_s05.bin missing, skipped"));
     };
     let size = 4 + 8 + 4 * 0x9d0;
@@ -331,7 +331,7 @@ fn ai_draws_like_the_game() {
     }
 }
 
-/// The shared generator over all of `rng_s05`, against what the same run's `context/fixtures/match_s05.bin` shows
+/// The shared generator over all of `rng_s05`, against what the same run's `fixtures/match_s05.bin` shows
 /// happening (a frame's draws show in the next sample). Every frame's draws are replayed from the recipes the app
 /// uses, and the generator must land on the recorded one:
 /// - a new point: the reseed (`Rngs::new_point`), then one placement draw per player
@@ -344,14 +344,14 @@ fn ai_draws_like_the_game() {
 /// - a dive's start (branch 3): its shout key
 /// - the doubles team reactions (`motion::team_reaction`), which must pick the recorded motions
 /// - the reaction voice of a player on their reaction's 5th frame in the post-point camera's close view
-///   (`sound::reaction_view`, `reaction_voice`, `Voice::react`), from `context/p3d1/view_s05.bin`
+///   (`sound::reaction_view`, `reaction_voice`, `Voice::react`), from `fixtures/p3d1/view_s05.bin`
 ///   (`research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py`)
 #[test]
 fn shared_draws_like_the_game() {
     use hst_sim::replay::{Frame, frames_live};
     use hst_sim::{motion, sound, swing};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(d), Ok(m)) = (fixture::read(format!("{root}/context/p3b/rng_s05.bin")), fixture::read(format!("{root}/context/fixtures/match_s05.bin"))) else {
+    let (Ok(d), Ok(m)) = (fixture::read(format!("{root}/fixtures/p3b/rng_s05.bin")), fixture::read(format!("{root}/fixtures/match_s05.bin"))) else {
         return fixture::skip(format_args!("rng_s05.bin or match_s05.bin missing, skipped"));
     };
     let size = 4 + 8 + 4 * 0x9d0;
@@ -366,7 +366,7 @@ fn shared_draws_like_the_game() {
     let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let chars: Vec<i32> = (0..4).map(|p| at(rng[0].0).global(0x422fa8 + 4 * p)).collect();
     let mut voices = [sound::Voice::default(); 4];
-    let Ok(view) = fixture::read(format!("{root}/context/p3d1/view_s05.bin")).map(|d| post_views(&d)) else {
+    let Ok(view) = fixture::read(format!("{root}/fixtures/p3d1/view_s05.bin")).map(|d| post_views(&d)) else {
         return fixture::skip(format_args!("view_s05.bin missing (research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py), skipped"));
     };
     let mut g = rng[0].2.clone();
@@ -517,7 +517,7 @@ fn post_views(d: &[u8]) -> std::collections::HashMap<u32, PostView> {
 fn reaction_views_like_the_game() {
     use hst_sim::sound;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = fixture::read(format!("{root}/context/p3d1/view_s05.bin")) else {
+    let Ok(d) = fixture::read(format!("{root}/fixtures/p3d1/view_s05.bin")) else {
         return fixture::skip(format_args!("view_s05.bin missing (research/journal/2026-10-08-p3d1-reaction-voices/scripts/p3d1_view.py), skipped"));
     };
     let views = post_views(&d);
@@ -543,7 +543,7 @@ fn reaction_views_like_the_game() {
     assert!(seen >= 2 && voiced == 1);
 }
 
-/// The match setup's shared draws against `context/p3d3/setup_ram.bin` (research/journal/2026-10-08-p3d3-setup-draws/scripts/p3d3_setup_ram.py over save states
+/// The match setup's shared draws against `fixtures/p3d3/setup_ram.bin` (research/journal/2026-10-08-p3d3-setup-draws/scripts/p3d3_setup_ram.py over save states
 /// of singles and doubles matches on several courts): from the seed whose weather schedule RAM shows (found by
 /// walking `rand()` back from its saved state, past the first point's seed when one was drawn), each player draws
 /// its voice bank (`% 100 >= 70` → b), an AI reseed when it has an AI object and a placement, then the hit sparks'
@@ -554,7 +554,7 @@ fn setup_draws_like_the_game() {
     use hst_sim::weather::{Odds, Wind, schedule};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(d), Ok(mut iso)) = (
-        fixture::read(format!("{root}/context/p3d3/setup_ram.bin")),
+        fixture::read(format!("{root}/fixtures/p3d3/setup_ram.bin")),
         fixture::iso(),
     ) else {
         return fixture::skip(format_args!("setup_ram.bin or the ISO missing, skipped"));
@@ -565,7 +565,7 @@ fn setup_draws_like_the_game() {
     let same: Vec<u8> = ["p3f", "p3f4"]
         .iter()
         .flat_map(|t| {
-            fixture::read(format!("{root}/context/{t}/setup_ram.bin")).unwrap_or_else(|_| {
+            fixture::read(format!("{root}/fixtures/{t}/setup_ram.bin")).unwrap_or_else(|_| {
                 fixture::skip(format_args!("{t}/setup_ram.bin missing: no same-character states from {t}"));
                 Vec::new()
             })
@@ -625,7 +625,7 @@ fn setup_draws_like_the_game() {
     }
 }
 
-/// `rand()` over all of `context/p3b/rng_s05.bin`: the lens flare's tick (`Rngs::flare_tick`; slot 5's weather
+/// `rand()` over all of `fixtures/p3b/rng_s05.bin`: the lens flare's tick (`Rngs::flare_tick`; slot 5's weather
 /// shows it) in every tick the game ran (`trig_s05.bin`'s emitter countdowns, as `court_draws_like_the_game`), the
 /// new point's two reseeds and, after a played point, the sound manager's must add up to the recorded steps. The
 /// samples are torn by a tick now and then (read before or after that tick's flare, or the sound manager's reseed),
@@ -634,7 +634,7 @@ fn setup_draws_like_the_game() {
 fn rand_draws_like_the_game() {
     use hst_sim::npc;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(rng), Ok(trig)) = (fixture::read(format!("{root}/context/p3b/rng_s05.bin")), fixture::read(format!("{root}/context/fixtures/trig_s05.bin"))) else {
+    let (Ok(rng), Ok(trig)) = (fixture::read(format!("{root}/fixtures/p3b/rng_s05.bin")), fixture::read(format!("{root}/fixtures/trig_s05.bin"))) else {
         return fixture::skip(format_args!("rng_s05.bin or trig_s05.bin missing, skipped"));
     };
     let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
@@ -686,7 +686,7 @@ fn rand_draws_like_the_game() {
     assert_eq!(points, 2);
 }
 
-/// The match setup's `rand()` calls against `context/p3f/setup_rand.bin` (research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_setup_seq.py --fixture over
+/// The match setup's `rand()` calls against `fixtures/p3f/setup_rand.bin` (research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_setup_seq.py --fixture over
 /// two research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_menu_log.py logs: court 4 doubles, clear): from the match seed, `Rngs::setup_rand` (20 clouds)
 /// must draw the effects seed where the game does, and with the sound manager's second reseed and the intro's
 /// `Rngs::intro_ticks(4)` flare ticks land where the first point's shared reseed draws. Each record holds the state's
@@ -694,7 +694,7 @@ fn rand_draws_like_the_game() {
 #[test]
 fn setup_rand_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = fixture::read(format!("{root}/context/p3f/setup_rand.bin")) else {
+    let Ok(d) = fixture::read(format!("{root}/fixtures/p3f/setup_rand.bin")) else {
         return fixture::skip(format_args!("setup_rand.bin missing, skipped"));
     };
     let low = |r: &Rand| r.0 as u32;
@@ -715,7 +715,7 @@ fn setup_rand_like_the_game() {
     assert_eq!(d.len(), 24);
 }
 
-/// The menus' flame against research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_menu_log.py's logs (`context/p3f/menu_c{1,2}.bin`, the same picks at different
+/// The menus' flame against research/journal/2026-10-08-p3f-rand-calls/scripts/p3f_menu_log.py's logs (`fixtures/p3f/menu_c{1,2}.bin`, the same picks at different
 /// timing): every `rand()` call before the match seed is the flame's. From its setup, each port frame must end where a
 /// game frame does, and the last on the seed. A game frame ends where its calls' particle pointer (s0, rising
 /// through the 24) falls back; frames straddle vsyncs, so the vsync can't split them.
@@ -723,7 +723,7 @@ fn setup_rand_like_the_game() {
 fn menu_flame_draws_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     for name in ["menu_c1", "menu_c2"] {
-        let Ok(d) = fixture::read(format!("{root}/context/p3f/{name}.bin")) else {
+        let Ok(d) = fixture::read(format!("{root}/fixtures/p3f/{name}.bin")) else {
             return fixture::skip(format_args!("{name}.bin missing, skipped"));
         };
         // records: vsync, caller, s0, gm+0x54, rand()'s low word before the call, match frame
@@ -762,13 +762,13 @@ fn menu_flame_draws_like_the_game() {
     }
 }
 
-/// The intro's length per court against `context/p3f2/intro.bin` (research/journal/2026-10-08-p3f2-intro-length/scripts/p3f2_intro_log.py --fixture over 20 logs:
+/// The intro's length per court against `fixtures/p3f2/intro.bin` (research/journal/2026-10-08-p3f2-intro-length/scripts/p3f2_intro_log.py --fixture over 20 logs:
 /// courts 1–11, singles and doubles, clear): from the intro's first flare tick, `Rngs::intro_ticks` flare ticks must
 /// land where the first point's shared reseed draws. Records: court, players, the state's low word at both.
 #[test]
 fn intro_ticks_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = fixture::read(format!("{root}/context/p3f2/intro.bin")) else {
+    let Ok(d) = fixture::read(format!("{root}/fixtures/p3f2/intro.bin")) else {
         return fixture::skip(format_args!("intro.bin missing, skipped"));
     };
     let low = |r: &Rand| r.0 as u32;
@@ -816,7 +816,7 @@ fn intro_ticks_from_the_disc() {
     }
 }
 
-/// Clouds remade at a weather change, against `context/p3f3/run2.bin` (research/journal/2026-10-12-p3f3-cloud-draws/scripts/p3f3_cloud_log.py: slot 5's
+/// Clouds remade at a weather change, against `fixtures/p3f3/run2.bin` (research/journal/2026-10-12-p3f3-cloud-draws/scripts/p3f3_cloud_log.py: slot 5's
 /// schedule rewritten to rain 3, rain 5, 1, then 0, a point each) and its `.clouds` (the court's cloud list right after
 /// each change). From each new point's shared reseed (the state found from `rng_s05.bin`'s first sample by its
 /// low word), `Rngs::new_point_clouds` with `weather::clouds_remade`'s count must land where the
@@ -827,9 +827,9 @@ fn clouds_remade_like_the_game() {
     use hst_sim::{clouds, weather};
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(d), Ok(c), Ok(rng)) = (
-        fixture::read(format!("{root}/context/p3f3/run2.bin")),
-        fixture::read(format!("{root}/context/p3f3/run2.bin.clouds")),
-        fixture::read(format!("{root}/context/p3b/rng_s05.bin")),
+        fixture::read(format!("{root}/fixtures/p3f3/run2.bin")),
+        fixture::read(format!("{root}/fixtures/p3f3/run2.bin.clouds")),
+        fixture::read(format!("{root}/fixtures/p3b/rng_s05.bin")),
     ) else {
         return fixture::skip(format_args!("p3f3/run2.bin(.clouds) or rng_s05.bin missing, skipped"));
     };
