@@ -26,7 +26,7 @@ const TEXTURES: [&str; 11] = [
     "inpane_dani",
     "inpane_mini0",
     "inpane_mini1",
-    "inpane_team1",
+    "inpane_team",
     "i_gameinfo_00",
 ];
 
@@ -50,8 +50,10 @@ enum Tex {
     Games,
     /// "Sets:" and the sets digits.
     Sets,
-    /// Team banner text and its pill pieces.
+    /// The team banners' "A Team" / "B Team" (the menus' rebuilt `inpane_team`, 96×32 cells).
     Team,
+    /// Our own pill sheet ([`super::menu_art::pill_layers`]) behind a team banner's words.
+    TeamPill,
     /// "Score to win this game!" and the other calls, 256×24 rows.
     Info,
     /// Player `i`'s face, 64×64.
@@ -371,51 +373,20 @@ fn layout(v: &View) -> Vec<Quad> {
             } else {
                 [67.0, 101.0, 127.0]
             };
-            if right {
-                q(
-                    Tex::Team,
-                    [88, 0, 16, 24],
-                    banner_x,
-                    banner_y,
-                    None,
-                    tint,
-                    128.0,
-                );
-                q(
-                    Tex::Team,
-                    [104, 0, 8, 24],
-                    banner_x + 16,
-                    banner_y,
-                    Some([96, 24]),
-                    tint,
-                    128.0,
-                );
-            } else {
-                q(
-                    Tex::Team,
-                    [104, 0, 8, 24],
-                    banner_x,
-                    banner_y,
-                    Some([96, 24]),
-                    tint,
-                    128.0,
-                );
-                q(
-                    Tex::Team,
-                    [112, 0, 16, 24],
-                    banner_x + 96,
-                    banner_y,
-                    None,
-                    tint,
-                    128.0,
-                );
+            // B653: our own pill (rim, white ring, team colour), its flat end run off the screen's edge, and the
+            // menus' rebuilt "A Team" / "B Team" (`inpane_team`'s 96×32 cells at ¾ size) in the middle of what shows
+            let pill = [if right { banner_x } else { banner_x - 16 }, banner_y, 128, 24].map(|c| c as f32);
+            for (i, rgb) in [[15.0; 3], WHITE, tint].into_iter().enumerate() {
+                for (src, [x, y, w, h]) in super::menu_art::pill_quads(i, pill) {
+                    q(Tex::TeamPill, src.map(|c| c as i32), x as i32, y as i32, Some([w as i32, h as i32]), rgb, 128.0);
+                }
             }
             q(
                 Tex::Team,
-                [0, t as i32 * 24, 80, 24],
-                banner_x + 16,
+                [0, t as i32 * 32, 96, 32],
+                banner_x + 20,
                 banner_y,
-                None,
+                Some([72, 24]),
                 WHITE,
                 128.0,
             );
@@ -460,11 +431,11 @@ fn game_info(s: &Score, r: &Rules, human: [bool; 2]) -> Option<(usize, usize)> {
     })
 }
 
-/// The panel's textures: `TEXTURES` in order, then each player's face.
+/// The panel's textures: `TEXTURES` in order, our pill sheet, then each player's face.
 #[derive(Resource)]
 pub struct Art(pub Vec<Handle<Image>>);
 /// Where the faces start in `Art`.
-pub const FACES: usize = TEXTURES.len();
+pub const FACES: usize = TEXTURES.len() + 1;
 /// The pool of screen rectangles, drawn in order.
 #[derive(Component)]
 pub(super) struct Slot(usize);
@@ -569,6 +540,7 @@ fn setup(mut commands: Commands, args: Res<Args>, g: Res<Game>, mut images: ResM
         .read("AZUMA/INPANE/INPANE.XB0")
         .expect("INPANE archive on disc");
     let arc = Archive::parse(&data).expect("xb archive");
+    let pill = super::menu_art::pill_layers(&mut images);
     let mut get = |name: String| {
         let e = arc
             .entries
@@ -586,6 +558,7 @@ fn setup(mut commands: Commands, args: Res<Args>, g: Res<Game>, mut images: ResM
         .iter()
         .map(|t| get(format!("/{}.tm2", t.to_ascii_lowercase())))
         .collect();
+    art.push(pill);
     // B133: a mod's own face, cut from its select preview (B649: never the donor's, `await_faces`); B160: a disc one's too
     let own: Vec<_> = g.chars.iter().enumerate().map(|(i, &c)| {
         let o = args.outfits.get(i).copied().unwrap_or(0);
@@ -708,7 +681,8 @@ fn draw(
             continue;
         };
         let tex = match quad.tex {
-            Tex::Face(p) => TEXTURES.len() + p,
+            Tex::Face(p) => FACES + p,
+            Tex::TeamPill => TEXTURES.len(),
             t => [
                 Tex::Pill,
                 Tex::Slot,
@@ -812,14 +786,14 @@ mod tests {
     }
 
     /// The stretched background pieces (B5): each piece's sub-rect and on-screen size as the original's draw passes
-    /// them (left strip at the bottom, right strip at the top, banners above/below them).
+    /// them (left strip at the bottom, right strip at the top), and the banners above/below them.
     #[test]
     fn doubles_pieces() {
         let quads = layout(&doubles(Clock { serve: 40, fade: 0 }));
         let pieces = |tex: Tex| {
             quads
                 .iter()
-                .filter(|q| q.tex == tex && (tex != Tex::Team || q.rgb != [128.0; 3]))
+                .filter(|q| q.tex == tex)
                 .map(|q| (q.src.map(|s| s as i32), q.dst.map(|s| s as i32)))
                 .collect::<Vec<_>>()
         };
@@ -832,13 +806,21 @@ mod tests {
                 ([40, 0, 16, 16], [440, 16, 200, 20]),
             ]
         );
+        // B653: each banner is our pill, its flat end past the screen's edge (left team at the bottom, right at the
+        // top), the team colour on top, and the rebuilt words at ¾ size over the middle of what shows
+        let pill = |y: f32| quads.iter().filter(|q| q.tex == Tex::TeamPill && q.dst[1] == y).map(|q| (q.dst, q.rgb)).collect::<Vec<_>>();
+        let left = pill(298.0);
+        assert_eq!(left.len(), 9);
+        assert_eq!((left[6].0, left[8].0), ([-16.0, 298.0, 12.0, 24.0], [100.0, 298.0, 12.0, 24.0]));
+        assert_eq!(left[8].1, [127.0, 77.0, 77.0]);
+        let right = pill(122.0);
+        assert_eq!((right[6].0, right[8].0), ([528.0, 122.0, 12.0, 24.0], [644.0, 122.0, 12.0, 24.0]));
+        assert_eq!(right[8].1, [67.0, 101.0, 127.0]);
         assert_eq!(
             pieces(Tex::Team),
             [
-                ([104, 0, 8, 24], [0, 298, 96, 24]),
-                ([112, 0, 16, 24], [96, 298, 16, 24]),
-                ([88, 0, 16, 24], [528, 122, 16, 24]),
-                ([104, 0, 8, 24], [544, 122, 96, 24]),
+                ([0, 0, 96, 32], [20, 298, 72, 24]),
+                ([0, 32, 96, 32], [548, 122, 72, 24]),
             ]
         );
     }

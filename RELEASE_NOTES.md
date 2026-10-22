@@ -4,3 +4,4 @@
 - A modded character's face in the corner of the score panel is now always their own picture, never the face of the character they're built on; if it isn't ready when the match starts, it appears as soon as it is.
 - On a phone held upright, the match keeps its normal camera, and a hint shows that Select switches to the singles camera behind your player (it goes away for good once you've used it).
 - On the game and set result board, a "COM" label no longer runs out of its player's plate.
+- The A Team / B Team banners by the score panel in doubles are now drawn sharp in the same style as the menus, instead of the original blurry art.
