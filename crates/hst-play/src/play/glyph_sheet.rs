@@ -7,7 +7,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::HashMap;
-use tiny_skia::{Color as SkColor, LineJoin, Paint, Pixmap, Stroke, Transform};
+use tiny_skia::{Color as SkColor, Paint, Pixmap, Transform};
 
 /// Room round each letter's line box (units): its outline and the odd accent above a capital.
 pub const PAD: f32 = 8.0;
@@ -79,22 +79,71 @@ fn sheet() -> Image {
     let s = em / font.units_per_em().unwrap_or(1000.0) * k;
     let mut white = Paint::default();
     white.set_color(SkColor::WHITE);
-    let mut ink = Paint::default();
-    ink.set_color_rgba8(INK, INK, INK, 255);
-    // the stroke is in the path's font units (the transform scales it with the letter)
-    let ring = Stroke { width: 2.0 * RING * k / s, line_join: LineJoin::Round, ..default() };
     for (&ch, &(x, y, _)) in &g.map {
         let Some(path) = text_path(&font, &ch.to_string()) else { continue };
-        for (top, outline) in [(y, false), (y + half, true)] {
+        for top in [y, y + half] {
             let at = Transform::from_scale(s, s).post_translate(x * k, (top + BASELINE) * k);
-            if outline {
-                out.stroke_path(&path, &ink, &ring, at, None);
-            }
             out.fill_path(&path, &white, tiny_skia::FillRule::Winding, at, None);
         }
     }
-    let img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
+    // the ring grown round each outlined letter by distance, not stroked: a thick stroke round a small counter (an
+    // `a`'s, an `e`'s) leaves holes where its inner edges cross
+    let (w, h0) = (w as usize, (half * k) as usize);
+    let ring = ring(&out.data()[w * h0 * 4..].iter().skip(3).step_by(4).copied().collect::<Vec<_>>(), w, RING * k);
+    for (p, r) in out.pixels_mut()[w * h0..].iter_mut().zip(ring) {
+        let (a, ri) = (p.alpha() as f32 / 255.0, r * (1.0 - p.alpha() as f32 / 255.0));
+        let c = |v: u8| (v as f32 + INK as f32 * ri).round() as u8;
+        *p = tiny_skia::PremultipliedColorU8::from_rgba(c(p.red()), c(p.green()), c(p.blue()), ((a + ri) * 255.0).round() as u8).unwrap_or(*p);
+    }
+    let img = Image::new(Extent3d { width: w as u32, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
     crate::mips::MipSteps::new(img, crate::mips::levels_to_1x(k / 0.25), None, 1.5).finish()
+}
+
+/// How much of a ring `r` px wide round the inked (alpha ≥ half) pixels of `alpha` (`w` wide) covers each pixel.
+fn ring(alpha: &[u8], w: usize, r: f32) -> Vec<f32> {
+    let h = alpha.len() / w;
+    let mut d: Vec<f32> = alpha.iter().map(|&a| if a >= 128 { 0.0 } else { 1e20 }).collect();
+    let mut line = Vec::new();
+    for y in 0..h {
+        line.clear();
+        line.extend_from_slice(&d[y * w..(y + 1) * w]);
+        edt(&line, &mut d[y * w..(y + 1) * w]);
+    }
+    let mut out = vec![0.0; h];
+    for x in 0..w {
+        line.clear();
+        line.extend((0..h).map(|y| d[y * w + x]));
+        edt(&line, &mut out);
+        (0..h).for_each(|y| d[y * w + x] = out[y]);
+    }
+    d.into_iter().map(|d2| (r + 0.5 - d2.sqrt()).clamp(0.0, 1.0)).collect()
+}
+
+/// Felzenszwalb–Huttenlocher's squared distance transform of one line `f` into `d`.
+fn edt(f: &[f32], d: &mut [f32]) {
+    let n = f.len();
+    let (mut v, mut z, mut k) = (vec![0usize; n], vec![0f32; n + 1], 0);
+    z[0] = f32::NEG_INFINITY;
+    z[1] = f32::INFINITY;
+    let cross = |q: usize, p: usize| ((f[q] + (q * q) as f32) - (f[p] + (p * p) as f32)) / (2.0 * (q as f32 - p as f32));
+    for q in 1..n {
+        let mut s = cross(q, v[k]);
+        while s <= z[k] {
+            k -= 1;
+            s = cross(q, v[k]);
+        }
+        k += 1;
+        v[k] = q;
+        z[k] = s;
+        z[k + 1] = f32::INFINITY;
+    }
+    k = 0;
+    for (q, d) in d.iter_mut().enumerate() {
+        while z[k + 1] < q as f32 {
+            k += 1;
+        }
+        *d = (q as f32 - v[k] as f32).powi(2) + f[v[k]];
+    }
 }
 
 #[cfg(test)]
@@ -113,5 +162,23 @@ mod tests {
             assert!(w[0].0 != w[1].0 || w[0].2 <= w[1].1, "{w:?} overlap");
         }
         assert!(cells.iter().all(|c| c.2 <= WIDE));
+    }
+
+    /// The ring fills a gap narrower than itself whole and reaches its width round a dot.
+    #[test]
+    fn ring_fills_small_counters() {
+        let w = 40;
+        let mut a = vec![0u8; w * w];
+        // a box with a 3-px hole, and nothing past it
+        for y in 10..20 {
+            for x in 10..20 {
+                a[y * w + x] = if (14..17).contains(&x) && (14..17).contains(&y) { 0 } else { 255 };
+            }
+        }
+        let r = ring(&a, w, 4.0);
+        assert_eq!(r[15 * w + 15], 1.0);
+        assert_eq!(r[15 * w + 22], 1.0);
+        assert_eq!(r[15 * w + 23], 0.5);
+        assert_eq!(r[15 * w + 25], 0.0);
     }
 }
