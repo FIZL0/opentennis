@@ -3,3 +3,4 @@
 - On iPhone, Download in the update prompt now opens the release page in Safari instead of asking to restore the Magnifier app.
 - A modded character's face in the corner of the score panel is now always their own picture, never the face of the character they're built on; if it isn't ready when the match starts, it appears as soon as it is.
 - On a phone held upright, the match keeps its normal camera, and a hint shows that Select switches to the singles camera behind your player (it goes away for good once you've used it).
+- On the game and set result board, a "COM" label no longer runs out of its player's plate.
