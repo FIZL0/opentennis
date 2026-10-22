@@ -68,6 +68,7 @@ public class HstActivity extends NativeActivity {
     /** B623: the game fills the whole screen, under the status and navigation bars too (before Android 15 the window
      *  stopped above the navigation bar, while its insets still counted it), and hides them: a swipe from the edge shows
      *  them for a moment over the game. The safe area the HUD keeps to is then only the camera cutout (`android.rs`). */
+    @SuppressWarnings("deprecation") // the flags are the only way before Android 11 (minSdk 26)
     private void immersive() {
         if (Build.VERSION.SDK_INT >= 30) {
             getWindow().setDecorFitsSystemWindows(false);
