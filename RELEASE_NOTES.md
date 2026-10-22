@@ -1,18 +1,1 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- Split screen: with one human on each side on one device (singles, or doubles with one human per team), 1P's camera button (Select) splits the picture during play, side by side on a wide screen or stacked on an upright one. Each half shows the alternate camera behind its own player, close up, with controls, name tags, markers, pop-ups and effects all turned to face it. Press it again for the shared picture.
-- Upright phones with two players on one device: the bottom player now steers by what they see instead of running the wrong way.
-- The alternate camera now behaves as in the original: it backs away as the ball comes past, tilts up for high balls, follows the play smoothly and cuts to the close-ups after each point. The camera button only works during play, keyboard hints show its key, and every match starts on the normal camera.
-- After a serve, the racket comes straight down into the ready stance instead of hanging behind the player's back.
-- A player's emote voice stops when the point ends instead of talking over the reaction.
-- On the indoor court, a ball hitting a ball-boy cart's wheels bounces off where they actually are.
-- Sharper text everywhere: the score panel, pop-ups, 1P–4P/COM labels and doubles team plates are now drawn crisp in the game's own style, outlined letters no longer show specks in their holes, menu text too long for its space scrolls instead of squashing, and high-DPI screens (like the Steam Deck) get full-resolution text.
-- Settings: the Stretch aspect ratio is back, On/Off options switch with one press, tabs switch instantly, long pages scroll, Pause can be rebound, emotes are named by what they play, and VSync no longer freezes the game on Linux. Settings opened from the pause menu show again.
-- Fixed aspect ratios and phones: menu backgrounds, title and loading screens fill the whole screen, the bars beside a match glow softly with the court's colours, and the pause dimming and end-of-match fade cover everything.
-- Phones: menus fill the screen under the notch and home bar with controls kept clear of them, system bars hide while you play, and held upright the touch controls are full thumb size at the bottom.
-- Mods: Browse has a dropdown to show all, installed or not-yet-installed mods, works in small windows, and shows download progress on the card; Installed shows search match counts per tab.
-- Controllers screen: a controller moved onto 1P can use it straight away.
-- Characters with only one costume grey out the costume button.
-- Online: the "Waiting for …" message no longer flashes on short hiccups; joining late in character select keeps the character you're on; custom characters you don't have play as their base character in different colours; the download prompt shows even over Settings; and Rejoin in the browser works at any point in a match.
-- Much lower memory use, especially in the browser and on phones: menus start faster and lighter, menu text uses a fraction of the memory, and loading a match no longer risks the page reloading.
-- Web app: checks for a new version as soon as it opens and loads it straight away; browser extension errors no longer stop the game.
-- The first launch after an update no longer risks closing while it prepares graphics.
