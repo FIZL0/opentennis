@@ -754,6 +754,15 @@ fn chip(styles: &[Style], it: &Item) -> Option<Pixmap> {
     Some(row(parts, &it.label, WHITE))
 }
 
+/// B651: `it`'s chip in `style` as an image the UI draws (as the strip's), with its width over height; None when
+/// that style has nothing for it.
+pub fn chip_image(style: Style, it: &Item) -> Option<(Image, f32)> {
+    let p = chip(&[style], it)?;
+    let (w, h) = (p.width(), p.height());
+    let img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
+    Some((glyph_mips(img), w as f32 / h as f32))
+}
+
 /// B462: a glyph's art at [`DIM_ALPHA`]'s share of its opacity (premultiplied: every channel scales).
 fn fade(p: &mut Pixmap) {
     let k = DIM_ALPHA / 128.0;

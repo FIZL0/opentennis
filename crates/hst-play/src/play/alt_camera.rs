@@ -41,6 +41,11 @@ pub(super) struct AltCamera {
 }
 
 impl AltCamera {
+    /// The alternate camera is chosen (B651: the portrait hint's Select has been used).
+    pub(super) fn chosen(&self) -> bool {
+        self.on
+    }
+
     /// The human's alpha this tick (1 when not faded).
     pub(super) fn alpha(&self) -> f32 {
         self.fade.alpha()
