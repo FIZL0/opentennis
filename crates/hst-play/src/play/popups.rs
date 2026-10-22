@@ -556,10 +556,6 @@ fn setup_calls(
         for h in &shown.materials {
             if let Some(mut m) = materials.get_mut(h) {
                 m.base.depth_bias = CALL_SORT;
-                let disc = m.base.base_color_texture.as_ref().and_then(|t| images.get(t)).and_then(|i| Some((i.width() as usize, i.height() as usize, i.data.clone()?)));
-                if let Some(ours) = disc.and_then(|(w, h, px)| super::menu_art::call_card(&mut images, w, h, &px)) {
-                    m.base.base_color_texture = Some(ours);
-                }
             }
         }
         (effect, shown)

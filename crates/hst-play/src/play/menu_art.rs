@@ -26,7 +26,6 @@ pub fn wall_k() -> f32 {
     if OFF.load(Ordering::Relaxed) { 1.0 } else { K as f32 }
 }
 
-mod trace;
 
 pub(crate) static HEAVY: &[u8] = include_bytes!("../../../hst/assets/fonts/MPLUSRounded1c-ExtraBold.ttf");
 pub static BOLD: &[u8] = include_bytes!("../../../hst/assets/fonts/MPLUSRounded1c-Bold.ttf");
@@ -39,20 +38,14 @@ struct Sheet {
     labels: &'static [Label<'static>],
     /// B141a: stylised words and digits of ours, each cell cleared and stamped in its [`Look`].
     stamps: &'static [Stamp],
-    /// Traced sharp instead ([`trace`]): the disc's own letters, which our font can't match.
-    traced: bool,
 }
 
 const fn sheet(name: &'static str, labels: &'static [Label<'static>]) -> Sheet {
-    Sheet { name, labels, stamps: &[], traced: false }
+    Sheet { name, labels, stamps: &[] }
 }
 
 const fn stamped(name: &'static str, labels: &'static [Label<'static>], stamps: &'static [Stamp]) -> Sheet {
-    Sheet { name, labels, stamps, traced: false }
-}
-
-const fn traced(name: &'static str) -> Sheet {
-    Sheet { name, labels: &[], stamps: &[], traced: true }
+    Sheet { name, labels, stamps }
 }
 
 const SHEETS: &[Sheet] = &[
@@ -68,13 +61,7 @@ const SHEETS: &[Sheet] = &[
     stamped("result_gameset05", &[], BANNERS),
     stamped("inpane_pause00", &[], POINTS),
     stamped("inpane_pause01", &[], TIEBREAK),
-    // the match's pop-ups: points, Deuce!, the game/set result words, the result board's sets, the shot banners
-    traced("inpane_kihontokuten00"),
-    traced("inpane_kihontokuten01"),
-    traced("inpane_tiebreak00"),
-    traced("inpane_tiebreak01"),
-    traced("inpane_duce00"),
-    traced("inpane_duce01"),
+    // the match's pop-ups: the game/set result words, the result board's sets, the shot banners
     stamped("result_game", &[], &two_rows((12, 7, 120, 47), "Game", ORANGE)),
     stamped("result_set", &[], &two_rows((29, 3, 92, 56), "Set", RED_UP)),
     stamped("result_verblue", &[], &SERVER[0]),
@@ -581,11 +568,7 @@ impl Steps {
         if name == "word" {
             labels.extend(glyph_boxes(&pic.rgba, w));
         }
-        let mut redo = Rebuild::new(w, h, &pic.rgba, labels, if name == "word" { BOLD } else { HEAVY });
-        if sheet.traced {
-            redo.out = trace::trace(w, h, &pic.rgba, K);
-            redo.at = redo.out.height() as usize;
-        }
+        let redo = Rebuild::new(w, h, &pic.rgba, labels, if name == "word" { BOLD } else { HEAVY });
         Steps { name: name.to_string(), sheet, redo, stamps: None, pixels: None, mips: None }
     }
 
@@ -684,18 +667,6 @@ pub(crate) fn relabel(images: &mut Assets<Image>, w: usize, h: usize, rgba: &[u8
     let (x0, y0) = (ink.iter().map(|p| p.0).min()?, ink.iter().map(|p| p.1).min()?);
     let (x1, y1) = (ink.iter().map(|p| p.0).max()? + 1, ink.iter().map(|p| p.1).max()? + 1);
     let out = rebuild(w, h, rgba, &[(x0 as u16, y0 as u16, (x1 - x0) as u16, (y1 - y0) as u16, s)], HEAVY);
-    let (w, h) = (out.width(), out.height());
-    let handle = images.add(sharp_mips(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)));
-    crate::textures::ours(handle.id(), Vec2::splat(K as f32));
-    Some(handle)
-}
-
-/// An umpire's call card (`popups`' call models) traced at `K`× from the disc's ([`trace`]); `None` with `--original`.
-pub(crate) fn call_card(images: &mut Assets<Image>, w: usize, h: usize, rgba: &[u8]) -> Option<Handle<Image>> {
-    if OFF.load(Ordering::Relaxed) {
-        return None;
-    }
-    let out = trace::trace(w, h, rgba, K);
     let (w, h) = (out.width(), out.height());
     let handle = images.add(sharp_mips(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)));
     crate::textures::ours(handle.id(), Vec2::splat(K as f32));

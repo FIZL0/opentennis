@@ -35,7 +35,7 @@
 - Characters with only one costume now show the costume button greyed out on the character select, and pressing it does nothing.
 - Menu text too long for its space (like a doubles Rematch card's names) now slides along to show the rest instead of being squashed.
 - The team name plate at the end of a doubles match is now drawn sharp instead of the original blurry plate.
-- The in-match pop-ups and score panel (the umpire's calls like Fault and Change Sides, points, deuce, tie break, game/set, match and set point, aces, serve speed, the hints under the score, player ranks and the intro's set and game numbers) are now drawn sharp in the game's own style instead of the original blurry art.
+- The in-match pop-ups and score panel (game/set, match and set point, aces, serve speed, the hints under the score, player ranks and the intro's set and game numbers) are now drawn sharp in the game's own style instead of the original blurry art.
 - The 1P–4P and COM labels over the players and on the score boards are now drawn sharp in the same style as player names.
 - Online: the "Waiting for …" message no longer flashes up mid-rally on a short hiccup; the match just holds until the other player's moves arrive, and the message shows only after a couple of seconds without them.
 - Online: if the host starts the countdown while you're still choosing your character, the match now uses the character you're on (a Random card draws one) instead of the first one on the grid, and a custom character you're on is offered to everyone else to download before the match begins.
