@@ -2775,8 +2775,16 @@ async fn connect(cx: &Ctx, code: &str, cmds: &mut amp::UnboundedReceiver<Cmd>) -
     let shown = is_short(code).then(|| code.to_string());
     let code = if is_short(code) {
         cx.say(Event::Status(format!("Looking up {code}...")));
-        resolved = match resolve(&cx.dht, code).await {
-            Ok(t) => t,
+        // B643: a rejoin dials the ticket its record kept (the host stops publishing the code once the match starts)
+        let found = match rejoin::dial(code) {
+            Some(t) => Ok(t),
+            None => resolve(&cx.dht, code).await,
+        };
+        resolved = match found {
+            Ok(t) => {
+                rejoin::resolved(code, &t);
+                t
+            }
             Err(why) => {
                 bevy::log::warn!("join {code}: {why}");
                 cx.say(Event::Failed(why));

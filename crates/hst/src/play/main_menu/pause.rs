@@ -398,11 +398,29 @@ fn notice_setup(mut commands: Commands) {
     commands.spawn((full, GlobalZIndex(9), NoticeRoot));
 }
 
-/// P39: the notice's quads while one is up (or `HST_NOTICE` asks for one), none otherwise.
-fn notice_pool(mut commands: Commands, n: Res<OnlineNotice>, root: Query<Entity, With<NoticeRoot>>, slots: Query<Entity, With<NoticeSlot>>, mut env: Local<Option<bool>>) {
+/// B643: how long the notice's quads stay (hidden) after it goes down, so one that comes and goes every few frames
+/// (a slow peer's stalls) doesn't spawn and despawn all [`NOTICE_POOL`] of them each time: on the web that churn
+/// piled up GPU objects until the browser killed the page.
+const NOTICE_LINGER: f32 = 10.0;
+
+/// P39: the notice's quads while one is up (or `HST_NOTICE` asks for one) and [`NOTICE_LINGER`] after, none otherwise.
+fn notice_pool(
+    mut commands: Commands,
+    n: Res<OnlineNotice>,
+    time: Res<Time<Real>>,
+    root: Query<Entity, With<NoticeRoot>>,
+    slots: Query<Entity, With<NoticeSlot>>,
+    mut env: Local<Option<bool>>,
+    mut shown: Local<Option<f32>>,
+) {
     let env = *env.get_or_insert_with(|| std::env::var_os("HST_NOTICE").is_some());
+    let now = time.elapsed_secs();
+    if env || !n.text.is_empty() {
+        *shown = Some(now);
+    }
+    let on = shown.is_some_and(|t| now - t < NOTICE_LINGER);
     for r in &root {
-        crate::ui_pool::keep(&mut commands, r, env || !n.text.is_empty(), slots, NOTICE_POOL, |i| (NoticeSlot(i), crate::ui_pool::quad()));
+        crate::ui_pool::keep(&mut commands, r, on, slots, NOTICE_POOL, |i| (NoticeSlot(i), crate::ui_pool::quad()));
     }
 }
 

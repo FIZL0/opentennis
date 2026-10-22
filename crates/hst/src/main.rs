@@ -276,6 +276,12 @@ pub fn run() -> Result<(), wasm_bindgen::JsValue> {
                 crate::FPS_LOG.store(true, std::sync::atomic::Ordering::Relaxed);
                 continue;
             }
+            // B643: `?autoplay` every seat a bot, as `HST_AUTOPLAY` natively (a long online match with nobody at the
+            // page, to watch its memory; both ends need it or they go out of sync)
+            if k == "autoplay" {
+                crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
+                continue;
+            }
             if k == "code" {
                 paste(js_sys::decode_uri_component(v).map(String::from).unwrap_or_default());
                 continue;

@@ -42,3 +42,5 @@
 - Online: a custom character you didn't download now plays as the character it's based on in different colours, so it can't be mistaken for that character.
 - Online: the question about downloading another player's custom character now closes the Settings pages if you have them open, so you see it before its time runs out.
 - Outlined words (menu titles, player names, score panel and pop-up text) no longer show specks of background inside small letter holes, like the middle of an "a".
+- Online on phones and in browsers: when a slow connection or device keeps holding the match for a moment, the game no longer rebuilds the whole waiting message each time, which used up memory and could make the browser reload the page mid-match.
+- Online in the browser: if the page reloads during a match, Rejoin now gets you back in at any point of it, not only in the first few minutes.
