@@ -73,6 +73,7 @@ pub mod offbeat;
 pub mod net_hide;
 mod own_camera;
 mod split_view;
+mod camera_hint;
 mod alt_camera;
 pub mod match_stats;
 pub mod front_end;
@@ -615,6 +616,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(own_camera::plugin);
     app.add_plugins(alt_camera::plugin);
     app.add_plugins(split_view::plugin);
+    app.add_plugins(camera_hint::plugin);
     app.add_plugins(foot_fx::plugin);
     app.add_plugins(instant_replay::plugin);
     app.add_plugins(markers::plugin);

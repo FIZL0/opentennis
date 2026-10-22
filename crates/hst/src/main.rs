@@ -1588,7 +1588,7 @@ fn log_assets(w: &World, mut next: Local<f32>) {
 }
 
 /// `HST_KEYS="2:Enter 9:Escape 10:ArrowDown 11:Enter 15:shot=a.png"`: at each real-time second a key is pressed for one
-/// frame (Enter, Space, Escape, Arrow*, Digit1–4, KeyK, KeyO, KeyW/A/S/D, F10) or the window saved, for unattended runs across modes (`--shot` takes one and quits).
+/// frame (Enter, Space, Escape, Arrow*, Digit1–4, KeyK, KeyO, KeyW/A/S/D, KeyC, F10) or the window saved, for unattended runs across modes (`--shot` takes one and quits).
 /// `KEY*S` holds it S seconds (`5:KeyD*3` walks 1P right). `size=W,H` resizes the window (logical px) mid-run.
 fn scripted_keys(mut commands: Commands, mut window: Query<&mut Window, With<bevy::window::PrimaryWindow>>, time: Res<Time<Real>>, mut keys: ResMut<ButtonInput<KeyCode>>, mut done: Local<usize>, mut pressed_at: Local<f32>, mut hold: Local<f32>) {
     let script = std::env::var("HST_KEYS").unwrap_or_default();
@@ -1632,6 +1632,8 @@ fn scripted_keys(mut commands: Commands, mut window: Query<&mut Window, With<bev
         // Settings' page tabs
         "KeyQ" => KeyCode::KeyQ,
         "KeyE" => KeyCode::KeyE,
+        // the camera switch (Select, B651)
+        "KeyC" => KeyCode::KeyC,
         // the HUD on/off (M98); a scripted F10 turns the key on (B505)
         "F10" => {
             play::no_hud::KEY.store(true, std::sync::atomic::Ordering::Relaxed);
