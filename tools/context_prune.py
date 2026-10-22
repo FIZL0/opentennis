@@ -7,6 +7,8 @@ Without --delete it only reports what it would delete. --delete moves those file
 (a rename, instant, same layout), so a test run can prove nothing needed went; a mistake goes back with `cp -al`
 or `mv`. Each --delete also deletes trash older than 7 days for good; --empty deletes all of it now. A file in the main checkout's `context/` is kept when:
 
+  tested      a test read it: `hst_data::fixture` logs every file a test opens to context/notes/fixture-use.log
+              when tools/check.sh runs (so after a full passing check.sh, every recording the tests need is in it)
   live        a tracked file outside the journals (code, tests, tools, research scripts, AGENT/PLAN/REFERENCE, TODO)
               names it, or names its folder, or a glob/`{name}` path into its folder: the whole folder is kept,
               since code often names one file and reads its neighbours by bare name
@@ -16,7 +18,7 @@ or `mv`. Each --delete also deletes trash older than 7 days for good; --empty de
               the journal's evidence stays readable, big captures behind finished work go
   recent      it was written in the last --days days (default 3): work in flight nobody has written up yet
 
-Everything else goes, then any folder left empty. Symlinks are never followed. The disc-derived setup
+Everything else goes, then any folder left empty. --delete refuses to run without the fixture log. Symlinks are never followed. The disc-derived setup
 (`xb`, `iso`, `decomp`, `elf`, Ghidra, save states) is kept because the tools and research/README.md name it;
 anything deleted by mistake that came from the disc is rebuilt by research/README.md, a recording only by
 recording it again.
@@ -62,6 +64,15 @@ def main(argv):
             subprocess.run(["rm", "-rf", "--", trash], check=True)
         return print("trash emptied")
     ids = open_ids()
+    use_log = os.path.join(ctx, "notes", "fixture-use.log")
+    tested = set()
+    if os.path.exists(use_log):
+        for line in open(use_log, encoding="utf-8", errors="ignore"):
+            r = os.path.relpath(os.path.realpath(line.rstrip("\n")), ROOT)
+            if r.startswith("context/"):
+                tested.add(r)
+    elif delete:
+        sys.exit("no context/notes/fixture-use.log yet: run a full tools/check.sh first, so the tests say what they read")
 
     tracked = [p for p in git("ls-files").splitlines() if not p.startswith(("third_party/", "context/"))]
     def open_journal(p):
@@ -78,6 +89,7 @@ def main(argv):
         keep_dirs.add(r if os.path.isdir(full) else os.path.dirname(r))
     keep_dirs.discard("context")
 
+    tested_dirs = {t for t in tested if os.path.isdir(os.path.join(ROOT, t))}
     cutoff = time.time() - days * 86400
     gone, kept, why = 0, 0, {}
     doomed = []
@@ -91,7 +103,9 @@ def main(argv):
             rel = os.path.join(rel_top, f)
             st = os.lstat(full)
             first = rel.split("/")[1] if rel.count("/") >= 2 else ""
-            if any(rel == d or rel.startswith(d + "/") for d in keep_dirs) or rel in live:
+            if rel in tested or any(rel.startswith(t + "/") for t in tested_dirs):
+                reason = "tested"
+            elif any(rel == d or rel.startswith(d + "/") for d in keep_dirs) or rel in live:
                 reason = "live"
             elif first.lower() in ids or any(first.lower().startswith(i) and not first[len(i):len(i) + 1].isalnum() for i in ids):
                 reason = "open task"

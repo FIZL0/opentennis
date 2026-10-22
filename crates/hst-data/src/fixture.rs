@@ -59,7 +59,12 @@ fn checkouts() -> &'static [PathBuf] {
 /// A path under the repo root (`"context/fixtures/x.bin"`; absolute paths are kept as they are). A `context/` file
 /// this checkout lacks is taken from the first other checkout that has it.
 pub fn path(rel: impl AsRef<Path>) -> PathBuf {
-    let p = root().join(rel);
+    let p = found(root().join(rel));
+    log_use(&p);
+    p
+}
+
+fn found(p: PathBuf) -> PathBuf {
     if p.exists() {
         return p;
     }
@@ -69,6 +74,17 @@ pub fn path(rel: impl AsRef<Path>) -> PathBuf {
         return p;
     }
     checkouts().iter().map(|c| c.join(&s[at + 1..])).find(|q| q.exists()).unwrap_or(p)
+}
+
+/// Appends each file a test reads to `HST_FIXTURE_LOG` (tools/check.sh sets it), so `tools/context_prune.py` keeps
+/// every recording a test needs, however the test spells its path.
+fn log_use(p: &Path) {
+    use std::io::Write;
+    let Some(log) = std::env::var_os("HST_FIXTURE_LOG") else { return };
+    let Ok(real) = p.canonicalize() else { return };
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log) {
+        let _ = writeln!(f, "{}", real.display());
+    }
 }
 
 /// Whether this run must have the data (`HST_REQUIRE_DISC=1`).
