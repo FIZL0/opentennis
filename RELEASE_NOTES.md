@@ -46,3 +46,4 @@
 - Online in the browser: if the page reloads during a match, Rejoin now gets you back in at any point of it, not only in the first few minutes.
 - Phones, tablets and low-memory browsers: the menus' text takes a quarter of the graphics memory it did (about 40 MB less), looking the same on their screens.
 - Browser version: loading a match from the menus takes far less memory (the menu lettering is no longer redrawn each time), so phones are less likely to reload the page mid-game.
+- The menus' text now takes half the memory it did (about 25 MB less on computers, 6 MB on phones), looking the same.

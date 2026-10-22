@@ -3816,6 +3816,10 @@ fn draw(
         img.image_mode = if quad.tile { NodeImageMode::Tiled { tile_x: true, tile_y: true, stretch_value: scale / super::menu_art::wall_k() } } else { NodeImageMode::Stretch };
         let [r, g, b] = quad.rgb.map(|c| c / 128.0);
         img.color = Color::srgba(r, g, b, quad.alpha / 128.0);
+        // B646a: the letter sheet is two channels, which the UI shader takes apart for a node flagged so
+        if quad.tex == Tex::Font {
+            img.color = crate::hud_gamma::letters(img.color);
+        }
         let [mut x, mut y, mut w, mut h] = quad.dst;
         if quad.tex == Tex::Cursor && cursor.is_some() {
             // the hand's image covers `PAD` times its quad, around the same centre (B146)
