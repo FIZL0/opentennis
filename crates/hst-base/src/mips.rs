@@ -8,6 +8,7 @@ use bevy::image::{Image, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use bevy::shader::{Shader, Source};
+use std::collections::VecDeque;
 
 /// The UI shader's sampling, as Bevy has it, and as [`plugin`] puts it: biased toward the sharper level.
 const SAMPLE: &str = "textureSample(sprite_texture, sprite_sampler, in.uv)";
@@ -58,58 +59,166 @@ pub fn with_glyph_mips(img: Image, levels: u32, cell: u32, gain: f32) -> Image {
     MipSteps::new(img, levels, Some(cell as usize), gain).finish()
 }
 
-/// [`with_mips`] / [`with_glyph_mips`] a band of rows at a time ([`MipSteps::step`], a few ms each), for a sheet built
-/// in steps so the browser draws frames in between (B409).
+/// [`with_mips`] / [`with_glyph_mips`] a few rows at a time ([`MipSteps::step`], a few ms each), for a sheet built
+/// in steps so the browser draws frames in between (B409). B646: every level is made at once, row by row, each from
+/// the few rows of the level above that its taps reach, so no whole level is held in floats (a 4096-wide sheet's
+/// first level was 38 MB of them, beside the sheet, at a start's peak in the browser).
 pub struct MipSteps {
     img: Image,
-    levels: u32,
-    /// The cell size at the level being read (halving with it), or `None` for the sheet as one.
-    cell: Option<usize>,
+    /// One per level below the image's own, largest first.
+    halvings: Vec<Halving>,
+    /// A row of the image's own, premultiplied linear.
+    line: Vec<[f32; 4]>,
+    /// The smaller levels' coverage gain.
     gain: f32,
-    /// Levels done (1: just the image's own).
-    n: u32,
-    /// The level being read: its size and texels (premultiplied linear; `None` for the image's own bytes).
+}
+
+/// Making a level from the one above it.
+struct Halving {
+    /// The level above's size, and its cells (across, down): the level as one if it has none.
     w: usize,
     h: usize,
-    src: Option<Vec<[f32; 4]>>,
-    /// The level being made, a band of rows at a time.
-    next: Vec<[f32; 4]>,
+    cx: usize,
+    cy: usize,
+    /// Where this level's bytes start in the image's.
+    at: usize,
+    /// Rows made.
+    made: usize,
+    /// The rows above that the next rows' taps reach, filtered across (half as wide), from row `first`.
+    rows: VecDeque<Vec<[f32; 4]>>,
+    first: usize,
+}
+
+impl Halving {
+    fn size(&self) -> (usize, usize) {
+        ((self.w / 2).max(1), (self.h / 2).max(1))
+    }
+
+    /// The row above that tap `t` of row `r` reads (clamped to its cell).
+    fn row_of(&self, r: usize, t: usize) -> usize {
+        if self.h < 2 {
+            return 0;
+        }
+        let lo = (2 * r) / self.cy * self.cy;
+        (2 * r + t).saturating_sub(3).clamp(lo, (lo + self.cy).min(self.h) - 1)
+    }
+
+    fn done(&self) -> bool {
+        self.made == self.size().1
+    }
+
+    /// The next row's taps are all in.
+    fn ready(&self) -> bool {
+        !self.done() && self.first + self.rows.len() > self.row_of(self.made, 7)
+    }
+
+    /// The next row of the level above, filtered across.
+    fn push(&mut self, row: &[[f32; 4]], k: &[f32; 8]) {
+        let (w, nw) = (self.w, self.size().0);
+        let mut out = vec![[0f32; 4]; nw];
+        for (i, o) in out.iter_mut().enumerate() {
+            if w < 2 {
+                *o = row[0];
+                continue;
+            }
+            let left = (2 * i) / self.cx * self.cx;
+            let (first, last) = (left, (left + self.cx).min(w) - 1);
+            if 2 * i >= first + 3 && 2 * i + 4 <= last {
+                for (p, &kt) in row[2 * i - 3..][..8].iter().zip(k) {
+                    (0..4).for_each(|c| o[c] += p[c] * kt);
+                }
+            } else {
+                for (t, &kt) in k.iter().enumerate() {
+                    let p = row[(2 * i + t).saturating_sub(3).clamp(first, last)];
+                    (0..4).for_each(|c| o[c] += p[c] * kt);
+                }
+            }
+        }
+        self.rows.push_back(out);
+    }
+
+    /// The next row (premultiplied linear), filtered down; the rows above that no later row reads are let go.
+    fn make(&mut self, k: &[f32; 8]) -> Vec<[f32; 4]> {
+        let (r, nw) = (self.made, self.size().0);
+        let row: Vec<[f32; 4]> = (0..nw)
+            .map(|i| {
+                let mut s = [0f32; 4];
+                if self.h < 2 {
+                    s = self.rows[0][i];
+                } else {
+                    for (t, &kt) in k.iter().enumerate() {
+                        let p = self.rows[self.row_of(r, t) - self.first][i];
+                        (0..4).for_each(|c| s[c] += p[c] * kt);
+                    }
+                }
+                // the lobes ring a little past 0 and full
+                let a = s[3].clamp(0.0, 1.0);
+                [s[0].clamp(0.0, a), s[1].clamp(0.0, a), s[2].clamp(0.0, a), a]
+            })
+            .collect();
+        self.made += 1;
+        if !self.done() {
+            while self.first < self.row_of(self.made, 0) {
+                self.rows.pop_front();
+                self.first += 1;
+            }
+        }
+        row
+    }
 }
 
 /// Output texels a [`MipSteps::step`] makes.
 const STEP: usize = 1 << 15;
 
+/// The bytes `w`×`h` `Rgba8` art takes with up to `levels` levels (as [`with_mips`] makes them): what to give a
+/// sheet's buffer up front so they're added to it in place.
+pub fn room(w: u32, h: u32, levels: u32) -> usize {
+    let (mut w, mut h) = (w as usize, h as usize);
+    let mut bytes = w * h * 4;
+    for _ in 1..levels {
+        if w <= 1 && h <= 1 {
+            break;
+        }
+        (w, h) = ((w / 2).max(1), (h / 2).max(1));
+        bytes += w * h * 4;
+    }
+    bytes
+}
+
 impl MipSteps {
-    pub fn new(mut img: Image, levels: u32, cell: Option<usize>, gain: f32) -> MipSteps {
+    pub fn new(mut img: Image, levels: u32, mut cell: Option<usize>, gain: f32) -> MipSteps {
         let d = img.texture_descriptor.size;
         let fits = img.texture_descriptor.format == TextureFormat::Rgba8UnormSrgb
             && img.texture_descriptor.mip_level_count == 1
             && d.depth_or_array_layers == 1
             && img.data.as_ref().is_some_and(|p| p.len() == d.width as usize * d.height as usize * 4);
         let levels = if fits { levels } else { 1 };
-        // B645: room for every level up front, so the sheet isn't copied into a bigger buffer (twice its size) as
-        // they're added: in the browser a heap never gives back what a start peaked at
-        let (mut lw, mut lh, mut rest) = (d.width as usize, d.height as usize, 0);
-        for _ in 1..levels {
-            if lw <= 1 && lh <= 1 {
-                break;
-            }
-            (lw, lh) = ((lw / 2).max(1), (lh / 2).max(1));
-            rest += lw * lh * 4;
+        let (mut w, mut h) = (d.width as usize, d.height as usize);
+        let mut at = w * h * 4;
+        let mut halvings = Vec::new();
+        while 1 + halvings.len() < levels as usize && !(w <= 1 && h <= 1) {
+            // cells on whole texels at this level and the next, or the level as one
+            cell = cell.filter(|&c| c >= 2 && c % 2 == 0 && w % c == 0 && h % c == 0);
+            let (cx, cy) = cell.map_or((w, h), |c| (c, c));
+            halvings.push(Halving { w, h, cx, cy, at, made: 0, rows: VecDeque::new(), first: 0 });
+            (w, h) = ((w / 2).max(1), (h / 2).max(1));
+            at += w * h * 4;
+            cell = cell.map(|c| c / 2);
         }
-        if let Some(data) = img.data.as_mut() {
-            data.reserve_exact(rest);
+        // B645: room for every level up front (none if the buffer was made with it, `room`), so the sheet isn't
+        // copied into a bigger buffer: in the browser a heap never gives back what a start peaked at
+        if let Some(data) = img.data.as_mut().filter(|_| !halvings.is_empty()) {
+            data.reserve_exact(at - data.len());
+            data.resize(at, 0);
         }
-        MipSteps { img, levels, cell, gain, n: 1, w: d.width as usize, h: d.height as usize, src: None, next: Vec::new() }
+        let line = Vec::with_capacity(if halvings.is_empty() { 0 } else { d.width as usize });
+        MipSteps { img, halvings, line, gain }
     }
 
     /// All the steps at once.
     pub fn finish(mut self) -> Image {
-        loop {
-            if self.step() {
-                return self.img;
-            }
-        }
+        while !self.step() {}
+        self.img
     }
 
     /// The image, once [`Self::step`] has said it's done.
@@ -117,86 +226,42 @@ impl MipSteps {
         self.img
     }
 
-    /// Makes the next band of the level being made; true once every level is in.
+    /// Makes the next rows; true once every level is in.
     pub fn step(&mut self) -> bool {
-        if self.n >= self.levels || (self.w <= 1 && self.h <= 1) {
-            if self.n > 1 {
-                self.img.texture_descriptor.mip_level_count = self.n;
-                self.img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor { mipmap_filter: ImageFilterMode::Linear, ..ImageSamplerDescriptor::linear() });
-            }
-            self.levels = self.n;
-            return true;
-        }
-        let (w, h) = (self.w, self.h);
-        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
-        // cells on whole texels at this level and the next, or the sheet as one
-        self.cell = self.cell.filter(|&c| c >= 2 && c % 2 == 0 && w % c == 0 && h % c == 0);
-        let (cx, cy) = self.cell.map_or((w, h), |c| (c, c));
-        if self.next.is_empty() {
-            self.next.reserve_exact(nw * nh);
-        }
-        let r0 = self.next.len() / nw;
-        let r1 = (r0 + (STEP / nw).max(1)).min(nh);
-        let data = self.img.data.as_ref().expect("checked in new");
-        let lut = srgb_lut();
         let k = taps();
-        // the input rows the band's taps reach (clamped to each one's cell), across first
-        let row_of = |r: usize, t: usize| if h < 2 { 0 } else { let lo = (2 * r) / cy * cy; (2 * r + t).saturating_sub(3).clamp(lo, (lo + cy).min(h) - 1) };
-        let (lo, hi) = (row_of(r0, 0), row_of(r1 - 1, 7));
-        let mut across = vec![[0f32; 4]; (hi - lo + 1) * nw];
-        let mut line = vec![[0f32; 4]; w];
-        for y in lo..=hi {
-            let row: &[[f32; 4]] = match &self.src {
-                Some(s) => &s[y * w..][..w],
-                None => {
-                    data[y * w * 4..][..w * 4].as_chunks::<4>().0.iter().zip(line.iter_mut()).for_each(|(p, o)| *o = premultiplied(p, lut));
-                    &line
+        let mut made = 0;
+        while made < STEP {
+            // the smallest level that can make a row, so the rows above it are let go soonest; else the largest,
+            // from the image's own rows (once it's done, so is every level below it)
+            let i = (1..self.halvings.len()).rev().find(|&i| self.halvings[i].ready()).unwrap_or(0);
+            let Some(lv) = self.halvings.get_mut(i).filter(|l| !l.done()) else {
+                if !self.halvings.is_empty() {
+                    self.img.texture_descriptor.mip_level_count = 1 + self.halvings.len() as u32;
+                    self.img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor { mipmap_filter: ImageFilterMode::Linear, ..ImageSamplerDescriptor::linear() });
                 }
+                return true;
             };
-            for i in 0..nw {
-                let o = &mut across[(y - lo) * nw + i];
-                if w < 2 {
-                    *o = row[0];
-                    continue;
-                }
-                let left = (2 * i) / cx * cx;
-                let (first, last) = (left, (left + cx).min(w) - 1);
-                if 2 * i >= first + 3 && 2 * i + 4 <= last {
-                    let taps = &row[2 * i - 3..][..8];
-                    for (p, &kt) in taps.iter().zip(&k) {
-                        (0..4).for_each(|c| o[c] += p[c] * kt);
-                    }
-                } else {
-                    for (t, &kt) in k.iter().enumerate() {
-                        let p = row[(2 * i + t).saturating_sub(3).clamp(first, last)];
-                        (0..4).for_each(|c| o[c] += p[c] * kt);
-                    }
+            let data = self.img.data.as_mut().expect("checked in new");
+            if i == 0 {
+                let lut = srgb_lut();
+                while !lv.ready() {
+                    let y = lv.first + lv.rows.len();
+                    self.line.clear();
+                    self.line.extend(data[y * lv.w * 4..][..lv.w * 4].as_chunks::<4>().0.iter().map(|p| premultiplied(p, lut)));
+                    lv.push(&self.line, &k);
                 }
             }
-        }
-        for r in r0..r1 {
-            for i in 0..nw {
-                let mut s = [0f32; 4];
-                if h < 2 {
-                    s = across[i];
-                } else {
-                    for (t, &kt) in k.iter().enumerate() {
-                        let p = across[(row_of(r, t) - lo) * nw + i];
-                        (0..4).for_each(|c| s[c] += p[c] * kt);
-                    }
-                }
-                // the lobes ring a little past 0 and full
-                let a = s[3].clamp(0.0, 1.0);
-                self.next.push([s[0].clamp(0.0, a), s[1].clamp(0.0, a), s[2].clamp(0.0, a), a]);
+            let (r, nw) = (lv.made, lv.size().0);
+            let at = lv.at + r * nw * 4;
+            let row = lv.make(&k);
+            let (enc, gain) = (encode_lut(), self.gain);
+            for (o, &p) in data[at..][..nw * 4].as_chunks_mut::<4>().0.iter_mut().zip(&row) {
+                *o = straight(p, (p[3] * gain).min(1.0), enc);
             }
-        }
-        if r1 == nh {
-            let enc = encode_lut();
-            let gain = self.gain;
-            let next = std::mem::take(&mut self.next);
-            self.img.data.as_mut().expect("checked in new").extend(next.iter().flat_map(|&p| straight(p, (p[3] * gain).min(1.0), enc)));
-            (self.src, self.w, self.h, self.n) = (Some(next), nw, nh, self.n + 1);
-            self.cell = self.cell.map(|c| c / 2);
+            if let Some(below) = self.halvings.get_mut(i + 1) {
+                below.push(&row, &k);
+            }
+            made += nw;
         }
         false
     }
@@ -315,4 +380,66 @@ mod tests {
         let half = |gain| level(&with_glyph_mips(sheet(4, 4, |x, _| if x % 2 == 0 { [255; 4] } else { [0; 4] }), 2, 4, gain), 1)[3];
         assert!(half(1.5) > half(1.0) && half(1.0) >= 120, "{} {}", half(1.0), half(1.5));
     }
+
+    /// The old way, a whole level at a time in floats (sheet as one cell): the levels made row by row are the same
+    /// bytes, and they never hold more than a few rows of the level above (B646).
+    #[test]
+    fn row_by_row_is_level_by_level() {
+        let mut seed = 12345u64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for (w, h, levels) in [(300usize, 7usize, 9u32), (1, 37, 9), (201, 157, 5), (2, 1, 3)] {
+            let px: Vec<[u8; 4]> = (0..w * h).map(|_| rnd()).map(|r| if ((r >> 8) as u8) < 90 { [0; 4] } else { [r as u8, (r >> 16) as u8, (r >> 24) as u8, (r >> 8) as u8] }).collect();
+            let img = sheet(w as u32, h as u32, |x, y| px[y as usize * w + x as usize]);
+            let mut steps = MipSteps::new(img.clone(), levels, None, 1.5);
+            let mut most = 0;
+            while !{
+                let d = steps.step();
+                most = most.max(steps.halvings.iter().map(|l| l.rows.len()).max().unwrap_or(0));
+                d
+            } {}
+            assert!(most <= 9, "{most} rows held");
+            let got = steps.image();
+            let (k, lut, enc) = (taps(), srgb_lut(), encode_lut());
+            let mut src: Vec<[f32; 4]> = px.iter().map(|p| premultiplied(p, lut)).collect();
+            let (mut w, mut h) = (w, h);
+            for n in 1..got.texture_descriptor.mip_level_count as usize {
+                let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+                let tap = |i: usize, t: usize, n: usize| if n < 2 { 0 } else { (2 * i + t).saturating_sub(3).min(n - 1) };
+                let mut across = vec![[0f32; 4]; nw * h];
+                for y in 0..h {
+                    for i in 0..nw {
+                        let o = &mut across[y * nw + i];
+                        if w < 2 {
+                            *o = src[y * w];
+                            continue;
+                        }
+                        k.iter().enumerate().for_each(|(t, &kt)| (0..4).for_each(|c| o[c] += src[y * w + tap(i, t, w)][c] * kt));
+                    }
+                }
+                src = (0..nh * nw)
+                    .map(|j| {
+                        let (r, i) = (j / nw, j % nw);
+                        let mut s = [0f32; 4];
+                        if h < 2 {
+                            s = across[i];
+                        } else {
+                            k.iter().enumerate().for_each(|(t, &kt)| (0..4).for_each(|c| s[c] += across[tap(r, t, h) * nw + i][c] * kt));
+                        }
+                        let a = s[3].clamp(0.0, 1.0);
+                        [s[0].clamp(0.0, a), s[1].clamp(0.0, a), s[2].clamp(0.0, a), a]
+                    })
+                    .collect();
+                let want: Vec<u8> = src.iter().flat_map(|&p| straight(p, (p[3] * 1.5).min(1.0), enc)).collect();
+                assert_eq!(level(&got, n), &want[..], "{w}x{h} level {n}");
+                (w, h) = (nw, nh);
+            }
+            assert_eq!(got.data.as_ref().unwrap().len(), room(got.width(), got.height(), levels));
+        }
+    }
 }
+
