@@ -65,6 +65,8 @@ pub struct View {
     pub ready: Option<u32>,
     /// B530: the line-up (`Room.ver`) this machine last tried to send its custom characters' picks again for.
     pub rewired: Option<u32>,
+    /// B641: the picks this machine last sent from the select during the host's countdown (what its players were on).
+    pub rushed: Option<Vec<Pick>>,
     /// B281: what this machine last told the host about still choosing about a mod.
     pub deciding: bool,
     /// M122: what this machine last told the host about downloading mods' looks (how far, in 5 % steps).
@@ -493,6 +495,50 @@ impl Menu {
         } else if let Some(e) = unwired.iter().find_map(|&i| Wire::of(&self.mods[i], 0).err().map(|e| (i, e))) {
             self.net.status = format!("{} couldn't go online, so its donor plays it: {}", self.mods[e.0].name, e.1);
         }
+    }
+
+    /// B641: the host's countdown runs while this machine's players are still on the select: their picks go in as
+    /// they stand (a custom character with its wire, read in first; one on the Random card drawn), so the match plays
+    /// what they're on rather than the pick they joined with, and a mod among them is in the line-up early enough for every peer to be asked about
+    /// its looks (the start waits for that, B281). Sent again whenever they move on before the start.
+    fn rush_picks(&mut self, net: &Net) {
+        if self.counting() == 0 {
+            self.net.rushed = None;
+            return;
+        }
+        if self.net.room.is_none() || self.net.started || self.net.me.is_empty() {
+            return;
+        }
+        let mine: Vec<usize> = (0..self.players()).filter(|&p| self.seats[p].is_some()).collect();
+        if self.screen != Screen::Chars || mine.iter().all(|&p| self.players[p].ready) {
+            return;
+        }
+        // one on the Random card draws now, as readying would (once a countdown; the card still shows ?)
+        if self.net.rushed.is_none() {
+            self.net.rushed = Some(Vec::new());
+            for &p in &mine {
+                if !self.players[p].ready && self.players[p].random {
+                    self.roll_random(p);
+                }
+            }
+        }
+        let own = self.own_mods();
+        // the browser: a custom character's files read in first (asked again each frame until they are)
+        let unread = mine.iter().filter_map(|&p| match self.pick(p).0 {
+            super::Who::Mod(i) if i < own => Some(i),
+            _ => None,
+        });
+        if unread.filter(|&i| !crate::modfs::ready(&self.mods[i].dir)).count() > 0 {
+            return;
+        }
+        let picks = self.picks();
+        let Some(r) = self.net.room.as_ref() else { return };
+        let held: Vec<Pick> = r.seats.iter().flatten().filter(|s| s.peer == self.net.me).map(|s| Pick { handicap: 0, ..s.pick.clone() }).collect();
+        if picks.len() != held.len() || picks == held || self.net.rushed.as_ref() == Some(&picks) {
+            return;
+        }
+        self.net.rushed = Some(picks.clone());
+        net.send(Cmd::Picks(picks));
     }
 
     /// The host's court mod as one this guest may fetch (it has none of its own to draw yet, or a copy).
@@ -2416,7 +2462,7 @@ fn asked(r: &Room, h: u64) -> Option<(&str, bool)> {
 /// over the screen under it; the gold pill (row `sel`) is the cursor, and it has to be answered (`outside`: what a
 /// press off the box does).
 fn ask_popup(d: &mut Draw, name: &str, court: bool, wait: u32, sel: usize, outside: Option<Act>) {
-    let instead = if court { "on the plain court" } else { "as the character it's based on" };
+    let instead = if court { "on the plain court" } else { "as its base character, recoloured" };
     let help = match wait {
         0 => format!("Download its looks, or play it {instead}."),
         s => format!("The match is waiting: choose within {s} s, or it plays {instead}."),
@@ -2499,6 +2545,7 @@ pub(super) fn poll(
         }
         menu.court_looks_out(&net);
         menu.mod_picks_out(&net);
+        menu.rush_picks(&net);
         let d = menu.undecided();
         if d != menu.net.deciding {
             menu.net.deciding = d;
@@ -3782,6 +3829,76 @@ mod tests {
         b.net.room = None;
         b.borrow(&mut text);
         assert!(b.mods.is_empty() && text.mods.is_empty());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// B641: the host's countdown runs out while a guest is still on the select on a custom character: its seat held
+    /// the pick it joined with (Ashley, the grid's first), so the match played that, and with no mod in the line-up
+    /// nobody was asked about its looks. Its picks now go in as it stands once the countdown is on, the mod's wire with
+    /// them (read in first), and again when it moves on.
+    #[test]
+    fn a_countdown_takes_the_select_as_it_stands() {
+        let src = &hst_data::fixture::path("context/mods/getagrip_pc00_emi");
+        if !src.is_dir() {
+            return hst_data::fixture::skip("no context/mods/getagrip_pc00_emi");
+        }
+        fn copy(from: &std::path::Path, to: &std::path::Path) {
+            std::fs::create_dir_all(to).unwrap();
+            for e in std::fs::read_dir(from).unwrap().flatten() {
+                let p = std::fs::canonicalize(e.path()).unwrap();
+                if p.is_dir() {
+                    copy(&p, &to.join(e.file_name()));
+                } else {
+                    std::fs::copy(&p, to.join(e.file_name())).unwrap();
+                }
+            }
+        }
+        let tmp = std::env::temp_dir().join(format!("hst-b641-{}", std::process::id()));
+        let dir = tmp.join("mods/getagrip_pc00_emi");
+        copy(src, &dir);
+        let m = crate::mods::read(&dir).unwrap();
+        let (net, mut rx) = Net::wired();
+        let mut g = Menu { screen: Screen::Chars, mods: vec![m.clone()], ..default() };
+        sample(&mut g);
+        (g.net.me, g.net.go, g.net.hosting) = ("r8mxw2pa0c1e".into(), Some(Go::Code), false);
+        g.seats[0] = Some(super::super::Dev::Keys);
+        // the seat holds what it joined with; the player is on the mod, not ready
+        g.net.room.as_mut().unwrap().seats[2].as_mut().unwrap().pick = Pick::disc(0, 0);
+        (g.players[0].modded, g.players[0].pick) = (true, 0);
+        g.rush_picks(&net);
+        assert!(rx.try_recv().is_err(), "no countdown: still choosing");
+        g.net.room.as_mut().unwrap().count = 4;
+        // a costume still in the browser's storage: read in first
+        crate::modfs::add_lazy(&dir.join(&m.costumes[0]), 1);
+        g.rush_picks(&net);
+        assert!(rx.try_recv().is_err(), "still being read in");
+        crate::modfs::loaded(&dir.display().to_string());
+        g.rush_picks(&net);
+        let Ok(Cmd::Picks(p)) = rx.try_recv() else { panic!("the countdown takes the select as it stands") };
+        assert_eq!((p.len(), p[0].char, p[0].r#mod.as_ref().map(|w| w.id.as_str())), (1, m.donor, Some(m.id.as_str())));
+        g.rush_picks(&net);
+        assert!(rx.try_recv().is_err(), "once for the same picks");
+        // moved on to a disc character before the start: that goes in instead
+        (g.players[0].modded, g.players[0].cursor) = (false, super::super::GRID.iter().position(|c| c.0 == 4).unwrap());
+        g.rush_picks(&net);
+        let Ok(Cmd::Picks(p)) = rx.try_recv() else { panic!("sent again") };
+        assert_eq!((p[0].char, p[0].r#mod.is_none()), (4, true));
+        // ready (into the lobby) or no countdown: nothing more from here
+        g.players[0].ready = true;
+        (g.players[0].modded, g.players[0].pick) = (true, 0);
+        g.rush_picks(&net);
+        assert!(rx.try_recv().is_err());
+        // on the Random card (where a guest's select opens, its join pick the grid's first): drawn once, sent as drawn
+        g.net.room.as_mut().unwrap().count = 0;
+        g.rush_picks(&net);
+        g.players[0] = super::super::Player { random: true, ..default() };
+        g.net.room.as_mut().unwrap().count = 3;
+        g.rush_picks(&net);
+        let Ok(Cmd::Picks(p)) = rx.try_recv() else { panic!("the Random card drawn") };
+        assert!(p[0].random && g.players[0].random, "still the ? card");
+        let drawn = g.pick(0);
+        g.rush_picks(&net);
+        assert_eq!((g.pick(0), rx.try_recv().is_err()), (drawn, true), "drawn once");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
