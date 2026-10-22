@@ -1379,7 +1379,7 @@ pub fn animate(
         let serve = |id: i32| [hst_sim::motion::id::SERVE, hst_sim::motion::id::SERVE_UNDER].contains(&id);
         let after_serve = motion.fade.clip && serve(motion.fade.id);
         if c.sets != motion.sets {
-            c.sets = motion.sets;
+            (c.sets, c.set_at) = (motion.sets, time.elapsed_secs_f64());
             let own = rig.data.own(new);
             let ease = if motion.mix.is_none() && (own || c.own) {
                 Some(EASE_IN)
@@ -1450,8 +1450,8 @@ pub fn animate(
             };
             hold_head(&rig.data, grip, &mut drawn, 1.0 - mine);
         }
-        // the serve's follow-through turns into the ready stance (standing's first frame) as the racket comes round,
-        // instead of holding it behind the back until the next motion flips it to the front (looks only)
+        // the serve's follow-through turns into the ready stance (standing, bobbing from its start) as the racket comes
+        // round, instead of holding it behind the back until the next motion flips it to the front (looks only)
         if over.is_none()
             && serve(motion.id as i32)
             && let Some(stand) = rig.data.drawn(hst_sim::motion::id::STAND as usize)
@@ -1460,7 +1460,9 @@ pub fn animate(
             let w = ((t - SERVE_READY.0) / (SERVE_READY.1 - SERVE_READY.0)).clamp(0.0, 1.0);
             if w > 0.0 {
                 let w = w * w * (3.0 - 2.0 * w);
-                pose_at(&rig.data.joints, stand, 0.0, &mut c.ready);
+                // on its own clock: the serve's holds its end
+                let since = ((time.elapsed_secs_f64() - c.set_at) * 60.0) as f32 + time.overstep_fraction();
+                pose_at(&rig.data.joints, stand, stand.wrap((since - SERVE_READY.0).max(0.0), true), &mut c.ready);
                 for (d, &(q, v)) in drawn.iter_mut().zip(&c.ready) {
                     *d = (d.0.slerp(q, w), d.1.lerp(v, w));
                 }
@@ -1507,7 +1509,8 @@ pub struct Posing {
     eased: f64,
     /// The ease's length in frames.
     ease: f32,
-    /// Standing's first frame, which a serve's follow-through turns into.
+    /// When the fixed clock last saw a new set, and the standing pose a serve's follow-through turns into.
+    set_at: f64,
     ready: Vec<(Quat, Vec3)>,
 }
 
