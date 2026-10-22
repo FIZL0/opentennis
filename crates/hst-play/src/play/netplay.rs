@@ -26,8 +26,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Hashes are compared before every this many ticks.
 pub const HASH_EVERY: u32 = 30;
-/// A stall this long (real seconds) puts up "Waiting for ...".
-const STALL: f32 = 0.25;
+/// A stall this long (real seconds) mid-match puts up "Waiting for ..." (B642: at 0.25 s every short hitch flashed it
+/// up mid-rally; shorter stalls just hold the match silently).
+const STALL: f32 = 2.0;
+/// A stall this long before every peer has loaded the match puts up "Waiting for ... to load...".
+const LOAD_STALL: f32 = 0.25;
 /// How long the end message stays up before the match closes.
 const END: f32 = 5.0;
 /// The desync message's start (a peer that hears it saves its inputs too).
@@ -550,7 +553,7 @@ fn watch(w: &mut World) {
     let text = match &np.end {
         Some(why) => why.clone(),
         None if !notice.is_empty() => notice,
-        None if np.stalled > STALL && !started(&np) => {
+        None if np.stalled > LOAD_STALL && !started(&np) => {
             let who: Vec<String> = np.recover.loading(&np.room).iter().map(|p| np.room.names.get(p).cloned().unwrap_or_else(|| p.chars().take(8).collect())).collect();
             format!("Waiting for {} to load...", who.join(", "))
         }

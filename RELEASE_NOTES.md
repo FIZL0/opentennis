@@ -36,3 +36,4 @@
 - The team name plate at the end of a doubles match is now drawn sharp instead of the original blurry plate.
 - The in-match pop-ups and score panel (the umpire's calls like Fault and Change Sides, points, deuce, tie break, game/set, match and set point, aces, serve speed, the hints under the score, player ranks and the intro's set and game numbers) are now drawn sharp in the game's own style instead of the original blurry art.
 - The 1P–4P and COM labels over the players and on the score boards are now drawn sharp in the same style as player names.
+- Online: the "Waiting for …" message no longer flashes up mid-rally on a short hiccup; the match just holds until the other player's moves arrive, and the message shows only after a couple of seconds without them.
