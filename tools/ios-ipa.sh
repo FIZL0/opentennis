@@ -57,8 +57,6 @@ cat > "$app/Info.plist" <<EOF
 	<key>CADisableMinimumFrameDurationOnPhone</key><true/>
 	<key>UIFileSharingEnabled</key><true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key><true/>
-	<!-- M140: the sideload installers Update can hand the new .ipa to (update.rs INSTALLERS, ios.rs can_open) -->
-	<key>LSApplicationQueriesSchemes</key><array><string>sidestore</string><string>altstore</string><string>apple-magnifier</string></array>
 	<key>NSLocalNetworkUsageDescription</key><string>Finds and joins matches on your local network.</string>
 </dict>
 </plist>
