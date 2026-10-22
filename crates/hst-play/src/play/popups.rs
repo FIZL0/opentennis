@@ -548,7 +548,7 @@ fn setup_calls(
     // game space (y down) → Bevy, in front of the camera as the overlay camera saw them
     let space = commands.spawn((CallSpace, Transform::default(), Visibility::default())).id();
     let root = commands.spawn((Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::PI)), Visibility::default(), ChildOf(space))).id();
-    let models = CALL_MODELS.into_iter().zip(super::menu_art::CALLS).map(|(name, lines)| {
+    let models = CALL_MODELS.into_iter().map(|name| {
         let (mut effect, shown) = crate::effects::model(&arc, &format!("azuma/inpane/mdl/{name}"), &mut commands, root, &mut meshes, &mut materials, &mut images, &mut bindposes)
             .unwrap_or_else(|e| panic!("{name}: {e}"));
         effect.hold = true;
@@ -557,7 +557,7 @@ fn setup_calls(
             if let Some(mut m) = materials.get_mut(h) {
                 m.base.depth_bias = CALL_SORT;
                 let disc = m.base.base_color_texture.as_ref().and_then(|t| images.get(t)).and_then(|i| Some((i.width() as usize, i.height() as usize, i.data.clone()?)));
-                if let Some(ours) = disc.and_then(|(w, h, px)| super::menu_art::call_card(&mut images, w, h, &px, lines)) {
+                if let Some(ours) = disc.and_then(|(w, h, px)| super::menu_art::call_card(&mut images, w, h, &px)) {
                     m.base.base_color_texture = Some(ours);
                 }
             }

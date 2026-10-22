@@ -26,6 +26,8 @@ pub fn wall_k() -> f32 {
     if OFF.load(Ordering::Relaxed) { 1.0 } else { K as f32 }
 }
 
+mod trace;
+
 pub(crate) static HEAVY: &[u8] = include_bytes!("../../../hst/assets/fonts/MPLUSRounded1c-ExtraBold.ttf");
 pub static BOLD: &[u8] = include_bytes!("../../../hst/assets/fonts/MPLUSRounded1c-Bold.ttf");
 
@@ -37,14 +39,20 @@ struct Sheet {
     labels: &'static [Label<'static>],
     /// B141a: stylised words and digits of ours, each cell cleared and stamped in its [`Look`].
     stamps: &'static [Stamp],
+    /// Traced sharp instead ([`trace`]): the disc's own letters, which our font can't match.
+    traced: bool,
 }
 
 const fn sheet(name: &'static str, labels: &'static [Label<'static>]) -> Sheet {
-    Sheet { name, labels, stamps: &[] }
+    Sheet { name, labels, stamps: &[], traced: false }
 }
 
 const fn stamped(name: &'static str, labels: &'static [Label<'static>], stamps: &'static [Stamp]) -> Sheet {
-    Sheet { name, labels, stamps }
+    Sheet { name, labels, stamps, traced: false }
+}
+
+const fn traced(name: &'static str) -> Sheet {
+    Sheet { name, labels: &[], stamps: &[], traced: true }
 }
 
 const SHEETS: &[Sheet] = &[
@@ -61,12 +69,12 @@ const SHEETS: &[Sheet] = &[
     stamped("inpane_pause00", &[], POINTS),
     stamped("inpane_pause01", &[], TIEBREAK),
     // the match's pop-ups: points, Deuce!, the game/set result words, the result board's sets, the shot banners
-    stamped("inpane_kihontokuten00", &[], &PANEL_POINTS[0]),
-    stamped("inpane_kihontokuten01", &[], &PANEL_POINTS[1]),
-    stamped("inpane_tiebreak00", &[], &PANEL_TIEBREAK[0]),
-    stamped("inpane_tiebreak01", &[], &PANEL_TIEBREAK[1]),
-    stamped("inpane_duce00", &[], &DEUCE[0]),
-    stamped("inpane_duce01", &[], &DEUCE[1]),
+    traced("inpane_kihontokuten00"),
+    traced("inpane_kihontokuten01"),
+    traced("inpane_tiebreak00"),
+    traced("inpane_tiebreak01"),
+    traced("inpane_duce00"),
+    traced("inpane_duce01"),
     stamped("result_game", &[], &two_rows((12, 7, 120, 47), "Game", ORANGE)),
     stamped("result_set", &[], &two_rows((29, 3, 92, 56), "Set", RED_UP)),
     stamped("result_verblue", &[], &SERVER[0]),
@@ -107,7 +115,7 @@ const SPEED_DIGITS: [Stamp; 11] = {
 /// The intro's sets and games to win: white digits 1–6 (tinted when drawn) over their thick white outlines below.
 const START_DIGITS: [Stamp; 12] = {
     const S: [&str; 6] = ["1", "2", "3", "4", "5", "6"];
-    let fill = Look { top: [255; 3], bottom: [255; 3], edge: [255; 3], ring: [255; 3], ew: 0.0, rw: 0.0, slant: 0.0, bevel: false };
+    let fill = Look { top: [255; 3], bottom: [255; 3], edge: [255; 3], ring: [255; 3], ew: 0.0, rw: 0.0, slant: 0.0 };
     let mut out = [((0, 0, 0, 0), "", fill); 12];
     let mut d = 0;
     while d < 6 {
@@ -190,51 +198,6 @@ const MATCH: Look = look([255, 225, 90], [230, 95, 10], [90, 30, 0], 2.5, 0.0);
 const SET_POINT: Look = look([255, 205, 215], [210, 60, 85], [90, 15, 30], 2.5, 0.0);
 const COUNTER: Look = look([225, 250, 255], [60, 170, 225], [10, 60, 105], 2.5, 0.0);
 
-/// The score pop-up's points (128×64 cells: 0, 15 / 30, 40 / Deuce, Advantage), gold, and the flash's white.
-const PANEL_POINTS: [[Stamp; 6]; 2] = [points6(POINT_GOLD), points6(white(POINT_GOLD))];
-const POINT_GOLD: Look = Look { bevel: true, ..look([225, 161, 21], [236, 214, 31], [44, 42, 20], 0.0, 0.12) };
-const fn points6(l: Look) -> [Stamp; 6] {
-    [
-        ((27, 3, 50, 57), "0", l),
-        ((140, 3, 80, 57), "15", l),
-        ((3, 68, 95, 58), "30", l),
-        ((132, 68, 98, 58), "40", l),
-        ((5, 138, 118, 43), "Deuce", l),
-        ((129, 138, 126, 43), "Advantage", l),
-    ]
-}
-
-/// The tiebreak's points (64×64 cells 0–7, then Deuce and Advantage 128 wide), red, and the flash's white.
-const PANEL_TIEBREAK: [[Stamp; 10]; 2] = [tiebreak10(POINT_RED), tiebreak10(white(POINT_RED))];
-const POINT_RED: Look = Look { bevel: true, ..look([169, 43, 43], [199, 99, 99], [88, 18, 21], 0.0, 0.12) };
-const fn tiebreak10(l: Look) -> [Stamp; 10] {
-    const S: [&str; 8] = ["0", "1", "2", "3", "4", "5", "6", "7"];
-    let mut out = [((0, 0, 0, 0), "", l); 10];
-    let mut d = 0;
-    while d < 8 {
-        out[d] = (((d % 4) as u16 * 64 + 6, (d / 4) as u16 * 65 + 1, 52, 62), S[d], l);
-        d += 1;
-    }
-    out[8] = ((3, 138, 118, 43), "Deuce", l);
-    out[9] = ((129, 138, 126, 43), "Advantage", l);
-    out
-}
-
-/// "Deuce!" and its count's digits (32-px cells, 8 to a row, then 8, 9 and the ×), gold and the tiebreak's red.
-const DEUCE: [[Stamp; 12]; 2] = [deuce12(GOLD_UP), deuce12(RED_UP)];
-const GOLD_UP: Look = look([255, 240, 130], [230, 160, 20], [90, 50, 10], 3.0, 0.0);
-const fn deuce12(l: Look) -> [Stamp; 12] {
-    const S: [&str; 11] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "x"];
-    let small = Look { ew: 2.0, rw: 1.5, ..l };
-    let mut out = [((27, 4, 204, 52), "Deuce!", l); 12];
-    let mut d = 0;
-    while d < 11 {
-        out[d + 1] = (((d % 8) as u16 * 32 + 2, 65 + (d / 8) as u16 * 32, 28, 30), S[d], small);
-        d += 1;
-    }
-    out
-}
-
 /// "Server" and "Receiver" over their white flashes, blue (the second team) and red (the first).
 const SERVER: [[Stamp; 4]; 2] = [server4(BLUE), server4(PINK)];
 const fn server4(l: Look) -> [Stamp; 4] {
@@ -309,12 +272,10 @@ pub(crate) struct Look {
     pub ew: f32,
     pub rw: f32,
     pub slant: f32,
-    /// Set as the umpire's calls are ([`call_word`]: heavy, boxy, bevelled; `ew` and `rw` unused).
-    pub bevel: bool,
 }
 
 const fn look(top: [u8; 3], bottom: [u8; 3], edge: [u8; 3], ew: f32, slant: f32) -> Look {
-    Look { top, bottom, edge, ring: [255; 3], ew, rw: ew * 0.75, slant, bevel: false }
+    Look { top, bottom, edge, ring: [255; 3], ew, rw: ew * 0.75, slant }
 }
 
 /// A stamp: its cell on the disc sheet (x, y, w, h: the outer edge of its ring), its words and look.
@@ -620,7 +581,11 @@ impl Steps {
         if name == "word" {
             labels.extend(glyph_boxes(&pic.rgba, w));
         }
-        let redo = Rebuild::new(w, h, &pic.rgba, labels, if name == "word" { BOLD } else { HEAVY });
+        let mut redo = Rebuild::new(w, h, &pic.rgba, labels, if name == "word" { BOLD } else { HEAVY });
+        if sheet.traced {
+            redo.out = trace::trace(w, h, &pic.rgba, K);
+            redo.at = redo.out.height() as usize;
+        }
         Steps { name: name.to_string(), sheet, redo, stamps: None, pixels: None, mips: None }
     }
 
@@ -725,93 +690,16 @@ pub(crate) fn relabel(images: &mut Assets<Image>, w: usize, h: usize, rgba: &[u8
     Some(handle)
 }
 
-/// The umpire's calls' word cards (`popups`' call models), each line's words and fill (top, bottom), sampled from the
-/// disc's cards: set again at `K`× in our style over the disc card's ink, a line to an equal slice of its height;
-/// `None` with `--original` or no ink.
-pub(crate) const CALLS: [&[(&str, Call)]; 6] = [
-    &[("Let", Call { top: [49, 48, 201], bottom: [138, 137, 217], edge: [22, 20, 52] })],
-    &[("Out", CALL_RED)],
-    &[("Net", CALL_RED)],
-    &[("Fault", Call { top: [178, 177, 44], bottom: [209, 207, 107], edge: BROWN })],
-    &[("Double Fault", CALL_RED)],
-    &[("Change", Call { top: [242, 243, 108], bottom: [192, 221, 29], edge: BROWN }), ("Sides", Call { top: [62, 236, 49], bottom: [19, 166, 17], edge: BROWN })],
-];
-/// The call words' fattening, dark edge and white rim, in caps' heights.
-const CALL_WEIGHTS: (f32, f32, f32) = (0.05, 0.035, 0.06);
-const BROWN: [u8; 3] = [55, 36, 22];
-const CALL_RED: Call = Call { top: [181, 26, 24], bottom: [204, 101, 101], edge: BROWN };
-
-/// A call word's fill, top to bottom, and its dark edge (a white rim goes round that).
-#[derive(Clone, Copy)]
-pub(crate) struct Call {
-    top: [u8; 3],
-    bottom: [u8; 3],
-    edge: [u8; 3],
-}
-
-pub(crate) fn call_card(images: &mut Assets<Image>, w: usize, h: usize, rgba: &[u8], lines: &[(&str, Call)]) -> Option<Handle<Image>> {
+/// An umpire's call card (`popups`' call models) traced at `K`× from the disc's ([`trace`]); `None` with `--original`.
+pub(crate) fn call_card(images: &mut Assets<Image>, w: usize, h: usize, rgba: &[u8]) -> Option<Handle<Image>> {
     if OFF.load(Ordering::Relaxed) {
         return None;
     }
-    let ink: Vec<(usize, usize)> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| rgba[(y * w + x) * 4 + 3] > 0x20).collect();
-    let (x0, y0) = (ink.iter().map(|p| p.0).min()? as f32, ink.iter().map(|p| p.1).min()? as f32);
-    let (x1, y1) = (ink.iter().map(|p| p.0).max()? as f32 + 1.0, ink.iter().map(|p| p.1).max()? as f32 + 1.0);
-    let k = K as f32;
-    let mut out = Pixmap::new(w as u32 * K, h as u32 * K).expect("call size");
-    let font = ab_glyph::FontRef::try_from_slice(HEAVY).expect("menu font");
-    let cap = -text_path(&font, "H")?.bounds().top();
-    let paths: Vec<_> = lines.iter().map(|(words, _)| text_path(&font, words)).collect::<Option<_>>()?;
-    let tail = |p: &tiny_skia::Path| p.bounds().bottom().max(0.0);
-    let (bold, edge, rim) = CALL_WEIGHTS;
-    let pad = (bold + edge + rim) * 2.0;
-    let lh = (y1 - y0) * k / lines.len() as f32;
-    // one height for every line, the caps filling the card's as the disc's do (the tallest line, one with a tail,
-    // sets it); a line too wide for the card is condensed, not shrunk, which is the disc's tall boxy look
-    let sy = paths.iter().map(|p| lh / (cap * (1.0 + pad) + tail(p))).fold(f32::MAX, f32::min);
-    let sx = paths.iter().map(|p| (x1 - x0) * k / (p.bounds().width() + cap * pad)).fold(sy, f32::min);
-    for (i, (path, (_, c))) in paths.iter().zip(lines).enumerate() {
-        let b = path.bounds();
-        let h = (cap * (1.0 + pad) + tail(path)) * sy;
-        let base = y0 * k + lh * i as f32 + (lh - h) / 2.0 + (1.0 + pad / 2.0) * cap * sy;
-        let t = Transform::from_row(sx, 0.0, 0.0, sy, (x0 + x1) / 2.0 * k - (b.left() + b.width() / 2.0) * sx, base);
-        call_word(&mut out, &path.clone().transform(t)?, cap * sy, (base - cap * sy, base), c);
-    }
+    let out = trace::trace(w, h, rgba, K);
     let (w, h) = (out.width(), out.height());
     let handle = images.add(sharp_mips(Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)));
-    crate::textures::ours(handle.id(), Vec2::splat(k));
+    crate::textures::ours(handle.id(), Vec2::splat(K as f32));
     Some(handle)
-}
-
-/// One call word as the disc draws them: white rim, dark edge, the fill dark at the caps' top to light at the
-/// baseline, bevelled (a light inner edge up and left, a dark one down and right).
-fn call_word(out: &mut Pixmap, path: &tiny_skia::Path, cap: f32, (top, bot): (f32, f32), c: &Call) {
-    let rgb = |c: [u8; 3]| SkColor::from_rgba8(c[0], c[1], c[2], 255);
-    let mix = |a: [u8; 3], b: [u8; 3], t: f32| std::array::from_fn::<u8, 3, _>(|i| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * t) as u8);
-    let stroke = |w: f32| Stroke { width: 2.0 * w * cap, line_join: LineJoin::Miter, ..Stroke::default() };
-    let (bold, edge, rim) = CALL_WEIGHTS;
-    let mut paint = Paint { anti_alias: true, ..Paint::default() };
-    // the letters fattened to the disc's weight: the outline filled and stroked
-    let fat = |pm: &mut Pixmap, paint: &Paint, t: Transform| {
-        pm.fill_path(path, paint, FillRule::Winding, t, None);
-        pm.stroke_path(path, paint, &stroke(bold), t, None);
-    };
-    for (col, w) in [([255; 3], bold + edge + rim), (c.edge, bold + edge)] {
-        paint.set_color(rgb(col));
-        out.stroke_path(path, &paint, &stroke(w), Transform::identity(), None);
-    }
-    paint.shader = LinearGradient::new(Point::from_xy(0.0, top), Point::from_xy(0.0, bot), vec![GradientStop::new(0.0, rgb(c.top)), GradientStop::new(1.0, rgb(c.bottom))], SpreadMode::Pad, Transform::identity()).expect("gradient");
-    fat(out, &paint, Transform::identity());
-    // the bevel: the letters less themselves shifted, a crescent along one side's inner edge
-    let d = 0.04 * cap;
-    for (dx, col) in [(d, mix(c.bottom, [255; 3], 0.6)), (-d, mix(c.top, c.edge, 0.45))] {
-        let mut lip = Pixmap::new(out.width(), out.height()).expect("bevel");
-        paint.shader = tiny_skia::Shader::SolidColor(rgb(col));
-        fat(&mut lip, &paint, Transform::identity());
-        paint.blend_mode = tiny_skia::BlendMode::DestinationOut;
-        fat(&mut lip, &paint, Transform::from_translate(dx, dx));
-        paint.blend_mode = tiny_skia::BlendMode::SourceOver;
-        out.draw_pixmap(0, 0, lip.as_ref(), &tiny_skia::PixmapPaint { opacity: 0.75, ..Default::default() }, Transform::identity(), None);
-    }
 }
 
 pub(crate) fn unpremultiply(p: Pixmap) -> Vec<u8> {
@@ -1015,10 +903,7 @@ fn clear(out: &mut Pixmap, [x, y, w, h]: [f32; 4]) {
 pub(crate) fn stamp(out: &mut Pixmap, font: &ab_glyph::FontRef, [x, y, w, h]: [f32; 4], words: &str, l: &Look) {
     let (Some(path), Some(caps)) = (text_path(font, words), text_path(font, "H")) else { return };
     let k = K as f32;
-    // a bevelled word's edge and rim go by its height, the cell's outer edge round them
-    let (bold, edge, rim) = CALL_WEIGHTS;
-    let pad = bold + edge + rim;
-    let m = if l.bevel { h * pad / (1.0 + 2.0 * pad) } else { l.ew + l.rw };
+    let m = l.ew + l.rw;
     let (bw, bh) = ((w - 2.0 * m) * k, (h - 2.0 * m) * k);
     let cap = -caps.bounds().top();
     let b = path.bounds();
@@ -1032,10 +917,6 @@ pub(crate) fn stamp(out: &mut Pixmap, font: &ab_glyph::FontRef, [x, y, w, h]: [f
     let (top, uc) = ((y + m) * k, b.left() + b.width() / 2.0);
     let t = Transform::from_row(sx, 0.0, -l.slant * sy, sy, cx - uc * sx - l.slant * bh / 2.0, top + bh - tail * sy);
     let Some(path) = path.transform(t) else { return };
-    if l.bevel {
-        let bot = top + bh - tail * sy;
-        return call_word(out, &path, cap * sy, (bot - cap * sy, bot), &Call { top: l.top, bottom: l.bottom, edge: l.edge });
-    }
     let rgb = |c: [u8; 3]| SkColor::from_rgba8(c[0], c[1], c[2], 255);
     let mut paint = Paint { anti_alias: true, ..Paint::default() };
     for (c, wd) in [(l.ring, 2.0 * m * k), (l.edge, 2.0 * l.ew * k)] {
