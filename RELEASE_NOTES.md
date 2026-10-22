@@ -1,4 +1,5 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- After a serve, players now ease back into their ready stance instead of snapping the racket round from behind their back.
 - Split screen: each half is now framed as close as the one-player camera instead of fitting the whole court's width, so the players are bigger.
 - Controllers screen: a controller moved onto 1P can use the screen straight away (Done, moving, leaving) instead of waiting for the one that moved it to finish.
 - Two or more players on one device with humans on both sides (singles, or doubles with players on opposite teams): 1P's camera button (Select) splits the screen during play, side by side on a wide screen or one above the other on an upright one, each half showing the alternate camera low behind its own player, with the controls turned to match; between points, in close-ups and replays both halves show the same picture; press it again for the shared picture. Every match starts on the normal camera.

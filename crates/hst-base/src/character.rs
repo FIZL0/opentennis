@@ -1373,13 +1373,24 @@ pub fn animate(
         let Some(new) = rig.data.drawn_take(motion.id, motion.sets) else { continue };
         // a mod's own clip that the game starts or ends with a cut (an emote, a reaction) eases in from the pose last
         // drawn, and the clip after it eases out of it alike (an emote cut where its clip stops moving)
+        // the serve's follow-through crossfading back to standing or running eases out of its end pose alike, over
+        // SERVE_EASE: its end (racket behind the back) is far from standing and the game's 8-frame fade swings the racket round
+        // in a blink. A set while easing eases on from the pose drawn, so the next motion doesn't jump.
         if c.sets != motion.sets {
             c.sets = motion.sets;
-            c.from.clear();
             let own = rig.data.own(new);
-            if motion.mix.is_none() && (own || c.own) {
+            let serve = motion.fade.clip && [hst_sim::motion::id::SERVE, hst_sim::motion::id::SERVE_UNDER].contains(&motion.fade.id);
+            let ease = if motion.mix.is_none() && (own || c.own) {
+                Some(EASE_IN)
+            } else if serve {
+                Some(SERVE_EASE)
+            } else {
+                (!c.from.is_empty()).then_some(c.ease)
+            };
+            c.from.clear();
+            if let Some(n) = ease {
                 c.from.extend_from_slice(&c.drawn);
-                c.eased = time.elapsed_secs_f64();
+                (c.eased, c.ease) = (time.elapsed_secs_f64(), n);
             }
             c.own = own;
         }
@@ -1439,7 +1450,7 @@ pub fn animate(
             hold_head(&rig.data, grip, &mut drawn, 1.0 - mine);
         }
         if !c.from.is_empty() {
-            let w = (((time.elapsed_secs_f64() - c.eased) * 60.0) as f32 + time.overstep_fraction()) / EASE_IN;
+            let w = (((time.elapsed_secs_f64() - c.eased) * 60.0) as f32 + time.overstep_fraction()) / c.ease;
             let w = w.min(1.0);
             let w = w * w * (3.0 - 2.0 * w);
             for (d, &(q, v)) in drawn.iter_mut().zip(&c.from) {
@@ -1477,12 +1488,18 @@ pub struct Posing {
     own: bool,
     from: Vec<(Quat, Vec3)>,
     eased: f64,
+    /// The ease's length in frames.
+    ease: f32,
 }
 
 /// Frames a mod's own clip takes to ease in from the pose before it, and the clip after it out of it, where the game
 /// cuts straight between them.
 // ponytail: picked by eye, not the source game's blend
 const EASE_IN: f32 = 10.0;
+
+/// Frames the serve's end pose takes to ease into standing or running (see `animate`).
+// ponytail: picked by eye; the original has only its 8-frame crossfade
+const SERVE_EASE: f32 = 24.0;
 
 /// `clip` at time `t` into `out` (each joint's rotation and translation): unkeyed joints at rest.
 pub(crate) fn pose_at(joints: &[Joint], clip: &Clip, t: f32, out: &mut Vec<(Quat, Vec3)>) {
