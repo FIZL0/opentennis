@@ -38,6 +38,9 @@ before it is re-uploaded, so the mod store sees an update and installed copies r
 ## Research setup
 `research/README.md` rebuilds `context/` from the disc (extract, overlay ELFs, Ghidra project, decompilation
 dumps, save states, recordings) and lists the tool pitfalls.
+`tools/context_prune.py` reports what `context/` holds that nothing refers to any more (`--delete` moves it to
+`context/.trash/`, `--empty` clears that). A recording a test or tool needs must be named by its path in code or
+an open task's plan/journal, or it can be pruned.
 
 ## Plan
 `PLAN.md` holds the rules and a code map; the ordered open tasks are in `plan/TODO.md` (each line names the files to
