@@ -64,10 +64,11 @@ pub(super) fn under(menu: &mut Menu) -> Option<(Screen, usize)> {
 }
 
 /// After it: the pages again, over wherever the lobby is now (the select, its lobby or the confirm); a lobby that
-/// went on without them (the match starting, the online menu after a kick or a closed lobby) closes them.
+/// went on without them (the match starting, the online menu after a kick or a closed lobby) closes them. B641: so does
+/// the prompt about another player's mod (the pages would hide it, and its wait would run out unseen).
 pub(super) fn back(menu: &mut Menu, held: Option<(Screen, usize)>) {
     let Some((pg, row)) = held else { return };
-    if lobby(menu.screen) && !menu.net.started {
+    if lobby(menu.screen) && !menu.net.started && menu.net.ask.is_none() {
         menu.over = Some((menu.screen, menu.sel));
         (menu.screen, menu.sel) = (pg, row);
     }
@@ -155,5 +156,12 @@ mod tests {
         m.net.started = true;
         back(&mut m, held);
         assert_eq!((m.screen, m.over), (Screen::Lobby, None));
+        // B641: another player's mod asked about: the pages close for its prompt
+        (m.screen, m.net.started) = (Screen::Chars, false);
+        m.step(Dev::Keys, o());
+        let held = under(&mut m);
+        m.net.ask = Some(7);
+        back(&mut m, held);
+        assert_eq!((m.screen, m.over, m.mod_asking()), (Screen::Chars, None, true));
     }
 }

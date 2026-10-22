@@ -38,3 +38,6 @@
 - The in-match pop-ups and score panel (the umpire's calls like Fault and Change Sides, points, deuce, tie break, game/set, match and set point, aces, serve speed, the hints under the score, player ranks and the intro's set and game numbers) are now drawn sharp in the game's own style instead of the original blurry art.
 - The 1P–4P and COM labels over the players and on the score boards are now drawn sharp in the same style as player names.
 - Online: the "Waiting for …" message no longer flashes up mid-rally on a short hiccup; the match just holds until the other player's moves arrive, and the message shows only after a couple of seconds without them.
+- Online: if the host starts the countdown while you're still choosing your character, the match now uses the character you're on (a Random card draws one) instead of the first one on the grid, and a custom character you're on is offered to everyone else to download before the match begins.
+- Online: a custom character you didn't download now plays as the character it's based on in different colours, so it can't be mistaken for that character.
+- Online: the question about downloading another player's custom character now closes the Settings pages if you have them open, so you see it before its time runs out.

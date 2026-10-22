@@ -4,7 +4,7 @@
 //! (always / never / ask each time, kept in `mods-online/ask.txt` beside the disc); taken, they come from the mod
 //! store when it has the same mod with the same looks (M125, `modstore::fetch_looks`), else peer to peer, as
 //! one [`pack`] (data files only, size-capped, hash-checked, then §7-checked before use) into `mods-online/<hash>/`;
-//! declined, the plain donor stands in.
+//! declined, the donor stands in, hue-shifted ([`tint`]) so it's clearly not the mod (B641).
 
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -123,7 +123,7 @@ impl Wire {
 }
 
 /// The match's mod for a seat: gameplay from the wire; looks from `looks` (a folder with the same pack), else a
-/// stand-in (no costumes: `play::mod_match` draws the donor as it is).
+/// stand-in (no costumes: `play::mod_match` draws the donor hue-shifted, [`tint`]).
 pub fn for_match(w: &Wire, looks: Option<&Path>) -> Mod {
     let mut m = looks.and_then(|d| mods::read(d).map_err(|e| warn!("{e}")).ok()).unwrap_or_else(|| Mod {
         dir: PathBuf::new(),
@@ -365,6 +365,26 @@ impl Ask {
     /// The choice an older build saved in `cache` (before B289 moved it into settings.txt), `None` if none.
     pub fn load(cache: &Path) -> Option<Ask> {
         Ask::parse(&std::fs::read_to_string(cache.join("ask.txt")).ok()?)
+    }
+}
+
+/// B641: a stand-in's look: every texture of its parts and racket with its colour channels rotated (a 120° hue turn),
+/// so skin and clothes come out in colours no disc character has, and nobody takes it for a stock one. Its images
+/// are its own (each load makes new ones), so a stock player on the same character keeps its colours.
+pub fn tint(data: &crate::character::CharacterData, materials: &Assets<StandardMaterial>, images: &mut Assets<Image>) {
+    use bevy::render::render_resource::TextureFormat;
+    let mut ids: Vec<AssetId<Image>> = data.parts.iter().map(|p| &p.1).chain(data.racket.iter().map(|r| &r.1)).filter_map(|h| materials.get(h)?.base_color_texture.as_ref().map(|t| t.id())).collect();
+    ids.extend(data.gs.values().flatten().filter_map(|g| g.texture.as_ref().map(|t| t.id())));
+    ids.sort();
+    ids.dedup();
+    for id in ids {
+        let Some(mut img) = images.get_mut(id) else { continue };
+        if !matches!(img.texture_descriptor.format, TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb) {
+            continue;
+        }
+        if let Some(d) = img.data.as_mut() {
+            d.as_chunks_mut::<4>().0.iter_mut().for_each(|p| p[..3].rotate_left(1));
+        }
     }
 }
 
