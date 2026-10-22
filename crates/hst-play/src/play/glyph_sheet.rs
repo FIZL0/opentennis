@@ -93,7 +93,11 @@ fn sheet(k: u32) -> Image {
     let (g, em, half) = layout();
     let k = k as f32;
     let (w, h) = ((WIDE * k) as u32, (2.0 * half * k) as u32);
-    let mut out = Pixmap::new(w, h).expect("glyph sheet");
+    let levels = crate::mips::levels_to_1x(k / 0.25);
+    // B646: its buffer has room for the levels from the start, so they go in without it being copied to a bigger one
+    let mut px = Vec::with_capacity(crate::mips::room(w, h, levels));
+    px.resize(w as usize * h as usize * 4, 0);
+    let mut out = Pixmap::from_vec(px, tiny_skia::IntSize::from_wh(w, h).expect("glyph sheet")).expect("glyph sheet");
     let s = em / font.units_per_em().unwrap_or(1000.0) * k;
     let mut white = Paint::default();
     white.set_color(SkColor::WHITE);
@@ -109,7 +113,7 @@ fn sheet(k: u32) -> Image {
         }
     }
     let img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, unpremultiply(out), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
-    crate::mips::MipSteps::new(img, crate::mips::levels_to_1x(k / 0.25), None, 1.5).finish()
+    crate::mips::MipSteps::new(img, levels, None, 1.5).finish()
 }
 
 #[cfg(test)]
