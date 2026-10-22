@@ -230,6 +230,11 @@ def move(todo, tid, where, ref=None):
 
 
 def next_id(paths, prefix):
+    """B -> B647; a task's own id makes a subtask the runner keeps after it: B646 -> B646a, B646a -> B646a1."""
+    if prefix[-1].isdigit():
+        n = [m.group(1) for p in paths for l in lines(p)
+             if (m := re.match(rf'\s*- \[.\] \*\*{re.escape(prefix)}([a-z])\b', l))]
+        return prefix + chr(ord(max(n, default='`')) + 1)
     n = [int(m.group(1)) for p in paths for l in lines(p)
          if (m := re.match(rf'\s*- \[.\] \*\*{re.escape(prefix)}(\d+)\b', l))]
     return f'{prefix}{max(n, default=0) + 1}'
