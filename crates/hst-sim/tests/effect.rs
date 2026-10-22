@@ -1,4 +1,4 @@
-//! The racket-impact effects against a recorded bot match (`context/fixtures/effects_s05.bin`,
+//! The racket-impact effects against a recorded bot match (`fixtures/effects_s05.bin`,
 //! `tools/record_effects.py 5`): from the frame the game starts an impact, every frame it lives the port's clocks,
 //! morph weights and material alphas match the game's bit for bit, it ends the same frame, and its scale follows
 //! from the ball's velocity.
@@ -18,7 +18,7 @@ fn u(b: &[u8], o: usize) -> u32 {
 
 #[test]
 fn impacts_s05() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{dir}/effects_s05.bin")), fixture::iso()) else {
         return fixture::skip(format_args!("effects_s05.bin or ISO absent, skipped"));
     };
@@ -135,14 +135,14 @@ fn every_effect_binds() {
     assert!(n >= 6);
 }
 
-/// The yellow smash marker of a △ lob onto P1 (`context/fixtures/smash_mark_s04.txt`, N4a: slot 4 with the
+/// The yellow smash marker of a △ lob onto P1 (`fixtures/smash_mark_s04.txt`, N4a: slot 4 with the
 /// opponents' strokes forced to lobs; line 1: P1's smash top and middle, the point the game placed; then the
 /// game's predicted path, f32 bits). Fed 15 + 14 entries the launch frame and 15 a frame after, as the game grows
 /// it, the search places the game's point on the frame the game did (the 5th: path of 75).
 #[test]
 fn smash_mark_s04() {
     use hst_sim::effect::{PathEntry, SmashSearch};
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(text) = fixture::read_to_string(format!("{dir}/smash_mark_s04.txt")) else {
         return fixture::skip(format_args!("smash_mark_s04.txt absent, skipped"));
     };
@@ -188,7 +188,7 @@ fn smash_mark_holds() {
 #[test]
 fn smash_mark_goodcpus() {
     use hst_sim::effect::{PathEntry, SmashSearch};
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(live), Ok(paths), Ok(marks), Ok(ram)) = (
         fixture::read(format!("{dir}/1p3goodcpus.bin")),
         fixture::read(format!("{dir}/1p3goodcpus.bin.path")),

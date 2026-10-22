@@ -1834,7 +1834,7 @@ mod tests {
     fn rerigged_mod_plays_forehand_and_run() {
         let Ok(mut iso) = hst_data::fixture::iso() else { return };
         if !test_mod("test_pc00").is_dir() {
-            return hst_data::fixture::skip("no context/mods/test_pc00");
+            return hst_data::fixture::skip("no fixtures/mods/test_pc00");
         }
         let mut s = Stores(default(), default(), default(), default());
         let (m, c) = load_mod(&mut iso, &mut s, "test_pc00").unwrap();
@@ -1883,12 +1883,12 @@ mod tests {
     }
 
     /// B381: an installed Lily (one of the [`dropped`] chair umpires) stays off the roster, beside a mod that lists
-    /// (skipped without `context/mods/test_pc00`).
+    /// (skipped without `fixtures/mods/test_pc00`).
     #[test]
     fn dropped_umpires_stay_off_the_roster() {
         let src = test_mod("test_pc00");
         if !src.is_dir() {
-            return hst_data::fixture::skip("no context/mods/test_pc00");
+            return hst_data::fixture::skip("no fixtures/mods/test_pc00");
         }
         let root = std::env::temp_dir().join(format!("hst-b381-{}", std::process::id()));
         for id in ["test_pc00", "hst_umpire_02_lily"] {
@@ -1905,11 +1905,11 @@ mod tests {
     }
 
     /// M1f: the PSP mods' heads and faces are unskinned mesh nodes under `Bip01Head`; every costume of every Get a
-    /// Grip and Open Tee 2 mod in `context/mods` carries vertices on the head joint, at rest above its neck.
+    /// Grip and Open Tee 2 mod in `fixtures/mods` carries vertices on the head joint, at rest above its neck.
     #[test]
     fn psp_mods_keep_their_heads() {
         let Ok(mut iso) = hst_data::fixture::iso() else { return };
-        let Ok(dir) = std::fs::read_dir(hst_data::fixture::path("context/mods")) else { return hst_data::fixture::skip("no context/mods") };
+        let Ok(dir) = std::fs::read_dir(hst_data::fixture::path("fixtures/mods")) else { return hst_data::fixture::skip("no fixtures/mods") };
         let mut s = Stores(default(), default(), default(), default());
         let mut seen = 0;
         for e in dir.flatten().filter(|e| e.file_name().to_str().is_some_and(|n| n.starts_with("getagrip_") || n.starts_with("opentee2_"))) {
@@ -1938,7 +1938,7 @@ mod tests {
     #[test]
     fn head_height_over_the_bone() {
         for (id, want) in [("getagrip_pc00_emi", 0.397), ("getagrip_pc12_suzuki", 0.393), ("fore_pc00_phoebe", 0.452)] {
-            let Ok(m) = read(&test_mod(id)) else { return hst_data::fixture::skip(format_args!("no context/mods/{id}")) };
+            let Ok(m) = read(&test_mod(id)) else { return hst_data::fixture::skip(format_args!("no fixtures/mods/{id}")) };
             let h = head_height(&m, 0).unwrap();
             assert!((h - want).abs() < 0.001, "{id}: {h} vs {want}");
         }
@@ -1951,7 +1951,7 @@ mod tests {
     fn texture_face_follows_the_donors_faces() {
         let Ok(mut iso) = hst_data::fixture::iso() else { return };
         if !test_mod("getagrip_pc00_emi").is_dir() {
-            return hst_data::fixture::skip("no context/mods/getagrip_pc00_emi");
+            return hst_data::fixture::skip("no fixtures/mods/getagrip_pc00_emi");
         }
         let mut s = Stores(default(), default(), default(), default());
         let (_, c) = load_mod(&mut iso, &mut s, "getagrip_pc00_emi").unwrap();
@@ -2324,7 +2324,7 @@ mod tests {
     fn mod_eyes_follow_the_donors_uva() {
         let Ok(mut iso) = hst_data::fixture::iso() else { return };
         if !["test_pc00", "fore_pc00_phoebe"].iter().all(|m| test_mod(m).is_dir()) {
-            return hst_data::fixture::skip("no context/mods/test_pc00 or fore_pc00_phoebe");
+            return hst_data::fixture::skip("no fixtures/mods/test_pc00 or fore_pc00_phoebe");
         }
         let mut s = Stores(default(), default(), default(), default());
         let disc = character::load_disc(&mut iso, 0, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
@@ -2472,7 +2472,7 @@ mod tests {
     fn packaged_mod_plays() {
         let Ok(mut iso) = hst_data::fixture::iso() else { return };
         if !test_mod("fore_pc00_phoebe").is_dir() {
-            return hst_data::fixture::skip("no context/mods/fore_pc00_phoebe");
+            return hst_data::fixture::skip("no fixtures/mods/fore_pc00_phoebe");
         }
         let mut s = Stores(default(), default(), default(), default());
         let (m, c) = load_mod(&mut iso, &mut s, "fore_pc00_phoebe").unwrap();
@@ -2492,7 +2492,7 @@ mod tests {
         let Ok(mut iso) = hst_data::fixture::iso() else { return };
         let dir = test_mod("getagrip_pc12_suzuki");
         if disc_racket(&dir) != Some(13) || dir.join("racket.glb").exists() {
-            return hst_data::fixture::skip("no context/mods/getagrip_pc12_suzuki packaged with disc_racket 13");
+            return hst_data::fixture::skip("no fixtures/mods/getagrip_pc12_suzuki packaged with disc_racket 13");
         }
         let mut s = Stores(default(), default(), default(), default());
         let (m, c) = load_mod(&mut iso, &mut s, "getagrip_pc12_suzuki").unwrap();
@@ -2516,7 +2516,7 @@ mod tests {
     fn mutated_glbs_never_panic() {
         let dir = test_mod("opentee2_pc16_lauryn");
         if !dir.is_dir() {
-            return hst_data::fixture::skip("no context/mods/opentee2_pc16_lauryn");
+            return hst_data::fixture::skip("no fixtures/mods/opentee2_pc16_lauryn");
         }
         let mut iso = Iso::open(hst_data::fixture::ISO_PATH).ok();
         let at = Path::new("t_fuzz/lauryn");
@@ -2613,7 +2613,7 @@ mod tests {
     fn rejects_non_conforming_mod() {
         let Ok(mut iso) = hst_data::fixture::iso() else { return };
         if !test_mod("test_broken").is_dir() {
-            return hst_data::fixture::skip("no context/mods/test_broken");
+            return hst_data::fixture::skip("no fixtures/mods/test_broken");
         }
         let mut s = Stores(default(), default(), default(), default());
         let e = load_mod(&mut iso, &mut s, "test_broken").err().unwrap();

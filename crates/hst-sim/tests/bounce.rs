@@ -1,4 +1,4 @@
-//! Ball bounce effects against a recorded bot match on court 10 (`context/fixtures/bounce_s05.bin`,
+//! Ball bounce effects against a recorded bot match on court 10 (`fixtures/bounce_s05.bin`,
 //! `tools/record_bounce.py 5`): from the ball's bounce count and contact records alone, every frame's marks (matrix,
 //! life, length, alpha), dust puffs, the ring model's matrix, clocks, weights and life match the game bit for bit.
 
@@ -23,10 +23,10 @@ fn bits<const N: usize>(v: [f32; N]) -> [u32; N] {
 fn bounces_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(mut iso), Ok(cnf), Ok(bin)) = (
-        fixture::read(format!("{root}/context/fixtures/bounce_s05.bin")),
+        fixture::read(format!("{root}/fixtures/bounce_s05.bin")),
         fixture::iso(),
-        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN")),
     ) else {
         return fixture::skip(format_args!("bounce_s05.bin or disc absent, skipped"));
     };

@@ -1,4 +1,4 @@
-//! Footstep puffs and footprints against a recorded bot doubles match on court 10 (`context/fixtures/foot_s05.bin`,
+//! Footstep puffs and footprints against a recorded bot doubles match on court 10 (`fixtures/foot_s05.bin`,
 //! `tools/record_foot.py 5`): from each player's toe bones, motion and matrix, every frame's step state, dust puffs
 //! (the first 32) and footprints match the game bit for bit.
 
@@ -105,9 +105,9 @@ fn footsteps_rain_s05() {
 fn footsteps(name: &str) {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(cnf), Ok(bin)) = (
-        fixture::read(format!("{root}/context/fixtures/foot_s05{name}.bin")),
-        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/fixtures/foot_s05{name}.bin")),
+        fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN")),
     ) else {
         return fixture::skip(format_args!("foot_s05{name}.bin or disc absent, skipped"));
     };
@@ -229,14 +229,14 @@ fn mt(fr: &[u8]) -> hst_sim::weather::Mt {
 #[test]
 fn foot_extras_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{root}/context/iso/SYSTEM.CNF")), fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN"))) else {
+    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")), fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN"))) else {
         return fixture::skip(format_args!("disc absent, skipped"));
     };
     let t = exe::Game::new(&cnf, &bin).unwrap().foot();
     let (mut kinds, mut rings, mut dashes) = ([0; 3], 0, 0);
     // the w and d recordings force the court wet and dusty (`FOOT_POKE`) for the dive rings
     for name in ["x", "w", "d"] {
-    let Ok(data) = fixture::read(format!("{root}/context/fixtures/foot_s05{name}.bin")) else {
+    let Ok(data) = fixture::read(format!("{root}/fixtures/foot_s05{name}.bin")) else {
         fixture::skip(format_args!("foot_s05{name}.bin absent, skipped"));
         continue;
     };
@@ -377,13 +377,13 @@ fn debris_key(a: &Feet, want: &Feet) -> (usize, [i32; 3], Vec<Vec<u32>>) {
 #[test]
 fn foot_debris_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{root}/context/iso/SYSTEM.CNF")), fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN"))) else {
+    let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")), fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN"))) else {
         return fixture::skip(format_args!("disc absent, skipped"));
     };
     let t = exe::Game::new(&cnf, &bin).unwrap().foot();
     let mut thrown = [0; 2];
     for (name, kind) in [("g", 1), ("c", 0)] {
-        let Ok(data) = fixture::read(format!("{root}/context/fixtures/foot_s05{name}.bin")) else {
+        let Ok(data) = fixture::read(format!("{root}/fixtures/foot_s05{name}.bin")) else {
             fixture::skip(format_args!("foot_s05{name}.bin absent, skipped"));
             continue;
         };
@@ -475,7 +475,7 @@ fn dive_inputs_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let mut dives = 0;
     for name in ["x", "w", "d"] {
-        let Ok(data) = fixture::read(format!("{root}/context/fixtures/foot_s05{name}.bin")) else {
+        let Ok(data) = fixture::read(format!("{root}/fixtures/foot_s05{name}.bin")) else {
             fixture::skip(format_args!("foot_s05{name}.bin absent, skipped"));
             continue;
         };
@@ -507,7 +507,7 @@ fn dive_inputs_s05() {
 /// to row 2 (forward) of the camera's view matrix, the row the app builds the basis from.
 #[test]
 fn puff_look_is_view_forward() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/ram/");
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/ram/");
     let mut n = 0;
     for s in ["s03", "s04", "s05", "s08", "s09", "npc_c01"] {
         let Ok(ram) = fixture::read(format!("{root}{s}.bin")) else { continue };

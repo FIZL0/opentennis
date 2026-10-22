@@ -1,4 +1,4 @@
-//! newlib's `rand()` and the MT19937 against `hst_sim::rng` (`ps2-float`), through the oracle. Needs `context/iso/` (skips
+//! newlib's `rand()` and the MT19937 against `hst_sim::rng` (`ps2-float`), through the oracle. Needs `fixtures/iso/` (skips
 //! without it).
 
 use hst_oracle::{Ee, HstEe, addr};

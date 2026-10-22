@@ -1,4 +1,4 @@
-//! P1's rally aims (`context/fixtures/aim_singles.bin`, `aim_doubles.bin`; tools/record_aim.py, skipped
+//! P1's rally aims (`fixtures/aim_singles.bin`, `aim_doubles.bin`; tools/record_aim.py, skipped
 //! when missing): every aim `shot::aim` gives from the stick, the hitter and the incoming shot's record is the
 //! game's +0x3e90 bit for bit, sweet-spot corner shots and both incoming-slice scales
 //! (each fixture ends with AIM_INCOMING=1 aims, singles then AIM_INCOMING=sweet ones) included, and the aim's
@@ -18,7 +18,7 @@ fn i32_at(b: &[u8], o: usize) -> i32 {
 #[test]
 fn human_aims() {
     for (name, players) in [("aim_singles.bin", 2), ("aim_doubles.bin", 4)] {
-        let path = format!("{}/../../context/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{}/../../fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
         let Ok(data) = fixture::read(&path) else {
             fixture::skip(format_args!("skipping {name}: no recording"));
             continue;
@@ -103,16 +103,16 @@ fn human_aims() {
     }
 }
 
-/// P1's serve aims (`context/fixtures/aim_serve.bin`, tools/record_aim.py AIM_SERVE=1, the same pairs): the aim
+/// P1's serve aims (`fixtures/aim_serve.bin`, tools/record_aim.py AIM_SERVE=1, the same pairs): the aim
 /// `serve::target` gives through the rally aim's core is the game's +0x3e90 bit for bit, and so are the strong
 /// toss's mistiming nudges (+0x3f10 sideways, +0x3f18 depth, by the character's skill level) and the centred
 /// stick's ±5/±10 (+0x3ed4). The game's coin flips are read back from what they gave.
 #[test]
 fn human_serve_aims() {
     use hst_sim::serve::{Miss, ServeData, Toss, miss_of, target};
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let (Ok(data), Ok(cnf), Ok(bin)) = (
-        fixture::read(format!("{ctx}/fixtures/aim_serve.bin")),
+        fixture::read(format!("{ctx}/aim_serve.bin")),
         fixture::read(format!("{ctx}/iso/SYSTEM.CNF")),
         fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
     ) else {

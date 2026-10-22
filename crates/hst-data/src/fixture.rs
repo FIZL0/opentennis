@@ -1,14 +1,16 @@
-//! Test-only: the user's disc and the recordings in `context/` for the tests of every crate (on through the
-//! `testing` feature). Neither is ever in git, so a test skips when its data is missing, saying so on stderr; a run
-//! that has to check the port against the game sets `HST_REQUIRE_DISC=1` (tools/check.sh does) and then a missing
-//! file fails the test instead of letting it pass without checking anything.
+//! Test-only: the user's disc and the recordings in `fixtures/` for the tests of every crate (on through the
+//! `testing` feature). Neither is ever in git (both are game data), so a test skips when its data is missing, saying
+//! so on stderr; a run that has to check the port against the game sets `HST_REQUIRE_DISC=1` (tools/check.sh does)
+//! and then a missing file fails the test instead of letting it pass without checking anything.
+//!
+//! Tests read only `fixtures/`, never `context/` (scratch that `tools/context_prune.py` clears): a recording a test
+//! needs is copied into `fixtures/<task>/` when the test lands.
 //!
 //! The readers return what `std` would, so a test's `let Ok(..) = .. else { return }` stays as it is.
 //!
-//! A git worktree (a runner slot, `git worktree add`) has its own `context/`, often an old copy or none, and a
-//! recording made in one stays there: a file missing here is taken from the main checkout's or another worktree's,
-//! so every checkout checks against every recording on the machine. Recordings are kept in the main checkout's:
-//! `tools/context_sync.py` copies a worktree's into it (run by `tools/pine.py` and `tools/done.sh`).
+//! A git worktree (a runner slot, `git worktree add`) links the main checkout's `fixtures/` (runner.toml `links`);
+//! one without the link, or a file only another checkout has, is taken from the main checkout's or another
+//! worktree's. `tools/context_sync.py` copies a worktree's own into the main checkout's (run by `tools/done.sh`).
 
 use crate::iso::Iso;
 use std::io;
@@ -21,14 +23,14 @@ pub const ISO: &str = "Hot Shots Tennis (USA).iso";
 /// [`has_iso`] first.
 pub const ISO_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
 
-/// The repo root (for the disc, `context/` and `research/`).
+/// The repo root (for the disc, `fixtures/` and `research/`).
 pub fn root() -> &'static Path {
     Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
 }
 
-/// Every checkout of the repo that could hold `context/`: this one, then (when it is a git worktree, its `.git` a
+/// Every checkout of the repo that could hold `fixtures/`: this one, then (when it is a git worktree, its `.git` a
 /// file naming its git dir) the main checkout, then the other worktrees (a recording made in a runner slot stays in
-/// that slot's `context/`).
+/// that slot's `fixtures/`).
 fn checkouts() -> &'static [PathBuf] {
     static ALL: std::sync::OnceLock<Vec<PathBuf>> = std::sync::OnceLock::new();
     ALL.get_or_init(|| {
@@ -56,35 +58,21 @@ fn checkouts() -> &'static [PathBuf] {
     })
 }
 
-/// A path under the repo root (`"context/fixtures/x.bin"`; absolute paths are kept as they are). A `context/` file
+/// A path under the repo root (`"fixtures/x.bin"`; absolute paths are kept as they are). A `fixtures/` file
 /// this checkout lacks is taken from the first other checkout that has it.
+#[track_caller]
 pub fn path(rel: impl AsRef<Path>) -> PathBuf {
-    let p = found(root().join(rel));
-    log_use(&p);
-    p
-}
-
-fn found(p: PathBuf) -> PathBuf {
+    let p = root().join(rel);
+    let s = p.to_string_lossy();
+    assert!(!s.contains("/context/"), "tests read fixtures/, not context/: copy {s} into fixtures/<task>/ and read it there");
     if p.exists() {
         return p;
     }
-    let s = p.to_string_lossy();
-    let Some(at) = s.find("/context/") else { return p };
+    let Some(at) = s.find("/fixtures/") else { return p };
     if Path::new(&s[..at]).canonicalize().ok().as_ref() != checkouts().first() {
         return p;
     }
     checkouts().iter().map(|c| c.join(&s[at + 1..])).find(|q| q.exists()).unwrap_or(p)
-}
-
-/// Appends each file a test reads to `HST_FIXTURE_LOG` (tools/check.sh sets it), so `tools/context_prune.py` keeps
-/// every recording a test needs, however the test spells its path.
-fn log_use(p: &Path) {
-    use std::io::Write;
-    let Some(log) = std::env::var_os("HST_FIXTURE_LOG") else { return };
-    let Ok(real) = p.canonicalize() else { return };
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log) {
-        let _ = writeln!(f, "{}", real.display());
-    }
 }
 
 /// Whether this run must have the data (`HST_REQUIRE_DISC=1`).

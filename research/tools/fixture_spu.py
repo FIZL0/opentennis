@@ -12,7 +12,7 @@
 #                                                             the EE driver's voice table (0x30e1c0, 0xec per voice) for
 #                                                             every voice it has keyed on: volume inputs and the volume
 #                                                             it sent last
-# Needs context/xb (xbdump) to name the banks.
+# Needs fixtures/xb (xbdump) to name the banks.
 import glob, struct, subprocess, sys
 st, out = sys.argv[1:3]
 z = lambda n: subprocess.run(['7z', 'e', '-so', st, n], capture_output=True, check=True).stdout
@@ -21,8 +21,8 @@ RING, HEAD = 0x305000, 0x304fc0              # EE command ring and its write ind
 SPURAM = 0x10004                             # SPU2.bin offset of SPU RAM address 0
 VOICE = lambda v: (0x210240 + 0x108 * v) if v < 24 else (0x212200 + 0x108 * (v - 24))  # pitch u16 per voice
 disc = {}
-for f in sorted(glob.glob('context/xb/SND/**/*.hd', recursive=True)):
-    xb, entry = f[len('context/xb/'):].split('.XB', 1)
+for f in sorted(glob.glob('fixtures/xb/SND/**/*.hd', recursive=True)):
+    xb, entry = f[len('fixtures/xb/'):].split('.XB', 1)
     xb, entry = xb + '.XB' + entry.split('/', 1)[0], entry.split('/', 1)[1]
     disc.setdefault(len(open(f, 'rb').read()), []).append((f, xb, entry))
 rows = []

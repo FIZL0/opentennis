@@ -1,4 +1,4 @@
-//! Ball-flight ribbon and glow against a recorded bot match (`context/fixtures/flight_s05.bin`,
+//! Ball-flight ribbon and glow against a recorded bot match (`fixtures/flight_s05.bin`,
 //! `tools/record_flight.py 5`): from each reset and the ball the game had, every frame's samples, ring indices and
 //! speed match bit for bit, and the glow's life.
 
@@ -26,7 +26,7 @@ const SIZE: usize = MARK + 0x40;
 
 #[test]
 fn flight_s05() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/flight_s05.bin")) else { return };
     let frames: Vec<&[u8]> = data.as_chunks::<SIZE>().0.iter().map(|s| s.as_slice()).collect();
     let (mut fl, mut glow) = (Flight::default(), Glow::default());

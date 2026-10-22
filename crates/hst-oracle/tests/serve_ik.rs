@@ -1,7 +1,7 @@
 //! The serve's contact IK against the original through the oracle: the overhead (serve and smash) and underhand arm
 //! tables built from the disc's motions bit-exact against every player in the RAM images, then the solves (step,
-//! jump scale, joint turns) over random contact points, positions and sides. Needs the ISO, `context/iso/` and
-//! `context/ram/` (skips without them).
+//! jump scale, joint turns) over random contact points, positions and sides. Needs the ISO, `fixtures/iso/` and
+//! `fixtures/ram/` (skips without them).
 
 use hst_data::fixture;
 use hst_data::{ani, iso::Iso, mdl, xb::Archive};
@@ -96,7 +96,7 @@ fn serve_ik() {
         let mut iso = fixture::iso().unwrap();
         let (mut seed, mut n, mut bad, mut moved, mut jumps) = (0x9e37_79b9_7f4a_7c15u64 ^ si as u64, 0, vec![], 0, 0);
         let Some(mut ee) = Ee::from_ram(&format!("{s}.bin")) else {
-            fixture::skip(format_args!("skip: no context/iso or {s}.bin"));
+            fixture::skip(format_args!("skip: no fixtures/iso or {s}.bin"));
             return None;
         };
         let gm = ee.read(0x422f80, 4) as u32;
@@ -169,7 +169,7 @@ fn serve_ik() {
     assert!(bad.is_empty(), "{} of {n} differ:\n{}", bad.len(), bad[..bad.len().min(4)].join("\n"));
 }
 
-/// The serve IK over the swing countdown against `tools/record_serve.py` captures (`context/b29/run3/`, from the
+/// The serve IK over the swing countdown against `tools/record_serve.py` captures (`fixtures/b29/run3/`, from the
 /// slot whose RAM image built the tables): the solve at the press from the recorded contact point and position
 /// gives the recorded step and jump scale, and the IK's frames (the press tick at weight 0, one a tick to contact,
 /// then the ramp-down) move the server's x/z through the mover exactly as recorded.
@@ -180,7 +180,7 @@ fn serve_ik_captures() {
     const S: usize = 4 + 0x18 + 0x40 + 0x50 + 0x2c0 + 0x20 + 0xe0 + 8 + 0x10;
     let (mut serves, mut ticks) = (0, 0);
     for (file, slot) in [("A_strong", "s03"), ("C_under", "s03"), ("D_early", "s03"), ("E1_late", "s03"), ("E2_late", "s03"), ("E3_late", "s03"), ("S5_bots", "s05")] {
-        let Ok(d) = fixture::read(root().join(format!("context/b29/run3/{file}.bin"))) else { return };
+        let Ok(d) = fixture::read(root().join(format!("fixtures/b29/run3/{file}.bin"))) else { return };
         let Some(ee) = Ee::from_ram(&format!("{slot}.bin")) else { return };
         let gm = ee.read(0x422f80, 4) as u32;
         let rows: Vec<&[u8]> = d.as_chunks::<S>().0.iter().map(|s| s.as_slice()).collect();

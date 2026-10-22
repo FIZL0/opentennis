@@ -1,6 +1,6 @@
 """N1f: how strokes end in anim_s05 — per stroke motion (0x10..0x1d) left for another, the sampled time vs the clip length."""
 import struct, collections
-d = open('context/fixtures/anim_s05.bin', 'rb').read()
+d = open('fixtures/anim_s05.bin', 'rb').read()
 S = 4 + 0x100 + 4 * 0x484
 rd = lambda k, p: d[k * S + 0x104 + p * 0x484:][:0x484]
 I = lambda b, o: struct.unpack_from('<i', b, o)[0]

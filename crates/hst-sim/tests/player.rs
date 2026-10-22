@@ -1,5 +1,5 @@
 //! Locomotion of every player through two doubles matches, frame by frame: run velocity bit-exact and the motion the
-//! game sets for standing and running players. Slot 5 (`context/fixtures/match_s05.bin`, court 10): characters 0, 2,
+//! game sets for standing and running players. Slot 5 (`fixtures/match_s05.bin`, court 10): characters 0, 2,
 //! 1, 5, all right-handed CPUs. `1p3goodcpus.bin` (court 11): human Carol (6) and CPUs Will (11), 2
 //! and 10; Carol and Will left-handed. Each line-up from its save state's RAM.
 
@@ -34,7 +34,7 @@ struct Player {
 
 /// Every match present: its name, recording and line-up.
 fn matches() -> Vec<(&'static str, Vec<u8>, Vec<Player>)> {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     MATCHES
         .iter()
         .filter_map(|&(name, ram)| {
@@ -242,7 +242,7 @@ fn match_facing() {
 fn pelvis_table_from_disc() {
     use hst_data::{ani, mdl, xb::Archive};
     use hst_sim::pose::{Clip, Skeleton, pelvis_row};
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(ram), Ok(mut iso)) = (fixture::read(format!("{dir}/slot5_ee.bin")), fixture::iso()) else {
         return fixture::skip(format_args!("slot5_ee.bin or ISO absent, skipped"));
     };
@@ -292,7 +292,7 @@ fn pelvis_table_from_disc() {
 #[test]
 fn human_pad_replay() {
     use hst_data::xb::Archive;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(pel), Ok(mut iso)) = (fixture::read(format!("{dir}/p7_pelvis_s04.bin")), fixture::iso()) else {
         return fixture::skip(format_args!("p7_pelvis_s04.bin or ISO absent, skipped"));
     };
@@ -397,7 +397,7 @@ fn human_pad_replay() {
 fn lefty_s04() {
     use hst_data::{ani, mdl, xb::Archive};
     use hst_sim::pose::{Clip, Skeleton, pelvis_row};
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(mut iso) = fixture::iso() else {
         return fixture::skip(format_args!("ISO absent, skipped"));
     };
@@ -504,7 +504,7 @@ fn lefty_s04() {
 fn reach_stats_from_tparam() {
     use hst_data::xb::Archive;
     use hst_sim::player::ReachStats;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(mut iso) = fixture::iso() else {
         return fixture::skip(format_args!("disc absent, skipped"));
     };
@@ -550,7 +550,7 @@ fn reach_stats_from_tparam() {
 #[test]
 fn serve_walk_replay() {
     use hst_sim::player::serve_walk;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let mut runs = vec![("p7d_s04.bin", 1.0, 300), ("p7d_s04_lefty.bin", -1.0, 300)];
     runs.extend(matches().into_iter().filter(|m| m.0 == "1p3goodcpus.bin").map(|(name, _, lineup)| (name, lineup[0].hand, 0)));
     for (file, hand, least) in runs {
@@ -648,7 +648,7 @@ fn p7f_bot_stick() {
     use hst_sim::ps2::{div, madd, mul, sqrt};
     // slot 5's line-up (characters 0, 2, 1, 5; TParam SPE/Agili/STA and costs)
     const STATS: [(i32, i32, i32, [i32; 3]); 4] = [(10, 40, 40, [8, 4, 7]), (11, 40, 40, [8, 4, 7]), (9, 40, 40, [6, 3, 7]), (12, 10, 40, [8, 6, 6])];
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/p7f_s05.bin")) else {
         return fixture::skip(format_args!("p7f_s05.bin absent, skipped"));
     };
@@ -719,7 +719,7 @@ fn toward_stops_short() {
 fn serve_follow_through() {
     use hst_sim::motion::{serve_over, serve_recovery};
     use hst_sim::replay::frames;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let recovery = |toss: i32, bits: i32| serve_recovery(toss == 1, match bits { 2 => 1, 4 => 3, 8 => 2, _ => 0 });
     let (mut played_out, mut broken, mut held) = (0, 0, 0);
     if !fixture::exists(format!("{dir}/anim_s05.bin")) {
@@ -797,7 +797,7 @@ fn serve_follow_through() {
 #[test]
 fn ai_serve_stick() {
     use hst_sim::motion::ai_serve_stick;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(d) = fixture::read(format!("{dir}/serve_ai.bin")) else {
         fixture::skip(format_args!("serve_ai.bin absent, skipped"));
         return;

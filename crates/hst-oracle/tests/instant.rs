@@ -1,5 +1,5 @@
-//! The instant replay decision against `hst_sim::instant::decide`, through the oracle. Needs `context/iso/` and
-//! `context/ram/s05.bin` (skips without them).
+//! The instant replay decision against `hst_sim::instant::decide`, through the oracle. Needs `fixtures/iso/` and
+//! `fixtures/ram/s05.bin` (skips without them).
 
 use hst_oracle::{Ee, HstEe, addr};
 use hst_sim::instant::{Point, decide};

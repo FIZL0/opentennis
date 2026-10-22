@@ -34,14 +34,14 @@ f32/u32 casts, the match sample's regions) and `tools/pine.py`'s `state_file(slo
 - **To check against the running game:** [PCSX2](https://pcsx2.net) 2.x with **your own PS2 BIOS**, and
   Linux for the virtual pad (`/dev/uinput`).
 
-## Rebuild `context/`
+## Rebuild `context/` and `fixtures/`
 
 Run everything from the repository root.
 
 ```sh
 # 1. The disc's files, and every XB archive unpacked
-7z x "Hot Shots Tennis (USA).iso" -ocontext/iso
-cargo run --release -p hst-data --bin xbdump -- "Hot Shots Tennis (USA).iso" context/xb
+7z x "Hot Shots Tennis (USA).iso" -ofixtures/iso
+cargo run --release -p hst-data --bin xbdump -- "Hot Shots Tennis (USA).iso" fixtures/xb
 
 # 2. One ELF per overlay (the overlays are loaded whole at 0x322d00)
 mkdir -p context/elf && python3 research/mkoverlay_elf.py
@@ -65,32 +65,34 @@ done
   -scriptPath research/ghidra_scripts -postScript DumpAsm.java "$PWD/context/notes/asm_x.txt" 32f690 335b70
 
 # The IOP sound driver (R3000) on its own project
-python3 research/mkirx_elf.py context/iso/MODULES2/SG2IOPM1.IRX context/elf/sg2iop.elf
+python3 research/mkirx_elf.py fixtures/iso/MODULES2/SG2IOPM1.IRX context/elf/sg2iop.elf
 /opt/ghidra/support/analyzeHeadless context/ghidra sg2 -import context/elf/sg2iop.elf -overwrite \
   -processor MIPS:LE:32:default -scriptPath research/ghidra_scripts -postScript DumpDecomp.java "$PWD/context/decomp"
 # → context/decomp/sg2iop.c
 ```
 
-`context/` in use looks like this:
+In use they look like this (`fixtures/`: what the tests read; `context/`: research scratch):
 
 | Path | Made by |
 |---|---|
-| `context/iso/`, `context/xb/` | steps 1 |
+| `fixtures/iso/`, `fixtures/xb/` | steps 1 |
 | `context/elf/`, `context/ghidra/`, `context/decomp/` | steps 2–3 |
 | `context/notes/` | `DumpAsm` output, hand-copied functions, tool logs |
-| `context/ram/s05.bin`, `context/fixtures/slot5_ee.bin` | EE RAM from a save state: `7z e -so <state.p2s> eeMemory.bin > …` |
-| `context/fixtures/match_s05.bin`, `round1.bin` | `tools/record_p2m2.py` (slot 5 bot match; the round1 input recording) |
-| `context/fixtures/camera_s05.bin` | `tools/record_camera.py 5 …` |
-| `context/live/net_s05.bin` | `tools/record_live.py 5 …` |
+| `fixtures/ram/s05.bin`, `fixtures/slot5_ee.bin` | EE RAM from a save state: `7z e -so <state.p2s> eeMemory.bin > …` |
+| `fixtures/match_s05.bin`, `round1.bin` | `tools/record_p2m2.py` (slot 5 bot match; the round1 input recording) |
+| `fixtures/camera_s05.bin` | `tools/record_camera.py 5 …` |
+| `fixtures/live/net_s05.bin` | `tools/record_live.py 5 …` |
 | `context/shots_s05/` → `fixtures/shots_s05.csv`, `flights_s05.csv`, `shot_tables_s05.csv` | `tools/trace_shots.py 5 …`, then `research/tools/fixture_shots.py`, `fixture_flights.py`, `traj_inverse2.py` + `fixture_shot_tables.py` |
-| `context/fixtures/ball_path_s08.csv` | `research/tools/fixture_ball_path.py` on a RAM image |
-| `context/fixtures/shot_params_ram.bin` | the shot parameter table from a save state's RAM |
-| `context/fixtures/spu_s03.csv`, `spu_s04.csv`, `spu_s05.csv` | `research/tools/fixture_spu.py <slot N .p2s> …` (sound banks, key-ons, pitch registers, SPU2 voice decoder/envelope state and the driver's voice volume inputs of slots 3/4/5) |
-| `context/fixtures/ai_serve_singles.bin`, `ai_serve_s05.bin` | `tools/record_ai_serve.py <slot> 7000 …` (slot 8 = `bots_singles.p2m2`'s save state; slot 5) |
+| `fixtures/ball_path_s08.csv` | `research/tools/fixture_ball_path.py` on a RAM image |
+| `fixtures/shot_params_ram.bin` | the shot parameter table from a save state's RAM |
+| `fixtures/spu_s03.csv`, `spu_s04.csv`, `spu_s05.csv` | `research/tools/fixture_spu.py <slot N .p2s> …` (sound banks, key-ons, pitch registers, SPU2 voice decoder/envelope state and the driver's voice volume inputs of slots 3/4/5) |
+| `fixtures/ai_serve_singles.bin`, `ai_serve_s05.bin` | `tools/record_ai_serve.py <slot> 7000 …` (slot 8 = `bots_singles.p2m2`'s save state; slot 5) |
 | `context/recordings/*.p2m2` | PCSX2 input recordings (Tools → Input Recording) |
 
 Each test names the recording it needs in its header comment and skips itself when that recording is missing.
-`HST_FIXTURES` points the tests at another fixtures folder.
+`HST_FIXTURES` points the tests at another fixtures folder. Tests read only `fixtures/` (`hst_data::fixture` panics
+on a `context/` path): when a test lands that needs a recording, copy it into `fixtures/<task>/` (`cp --reflink`)
+and read it there. `context/` can then be pruned freely (`tools/context_prune.py`).
 
 **Worktrees.** The main checkout's `context/` is the one to keep. A git worktree (a runner slot, `git worktree add`)
 that has its own real `context/` directory, rather than the runner's symlink to main's, records into that directory.
@@ -99,7 +101,7 @@ space on btrfs, and an existing file is never overwritten. First, every PINE too
 when it exits cleanly; a file the run rewrote replaces main's copy. Second, `tools/done.sh` runs it at the end of a
 task. Third, `tools/context_sync.py --all` copies the backlog from every worktree; a different file under the same
 new path is kept as `<name>.from-<worktree>`. A test reads through `hst_data::fixture`, which takes a file this
-checkout lacks from the main checkout's `context/`, or else from another worktree's.
+checkout lacks from the main checkout's `fixtures/`, or else from another worktree's; `fixtures/` gets the same copying.
 
 ## PCSX2 save states
 

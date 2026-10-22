@@ -206,7 +206,7 @@ mod tests {
     }
 }
 
-/// The replay harness through the app's match entry: a PCSX2 recording's 1P pads (`context/fixtures/round1.bin`)
+/// The replay harness through the app's match entry: a PCSX2 recording's 1P pads (`fixtures/round1.bin`)
 /// drive the app's singles match as `Replay` (needs the ISO at the repository root and the fixture; skipped without).
 #[cfg(test)]
 mod replay_tests {
@@ -215,7 +215,7 @@ mod replay_tests {
     use crate::{Args, GameSpace};
 
     const ISO: &str = hst_data::fixture::ISO_PATH;
-    const FIXTURE: &str = "context/fixtures/round1.bin";
+    const FIXTURE: &str = "fixtures/round1.bin";
 
     /// Player 0's position every tick with these pads on 1P (2P a bot).
     fn run(pads: &[[hst_sim::replay::Pad; 4]]) -> Vec<V3> {

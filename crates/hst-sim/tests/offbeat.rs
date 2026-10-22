@@ -1,4 +1,4 @@
-//! B40g2 (concept): offbeat rule 1, irregular bounce, against the original. `context/b40g2/run2/*.bin` (not in git)
+//! B40g2 (concept): offbeat rule 1, irregular bounce, against the original. `fixtures/b40g2/run2/*.bin` (not in git)
 //! are bot matches from save-state slot 5 (court 10) with the rule set on after the load, recorded every frame in
 //! `record_live.py`'s format (`research/journal/2026-10-21-b40g2-offbeat-rules/scripts/b40g2_irregular.py`). Each
 //! frame's ball object is loaded into a `Flight`, its irregular turn made from the two launch uniforms the game keeps
@@ -59,8 +59,8 @@ fn disc(court: u32) -> Option<(hst_sim::mesh::World, Vec<Material>)> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(mut iso), Ok(cnf), Ok(bin)) = (
         fixture::iso(),
-        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN")),
     ) else {
         return None;
     };
@@ -116,7 +116,7 @@ fn irregular_bounces_match_the_game() {
     };
     let mut total = (0, 0);
     for name in ["r1_b2", "r1_long"] {
-        let Ok(data) = fixture::read(format!("{root}/context/b40g2/run2/{name}.bin")) else {
+        let Ok(data) = fixture::read(format!("{root}/fixtures/b40g2/run2/{name}.bin")) else {
             fixture::skip(format_args!("{name} missing, skipped"));
             return;
         };

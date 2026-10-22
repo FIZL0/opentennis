@@ -3794,9 +3794,9 @@ mod tests {
     /// lobby and the select, for a peer that downloaded it (kept after the roster, off the grid); a stand-in otherwise.
     #[test]
     fn own_and_downloaded_mods_show_as_themselves() {
-        let dir = &hst_data::fixture::path("context/mods/test_pc00");
+        let dir = &hst_data::fixture::path("fixtures/mods/test_pc00");
         if !dir.is_dir() {
-            return hst_data::fixture::skip("no context/mods/test_pc00");
+            return hst_data::fixture::skip("no fixtures/mods/test_pc00");
         }
         let m = crate::mods::read(dir).unwrap();
         let tmp = std::env::temp_dir().join(format!("hst-b285-{}", std::process::id()));
@@ -3838,9 +3838,9 @@ mod tests {
     /// them (read in first), and again when it moves on.
     #[test]
     fn a_countdown_takes_the_select_as_it_stands() {
-        let src = &hst_data::fixture::path("context/mods/getagrip_pc00_emi");
+        let src = &hst_data::fixture::path("fixtures/mods/getagrip_pc00_emi");
         if !src.is_dir() {
-            return hst_data::fixture::skip("no context/mods/getagrip_pc00_emi");
+            return hst_data::fixture::skip("no fixtures/mods/getagrip_pc00_emi");
         }
         fn copy(from: &std::path::Path, to: &std::path::Path) {
             std::fs::create_dir_all(to).unwrap();
@@ -3918,9 +3918,9 @@ mod tests {
                 }
             }
         }
-        let src = &hst_data::fixture::path("context/mods/getagrip_pc00_emi");
+        let src = &hst_data::fixture::path("fixtures/mods/getagrip_pc00_emi");
         if !src.is_dir() {
-            return hst_data::fixture::skip("no context/mods/getagrip_pc00_emi");
+            return hst_data::fixture::skip("no fixtures/mods/getagrip_pc00_emi");
         }
         let tmp = std::env::temp_dir().join(format!("hst-b530-{}", std::process::id()));
         let dir = tmp.join("mods/getagrip_pc00_emi");

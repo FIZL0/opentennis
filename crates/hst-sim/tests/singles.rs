@@ -1,4 +1,4 @@
-//! A singles bot match (`context/fixtures/ai_pos_singles.bin`, tools/record_ai_pos.py from a COM-vs-COM singles
+//! A singles bot match (`fixtures/ai_pos_singles.bin`, tools/record_ai_pos.py from a COM-vs-COM singles
 //! save state; skipped when missing): each point starts at the style's centre, every net player's after-hit spot
 //! and dash spot is one `Single::after_hit` gives, a dash is switched on only by the paths ported, and a bot stops
 //! walking back just as it gets inside the centre radius.
@@ -43,7 +43,7 @@ impl<'a> Frame<'a> {
 #[test]
 fn singles_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = fixture::read(format!("{root}/context/fixtures/ai_pos_singles.bin")) else {
+    let Ok(d) = fixture::read(format!("{root}/fixtures/ai_pos_singles.bin")) else {
         return fixture::skip(format_args!("ai_pos_singles.bin missing, skipped"));
     };
     assert_eq!(u32::from_le_bytes(d[..4].try_into().unwrap()), N as u32 | 0x100);

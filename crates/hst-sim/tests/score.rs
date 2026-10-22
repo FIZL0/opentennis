@@ -1,5 +1,5 @@
 //! Score, rotation and ends. Unit cases from the original's rules, plus a replay of every point of the user's
-//! round1 recording (fixture `context/fixtures/round1.bin` from `tools/record_p2m2.py`, not in git; skipped when
+//! round1 recording (fixture `fixtures/round1.bin` from `tools/record_p2m2.py`, not in git; skipped when
 //! absent): each point's winner is read from the recorded score and fed through `Score`, which must then match
 //! the recorded points, games, sets, rotation, ends, server, receiver and court side exactly.
 
@@ -115,7 +115,7 @@ fn snapshot(f: Frame) -> ([i32; 2], [i32; 2], [i32; 2]) {
 
 #[test]
 fn round1_replay() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/round1.bin")) else { return };
     let frames = frames(&data);
     if frames.is_empty() {
@@ -165,7 +165,7 @@ fn round1_replay() {
 #[test]
 fn round1_verdicts() {
     use hst_sim::judge::{BallState, Call, Rally};
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/round1.bin")) else { return };
     let frames = frames(&data);
     let gm = |s: Frame, o: usize| s.gm()[o];
@@ -272,7 +272,7 @@ fn rally_block(f: Frame) -> hst_sim::judge::Rally {
     }
 }
 
-/// Every frame of the slot-5 bot match recorded with the live ball (`context/fixtures/match_s05.bin`, from
+/// Every frame of the slot-5 bot match recorded with the live ball (`fixtures/match_s05.bin`, from
 /// `tools/record_p2m2.py 5 …`, not in git): the hit check and the point-over check run on the frames the game runs
 /// them (a shot counted; every rally frame until the decision), fed the live ball, and the rally block must match
 /// the recording after every frame. The point-start resets (`new_point`, `next_point`, faults cleared by a scored
@@ -288,7 +288,7 @@ fn match_s05_rally_block() {
 fn rally_block_replay(name: &str, min: usize) {
     use hst_sim::judge::{BallState, Call};
     use hst_sim::replay::frames_live;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/{name}.bin")) else { return };
     let frames = frames_live(&data);
     let ball = |s: Frame| -> BallState {
@@ -474,8 +474,8 @@ fn post_points(frames: &[Frame], t: &hst_data::exe::ScoreboardTiming) -> (usize,
 /// from (the language at 0x2ef110, the menu's umpire at 0x2ef7de), else 0 and 4 (English, umpire 4: slots 3 and 5).
 fn disc_timing(ee: Option<&[u8]>) -> Option<hst_data::exe::ScoreboardTiming> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let cnf = fixture::read(format!("{root}/context/iso/SYSTEM.CNF")).ok()?;
-    let bin = fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")).ok()?;
+    let cnf = fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")).ok()?;
+    let bin = fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN")).ok()?;
     // slot 3 (no RAM fixture): umpire 2 voice a, read live
     let (voice, umpire) = ee.map_or((0, 2), |ram| (ram[0x2ef7df], ram[0x2ef7de]));
     Some(hst_data::exe::Game::new(&cnf, &bin).unwrap().scoreboard_timing(voice, umpire))
@@ -495,7 +495,7 @@ fn match_s05_post_point() {
 fn post_point_replay(name: &str, ee: &str, min: usize, min_changes: usize) {
     use hst_sim::flow::CHANGE_ENDS;
     use hst_sim::replay::frames_live;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(data), Ok(ram)) = (fixture::read(format!("{dir}/{name}.bin")), fixture::read(format!("{dir}/{ee}.bin"))) else {
         return fixture::skip(format_args!("{name}.bin or {ee}.bin absent, skipped"));
     };
@@ -529,7 +529,7 @@ fn post_point_replay(name: &str, ee: &str, min: usize, min_changes: usize) {
 #[test]
 fn human_post_point() {
     use hst_sim::replay::frames_live;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(data), Some(timing)) = (fixture::read(format!("{dir}/new_recording.bin")), disc_timing(None)) else {
         return fixture::skip(format_args!("new_recording.bin or disc files absent, skipped"));
     };
@@ -550,7 +550,7 @@ fn match_s05_serve_placement() {
 fn serve_placement_replay(name: &str, setups: usize) {
     use hst_sim::flow::serve_placement;
     use hst_sim::replay::frames_live;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/{name}.bin")) else {
         return fixture::skip(format_args!("{name}.bin absent, skipped"));
     };
@@ -598,13 +598,13 @@ fn match_points() {
     assert_eq!(tb.match_point(&r), Some(0));
 }
 
-/// Live toss recordings (`research/journal/2026-10-08-p3d4-serve-call/scripts/p3d4_serve_call.py`, context/p3d4, skipped when absent): slot 5's doubles serve
+/// Live toss recordings (`research/journal/2026-10-08-p3d4-serve-call/scripts/p3d4_serve_call.py`, fixtures/p3d4, skipped when absent): slot 5's doubles serve
 /// with the server's team put at match point, left as is, the receivers at match point; slot 8's singles serve at
 /// match point. On a strong toss (kind 1) at the server's team's match point the server's partner (doubles) or the
 /// server (singles) sets its call flag and the shared generator draws once more; otherwise nothing.
 #[test]
 fn serve_calls_like_the_game() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/p3d4");
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/p3d4");
     let mut seen = 0;
     for name in ["call_s05", "call_s05_asis", "call_s05_other", "call_singles"] {
         let Ok(d) = fixture::read(format!("{root}/{name}.bin")) else { continue };
@@ -631,7 +631,7 @@ fn serve_calls_like_the_game() {
         seen += 1;
     }
     if seen == 0 {
-        fixture::skip(format_args!("context/p3d4 missing, skipped"));
+        fixture::skip(format_args!("fixtures/p3d4 missing, skipped"));
     }
 }
 
@@ -684,7 +684,7 @@ fn every_match_length_ends() {
 fn match_s05_match_over() {
     use hst_sim::flow::PostPoint;
     use hst_sim::replay::frames_live;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(data), Ok(ram)) = (fixture::read(format!("{dir}/match_s05.bin")), fixture::read(format!("{dir}/slot5_ee.bin"))) else {
         return fixture::skip(format_args!("match_s05.bin or slot5_ee.bin absent, skipped"));
     };

@@ -76,7 +76,7 @@ mod tests {
         (app, rows)
     }
 
-    /// As `context/b29/run2/B_weak.bin`: ○ at 0 (held 5), ○ again 80 ticks later. The original releases the toss 45
+    /// As `fixtures/b29/run2/B_weak.bin`: ○ at 0 (held 5), ○ again 80 ticks later. The original releases the toss 45
     /// ticks after the press, the swing counts 16 frames down (contact offset 8, motion speed 0.5) and hits 16 ticks
     /// after its press.
     #[test]
@@ -90,7 +90,7 @@ mod tests {
         assert_eq!((released, rows[80].1, rows[80].3, served), (Some(45), Some((16, 8)), 0.5, Some(96)));
     }
 
-    /// As `context/b29/run3/D_early.bin`: ✕ (strong toss), ✕ again 50 ticks later, 12 frames from contact. The
+    /// As `fixtures/b29/run3/D_early.bin`: ✕ (strong toss), ✕ again 50 ticks later, 12 frames from contact. The
     /// serve's contact IK steps Carol 0.0018936 along x over the countdown, a twelfth a tick from the press's tick
     /// (weight 0), bit for bit as the original's samples.
     #[test]
@@ -118,7 +118,7 @@ mod tests {
         assert!(xs.iter().all(|r| r.3 == -12.25));
     }
 
-    /// A swing press with no contact left before the bounce (as `context/b29/run3/E2_late.bin`: press 119 ticks
+    /// A swing press with no contact left before the bounce (as `fixtures/b29/run3/E2_late.bin`: press 119 ticks
     /// after the weak toss's): the original calls it a fault when the toss lands, then sets up the second serve.
     #[test]
     fn whiffed_serve_is_a_fault() {
@@ -158,7 +158,7 @@ mod tests {
     /// contact windows, reach, powers and both tosses' timing tables (once character 0's for everyone).
     #[test]
     fn serve_data_per_character() {
-        let (Ok(ram), true) = (hst_data::fixture::read("context/ram/s03.bin"), hst_data::fixture::has_iso()) else {
+        let (Ok(ram), true) = (hst_data::fixture::read("fixtures/ram/s03.bin"), hst_data::fixture::has_iso()) else {
             return;
         };
         // where slot 3's RAM keeps the match: the select screen's character picks (one 12-byte row each), the

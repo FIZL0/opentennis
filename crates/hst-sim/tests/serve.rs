@@ -52,7 +52,7 @@ const MATCHES: [(&str, &str); 2] = [("match_s05.bin", "slot5_ee.bin"), ("1p3good
 
 /// Each match present: its name, recording and RAM.
 fn matches() -> Vec<(&'static str, Vec<u8>, Vec<u8>)> {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     MATCHES.into_iter().filter_map(|(m, r)| match (fixture::read(format!("{dir}/{m}")), fixture::read(format!("{dir}/{r}"))) {
         (Ok(data), Ok(ram)) => Some((m, data, ram)),
         _ => { fixture::skip(format_args!("{m} or {r} absent, skipped")); None }
@@ -167,7 +167,7 @@ fn stance_ball_ram() {
     let Ok(mut iso) = fixture::iso() else { return };
     let mut seen = 0;
     for s in ["s03", "s04", "s05", "s08", "s09"] {
-        let Ok(ram) = fixture::read(format!("{root}context/ram/{s}.bin")) else { return };
+        let Ok(ram) = fixture::read(format!("{root}fixtures/ram/{s}.bin")) else { return };
         let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
         let fr = |a: usize| f32::from_bits(u(a) as u32);
         let gm = u(0x422f80);
@@ -246,7 +246,7 @@ fn anim_s05_held_ball() {
     use hst_sim::vu0::transform;
     const CHARS: [usize; 4] = [0, 2, 1, 5];
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
-    let (Ok(anim), Ok(mdata)) = (fixture::read(format!("{dir}context/fixtures/anim_s05.bin")), fixture::read(format!("{dir}context/fixtures/match_s05.bin"))) else {
+    let (Ok(anim), Ok(mdata)) = (fixture::read(format!("{dir}fixtures/anim_s05.bin")), fixture::read(format!("{dir}fixtures/match_s05.bin"))) else {
         return fixture::skip(format_args!("fixtures absent, skipped"));
     };
     let Ok(mut iso) = fixture::iso() else { return };
@@ -310,7 +310,7 @@ fn anim_s05_held_ball() {
 fn serves_launch_like_the_game() {
     use hst_sim::params::{ShotParams, record_of, spin};
     use hst_sim::shot::Table;
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
         return fixture::skip(format_args!("the extracted disc absent, skipped"));
     };
@@ -432,8 +432,8 @@ fn assert_effect(b: &[u8], (bend, curve, turn): (f32, f32, f32), hit: [f32; 3], 
 #[test]
 fn round1_turned_serves() {
     use hst_sim::replay::frames;
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
-    let (Ok(cnf), Ok(bin), Ok(data)) = (fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")), fixture::read(format!("{ctx}/fixtures/round1.bin"))) else {
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+    let (Ok(cnf), Ok(bin), Ok(data)) = (fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")), fixture::read(format!("{ctx}/round1.bin"))) else {
         return fixture::skip(format_args!("the extracted disc or round1.bin absent, skipped"));
     };
     let game = hst_data::exe::Game::new(&cnf, &bin).unwrap();
@@ -462,13 +462,13 @@ fn round1_turned_serves() {
 #[test]
 fn rally_effects_like_the_game() {
     use hst_sim::replay::frames;
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
         return fixture::skip(format_args!("the extracted disc absent, skipped"));
     };
     let game = hst_data::exe::Game::new(&cnf, &bin).unwrap();
     for (m, live) in [("match_s05.bin", true), ("1p3goodcpus.bin", true), ("round1.bin", false)] {
-        let Ok(data) = fixture::read(format!("{ctx}/fixtures/{m}")) else { continue };
+        let Ok(data) = fixture::read(format!("{ctx}/{m}")) else { continue };
         let fr = if live { frames_live(&data) } else { frames(&data) };
         let (mut curves, mut bends, mut flipped) = (0, 0, 0);
         for w in fr.windows(2) {
@@ -505,7 +505,7 @@ fn rally_effects_like_the_game() {
 fn serve_timing_tables_ram() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
     let mut seen = 0;
-    for s in ["context/ram/s03.bin", "context/ram/s04.bin", "context/ram/s05.bin", "context/fixtures/slot5_ee.bin", "context/fixtures/1p3goodcpus_ee.bin"] {
+    for s in ["fixtures/ram/s03.bin", "fixtures/ram/s04.bin", "fixtures/ram/s05.bin", "fixtures/slot5_ee.bin", "fixtures/1p3goodcpus_ee.bin"] {
         let Ok(ram) = fixture::read(format!("{root}{s}")) else { continue };
         let u = |a: usize| u32::from_le_bytes(ram[(a & 0x1ff_ffff)..][..4].try_into().unwrap()) as usize;
         for p in 0..4 {

@@ -1,4 +1,4 @@
-//! The post-point cut-away shots against a recording of the original (`context/fixtures/cutaway_s05.bin`,
+//! The post-point cut-away shots against a recording of the original (`fixtures/cutaway_s05.bin`,
 //! `tools/record_cutaway.py`): shots and scripts from the disc's GAME.BIN, subject frames from the recorded
 //! reference table; every frame's channels and view (eye, axes, field of view) follow the game's.
 
@@ -21,7 +21,7 @@ fn mat(b: &[u8], o: usize) -> M4 {
 
 #[test]
 fn cutaway_s05() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{dir}/cutaway_s05.bin")), fixture::iso()) else {
         return fixture::skip(format_args!("cutaway_s05.bin or ISO absent, skipped"));
     };
@@ -91,7 +91,7 @@ fn director_s05() {
     use hst_sim::cutaway::{self, PickInput};
     const X: usize = SAMPLE;
     const PL: usize = X + 0xd8;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{dir}/cutaway2_s05.bin")), fixture::iso()) else {
         return fixture::skip(format_args!("cutaway2_s05.bin or ISO absent, skipped"));
     };
@@ -173,7 +173,7 @@ fn prediction_s05() {
     use hst_sim::pose::{Clip, Path, Skeleton, node_world};
     const X: usize = SAMPLE;
     const PL: usize = X + 0xd8;
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{dir}/cutaway2_s05.bin")), fixture::iso()) else {
         return fixture::skip(format_args!("cutaway2_s05.bin or ISO absent, skipped"));
     };

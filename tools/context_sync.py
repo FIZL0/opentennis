@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Carry a worktree's `context/` files into the main checkout's `context/` (T11).
+"""Carry a worktree's `context/` and `fixtures/` files into the main checkout's (T11).
 
 Usage: tools/context_sync.py [--all] [--since EPOCH] [--link] [-q]
 
@@ -18,9 +18,10 @@ path, the first one keeps the path and the other is kept beside it as `<name>.fr
                  runner.toml's on_exit runs it, since slots made before agent-runner have a real `context/`
   -q             print nothing when nothing was copied
 
-tools/done.sh runs the default form at the end of a task, and pine.py runs `--since` when a PINE tool exits. Tests
-read through `hst_data::fixture`, which already falls back to the main checkout's (or any worktree's) `context/`
-for a file this checkout lacks.
+`fixtures/` (the recordings tests read) is carried the same way; --link only touches `context/` (runner.toml links
+`fixtures/` for every slot). tools/done.sh runs the default form at the end of a task, and pine.py runs `--since`
+when a PINE tool exits. Tests read through `hst_data::fixture`, which already falls back to the main checkout's (or
+any worktree's) `fixtures/` for a file this checkout lacks.
 """
 import fcntl, filecmp, os, shutil, subprocess, sys
 
@@ -107,40 +108,42 @@ def main():
     since = float(args[args.index("--since") + 1]) if "--since" in args else None
     link = "--link" in args and "--all" not in args
     top = main_checkout()
-    dest = os.path.join(top, "context")
     sources = [w for w in worktrees() if os.path.realpath(w) != os.path.realpath(top)] if "--all" in args else [ROOT]
     made = {}  # rel path -> worktree that created it in this run
     new = size = kept = fresh = 0
     failed = []
-    for wt in sources:
-        ctx = os.path.join(wt, "context")
-        if not os.path.isdir(ctx) or os.path.realpath(ctx) == os.path.realpath(dest):
-            continue
-        name = os.path.basename(wt.rstrip("/"))
-        for src in files(ctx):
-            rel = os.path.relpath(src, ctx)
-            dst = os.path.join(dest, rel)
-            try:
-                if not os.path.lexists(dst):
-                    if clone(src, dst):
-                        made[rel] = name
-                        new += 1
-                        size += os.lstat(src).st_size
-                elif since is not None and not os.path.islink(src) and os.stat(src).st_mtime >= since:
-                    if not same(src, dst):
-                        clone(src, dst, replace=True)
-                        fresh += 1
-                elif (link or rel in made and made[rel] != name) and not same(src, dst):
-                    kept += clone(src, f"{dst}.from-{name}")
-            except OSError as e:
-                failed.append(f"{src}: {e}")
+    for sub in ("context", "fixtures"):
+        dest = os.path.join(top, sub)
+        for wt in sources:
+            ctx = os.path.join(wt, sub)
+            if not os.path.isdir(ctx) or os.path.realpath(ctx) == os.path.realpath(dest):
+                continue
+            name = os.path.basename(wt.rstrip("/"))
+            for src in files(ctx):
+                rel = os.path.relpath(src, ctx)
+                key = f"{sub}/{rel}"
+                dst = os.path.join(dest, rel)
+                try:
+                    if not os.path.lexists(dst):
+                        if clone(src, dst):
+                            made[key] = name
+                            new += 1
+                            size += os.lstat(src).st_size
+                    elif since is not None and not os.path.islink(src) and os.stat(src).st_mtime >= since:
+                        if not same(src, dst):
+                            clone(src, dst, replace=True)
+                            fresh += 1
+                    elif (link or key in made and made[key] != name) and not same(src, dst):
+                        kept += clone(src, f"{dst}.from-{name}")
+                except OSError as e:
+                    failed.append(f"{src}: {e}")
     if failed:
         print(f"context_sync: {len(failed)} file(s) not copied:", *failed[:20], sep="\n  ", file=sys.stderr)
     if new or fresh or kept or not quiet:
-        print(f"context_sync: {new} new file(s), {size / 1e9:.2f} GB, into {dest}"
+        print(f"context_sync: {new} new file(s), {size / 1e9:.2f} GB, into {top}"
               + (f"; {fresh} re-recorded file(s) replaced" if fresh else "")
               + (f"; {kept} same-name different file(s) kept as *.from-<worktree>" if kept else ""))
-    ctx = os.path.join(ROOT, "context")
+    ctx, dest = os.path.join(ROOT, "context"), os.path.join(top, "context")
     if link and not failed and os.path.realpath(ROOT) != os.path.realpath(top) and not os.path.islink(ctx) \
             and os.path.isdir(ctx):
         shutil.rmtree(ctx)

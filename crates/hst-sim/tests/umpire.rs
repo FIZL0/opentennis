@@ -1,5 +1,5 @@
 //! The umpire against the slot-5 doubles match recorded by `tools/record_umpire.py` (fixture
-//! `context/fixtures/umpire_s05.bin`, not in git; skipped when absent). The port is fed the recorded phases,
+//! `fixtures/umpire_s05.bin`, not in git; skipped when absent). The port is fed the recorded phases,
 //! score and ball each game tick, the score call and game announcement come from `PostPoint`'s own timing, and
 //! her state must match the recorded umpire every tick: motion, look, rally flags, the queued call (part, keys,
 //! programs) and the word countdown. The voice's end isn't recorded: a word is taken to have ended on the
@@ -115,11 +115,11 @@ fn umpire_tiebreak() {
 fn run(name: &str, mid: bool) {
     use hst_data::exe;
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{root}/context/fixtures"));
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{root}/fixtures"));
     let (Ok(data), Ok(cnf), Ok(bin)) = (
         fixture::read(format!("{dir}/{name}.bin")),
-        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN")),
     ) else {
         return fixture::skip(format_args!("{name}.bin or disc files absent, skipped"));
     };

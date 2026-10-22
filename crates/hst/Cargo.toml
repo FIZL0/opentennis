@@ -60,7 +60,7 @@ minisign-verify = "0.3"
 [dev-dependencies]
 # hst-base's test helpers for this crate's tests
 hst-base = { path = "../hst-base", features = ["testing"] }
-# the disc and context/ recordings for this crate's tests (`hst_data::fixture`)
+# the disc and fixtures/ recordings for this crate's tests (`hst_data::fixture`)
 hst-data = { path = "../hst-data", features = ["testing"] }
 # a fresh node id for the join-code paste tests (`play/main_menu/online.rs`)
 iroh = "1.3"

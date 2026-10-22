@@ -2,10 +2,10 @@
 //! call that draws (or reads the frame before the contact) is recorded on entry and exit with the AI generator's
 //! draw count, so each port function is fed the generator as it stood and must leave what the game left.
 //!
-//! `context/fixtures/ai_serve_singles.bin`: the bot-only singles match (`context/recordings/bots_singles.p2m2`'s
+//! `fixtures/ai_serve_singles.bin`: the bot-only singles match (`fixtures/recordings/bots_singles.p2m2`'s
 //! save state, no input), 7000 frames from the load. P0 Carol (character 6, left-handed), P1 Lola (character 10),
 //! both in costume 9 (block 3, the hardest): AIParam rows 48 and 52, level 3.
-//! `context/fixtures/ai_serve_s05.bin`: save slot 5, the bot-only doubles match. Characters 0, 2 / 1, 5 in
+//! `fixtures/ai_serve_s05.bin`: save slot 5, the bot-only doubles match. Characters 0, 2 / 1, 5 in
 //! costume 0: rows 84, 86 / 85, 89, level 3 (P11a). Doubles has no kind lock and its serve aim has no net dash.
 //! The `_dash` and `_second` fixtures (P116) reach second serves and the singles serve-and-dash; see their tests.
 
@@ -125,7 +125,7 @@ fn calls(d: &[u8]) -> (Mt, Vec<Call<'_>>) {
 /// Replays every call of a fixture through the port; returns how many of each kind were checked: button locks,
 /// stick locks, tosses, swings, aims, then second-serve tosses and serve aims that dash.
 fn replay(name: &str) -> Option<[usize; 7]> {
-    let d = fixture::read(format!("{}/context/fixtures/{name}", root())).ok()?;
+    let d = fixture::read(format!("{}/fixtures/{name}", root())).ok()?;
     let (table, second) = disc()?;
     let (mt0, calls) = calls(&d);
     let mut n = [0; 7];

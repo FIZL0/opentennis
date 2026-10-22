@@ -9,7 +9,7 @@ fn the_game_data_is_here_when_required() {
     if !fixture::required() {
         return;
     }
-    for dir in [fixture::ISO, "context/iso/ZZBIN/GAME.BIN", "context/ram", "context/xb", "context/fixtures"] {
+    for dir in [fixture::ISO, "fixtures/iso/ZZBIN/GAME.BIN", "fixtures/ram", "fixtures/xb", "fixtures"] {
         assert!(fixture::path(dir).exists(), "HST_REQUIRE_DISC: no {dir}");
     }
 }

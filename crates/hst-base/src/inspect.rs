@@ -479,7 +479,7 @@ fn lay_out(window: Query<&Window, With<PrimaryWindow>>, mut cams: Query<(&Camera
 /// left of a 64×64 image and cut round ([`round`]): 64 for the select's grid (its disc faces fill their 64×64 cell),
 /// 40 for the match panel (INPANE's `face_CC_OO.tm2` is a 40-px round head in the top left of 64×64, transparent
 /// elsewhere). Framing measured side by side with the disc faces of pc00/05/11/13 and checked on every baked disc and
-/// mod preview (`context/b133/v2.png`). None if `png` doesn't decode or drew nothing. B160: only for a mod's own
+/// mod preview (`fixtures/b133/v2.png`). None if `png` doesn't decode or drew nothing. B160: only for a mod's own
 /// preview PNG now; baked ones get a sharp close-up of the same square ([`icon`]).
 pub fn face_icon(png: &[u8], inner: u32) -> Option<Image> {
     let img = image::load_from_memory_with_format(png, image::ImageFormat::Png).ok()?.into_rgba8();
@@ -643,7 +643,7 @@ mod tests {
     use hst_data::mdl;
 
     /// Brad's model x/z with the pelvis over the spot, against the original's root matrix (PCSX2, inspect screen,
-    /// research/journal/2026-10-08-b40b-select-models/scripts/b40b3_probe.py: context/b40b3/c5_r2.tsv): the held pose after △, then gu_set (R2) as it plays.
+    /// research/journal/2026-10-08-b40b-select-models/scripts/b40b3_probe.py: fixtures/b40b3/c5_r2.tsv): the held pose after △, then gu_set (R2) as it plays.
     #[test]
     fn pelvis_centre_matches_the_game() {
         let Ok(mut iso) = hst_data::fixture::iso() else { return };

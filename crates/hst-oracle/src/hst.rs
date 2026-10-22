@@ -1,5 +1,5 @@
 //! Hot Shots Tennis on the interpreter: the user's disc (checked by `hst_data::exe::Game`), RAM dumps from
-//! `context/ram/` and the function names in `research/oracle.txt`. Everything game-specific in this crate is here.
+//! `fixtures/ram/` and the function names in `research/oracle.txt`. Everything game-specific in this crate is here.
 
 use crate::{Ee, RAM};
 use std::path::PathBuf;
@@ -19,10 +19,10 @@ pub fn addr(name: &str) -> u32 {
         .unwrap_or_else(|| panic!("{name} not in research/oracle.txt"))
 }
 
-/// The boot ELF and the GAME overlay (bytes, load address) from `context/iso/`, the disc checked to be the supported
+/// The boot ELF and the GAME overlay (bytes, load address) from `fixtures/iso/`, the disc checked to be the supported
 /// one; `None` without a disc (failing instead under `HST_REQUIRE_DISC`: `hst_data::fixture`).
 pub fn program() -> Option<(Vec<u8>, Vec<u8>, u32)> {
-    let read = |f: &str| hst_data::fixture::read(format!("context/iso/{f}")).ok();
+    let read = |f: &str| hst_data::fixture::read(format!("fixtures/iso/{f}")).ok();
     let (cnf, boot, game) = (read("SYSTEM.CNF")?, read("SCUS_976.10")?, read("ZZBIN/GAME.BIN")?);
     hst_data::exe::Game::new(&cnf, &game).expect("supported disc");
     // the overlay header (checked just above) names its own load address
@@ -32,9 +32,9 @@ pub fn program() -> Option<(Vec<u8>, Vec<u8>, u32)> {
 
 /// The game's machines: `use hst_oracle::HstEe` to get `Ee::game()` and `Ee::from_ram(name)`.
 pub trait HstEe: Sized {
-    /// The boot program and the GAME overlay as loaded in a match, from `context/iso/`; `None` without a disc.
+    /// The boot program and the GAME overlay as loaded in a match, from `fixtures/iso/`; `None` without a disc.
     fn game() -> Option<Self>;
-    /// A 32 MB EE RAM dump (`context/ram/<name>`) as the machine's memory, its GAME overlay checked against the
+    /// A 32 MB EE RAM dump (`fixtures/ram/<name>`) as the machine's memory, its GAME overlay checked against the
     /// disc's; `None` when either is missing.
     fn from_ram(name: &str) -> Option<Self>;
 }
@@ -48,7 +48,7 @@ impl HstEe for Ee {
     }
 
     fn from_ram(name: &str) -> Option<Self> {
-        let ram = hst_data::fixture::read(format!("context/ram/{name}")).ok()?;
+        let ram = hst_data::fixture::read(format!("fixtures/ram/{name}")).ok()?;
         let (_, game, load) = program()?;
         let (at, n) = (load as usize + 0x100, 0x1000); // code, past the overlay header
         assert_eq!(ram[at..at + n], game[0x100..0x100 + n], "{name} holds a different GAME overlay");

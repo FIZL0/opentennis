@@ -1,4 +1,4 @@
-//! The match camera against a recorded bot match (`context/fixtures/camera_s05.bin`, `tools/record_camera.py 5`):
+//! The match camera against a recorded bot match (`fixtures/camera_s05.bin`, `tools/record_camera.py 5`):
 //! every serve and rally frame, the port's view (eye, forward axis, field of view) follows the game's from the
 //! same players and ball.
 
@@ -25,7 +25,7 @@ fn view(s: &[u8]) -> View {
 
 #[test]
 fn match_s05_camera() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/camera_s05.bin")) else {
         return fixture::skip(format_args!("camera_s05.bin absent, skipped"));
     };
@@ -58,7 +58,7 @@ fn match_s05_camera() {
 }
 
 /// B49/B164: the change-ends move against the original's two recorded glides (`research/journal/2026-10-13-b174-palais-change-ends/scripts/b174_swing_probe.py`:
-/// slot 5, and the Grand Palais with the camera on the human's side, `context/b174/orig/`): from the saved start
+/// slot 5, and the Grand Palais with the camera on the human's side, `fixtures/b174/orig/`): from the saved start
 /// view (shot 2's first) to the match camera's view about court spot 0x76, every tick's eye and look as the
 /// game's (skipped without the recordings).
 #[test]
@@ -67,7 +67,7 @@ fn change_ends_swing() {
     assert!(swing_weight(SWING - 1) < 1e-3 && swing_weight(0) == 1.0);
     assert!((1..SWING).all(|k| swing_weight(k - 1) >= swing_weight(k)));
     for name in ["palais", "slot5"] {
-        let path = format!("{}/../../context/b174/orig/{name}.txt", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{}/../../fixtures/b174/orig/{name}.txt", env!("CARGO_MANIFEST_DIR"));
         let Ok(text) = fixture::read_to_string(&path) else {
             fixture::skip(format_args!("no {path}, skipped"));
             continue;

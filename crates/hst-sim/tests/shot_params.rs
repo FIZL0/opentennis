@@ -1,5 +1,5 @@
 //! The shot parameter table built from the disc must equal the game's own runtime table (captured from a
-//! save state's RAM: `context/fixtures/shot_params_ram.bin`). Needs the extracted disc under `context/iso`.
+//! save state's RAM: `fixtures/shot_params_ram.bin`). Needs the extracted disc under `fixtures/iso`.
 
 use hst_data::fixture;
 use hst_data::exe::Game;
@@ -7,11 +7,11 @@ use hst_sim::params::ShotParams;
 
 #[test]
 fn built_table_equals_the_games_runtime_table() {
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let (Ok(cnf), Ok(bin), Ok(ram)) = (
         fixture::read(format!("{ctx}/iso/SYSTEM.CNF")),
         fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
-        fixture::read(format!("{ctx}/fixtures/shot_params_ram.bin")),
+        fixture::read(format!("{ctx}/shot_params_ram.bin")),
     ) else {
         fixture::skip(format_args!("fixture missing, skipped"));
         return;
@@ -35,14 +35,14 @@ fn built_table_equals_the_games_runtime_table() {
     assert_eq!(checked, (4 + 5 + 5 + 2) * 17);
 }
 
-/// The variant records (filled at start-up) equal the slot-5 save state's (`context/fixtures/slot5_ee.bin`).
+/// The variant records (filled at start-up) equal the slot-5 save state's (`fixtures/slot5_ee.bin`).
 #[test]
 fn variant_records_equal_the_games() {
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let (Ok(cnf), Ok(bin), Ok(ram)) = (
         fixture::read(format!("{ctx}/iso/SYSTEM.CNF")),
         fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN")),
-        fixture::read(format!("{ctx}/fixtures/slot5_ee.bin")),
+        fixture::read(format!("{ctx}/slot5_ee.bin")),
     ) else {
         fixture::skip(format_args!("fixture missing, skipped"));
         return;
@@ -70,7 +70,7 @@ fn variant_records_equal_the_games() {
 /// disc every such variant's spin group is the base record's, so the launch's base `smash_spins` is exact.
 #[test]
 fn smash_down_variants_keep_the_base_spin_group() {
-    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../context");
+    let ctx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
     let (Ok(cnf), Ok(bin)) = (fixture::read(format!("{ctx}/iso/SYSTEM.CNF")), fixture::read(format!("{ctx}/iso/ZZBIN/GAME.BIN"))) else {
         return fixture::skip(format_args!("the extracted disc absent, skipped"));
     };

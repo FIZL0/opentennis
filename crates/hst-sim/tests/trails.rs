@@ -1,4 +1,4 @@
-//! Swing trails against a recorded bot match (`context/fixtures/trails_s05.bin`, `tools/record_trails.py 5`): from
+//! Swing trails against a recorded bot match (`fixtures/trails_s05.bin`, `tools/record_trails.py 5`): from
 //! each swing's start (its length in frames as the game set it), every frame the racket matrix and motion the game
 //! had give the port's samples, reach, width, alpha and end, bit for bit.
 
@@ -18,7 +18,7 @@ const SIZE: usize = 0x10c + 4 * PLAYER;
 
 #[test]
 fn trails_s05() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/trails_s05.bin")) else { return };
     let frames: Vec<&[u8]> = data.as_chunks::<SIZE>().0.iter().map(|s| s.as_slice()).collect();
     let mut trails = vec![Trail::default(); 4];

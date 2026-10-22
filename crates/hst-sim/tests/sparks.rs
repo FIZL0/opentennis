@@ -1,4 +1,4 @@
-//! Hit sparks against a recorded bot match (`context/fixtures/sparks_s05.bin`, `tools/record_sparks.py 5`): from the
+//! Hit sparks against a recorded bot match (`fixtures/sparks_s05.bin`, `tools/record_sparks.py 5`): from the
 //! game's own rolls, every burst it throws matches the port's spark for spark, and every frame after it every
 //! spark's position, velocity, size and life, bit for bit.
 
@@ -40,7 +40,7 @@ fn bits(s: &Spark) -> Vec<u32> {
 
 #[test]
 fn sparks_s05() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../context/fixtures").into());
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
     let Ok(data) = fixture::read(format!("{dir}/sparks_s05.bin")) else { return };
     let frames: Vec<&[u8]> = data.as_chunks::<SIZE>().0.iter().map(|s| s.as_slice()).collect();
     let mut sp = Sparks::new(rolls(frames[0]));

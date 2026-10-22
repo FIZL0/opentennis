@@ -1,7 +1,7 @@
 """N4a: the original's yellow smash marker. From slot 4 (P1 human), the opponents' (slots 1, 3) strokes are forced
 to △ lobs; the marker object (match manager +0xa4) is logged each frame to <outdir>/log.jsonl, its predicted path
 is dumped when the first smash point is placed, PCSX2's F8 screenshots follow, and the first placement is written
-as the fixture context/fixtures/smash_mark_s04.txt (hst-sim tests/effect.rs smash_mark_s04).
+as the fixture fixtures/smash_mark_s04.txt (hst-sim tests/effect.rs smash_mark_s04).
 Run under tools/pcsx2.sh with tools/vpad.py pressing ✕ now and then (P1 serves).
 usage: smash_mark_rec.py <slot> <frames> <outdir>"""
 import sys, time, struct, os, subprocess, json
@@ -48,6 +48,6 @@ rows = [json.loads(l) for l in open(f"{out}/log.jsonl")]
 first = next((r for r in rows[1:] if "path" in r), None)
 if first:
     hx = lambda x: struct.pack(">f", x).hex()
-    with open("context/fixtures/smash_mark_s04.txt", "w") as o:
+    with open("fixtures/smash_mark_s04.txt", "w") as o:
         o.write(" ".join(hx(x) for x in (*heights[0], *first["mark"])) + "\n")
         for e in first["path"]: o.write(" ".join(hx(e[k]) for k in (0, 1, 2, 4, 5, 6)) + f" {e[8]}\n")

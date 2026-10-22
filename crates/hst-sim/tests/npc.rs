@@ -1,4 +1,4 @@
-//! Background figures from the disc against the game's own objects in RAM on four courts (`context/ram/`: slots
+//! Background figures from the disc against the game's own objects in RAM on four courts (`fixtures/ram/`: slots
 //! 07 and 10 of the PCSX2 states = courts 1 and 2, `s03.bin` = court 4, `s05.bin` = court 10; not in git, skipped
 //! when absent along with the disc image). Every creature record's position (links resolved) and yaw must match
 //! the game's loaded record bit for bit; the walking spectators and trigger creatures made must be exactly the
@@ -37,7 +37,7 @@ fn creatures_match_ram_on_four_courts() {
     let game = Game::new(&cnf, &bin).unwrap();
     let mut courts = Vec::new();
     for f in ["npc_c01", "npc_c02", "s03", "s05"] {
-        let Ok(ram) = fixture::read(format!("{root}/context/ram/{f}.bin")) else {
+        let Ok(ram) = fixture::read(format!("{root}/fixtures/ram/{f}.bin")) else {
             fixture::skip(format_args!("{f}.bin missing, skipped"));
             continue;
         };
@@ -188,7 +188,7 @@ impl Mt {
     }
 }
 
-/// Walking spectators' animation against `context/fixtures/npc_sNN.bin` (tools/record_npc.py; not in git, skipped
+/// Walking spectators' animation against `fixtures/npc_sNN.bin` (tools/record_npc.py; not in git, skipped
 /// when absent): every tick of every walker, from the recorded state of the tick before, must reproduce the game's
 /// animation, frame, next frame, speed, mode and stagger counter bit for bit. Random draws come from the game's
 /// own generator (reseeded at a new point): the walker's draws must be consecutive outputs among those the game drew that tick. Points and
@@ -198,7 +198,7 @@ fn walkers_animate_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let mut courts = Vec::new();
     for slot in [5, 7, 10, 3] {
-        let Ok(d) = fixture::read(format!("{root}/context/fixtures/npc_s{slot:02}.bin")) else {
+        let Ok(d) = fixture::read(format!("{root}/fixtures/npc_s{slot:02}.bin")) else {
             fixture::skip(format_args!("npc_s{slot:02}.bin missing, skipped"));
             continue;
         };
@@ -297,7 +297,7 @@ fn walkers_face_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let mut courts = Vec::new();
     for slot in [5, 7, 10, 3] {
-        let Ok(d) = fixture::read(format!("{root}/context/fixtures/npc_s{slot:02}.bin")) else {
+        let Ok(d) = fixture::read(format!("{root}/fixtures/npc_s{slot:02}.bin")) else {
             fixture::skip(format_args!("npc_s{slot:02}.bin missing, skipped"));
             continue;
         };
@@ -345,7 +345,7 @@ fn walkers_face_like_the_game() {
     assert!(courts.is_empty() || courts.len() >= 3, "fewer than three courts checked: {courts:?}");
 }
 
-/// Ambient sound emitters against `context/fixtures/trig_sNN.bin` (tools/record_npc.py with `trig`; not in git,
+/// Ambient sound emitters against `fixtures/trig_sNN.bin` (tools/record_npc.py with `trig`; not in git,
 /// skipped when absent): every tick of every emitter, from the recorded state of the tick before, must give the
 /// game's countdown, kept-aside countdown, sweep, pan and direction bit for bit (a play's start pan taken from the
 /// recording), and its random draws consecutive outputs among those the game drew that tick. Where the figures
@@ -360,7 +360,7 @@ fn emitters_count_down_like_the_game() {
     let game = Game::new(&cnf, &bin).unwrap();
     let mut courts = Vec::new();
     for slot in [5, 7, 10, 3] {
-        let Ok(d) = fixture::read(format!("{root}/context/fixtures/trig_s{slot:02}.bin")) else {
+        let Ok(d) = fixture::read(format!("{root}/fixtures/trig_s{slot:02}.bin")) else {
             fixture::skip(format_args!("trig_s{slot:02}.bin missing, skipped"));
             continue;
         };
@@ -444,7 +444,7 @@ fn emitters_count_down_like_the_game() {
     assert!(courts.is_empty() || courts.len() >= 3, "fewer than three courts checked: {courts:?}");
 }
 
-/// The trigger creature engine against `context/fixtures/trig_cNN.bin` (tools/record_npc.py with `trig`; not in
+/// The trigger creature engine against `fixtures/trig_cNN.bin` (tools/record_npc.py with `trig`; not in
 /// git, skipped when absent): courts 5 (type 18, circling), 8 (type 34, idle animation repeat) and 9 (type 37,
 /// a loop with pauses and resets). Every tick from the recorded state before must give the game's object state
 /// (matrix, path counters, leg, velocity, pause, speed, animation frames, sound countdown) bit for bit, its draws
@@ -462,7 +462,7 @@ fn trigger_engine_matches_the_game() {
     let game = Game::new(&cnf, &bin).unwrap();
     let mut courts = Vec::new();
     for (court, k) in [(5, 0), (8, 10), (9, 0)] {
-        let Ok(d) = fixture::read(format!("{root}/context/fixtures/trig_c{court:02}.bin")) else {
+        let Ok(d) = fixture::read(format!("{root}/fixtures/trig_c{court:02}.bin")) else {
             fixture::skip(format_args!("trig_c{court:02}.bin missing, skipped"));
             continue;
         };
@@ -530,7 +530,7 @@ fn trigger_engine_matches_the_game() {
 }
 
 
-/// The startled creatures against `context/fixtures/prox_cNN.bin` (tools/record_npc.py with `prox`, HST_POKE moving a
+/// The startled creatures against `fixtures/prox_cNN.bin` (tools/record_npc.py with `prox`, HST_POKE moving a
 /// still creature next to a player or the ball; not in git, skipped when absent): courts 1 (types 0, 1), 2 (5),
 /// 7 (27–29; `struck` against the game's message 0x14) and 11 (48), any of 8, 9 too. Every tick of every creature of those types from the recorded state before, with that
 /// tick's players' and ball's positions, must give the game's state after bit for bit, startled latch and 48's scrub
@@ -547,7 +547,7 @@ fn startled_creatures_match_the_game() {
     let game = Game::new(&cnf, &bin).unwrap();
     let mut courts = Vec::new();
     for court in [1, 2, 7, 8, 9, 11] {
-        let path = format!("{root}/context/fixtures/prox_c{court:02}.bin");
+        let path = format!("{root}/fixtures/prox_c{court:02}.bin");
         // courts 8 and 9 are extra: never recorded so far
         let d = if matches!(court, 8 | 9) { std::fs::read(fixture::path(&path)) } else { fixture::read(&path) };
         let Ok(d) = d else { continue };
@@ -750,7 +750,7 @@ fn trigger_at(s: &[u8], o: usize, row: &hst_data::exe::TriggerRow, anchor: [f32;
     }
 }
 
-/// Court 4's passing ball (type 15) against `context/fixtures/ball_c04.bin` (research/journal/2026-10-08-b24-court-events/scripts/b24_rec15.py, an all-computer
+/// Court 4's passing ball (type 15) against `fixtures/ball_c04.bin` (research/journal/2026-10-08-b24-court-events/scripts/b24_rec15.py, an all-computer
 /// doubles match from its first change of ends: route 0) and `ball_c04_r1..3.bin` (`b24_rec15.py -9 … <mti>` from a
 /// scratch save before a change of ends, its played flags cleared, the generator's index set so the roll picks route
 /// 1–3; not in git, skipped when absent): every tick from the recorded state before, through the change of ends'
@@ -766,7 +766,7 @@ fn passing_ball_matches_the_game() {
     let game = Game::new(&cnf, &bin).unwrap();
     let (row, routes) = (game.trigger(15), game.ball_routes());
     for (want, name) in ["ball_c04", "ball_c04_r1", "ball_c04_r2", "ball_c04_r3"].into_iter().enumerate() {
-        let Ok(d) = fixture::read(format!("{root}/context/fixtures/{name}.bin")) else {
+        let Ok(d) = fixture::read(format!("{root}/fixtures/{name}.bin")) else {
             fixture::skip(format_args!("{name}.bin missing, skipped"));
             continue;
         };
@@ -849,7 +849,7 @@ fn passing_ball_matches_the_game() {
     }
 }
 
-/// The ball-hit obstacles (14 on court 4, 38 on court 9, 43 on court 10) against `context/fixtures/hit_cNN.bin`
+/// The ball-hit obstacles (14 on court 4, 38 on court 9, 43 on court 10) against `fixtures/hit_cNN.bin`
 /// (`tools/record_npc.py … prox` with `HST_BALL=1 HST_MATS=1` and pokes onto the ball and players; not in git, skipped
 /// when absent): every tick of each obstacle from the recorded state before must give the game's state after bit for
 /// bit — the latch, animation and clip, type 38's turn to the ball — and a struck one must be the tick's message 0x14.
@@ -865,7 +865,7 @@ fn ball_hit_obstacles_match_the_game() {
     let game = Game::new(&cnf, &bin).unwrap();
     let (mut files, mut hits, mut anims, mut torn) = (0, 0, 0, 0);
     for name in ["hit_c04", "hit_c09", "hit_c10", "hit_c10b"] {
-        let Ok(d) = fixture::read(format!("{root}/context/fixtures/{name}.bin")) else {
+        let Ok(d) = fixture::read(format!("{root}/fixtures/{name}.bin")) else {
             fixture::skip(format_args!("{name}.bin missing, skipped"));
             continue;
         };
@@ -1065,7 +1065,7 @@ fn match_event_creatures() {
     }
 }
 
-/// The serve set-up's message against `context/fixtures/trig_replay_s05.bin` (tools/record_npc.py 5 1400 … trig with
+/// The serve set-up's message against `fixtures/trig_replay_s05.bin` (tools/record_npc.py 5 1400 … trig with
 /// HST_GM=1, HST_REPLAY=1 and HST_BYTE="10:0:0xbc:1;500:0:0xbc:0;500:2:0xbc:1": court 10's creatures with `done`
 /// poked on before the first serve set-up and swapped during the point, then a forced replay; not in git, skipped
 /// when absent): at each of its three arrivals (the match's first serve, the replay's start, the serve after it) every
@@ -1076,7 +1076,7 @@ fn serve_setup_keeps_and_restores_like_the_game() {
     let Ok(mut iso) = fixture::iso() else {
         return fixture::skip(format_args!("disc missing, skipped"));
     };
-    let Ok(d) = fixture::read(format!("{root}/context/fixtures/trig_replay_s05.bin")) else {
+    let Ok(d) = fixture::read(format!("{root}/fixtures/trig_replay_s05.bin")) else {
         return fixture::skip(format_args!("trig_replay_s05.bin missing, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
@@ -1116,7 +1116,7 @@ fn serve_setup_keeps_and_restores_like_the_game() {
     assert_eq!(restored, 2, "the poked creatures' done not put back at the replay");
 }
 
-/// Court 5's own creatures against `context/p14d/run1/c5.bin` (research/journal/2026-10-07-p14-npc/scripts/p14d_record.py: a doubles match on court 5
+/// Court 5's own creatures against `fixtures/p14d/run1/c5.bin` (research/journal/2026-10-07-p14-npc/scripts/p14d_record.py: a doubles match on court 5
 /// from the intro; not in git, skipped when absent). Every tick of all six, from the recorded state of the tick
 /// before, must reproduce the game's tick count, cheering flag, UV frame, level and direction: seated again at the
 /// serve set-up and when a point's end is left, standing up at a point's end when [`npc::crowd_cheers_point`] says
@@ -1124,7 +1124,7 @@ fn serve_setup_keeps_and_restores_like_the_game() {
 #[test]
 fn court5_crowd_like_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = fixture::read(format!("{root}/context/p14d/run1/c5.bin")) else {
+    let Ok(d) = fixture::read(format!("{root}/fixtures/p14d/run1/c5.bin")) else {
         fixture::skip(format_args!("c5.bin missing, skipped"));
         return;
     };
@@ -1208,7 +1208,7 @@ fn ball_model_and_last_move_match_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (mut steps, mut doubles, mut still, mut new, mut struck) = (0, 0, 0, 0, 0);
     for name in ["hit_c04", "hit_c09"] {
-        let Ok(d) = fixture::read(format!("{root}/context/fixtures/{name}.bin")) else {
+        let Ok(d) = fixture::read(format!("{root}/fixtures/{name}.bin")) else {
             fixture::skip(format_args!("{name}.bin missing, skipped"));
             continue;
         };

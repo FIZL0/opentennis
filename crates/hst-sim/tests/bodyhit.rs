@@ -1,5 +1,5 @@
 //! The ball's course after it hits a player, against a recorded bot rally on court 10
-//! (`context/fixtures/bodyhit_s05.bin`, `research/bodyhit_rec.py 5 … 4.0`: every player's collision radius poked
+//! (`fixtures/bodyhit_s05.bin`, `research/bodyhit_rec.py 5 … 4.0`: every player's collision radius poked
 //! to 4 so a body hit comes soon; not in git, skipped when absent along with the disc). The frame before the hit
 //! is stepped against the court world, then once more against the plane facing back along its heading
 //! (`Flight::step_plane`, material 0): it must give the hit frame's ball bit for bit — same position, the
@@ -65,10 +65,10 @@ fn same(fl: &Flight, b: &[u8], what: &str) {
 fn ball_off_a_player_s05() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(mut iso), Ok(cnf), Ok(bin)) = (
-        fixture::read(format!("{root}/context/fixtures/bodyhit_s05.bin")),
+        fixture::read(format!("{root}/fixtures/bodyhit_s05.bin")),
         fixture::iso(),
-        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN")),
     ) else {
         return fixture::skip(format_args!("bodyhit_s05.bin or disc absent, skipped"));
     };
@@ -86,7 +86,7 @@ fn ball_off_a_player_s05() {
     same(&fl, ball(frames[n + 1]), "frame after");
 }
 
-/// A creature struck by the falling serve toss on court 7 (`context/fixtures/prox_c07_ball.bin`, tools/record_npc.py
+/// A creature struck by the falling serve toss on court 7 (`fixtures/prox_c07_ball.bin`, tools/record_npc.py
 /// `prox` with HST_BALL=1, the poke at sample 125 putting a creature on the ball; not in git, skipped when absent):
 /// the game's message 0x14 gives the ball a plane step whose sweep misses (the toss moves too little to reach the
 /// plane), which responds all the same, then the ball's own step. Both must give the next sample's ball bit for bit,
@@ -95,10 +95,10 @@ fn ball_off_a_player_s05() {
 fn struck_toss_c07() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let (Ok(data), Ok(mut iso), Ok(cnf), Ok(bin)) = (
-        fixture::read(format!("{root}/context/fixtures/prox_c07_ball.bin")),
+        fixture::read(format!("{root}/fixtures/prox_c07_ball.bin")),
         fixture::iso(),
-        fixture::read(format!("{root}/context/iso/SYSTEM.CNF")),
-        fixture::read(format!("{root}/context/iso/ZZBIN/GAME.BIN")),
+        fixture::read(format!("{root}/fixtures/iso/SYSTEM.CNF")),
+        fixture::read(format!("{root}/fixtures/iso/ZZBIN/GAME.BIN")),
     ) else {
         return fixture::skip(format_args!("prox_c07_ball.bin or disc absent, skipped"));
     };

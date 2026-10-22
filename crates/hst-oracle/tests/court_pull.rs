@@ -1,5 +1,5 @@
 //! P117: the court pull of a rally shot's aim (`hst_sim::shot::Margins::inside`) with the smash's low margins and
-//! a special shot's unscaled ones, through the oracle. Needs `context/iso/` and `context/ram/s05.bin` (skips
+//! a special shot's unscaled ones, through the oracle. Needs `fixtures/iso/` and `fixtures/ram/s05.bin` (skips
 //! without them).
 
 use hst_oracle::{Ee, HstEe, addr};
@@ -20,7 +20,7 @@ fn int(seed: &mut u64, lo: u32, hi: u32) -> i32 {
 
 /// The disc's SYSTEM.CNF and GAME.BIN (for `hst_data::exe::Game`).
 fn disc() -> Option<(Vec<u8>, Vec<u8>)> {
-    let read = |f: &str| hst_data::fixture::read(format!("context/iso/{f}")).ok();
+    let read = |f: &str| hst_data::fixture::read(format!("fixtures/iso/{f}")).ok();
     Some((read("SYSTEM.CNF")?, read("ZZBIN/GAME.BIN")?))
 }
 

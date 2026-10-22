@@ -18,7 +18,7 @@ Rust/Bevy remaster of Hot Shots Tennis (SCUS-97610). Faithful: same AI, physics,
   needs it (new op, missing function, wrong rounding): change it there with a test, tag a release, bump the tag here
   and in the decomp kits (their own repos' `crates/game-sim`, `crates/kit-oracle`, not in this one), run their tests. Never copy them back in.
 - Research: our own scripts and notes are in `research/` (in git: no game data, no decompiled code, no captures or
-  screenshots); everything derived from the disc or the running game is in `context/` (git-ignored). Journal:
+  screenshots); everything derived from the disc or the running game is in `context/` (scratch) or, if a test reads it, `fixtures/` (both git-ignored). Journal:
   `research/journal/YYYY-MM-DD-<slug>/` (slug starts with the lowercase task ID), one dir per task: a `README-<STATE>.md`
   or numbered iteration files `N-<TOPIC>-<STATE>.md` (a README is optional then); the newest one's state says whose move
   it is: `-FINAL` done, `-PART` agent continues, `-READY` needs the human. `tools/done.sh` renames a ticked task's
@@ -36,11 +36,12 @@ Any change to a published mod (rebuilt model, motions, faces, textures, manifest
 before it is re-uploaded, so the mod store sees an update and installed copies refresh.
 
 ## Research setup
-`research/README.md` rebuilds `context/` from the disc (extract, overlay ELFs, Ghidra project, decompilation
-dumps, save states, recordings) and lists the tool pitfalls.
+`research/README.md` rebuilds `context/` and `fixtures/` from the disc (extract, overlay ELFs, Ghidra project,
+decompilation dumps, save states, recordings) and lists the tool pitfalls. `fixtures/` (git-ignored, game data) holds
+everything the tests read: disc extracts (`fixtures/iso`, `xb`), RAM images, recordings. A recording a test needs is
+copied into `fixtures/<task>/` (`cp --reflink`) when the test lands; tests never read `context/`.
 `tools/context_prune.py` reports what `context/` holds that nothing refers to any more (`--delete` moves it to
-`context/.trash/`, `--empty` clears that). A recording a test or tool needs must be named by its path in code or
-an open task's plan/journal, or it can be pruned.
+`context/.trash/`, `--empty` clears that); a recording a research script needs must be named by its path in it.
 
 ## Plan
 `PLAN.md` holds the rules and a code map; the ordered open tasks are in `plan/TODO.md` (each line names the files to
@@ -72,7 +73,7 @@ merge into main as a normal task. Mode-off and the replay tests stay exact on th
 - Tests: `tools/check.sh [-p crate --test name]`, not bare `cargo test`; full log in `context/notes/check.log`.
   While working, run only the tests you touched (`tools/check.sh -p hst <filter>`): three check slots serve every
   agent, and a full-suite run holds one for many minutes. The full suite runs once, in `tools/done.sh`.
-  A test reads the disc and `context/` recordings through `hst_data::fixture` (`iso()`, `read`, `skip`), never by
+  A test reads the disc and `fixtures/` recordings through `hst_data::fixture` (`iso()`, `read`, `skip`), never by
   its own path: it skips without them, and fails instead under check.sh's `HST_REQUIRE_DISC=1`.
   Keep each test under ~10 s: share one match between checks, force the rare case (e.g. set the replay camera's
   closing-shot list) instead of playing on until it happens. Slower ones are `#[ignore]` with a doc line saying

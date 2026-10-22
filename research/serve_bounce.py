@@ -1,7 +1,7 @@
 """Per serve in anim_s05.bin: the stance motion (0x20) time when the walk/toss starts, and the motion sequence."""
 import struct, sys
 S = 4 + 0x100 + 4 * 0x484
-d = open('context/fixtures/anim_s05.bin', 'rb').read()
+d = open('fixtures/anim_s05.bin', 'rb').read()
 n = len(d) // S
 def blk(k, p): return d[k * S + 0x104 + p * 0x484:][:0x484]
 for p in range(4):

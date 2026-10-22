@@ -1,4 +1,4 @@
-//! Same floats on every platform: `state_hash` (a recorded bot match, `context/fixtures/camera_s05.bin`, through the
+//! Same floats on every platform: `state_hash` (a recorded bot match, `fixtures/camera_s05.bin`, through the
 //! match camera, plus the sim's transcendentals) built for x86_64, aarch64 and wasm32 prints the same per-tick
 //! hashes. aarch64 is built with `cargo zigbuild` and run through qemu's binfmt; wasm32 runs under `wasmtime` (PATH
 //! or `context/tools/wasmtime-*/`). Skipped when the fixture, a target or a runner is missing.
@@ -42,7 +42,7 @@ fn wasmtime() -> Option<PathBuf> {
 
 #[test]
 fn same_state_hash_on_x86_64_aarch64_wasm32() {
-    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{ROOT}/context/fixtures"));
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| format!("{ROOT}/fixtures"));
     let fixture = fixture::path(format!("{dir}/camera_s05.bin"));
     if !fixture::exists(&fixture) {
         return;

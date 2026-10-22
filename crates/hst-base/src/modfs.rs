@@ -730,10 +730,10 @@ pub fn root() -> &'static Path {
 pub mod tests {
     use super::*;
 
-    /// One of the real mods (`context/mods`, links into the mods repo's `out/mods`), from another checkout when
+    /// One of the real mods (`fixtures/mods`, links into the mods repo's `out/mods`), from another checkout when
     /// this one lacks it (`hst_data::fixture::path`).
     pub fn test_mod(id: impl AsRef<Path>) -> PathBuf {
-        hst_data::fixture::path(Path::new("context/mods").join(id))
+        hst_data::fixture::path(Path::new("fixtures/mods").join(id))
     }
 
     /// The files of a real mod's folder a mod zip would hold: [`dir_files`] without leftovers beside them
@@ -881,7 +881,7 @@ pub mod tests {
     fn bad_mods_leave_nothing() {
         let dir = test_mod("opentee2_pc16_lauryn");
         if !dir.is_dir() {
-            return hst_data::fixture::skip("no context/mods/opentee2_pc16_lauryn");
+            return hst_data::fixture::skip("no fixtures/mods/opentee2_pc16_lauryn");
         }
         let good = dir_files(&dir);
         let costume = "model/pc16_lauryn_own.glb";
@@ -943,7 +943,7 @@ pub mod tests {
     fn browser_install_leaves_upscaled_out() {
         let dir = test_mod("test_pc00");
         if !dir.is_dir() {
-            return hst_data::fixture::skip("no context/mods/test_pc00");
+            return hst_data::fixture::skip("no fixtures/mods/test_pc00");
         }
         let mut files = mod_files(&dir);
         files.push(("textures/upscaled/c00/image0.png".into(), b"not a png".to_vec()));
@@ -985,7 +985,7 @@ pub mod tests {
     fn same_id_mods_both_install() {
         let dir = test_mod("test_pc00");
         if !dir.is_dir() {
-            return hst_data::fixture::skip("no context/mods/test_pc00");
+            return hst_data::fixture::skip("no fixtures/mods/test_pc00");
         }
         let files = mod_files(&dir);
         let renamed = |name: &str| -> Files {

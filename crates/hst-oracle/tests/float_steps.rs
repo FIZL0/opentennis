@@ -1,7 +1,7 @@
 //! The three spots C2 moved from plain IEEE f32 to the EE FPU's ops, against the original through the oracle:
 //! the character speed (TParam SPE / 10, `player::Stats::new`), the shot table lookup's flight frames
 //! (`shot::lookup`, whose last interpolation step truncates to whole frames) and the human run direction
-//! (`player::pad_dir`, ending in the camera matrix's `+ 0`). Needs `context/iso/` and `context/ram/s03.bin` (skips
+//! (`player::pad_dir`, ending in the camera matrix's `+ 0`). Needs `fixtures/iso/` and `fixtures/ram/s03.bin` (skips
 //! without them).
 
 use std::cell::Cell;

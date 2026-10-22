@@ -1,4 +1,4 @@
-//! The slot-5 doubles bots' formation (`context/fixtures/ai_pos_s05.bin`, tools/record_ai_pos.py; skipped when
+//! The slot-5 doubles bots' formation (`fixtures/ai_pos_s05.bin`, tools/record_ai_pos.py; skipped when
 //! missing): every change of a bot's lane, front flag or spot must be one `Formation::start`, `repick` or `hold`
 //! gives from what the frame shows, and a bot must stop walking back just as it gets inside the centre radius.
 
@@ -47,7 +47,7 @@ impl<'a> Frame<'a> {
 #[test]
 fn formation_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let Ok(d) = fixture::read(format!("{root}/context/fixtures/ai_pos_s05.bin")) else {
+    let Ok(d) = fixture::read(format!("{root}/fixtures/ai_pos_s05.bin")) else {
         return fixture::skip(format_args!("ai_pos_s05.bin missing, skipped"));
     };
     // header: count, then per player its address, AI address, 0x12b0..0x12c0 and 0x13f0..0x13f8; ball, shot table
@@ -117,7 +117,7 @@ fn list(line: &str, key: &str) -> Vec<u32> {
 }
 
 /// Slot 5's new points with the first-point flag forced, the controller words, setup bytes and row bytes poked
-/// (`context/fixtures/p3d2_formation_h{-1,0}.jsonl`: four bots, player 0 human; research/journal/2026-10-08-p3d2-formation/scripts/p3d2_formation.py; skipped
+/// (`fixtures/p3d2_formation_h{-1,0}.jsonl`: four bots, player 0 human; research/journal/2026-10-08-p3d2-formation/scripts/p3d2_formation.py; skipped
 /// when missing): every player's +0x13f4 is `Team::pick` from the point's four placement draws in player order,
 /// players 2 and 3 their partner's. A pick that didn't run (0x77) and each run's first line (its +0x13f4 not yet
 /// marked: slot 5's first point can keep the state's placement) are left out. With player 2 poked human mid-match
@@ -128,7 +128,7 @@ fn formation_pick_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let mut checked = 0;
     for h in ["-1", "0"] {
-        let Ok(d) = fixture::read_to_string(format!("{root}/context/fixtures/p3d2_formation_h{h}.jsonl")) else {
+        let Ok(d) = fixture::read_to_string(format!("{root}/fixtures/p3d2_formation_h{h}.jsonl")) else {
             return fixture::skip(format_args!("p3d2_formation_h{h}.jsonl missing, skipped"));
         };
         for line in d.lines().skip(1) {

@@ -476,7 +476,7 @@ mod tests {
         assert!(edges(&kept, &pos).values().all(|&c| c == 2));
     }
 
-    /// The disc's characters and the test mods (`context/mods`, `mods.rs`'s tests) at 50 % and 25 %: each part keeps its
+    /// The disc's characters and the test mods (`fixtures/mods`, `mods.rs`'s tests) at 50 % and 25 %: each part keeps its
     /// border (no gap opens between parts), its seams and its morphing vertices, and no edge gets more than two
     /// triangles. Prints the triangle counts and the time (the journal's table).
     #[test]

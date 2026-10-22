@@ -3,8 +3,8 @@
 //! fed the AI generator as it stood, the predicted path, the seen flags and the player's running state, and must
 //! leave the game's stand spot, ball, run frames, index, flags and draw count.
 //!
-//! `context/fixtures/ai_search_s05.bin`: save slot 5, the bot-only doubles match (rows 84, 86 / 85, 89).
-//! `context/fixtures/ai_search_singles.bin`: the bot-only singles match of `ai_serve_singles.bin`.
+//! `fixtures/ai_search_s05.bin`: save slot 5, the bot-only doubles match (rows 84, 86 / 85, 89).
+//! `fixtures/ai_search_singles.bin`: the bot-only singles match of `ai_serve_singles.bin`.
 
 use hst_data::fixture;
 use hst_data::xb::Archive;
@@ -66,7 +66,7 @@ impl Mt {
 
 /// Replays every call of a fixture; returns (reach searches, tiered searches, calls that found the ball).
 fn replay(name: &str) -> Option<[usize; 3]> {
-    let d = fixture::read(format!("{}/context/fixtures/{name}", root())).ok()?;
+    let d = fixture::read(format!("{}/fixtures/{name}", root())).ok()?;
     let table = table()?;
     assert_eq!(&d[..4], b"AISR");
     let mt0 = Mt::of(&d[8..8 + MT_SIZE]);

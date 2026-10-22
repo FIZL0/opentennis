@@ -1,4 +1,4 @@
-//! Positional sounds of a recorded bot match (`context/fixtures/sound_s05.bin`, not in git; made by
+//! Positional sounds of a recorded bot match (`fixtures/sound_s05.bin`, not in git; made by
 //! `tools/record_sound.py 5 …` from save-state slot 5, court 10): every ball bounce plays at the bearing and distance
 //! `sound::place` gives for the ball, and every court sound the driver keyed on got the voice volume our chain gives
 //! from the play's bearing and volume — `sound::stereo` into the sequence volume, the court bank's volume, the tone
@@ -67,7 +67,7 @@ impl Court {
     /// The recording `name` and the court; `None` (test skipped) without either.
     fn load(name: &str) -> Option<(Vec<u8>, Self)> {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-        let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{root}/context/fixtures/{name}")), fixture::iso()) else {
+        let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{root}/fixtures/{name}")), fixture::iso()) else {
             fixture::skip(format_args!("recording or disc missing, skipped"));
             return None;
         };
@@ -153,7 +153,7 @@ fn positional_sounds_match_the_game() {
     assert!(bounces >= 10 && keys >= 60 && keys > 2 * missed);
 }
 
-/// Every racket hit of a recorded doubles bot match (`context/fixtures/hits_s05.bin`, `tools/record_sound.py 5 … hits`):
+/// Every racket hit of a recorded doubles bot match (`fixtures/hits_s05.bin`, `tools/record_sound.py 5 … hits`):
 /// `sound::hit_sounds` from the hit's state gives the court key-ons the driver started — volume after falloff from
 /// the ball, L/R from the bearing — and the play-speed scale word the next frame.
 #[test]
@@ -478,7 +478,7 @@ type Reaction = (u32, usize, u8, u8);
 /// players heard on their own bank, dive shouts, whiff shouts and call-outs, each checked as `shouts_match_the_game` says.
 fn shouts(recording: &str, spu: &str) -> Option<(i32, usize, i32, usize, usize, Vec<Reaction>)> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let csv = fixture::read_to_string(format!("{root}/context/fixtures/{spu}")).ok()?;
+    let csv = fixture::read_to_string(format!("{root}/fixtures/{spu}")).ok()?;
     let (data, _) = Court::load(recording)?;
     let mut iso = fixture::iso().unwrap();
     // the four players' banks: name, header, SPU address, sample size
@@ -814,7 +814,7 @@ fn gallery_banks_have_every_call() {
 #[test]
 fn change_ends_tune_matches_the_game() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{root}/context/fixtures/hits_s04.bin")), fixture::iso()) else {
+    let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{root}/fixtures/hits_s04.bin")), fixture::iso()) else {
         return fixture::skip(format_args!("recording or disc missing, skipped"));
     };
     let xb = iso.read("SND/JGL/JIG_00.XB").unwrap();
@@ -864,7 +864,7 @@ fn gallery_match_end() {
 
 
 /// B598: the net's sound, from four recordings of slot 5 with the live ball's velocity overwritten once (as B85's,
-/// `tools/record_sound.py 5 300 context/fixtures/net_sound_<name>.bin vel=…`, the velocities in the 2026-10-07-n3-audio
+/// `tools/record_sound.py 5 300 fixtures/net_sound_<name>.bin vel=…`, the velocities in the 2026-10-07-n3-audio
 /// journal): off the cord and over (the net mesh, key 2), a serve off the cord (key 2), low into the net's top band
 /// (material 26, key 1) and off the post (material 22: no sound). Every net play `sound::Bounces` gives keyed its
 /// program 2 key at the contact point this frame or the next, L/R bit-exact and on the key's own pitch (root and note

@@ -3,7 +3,7 @@
 Rules: `PLAN.md`. Finished tasks move to `plan/DONE.md` (`tools/ctx.py tick <ID>`).
 
 `→` files to open (play.rs fns by name) · `t:` tests · `j:` journal under `research/journal/`. Tests: hst-sim,
-hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-module (`#[cfg(test)]`), no `tests/` dir. Fixtures in `context/fixtures/` (`match_s05.bin` slot-5 bot match, `round1.bin` doubles,
+hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-module (`#[cfg(test)]`), no `tests/` dir. Fixtures in `fixtures/` (`match_s05.bin` slot-5 bot match, `round1.bin` doubles,
 `new_recording.bin` dives/smashes/collisions).
 
 ### Next (user priorities, in order)

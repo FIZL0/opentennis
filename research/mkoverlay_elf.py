@@ -1,9 +1,9 @@
 # Build one ELF per Metrowerks overlay: main ELF segment 0 + overlay file loaded at its address (+bss).
 import struct, sys
-elf = bytearray(open("context/iso/SCUS_976.10","rb").read())
+elf = bytearray(open("fixtures/iso/SCUS_976.10","rb").read())
 phoff, = struct.unpack_from("<I", elf, 0x1c); phnum, = struct.unpack_from("<H", elf, 0x2c)
 for seg, name in [(2,"GAME"),(3,"MENU"),(4,"MOVIE")]:
-    out = bytearray(elf); ov = open(f"context/iso/ZZBIN/{name}.BIN","rb").read()
+    out = bytearray(elf); ov = open(f"fixtures/iso/ZZBIN/{name}.BIN","rb").read()
     load, = struct.unpack_from("<I", ov, 8); bss, = struct.unpack_from("<I", ov, 0x14)
     off = len(out); out += ov
     for i in range(1, phnum):

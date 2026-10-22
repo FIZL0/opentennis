@@ -1,4 +1,4 @@
-//! AI decisions against `hst_sim::ai`, through the oracle. Needs `context/iso/` and `context/ram/s05.bin`
+//! AI decisions against `hst_sim::ai`, through the oracle. Needs `fixtures/iso/` and `fixtures/ram/s05.bin`
 //! (skips without them).
 
 use hst_oracle::{Ee, HstEe, addr};

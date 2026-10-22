@@ -3,7 +3,7 @@
 //! AI's 0x280 bytes, the run target or stick, the button, the return, the path copy, the seen flags, the
 //! ball-lost log and the draw count as the game did.
 //!
-//! `context/fixtures/ai_rally_s05.bin`, `ai_rally_s05_all.bin`: save slot 5, the bot-only doubles match.
+//! `fixtures/ai_rally_s05.bin`, `ai_rally_s05_all.bin`: save slot 5, the bot-only doubles match.
 //! `ai_rally_singles*.bin`: the singles routines (`HST_SINGLES=1`), `bots_singles` in slot 8 (`_rows`: rows 45 level 3 and 16
 //! level 1, both NET, set with `HST_AI=0:45:3,1:16:1`; `_spec`: rows 13 BASE and 2 NET, level 3; `_base`: rows 51 level 3 and
 //! 5 level 0, both BASE); the AI fields 0x234..0x260 sit 0x10 lower there. `ai_rally_s05_weak.bin`: slot 5 with level-0
@@ -469,7 +469,7 @@ fn call(name: &str, e: &[u8], x: &[u8], mt0: &Mt, row: &AiParams, tag: u32, sing
 /// Replays every call with `tag` (1 receive, 2 NET, 3 BASE) of a fixture; returns (calls, per substate on entry).
 fn replay(name: &str, tag: u32) -> Option<(usize, [usize; 4])> {
     let singles = name.contains("singles");
-    let d = fixture::read(format!("{}/context/fixtures/{name}", root())).ok()?;
+    let d = fixture::read(format!("{}/fixtures/{name}", root())).ok()?;
     let mut table = table()?;
     if name.contains("let_go") {
         // recorded with every CPU row's let-go margin poked to -3 m (`HST_MARGIN=-3`)
@@ -551,7 +551,7 @@ fn vpad_serves_receive_matches_the_game() {
     for name in ["ai_rally_vpad_wide.bin", "ai_rally_vpad_wide_b.bin", "ai_rally_vpad_last.bin", "ai_rally_vpad_smash.bin"] {
         let Some(n) = replay(name, 1) else { return };
         eprintln!("{name}: calls, per substate: {n:?}");
-        let d = std::fs::read(fixture::path(format!("{}/context/fixtures/{name}", root()))).unwrap();
+        let d = std::fs::read(fixture::path(format!("{}/fixtures/{name}", root()))).unwrap();
         let mut counts = [0; 4];
         for (_, _, e, x) in calls(&d, &[1]) {
             let (from, to, plan) = (e[A + 0x56], x[A + 0x56], x[A + 0xb2]);
@@ -701,7 +701,7 @@ fn vpad_rallies_net_and_base_match_the_game() {
     let old = ["ai_human_1p.bin", "ai_human_1p_b.bin", "ai_human_1p_c.bin", "ai_human_vpad.bin", "ai_human_vpad_b.bin", "ai_human_vpad_c.bin"];
     let (mut unpoked, mut all) = (NetBase::default(), NetBase::default());
     for name in new.iter().chain(&old) {
-        let Ok(d) = fixture::read(format!("{}/context/fixtures/{name}", root())) else { return };
+        let Ok(d) = fixture::read(format!("{}/fixtures/{name}", root())) else { return };
         for (_, _, e, x) in calls(&d, &[2, 3]) {
             all.add(e, x);
             if !name.contains("window") {
@@ -717,7 +717,7 @@ fn vpad_rallies_net_and_base_match_the_game() {
     assert!([0, 2, 3, 4].iter().all(|&k| unpoked.give_way[k] > 0) && all.give_way[1] > 0, "{all:?}");
 }
 
-/// P11l4: the singles receive's branches only P1's serves reach, `context/recordings/singles_1p_serve.p2s` (Fun Time
+/// P11l4: the singles receive's branches only P1's serves reach, `fixtures/recordings/singles_1p_serve.p2s` (Fun Time
 /// Tennis singles, P1 Ashley human and serving, P2 COM; from `singles_1p_select.p2s`, the character select) in slot 8,
 /// P1 serving from the pad (`HST_SINGLES=1 HST_DRIVE=1 HST_SERVE=cross`; journal 2026-10-07-p11-ai 24). Every call
 /// replays bit for bit and each fixture must run its branch, read from the game's own calls: `_wide`/`_wide_b` the
@@ -734,7 +734,7 @@ fn singles_vpad_serves_receive_matches_the_game() {
     for name in ["ai_rally_singles_vpad_wide.bin", "ai_rally_singles_vpad_wide_b.bin", "ai_rally_singles_vpad_upgrade.bin", "ai_rally_singles_vpad_last.bin", "ai_rally_singles_vpad_smash.bin"] {
         let Some(n) = replay(name, 1) else { return };
         eprintln!("{name}: calls, per substate: {n:?}");
-        let d = std::fs::read(fixture::path(format!("{}/context/fixtures/{name}", root()))).unwrap();
+        let d = std::fs::read(fixture::path(format!("{}/fixtures/{name}", root()))).unwrap();
         for (_, _, e, x) in calls(&d, &[1]) {
             let (from, to, plan) = (e[A + 0x56], x[A + 0x56], x[A + 0xb2]);
             if from == 2 && to == 3 && (10..=11).contains(&plan) {
@@ -767,12 +767,12 @@ fn net_and_base_match_the_game() {
     }
 }
 
-/// B34: a human player's shot record (tag 4) in a 1P doubles match (`context/recordings/1p3goodcpus2.p2m2`
-/// played to a save at vsync 7930, 8380 and 8960, then hooked with the human idle: `context/b34/run2.sh`), and its
+/// B34: a human player's shot record (tag 4) in a 1P doubles match (`fixtures/recordings/1p3goodcpus2.p2m2`
+/// played to a save at vsync 7930, 8380 and 8960, then hooked with the human idle: `fixtures/b34/run2.sh`), and its
 /// CPU partner beside it (tags 1-3).
 #[test]
 fn human_record_matches_the_game() {
-    // P11k7: ai_human_vpad.bin is slot 3 with P1 driven by the pad (`context/p11k7/drive.sh 3 1800`; _b slot 4, 3000; _c the timed pad script `context/p11k7/run.sh 1800 out context/p11k7/c_pad.txt`)
+    // P11k7: ai_human_vpad.bin is slot 3 with P1 driven by the pad (`fixtures/p11k7/drive.sh 3 1800`; _b slot 4, 3000; _c the timed pad script `fixtures/p11k7/run.sh 1800 out fixtures/p11k7/c_pad.txt`)
     for name in ["ai_human_1p.bin", "ai_human_1p_b.bin", "ai_human_1p_c.bin", "ai_human_vpad.bin", "ai_human_vpad_b.bin", "ai_human_vpad_c.bin"] {
         for (tag, what) in [(4, "human"), (1, "receive"), (2, "NET"), (3, "BASE")] {
             let Some(n) = replay(name, tag) else { return };
@@ -827,7 +827,7 @@ fn net_rush_matches_the_game() {
             let Some(n) = replay(name, tag) else { return };
             eprintln!("{name} {what}: calls, per substate {n:?}");
         }
-        let d = std::fs::read(fixture::path(format!("{}/context/fixtures/{name}", root()))).unwrap();
+        let d = std::fs::read(fixture::path(format!("{}/fixtures/{name}", root()))).unwrap();
         for (_, _, e, x) in calls(&d, &[2, 3]) {
             let near = [0x500, 0x510].iter().any(|&o| f32_at(e, o + 8) != 0.0 && f32_at(e, o + 8).abs() < 4.1);
             lobs += (u32_at(x, 0x30) == 4 && x[A + 0x9a] == 0 && x[A + 0xb2] == 10 && near) as usize;
@@ -845,7 +845,7 @@ fn singles_vpad_net_and_base_match_the_game() {
             let Some(n) = replay(name, tag) else { return };
             eprintln!("{name} {what}: calls, per substate {n:?}");
         }
-        let d = std::fs::read(fixture::path(format!("{}/context/fixtures/{name}", root()))).unwrap();
+        let d = std::fs::read(fixture::path(format!("{}/fixtures/{name}", root()))).unwrap();
         for (_, _, e, x) in calls(&d, &[2, 3]) {
             let (from, to) = (e[A + 0x57], x[A + 0x57]);
             redraw += (from == 0 && i32_at(e, A + 0x250) == 59 && i32_at(x, A + 0x250) == 0) as usize;
@@ -868,7 +868,7 @@ fn cpus_let_out_balls_go() {
         let Some(n) = replay(name, tag) else { return };
         eprintln!("{name} tag {tag}: calls, per substate {n:?}");
     }
-    let d = std::fs::read(fixture::path(format!("{}/context/fixtures/{name}", root()))).unwrap();
+    let d = std::fs::read(fixture::path(format!("{}/fixtures/{name}", root()))).unwrap();
     let (mut o, mut holds) = (8 + MT_SIZE, 0);
     while o < d.len() {
         let e = &d[o..o + u32_at(&d, o + 4) as usize];
@@ -924,7 +924,7 @@ fn calls<'a>(d: &'a [u8], tags: &[u32]) -> Vec<(u32, usize, &'a [u8], &'a [u8])>
 /// four players' positions it read equal a sample of that tick bit for bit.
 #[test]
 fn rally_state_tick_by_tick_on_match_s05() {
-    let dir = format!("{}/context/fixtures", root());
+    let dir = format!("{}/fixtures", root());
     let read = |f: &str| fixture::read(format!("{dir}/{f}")).ok();
     let (Some(rd), Some(nd), Some(md), Some(table)) = (read("ai_rally_s05_all.bin"), read("ai_net_s05.bin"), read("match_s05.bin"), table()) else {
         return fixture::skip(format_args!("skip: ai_rally_s05_all.bin, ai_net_s05.bin, match_s05.bin or the disc missing"));
@@ -1258,7 +1258,7 @@ fn glue_matches_the_game() {
 /// serve-state update after its serve's hit message leaves for the rally on the frame, by v, recovery + 1 after the
 /// message, never before). None without the recording or the disc.
 fn glue_replay(file: &str) -> Option<([usize; 2], std::collections::BTreeMap<u32, usize>, usize)> {
-    let d = fixture::read(format!("{}/context/fixtures/{file}", root())).ok()?;
+    let d = fixture::read(format!("{}/fixtures/{file}", root())).ok()?;
     let table = table()?;
     assert_eq!(&d[..4], b"AIRL");
     let mut mt = Mt::of(&d[8..8 + MT_SIZE]);
@@ -1337,7 +1337,7 @@ fn glue_replay(file: &str) -> Option<([usize; 2], std::collections::BTreeMap<u32
 /// first), as in doubles. Every receive-state update call bit-exact, and at least six of them going over.
 #[test]
 fn singles_receive_goes_over_in_its_frame() {
-    let Some(d) = fixture::read(format!("{}/context/fixtures/ai_glue_singles.bin", root())).ok() else { return };
+    let Some(d) = fixture::read(format!("{}/fixtures/ai_glue_singles.bin", root())).ok() else { return };
     let Some(table) = table() else { return };
     assert_eq!(&d[..4], b"AIRL");
     let mt0 = Mt::of(&d[8..8 + MT_SIZE]);
