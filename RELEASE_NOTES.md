@@ -49,3 +49,4 @@
 - In the browser, the menus take about 30 MB less memory to start, so the game is less likely to be closed for running out of memory.
 - The menus' text now takes half the memory it did (about 25 MB less on computers, 6 MB on phones), looking the same.
 - In the browser, loading a match takes up to about 20 MB less memory at its peak, so the game is less likely to be closed for running out of memory.
+- The menus open a little sooner (about a fifth of a second in the browser) and take less memory while they start.
