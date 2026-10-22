@@ -221,6 +221,11 @@ pub(super) fn tick(w: &mut World, dt: f32) -> String {
         if let Some(a) = w.get_resource::<crate::Args>() {
             crate::net::rejoin::forget(&a.iso);
         }
+    } else if !w.resource::<Netplay>().recover.forgot
+        && let Some(a) = w.get_resource::<crate::Args>()
+    {
+        // B643: still playing: a crash late in a long match still finds its record fresh
+        crate::net::rejoin::keep(&a.iso);
     }
     let mut np = w.resource_mut::<Netplay>();
     let np = &mut *np;

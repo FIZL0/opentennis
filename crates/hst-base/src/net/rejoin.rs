@@ -21,7 +21,33 @@ const KEY: &str = "hst-rejoin";
 
 /// `code seat seconds` in one line.
 fn encode(r: &Rejoin, at: f64) -> String {
-    format!("{} {} {}", r.code, r.seat, at as u64)
+    match ticket_for(&r.code) {
+        Some(t) => format!("{} {} {} {t}", r.code, r.seat, at as u64),
+        None => format!("{} {} {}", r.code, r.seat, at as u64),
+    }
+}
+
+/// B643: the short code this session last looked up and the host's ticket it led to. The host stops publishing its
+/// short code once the match starts, so a rejoin more than a couple of minutes in can't look it up again: the record
+/// keeps the ticket after the code (an optional fourth field) and the rejoin dials that ([`dial`]).
+static RESOLVED: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
+/// B643: the ticket a rejoin taken from the record dials instead of looking its short code up, once.
+static DIAL: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
+
+/// B643: the short code `code` was looked up and led to the host's `ticket` (`net.rs` join).
+pub fn resolved(code: &str, ticket: &str) {
+    *RESOLVED.lock().unwrap_or_else(|p| p.into_inner()) = Some((code.into(), ticket.into()));
+}
+
+fn ticket_for(code: &str) -> Option<String> {
+    RESOLVED.lock().unwrap_or_else(|p| p.into_inner()).as_ref().filter(|(c, _)| c == code).map(|(_, t)| t.clone())
+}
+
+/// B643: the host's ticket to dial for the short code `code` instead of looking it up, if a rejoin just took a record
+/// for it (once).
+pub fn dial(code: &str) -> Option<String> {
+    let mut d = DIAL.lock().unwrap_or_else(|p| p.into_inner());
+    d.take_if(|(c, _)| c == code).map(|(_, t)| t)
 }
 
 fn decode(text: &str, now: f64) -> Option<Rejoin> {
@@ -38,9 +64,36 @@ pub fn save(iso: &str, r: &Rejoin) {
 /// The match to rejoin, if one was saved lately; read once (it's forgotten here, and saved again when the rejoin
 /// starts).
 pub fn take(iso: &str) -> Option<Rejoin> {
-    let r = read(iso).and_then(|t| decode(&t, crate::unix_secs() as f64));
+    let text = read(iso);
+    let r = text.as_deref().and_then(|t| decode(t, crate::unix_secs() as f64));
     forget(iso);
+    // B643: the host's ticket kept with it, for the rejoin to dial and the next record to keep
+    if let (Some(r), Some(t)) = (&r, text.as_deref().and_then(|t| t.split_whitespace().nth(3))) {
+        resolved(&r.code, t);
+        *DIAL.lock().unwrap_or_else(|p| p.into_inner()) = Some((r.code.clone(), t.into()));
+    }
     r
+}
+
+/// B643: how often [`keep`] writes the record again while the match goes on.
+pub const KEEP: u64 = 60;
+
+/// B643: the match still going on, so a crash late in a long one still rejoins: the record (if this machine has one)
+/// written again with the time now, at most every [`KEEP`] seconds. Without it a record went stale [`FRESH`] after
+/// the match started, and a refresh 10 minutes in came back to the menu instead.
+pub fn keep(iso: &str) {
+    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let now = crate::unix_secs();
+    if now.saturating_sub(LAST.load(std::sync::atomic::Ordering::Relaxed)) >= KEEP {
+        LAST.store(now, std::sync::atomic::Ordering::Relaxed);
+        keep_at(iso, now as f64);
+    }
+}
+
+fn keep_at(iso: &str, now: f64) {
+    if let Some(r) = read(iso).and_then(|t| decode(&t, now)) {
+        write(iso, Some(&encode(&r, now)));
+    }
 }
 
 /// The match is over (or was never this machine's to rejoin).
@@ -116,6 +169,53 @@ mod tests {
         save(&iso, &r);
         forget(&iso);
         assert_eq!(take(&iso), None, "forgotten");
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    /// B643: a record kept up while the match goes on still rejoins long after the match started; a stale or
+    /// forgotten one isn't brought back.
+    #[test]
+    fn a_kept_record_outlives_the_match_start() {
+        let dir = std::env::temp_dir().join(format!("hst-rejoin-keep-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let iso = dir.join("hst.iso").display().to_string();
+        let r = Rejoin { code: "AB3Q".into(), seat: 1 };
+        write(&iso, Some(&encode(&r, 1000.0)));
+        let mut now = 1000.0;
+        while now < 1000.0 + 3.0 * FRESH {
+            now += KEEP as f64;
+            keep_at(&iso, now);
+        }
+        assert_eq!(read(&iso).and_then(|t| decode(&t, now + FRESH - 1.0)), Some(r.clone()), "kept fresh");
+        keep_at(&iso, now + FRESH);
+        assert_eq!(read(&iso).and_then(|t| decode(&t, now + FRESH)), None, "stale stays stale");
+        forget(&iso);
+        keep_at(&iso, now);
+        assert_eq!(read(&iso), None, "forgotten stays forgotten");
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    /// B643: a short code's ticket rides along in the record (kept fresh with it) and the rejoin dials it, once.
+    #[test]
+    fn a_rejoin_dials_the_ticket_its_code_led_to() {
+        let dir = std::env::temp_dir().join(format!("hst-rejoin-ticket-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let iso = dir.join("hst.iso").display().to_string();
+        let r = Rejoin { code: "TK7W".into(), seat: 1 };
+        resolved("TK7W", "endpointticket");
+        let now = crate::unix_secs() as f64;
+        write(&iso, Some(&encode(&r, now - 30.0)));
+        keep_at(&iso, now);
+        assert_eq!(read(&iso).as_deref(), Some(format!("TK7W 1 {} endpointticket", now as u64).as_str()));
+        *RESOLVED.lock().unwrap() = None;
+        assert_eq!(dial("TK7W"), None, "no rejoin yet");
+        assert_eq!(take(&iso), Some(r));
+        assert_eq!(dial("OTHR"), None);
+        assert_eq!(dial("TK7W").as_deref(), Some("endpointticket"));
+        assert_eq!(dial("TK7W"), None, "once");
+        // the rejoined match's record keeps it again
+        assert!(encode(&Rejoin { code: "TK7W".into(), seat: 1 }, now).ends_with(" endpointticket"));
+        forget(&iso);
         let _ = std::fs::remove_dir(&dir);
     }
 }

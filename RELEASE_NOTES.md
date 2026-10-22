@@ -36,3 +36,5 @@
 - The team name plate at the end of a doubles match is now drawn sharp instead of the original blurry plate.
 - The in-match pop-ups and score panel (the umpire's calls like Fault and Change Sides, points, deuce, tie break, game/set, match and set point, aces, serve speed, the hints under the score, player ranks and the intro's set and game numbers) are now drawn sharp in the game's own style instead of the original blurry art.
 - The 1P–4P and COM labels over the players and on the score boards are now drawn sharp in the same style as player names.
+- Online on phones and in browsers: when a slow connection or device keeps holding the match for a moment, the game no longer rebuilds the whole waiting message each time, which used up memory and could make the browser reload the page mid-match.
+- Online in the browser: if the page reloads during a match, Rejoin now gets you back in at any point of it, not only in the first few minutes.
