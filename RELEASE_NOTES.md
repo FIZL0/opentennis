@@ -1,7 +1,7 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- Split screen keeps each player's own camera through the umpire's calls after a point or fault, instead of cutting back to the normal camera.
-- On iPhone, Download in the update prompt now opens the release page in Safari instead of asking to restore the Magnifier app.
-- A modded character's face in the corner of the score panel is now always their own picture, never the face of the character they're built on; if it isn't ready when the match starts, it appears as soon as it is.
-- On a phone held upright, the match keeps its normal camera, and a hint shows that Select switches to the singles camera behind your player (it goes away for good once you've used it).
-- On the game and set result board, a "COM" label no longer runs out of its player's plate.
-- The A Team / B Team banners by the score panel in doubles are now drawn sharp in the same style as the menus, instead of the original blurry art.
+- Split screen: each player keeps their own camera through the umpire's calls after a point or fault.
+- Modded characters always show their own face on the score panel, appearing as soon as it's ready.
+- Doubles: the A Team / B Team banners by the score panel are now sharp, in the same style as the menus.
+- Result board: a "COM" label no longer spills out of its player's plate.
+- Phones held upright keep the normal match camera; a one-time hint shows that Select switches to the singles camera behind your player.
+- iPhone: Download in the update prompt opens the release page in Safari instead of asking to restore Magnifier.
