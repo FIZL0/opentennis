@@ -48,3 +48,4 @@
 - Browser version: loading a match from the menus takes far less memory (the menu lettering is no longer redrawn each time), so phones are less likely to reload the page mid-game.
 - In the browser, the menus take about 30 MB less memory to start, so the game is less likely to be closed for running out of memory.
 - The menus' text now takes half the memory it did (about 25 MB less on computers, 6 MB on phones), looking the same.
+- The menus open a little sooner (about a fifth of a second in the browser) and take less memory while they start.

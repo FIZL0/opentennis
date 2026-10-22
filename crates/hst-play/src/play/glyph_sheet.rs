@@ -2,19 +2,26 @@
 //! has, twice: plain, and again with its dark outline round it, so outlined words are one quad a letter with a
 //! clean round ring (B646a: kept as two channels, `hud_gamma::letters`; draw it with that colour). Units are the disc sheet's: a line is 32 high, the baseline 28 down, a capital 22 tall.
 
-use super::menu_art::{BOLD, K, outline, text_path, unpremultiply};
+use super::menu_art::{BOLD, K};
+#[cfg(test)]
+use super::menu_art::{outline, text_path, unpremultiply};
 use bevy::asset::RenderAssetUsages;
+use bevy::image::{ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::HashMap;
+#[cfg(test)]
 use tiny_skia::{Color as SkColor, Paint, Pixmap, Transform};
 
 /// Room round each letter's line box (units): its outline and the odd accent above a capital.
 pub const PAD: f32 = 8.0;
 /// The outline's width (units): 2 px at a 16-px line, 4 on a 32-px title, thick as the original's.
+#[cfg(test)]
 const RING: f32 = 4.0;
 /// The outline's colour (the menus' near-black).
+#[cfg(test)]
 const INK: u8 = crate::hud_gamma::LETTER_INK;
+#[cfg(test)]
 const BASELINE: f32 = 28.0;
 const CAP: f32 = 22.0;
 /// The sheet's width (units).
@@ -75,7 +82,7 @@ pub fn image(images: &mut Assets<Image>) -> Handle<Image> {
     if let Some(h) = kept.as_ref().filter(|h| images.get(h.id()).is_some_and(|i| (i.width(), i.height()) == size)) {
         return h.clone();
     }
-    let handle = images.add(two_channels(sheet(k)));
+    let handle = images.add(baked(k));
     crate::textures::ours(handle.id(), Vec2::splat(k as f32));
     *kept = Some(handle.clone());
     handle
@@ -87,6 +94,40 @@ fn scale() -> u32 {
     if crate::textures::low_memory() { K / 2 } else { K }
 }
 
+/// B646b: the sheet as baked into the game ([`BAKED`]), every level read straight into one buffer sized for them
+/// all: no drawing or filtering at start, and nothing held beside the sheet but the PNG decoder's own state.
+fn baked(k: u32) -> Image {
+    use image::ImageDecoder;
+    let (w, h) = ((WIDE * k as f32) as u32, (2.0 * glyphs().outlined * k as f32) as u32);
+    let levels = crate::mips::levels_to_1x(k as f32 / 0.25);
+    let file = BAKED.iter().find(|b| b.0 == k).expect("a baked letter sheet at this scale").1;
+    let mut data = Vec::with_capacity(crate::mips::room(w, h, levels) / 2);
+    let (mut rest, mut size) = (file, (w, h));
+    for _ in 0..levels {
+        let n = u32::from_le_bytes(rest[..4].try_into().expect("baked letter sheet")) as usize;
+        let png = image::codecs::png::PngDecoder::new(std::io::Cursor::new(&rest[4..4 + n])).expect("baked letter sheet");
+        assert_eq!((png.dimensions(), png.color_type()), (size, image::ColorType::La8), "baked letter sheet is stale: {STALE}");
+        let at = data.len();
+        data.resize(at + size.0 as usize * size.1 as usize * 2, 0);
+        png.read_image(&mut data[at..]).expect("baked letter sheet");
+        (rest, size) = (&rest[4 + n..], ((size.0 / 2).max(1), (size.1 / 2).max(1)));
+    }
+    let mut img = Image::new_uninit(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, TextureFormat::Rg8Unorm, RenderAssetUsages::RENDER_WORLD);
+    img.data = Some(data);
+    img.texture_descriptor.mip_level_count = levels;
+    img.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor { mipmap_filter: ImageFilterMode::Linear, ..ImageSamplerDescriptor::linear() });
+    img
+}
+
+/// The sheet at each scale ([`scale`]) as `sheet` and `two_channels` make it, baked by `bake` (tests): in git, since
+/// it's drawn from our own font. `baked_sheets_are_current` fails when they no longer match what the code draws.
+static BAKED: [(u32, &[u8]); 2] = [
+    (K, include_bytes!("../../../hst/assets/fonts/letters-k4.bin")),
+    (K / 2, include_bytes!("../../../hst/assets/fonts/letters-k2.bin")),
+];
+const STALE: &str = "redraw it with HST_BAKE_LETTERS=1 tools/check.sh -p hst-play baked_sheets_are_current";
+
+#[cfg(test)]
 fn sheet(k: u32) -> Image {
     use ab_glyph::Font;
     let font = ab_glyph::FontRef::try_from_slice(BOLD).expect("menu font");
@@ -116,6 +157,7 @@ fn sheet(k: u32) -> Image {
     crate::mips::MipSteps::new(img, levels, None, 1.5).finish()
 }
 
+#[cfg(test)]
 /// B646a: the sheet (`Rgba8UnormSrgb`, straight, all its levels) as `Rg8Unorm` in the same buffer: R the white's
 /// coverage, G the letter's, linear and premultiplied (`hud_gamma::letters`): half the bytes, here and on the GPU.
 /// Each texel is white over the ink, so its colour and alpha say how much of each it holds.
@@ -142,8 +184,53 @@ fn two_channels(mut img: Image) -> Image {
 }
 
 #[cfg(test)]
+/// A sheet's levels as baked: each one a grey-and-alpha PNG (grey the white's coverage, alpha the letter's: the
+/// `Rg8Unorm` texels as they are) after its length (`u32`, little-endian).
+fn bake(img: &Image) -> Vec<u8> {
+    use image::ImageEncoder;
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+    let (mut w, mut h) = (img.width(), img.height());
+    let data = img.data.as_deref().unwrap_or_default();
+    let (mut at, mut out) = (0, Vec::new());
+    for _ in 0..img.texture_descriptor.mip_level_count {
+        let n = w as usize * h as usize * 2;
+        let mut png = Vec::new();
+        PngEncoder::new_with_quality(&mut png, CompressionType::Best, FilterType::Adaptive)
+            .write_image(&data[at..at + n], w, h, image::ExtendedColorType::La8)
+            .expect("baked letter sheet");
+        out.extend_from_slice(&(png.len() as u32).to_le_bytes());
+        out.extend_from_slice(&png);
+        (at, w, h) = (at + n, (w / 2).max(1), (h / 2).max(1));
+    }
+    out
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B646b: the baked sheets are what the code draws now (font, `FONT`, layout, outline, levels): exact but for the
+    /// odd texel a step off (another machine's float maths in the filter). With `HST_BAKE_LETTERS=1` it rewrites them.
+    #[test]
+    fn baked_sheets_are_current() {
+        let bake_them = std::env::var("HST_BAKE_LETTERS").is_ok_and(|v| v == "1");
+        for (k, _) in BAKED {
+            let drawn = two_channels(sheet(k));
+            if bake_them {
+                let path = format!("{}/../hst/assets/fonts/letters-k{k}.bin", env!("CARGO_MANIFEST_DIR"));
+                std::fs::write(&path, bake(&drawn)).unwrap();
+                continue;
+            }
+            let read = baked(k);
+            let dims = |i: &Image| (i.width(), i.height(), i.texture_descriptor.mip_level_count, i.texture_descriptor.format);
+            assert_eq!(dims(&read), dims(&drawn), "{STALE}");
+            let (a, b) = (read.data.as_ref().unwrap(), drawn.data.as_ref().unwrap());
+            assert_eq!(a.len(), b.len(), "{STALE}");
+            let off: Vec<u8> = a.iter().zip(b).map(|(x, y)| x.abs_diff(*y)).filter(|&d| d > 0).collect();
+            assert!(off.iter().all(|&d| d <= 2) && off.len() * 1000 <= a.len(), "{} of {} bytes differ (most {}): {STALE}", off.len(), a.len(), off.iter().max().unwrap_or(&0));
+            assert!(matches!(&read.sampler, ImageSampler::Descriptor(d) if d.mipmap_filter == ImageFilterMode::Linear));
+        }
+    }
 
     /// Every letter a name can hold is on the sheet, none overlapping the next or running off it.
     #[test]
