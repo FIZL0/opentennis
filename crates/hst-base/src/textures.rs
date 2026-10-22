@@ -222,6 +222,22 @@ pub fn max_side() -> Option<u32> {
     })
 }
 
+/// B644: a phone or tablet, or a browser with little memory (Chromium's `deviceMemory` ≤ 4 GB), where our own big
+/// sheets (the menus' letters) are drawn at half their scale: a 4096-px sheet with its levels is ~50 MB of GPU memory.
+/// `HST_LOW_MEMORY=1`/`0` sets it anywhere.
+pub fn low_memory() -> bool {
+    if let Ok(v) = std::env::var("HST_LOW_MEMORY") {
+        return v == "1";
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let ram = crate::graphics::Device::here(false).ram_mb;
+        crate::web::touched() || (1..=4096).contains(&ram)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    cfg!(any(target_os = "ios", target_os = "android"))
+}
+
 /// RGBA8 pixels halved (2×2 box) until their longest side is within [`max_side`].
 pub fn fit_pixels(px: Pixels) -> Pixels {
     match max_side() {

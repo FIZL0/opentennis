@@ -44,3 +44,4 @@
 - Outlined words (menu titles, player names, score panel and pop-up text) no longer show specks of background inside small letter holes, like the middle of an "a".
 - Online on phones and in browsers: when a slow connection or device keeps holding the match for a moment, the game no longer rebuilds the whole waiting message each time, which used up memory and could make the browser reload the page mid-match.
 - Online in the browser: if the page reloads during a match, Rejoin now gets you back in at any point of it, not only in the first few minutes.
+- Phones, tablets and low-memory browsers: the menus' text takes a quarter of the graphics memory it did (about 40 MB less), looking the same on their screens.

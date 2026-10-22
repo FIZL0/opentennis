@@ -64,16 +64,23 @@ fn em(font: &ab_glyph::FontRef) -> f32 {
 
 /// The sheet ([`glyphs`] says where each letter is), its levels down to a quarter, `textures::ours` scaled.
 pub fn image(images: &mut Assets<Image>) -> Handle<Image> {
-    let handle = images.add(sheet());
-    crate::textures::ours(handle.id(), Vec2::splat(K as f32));
+    let k = scale();
+    let handle = images.add(sheet(k));
+    crate::textures::ours(handle.id(), Vec2::splat(k as f32));
     handle
 }
 
-fn sheet() -> Image {
+/// The sheet's scale: `K`, or half that where memory is short (B644: 2048 px wide, ~12 MB with its levels instead of
+/// ~50; the menus' text is at most 2× the disc's on a phone's screen, so it looks the same there).
+fn scale() -> u32 {
+    if crate::textures::low_memory() { K / 2 } else { K }
+}
+
+fn sheet(k: u32) -> Image {
     use ab_glyph::Font;
     let font = ab_glyph::FontRef::try_from_slice(BOLD).expect("menu font");
     let (g, em, half) = layout();
-    let k = K as f32;
+    let k = k as f32;
     let (w, h) = ((WIDE * k) as u32, (2.0 * half * k) as u32);
     let mut out = Pixmap::new(w, h).expect("glyph sheet");
     let s = em / font.units_per_em().unwrap_or(1000.0) * k;
@@ -110,6 +117,21 @@ mod tests {
             assert!(w[0].0 != w[1].0 || w[0].2 <= w[1].1, "{w:?} overlap");
         }
         assert!(cells.iter().all(|c| c.2 <= WIDE));
+    }
+
+    /// B644: the low-memory sheet is the same layout at half the scale: a quarter of the pixels, `H` still drawn where
+    /// [`glyphs`] puts it.
+    #[test]
+    fn the_half_scale_sheet_keeps_the_layout() {
+        let k = K / 2;
+        let img = sheet(k);
+        let half = glyphs().outlined;
+        assert_eq!((img.width(), img.height()), ((WIDE * k as f32) as u32, (2.0 * half * k as f32) as u32));
+        let (x, y, adv) = glyphs().map[&'H'];
+        let kf = k as f32;
+        let px = |u: f32, v: f32| img.data.as_ref().unwrap()[(((v * kf) as u32 * img.width() + (u * kf) as u32) * 4 + 3) as usize];
+        assert!(px(x + adv / 2.0 - 0.0, y + BASELINE - CAP / 2.0) > 0 || px(x + 3.0, y + BASELINE - CAP / 2.0) > 0, "H's stem or bar");
+        assert_eq!(px(x - PAD / 2.0, y + 2.0), 0, "the pad round it is clear");
     }
 
 }
