@@ -419,6 +419,21 @@ mod tests {
         assert!(squeeze == 0.7 && (h - 2.0 * 26.6 * 36.0 / 70.56).abs() < 1e-3 && (t + h / 2.0 - 148.0).abs() < 1e-3, "{t} {h}");
     }
 
+    /// B648: on the game and set boards (no room past a label: its stripe's bar) every slot's label, COM the widest,
+    /// stays in its 40-px slot on either side: the left plate's label at 208 or 144, the right one's at 392 or 456.
+    #[test]
+    fn board_labels_stay_in_their_slots() {
+        for s in 0..5 {
+            let text = slot_label(s);
+            let (size, above) = tag_size(text, Style::Plate);
+            for x in [208.0, 144.0, 392.0, 456.0] {
+                let p = Plate { text: text.into(), named: false, dst: [x, 278.0, 40.0, 24.0], src: [s as f32 * 40.0, 0.0, 40.0, 24.0], rgb: [128.0; 3], alpha: 128.0, extra: 0.0 };
+                let ([l, _, w, _], _) = place(&p, size, above);
+                assert!(l >= x - 1e-3 && l + w <= x + 40.0 + 1e-3, "{text} at {x}: {l}..{}", l + w);
+            }
+        }
+    }
+
     #[test]
     fn tags_are_the_originals_size() {
         let (head, _) = tag_size("1P", Style::Head);
