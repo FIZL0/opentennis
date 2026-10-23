@@ -610,6 +610,9 @@ fn setup(mut commands: Commands, args: Res<Args>, g: Res<Game>, mut images: ResM
             for i in 0..POOL {
                 p.spawn((
                     Slot(i),
+                    // B657: the white strips and team banners run on to the window's edge past the safe area
+                    super::widescreen::Bleed::default(),
+                    super::widescreen::BleedOutside,
                     ImageNode { image_mode: NodeImageMode::Stretch, ..default() },
                     Node {
                         position_type: PositionType::Absolute,
@@ -635,7 +638,7 @@ fn draw(
     cam: Query<&Transform, With<crate::Orbit>>,
     window: Query<&Window>,
     (names, mut plates): (Option<Res<super::name_tags::Names>>, ResMut<super::name_tags::Plates>),
-    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility)>,
+    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility, &mut super::widescreen::Bleed)>,
 ) {
     let (Some(art), Some(colours)) = (art, colours) else {
         return;
@@ -675,7 +678,7 @@ fn draw(
     let aspect = window.single().map_or(4.0 / 3.0, crate::play::widescreen::aspect);
     let share = super::widescreen::share(aspect);
     let drop = window.single().map_or(0.0, |w| touch_drop(w, aspect));
-    for (Slot(i), mut img, mut node, mut vis) in &mut q {
+    for (Slot(i), mut img, mut node, mut vis, mut bleed) in &mut q {
         let Some(quad) = quads.get(*i) else {
             vis.set_if_neq(Visibility::Hidden);
             continue;
@@ -709,8 +712,16 @@ fn draw(
         let (left, width) = super::widescreen::pin(x, w, share);
         let (top, height) = vplace_clear(y, h, aspect, drop);
         super::widescreen::put(&mut node, left, top, width, height);
+        bleed.set_if_neq(super::widescreen::Bleed { order: (1 << 19) + *i as i32, on: runs_off(quad) });
         vis.set_if_neq(Visibility::Inherited);
     }
+}
+
+/// B657: a Sets/Games strip's flat part or a team banner's pill body across the screen's left or right edge: it runs on
+/// past the safe area to the window's edge (its words and everything else stay inside). Not the pill's rounded ends.
+fn runs_off(q: &Quad) -> bool {
+    let [x, _, w, _] = q.dst;
+    matches!(q.tex, Tex::Strip | Tex::TeamPill) && ((x <= 0.0 && x + w > 0.0) || (x < 640.0 && x + w >= 640.0))
 }
 
 /// B610: how far (percent of the view) the panel's top half drops so its first row (the Sets/Games strip, y 14)
@@ -787,6 +798,18 @@ mod tests {
 
     /// The stretched background pieces (B5): each piece's sub-rect and on-screen size as the original's draw passes
     /// them (left strip at the bottom, right strip at the top), and the banners above/below them.
+    /// B657: once in, each team's flat strip and banner body (rim, ring, colour) reach the screen's edge; nothing else does.
+    #[test]
+    fn edge_pieces_run_off() {
+        let mut v = doubles(Clock { serve: 30, fade: 0 });
+        v.info = None;
+        let quads = layout(&v);
+        let off: Vec<_> = quads.iter().filter(|q| runs_off(q)).map(|q| (q.tex, q.dst[0] < 320.0)).collect();
+        let count = |t, left| off.iter().filter(|&&o| o == (t, left)).count();
+        assert_eq!([count(Tex::Strip, true), count(Tex::Strip, false), count(Tex::TeamPill, true), count(Tex::TeamPill, false)], [1, 1, 3, 3], "{off:?}");
+        assert_eq!(off.len(), 8);
+    }
+
     #[test]
     fn doubles_pieces() {
         let quads = layout(&doubles(Clock { serve: 40, fade: 0 }));

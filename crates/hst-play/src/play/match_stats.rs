@@ -351,7 +351,8 @@ pub struct Root;
 #[derive(Component)]
 struct Fade;
 /// B630: the fade to black covers the whole window, the safe area's strips and a fixed Aspect Ratio's bars too, over
-/// everything but the loading screen.
+/// everything but the loading screen. B657: its copy only past the view (`BleedOutside`, so the strips darken as fast as
+/// the rest), and over the key legend's strip (z 30) too.
 const FADE_BLEED: hst_base::widescreen::Bleed = hst_base::widescreen::Bleed { order: (1 << 20) + 0x1000, on: true };
 const POOL: usize = 400;
 
@@ -489,7 +490,7 @@ fn setup(
     let bank = crate::audio::SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd");
     commands.insert_resource(Art(art, bank.map(std::sync::Arc::new)));
     commands
-        .spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::NONE), GlobalZIndex(12), Fade, Root, FADE_BLEED));
+        .spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::NONE), GlobalZIndex(31), Fade, Root, FADE_BLEED, hst_base::widescreen::BleedOutside));
     commands
         .spawn((super::widescreen::screen_43(), GlobalZIndex(11), Root))
         .with_children(|p| {
