@@ -322,7 +322,9 @@ const side = index => {
       base.hidden = knob.hidden = !on;
       if (on) [base, knob].forEach(centre);
     },
-    label: words => layout.forEach(([k, , cls], i) => {
+    label: (words, play) => layout.forEach(([k, , cls], i) => {
+      // □ does nothing in a match: hidden there
+      if (k === 'square') root.querySelector('[data-b="square"]').hidden = play;
       const el = root.querySelector(`[data-b="${k}"] i`);
       const word = words[i] ?? '';
       if (el.textContent === word) return;
@@ -374,7 +376,7 @@ window.hstTouchMenu = on => {
   touch.menu(on);
 };
 // B662: the buttons' words, in `layout` order (`web.rs` `touch_labels`)
-window.hstTouchLabels = words => touch.label(words);
+window.hstTouchLabels = (words, play) => touch.label(words, play);
 // B312: the chat button shown (online, chat on, its box closed), and the taps on it since the last call
 window.hstTouchChat = on => {
   chatShown = on;

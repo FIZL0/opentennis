@@ -68,8 +68,11 @@ const KEYS: [GamepadButton; 8] = [
 const FACE: usize = 4;
 
 /// B662: the words on the buttons (`KEYS` order): what each does on the screen as it stands, blank where it does
-/// nothing. `relabel` sets them; the browser's pad (`web/touch.js`) gets the same ones.
-static LABELS: Mutex<[String; 8]> = Mutex::new([const { String::new() }; 8]);
+/// nothing, and whether a match is being played (□ is hidden then: it does nothing in a match). `relabel` sets them;
+/// the browser's pad (`web/touch.js`) gets the same ones.
+static LABELS: Mutex<(bool, [String; 8])> = Mutex::new((false, [const { String::new() }; 8]));
+/// □'s index in `KEYS`.
+const SQUARE: usize = 2;
 
 /// B662: the buttons' words: in a match (`play`: no menu over it) the pad's bindings, L1 / R1 the emotes (B271) and
 /// Select the camera where it switches one (`camera`); else what the menu's legend lists for the touch player (`items`).
@@ -126,11 +129,11 @@ fn relabel(
     let play = g.is_some() && !MENU.load(Ordering::Relaxed);
     let original = gr.is_some_and(|gr| gr.original);
     let camera = g.zip(pads).is_some_and(|(g, p)| super::alt_camera::offered(&g, &p, np.is_some(), original));
-    let now = labels(group.map_or(&[][..], |g| &g.items), play, camera, &bind);
+    let now = (play, labels(group.map_or(&[][..], |g| &g.items), play, camera, &bind));
     let mut was = LABELS.lock().unwrap();
     if *was != now {
         #[cfg(target_arch = "wasm32")]
-        crate::web::touch_labels(&now);
+        crate::web::touch_labels(&now.1, play);
         *was = now;
     }
 }
@@ -564,6 +567,10 @@ fn draw(
     };
     for (k, mut n, mut bg) in &mut keys {
         place(&mut n, l.keys[k.0]);
+        let display = if k.0 == SQUARE && LABELS.lock().unwrap().0 { Display::None } else { Display::Flex };
+        if n.display != display {
+            n.display = display;
+        }
         let r = if k.0 < FACE { BorderRadius::MAX } else { BorderRadius::all(px(l.u * 0.3)) };
         if n.border_radius != r {
             n.border_radius = r;
@@ -571,7 +578,7 @@ fn draw(
         let c = if pad.fingers.down[k.0].is_some() || !pad.fingers.held[k.0].is_empty() { ON } else { WASH };
         bg.set_if_neq(BackgroundColor(c));
     }
-    let labels = LABELS.lock().unwrap().clone();
+    let labels = LABELS.lock().unwrap().1.clone();
     for (gl, mut n, mut img) in &mut glyphs {
         let word = words.entry(labels[gl.0].clone()).or_insert_with_key(|s| bake(&mut images, s));
         let (handle, aspect) = word.clone().unwrap_or_default();

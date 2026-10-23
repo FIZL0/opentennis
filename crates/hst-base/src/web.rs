@@ -524,11 +524,11 @@ pub fn touch_menu(on: bool) {
 }
 
 /// B662: the words on the page's on-screen pad's buttons (✕ ○ □ △ L1 R1 Select Start), what each does now; blank
-/// where it does nothing. Sent when they change.
-pub fn touch_labels(words: &[String; 8]) {
+/// where it does nothing; `play`: a match is being played (□ hidden: it does nothing there). Sent when they change.
+pub fn touch_labels(words: &[String; 8], play: bool) {
     if let Some(f) = page_fn("hstTouchLabels") {
         let a: js_sys::Array = words.iter().map(|w| JsValue::from_str(w)).collect();
-        let _ = f.call1(&JsValue::NULL, &a);
+        let _ = f.call2(&JsValue::NULL, &a, &play.into());
     }
 }
 
