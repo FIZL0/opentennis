@@ -123,6 +123,11 @@ pub struct Group {
 #[derive(Resource, Default)]
 pub struct Legend(pub Vec<Group>);
 
+/// B662: this frame's legend as the screens filled it, before `draw` drops what it doesn't show: the touch pad labels
+/// its buttons from it (`touch_pad.rs`).
+#[derive(Resource, Default)]
+pub struct Drawn(pub Vec<Group>);
+
 /// The device last pressed: the legend's when one device drives a screen.
 #[derive(Resource, Clone, Copy, PartialEq, Debug)]
 pub enum Last {
@@ -821,6 +826,7 @@ fn setup(mut commands: Commands) {
 pub fn draw(
     mut commands: Commands,
     mut legend: ResMut<Legend>,
+    mut drawn: ResMut<Drawn>,
     last: Res<Last>,
     pads: Query<&Gamepad>,
     window: Query<&Window, With<PrimaryWindow>>,
@@ -830,6 +836,7 @@ pub fn draw(
     mut shown: Local<String>,
 ) {
     let mut groups = std::mem::take(&mut legend.0);
+    drawn.0.clone_from(&groups);
     if MOBILE {
         // a phone build shows no keyboard shortcuts: only the pads' groups
         groups.iter_mut().for_each(|g| g.devs.retain(Option::is_some));
@@ -909,6 +916,7 @@ pub fn plugin(app: &mut App) {
         return;
     }
     app.init_resource::<Legend>()
+        .init_resource::<Drawn>()
         .init_resource::<Chips>()
         .init_resource::<Buttons>()
         .insert_resource(Last::Keys)

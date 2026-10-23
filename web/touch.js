@@ -95,6 +95,12 @@ const css = `
 .touch button::after { content: ''; position: absolute; inset: calc(var(--u) * -.2); border-radius: inherit; }
 .touch button.small { border-radius: calc(var(--u) * .3); width: calc(var(--u) * 1.5); height: calc(var(--u) * .7);
   font-size: calc(var(--u) * .3); opacity: .7; }
+/* B662: a face button's symbol with its action's word under it */
+.touch button { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+.touch button[hidden] { display: none; }
+.touch button b { font-weight: inherit; }
+.touch button i { font-style: normal; white-space: nowrap; }
+.touch button b + i { margin-top: calc(var(--u) * .06); opacity: .85; }
 /* B312: chat, an icon on Select/Start's small button: right of Start; upright there's no room on that row (L1/R1 all
    but touch Select/Start), so it sits centred under the two */
 .touch button.chat { left: calc(50% + var(--u) * 2.4); top: calc(env(safe-area-inset-top) + var(--u) * .3); }
@@ -110,16 +116,21 @@ const css = `
 `;
 // face buttons in a diamond for the right thumb, shoulders and Select/Start along the top
 const right = (x, y) => `right: calc(env(safe-area-inset-right) + var(--u) * ${x}); bottom: calc(var(--safe-b) + var(--u) * ${y})`;
+// B662: a face button shows its symbol with what it does under it, a small one only the word (`hstTouchLabels`)
 const layout = [
-  ['cross', '✕', right(1.4, 0.3)],
-  ['circle', '○', right(0.2, 1.5)],
-  ['square', '□', right(2.6, 1.5)],
-  ['triangle', '△', right(1.4, 2.7)],
-  ['l1', 'L1', 'left: calc(env(safe-area-inset-left) + var(--u) * .4); top: calc(env(safe-area-inset-top) + var(--u) * .3)', 'small'],
-  ['r1', 'R1', 'right: calc(env(safe-area-inset-right) + var(--u) * .4); top: calc(env(safe-area-inset-top) + var(--u) * .3)', 'small'],
-  ['select', 'SELECT', 'left: calc(50% - var(--u) * 1.8); top: calc(env(safe-area-inset-top) + var(--u) * .3)', 'small'],
-  ['start', 'START', 'left: calc(50% + var(--u) * .3); top: calc(env(safe-area-inset-top) + var(--u) * .3)', 'small'],
+  ['cross', right(1.4, 0.3), '', '✕'],
+  ['circle', right(0.2, 1.5), '', '○'],
+  ['square', right(2.6, 1.5), '', '□'],
+  ['triangle', right(1.4, 2.7), '', '△'],
+  ['l1', 'left: calc(env(safe-area-inset-left) + var(--u) * .4); top: calc(env(safe-area-inset-top) + var(--u) * .3)', 'small'],
+  ['r1', 'right: calc(env(safe-area-inset-right) + var(--u) * .4); top: calc(env(safe-area-inset-top) + var(--u) * .3)', 'small'],
+  ['select', 'left: calc(50% - var(--u) * 1.8); top: calc(env(safe-area-inset-top) + var(--u) * .3)', 'small'],
+  ['start', 'left: calc(50% + var(--u) * .3); top: calc(env(safe-area-inset-top) + var(--u) * .3)', 'small'],
 ];
+// a word's font size in `u`: .22 under a symbol, .3 on a small button, shrunk to fit its width (bold system-ui runs
+// about .6 em a letter)
+// ponytail: estimated from the letter count, not measured; measure if a word overflows
+const fit = (word, small) => Math.min(small ? .3 : .22, (small ? 1.3 : 1.05) / (.6 * Math.max(word.length, 1)));
 const bubble = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg>';
 // B312: the chat button, right of Start (the near player's layer only: a 1v1 on one phone is never online)
 const chatButton = `<button data-chat class="small chat" aria-label="Chat" hidden>${bubble}</button>`;
@@ -133,7 +144,8 @@ document.head.append(style);
 const side = index => {
   const buttons = Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 }));
   const pad = {
-    id: 'Touch controls (STANDARD GAMEPAD)',
+    // B662: Sony's vendor id, so the hints show ✕ ○ □ △ on Auto (the browser reads it from the id)
+    id: 'Touch controls (STANDARD GAMEPAD Vendor: 054c Product: 0000)',
     index, // past the browser's own slots (0–3)
     connected: true,
     mapping: 'standard',
@@ -149,7 +161,7 @@ const side = index => {
   root.id = 'touch';
   root.hidden = true;
   root.innerHTML = `<div class="zone"><div class="base" hidden></div><div class="knob" hidden></div></div>`
-    + layout.map(([k, label, pos, cls = '']) => `<button data-b="${k}" class="${cls}" style="${pos}">${label}</button>`).join('')
+    + layout.map(([k, pos, cls = '', sym]) => `<button data-b="${k}" class="${cls}" style="${pos}">${sym ? `<b>${sym}</b>` : ''}<i></i></button>`).join('')
     + chatButton;
   document.body.append(root);
 
@@ -310,6 +322,13 @@ const side = index => {
       base.hidden = knob.hidden = !on;
       if (on) [base, knob].forEach(centre);
     },
+    label: words => layout.forEach(([k, , cls], i) => {
+      const el = root.querySelector(`[data-b="${k}"] i`);
+      const word = words[i] ?? '';
+      if (el.textContent === word) return;
+      el.textContent = word;
+      el.style.fontSize = `calc(var(--u) * ${fit(word, cls === 'small')})`;
+    }),
     // hidden: every finger and button let go
     reset: () => {
       control.clear();
@@ -354,6 +373,8 @@ window.hstTouchMenu = on => {
   menu = on;
   touch.menu(on);
 };
+// B662: the buttons' words, in `layout` order (`web.rs` `touch_labels`)
+window.hstTouchLabels = words => touch.label(words);
 // B312: the chat button shown (online, chat on, its box closed), and the taps on it since the last call
 window.hstTouchChat = on => {
   chatShown = on;

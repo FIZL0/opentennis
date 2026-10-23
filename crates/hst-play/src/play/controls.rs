@@ -221,6 +221,11 @@ impl Bindings {
         })
     }
 
+    /// B662: the first action pad button `b` is bound to.
+    pub fn pad_action(&self, b: GamepadButton) -> Option<Action> {
+        ACTIONS.iter().zip(&self.0).find(|(_, set)| set.contains(&Input::Pad(b))).map(|((a, _), _)| *a)
+    }
+
     pub fn names(&self, i: usize) -> Vec<String> {
         let mut v: Vec<_> = self.0[i].iter().map(|x| (matches!(x, Input::Pad(_)), x.name())).collect();
         v.sort_by_key(|(pad, _)| *pad);

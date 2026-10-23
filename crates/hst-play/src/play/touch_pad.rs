@@ -30,18 +30,20 @@
 //! only a gamepad.
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use bevy::input::gamepad::{GamepadConnection, GamepadConnectionEvent, GamepadInput};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
+use super::controls::{Action, Bindings};
+use super::legend::{Act, Drawn, Item};
+
+/// Sony's vendor id: the legend's hints show ✕ ○ □ △ for this pad on Auto (the browser's says the same in its id).
+pub(super) const SONY: u16 = 0x054c;
 /// The pad's name: `emote::touch` knows it by its start ("Touch controls", as the browser's).
 const NAME: &str = if cfg!(target_os = "android") { "Touch controls (Android)" } else { "Touch controls (iPhone)" };
-/// Sony's USB vendor id: the menus' legend draws ✕ ○ □ △ for the pad, as its buttons are.
-pub(super) const SONY: u16 = 0x054c;
-
 /// The Vibration setting (Settings → Mobile), as the menus last had it.
 pub static BUZZ: AtomicBool = AtomicBool::new(true);
 
@@ -51,18 +53,87 @@ pub fn on() -> bool {
     *ON.get_or_init(|| cfg!(any(target_os = "ios", target_os = "android")) || std::env::var_os("HST_TOUCH").is_some_and(|v| v != "0"))
 }
 
-/// The buttons, in `KEYS` order: ✕ ○ □ △ (face) then L1 R1 Select Start (small).
-const KEYS: [(GamepadButton, &str); 8] = [
-    (GamepadButton::South, "cross"),
-    (GamepadButton::East, "circle"),
-    (GamepadButton::West, "square"),
-    (GamepadButton::North, "triangle"),
-    (GamepadButton::LeftTrigger, "L1"),
-    (GamepadButton::RightTrigger, "R1"),
-    (GamepadButton::Select, "SELECT"),
-    (GamepadButton::Start, "START"),
+/// The buttons: ✕ ○ □ △ (face, the symbol with what it does under it) then L1 R1 Select Start (small, only the word),
+/// each labelled by `LABELS`.
+const KEYS: [GamepadButton; 8] = [
+    GamepadButton::South,
+    GamepadButton::East,
+    GamepadButton::West,
+    GamepadButton::North,
+    GamepadButton::LeftTrigger,
+    GamepadButton::RightTrigger,
+    GamepadButton::Select,
+    GamepadButton::Start,
 ];
 const FACE: usize = 4;
+
+/// B662: the words on the buttons (`KEYS` order): what each does on the screen as it stands, blank where it does
+/// nothing. `relabel` sets them; the browser's pad (`web/touch.js`) gets the same ones.
+static LABELS: Mutex<[String; 8]> = Mutex::new([const { String::new() }; 8]);
+
+/// B662: the buttons' words: in a match (`play`: no menu over it) the pad's bindings, L1 / R1 the emotes (B271) and
+/// Select the camera where it switches one (`camera`); else what the menu's legend lists for the touch player (`items`).
+fn labels(items: &[Item], play: bool, camera: bool, bind: &Bindings) -> [String; 8] {
+    use GamepadButton as B;
+    std::array::from_fn(|k| {
+        let b = KEYS[k];
+        if !play {
+            return items.iter().find(|it| on_button(it.act, b)).map(|it| it.label.clone()).unwrap_or_default();
+        }
+        let word = match bind.pad_action(b) {
+            _ if matches!(b, B::LeftTrigger | B::RightTrigger) => "Emote",
+            Some(Action::Normal) => "Topspin",
+            Some(Action::Cut) => "Slice",
+            Some(Action::Lob) => "Lob",
+            Some(Action::Camera) if camera => "Camera",
+            Some(Action::Pause) => "Pause",
+            _ => "",
+        };
+        word.into()
+    })
+}
+
+/// Whether the legend's `act` is pad button `b`'s (as `legend::glyphs` draws it).
+fn on_button(act: Act, b: GamepadButton) -> bool {
+    use GamepadButton as B;
+    match act {
+        Act::Ok | Act::Select => b == B::South,
+        Act::Back => b == B::East,
+        Act::Page => b == B::West,
+        Act::Card => b == B::North,
+        Act::Costume => matches!(b, B::LeftTrigger | B::RightTrigger),
+        Act::Hand => b == B::Select,
+        Act::Start | Act::Name | Act::Go => b == B::Start,
+        _ => false,
+    }
+}
+
+/// B662: this frame's words, from the legend as drawn (`legend::Drawn`): the group with the touch pad in it, else the
+/// keyboard's (whose seat the touch pad drives), else the first.
+#[allow(clippy::too_many_arguments)]
+fn relabel(
+    drawn: Option<Res<Drawn>>,
+    named: Query<(Entity, &Name), With<Gamepad>>,
+    bind: Option<Res<Bindings>>,
+    g: Option<Res<super::Game>>,
+    pads: Option<Res<super::Pads>>,
+    np: Option<Res<super::netplay::Netplay>>,
+    gr: Option<Res<crate::graphics::Graphics>>,
+) {
+    let touch = |d: &Option<Entity>| d.is_some_and(|e| named.get(e).is_ok_and(|(_, n)| super::emote::is_touch(n)));
+    let (Some(drawn), Some(bind)) = (drawn, bind) else { return };
+    let group = drawn.0.iter().find(|g| g.devs.iter().any(touch)).or_else(|| drawn.0.iter().find(|g| g.devs.contains(&None))).or(drawn.0.first());
+    let play = g.is_some() && !MENU.load(Ordering::Relaxed);
+    let original = gr.is_some_and(|gr| gr.original);
+    let camera = g.zip(pads).is_some_and(|(g, p)| super::alt_camera::offered(&g, &p, np.is_some(), original));
+    let now = labels(group.map_or(&[][..], |g| &g.items), play, camera, &bind);
+    let mut was = LABELS.lock().unwrap();
+    if *was != now {
+        #[cfg(target_arch = "wasm32")]
+        crate::web::touch_labels(&now);
+        *was = now;
+    }
+}
 
 /// Where everything sits on a window (logical px), as `web/touch.js`'s CSS lays it out: `u` is min(7 % of the width,
 /// 12.5 % of the height) in landscape (portrait: `Layout::upright`).
@@ -303,17 +374,19 @@ enum StickNode {
 }
 
 pub fn plugin(app: &mut App) {
+    if on() || cfg!(target_arch = "wasm32") {
+        app.add_systems(PostUpdate, relabel.after(super::legend::draw)).add_systems(Last, menu_form);
+    }
     if on() {
         input(app);
-        app.add_systems(PostUpdate, draw.before(bevy::ui::UiSystems::Prepare));
+        app.add_systems(PostUpdate, draw.after(relabel).before(bevy::ui::UiSystems::Prepare));
     }
 }
 
 /// The pad's input side (all but its drawing).
 fn input(app: &mut App) {
     app.init_resource::<Pad>()
-        .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).before(crate::mode::hush))
-        .add_systems(Last, menu_form);
+        .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).before(crate::mode::hush));
 }
 
 /// The menus' form while no match is on, or its pause or result screen or an online match's bot-or-lobby question is
@@ -413,7 +486,7 @@ fn drive(
         crate::android::haptic();
     }
     let Ok((_, mut g)) = gamepads.get_mut(entity) else { return };
-    for (k, (b, _)) in KEYS.iter().enumerate() {
+    for (k, b) in KEYS.iter().enumerate() {
         let down = f.down[k].is_some();
         if down != g.pressed(*b) {
             if down {
@@ -453,17 +526,18 @@ fn draw(
     mut camera: Query<&mut Camera, With<PadCamera>>,
     loading: Query<(), With<crate::mode::Loading>>,
     mut keys: Query<(&KeyNode, &mut Node, &mut BackgroundColor), (Without<Glyph>, Without<StickNode>)>,
-    mut glyphs: Query<(&Glyph, &mut Node), (Without<KeyNode>, Without<StickNode>)>,
+    mut glyphs: Query<(&Glyph, &mut Node, &mut ImageNode), (Without<KeyNode>, Without<StickNode>)>,
     mut stick: Query<(&StickNode, &mut Node, &mut Visibility), (Without<KeyNode>, Without<Glyph>, Without<Root>)>,
     mut chat: Query<(&mut Node, &mut Visibility), (With<ChatKey>, Without<KeyNode>, Without<Glyph>, Without<StickNode>, Without<Root>)>,
-    mut art: Local<Option<[(Handle<Image>, f32); 8]>>,
+    // ponytail: every word ever shown stays baked (a few dozen menu words)
+    mut words: Local<HashMap<String, Option<(Handle<Image>, f32)>>>,
 ) {
     let Ok(win) = window.single() else { return };
     let Ok(root) = root.single() else {
         if pad.shown {
-            let art = art.get_or_insert_with(|| bake(&mut images));
             let bubble = images.add(bubble());
-            spawn(&mut commands, art, bubble);
+            let syms = std::array::from_fn(|k| images.add(symbol(k)));
+            spawn(&mut commands, bubble, syms);
         }
         return;
     };
@@ -497,14 +571,19 @@ fn draw(
         let c = if pad.fingers.down[k.0].is_some() || !pad.fingers.held[k.0].is_empty() { ON } else { WASH };
         bg.set_if_neq(BackgroundColor(c));
     }
-    if let Some(art) = art.as_ref() {
-        for (gl, mut n) in &mut glyphs {
-            // the browser's font sizes: .42 u on the face buttons, .3 u on the small ones (their text's line)
-            let h = if gl.0 < FACE { l.u * 0.42 } else { l.u * 0.3 };
-            let (w, h) = (px(h * art[gl.0].1), px(h));
-            if (n.width, n.height) != (w, h) {
-                (n.width, n.height) = (w, h);
-            }
+    let labels = LABELS.lock().unwrap().clone();
+    for (gl, mut n, mut img) in &mut glyphs {
+        let word = words.entry(labels[gl.0].clone()).or_insert_with_key(|s| bake(&mut images, s));
+        let (handle, aspect) = word.clone().unwrap_or_default();
+        if img.image != handle {
+            img.image = handle;
+        }
+        // the browser's font sizes (web/touch.js `fit`): .22 u under a face button's symbol, .3 u on the small ones,
+        // shrunk to fit 85 % of the button's width
+        let h = if gl.0 < FACE { l.u * 0.22 } else { l.u * 0.3 }.min(l.keys[gl.0].width() * 0.85 / aspect.max(0.01));
+        let (w, h) = (px(h * aspect), px(h));
+        if (n.width, n.height) != (w, h) {
+            (n.width, n.height) = (w, h);
         }
     }
     for (mut n, mut v) in &mut chat {
@@ -529,8 +608,9 @@ fn draw(
     }
 }
 
-/// The pad's nodes: the stick's base and knob, then the buttons with their glyphs.
-fn spawn(commands: &mut Commands, art: &[(Handle<Image>, f32); 8], bubble: Handle<Image>) {
+/// The pad's nodes: the stick's base and knob, then the buttons: a face button's symbol (`syms`), and each one's word
+/// (`draw` sets them).
+fn spawn(commands: &mut Commands, bubble: Handle<Image>, syms: [Handle<Image>; FACE]) {
     let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
     let abs = || Node { position_type: PositionType::Absolute, border_radius: BorderRadius::MAX, ..default() };
     // over the composited picture, black bars included: its own (HDR) main texture cleared clear, blended on top (a
@@ -551,11 +631,16 @@ fn spawn(commands: &mut Commands, art: &[(Handle<Image>, f32); 8], bubble: Handl
     commands.spawn((Ours, Root, full, Visibility::Hidden, UiTargetCamera(camera))).with_children(|p| {
         p.spawn((StickNode::Base, Node { border: UiRect::all(Val::Px(2.0)), ..abs() }, BackgroundColor(BASE), BorderColor::all(LINE), Visibility::Hidden));
         p.spawn((StickNode::Knob, abs(), BackgroundColor(ON), Visibility::Hidden));
-        for (k, (image, _)) in art.iter().enumerate() {
-            let node = Node { border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..abs() };
+        for k in 0..KEYS.len() {
+            let node = Node { border: UiRect::all(Val::Px(2.0)), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..abs() };
             // the small buttons at the browser's 70 % opacity
             let a = if k < FACE { 1.0 } else { 0.7 };
-            p.spawn((KeyNode(k), node, BackgroundColor(WASH), BorderColor::all(LINE.with_alpha(LINE.alpha() * a)))).with_child((Glyph(k), Node::default(), ImageNode::new(image.clone()).with_color(Color::WHITE.with_alpha(a))));
+            p.spawn((KeyNode(k), node, BackgroundColor(WASH), BorderColor::all(LINE.with_alpha(LINE.alpha() * a)))).with_children(|b| {
+                if let Some(sym) = syms.get(k) {
+                    b.spawn((Node { height: Val::Percent(34.0), aspect_ratio: Some(1.0), margin: UiRect::bottom(Val::Percent(4.0)), ..default() }, ImageNode::new(sym.clone())));
+                }
+                b.spawn((Glyph(k), Node::default(), ImageNode::default().with_color(Color::WHITE.with_alpha(a))));
+            });
         }
         // as the small buttons
         let node = Node { border: UiRect::all(Val::Px(2.0)), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..abs() };
@@ -580,54 +665,52 @@ fn bubble() -> Image {
     Image::new(Extent3d { width: S as u32, height: S as u32, depth_or_array_layers: 1 }, TextureDimension::D2, super::menu_art::unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)
 }
 
-/// Each button's glyph, white on clear, and its width / height: ✕ ○ □ △ drawn, the small ones' words in the menus'
-/// bold font.
-fn bake(images: &mut Assets<Image>) -> [(Handle<Image>, f32); 8] {
+/// A face button's symbol, ✕ ○ □ △ by `KEYS` index, white on clear.
+fn symbol(k: usize) -> Image {
     use bevy::asset::RenderAssetUsages;
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
     use tiny_skia::{PathBuilder, Pixmap, Transform};
     const S: f32 = 96.0;
-    let face = |k: usize| {
-        let mut p = Pixmap::new(S as u32, S as u32).expect("size");
-        let (c, r, w) = (S / 2.0, S * 0.36, S * 0.09);
-        let mut pb = PathBuilder::new();
-        match k {
-            0 => {
-                pb.move_to(c - r, c - r);
-                pb.line_to(c + r, c + r);
-                pb.move_to(c + r, c - r);
-                pb.line_to(c - r, c + r);
-            }
-            1 => pb.push_circle(c, c, r),
-            2 => pb.push_rect(tiny_skia::Rect::from_xywh(c - r * 0.9, c - r * 0.9, r * 1.8, r * 1.8).expect("rect")),
-            _ => {
-                pb.move_to(c, c - r);
-                pb.line_to(c + r * 1.05, c + r * 0.75);
-                pb.line_to(c - r * 1.05, c + r * 0.75);
-                pb.close();
-            }
+    let mut p = Pixmap::new(S as u32, S as u32).expect("size");
+    let (c, r, w) = (S / 2.0, S * 0.36, S * 0.09);
+    let mut pb = PathBuilder::new();
+    match k {
+        0 => {
+            pb.move_to(c - r, c - r);
+            pb.line_to(c + r, c + r);
+            pb.move_to(c + r, c - r);
+            pb.line_to(c - r, c + r);
         }
-        super::menu_art::stroke_rgb(&mut p, &pb.finish().expect("path"), [255; 3], w, Transform::identity());
-        p
-    };
-    let font = ab_glyph::FontRef::try_from_slice(super::menu_art::BOLD).expect("font");
-    let word = |s: &str| {
-        use ab_glyph::Font;
-        let path = super::menu_art::text_path(&font, s).expect("text");
-        // the line: ascent to descent, at S px
-        let k = S / font.height_unscaled();
-        let b = path.bounds();
-        let w = (b.right() * k).ceil().max(1.0) as u32 + 4;
-        let mut p = Pixmap::new(w, S as u32).expect("size");
-        super::menu_art::fill_rgb(&mut p, &path, [255; 3], Transform::from_scale(k, k).post_translate(2.0, font.ascent_unscaled() * k));
-        p
-    };
-    std::array::from_fn(|k| {
-        let p = if k < FACE { face(k) } else { word(KEYS[k].1) };
-        let (w, h) = (p.width(), p.height());
-        let img = Image::new(Extent3d { width: w, height: h, depth_or_array_layers: 1 }, TextureDimension::D2, super::menu_art::unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
-        (images.add(img), w as f32 / h as f32)
-    })
+        1 => pb.push_circle(c, c, r),
+        2 => pb.push_rect(tiny_skia::Rect::from_xywh(c - r * 0.9, c - r * 0.9, r * 1.8, r * 1.8).expect("rect")),
+        _ => {
+            pb.move_to(c, c - r);
+            pb.line_to(c + r * 1.05, c + r * 0.75);
+            pb.line_to(c - r * 1.05, c + r * 0.75);
+            pb.close();
+        }
+    }
+    super::menu_art::stroke_rgb(&mut p, &pb.finish().expect("path"), [255; 3], w, Transform::identity());
+    Image::new(Extent3d { width: S as u32, height: S as u32, depth_or_array_layers: 1 }, TextureDimension::D2, super::menu_art::unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)
+}
+
+/// B662: a button's word, white on clear in the menus' bold font, and its width / height (one line, ascent to
+/// descent); None for a blank button.
+fn bake(images: &mut Assets<Image>, s: &str) -> Option<(Handle<Image>, f32)> {
+    use ab_glyph::Font;
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    use tiny_skia::{Pixmap, Transform};
+    const S: f32 = 96.0;
+    static FONT: OnceLock<ab_glyph::FontRef<'static>> = OnceLock::new();
+    let font = FONT.get_or_init(|| ab_glyph::FontRef::try_from_slice(super::menu_art::BOLD).expect("font"));
+    let path = super::menu_art::text_path(font, s)?;
+    let k = S / font.height_unscaled();
+    let w = (path.bounds().right() * k).ceil().max(1.0) as u32 + 4;
+    let mut p = Pixmap::new(w, S as u32).expect("size");
+    super::menu_art::fill_rgb(&mut p, &path, [255; 3], Transform::from_scale(k, k).post_translate(2.0, font.ascent_unscaled() * k));
+    let img = Image::new(Extent3d { width: w, height: S as u32, depth_or_array_layers: 1 }, TextureDimension::D2, super::menu_art::unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
+    Some((images.add(img), w as f32 / S))
 }
 
 #[cfg(test)]
@@ -636,6 +719,22 @@ mod tests {
     use bevy::input::touch::{TouchInput, TouchPhase};
 
     const SIZE: Vec2 = Vec2::new(852.0, 393.0);
+
+    /// B662: the buttons say what they do: a menu's legend words on their buttons, the match's shots by the bindings
+    /// (□ blank: it does nothing in a match), Select only where it switches a camera; nothing on the loading screen.
+    #[test]
+    fn buttons_say_what_they_do() {
+        use super::super::legend::item;
+        let bind = Bindings::default();
+        let menu = [item(Act::Move, "Move", &[]), item(Act::Ok, "Choose", &[]), item(Act::Back, "Back", &[]), item(Act::Costume, "Page", &[])];
+        assert_eq!(labels(&menu, false, false, &bind), ["Choose", "Back", "", "", "Page", "Page", "", ""]);
+        assert_eq!(labels(&[], true, false, &bind), ["Topspin", "Slice", "", "Lob", "Emote", "Emote", "", "Pause"]);
+        assert_eq!(labels(&[], true, true, &bind)[6], "Camera");
+        // rebound: the words follow
+        let (b, _) = Bindings::parse("topspin = PadEast\nslice = PadSouth\n");
+        assert_eq!(labels(&[], true, false, &b)[..2], ["Slice", "Topspin"]);
+        assert_eq!(labels(&[], false, false, &bind), [""; 8]);
+    }
 
     fn layout() -> Layout {
         // an iPhone 15 Pro on its side: the Dynamic Island's side and the home indicator kept clear
