@@ -212,6 +212,11 @@ impl OwnCam {
         self.alt.is_none() && (self.passive || self.plain && self.glide.is_none())
     }
 
+    /// B658: its own match camera (none when passive).
+    pub(super) fn camera(&self) -> Option<Camera> {
+        (!self.passive).then_some(self.cam)
+    }
+
     /// Shows the view it has now, still between ticks (the match's end held, B600).
     pub(super) fn freeze(&mut self) {
         self.prev = self.cam.view;

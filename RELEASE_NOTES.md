@@ -1,1 +1,2 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Select now switches the camera in every local match with human players: humans on both sides get the split screen (a side with two humans shares a closer view that keeps both of them in frame), and two humans teamed up against the computer get that closer view on the whole screen.
