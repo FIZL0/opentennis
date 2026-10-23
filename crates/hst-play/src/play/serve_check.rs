@@ -76,6 +76,20 @@ mod tests {
         (app, rows)
     }
 
+    /// B655: □ (the wire's SQUARE, pad West / keyboard Space / the touch pad's □) pressed over and over at 1P's serve
+    /// never tosses, swings or serves; ✕ afterwards still tosses (input-level half: `controls`'
+    /// `cross_serves_on_keyboard_and_pad`).
+    #[test]
+    fn square_never_serves() {
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let script: Vec<_> = (0..8).flat_map(|k| [(k * 20, Pad::SQUARE), (k * 20 + 5, 0)]).chain([(170, 0x2000), (175, 0)]).collect();
+        let (_, rows) = timeline(&script, 230);
+        assert!(rows[..170].iter().all(|r| !r.0 && r.1.is_none() && r.2.is_none()), "□ tossed, swung or served");
+        assert!(rows[170..].iter().any(|r| r.0), "✕ after the □ presses didn't toss");
+    }
+
     /// As `fixtures/b29/run2/B_weak.bin`: ○ at 0 (held 5), ○ again 80 ticks later. The original releases the toss 45
     /// ticks after the press, the swing counts 16 frames down (contact offset 8, motion speed 0.5) and hits 16 ticks
     /// after its press.

@@ -1252,6 +1252,8 @@ pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings,
             "emote_down" => "Emote: Game Lost".into(),
             "emote_left" => "Emote: Point Won".into(),
             "emote_right" => "Emote: Point Lost".into(),
+            // B655: □ does nothing in a match (no instant replays yet, B72), only the menus' delete / swap
+            "replay" => "Menu: delete / swap".into(),
             _ => n[..1].to_uppercase() + &n[1..],
         })
         .collect();

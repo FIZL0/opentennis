@@ -3187,9 +3187,9 @@ fn control(mut g: ResMut<Game>, pads: Res<Pads>, tick: Res<tick_input::TickPads>
                 if emote::tick(g, i, pad.emote) {
                     continue;
                 }
-                let (shot, serve_press) = (pad.shot, pad.serve);
+                let shot = pad.shot;
                 doubles_ai::human(g, i);
-                human(g, i, pad, shot, serve_press);
+                human(g, i, pad, shot);
             }
             None => bot(g, i),
         }
@@ -3207,11 +3207,12 @@ fn control(mut g: ResMut<Game>, pads: Res<Pads>, tick: Res<tick_input::TickPads>
     }
 }
 
-fn human(g: &mut Game, i: usize, pad: &SlotPad, shot: Option<i32>, serve_press: bool) {
+fn human(g: &mut Game, i: usize, pad: &SlotPad, shot: Option<i32>) {
     g.players[i].aim = pad.stick;
     g.players[i].dpad = pad.dpad;
     if g.phase == Phase::Serve && g.score.server == i as i32 {
-        let press = shot.or(serve_press.then_some(0));
+        // B655: only the shot buttons toss and hit; □ (`SlotPad::serve`) never serves
+        let press = shot;
         // the serve aims with the run direction, as the original (its dead square, ×1.2 clip, camera flip)
         let stick = pad_run(g, i, pad.stick, pad.dpad);
         serve_turn(g, i, stick, press);
