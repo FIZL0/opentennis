@@ -1233,6 +1233,8 @@ fn write(path: &Path, png: Vec<u8>) -> std::io::Result<()> {
     // B571: written whole, then named: a run quit mid-write left a cut PNG that counted as baked and never decoded
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // the folder again if it was cleared while the game ran
+        std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))?;
         let part = path.with_extension("png.part");
         std::fs::write(&part, png)?;
         std::fs::rename(&part, path)
