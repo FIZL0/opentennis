@@ -7,7 +7,8 @@
 //! themselves. Side by side on a wide window (1P's team left),
 //! stacked on a tall one (1P's team on top). Shown on the plain match view (serve, rally and B650 the umpire's
 //! call and pop-ups after the point, as the one-human alternate camera stays through them): the intro, cut-aways,
-//! replays and the change of ends show the one picture as before.
+//! replays and the change of ends show the one picture as before. B661: from the match point's end (the
+//! game-set-match call, the celebration, the result) the split is dropped for the one full-screen picture.
 //!
 //! Each human's stick and d-pad turn with their own half's picture as they're read, before the tick's pads are
 //! recorded (`tick_input`), so instant replays and the tick hash replay what was played.
@@ -253,6 +254,11 @@ fn step(
     if g.is_added() {
         p.on = start_on();
     }
+    // B661: from the match point's end (the game-set-match call, the celebration, the result) the one full picture;
+    // the next match starts on the shared camera, as every match does
+    if g.score.match_over {
+        p.on = false;
+    }
     if !eligible(&g, &pads, np.is_some(), gr.is_some_and(|gr| gr.original)) {
         p.showing = false;
         *turn = StickTurn::default();
@@ -464,6 +470,34 @@ mod tests {
         assert_eq!(a.world().resource::<super::TeamCams>().0.len(), 2);
         a.world_mut().resource_mut::<Game>().phase = Phase::ChangeEnds(0);
         assert!(!super::plain_play(a.world()), "the change of ends");
+    }
+
+    /// B661: split, the match point's end (the game-set-match call and the celebration) goes back to the one full
+    /// picture, and the next match starts on it (skipped without the ISO).
+    #[test]
+    fn match_end_is_one_picture() {
+        use super::super::*;
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let mut a = match_app(true, true, [true, true, false, false]);
+        a.world_mut().run_schedule(FixedUpdate);
+        a.world_mut().resource_mut::<super::Personal>().on = true;
+        for _ in 0..30 {
+            a.world_mut().run_schedule(FixedUpdate);
+        }
+        assert!(a.world().resource::<super::Personal>().showing, "split in play");
+        {
+            let mut g = a.world_mut().resource_mut::<Game>();
+            g.phase = Phase::Post;
+            g.score.match_over = true;
+        }
+        a.world_mut().run_system_cached(super::step).unwrap();
+        a.world_mut().run_system_cached(super::step_teams).unwrap();
+        let w = a.world();
+        assert!(!w.resource::<super::Personal>().showing && !w.resource::<super::Personal>().on, "the match call");
+        assert!(w.resource::<super::TeamCams>().0.is_empty());
+        assert_eq!(*w.resource::<super::StickTurn>(), super::StickTurn::default());
     }
 
     /// B658: 1P, 2P and 3P (two humans on the first team, one on the other) split too: the first team's half is the
