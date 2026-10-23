@@ -4199,10 +4199,15 @@ mod tests {
     fn lan_lobby_by_mdns() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let (host, _hm) = endpoint(&Relay::Off).await.unwrap();
-            let (host2, _hm2) = endpoint(&Relay::Off).await.unwrap();
-            let (guest, gm) = endpoint(&Relay::Off).await.unwrap();
-            let lan = watch_lan(gm);
+            let (host, _) = endpoint(&Relay::Off).await.unwrap();
+            let (host2, _) = endpoint(&Relay::Off).await.unwrap();
+            let (guest, _) = endpoint(&Relay::Off).await.unwrap();
+            // its own mDNS service: mDNS answers only ~2 peers a cycle across a whole service, so among the dozens of
+            // endpoints that parallel test runs put under `MDNS` these two took over 15 s to be heard
+            let service = format!("{MDNS}{}", data_encoding::HEXLOWER.encode(&SecretKey::generate().public().as_bytes()[..4]));
+            let own = |ep: &Endpoint| with_mdns(ep, MdnsAddressLookup::builder().service_name(&service).build(ep.id()).map_err(|e| e.to_string()));
+            let (_hm, _hm2) = (own(&host), own(&host2));
+            let lan = watch_lan(own(&guest));
             let mut r = room(false);
             r.take("host", &[Pick::disc(0, 0)]);
             host.set_user_data_for_address_lookup(lan_data(&Listing::of(host.id(), &r)));
