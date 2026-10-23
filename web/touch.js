@@ -2,7 +2,7 @@
 // browser's standard layout added to `navigator.getGamepads()`, which the game polls like any controller (gilrs), so
 // menus and matches read them through the same bindings as a real pad (✕ = shot / OK, ○ = slice / back, △ = lob,
 // □, L1/R1, Select = swap hand, Start = pause; in a match L1/R1 also emote, B271: the game knows this pad by its id). They show on touch screens (menus and matches) and hide while a real
-// controller is connected. In the menus, which also take taps (B221), the stick is a fixed circle at the bottom left so
+// controller is connected, unless they hold a seat (B656: they stay as 1P, the controller joins as 2P). In the menus, which also take taps (B221), the stick is a fixed circle at the bottom left so
 // taps anywhere else reach the menu; in a match it appears wherever the left thumb lands.
 // Also here: audio unlocks on the first tap or key (browsers start every AudioContext suspended), and a touch screen
 // goes fullscreen on the first tap, either way up (B112) (where the browser allows it; an installed app starts that way).
@@ -321,11 +321,12 @@ const side = index => {
 const touch = side(16);
 // B247: never listed next to a real pad, even before `update` hides the controls: a controller picked up between two
 // frames would otherwise take 2P's slot while the touch pad holds 1P's, and keep it after the touch pad goes (1P left
-// with none)
+// with none). B656: unless the game says the touch pad holds a seat (`hstTouchHeld`): then both are listed and the
+// controller joins as the next player.
 navigator.getGamepads = () => {
   touch.poll();
   const list = [...realPads()];
-  if (shown && !list.some(g => g && g.connected)) list.push(touch.pad);
+  if (shown && (held || !list.some(g => g && g.connected))) list.push(touch.pad);
   return list;
 };
 addEventListener('gesturestart', e => e.preventDefault());
@@ -335,13 +336,20 @@ for (const t of ['touchstart', 'touchend', 'touchcancel']) addEventListener(t, e
   touch.keep(new Set([...e.touches].map(t => t.identifier)));
 }, true);
 
-// shown on touch screens (or after any touch) while no real controller is connected; `?touch` forces them on
+// shown on touch screens (or after any touch) while no real controller is connected, or while they hold a seat (B656);
+// `?touch` forces them on
 let touched = coarse.matches || new URLSearchParams(location.search).has('touch');
 addEventListener('pointerdown', e => { if (e.pointerType === 'touch') touched = true; }, { capture: true });
 // B247: the game asks, so a real pad's first press takes over the screen's 1P seat
 window.hstTouched = () => touched;
 // B207: the name and code entries show their letter grid again for one
 window.hstRealPad = anyReal;
+// B656: the touch pad pressed Start on the splash or sits in a seat: it stays when a controller connects
+let held = false;
+window.hstTouchHeld = on => {
+  held = on;
+  update();
+};
 window.hstTouchMenu = on => {
   menu = on;
   touch.menu(on);
@@ -362,7 +370,7 @@ window.hstTouchBuzz = vibrate => {
 };
 const update = () => {
   // gone when the game stops (index.html `fail`): its Reload must take the taps
-  const want = touched && !anyReal() && !site() && !document.getElementById('boot')?.classList.contains('err');
+  const want = touched && (held && shown || !anyReal()) && !site() && !document.getElementById('boot')?.classList.contains('err');
   if (want !== shown) {
     shown = want;
     touch.root.hidden = !want;

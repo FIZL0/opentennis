@@ -3,7 +3,9 @@
 //! ○ = slice / back, △ = lob, □, L1/R1, Select = swap hand, Start = pause; in a match L1/R1 also emote, `emote::touch`
 //! knowing it by its name). Beside Select, while online chat is on, a speech bubble opens the chat box (`chat::BUTTON`). Face buttons in a diamond for the right thumb, the shoulders and Select/Start along the top,
 //! clear of the notch and the home indicator (the window's safe area). It shows while no real controller is connected:
-//! one connecting takes it away in the same frame, before any seat or slot sees both (B247).
+//! one connecting takes it away in the same frame, before any seat or slot sees both (B247). B656: unless it holds a
+//! seat (it pressed Start on the splash, `seats::hold_touch`): then it stays and keeps playing as 1P, and the
+//! controller joins as the next player.
 //!
 //! In the menus, which take taps themselves (B221), the stick is a fixed circle at the bottom left, so taps anywhere else
 //! reach the menu; in a match (the pause and result screens are menus) it appears wherever the left thumb lands in the
@@ -346,7 +348,8 @@ fn drive(
         }
     };
     let real = gamepads.iter().any(|(e, g)| e != entity && super::controls::readable(g));
-    let shown = !real;
+    // B656: a seated touch pad stays beside the real one
+    let shown = !real || pad.connected && hst_base::seats::touch_held();
     if shown != pad.shown {
         pad.shown = shown;
         pad.fingers.reset();
@@ -778,6 +781,8 @@ mod tests {
     /// gone in the frame a real pad connects.
     #[test]
     fn a_gamepad_the_menus_dont_see_and_a_real_pad_replaces() {
+        let _held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+        hst_base::seats::hold_touch(false);
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, bevy::window::WindowPlugin::default()));
         app.insert_resource(super::super::controls::Bindings::default());
@@ -824,5 +829,42 @@ mod tests {
         let names: Vec<String> = app.world_mut().query::<(&Gamepad, &Name)>().iter(app.world()).map(|(_, n)| n.to_string()).collect();
         assert_eq!(names, ["Xbox"]);
         assert!(app.world().get::<Gamepad>(e).is_none());
+    }
+
+    /// `seats::hold_touch` is global: the tests that set it take turns.
+    static HELD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// B656: the touch pad holding a seat (1P's, from the splash) stays when a controller connects, and both are read.
+    #[test]
+    fn a_seated_touch_pad_stays_beside_a_real_pad() {
+        let _held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, bevy::window::WindowPlugin::default()));
+        app.insert_resource(super::super::controls::Bindings::default());
+        input(&mut app);
+        app.world_mut().query::<&mut Window>().single_mut(app.world_mut()).unwrap().resolution.set(SIZE.x, SIZE.y);
+        app.update();
+        app.update();
+        hst_base::seats::hold_touch(true);
+        let real = app.world_mut().spawn_empty().id();
+        app.world_mut().write_message(GamepadConnectionEvent::new(real, GamepadConnection::Connected { name: "Xbox".into(), vendor_id: Some(0x045e), product_id: Some(1) }));
+        app.update();
+        app.update();
+        let names = |app: &mut App| {
+            let mut n: Vec<String> = app.world_mut().query::<(&Gamepad, &Name)>().iter(app.world()).map(|(_, n)| n.to_string()).collect();
+            n.sort();
+            n
+        };
+        assert_eq!(names(&mut app), [NAME, "Xbox"]);
+        assert!(app.world().resource::<Pad>().shown);
+        // its seat let go (back on the splash, say): the real pad has the screen to itself, as before
+        hst_base::seats::hold_touch(false);
+        app.update();
+        assert_eq!(names(&mut app), ["Xbox"]);
+        // and taking a seat again doesn't bring it back: only a pad the menus can see takes one
+        hst_base::seats::hold_touch(true);
+        app.update();
+        assert_eq!(names(&mut app), ["Xbox"]);
+        hst_base::seats::hold_touch(false);
     }
 }
