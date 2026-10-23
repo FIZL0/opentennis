@@ -7,8 +7,9 @@
 //! human's Select (lowest seat) switches it, and nobody fades.
 //!
 //! Presentation only: the shared match camera (`Game::cam`, which the cut-aways and reaction voices read) keeps
-//! stepping as before and nothing in play reads this one; the picture shows it through `own_camera::shown`. Every
-//! match starts on the normal camera, the choice isn't kept (user 2026-10-21). Select only switches in live play (`live`): a press
+//! stepping as before and nothing in play reads this one; the picture shows it through `own_camera::shown`. The
+//! choice is kept (`camera.txt` in the per-user data folder, user 2026-10-23); with none saved yet a touch device
+//! starts on this camera, anything else on the normal one. Select only switches in live play (`live`): a press
 //! while the players can't move (the intro, post-point, cut-aways, change of ends, replays) is dropped.
 
 use bevy::prelude::*;
@@ -47,11 +48,6 @@ pub(super) struct AltCamera {
 }
 
 impl AltCamera {
-    /// The alternate camera is chosen (B651: the portrait hint's Select has been used).
-    pub(super) fn chosen(&self) -> bool {
-        self.on
-    }
-
     /// The human's alpha this tick (1 when not faded).
     pub(super) fn alpha(&self) -> f32 {
         self.fade.alpha()
@@ -101,6 +97,40 @@ pub(super) fn offered(g: &Game, pads: &Pads, online: bool, original: bool) -> bo
     team(g, pads, online).is_some() || super::split_view::eligible(g, pads, online, original)
 }
 
+/// `camera.txt` in the per-user data folder: "close" (this camera) or "normal".
+fn path(args: &crate::Args) -> std::path::PathBuf {
+    crate::store::path(&args.iso, "camera.txt")
+}
+
+/// The camera last chosen, if one was.
+fn saved(args: Option<&crate::Args>) -> Option<bool> {
+    let t = crate::store::read_to_string(path(args?)).ok()?;
+    match t.trim() {
+        "close" => Some(true),
+        "normal" => Some(false),
+        _ => None,
+    }
+}
+
+fn save(args: Option<&crate::Args>, on: bool) {
+    // tests never write beside the disc
+    if !cfg!(test)
+        && let Some(a) = args
+        && let Err(e) = crate::store::write(path(a), if on { "close\n" } else { "normal\n" })
+    {
+        warn!("camera.txt: {e}");
+    }
+}
+
+/// Played by touch: a phone, the touch pad, or a browser on a touch screen.
+fn touch() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    if crate::web::touched() {
+        return true;
+    }
+    super::legend::MOBILE || super::touch_pad::on()
+}
+
 /// B622: the players can move (the serve or the rally, no cut-away or replay on screen), the only time Select
 /// switches cameras.
 fn live(g: &Game, d: &super::cutaway::Director) -> bool {
@@ -135,13 +165,14 @@ fn step(
     np: Option<Res<super::netplay::Netplay>>,
     d: Option<Res<super::cutaway::Director>>,
     own: Option<ResMut<OwnCam>>,
+    args: Option<Res<crate::Args>>,
     mut commands: Commands,
 ) {
     let (Some(mut alt), Some(g), Some(pads), Some(d)) = (alt, g, pads, d) else { return };
     let alt = &mut *alt;
     let press = std::mem::take(&mut alt.press);
     if g.is_added() {
-        alt.on = false;
+        alt.on = saved(args.as_deref()).unwrap_or_else(touch);
     }
     let Some(humans) = team(&g, &pads, np.is_some()) else { return };
     let i = humans[0];
@@ -149,6 +180,7 @@ fn step(
     if press && alt.glide.is_none() && live(&g, &d) {
         alt.on = !alt.on;
         info!("alternate camera {}", if alt.on { "on" } else { "off" });
+        save(args.as_deref(), alt.on);
         let (prev, now) = own_camera::shown(&g, own.as_deref());
         alt.glide = Some((GLIDE, alt.last.unwrap_or(now)));
         alt.last.get_or_insert(prev);

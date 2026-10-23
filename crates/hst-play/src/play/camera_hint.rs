@@ -1,30 +1,31 @@
-//! B651 (ours, by the user's request): on a tall (portrait) window the match keeps the normal camera, never switching
-//! by itself, and a hint over the picture says Select switches to the singles camera (the alternate one low behind
-//! the player, `alt_camera.rs`) wherever that switch works (one human on this machine, offline) in live play. Once
-//! the player has switched to it, anywhere and any shape of window, the hint never shows again: `camera_hint.txt`
-//! in the per-user data folder (the browser's localStorage) remembers it. Presentation only: nothing here reaches
-//! the sim.
+//! B651 (ours, by the user's request), every match since 2026-10-23: when live play first starts in a match where
+//! Select switches the camera (the close one behind the player or the doubles zoom, `alt_camera.rs`: humans on one
+//! team on this machine, offline), a hint over the picture says so, flashing a few times, then goes. Presentation
+//! only: nothing here reaches the sim.
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-use super::alt_camera::{self, AltCamera};
+use super::alt_camera;
 use super::controls::{Action, Bindings};
 use super::legend::{self, Act, Item, Last, Style};
 use super::{Game, Pads, Phase};
-use crate::Args;
 
 /// The hint's place on the 640×448 screen: centred, under the score panel's top rows.
 const RECT: [f32; 4] = [170.0, 72.0, 300.0, 18.0];
+/// The flashes: this many, each shown then hidden for these seconds.
+const FLASHES: f32 = 4.0;
+const ON: f32 = 0.6;
+const OFF: f32 = 0.25;
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Hint>().add_systems(Startup, (load, setup)).add_systems(PostUpdate, (judge, draw).chain().before(bevy::ui::UiSystems::Layout));
+    app.init_resource::<Hint>().add_systems(Startup, setup).add_systems(PostUpdate, (new_match, judge, draw).chain().before(bevy::ui::UiSystems::Layout));
 }
 
 #[derive(Resource, Default)]
 struct Hint {
-    /// The player has switched to the singles camera once.
-    seen: bool,
+    /// When live play first started this match (`Time`'s elapsed seconds).
+    since: Option<f32>,
     /// It shows this frame.
     want: bool,
 }
@@ -33,54 +34,44 @@ struct Hint {
 #[derive(Component)]
 struct Root;
 
-/// `camera_hint.txt` in the per-user data folder.
-fn path(iso: &str) -> std::path::PathBuf {
-    crate::store::path(iso, "camera_hint.txt")
-}
-
-fn load(mut hint: ResMut<Hint>, args: Option<Res<Args>>) {
-    hint.seen = args.is_some_and(|a| crate::store::read_to_string(path(&a.iso)).is_ok_and(|t| t.trim() == "seen"));
-}
-
 fn setup(mut commands: Commands) {
     let node = Node { position_type: PositionType::Absolute, justify_content: JustifyContent::Center, align_items: AlignItems::Center, border_radius: BorderRadius::all(Val::Percent(50.0)), ..default() };
     commands.spawn((Root, node, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)), GlobalZIndex(29), Visibility::Hidden));
 }
 
-/// Whether the hint shows: a tall picture, the switch works and isn't used yet, the players can move.
-fn wanted(seen: bool, tall: bool, switch: bool, live: bool) -> bool {
-    !seen && tall && switch && live
+/// A new match shows the hint again.
+fn new_match(g: Option<Res<Game>>, mut hint: ResMut<Hint>) {
+    if g.is_some_and(|g| g.is_added()) {
+        hint.since = None;
+    }
 }
 
-/// Marks the hint seen once the singles camera is on (saved the first time) and decides this frame's.
+/// Whether the hint shows `t` seconds after live play first started: on, off, on… `FLASHES` times, then never.
+fn flashing(t: f32) -> bool {
+    (0.0..FLASHES * (ON + OFF)).contains(&t) && t % (ON + OFF) < ON
+}
+
+/// Decides this frame's: the switch works and the players can move, within the flashes.
 fn judge(w: &mut World) {
-    let chosen = w.get_resource::<AltCamera>().is_some_and(|a| a.chosen());
-    if chosen && !w.resource::<Hint>().seen {
-        w.resource_mut::<Hint>().seen = true;
-        // tests never write beside the disc
-        if !cfg!(test)
-            && let Some(a) = w.get_resource::<Args>()
-            && let Err(e) = crate::store::write(path(&a.iso), "seen\n")
-        {
-            warn!("camera_hint.txt: {e}");
-        }
-    }
-    let tall = w.query_filtered::<&Window, With<PrimaryWindow>>().single(w).is_ok_and(|win| crate::play::widescreen::scene_aspect(win) < 1.0);
     let switch = match (w.get_resource::<Game>(), w.get_resource::<Pads>()) {
-        (Some(g), Some(p)) => alt_camera::human(g, p, w.contains_resource::<super::netplay::Netplay>()).is_some(),
+        (Some(g), Some(p)) => alt_camera::team(g, p, w.contains_resource::<super::netplay::Netplay>()).is_some(),
         _ => false,
     };
     let live = w.get_resource::<Game>().is_some_and(|g| matches!(g.phase, Phase::Serve | Phase::Rally) && !g.instant.replaying)
         && !w.get_resource::<super::cutaway::Director>().is_some_and(|d| d.showing())
         && !super::front_end::paused(w)
         && !super::intro::running(w);
-    let want = wanted(w.resource::<Hint>().seen, tall, switch, live);
-    w.resource_mut::<Hint>().want = want;
+    let now = w.resource::<Time>().elapsed_secs();
+    let mut hint = w.resource_mut::<Hint>();
+    if switch && live {
+        hint.since.get_or_insert(now);
+    }
+    hint.want = switch && live && hint.since.is_some_and(|s| flashing(now - s));
 }
 
 /// The hint's chip for the device last used: the touch pad's SELECT, the keyboard's camera key, a pad's Select.
 fn item(last: Last, bind: &Bindings) -> (Style, Item) {
-    let keys = |k: Vec<String>| Item { act: Act::Hand, label: "Singles camera".into(), keys: k, dim: [false; 2] };
+    let keys = |k: Vec<String>| Item { act: Act::Hand, label: "Change camera".into(), keys: k, dim: [false; 2] };
     match last {
         Last::Touch => (Style::Keys, keys(vec!["SELECT".into()])),
         Last::Keys => (Style::Keys, keys(bind.key(Action::Camera).into_iter().collect())),
@@ -139,12 +130,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shows_only_tall_live_and_unused() {
-        assert!(wanted(false, true, true, true));
-        assert!(!wanted(true, true, true, true), "used once: never again");
-        assert!(!wanted(false, false, true, true), "wide window");
-        assert!(!wanted(false, true, false, true), "no singles camera here (two humans, online)");
-        assert!(!wanted(false, true, true, false), "not live play");
+    fn flashes_then_goes() {
+        assert!(flashing(0.0) && !flashing(ON + 0.01) && flashing(ON + OFF + 0.01));
+        assert_eq!((0..400).filter(|&i| flashing(i as f32 * 0.01) && !flashing(i as f32 * 0.01 - 0.01)).count(), FLASHES as usize);
+        assert!(!flashing(FLASHES * (ON + OFF) + 0.1));
     }
 
     #[test]
