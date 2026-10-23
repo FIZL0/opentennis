@@ -1,3 +1,4 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
 - The □ button (X on Xbox pads, Space on the keyboard) no longer starts your serve; in a match it does nothing, and Settings → Controls now calls it "Menu: delete / swap".
 - On a phone or tablet, if you started with the on-screen controls, they stay when a controller connects: you keep playing as player 1 and the controller joins as player 2.
+- The website and the title screen show the game's version and build in a corner, so you can tell which one you're on.

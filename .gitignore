@@ -49,6 +49,7 @@ research/tools/wasmtime-*/
 /web/pkg/
 /web/pkg-webgpu/
 /web/version.txt
+/web/build.txt
 /web/shots/
 /web/apple-touch-icon.png
 /web/apple-touch-icon-precomposed.png

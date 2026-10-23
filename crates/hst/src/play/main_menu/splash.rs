@@ -213,6 +213,7 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, pads: &[Entity], controllers: usize
     d.outlined(|d| d.centred(&sub, 320.0, 374.0, 17.0, [100.0; 3]));
     // a click or tap anywhere is the keyboard's press (`pointer::device`: 1P has no device yet)
     d.popup(Some(pointer::press(|k| k.ok = true)));
+    build(d);
     if m.p1.is_none() && m.quit.is_none() {
         new_version(d);
     }
@@ -268,6 +269,14 @@ fn quit_layout(d: &mut Draw, m: &Menu) {
     }
     d.q(Tex::Cursor, [0.0, 0.0, 64.0, 32.0], [116.0, QUIT_TOP + 40.0 * a as f32, 64.0, 32.0], WHITE, 128.0);
     d.said = title.into();
+}
+
+/// B660: the build's version and commit, small in the window's top left (the main menu has it top right; the
+/// New version card takes that corner here).
+fn build(d: &mut Draw) {
+    d.anchor = Anchor::Sides;
+    d.outlined(|d| d.text(&super::home::version(), 16.0, 18.0, 10.0, [100.0; 3]));
+    d.anchor = Anchor::Centre;
 }
 
 /// B581: the New version card, pinned to the window's top right: the new version, then the update's button (a tap

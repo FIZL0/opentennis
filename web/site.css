@@ -35,6 +35,7 @@ html[data-game] #disc { display: none !important; }
 /* the band fades through the celebration close-ups (docs/screenshots/celebrate-*.jpg), 6 s each */
 /* darkened by an overlay, not a filter: a filter over the fading slides left a stale, stretched layer after a resize */
 #disc .band .slides { position: absolute; inset: 0; }
+#disc .band .build { position: absolute; right: .7em; bottom: .45em; z-index: 1; font-size: 11px; color: #ffffffa8; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
 #disc .band .slides::after { content: ''; position: absolute; inset: 0; background: #00000094; }
 #disc .band .slides i { position: absolute; inset: 0; background: center 30% / cover no-repeat; opacity: 0; animation: band-fade 30s infinite; }
 #disc .band .slides i:nth-child(1) { background-image: url(shots/celebrate-carol.jpg); }
