@@ -50,6 +50,23 @@ pub fn readable(g: &Gamepad) -> bool {
     }
 }
 
+/// B656: the on-screen pad (`touch_pad.rs`, `web/touch.js`) holds a seat: it pressed Start on the splash or sits in
+/// one of the menus' seats. It then stays beside a real controller, which joins as the next player, instead of
+/// giving the real one its place (B247). The menus set it; it carries through the match they start.
+pub fn hold_touch(on: bool) {
+    if TOUCH_HELD.swap(on, std::sync::atomic::Ordering::Relaxed) != on {
+        #[cfg(target_arch = "wasm32")]
+        crate::web::touch_held(on);
+    }
+}
+
+/// `hold_touch`'s last word.
+pub fn touch_held() -> bool {
+    TOUCH_HELD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+static TOUCH_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Set by `ignore_input`: no pad is `readable`.
 static IGNORE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 

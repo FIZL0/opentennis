@@ -80,6 +80,7 @@ mod roster;
 mod slide;
 mod splash;
 mod takeover;
+mod touch_seat;
 mod update_ask;
 
 /// Characters on the select screen.
@@ -3519,7 +3520,8 @@ fn step(
             dirs[i] = repeat.entry((id, i)).or_default().step(h, dt);
         }
         [k.up, k.down, k.left, k.right] = dirs;
-        if k != Press::default() && touch_page() {
+        // B656: unless the on-screen pad holds a seat: then it keeps it, and the controller joins as the next player
+        if k != Press::default() && touch_page() && !hst_base::seats::touch_held() {
             menu.pad_takes_touch_seat(dev, &pads);
         }
         // a click or tap is the keyboard's while 1P's pad is out (`pointer::device`)
@@ -3924,6 +3926,7 @@ pub fn plugin(app: &mut App) {
     legend::plugin(app);
     app.add_systems(Update, legend::fill.after(step));
     app.add_systems(Update, takeover::watch.before(step).after(pointer::pointer));
+    app.add_systems(Update, touch_seat::hold.after(step));
     app.add_systems(Update, takeover::updated.before(takeover::watch));
     app.init_resource::<umpire_mods::Pics>().add_systems(Update, umpire_mods::load.before(draw));
     app.init_resource::<court_mods::Pics>().add_systems(Update, court_mods::load.before(draw));

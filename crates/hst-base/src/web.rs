@@ -570,6 +570,13 @@ pub fn touched() -> bool {
     page_fn("hstTouched").and_then(|f| f.call0(&JsValue::NULL).ok()).is_some_and(|v| v.is_truthy())
 }
 
+/// B656: the page's touch pad holds a seat, so it stays beside a real controller (`seats::hold_touch`).
+pub fn touch_held(on: bool) {
+    if let Some(f) = page_fn("hstTouchHeld") {
+        let _ = f.call1(&JsValue::NULL, &on.into());
+    }
+}
+
 /// B329: what the Vibration setting can do in this browser (`web/touch.js`): `vibrate` (Android), `firefox`
 /// (Firefox for Android: the API is there but never vibrates, B525) or `none` (iOS Safari: no vibration API).
 pub fn vibration() -> String {
