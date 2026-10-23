@@ -4,10 +4,10 @@
 //! Select (the lowest seat's, 1P's when 1P plays; only theirs) switches the split
 //! on and off in live play, and the choice isn't kept (user 2026-10-21). Split, each half
 //! shows the original's alternate camera (`alt_camera`) low behind that team's human, so everyone plays from behind
-//! themselves. Side by side on a wide window (1P's team left),
-//! stacked on a tall one (1P's team on top). Shown on the plain match view (serve, rally and B650 the umpire's
-//! call and pop-ups after the point, as the one-human alternate camera stays through them): the intro, cut-aways,
-//! replays and the change of ends show the one picture as before. B661: from the match point's end (the
+//! themselves. Side by side on a wide window (1P's team left; the Split Screen setting can stack them instead),
+//! stacked on a tall one (1P's team on top). Shown on the plain match view (serve, rally, B650 the umpire's
+//! call and pop-ups after the point, as the one-human alternate camera stays through them, and the change of ends,
+//! each half gliding into its own shot): the intro, cut-aways and replays show the one picture as before. B661: from the match point's end (the
 //! game-set-match call, the celebration, the result) the split is dropped for the one full-screen picture.
 //!
 //! Each human's stick and d-pad turn with their own half's picture as they're read, before the tick's pads are
@@ -23,7 +23,7 @@ use bevy::camera::Viewport;
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use hst_sim::alt_cam::{self, Follow};
 use hst_sim::camera::View;
@@ -47,6 +47,10 @@ pub fn plugin(app: &mut App) {
 /// B659: how the picture is split now: 0 not, 1 side by side, 2 stacked (the score panel shows each team's side at
 /// the top of its half, `panel`; the umpire's calls go over the whole window, `popups`).
 static HALVES: AtomicU8 = AtomicU8::new(0);
+
+/// The Split Screen setting: halves stacked (Horizontal) on a wide window instead of side by side (Vertical, the
+/// default). A tall window always stacks them.
+pub static STACKED: AtomicBool = AtomicBool::new(false);
 
 /// The split's orientation while the picture is split (`true` side by side, `false` stacked); team 0's half first.
 pub(super) fn split_shown() -> Option<bool> {
@@ -72,7 +76,7 @@ struct Split {
 fn plain_play(w: &World) -> bool {
     let Some(g) = w.get_resource::<Game>() else { return false };
     g.players.len() >= 2
-        && matches!(g.phase, Phase::Serve | Phase::Rally | Phase::Post)
+        && matches!(g.phase, Phase::Serve | Phase::Rally | Phase::Post | Phase::ChangeEnds(_))
         && !w.get_resource::<crate::graphics::Graphics>().is_some_and(|gr| gr.original)
         && !super::intro::running(w)
         && !super::instant_replay::playing(w)
@@ -86,13 +90,14 @@ pub(super) fn split(w: &mut World) {
     // halves follow their humans in live play and both show the one picture otherwise (intro, calls, replays)
     let on = w.get_resource::<Personal>().is_some_and(|p| p.showing) && w.contains_resource::<Game>();
     let own = on && plain_play(w) && w.get_resource::<TeamCams>().is_some_and(|t| t.0.len() == 2);
-    HALVES.store(if !on { 0 } else if aspect >= 1.0 { 1 } else { 2 }, Ordering::Relaxed);
+    let wide = aspect >= 1.0 && !STACKED.load(Ordering::Relaxed);
+    HALVES.store(if !on { 0 } else if wide { 1 } else { 2 }, Ordering::Relaxed);
     let mut state = w.remove_resource::<Split>().unwrap_or_default();
     if own {
         // 1P's team left (or on top), the other right (or below)
-        place(w, &mut state, aspect, aspect >= 1.0, [0, 1]);
+        place(w, &mut state, aspect, wide, [0, 1]);
     } else if on {
-        both(w, &mut state, aspect, aspect >= 1.0);
+        both(w, &mut state, aspect, wide);
     } else {
         // (also after a mode's teardown dropped `Split` mid-split: the main camera still has its split layers)
         let split = w.query_filtered::<&RenderLayers, With<Orbit>>().single(w).is_ok_and(|l| *l == top_layers());
@@ -202,6 +207,8 @@ struct Half {
     /// The view shown last tick and this tick.
     prev: View,
     now: View,
+    /// The change of ends' move into this half's shot: its start view and pivot (`change_ends::start`).
+    move_in: Option<(View, [f32; 3])>,
 }
 
 /// M146: per seat (1P..4P), whether the stick and d-pad turn round as they're read (`tick_input`).
@@ -312,12 +319,21 @@ fn step_teams(g: Option<Res<Game>>, p: Option<Res<Personal>>, pads: Option<Res<P
         if fresh {
             let mut follow = Follow::new(&d.shots, n == 4);
             let now = follow.step_team(&spots, near, ball, play, width);
-            let h = Half { humans, near, follow, prev: now, now };
+            let h = Half { humans, near, follow, prev: now, now, move_in: None };
             if team < t.0.len() { t.0[team] = h } else { t.0.push(h) }
         } else {
             let h = &mut t.0[team];
             h.prev = h.now;
             h.now = h.follow.step_team(&spots, near, ball, play, width);
+        }
+        // the change of ends glides each half from behind the new end into its own shot, as the one picture's move
+        // glides into the match camera's
+        let h = &mut t.0[team];
+        if let Phase::ChangeEnds(n) = g.phase {
+            let (from, pivot) = *h.move_in.get_or_insert_with(|| super::change_ends::start(&g, &h.now, Some(&d), h.prev));
+            h.now = super::change_ends::at(&from, &h.now, pivot, n);
+        } else {
+            h.move_in = None;
         }
     }
 }
@@ -469,7 +485,13 @@ mod tests {
         assert_eq!(a.world().resource::<super::TeamCams>().2, held);
         assert_eq!(a.world().resource::<super::TeamCams>().0.len(), 2);
         a.world_mut().resource_mut::<Game>().phase = Phase::ChangeEnds(0);
-        assert!(!super::plain_play(a.world()), "the change of ends");
+        assert!(super::plain_play(a.world()), "the change of ends");
+        // each half glides into its own shot from behind its own end
+        a.world_mut().resource_mut::<Game>().phase = Phase::ChangeEnds(40);
+        a.world_mut().run_system_cached(super::step_teams).unwrap();
+        let t = a.world().resource::<super::TeamCams>();
+        assert!(t.0.iter().all(|h| h.move_in.is_some()), "the move runs");
+        assert_ne!(t.0[0].move_in.unwrap().1, t.0[1].move_in.unwrap().1, "each half's own pivot");
     }
 
     /// B661: split, the match point's end (the game-set-match call and the celebration) goes back to the one full

@@ -12,3 +12,5 @@
 - A modded character's face in the match's score panel no longer comes up blank when you start the match right after picking them.
 - While the match is getting ready to start, the Start button now says "Starting…", and Back cancels it.
 - On the character select, when someone joins on the computer player you were picking for after choosing Random, you move on to the next computer player still on Random instead of a set character.
+- With the behind-the-player camera or split screen on, the change of ends now glides into that camera instead of swinging to the normal view and then jumping back.
+- New Settings → Display → Split Screen option: Vertical (halves side by side, the default) or Horizontal (stacked).

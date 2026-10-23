@@ -42,6 +42,8 @@ pub(super) struct AltCamera {
     press: bool,
     /// The ball the shot looks at: the live one, held where the rally left it once the point is over (B628).
     held: [f32; 3],
+    /// The change of ends' move into the shot: its start view and pivot (`change_ends::start`).
+    move_in: Option<(View, [f32; 3])>,
 }
 
 impl AltCamera {
@@ -159,6 +161,9 @@ fn step(
             alt.normal = Some(c);
         }
     }
+    if !changing_ends {
+        alt.move_in = None;
+    }
     alt.rally = if g.phase == Phase::Rally { alt.rally + 1 } else { 0 };
     let placed = g.phase == Phase::Serve && !std::mem::replace(&mut alt.serving, g.phase == Phase::Serve);
     let p = &g.players[i];
@@ -180,7 +185,15 @@ fn step(
             alt.follow = Some((humans.clone(), near, Follow::new(&d.shots, g.players.len() == 4)));
         }
         let spots: Vec<_> = humans.iter().map(|&h| g.players[h].pos).collect();
-        Some(alt.follow.as_mut().expect("made").2.aim_team(&spots, near, alt.held, play, 1.0))
+        let to = alt.follow.as_mut().expect("made").2.aim_team(&spots, near, alt.held, play, 1.0);
+        // the change of ends glides from behind the new end into the shot, as the normal camera's move does
+        Some(match g.phase {
+            Phase::ChangeEnds(n) => {
+                let (from, pivot) = *alt.move_in.get_or_insert_with(|| super::change_ends::start(&g, &to, Some(&d), alt.last.unwrap_or(to)));
+                super::change_ends::at(&from, &to, pivot, n)
+            }
+            _ => to,
+        })
     } else {
         alt.follow = None;
         // the shared camera's cut to the next point (or the change of ends' glide) drops the reset one
@@ -204,10 +217,10 @@ fn step(
         }
         None => to,
     })
-    // B628: the picture eases after the shot's view, the glide into it included
+    // B628: the picture eases after the shot's view, the glide into it included (not the change of ends' move)
     .map(|v| match &mut alt.follow {
-        Some((.., f)) => f.show(v),
-        None => v,
+        Some((.., f)) if alt.move_in.is_none() => f.show(v),
+        _ => v,
     });
     // the fade, behind the human only
     let post = g.phase == Phase::Post;

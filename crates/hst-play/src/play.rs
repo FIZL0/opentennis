@@ -72,7 +72,7 @@ pub mod handicap;
 pub mod offbeat;
 pub mod net_hide;
 mod own_camera;
-mod split_view;
+pub mod split_view;
 mod camera_hint;
 mod alt_camera;
 pub mod match_stats;

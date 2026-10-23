@@ -319,6 +319,7 @@ fn after(
     widescreen::ASPECT.store(menu.settings.aspect, std::sync::atomic::Ordering::Relaxed);
     widescreen::MARGIN.store(menu.settings.safe_area, std::sync::atomic::Ordering::Relaxed);
     super::super::key_hints::ON.store(menu.settings.key_hints, std::sync::atomic::Ordering::Relaxed);
+    super::super::split_view::STACKED.store(menu.settings.split_stacked, std::sync::atomic::Ordering::Relaxed);
     if match_music != args.music
         && let (Some(game), Some(sound), Some(mut music)) = (game, sound, music)
     {

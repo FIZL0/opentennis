@@ -25,6 +25,8 @@ pub(super) enum Opt {
     KeyHints,
     /// B362: the pads' button icons (`legend::LAYOUTS`).
     ButtonIcons,
+    /// Split screen's halves side by side (Vertical) or stacked (Horizontal).
+    SplitScreen,
     Preset,
     Scale,
     Shadows,
@@ -85,7 +87,7 @@ pub(super) fn tab(page: Screen) -> usize {
 
 /// The browser build stays in its page (`graphics::KEEP_WINDOWED`), so it has no Display mode row; it has a
 /// Renderer instead (B273).
-const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons] } else { &[Display, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons] };
+const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] } else { &[Display, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] };
 /// What a preset sets, then the textures, then the way into Advanced.
 const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Upscaled, Advanced];
 /// B411: Graphics → Advanced, the speed-up switches for a slow device.
@@ -125,6 +127,7 @@ fn label(o: Opt) -> &'static str {
         ShowFps => "Show FPS",
         KeyHints => "Key Hints",
         ButtonIcons => "Button Icons",
+        SplitScreen => "Split Screen",
         Preset => "Preset",
         Scale => "Resolution",
         Shadows => "Shadows",
@@ -160,6 +163,7 @@ fn about(o: Opt) -> &'static str {
         SafeArea => "Keeps the menus and the match's score clear of the screen's edges; the picture always fills the screen. Auto keeps them off a phone's notch, camera cutout, rounded corners and home bar; a margin keeps them that far in from every edge as well (for a TV that crops its edges); None lets them reach the edges.",
         ShowFps => "Show the frame rate in the bottom-left corner, in the menus and in a match. Detailed: where each frame's time goes (game, simulation, rendering, waiting on the GPU/browser), meshes drawn and the renderer.",
         KeyHints => "Show the keyboard's keys at the bottom during a match while you play on the keyboard.",
+        SplitScreen => "How split screen divides the window when players on both teams share this device: Vertical puts the halves side by side, Horizontal stacks them. A tall window always stacks them.",
         ButtonIcons => "The controller buttons the hints show. Auto: each controller's own (PlayStation, Switch, Steam Deck, else Xbox); or the same set for every controller.",
         Preset => "High draws at full quality with every speed-up off; Default looks the same with Fewer Shadows and Skip Off-Screen on; Steam Deck looks like High with vsync and the speed-ups on; Low and Phone trade detail for frame rate; Lowest is the cheapest (half resolution, no shadows, simpler characters) for the weakest devices. Auto picks one for this device, then times the first seconds of each match and lowers the resolution and shadows until it holds 60 fps.",
         Scale => "Draw the court at this share of the window's resolution, scaled up to fill it (the HUD stays sharp). Above 100 % draws it larger and scales it down: smoother edges, more work for the graphics card.",
@@ -236,6 +240,7 @@ fn choices(o: Opt) -> Vec<String> {
     match o {
         _ if locked(o) => words(&["Off"]),
         Display => words(&["Fullscreen", "Window"]),
+        SplitScreen => words(&["Vertical", "Horizontal"]),
         Aspect => words(&ASPECTS[..aspect_choices()]),
         MenuSize => MENU_SIZES.iter().map(|&t| menu_size_name(t)).collect(),
         SafeArea => SAFE_AREAS.iter().map(|&m| safe_area_name(m)).collect(),
@@ -320,6 +325,7 @@ impl Settings {
             SafeArea => self.safe_area = cycle(&SAFE_AREAS, self.safe_area, d),
             ShowFps => g.show_fps = (g.show_fps as isize + d).rem_euclid(3) as u8,
             KeyHints => self.key_hints = !self.key_hints,
+            SplitScreen => self.split_stacked = !self.split_stacked,
             ButtonIcons => self.button_icons = (self.button_icons as isize + d).rem_euclid(super::legend::LAYOUTS.len() as isize) as u8,
             // P53: Auto after the presets: the device's pick, timed in matches
             Preset => {
@@ -414,6 +420,7 @@ impl Settings {
             SafeArea => safe_area_name(self.safe_area),
             ShowFps => SHOW_FPS_NAMES[g.show_fps.min(2) as usize].into(),
             KeyHints => on_off(self.key_hints),
+            SplitScreen => if self.split_stacked { "Horizontal" } else { "Vertical" }.into(),
             ButtonIcons => super::legend::LAYOUTS[self.button_icons as usize].0.into(),
             Preset if g.auto => AUTO.into(),
             Preset => g.preset().into(),

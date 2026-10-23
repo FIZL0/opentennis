@@ -196,6 +196,7 @@ fn fit_grid(window: Query<&Window, With<PrimaryWindow>>, mut menu: ResMut<Menu>)
     super::widescreen::ASPECT.store(menu.settings.aspect, std::sync::atomic::Ordering::Relaxed);
     super::widescreen::MARGIN.store(menu.settings.safe_area, std::sync::atomic::Ordering::Relaxed);
     super::key_hints::ON.store(menu.settings.key_hints, std::sync::atomic::Ordering::Relaxed);
+    super::split_view::STACKED.store(menu.settings.split_stacked, std::sync::atomic::Ordering::Relaxed);
     legend::LAYOUT.store(menu.settings.button_icons, std::sync::atomic::Ordering::Relaxed);
     let Ok(w) = window.single() else { return };
     let g = Grid::fit_at(super::widescreen::aspect(w), menu.settings.apply_menu_scale_on(w, menu.screen));
@@ -287,6 +288,8 @@ pub struct Settings {
     update_check: bool,
     /// B474: the emotes' voice lines heard (`audio::EMOTE_VOICES`).
     emote_voices: bool,
+    /// Split screen's halves stacked (Horizontal) instead of side by side (`split_view::STACKED`).
+    split_stacked: bool,
     graphics: Graphics,
     volumes: Volumes,
     /// A `widescreen::ASPECTS` index.
@@ -356,6 +359,7 @@ impl Default for Settings {
             vibration: true,
             update_check: true,
             emote_voices: true,
+            split_stacked: false,
             graphics: Graphics::default(),
             volumes: Volumes::default(),
             aspect: default_aspect(),
@@ -375,7 +379,7 @@ impl Default for Settings {
 impl Settings {
     /// The on/off switches by their settings.txt names, in the file's order. Their rows are on the Settings screen's
     /// pages (`options.rs`).
-    fn switches(&mut self) -> [(&'static str, &mut bool); 9] {
+    fn switches(&mut self) -> [(&'static str, &mut bool); 10] {
         [
             ("upscaled_textures", &mut self.upscaled_textures),
             ("menu_music", &mut self.menu_music),
@@ -386,6 +390,7 @@ impl Settings {
             ("vibration", &mut self.vibration),
             ("update_check", &mut self.update_check),
             ("emote_voices", &mut self.emote_voices),
+            ("split_stacked", &mut self.split_stacked),
         ]
     }
 
