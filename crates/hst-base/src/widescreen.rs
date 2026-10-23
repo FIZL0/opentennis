@@ -110,6 +110,44 @@ pub struct Bleed {
     pub on: bool,
 }
 
+/// B657: with a `Bleed`, its copy is only the part outside the view (`outside_pieces`), the node drawing the rest: a
+/// see-through one (a dimmer, a fade to black, the score panel's white strips) isn't blended twice inside the view, so
+/// the safe area's strips and the bars darken with it, not behind it. For plain stretched images (no borders, rounded
+/// corners or slicing).
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct BleedOutside;
+
+/// B657: the pieces of a `BleedOutside` node's bled rect (`bleed_out` of `rect`, percent of a `size` window's view)
+/// outside the view: the left and right ones the rect's full height, the top and bottom ones between them. Each is its
+/// rect in percent of the window and the share `[u0, v0, u1, v1]` of the node's image it shows (the image stretched over
+/// the whole bled rect, as a `Bleed` copy draws it). `drawn` is the view as the HUD's camera draws it (window px: its
+/// viewport, whole device pixels), so the pieces meet it with no seam; `None`: the view.
+pub fn outside_pieces(rect: [f32; 4], size: Vec2, drawn: Option<Rect>) -> Vec<([f32; 4], [f32; 4])> {
+    let v = view(size);
+    pieces_in(bleed_out(rect, size), v, Rect::from_corners(Vec2::ZERO, size), drawn.unwrap_or(v))
+}
+
+/// `outside_pieces` of the bled rect `[l, t, w, h]` (percent of the view `v`) in the window `s`, around `d`.
+fn pieces_in([l, t, w, h]: [f32; 4], v: Rect, s: Rect, d: Rect) -> Vec<([f32; 4], [f32; 4])> {
+    // the bled rect and the drawn view in percent of the window
+    let (sw, sh) = (s.width().max(1e-3) / 100.0, s.height().max(1e-3) / 100.0);
+    let (x0, y0) = ((v.min.x - s.min.x) / sw, (v.min.y - s.min.y) / sh);
+    let (kx, ky) = (v.width() / 100.0 / sw, v.height() / 100.0 / sh);
+    let (l, t, w, h) = (x0 + l * kx, y0 + t * ky, w * kx, h * ky);
+    let (vl, vt, vr, vb) = ((d.min.x - s.min.x) / sw, (d.min.y - s.min.y) / sh, (d.max.x - s.min.x) / sw, (d.max.y - s.min.y) / sh);
+    let (r, b) = (l + w, t + h);
+    let (il, ir) = (l.max(vl), r.min(vr));
+    let pieces = [[l, t, r.min(vl), b], [l.max(vr), t, r, b], [il, t, ir, b.min(vt)], [il, t.max(vb), ir, b]];
+    // a sliver under a hundredth of a percent (rounding at an edge) isn't a piece
+    const MIN: f32 = 0.01;
+    let share = |a: f32, from: f32, len: f32| (a - from) / len.max(1e-6);
+    pieces
+        .into_iter()
+        .filter(|&[x0, y0, x1, y1]| x1 - x0 > MIN && y1 - y0 > MIN)
+        .map(|[x0, y0, x1, y1]| ([x0, y0, x1 - x0, y1 - y0], [share(x0, l, w), share(y0, t, h), share(x1, l, w), share(y1, t, h)]))
+        .collect()
+}
+
 /// B623: the rect `[left, top, width, height]` (percent of a `size` window's view) with each edge on the view's edge
 /// moved out to the window's (B629: not just the picture's, so a fixed Aspect Ratio's bars get the walls too); as it
 /// is where they're the same.
@@ -647,4 +685,31 @@ fn walls_bleed_into_fixed_ratio_bars() {
     // a portrait window: as tall, cropped at the sides
     let v = Rect::new(0.0, 0.0, 400.0, 1000.0);
     assert!(close(px(v, cover_in(4.0 / 3.0, v.size(), v)), [-466.67, 0.0, 1333.33, 1000.0]));
+}
+
+#[test]
+fn outside_pieces_frame_the_view() {
+    // a 1000×500 window, 10 % insets at the sides and 4 % top and bottom: the view 100..900 × 20..480
+    let (v, s) = (Rect::new(100.0, 20.0, 900.0, 480.0), Rect::new(0.0, 0.0, 1000.0, 500.0));
+    let near = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-3);
+    // no inset: nothing outside
+    assert!(pieces_in(bleed_in([0.0, 0.0, 100.0, 100.0], s, s), s, s, s).is_empty());
+    // a full-view dimmer: four pieces framing the view, none over it
+    let p = pieces_in(bleed_in([0.0, 0.0, 100.0, 100.0], v, s), v, s, v);
+    assert_eq!(p.len(), 4, "{p:?}");
+    assert!(near(p[0].0, [0.0, 0.0, 10.0, 100.0]) && near(p[0].1, [0.0, 0.0, 0.1, 1.0]), "{p:?}");
+    assert!(near(p[1].0, [90.0, 0.0, 10.0, 100.0]) && near(p[1].1, [0.9, 0.0, 1.0, 1.0]), "{p:?}");
+    assert!(near(p[2].0, [10.0, 0.0, 80.0, 4.0]) && near(p[2].1, [0.1, 0.0, 0.9, 0.04]), "{p:?}");
+    assert!(near(p[3].0, [10.0, 96.0, 80.0, 4.0]) && near(p[3].1, [0.1, 0.96, 0.9, 1.0]), "{p:?}");
+    // a strip on the view's left edge, 30 % across, 50 % down, 5 % tall: one piece, its height, out to the window's edge,
+    // showing the image's outer quarter (the bled strip is 10 + 24 % of the window wide)
+    let p = pieces_in(bleed_in([0.0, 50.0, 30.0, 5.0], v, s), v, s, v);
+    assert_eq!(p.len(), 1, "{p:?}");
+    assert!(near(p[0].0, [0.0, 50.0, 10.0, 4.6]) && near(p[0].1, [0.0, 0.0, 10.0 / 34.0, 1.0]), "{p:?}");
+    // inside the view: none
+    assert!(pieces_in(bleed_in([20.0, 20.0, 30.0, 30.0], v, s), v, s, v).is_empty());
+    // the view drawn from x 99.6 (its viewport's whole pixels): the left piece stops there, no gap
+    let d = Rect::new(99.6, 20.0, 900.0, 480.0);
+    let p = pieces_in(bleed_in([0.0, 0.0, 100.0, 100.0], v, s), v, s, d);
+    assert!(near(p[0].0, [0.0, 0.0, 9.96, 100.0]) && near(p[2].0, [9.96, 0.0, 80.04, 4.0]), "{p:?}");
 }

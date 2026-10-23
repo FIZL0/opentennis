@@ -5,3 +5,6 @@
 - Select now switches the camera in every local match with human players: humans on both sides get the split screen (a side with two humans shares a closer view that keeps both of them in frame), and two humans teamed up against the computer get that closer view on the whole screen.
 - In split screen, the end of the match (the umpire's final call, the winner's celebration and the results) now shows full screen instead of cut off in each half.
 - The website and the title screen show the game's version and build in a corner, so you can tell which one you're on.
+- Leaving a match on a phone, or with a fixed aspect ratio or a safe-area margin, the fade to black now covers the whole screen evenly, the controls strip included.
+- The score panel's Sets/Games strips and the doubles A Team / B Team banners now run out to the screen's edge on phones and with a safe-area margin.
+- On phones, at a fixed aspect ratio or with a safe-area margin, see-through HUD pieces (the panel's strips, the pause screen's dimmer) no longer look too faint or too dark: they look as they do on a plain desktop window.

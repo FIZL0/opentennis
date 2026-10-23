@@ -35,6 +35,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, (encode_pbr_output, two_channel_letters))
         .add_systems(PostUpdate, (retarget, clear, follow_window, persist).chain().before(bevy::camera::CameraUpdateSystems))
         .add_systems(PostUpdate, bleed.before(bevy::ui::UiSystems::Layout))
+        .add_systems(PostUpdate, bleed_outside.before(bevy::ui::UiSystems::Layout))
         .add_systems(PostUpdate, pixel_aspect.after(bevy::camera::CameraUpdateSystems));
 }
 
@@ -262,6 +263,15 @@ fn follow_window(
         if std::mem::discriminant(&cam.clear_color) != std::mem::discriminant(&clear) {
             cam.clear_color = clear;
         }
+        // B657: over the bleed camera's picture it blends its own, which is premultiplied (Bevy's default for a second
+        // camera on a target treats it as straight alpha: a see-through piece came out at about half its strength
+        // whenever the view was inset); alone it writes it as is
+        let blend = bleeds.then_some(bevy::render::render_resource::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
+        if matches!(cam.output_mode, bevy::camera::CameraOutputMode::Write { blend_state, .. } if blend_state != blend)
+            && let bevy::camera::CameraOutputMode::Write { blend_state, .. } = &mut cam.output_mode
+        {
+            *blend_state = blend;
+        }
     }
     let sampler = if g.original { ImageSampler::nearest() } else { ImageSampler::Default };
     let last = if persist.is_some() { scene } else { size(1.0, 1.0) };
@@ -305,7 +315,7 @@ fn bleed(
     t: Res<Targets>,
     window: Query<&Window, With<PrimaryWindow>>,
     cams: Query<&Camera>,
-    nodes: Query<(Entity, &crate::widescreen::Bleed, &Node, Option<&ImageNode>, Option<&BackgroundColor>, &InheritedVisibility)>,
+    nodes: Query<(Entity, &crate::widescreen::Bleed, &Node, Option<&ImageNode>, Option<&BackgroundColor>, &InheritedVisibility), Without<crate::widescreen::BleedOutside>>,
     mut copies: Query<(&mut Node, &mut ImageNode, &mut BackgroundColor, &mut Visibility, &mut ZIndex), (With<BleedCopy>, Without<crate::widescreen::Bleed>)>,
     mut of: Local<bevy::platform::collections::HashMap<Entity, Entity>>,
 ) {
@@ -361,6 +371,87 @@ fn bleed(
         }
         if z.0 != b.order {
             z.0 = b.order;
+        }
+    }
+}
+
+/// B657: a `widescreen::BleedOutside` node's copy: only its pieces outside the view (`widescreen::outside_pieces`), each
+/// showing its share of the node's image, so a see-through node isn't drawn twice over the view. Made, moved and
+/// hidden as `bleed`'s copies.
+#[allow(clippy::type_complexity)]
+fn bleed_outside(
+    mut commands: Commands,
+    t: Res<Targets>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    cams: Query<&Camera>,
+    images: Res<Assets<Image>>,
+    nodes: Query<(Entity, &crate::widescreen::Bleed, &Node, Option<&ImageNode>, Option<&BackgroundColor>, &InheritedVisibility), With<crate::widescreen::BleedOutside>>,
+    mut copies: Query<(&mut Node, &mut ImageNode, &mut BackgroundColor, &mut Visibility, &mut ZIndex), (With<BleedCopy>, Without<crate::widescreen::Bleed>)>,
+    mut of: Local<bevy::platform::collections::HashMap<Entity, [Entity; 4]>>,
+) {
+    of.retain(|node, pieces| {
+        let alive = nodes.contains(*node) && pieces.iter().all(|p| copies.contains(*p));
+        if !alive {
+            for p in pieces.iter() {
+                if let Ok(mut e) = commands.get_entity(*p) {
+                    e.despawn();
+                }
+            }
+        }
+        alive
+    });
+    let on = cams.get(t.bleed).is_ok_and(|c| c.is_active);
+    let size = window.single().map_or(Vec2::ONE, |w| Vec2::new(w.width(), w.height()));
+    // the HUD camera's viewport (whole pixels of the HUD image) in window px: the pieces meet it with no seam
+    let drawn = (|| {
+        let vp = cams.get(t.ui).ok()?.viewport.as_ref()?;
+        let k = size / images.get(&t.hud)?.size_f32().max(Vec2::ONE);
+        Some(Rect::from_corners(vp.physical_position.as_vec2() * k, (vp.physical_position + vp.physical_size).as_vec2() * k))
+    })();
+    for (e, b, node, img, bg, vis) in &nodes {
+        let pct = |v: Val| if let Val::Percent(p) = v { Some(p) } else { None };
+        let rect = (|| Some([pct(node.left)?, pct(node.top)?, pct(node.width)?, pct(node.height)?]))();
+        let pieces = rect.filter(|_| on && b.on && vis.get()).map(|r| crate::widescreen::outside_pieces(r, size, drawn)).unwrap_or_default();
+        if pieces.is_empty() && !of.contains_key(&e) {
+            continue;
+        }
+        // the part of the image the node shows (all of it without a rect), in texels
+        let whole = img.and_then(|i| i.rect.or_else(|| images.get(&i.image).map(|im| Rect::from_corners(Vec2::ZERO, im.size_f32()))));
+        let want = |k: usize| {
+            let ([left, top, width, height], [u0, v0, u1, v1]) = *pieces.get(k)?;
+            let n = Node { position_type: PositionType::Absolute, left: Val::Percent(left), top: Val::Percent(top), width: Val::Percent(width), height: Val::Percent(height), right: Val::Auto, bottom: Val::Auto, margin: UiRect::ZERO, ..node.clone() };
+            let mut i = img.cloned().unwrap_or_else(|| ImageNode { color: Color::NONE, ..default() });
+            if let (Some(img), Some(w)) = (img, whole) {
+                let (u0, u1) = if img.flip_x { (1.0 - u1, 1.0 - u0) } else { (u0, u1) };
+                let (v0, v1) = if img.flip_y { (1.0 - v1, 1.0 - v0) } else { (v0, v1) };
+                let at = |u: f32, v: f32| w.min + Vec2::new(u, v) * w.size();
+                i.rect = Some(Rect::from_corners(at(u0, v0), at(u1, v1)));
+            }
+            Some((n, i, BackgroundColor(bg.map_or(Color::NONE, |b| b.0))))
+        };
+        let copy = *of.entry(e).or_insert_with(|| {
+            std::array::from_fn(|_| commands.spawn((BleedCopy, ImageNode::default(), BackgroundColor(Color::NONE), Node::default(), Visibility::Hidden, ZIndex(b.order), Pickable::IGNORE, ChildOf(t.bleed_root))).id())
+        });
+        for (k, p) in copy.into_iter().enumerate() {
+            match (want(k), copies.get_mut(p)) {
+                (Some((n, i, c)), Ok((mut pn, mut pi, mut pc, mut pv, mut pz))) => {
+                    pn.set_if_neq(n);
+                    if pi.image != i.image || pi.color != i.color || pi.rect != i.rect || pi.image_mode != i.image_mode || pi.flip_x != i.flip_x || pi.flip_y != i.flip_y {
+                        *pi = i;
+                    }
+                    pc.set_if_neq(c);
+                    pv.set_if_neq(Visibility::Inherited);
+                    pz.set_if_neq(ZIndex(b.order));
+                }
+                (Some((n, i, c)), Err(_)) => {
+                    // B630's case: spawned this frame (commands not applied yet): drawn from its first frame
+                    commands.entity(p).insert((n, i, c, Visibility::Inherited));
+                }
+                (None, Ok((_, _, _, mut pv, _))) => {
+                    pv.set_if_neq(Visibility::Hidden);
+                }
+                (None, Err(_)) => {}
+            }
         }
     }
 }
@@ -492,6 +583,32 @@ mod tests {
         world.despawn(copy);
         world.run_system(run).unwrap();
         assert_eq!(copies(&mut world), [(Visibility::Inherited, 7)]);
+    }
+
+    /// B657: a `BleedOutside` node's copy is only what's outside the view, its share of the image; it hides with the node.
+    #[test]
+    fn bleed_outside_copies_only_the_outside() {
+        let mut world = World::new();
+        world.spawn((Window { resolution: bevy::window::WindowResolution::new(1280, 720), ..default() }, PrimaryWindow));
+        world.init_resource::<Assets<Image>>();
+        let bleed_cam = world.spawn(Camera { is_active: true, ..default() }).id();
+        let bleed_root = world.spawn(Node::default()).id();
+        let [scene, hud] = [Handle::default(), Handle::default()];
+        world.insert_resource(Targets { scene, hud, last: [Handle::default(), Handle::default()], ui: bleed_cam, bleed: bleed_cam, bleed_root });
+        // a strip 20 % of the view tall, from 10 % past its left edge to 30 % in, showing texels 0..40 × 0..16
+        let node = Node { left: Val::Percent(-10.0), top: Val::Percent(40.0), width: Val::Percent(40.0), height: Val::Percent(20.0), ..default() };
+        let img = ImageNode { rect: Some(Rect::new(0.0, 0.0, 40.0, 16.0)), ..default() };
+        let e = world.spawn((node, img, crate::widescreen::Bleed { order: 3, on: true }, crate::widescreen::BleedOutside, InheritedVisibility::VISIBLE)).id();
+        let run = world.register_system(bleed_outside);
+        world.run_system(run).unwrap();
+        let shown = |w: &mut World| {
+            w.query_filtered::<(&Node, &ImageNode, &Visibility, &ZIndex), With<BleedCopy>>().iter(w).filter(|c| *c.2 == Visibility::Inherited).map(|(n, i, _, z)| (n.left, n.width, i.rect, z.0)).collect::<Vec<_>>()
+        };
+        // the window is the view (no safe area): the quarter left of it, texels 0..10
+        assert_eq!(shown(&mut world), [(Val::Percent(-10.0), Val::Percent(10.0), Some(Rect::new(0.0, 0.0, 10.0, 16.0)), 3)]);
+        world.entity_mut(e).insert(crate::widescreen::Bleed { order: 3, on: false });
+        world.run_system(run).unwrap();
+        assert!(shown(&mut world).is_empty());
     }
 
     #[test]

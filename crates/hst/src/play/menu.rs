@@ -457,6 +457,9 @@ fn layout(v: &View) -> Vec<Quad> {
 /// output camera): it draws the whole frame, and hiding it leaves the clear colour (the "blue screen").
 type Hud = (With<Node>, Without<ChildOf>, Without<Root>, Without<super::match_stats::Root>, Without<Slot>, Without<UiTargetCamera>, Without<PauseRoot>);
 
+/// B657: the pause screen's layer while it fades to black: over the key legend's strip (30).
+const FADE_Z: i32 = 31;
+
 #[derive(Resource)]
 struct Art(Vec<Handle<Image>>, Option<Arc<SoundBank>>);
 #[derive(Component)]
@@ -566,7 +569,7 @@ fn setup(mut commands: Commands, args: Res<Args>, mut images: ResMut<Assets<Imag
 /// P39: the menu's quads while it's open (`pool`), none in play: UI layout walks hidden nodes too.
 fn pool(mut commands: Commands, menu: Res<Menu>, root: Query<Entity, With<Root>>, slots: Query<Entity, With<Slot>>) {
     for r in &root {
-        crate::ui_pool::keep(&mut commands, r, menu.open, slots, POOL, |i| (Slot(i), crate::ui_pool::quad(), super::widescreen::Bleed::default()));
+        crate::ui_pool::keep(&mut commands, r, menu.open, slots, POOL, |i| (Slot(i), crate::ui_pool::quad(), super::widescreen::Bleed::default(), super::widescreen::BleedOutside));
     }
 }
 
@@ -726,6 +729,7 @@ fn draw(
     mut others: Query<(Entity, &mut Visibility), Hud>,
     mut hidden: Local<Vec<(Entity, Visibility)>>,
     cursor: Option<Res<super::main_menu::cursor::Cursor>>,
+    mut root_z: Query<&mut GlobalZIndex, With<Root>>,
 ) {
     let (Some(art), Some(panel_art), Some(colours)) = (art, panel_art, colours) else {
         return;
@@ -745,6 +749,10 @@ fn draw(
                 *v = vis;
             }
         }
+    }
+    // B657: the fade to black goes over the key legend's strip too (it's over the pause screen until then)
+    for mut z in &mut root_z {
+        z.set_if_neq(GlobalZIndex(if menu.quitting.is_some() { FADE_Z } else { 10 }));
     }
     let quads = if menu.open {
         layout(&View {
@@ -815,6 +823,8 @@ fn draw(
         vis.set_if_neq(Visibility::Inherited);
         // B630: the dimmer runs on over the whole window (the safe area's strips, a fixed Aspect Ratio's bars), the
         // top bar out to its sides; over the key legend's strip, under the loading screen
+        // B657: only past the view (`BleedOutside`): the dimmer and the fade aren't drawn twice over it, so the strips
+        // darken with the rest
         bleed.set_if_neq(super::widescreen::Bleed { order: (1 << 20) + 1 + *i as i32, on: [DIM, BAR].contains(&quad.tex) });
     }
 }
