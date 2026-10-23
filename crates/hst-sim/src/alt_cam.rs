@@ -88,6 +88,31 @@ impl Follow {
         self.shot.view()
     }
 
+    /// B658 (ours, not in the original): the doubles zoom, [`Follow::aim`] for a team's humans standing at `spots`
+    /// (one: the same as `aim`). The shot orbits the team's ground spot (their middle across, the deeper one's
+    /// depth) with the same pull-back and ball head-room, and the eye backs further away along the ground until
+    /// every one of them is in the picture across: `width` of the shot's 4:3 width shows (less in a narrow split half).
+    pub fn aim_team(&mut self, spots: &[[f32; 3]], near: bool, ball: [f32; 3], play: Play, width: f32) -> View {
+        let [first, ..] = spots else { panic!("no humans") };
+        if spots.len() == 1 {
+            return self.aim(*first, near, ball, play);
+        }
+        let spot = team_spot(spots);
+        self.shot.step_with(frames(spot, near, ball), |s| {
+            pull_back(s, spot, ball, play == Play::Quiet);
+            take_in(s, spots, width);
+            let dead = s.pitch_dead_zone();
+            s.head(dead, ball);
+        });
+        self.shot.view()
+    }
+
+    /// One frame of [`Follow::aim_team`], as shown.
+    pub fn step_team(&mut self, spots: &[[f32; 3]], near: bool, ball: [f32; 3], play: Play, width: f32) -> View {
+        let v = self.aim_team(spots, near, ball, play, width);
+        self.show(v)
+    }
+
     /// The view on screen this frame, from `now` (the shot's view, or a switch's glide toward it): from the shot's
     /// third frame on, 5 % of the way from the last one shown.
     pub fn show(&mut self, now: View) -> View {
@@ -123,6 +148,44 @@ fn pull_back(s: &mut Shot, spot: [f32; 3], ball: [f32; 3], quiet: bool) {
     let along = [F(fx) * inv, F(fz) * inv];
     for (i, u) in [(0, along[0]), (2, along[1])] {
         s.cam[3][i] = (F::ZERO + s.cam[3][i]).madd(u, shift).0;
+    }
+}
+
+/// The doubles zoom's share of the picture's half-width a human's body may reach out to, and the body's half-width
+/// and middle height (m).
+const TEAM_FILL: f32 = 0.95;
+const BODY: f32 = 0.4;
+const WAIST: f32 = 1.0;
+
+/// A team's ground spot: the middle of its humans across, the depth of the one deepest in their end.
+fn team_spot(spots: &[[f32; 3]]) -> [f32; 3] {
+    let (lo, hi) = spots.iter().fold((F(f32::MAX), F(f32::MIN)), |(lo, hi), p| (lo.min(F(p[0])), hi.max(F(p[0]))));
+    let deep = spots.iter().map(|p| p[2]).fold(0.0, |d: f32, z| if F(z).abs() > F(d).abs() { z } else { d });
+    [((lo + hi) * 0.5).0, 0.0, deep]
+}
+
+/// Backs the eye away along the ground until every human at `spots` is within [`TEAM_FILL`] of the half-width
+/// (`width` of the 4:3 one).
+fn take_in(s: &mut Shot, spots: &[[f32; 3]], width: f32) {
+    let (right, fwd, eye) = (s.cam[0], s.cam[2], s.cam[3]);
+    let flat = (F(fwd[2]) * fwd[2]).madd(fwd[0], fwd[0]).sqrt();
+    if flat <= 0.0 {
+        return;
+    }
+    let along = [F(fwd[0]) / flat, F(fwd[2]) / flat];
+    // the depth one metre back along the ground adds
+    let gain = along[0] * fwd[0] + along[1] * fwd[2];
+    let t = F(TEAM_FILL) * width * musl::tanf(s.fov);
+    let back = spots.iter().fold(F::ZERO, |most, p| {
+        let d = [F(p[0]) - eye[0], F(p[1]) + WAIST - eye[1], F(p[2]) - eye[2]];
+        let x = d[0] * right[0] + d[1] * right[1] + d[2] * right[2];
+        let z = d[0] * fwd[0] + d[1] * fwd[1] + d[2] * fwd[2];
+        most.max(((x.abs() + BODY) / t - z) / gain)
+    });
+    if back > 0.0 {
+        for (i, u) in [(0, along[0]), (2, along[1])] {
+            s.cam[3][i] = (F(s.cam[3][i]) - u * back).0;
+        }
     }
 }
 

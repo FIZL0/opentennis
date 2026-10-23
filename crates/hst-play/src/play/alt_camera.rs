@@ -2,6 +2,10 @@
 //! the `camera` bind (Select) when exactly one human plays on this machine (never online), gliding over 15 ticks
 //! each way, and fading the human toward half transparency while their body hides the ball coming at them.
 //!
+//! B658: humans on one team only (doubles, two humans against the computers) switch the same way to the doubles zoom
+//! (`Follow::aim_team`): the same shot and ball tracking, backed off to keep both of them in the picture; the first
+//! human's Select (lowest seat) switches it, and nobody fades.
+//!
 //! Presentation only: the shared match camera (`Game::cam`, which the cut-aways and reaction voices read) keeps
 //! stepping as before and nothing in play reads this one; the picture shows it through `own_camera::shown`. Every
 //! match starts on the normal camera, the choice isn't kept (user 2026-10-21). Select only switches in live play (`live`): a press
@@ -21,8 +25,8 @@ const SETTLE: u32 = 30;
 pub(super) struct AltCamera {
     /// The alternate camera is chosen.
     on: bool,
-    /// The human it follows and the shot following them (made at the first tick it shows).
-    follow: Option<(usize, bool, Follow)>,
+    /// The humans it follows and their end, and the shot following them (made at the first tick it shows).
+    follow: Option<(Vec<usize>, bool, Follow)>,
     /// A switch's glide: ticks left and the view it started from.
     glide: Option<(u32, View)>,
     /// After switching off: a freshly reset match camera, shown until the shared one cuts to the next point.
@@ -74,6 +78,27 @@ pub(super) fn human(g: &Game, pads: &Pads, online: bool) -> Option<usize> {
     (!online && humans.next().is_none()).then_some(first)
 }
 
+/// B658: the humans playing on this machine when they're all on one team (one human included) and the match isn't
+/// online, by player number.
+pub(super) fn team(g: &Game, pads: &Pads, online: bool) -> Option<Vec<usize>> {
+    let n = g.players.len();
+    let humans: Vec<usize> = (0..n).filter(|&i| pads.slot_of(i, n).is_some()).collect();
+    let &first = humans.first()?;
+    (!online && humans.iter().all(|&i| i & 1 == first & 1)).then_some(humans)
+}
+
+/// B658: the seat whose Select switches the camera: the lowest seat a human plays from.
+pub(super) fn first_seat(g: &Game, pads: &Pads) -> Option<usize> {
+    let n = g.players.len();
+    (0..n).filter_map(|i| pads.slot_of(i, n)).min()
+}
+
+/// B658: Select switches a camera here: the alternate one or the doubles zoom (humans on one team), or the split
+/// (humans on both, `split_view`).
+pub(super) fn offered(g: &Game, pads: &Pads, online: bool, original: bool) -> bool {
+    team(g, pads, online).is_some() || super::split_view::eligible(g, pads, online, original)
+}
+
 /// B622: the players can move (the serve or the rally, no cut-away or replay on screen), the only time Select
 /// switches cameras.
 fn live(g: &Game, d: &super::cutaway::Director) -> bool {
@@ -92,8 +117,10 @@ fn press(
     gamepads: Query<&Gamepad>,
 ) {
     let (Some(mut alt), Some(g), Some(pads), Some(bind), Some(held)) = (alt, g, pads, bind, held) else { return };
-    let Some(i) = human(&g, &pads, np.is_some()) else { return };
-    let Some(slot) = pads.slot_of(i, g.players.len()) else { return };
+    if team(&g, &pads, np.is_some()).is_none() {
+        return;
+    }
+    let Some(slot) = first_seat(&g, &pads) else { return };
     let key = held.keys() == Some(slot) && bind.key_just_pressed(&keys, controls::Action::Camera);
     let pad = held.0[slot].and_then(|e| gamepads.get(e).ok()).is_some_and(|p| bind.pad_just_pressed(p, controls::Action::Camera));
     alt.press |= key || pad;
@@ -114,7 +141,8 @@ fn step(
     if g.is_added() {
         alt.on = false;
     }
-    let Some(i) = human(&g, &pads, np.is_some()) else { return };
+    let Some(humans) = team(&g, &pads, np.is_some()) else { return };
+    let i = humans[0];
     let changing_ends = matches!(g.phase, Phase::ChangeEnds(_));
     if press && alt.glide.is_none() && live(&g, &d) {
         alt.on = !alt.on;
@@ -125,8 +153,8 @@ fn step(
         if alt.on {
             alt.normal = None;
         } else {
-            // the match camera freshly reset, as a new point leaves it
-            let mut c = g.cam;
+            // the match camera freshly reset, as a new point leaves it (this machine's own, B534, if it has one)
+            let mut c = own.as_deref().and_then(own_camera::OwnCam::camera).unwrap_or(g.cam);
             c.cut();
             alt.normal = Some(c);
         }
@@ -148,10 +176,11 @@ fn step(
         None
     } else if alt.on {
         // a new shot for a new human or end (the change of ends), cut straight to it
-        if alt.follow.as_ref().is_none_or(|f| (f.0, f.1) != (i, near)) {
-            alt.follow = Some((i, near, Follow::new(&d.shots, g.players.len() == 4)));
+        if alt.follow.as_ref().is_none_or(|f| (&f.0, f.1) != (&humans, near)) {
+            alt.follow = Some((humans.clone(), near, Follow::new(&d.shots, g.players.len() == 4)));
         }
-        Some(alt.follow.as_mut().expect("made").2.aim(spot, near, alt.held, play))
+        let spots: Vec<_> = humans.iter().map(|&h| g.players[h].pos).collect();
+        Some(alt.follow.as_mut().expect("made").2.aim_team(&spots, near, alt.held, play, 1.0))
     } else {
         alt.follow = None;
         // the shared camera's cut to the next point (or the change of ends' glide) drops the reset one
@@ -183,6 +212,7 @@ fn step(
     // the fade, behind the human only
     let post = g.phase == Phase::Post;
     let blocked = alt.on
+        && humans.len() == 1
         && shown.is_some()
         && (post || g.phase == Phase::Rally && alt.rally > SETTLE)
         && g.last_hitter != i as i32
@@ -257,12 +287,17 @@ mod tests {
 
     /// A singles match, player 0 human (standing idle), player 1 a bot; with the alternate camera's plugin or not.
     fn app(alt: bool) -> App {
+        app_with(alt, true, [true, false, false, false])
+    }
+
+    /// A match (singles: players 6 and 1, doubles: 6, 1, 2, 3) with `seats` human (standing idle).
+    fn app_with(alt: bool, singles: bool, seats: [bool; 4]) -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()));
         app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<SkinnedMeshInverseBindposes>();
         app.init_asset::<crate::gs::GsMaterial>();
-        app.insert_resource(Args { iso: hst_data::fixture::ISO_PATH.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles: true, chars: vec![6, 1], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None });
-        app.insert_resource(Pads { slots: default(), connected: 0, seats: Some([true, false, false, false]), autoplay: false });
+        app.insert_resource(Args { iso: hst_data::fixture::ISO_PATH.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles, chars: if singles { vec![6, 1] } else { vec![6, 1, 2, 3] }, outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None });
+        app.insert_resource(Pads { slots: default(), connected: 0, seats: Some(seats), autoplay: false });
         app.init_resource::<tick_input::TickPads>().init_resource::<ButtonInput<KeyCode>>();
         app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
         app.add_plugins((cutaway::plugin, change_ends::plugin, own_camera::plugin));
@@ -317,6 +352,48 @@ mod tests {
         assert_eq!(off, want, "glide off");
         let alt = a.world().resource::<AltCamera>();
         assert!(!alt.on && alt.follow.is_none());
+    }
+
+    /// B658: two humans on one team (1P and 2P against two computers): Select glides the one picture to the doubles
+    /// zoom, low behind both of them with both in the picture, and back to this machine's own camera; the match plays
+    /// exactly as without it (skipped without the ISO).
+    #[test]
+    fn a_team_of_humans_gets_the_doubles_zoom() {
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let seats = [true, true, false, false];
+        let (mut a, mut b) = (app_with(true, false, seats), app_with(false, false, seats));
+        a.insert_resource(AltCamera { press: true, ..default() });
+        let state = |app: &App| {
+            let g = app.world().resource::<Game>();
+            (g.cam.view, g.flight.ball.pos, g.players.iter().map(|p| p.pos).collect::<Vec<_>>(), g.score.clone())
+        };
+        for tick in 0..400 {
+            if tick == 300 {
+                a.world_mut().resource_mut::<AltCamera>().press = true;
+            }
+            a.world_mut().run_schedule(FixedUpdate);
+            b.world_mut().run_schedule(FixedUpdate);
+            assert!(state(&a) == state(&b), "tick {tick}: the match changed");
+            let w = a.world();
+            let (g, own, alt) = (w.resource::<Game>(), w.get_resource::<own_camera::OwnCam>(), w.resource::<AltCamera>());
+            assert_eq!(alt.alpha(), 1.0, "a team of humans never fades");
+            if (20..300).contains(&tick) {
+                assert!(alt.on);
+                assert_eq!(alt.follow.as_ref().map(|f| f.0.clone()), Some(vec![0, 2]));
+                let (_, v) = own_camera::shown(g, own);
+                for i in [0, 2] {
+                    let p = g.players[i].pos;
+                    let [x, _, z] = v.local([p[0], p[1] + 1.0, p[2]]);
+                    assert!(z > 0.0 && x.abs() < z * v.fov.tan(), "tick {tick}: player {i} at {p:?} out of the picture ({x}, {z})");
+                    assert!(v.eye[2] * p[2] > 0.0 && v.eye[2].abs() > p[2].abs(), "tick {tick}: eye {:?} not behind player {i}", v.eye);
+                }
+            }
+        }
+        let alt = a.world().resource::<AltCamera>();
+        assert!(!alt.on && alt.follow.is_none());
+        assert!(a.world().get_resource::<own_camera::OwnCam>().is_some_and(|o| !o.is_passive()), "the own camera went");
     }
 
     /// B622: Select does nothing while the players can't move (the point over, the change of ends, a replay), and

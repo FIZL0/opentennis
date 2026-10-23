@@ -1,7 +1,7 @@
 //! B301 (ours, by the user's request): the match's keyboard hints. While the keyboard plays a seat and was the last
 //! device used, the menus' legend strip (`legend.rs`, bottom right under the 4:3 screen's description bar, in
 //! keycaps) lists the match's keys from `controls.txt`: move, the three shots (which serve too), the emotes, the camera
-//! switch (only where it works: one human on this machine, offline; `alt_camera.rs`) and pause. A pad or a
+//! switch (only where it works: humans on this machine, offline; `alt_camera::offered`) and pause. A pad or a
 //! touch hides it (switching live, as the legend does), and so does the Key Hints setting (Settings → Display,
 //! `key_hints` in settings.txt, on by default). Whatever else fills the legend (the pause menu, its Settings screens,
 //! the result screen) takes the strip instead. Presentation only: nothing here reaches the sim.
@@ -46,13 +46,16 @@ fn fill(
     pads: Option<Res<super::Pads>>,
     g: Option<Res<super::Game>>,
     np: Option<Res<super::netplay::Netplay>>,
+    gr: Option<Res<crate::graphics::Graphics>>,
     mut out: ResMut<Legend>,
 ) {
     let seat = slots.keys().is_some_and(|k| pads.as_ref().is_none_or(|p| p.seats.is_none_or(|h| h[k])));
     if !out.0.is_empty() || !shown(ON.load(Ordering::Relaxed), *last, seat, pads.as_ref().is_some_and(|p| p.autoplay)) {
         return;
     }
-    let camera = g.zip(pads.as_ref()).is_some_and(|(g, p)| super::alt_camera::human(&g, p, np.is_some()).is_some());
+    // B658: whatever the local humans' mix
+    let original = gr.is_some_and(|gr| gr.original);
+    let camera = g.zip(pads.as_ref()).is_some_and(|(g, p)| super::alt_camera::offered(&g, p, np.is_some(), original));
     out.one(*last, items(&bind, camera));
 }
 

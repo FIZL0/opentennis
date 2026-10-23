@@ -1,6 +1,7 @@
-//! B633/M146: split screen for exactly one human on each team on one machine (singles, or doubles with one human a
-//! side: each half is a one-player camera, so a team with two humans plays on the shared picture; never online, not
-//! in the original look). Every match starts on the normal shared camera; 1P's Select (only 1P's) switches the split
+//! B633/M146: split screen for humans on both teams on one machine (singles, or doubles with a human or two a side;
+//! never online, not in the original look). B658: a half whose team has two humans shows the doubles zoom
+//! (`Follow::aim_team`, both in the picture). Every match starts on the normal shared camera; the first human's
+//! Select (the lowest seat's, 1P's when 1P plays; only theirs) switches the split
 //! on and off in live play, and the choice isn't kept (user 2026-10-21). Split, each half
 //! shows the original's alternate camera (`alt_camera`) low behind that team's human, so everyone plays from behind
 //! themselves. Side by side on a wide window (1P's team left),
@@ -184,16 +185,17 @@ pub(super) struct Personal {
     showing: bool,
 }
 
-/// Each team's half (team 0's first) while split: the alternate camera behind that team's human, as a match with
-/// one human shows it (`alt_camera`), the rally ticks so far and the ball the shots look at (the live one, held
+/// Each team's half (team 0's first) while split: the alternate camera behind that team's human (or B658 the doubles
+/// zoom on its two), as a match with one human shows it (`alt_camera`), the rally ticks so far and the ball the shots look at (the live one, held
 /// where the rally left it once the point is over, as `alt_camera`'s).
+/// B658: and the share of the 4:3 picture's width a half shows (`split` sets it; a doubles zoom fits its humans in it).
 // ponytail: no glide on switching and no see-through fade per half (the fade's materials are shared by both views)
 #[derive(Resource, Default)]
-struct TeamCams(Vec<Half>, u32, [f32; 3]);
+struct TeamCams(Vec<Half>, u32, [f32; 3], f32);
 
 struct Half {
-    /// The human it follows and their end (−z when near).
-    human: usize,
+    /// The humans it follows and their end (−z when near).
+    humans: Vec<usize>,
     near: bool,
     follow: Follow,
     /// The view shown last tick and this tick.
@@ -211,15 +213,14 @@ fn start_on() -> bool {
     std::env::var("HST_SPLIT2").is_ok_and(|v| v == "on")
 }
 
-/// The split can play: exactly one human on each team on this device (singles or doubles; each half is a one-player
-/// camera), not online, the remaster's own look.
-fn eligible(g: &Game, pads: &Pads, online: bool, original: bool) -> bool {
+/// The split can play: humans on both teams on this device (B658: any count), not online, the remaster's own look.
+pub(super) fn eligible(g: &Game, pads: &Pads, online: bool, original: bool) -> bool {
     let n = g.players.len();
     let humans = |team: usize| (0..n).filter(|&i| i & 1 == team && pads.slot_of(i, n).is_some()).count();
-    !online && !original && n >= 2 && humans(0) == 1 && humans(1) == 1
+    !online && !original && n >= 2 && humans(0) >= 1 && humans(1) >= 1
 }
 
-/// Latches 1P's Select (their keyboard or pad) for the next tick.
+/// Latches the first human's Select (their keyboard or pad) for the next tick.
 fn press(
     p: Option<ResMut<Personal>>,
     pads: Option<Res<Pads>>,
@@ -227,9 +228,10 @@ fn press(
     bind: Option<Res<controls::Bindings>>,
     held: Option<Res<controls::PadSlots>>,
     gamepads: Query<&Gamepad>,
+    g: Option<Res<Game>>,
 ) {
-    let (Some(mut p), Some(pads), Some(bind), Some(held)) = (p, pads, bind, held) else { return };
-    let Some(slot) = pads.slot_of(0, 2) else { return };
+    let (Some(mut p), Some(pads), Some(bind), Some(held), Some(g)) = (p, pads, bind, held, g) else { return };
+    let Some(slot) = super::alt_camera::first_seat(&g, &pads) else { return };
     let key = held.keys() == Some(slot) && bind.key_just_pressed(&keys, controls::Action::Camera);
     let pad = held.0[slot].and_then(|e| gamepads.get(e).ok()).is_some_and(|g| bind.pad_just_pressed(g, controls::Action::Camera));
     p.press |= key || pad;
@@ -292,22 +294,24 @@ fn step_teams(g: Option<Res<Game>>, p: Option<Res<Personal>>, pads: Option<Res<P
         t.2 = g.flight.ball.pos;
     }
     let ball = t.2;
+    let width = if t.3 > 0.0 { t.3 } else { 1.0 };
     for team in 0..2 {
-        // the team's human (eligible: every team has exactly one)
-        let Some(human) = (0..n).find(|&i| i & 1 == team && pads.slot_of(i, n).is_some()) else { return };
-        let pl = &g.players[human];
-        let (spot, near) = (pl.pos, pl.end > 0.0);
-        // a new shot for a new human or end (the change of ends) or a new point: cut straight to it
-        let fresh = t.0.get(team).is_none_or(|h| (h.human, h.near) != (human, near)) || g.cam_cut;
+        // the team's humans (eligible: every team has one or two)
+        let humans: Vec<usize> = (0..n).filter(|&i| i & 1 == team && pads.slot_of(i, n).is_some()).collect();
+        let Some(&first) = humans.first() else { return };
+        let spots: Vec<_> = humans.iter().map(|&i| g.players[i].pos).collect();
+        let near = g.players[first].end > 0.0;
+        // a new shot for new humans or end (the change of ends) or a new point: cut straight to it
+        let fresh = t.0.get(team).is_none_or(|h| (&h.humans, h.near) != (&humans, near)) || g.cam_cut;
         if fresh {
             let mut follow = Follow::new(&d.shots, n == 4);
-            let now = follow.step(spot, near, ball, play);
-            let h = Half { human, near, follow, prev: now, now };
+            let now = follow.step_team(&spots, near, ball, play, width);
+            let h = Half { humans, near, follow, prev: now, now };
             if team < t.0.len() { t.0[team] = h } else { t.0.push(h) }
         } else {
             let h = &mut t.0[team];
             h.prev = h.now;
-            h.now = h.follow.step(spot, near, ball, play);
+            h.now = h.follow.step_team(&spots, near, ball, play, width);
         }
     }
 }
@@ -346,6 +350,11 @@ fn place(w: &mut World, state: &mut Split, aspect: f32, wide: bool, order: [usiz
     let Some(target) = target(w) else { return };
     let (half, views) = halves(target, aspect, wide);
     state.wrote = None;
+    // B658: the 4:3 picture's height shows, so this much of its width
+    let width = (half * super::SHOWN_ASPECT).min(1.0);
+    if w.resource::<TeamCams>().3 != width {
+        w.resource_mut::<TeamCams>().3 = width;
+    }
     let t = w.resource::<TeamCams>();
     let eye = |i: usize| {
         let (v0, v) = (t.0[i].prev, t.0[i].now);
@@ -457,20 +466,41 @@ mod tests {
         assert!(!super::plain_play(a.world()), "the change of ends");
     }
 
-    /// A team with two humans (1P, 2P and 3P) can't split: each half is a one-player camera.
+    /// B658: 1P, 2P and 3P (two humans on the first team, one on the other) split too: the first team's half is the
+    /// doubles zoom, its eye behind both its humans with both in the picture, and the match plays as without it
+    /// (skipped without the ISO).
     #[test]
-    fn two_humans_on_a_team_never_split() {
+    fn a_team_of_two_humans_shares_its_half() {
         use super::super::*;
         if !hst_data::fixture::has_iso() {
             return;
         }
-        let mut a = match_app(true, false, [true, true, true, false]);
+        let seats = [true, true, true, false];
+        let (mut a, mut b) = (match_app(true, false, seats), match_app(false, false, seats));
         a.world_mut().run_schedule(FixedUpdate);
+        b.world_mut().run_schedule(FixedUpdate);
         a.world_mut().resource_mut::<super::Personal>().on = true;
-        for _ in 0..30 {
+        let state = |app: &App| {
+            let g = app.world().resource::<Game>();
+            (g.cam.view, g.flight.ball.pos, g.players.iter().map(|p| p.pos).collect::<Vec<_>>())
+        };
+        for tick in 0..300 {
             a.world_mut().run_schedule(FixedUpdate);
+            b.world_mut().run_schedule(FixedUpdate);
+            assert!(state(&a) == state(&b), "tick {tick}: the match changed");
+            let w = a.world();
+            let (g, t) = (w.resource::<Game>(), w.resource::<super::TeamCams>());
+            assert!(w.resource::<super::Personal>().showing);
+            // 1P plays player 0, 2P player 2 (both the first team), 3P player 1
+            assert_eq!((&t.0[0].humans[..], &t.0[1].humans[..]), (&[0, 2][..], &[1][..]));
+            for i in [0, 2] {
+                let v = t.0[0].now;
+                let p = g.players[i].pos;
+                let [x, _, z] = v.local([p[0], p[1] + 1.0, p[2]]);
+                assert!(z > 0.0 && x.abs() < z * v.fov.tan(), "tick {tick}: player {i} at {p:?} out of the picture ({x}, {z})");
+                assert!(v.eye[2] * p[2] > 0.0 && v.eye[2].abs() > p[2].abs(), "tick {tick}: eye {:?} not behind player {i}", v.eye);
+            }
         }
-        assert!(!a.world().resource::<super::Personal>().showing);
     }
 
     /// B637: in doubles with a human on each team (1P and 3P), split on, each half's camera looks from behind that
@@ -502,7 +532,7 @@ mod tests {
             for team in 0..2 {
                 // the team's human: 1P is player 0, 3P player 1
                 let (h, z) = (&t.0[team], g.players[team].pos[2]);
-                assert_eq!(h.human, team);
+                assert_eq!(h.humans, [team]);
                 let eye = h.now.eye;
                 assert!(eye[2] * z > 0.0 && eye[2].abs() > z.abs(), "tick {tick}: team {team}'s eye {eye:?}, its human at z {z}");
             }
