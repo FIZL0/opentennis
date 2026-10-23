@@ -1555,6 +1555,11 @@ impl Menu {
                 self.mods_step(k, &mut out)
             }
             Screen::Extras => self.extras_step(k, &mut out),
+            // a launch waiting on the picks' faces (`previews::picks_drawn`): Back (or the Starting… button) calls it off
+            Screen::Playing if k.back => {
+                (self.screen, self.sel) = (Screen::Confirm, 0);
+                out.push(Sound(1));
+            }
             _ => {}
         }
         out
@@ -3594,6 +3599,11 @@ fn step(
                     }
                 }
                 Effect::Launch => {
+                    // called off while it waited (Back on the Starting… button)
+                    if menu.screen != Screen::Playing {
+                        *baking = None;
+                        continue;
+                    }
                     let a = menu.args(&pads);
                     // every one asked at once (no short-circuit), then tried again next frame
                     if !a.windows(3).filter(|w| w[0] == "--slot-mod").fold(true, |ok, w| crate::modfs::ready(std::path::Path::new(&w[2])) & ok) | !umpire_mods::launch_ready(&a) {
@@ -4653,6 +4663,17 @@ mod tests {
         assert_eq!(m.screen, Screen::Chars, "seat emptied");
         m.step(Dev::Keys, back);
         assert_eq!(m.screen, Screen::Main);
+    }
+
+    /// Back while a launch waits on the picks' faces calls it off: back on the confirm screen, nothing launched.
+    #[test]
+    fn back_calls_off_a_waiting_launch() {
+        let mut m = Menu { screen: Screen::Confirm, seats: [Some(Dev::Keys), None, None, None], ..default() };
+        m.players.iter_mut().for_each(|p| p.ready = true);
+        assert!(m.step(Dev::Keys, press(|p| &mut p.ok)).contains(&Effect::Launch));
+        assert_eq!(m.screen, Screen::Playing);
+        assert!(!m.step(Dev::Keys, press(|p| &mut p.back)).contains(&Effect::Launch));
+        assert_eq!(m.screen, Screen::Confirm);
     }
 
     /// B297: Start puts a Rematch card at the top of the main menu; it launches the same match flags, Local takes it

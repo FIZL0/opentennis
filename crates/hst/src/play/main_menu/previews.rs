@@ -973,6 +973,13 @@ fn bake(
         }
     }
     *hovered = now;
+    // a launch's picks on top: tiles the select left queued above them would hold the baker (it draws nothing else
+    // off the select), so the launch gave up waiting and the match had no face for a mod pick
+    if menu.screen == Screen::Playing {
+        baker.queue.retain(|k| !picks.contains(k));
+        let top: Vec<Key> = picks.iter().rev().filter(|k| !baker.failed.contains(k)).copied().collect();
+        baker.queue.extend(top);
+    }
     let baker = &mut *baker;
     if let Some(job) = &mut baker.job {
         job.frames += 1;

@@ -127,6 +127,12 @@ pub(super) fn local_foot(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings) {
     }
     let all = ready == n;
     let note = if all { "Everyone ready".to_string() } else { format!("{ready} of {n} ready") };
+    if m.screen == super::Screen::Playing {
+        // the launch waits on the picks' faces: Back (or a tap here) calls it off
+        frame::start(d, &g, "Starting…", "Back to cancel", false, true);
+        d.hit(g.start, pointer::press(|k| k.back = true));
+        return;
+    }
     frame::start(d, &g, "Start", &note, all, on(0));
     if confirm {
         d.hit(g.start, pointer::Act::Row(0, pointer::OK));

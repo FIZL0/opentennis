@@ -9,3 +9,5 @@
 - The score panel's Sets/Games strips and the doubles A Team / B Team banners now run out to the screen's edge on phones and with a safe-area margin.
 - On phones, at a fixed aspect ratio or with a safe-area margin, see-through HUD pieces (the panel's strips, the pause screen's dimmer) no longer look too faint or too dark: they look as they do on a plain desktop window.
 - In a match with a keyboard player and a controller player, the keyboard's key hints now stay on screen instead of vanishing whenever the controller is used.
+- A modded character's face in the match's score panel no longer comes up blank when you start the match right after picking them.
+- While the match is getting ready to start, the Start button now says "Starting…", and Back cancels it.
