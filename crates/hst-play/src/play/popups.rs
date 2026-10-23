@@ -487,7 +487,7 @@ pub fn plugin(app: &mut App) {
     app.add_systems(PostStartup, (setup.after(super::setup), setup_calls))
         .add_systems(PostStartup, (setup_banners, setup_speed).after(setup))
         .add_systems(Update, (draw, draw_calls, draw_banners, draw_speed))
-        .add_systems(PostUpdate, follow_camera.before(bevy::transform::TransformSystems::Propagate))
+        .add_systems(PostUpdate, (follow_camera, split_layers).before(bevy::transform::TransformSystems::Propagate))
         .add_systems(PostUpdate, call_camera_on.after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate))
         .add_systems(FixedUpdate, (tick_calls, tick_banners, tick_result, tick_speed).after(super::simulate))
         .add_systems(FixedUpdate, (point_jingle, tiebreak_chime).after(super::simulate))
@@ -565,7 +565,8 @@ fn setup_calls(
     commands.spawn((
         CallCamera,
         Camera3d::default(),
-        Camera { order: 1, is_active: false, clear_color: ClearColorConfig::None, ..default() },
+        // B659: over the split view's second half (`split_view`, order 2) too
+        Camera { order: 3, is_active: false, clear_color: ClearColorConfig::None, ..default() },
         bevy::core_pipeline::tonemapping::Tonemapping::None,
         Projection::Perspective(PerspectiveProjection::default()),
         Transform::default(),
@@ -622,6 +623,14 @@ fn follow_camera(
     if calls.playing.is_none() {
         return;
     }
+    // B659: split, the main camera draws one half only: the overlay camera draws the calls over the whole window
+    if super::split_view::split_shown().is_some() {
+        if parent.is_some() {
+            commands.entity(e).remove::<ChildOf>();
+        }
+        t.set_if_neq(Transform::IDENTITY);
+        return;
+    }
     if parent.is_none_or(|p| p.parent() != cam) {
         commands.entity(cam).add_child(e);
     }
@@ -634,11 +643,25 @@ fn follow_camera(
     }
 }
 
+/// B659: the calls on the overlay camera's layer while the view is split (`follow_camera`), else on the match camera's.
+fn split_layers(mut commands: Commands, calls: Option<Res<Calls>>, mut split: Local<bool>) {
+    let Some(calls) = calls else { return };
+    let now = super::split_view::split_shown().is_some();
+    if now == *split {
+        return;
+    }
+    *split = now;
+    let layer = bevy::camera::visibility::RenderLayers::layer(if now { CALL_LAYER } else { 0 });
+    for (_, shown) in &calls.models {
+        commands.entity(shown.root).insert_recursive::<Children>(layer.clone());
+    }
+}
+
 /// The overlay camera draws only while a banner of the intro or the prize screen shows: idle, it would still cost a
 /// second shadow pass, light clustering and GPU preprocessing every frame (P23). After visibility propagates, before
 /// the frame is drawn, so a banner's first frame shows.
-fn call_camera_on(banners: Query<&InheritedVisibility, With<OnCallCamera>>, mut cam: Query<&mut Camera, With<CallCamera>>) {
-    let on = banners.iter().any(|v| v.get());
+fn call_camera_on(banners: Query<&InheritedVisibility, With<OnCallCamera>>, calls: Option<Res<Calls>>, mut cam: Query<&mut Camera, With<CallCamera>>) {
+    let on = banners.iter().any(|v| v.get()) || calls.is_some_and(|c| c.playing.is_some() && super::split_view::split_shown().is_some());
     if let Ok(mut c) = cam.single_mut()
         && c.is_active != on
     {
