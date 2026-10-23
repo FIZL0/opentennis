@@ -1,16 +1,13 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- The □ button (X on Xbox pads, Space on the keyboard) no longer starts your serve; in a match it does nothing, and Settings → Controls now calls it "Menu: delete / swap".
-- On a phone or tablet, if you started with the on-screen controls, they stay when a controller connects: you keep playing as player 1 and the controller joins as player 2.
-- Split screen: the umpire's calls (Fault, Change Sides, …) are centred on the whole screen, and each half shows only its own team's score at the top.
-- Select now switches the camera in every local match with human players: humans on both sides get the split screen (a side with two humans shares a closer view that keeps both of them in frame), and two humans teamed up against the computer get that closer view on the whole screen.
-- In split screen, the end of the match (the umpire's final call, the winner's celebration and the results) now shows full screen instead of cut off in each half.
-- The website and the title screen show the game's version and build in a corner, so you can tell which one you're on.
-- Leaving a match on a phone, or with a fixed aspect ratio or a safe-area margin, the fade to black now covers the whole screen evenly, the controls strip included.
-- The score panel's Sets/Games strips and the doubles A Team / B Team banners now run out to the screen's edge on phones and with a safe-area margin.
-- On phones, at a fixed aspect ratio or with a safe-area margin, see-through HUD pieces (the panel's strips, the pause screen's dimmer) no longer look too faint or too dark: they look as they do on a plain desktop window.
-- In a match with a keyboard player and a controller player, the keyboard's key hints now stay on screen instead of vanishing whenever the controller is used.
-- A modded character's face in the match's score panel no longer comes up blank when you start the match right after picking them.
-- While the match is getting ready to start, the Start button now says "Starting…", and Back cancels it.
-- On the character select, when someone joins on the computer player you were picking for after choosing Random, you move on to the next computer player still on Random instead of a set character.
-- With the behind-the-player camera or split screen on, the change of ends now glides into that camera instead of swinging to the normal view and then jumping back.
+- Select now switches the camera in every local match with human players: humans on both sides get split screen (a side with two humans shares a closer view that keeps both in frame), and two humans teamed up against the computer get that closer view full screen.
 - New Settings → Display → Split Screen option: Vertical (halves side by side, the default) or Horizontal (stacked).
+- Split screen: the umpire's calls are centred on the whole screen, each half shows only its own team's score, and the end of the match (final call, celebration, results) plays full screen.
+- With the behind-the-player camera or split screen on, the change of ends glides into that camera instead of swinging to the normal view and jumping back.
+- The □ button (X on Xbox pads, Space on the keyboard) no longer starts your serve; in a match it does nothing, and Settings → Controls now calls it "Menu: delete / swap".
+- In a match with a keyboard player and a controller player, the keyboard's key hints stay on screen instead of vanishing whenever the controller is used.
+- On a phone or tablet started with the on-screen controls, they stay when a controller connects: you keep playing as player 1 and the controller joins as player 2.
+- On phones, at a fixed aspect ratio or with a safe-area margin: the fade out of a match covers the whole screen, the score panel's strips and the doubles team banners reach the screen's edge, and see-through HUD pieces no longer look too faint or too dark.
+- While a match is getting ready to start, the Start button says "Starting…" and Back cancels it.
+- A modded character's face in the score panel no longer comes up blank when you start the match right after picking them.
+- On the character select, when someone joins on the computer player you were picking for after choosing Random, you move on to the next computer player still on Random.
+- The website and the title screen show the game's version and build in a corner.
