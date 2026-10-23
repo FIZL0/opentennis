@@ -1,8 +1,7 @@
-//! B301 (ours, by the user's request): the match's keyboard hints. While the keyboard plays a seat and was the last
-//! device used, the menus' legend strip (`legend.rs`, bottom right under the 4:3 screen's description bar, in
+//! B301 (ours, by the user's request): the match's keyboard hints. While the keyboard plays a seat, the menus' legend strip (`legend.rs`, bottom right under the 4:3 screen's description bar, in
 //! keycaps) lists the match's keys from `controls.txt`: move, the three shots (which serve too), the emotes, the camera
-//! switch (only where it works: humans on this machine, offline; `alt_camera::offered`) and pause. A pad or a
-//! touch hides it (switching live, as the legend does), and so does the Key Hints setting (Settings → Display,
+//! switch (only where it works: humans on this machine, offline; `alt_camera::offered`) and pause. A pad pressed
+//! doesn't hide it (the keyboard player still plays; user 2026-10-23), a touch does, and so does the Key Hints setting (Settings → Display,
 //! `key_hints` in settings.txt, on by default). Whatever else fills the legend (the pause menu, its Settings screens,
 //! the result screen) takes the strip instead. Presentation only: nothing here reaches the sim.
 
@@ -34,9 +33,10 @@ fn items(bind: &Bindings, camera: bool) -> Vec<Item> {
     v.into_iter().filter(|(_, _, keys)| !keys.is_empty()).map(|(act, label, keys)| Item { act, label: label.into(), keys, dim: [false; 2] }).collect()
 }
 
-/// Whether the hints show: the setting on, the keyboard last used and playing a seat (no autoplay).
+/// Whether the hints show: the setting on, the keyboard playing a seat (no autoplay), whatever pad was pressed
+/// since; not after a touch.
 fn shown(on: bool, last: Last, keys_seat: bool, autoplay: bool) -> bool {
-    on && last == Last::Keys && keys_seat && !autoplay
+    on && last != Last::Touch && keys_seat && !autoplay
 }
 
 fn fill(
@@ -56,7 +56,7 @@ fn fill(
     // B658: whatever the local humans' mix
     let original = gr.is_some_and(|gr| gr.original);
     let camera = g.zip(pads.as_ref()).is_some_and(|(g, p)| super::alt_camera::offered(&g, p, np.is_some(), original));
-    out.one(*last, items(&bind, camera));
+    out.one(Last::Keys, items(&bind, camera));
 }
 
 pub fn plugin(app: &mut App) {
@@ -75,7 +75,7 @@ fn hints_follow_the_bindings_and_the_keyboard() {
     assert_eq!(got[4..], ["Camera C", "Pause Esc"]);
     assert!(shown(true, Last::Keys, true, false));
     assert!(!shown(false, Last::Keys, true, false), "setting off");
-    assert!(!shown(true, Last::Pad(Entity::PLACEHOLDER), true, false), "pad last used");
+    assert!(shown(true, Last::Pad(Entity::PLACEHOLDER), true, false), "a pad pressed alongside the keyboard player");
     assert!(!shown(true, Last::Touch, true, false), "touch");
     assert!(!shown(true, Last::Keys, false, false), "keyboard has no seat");
     assert!(!shown(true, Last::Keys, true, true), "autoplay");
