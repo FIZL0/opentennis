@@ -23,7 +23,8 @@ pub enum Action {
     Cut,
     /// △: lob.
     Lob,
-    /// □: asks for the post-point's instant replay (`instant_replay`). There's no serve action: the shot buttons serve,
+    /// □: the menus' delete / swap; in a match nothing (B655: never a serve or a shot; the instant replay it will ask
+    /// for is parked, B72). There's no serve action: the shot buttons serve,
     /// as the original (B119; an older file's `serve = …` line is ignored).
     Replay,
     /// Select: swap the character's hand at character select; in a match with one human, switch to the behind-the-player
@@ -500,7 +501,8 @@ mod tests {
     }
 
     /// B119: no serve binding. ✕ (keyboard J, pad South) latches the topspin press the serve tosses on (press 0 →
-    /// `Toss::Strong`), never the □ replay request; an older file's `serve = …` line loads without an error.
+    /// `Toss::Strong`), never the □ latch (which no serve or shot reads, B655: `serve_check`'s `square_never_serves`); an
+    /// older file's `serve = …` line loads without an error.
     #[test]
     fn cross_serves_on_keyboard_and_pad() {
         let (b, errors) = Bindings::parse("serve = Space\ntopspin = J PadSouth\n");
@@ -525,6 +527,6 @@ mod tests {
         };
         assert_eq!(slot(Some(KeyCode::KeyJ), None), (Some(0), false));
         assert_eq!(slot(None, Some(GamepadButton::South)), (Some(0), false));
-        assert_eq!(slot(Some(KeyCode::Space), None), (None, true), "Space is □, the replay request");
+        assert_eq!(slot(Some(KeyCode::Space), None), (None, true), "Space is □, the menus' delete / swap");
     }
 }
