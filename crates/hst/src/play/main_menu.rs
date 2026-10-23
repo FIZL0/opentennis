@@ -1759,6 +1759,9 @@ impl Menu {
     /// The character select: a device's own card.
     fn chars_step(&mut self, dev: Dev, k: Press, out: &mut Vec<Effect>) {
         use Effect::*;
+        // who each seated device picks for before a join: one whose computer player the join takes moves on with
+        // the last pick readied (e.g. Random), as after its own ✕
+        let before: Vec<_> = self.seats.iter().flatten().map(|&d| (d, self.driven(d))).collect();
         // B361: a third device on a local singles roster makes it doubles (and takes the first opponent's seat)
         if k.ok && !self.seats.contains(&Some(dev)) && self.join_seat().is_none() && self.can_join() {
             self.swap_mode(true);
@@ -1771,6 +1774,11 @@ impl Menu {
                 self.p1 = Some(dev);
             }
             self.unready(p);
+            for (d, q) in before {
+                if self.driven(d) != q {
+                    self.carry_pick(d);
+                }
+            }
             out.push(Sound(1));
             return;
         }
@@ -4639,6 +4647,23 @@ mod tests {
         let mut m = Menu { screen: Screen::Chars, seats: [Some(Dev::Keys), Some(pad), None, None], ..default() };
         m.point(pad, pointer::Act::Row(4, pointer::OK), true);
         assert_eq!((m.screen, m.sel, m.picking.is_some(), m.foot), (Screen::Confirm, 4, true, Some(pad)));
+    }
+
+    /// A pad taking the computer player 1P was picking for (after 1P readied on Random): 1P moves on to the next
+    /// computer player on Random too, not its automatic pick.
+    #[test]
+    fn a_join_carries_the_pick_to_the_next_computer() {
+        let pad = Dev::Pad(Entity::from_raw_u32(9).unwrap());
+        let mut m = Menu { screen: Screen::Chars, doubles: true, seats: [Some(Dev::Keys), None, None, None], ..default() };
+        m.players[0].random = true;
+        let ok = press(|p| &mut p.ok);
+        m.step(Dev::Keys, ok);
+        assert!(m.driven(Dev::Keys) == Some(1) && m.players[1].random);
+        m.step(pad, ok);
+        assert_eq!(m.seats[1], Some(pad));
+        assert!(m.players[1].random, "the pad keeps the computer's Random");
+        assert_eq!(m.driven(Dev::Keys), Some(2));
+        assert!(m.players[2].random, "1P's next computer is on Random");
     }
 
     /// Concept: a pad joins while 1P has the strip; 1P's ○ then empties its seat (the pad stays 2P), and the next ✕

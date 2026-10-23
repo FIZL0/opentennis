@@ -11,3 +11,4 @@
 - In a match with a keyboard player and a controller player, the keyboard's key hints now stay on screen instead of vanishing whenever the controller is used.
 - A modded character's face in the match's score panel no longer comes up blank when you start the match right after picking them.
 - While the match is getting ready to start, the Start button now says "Starting…", and Back cancels it.
+- On the character select, when someone joins on the computer player you were picking for after choosing Random, you move on to the next computer player still on Random instead of a set character.
