@@ -551,6 +551,18 @@ fn legend_strip_under_the_description_bar() {
     }
 }
 
+/// B659: a rect in percent of one half of a split view (`half` 0 the left or top, 1 the right or bottom; `wide` side
+/// by side) → percent of the whole view.
+pub fn in_half([left, top, width, height]: [f32; 4], half: usize, wide: bool) -> [f32; 4] {
+    let at = 50.0 * half.min(1) as f32;
+    if wide { [at + left / 2.0, top, width / 2.0, height] } else { [left, at + top / 2.0, width, height / 2.0] }
+}
+
+/// A split view's half's width over height, in a view `aspect` wide.
+pub fn half_aspect(aspect: f32, wide: bool) -> f32 {
+    if wide { aspect / 2.0 } else { aspect * 2.0 }
+}
+
 /// Places a HUD quad (percent of the view); only a real change marks the node, since a changed `Node` relayouts the
 /// whole UI tree (B328: every frame otherwise).
 pub fn put(node: &mut Mut<Node>, left: f32, top: f32, width: f32, height: f32) {
@@ -561,6 +573,15 @@ pub fn put(node: &mut Mut<Node>, left: f32, top: f32, width: f32, height: f32) {
 #[cfg(test)]
 mod point_tests {
     use super::*;
+
+    /// B659: a half's rect lands in its half of the view.
+    #[test]
+    fn halves() {
+        assert_eq!(in_half([0.0, 0.0, 100.0, 100.0], 1, true), [50.0, 0.0, 50.0, 100.0]);
+        assert_eq!(in_half([10.0, 20.0, 40.0, 10.0], 1, false), [10.0, 60.0, 40.0, 5.0]);
+        assert_eq!(in_half([10.0, 20.0, 40.0, 10.0], 0, true), [5.0, 20.0, 20.0, 10.0]);
+        assert_eq!(half_aspect(16.0 / 9.0, true), 8.0 / 9.0);
+    }
 
     /// The window → 640×448 mapping undoes the centred 4:3 placement at any aspect.
     #[test]

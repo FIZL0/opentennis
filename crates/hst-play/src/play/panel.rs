@@ -71,6 +71,7 @@ struct Quad {
 }
 
 /// What the panel shows this frame.
+#[derive(Clone, Copy)]
 struct View {
     players: usize,
     /// Per player: 0..3 the controlling slot (1P..4P), 4 COM.
@@ -643,11 +644,7 @@ fn draw(
     let n = g.players.len();
     let s = &g.score;
     // the first team's end is game −z when its `end` is +1, world +z; it is near when the camera is on that side
-    let first_near = cam
-        .single()
-        .map_or(true, |c| c.translation.z * g.players[0].end >= 0.0)
-        // B633: split, the near team plays on the top half: its panel goes up there
-        != super::split_view::on();
+    let first_near = cam.single().map_or(true, |c| c.translation.z * g.players[0].end >= 0.0);
     let slot = |i: usize| pads.slot_of(i, n).unwrap_or(4);
     let view = View {
         players: n,
@@ -668,13 +665,14 @@ fn draw(
         info: game_info(s, &g.rules, [0, 1].map(|t| (t..n).step_by(2).any(|i| slot(i) < 4))),
         clock: *clock,
     };
-    let mut quads = layout(&view);
+    let mut quads = match super::split_view::split_shown() {
+        None => layout(&view),
+        Some(_) => halves(view),
+    };
     // named players' slot labels give way to their names; the points sit 48 px past a label
     let label = |q: &Quad| matches!(q.tex, Tex::Slot).then(|| (q.src[0] / 40.0) as usize);
     plates.0[super::name_tags::PANEL] = super::name_tags::take(&mut quads, names.as_deref(), &view.slots[..n], 8.0, label, |q| (q.dst, q.src, q.rgb, q.alpha));
-    let aspect = window.single().map_or(4.0 / 3.0, crate::play::widescreen::aspect);
-    let share = super::widescreen::share(aspect);
-    let drop = window.single().map_or(0.0, |w| touch_drop(w, aspect));
+    let room = Room::of(&window);
     for (Slot(i), mut img, mut node, mut vis) in &mut q {
         let Some(quad) = quads.get(*i) else {
             vis.set_if_neq(Visibility::Hidden);
@@ -705,11 +703,65 @@ fn draw(
         let rect = (!matches!(quad.tex, Tex::Face(_))).then(|| Rect::new(u, v, u + w, v + h));
         let [r, g, b] = quad.rgb.map(|c| c / 128.0);
         crate::ui_pool::paint(&mut img, art.0[tex].clone(), rect, Color::srgba(r, g, b, quad.alpha / 128.0));
-        let [x, y, w, h] = quad.dst;
-        let (left, width) = super::widescreen::pin(x, w, share);
-        let (top, height) = vplace_clear(y, h, aspect, drop);
+        let [left, top, width, height] = room.place(quad.dst);
         super::widescreen::put(&mut node, left, top, width, height);
         vis.set_if_neq(Visibility::Inherited);
+    }
+}
+
+/// B659: split, each half shows only its own team's side of the panel, at the half's top (team 0's half first): the
+/// panel laid out with that team at the top, the first half's on the left and the second's on the right, and only its
+/// top half kept. The second half's quads sit 448 lower (`Room::place`).
+fn halves(v: View) -> Vec<Quad> {
+    let mut out = Vec::new();
+    for t in 0..2_i32 {
+        // team t on top (`first_near` puts the second team there); `court` picks the side (0's left, 1's right)
+        let half = View { first_near: t == 1, court: 1 - t, ..v };
+        out.extend(layout(&half).into_iter().filter(|q| q.dst[1] + q.dst[3] / 2.0 < 224.0).map(|mut q| {
+            q.dst[1] += 448.0 * t as f32;
+            q
+        }));
+    }
+    out
+}
+
+/// Where the panel's quads go this frame: the view's aspect, the touch pad's shoulder row (percent down the view) and
+/// (B659) the split's orientation.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Room {
+    aspect: f32,
+    row: f32,
+    split: Option<bool>,
+}
+
+impl Room {
+    pub(super) fn of(window: &Query<&Window>) -> Self {
+        let aspect = window.single().map_or(4.0 / 3.0, crate::play::widescreen::aspect);
+        let row = window.single().map_or(0.0, |w| super::touch_pad::top_row(Vec2::new(w.width(), w.height())));
+        Room { aspect, row, split: super::split_view::split_shown() }
+    }
+
+    /// A panel quad's 640×448 rect → percent of the view: pinned to its side (`widescreen::pin`), the top rows clear
+    /// of the touch pad. Split, laid out so on its own half as if that were the window (a quad 448 lower or more is
+    /// the second half's).
+    pub(super) fn place(&self, [x, y, w, h]: [f32; 4]) -> [f32; 4] {
+        let Some(wide) = self.split else {
+            let (left, width) = super::widescreen::pin(x, w, super::widescreen::share(self.aspect));
+            let (top, height) = vplace_clear(y, h, self.aspect, drop_below(self.row, self.aspect));
+            return [left, top, width, height];
+        };
+        let half = usize::from(y >= 448.0);
+        let y = y - 448.0 * half as f32;
+        let aspect = super::widescreen::half_aspect(self.aspect, wide);
+        // the pad's shoulders reach the halves at the view's top, measured down the half
+        let drop = match (wide, half) {
+            (true, _) => drop_below(self.row, aspect),
+            (false, 0) => drop_below(self.row * 2.0, aspect),
+            _ => 0.0,
+        };
+        let (left, width) = super::widescreen::pin(x, w, super::widescreen::share(aspect));
+        let (top, height) = vplace_clear(y, h, aspect, drop);
+        super::widescreen::in_half([left, top, width, height], half, wide)
     }
 }
 
@@ -783,6 +835,28 @@ mod tests {
             &at(Tex::Sets)[..],
             &[[16, 408], [88, 408], [440, 14], [512, 14]]
         );
+    }
+
+    /// B659: split, each half keeps only its own team's side, at the half's top: the first team's on the left of the
+    /// first half, the second's on the right of the second (448 lower), whatever the court and ends; the ring and the
+    /// banners go with their team.
+    #[test]
+    fn each_half_its_own_team() {
+        for (first_near, court, server) in [(true, 0, 0), (false, 1, 1), (true, 1, 3)] {
+            let v = View { first_near, court, server, ..doubles(Clock { serve: 40, fade: 0 }) };
+            let quads = halves(v);
+            let at = |tex: Tex| quads.iter().filter(|q| q.tex == tex).map(|q| [q.dst[0] as i32, q.dst[1] as i32]).collect::<Vec<_>>();
+            assert_eq!(at(Tex::Face(0)), [[32, 80]]);
+            assert_eq!(at(Tex::Face(2)), [[16, 40]]);
+            assert_eq!(at(Tex::Face(1)), [[440, 448 + 80]]);
+            assert_eq!(at(Tex::Face(3)), [[424, 448 + 40]]);
+            assert_eq!(at(Tex::Points), [[112, 48], [520, 448 + 48]]);
+            assert_eq!(at(Tex::Sets), [[16, 14], [88, 14], [440, 448 + 14], [512, 448 + 14]]);
+            assert_eq!(at(Tex::Team).len(), 2);
+            let ring = at(Tex::Ring);
+            assert_eq!(ring.len(), 1);
+            assert_eq!(ring[0][1] >= 448, server & 1 == 1, "{ring:?}");
+        }
     }
 
     /// The stretched background pieces (B5): each piece's sub-rect and on-screen size as the original's draw passes

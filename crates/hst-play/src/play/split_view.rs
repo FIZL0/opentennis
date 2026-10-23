@@ -21,7 +21,7 @@ use bevy::camera::Viewport;
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use hst_sim::alt_cam::{self, Follow};
 use hst_sim::camera::View;
@@ -42,11 +42,16 @@ pub fn plugin(app: &mut App) {
         .add_systems(FixedUpdate, (step, step_teams).chain().after(super::control).before(super::simulate));
 }
 
-/// The picture is split top/bottom now (the score panel puts the near team's half on top, `panel`).
-static ON: AtomicBool = AtomicBool::new(false);
+/// B659: how the picture is split now: 0 not, 1 side by side, 2 stacked (the score panel shows each team's side at
+/// the top of its half, `panel`; the umpire's calls go over the whole window, `popups`).
+static HALVES: AtomicU8 = AtomicU8::new(0);
 
-pub(super) fn on() -> bool {
-    ON.load(Ordering::Relaxed)
+/// The split's orientation while the picture is split (`true` side by side, `false` stacked); team 0's half first.
+pub(super) fn split_shown() -> Option<bool> {
+    match HALVES.load(Ordering::Relaxed) {
+        0 => None,
+        k => Some(k == 1),
+    }
 }
 
 /// The bottom half's camera.
@@ -79,8 +84,7 @@ pub(super) fn split(w: &mut World) {
     // halves follow their humans in live play and both show the one picture otherwise (intro, calls, replays)
     let on = w.get_resource::<Personal>().is_some_and(|p| p.showing) && w.contains_resource::<Game>();
     let own = on && plain_play(w) && w.get_resource::<TeamCams>().is_some_and(|t| t.0.len() == 2);
-    // side by side, the score panels stay as they are
-    ON.store(on && aspect < 1.0, Ordering::Relaxed);
+    HALVES.store(if !on { 0 } else if aspect >= 1.0 { 1 } else { 2 }, Ordering::Relaxed);
     let mut state = w.remove_resource::<Split>().unwrap_or_default();
     if own {
         // 1P's team left (or on top), the other right (or below)
