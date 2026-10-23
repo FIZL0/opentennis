@@ -2,7 +2,7 @@
 # from pages.yml (`ci` job), whose beta and site deploy only go out when it passes.
 # - tests: hst-sim and hst-data, the ones that run without the disc (CI has no ISO; the disc tests skip themselves through hst_data::fixture)
 # - clippy, warnings are errors: the whole workspace, the same command tools/done.sh runs before a task lands
-# - cargo-deny (deny.toml): RustSec advisories, licences, sources
+# - cargo-deny (deny.toml): licences, bans, sources; RustSec advisories only warn (advisories.yml watches them daily)
 # No `cargo fmt --check` yet: the code isn't rustfmt-formatted and a repo-wide reformat waits for the user (plan/HUMAN.md).
 name: ci
 on:
@@ -35,4 +35,10 @@ jobs:
           curl -sSfLO "https://github.com/EmbarkStudios/cargo-deny/releases/download/$v/$f.tar.gz"
           echo "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f  $f.tar.gz" | sha256sum -c -
           tar xzf "$f.tar.gz"
-          "$f/cargo-deny" --color always check
+          "$f/cargo-deny" --color always check bans licenses sources
+          echo "$PWD/$f" >> "$GITHUB_PATH"
+      # a new RustSec advisory against a crate we already had isn't this push's fault: warn, don't hold the beta back.
+      # advisories.yml checks main daily and opens an issue (with a lockfile fix branch when `cargo update` is enough)
+      - name: cargo-deny advisories
+        continue-on-error: true
+        run: cargo-deny --color always check advisories

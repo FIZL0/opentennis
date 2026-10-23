@@ -1,0 +1,59 @@
+# Daily watch on main, since ci.yml only warns about RustSec advisories (a new one mustn't stop the beta):
+# - a new advisory: `cargo update -p` each flagged crate; if that clears it, push the lockfile to branch `advisories`
+#   and open an issue linking the pull request to make (Actions may not open PRs here); if not, an issue naming them
+# - the beta (tag `beta`, pages.yml) more than a day behind main: an issue, whatever stopped it
+# One open issue per title: a later run doesn't repeat it.
+name: advisories
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+  issues: write
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - run: rustup toolchain install
+      - name: cargo-deny
+        run: |
+          v=0.20.2 f=cargo-deny-0.20.2-x86_64-unknown-linux-musl
+          curl -sSfLO "https://github.com/EmbarkStudios/cargo-deny/releases/download/$v/$f.tar.gz"
+          echo "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f  $f.tar.gz" | sha256sum -c -
+          tar xzf "$f.tar.gz"
+          echo "$PWD/$f" >> "$GITHUB_PATH"
+      - name: advisories
+        run: |
+          issue() {  # title, body: open unless an open issue already has that title
+            gh issue list --state open --search "in:title \"$1\"" --json title -q '.[].title' | grep -qxF "$1" ||
+              gh issue create --title "$1" --body "$2"
+          }
+          errors() { jq -r 'select(.type=="diagnostic" and .fields.severity=="error")|.fields' deny.json; }
+          cargo-deny --format json check advisories 2> deny.json && exit 0
+          ids=$(errors | jq -r '.advisory.id // .code' | sort -u | paste -sd ' ')
+          for c in $(errors | jq -r '.graphs[].Krate|"\(.name)@\(.version)"' | sort -u); do
+            cargo update -p "$c" || true
+          done
+          if ! git diff --quiet Cargo.lock && cargo-deny check advisories; then
+            git config user.name github-actions && git config user.email github-actions@users.noreply.github.com
+            git switch -C advisories
+            git commit -q -m "Bump crates for $ids" Cargo.lock
+            git push -f origin advisories
+            issue "RustSec: $ids" "New advisories against main: $ids. \`cargo update\` clears them: [open the pull request]($GITHUB_SERVER_URL/$GH_REPO/compare/main...advisories?expand=1) and merge it once CI passes."
+          else
+            issue "RustSec: $ids" "New advisories against main: $ids. \`cargo update\` doesn't clear them (the fix needs a newer dependent, or there is none yet): update the crate that pulls it in, or add it to deny.toml's \`ignore\` with a reason. Run: $GITHUB_SERVER_URL/$GH_REPO/actions/runs/$GITHUB_RUN_ID"
+          fi
+      - name: stale beta
+        if: ${{ !cancelled() }}
+        run: |
+          # the oldest commit on main the beta doesn't have yet
+          since=$(gh api "repos/$GH_REPO/compare/beta...main" -q '.commits[0].commit.committer.date // empty')
+          [ -n "$since" ] && [ $(( $(date +%s) - $(date -d "$since" +%s) )) -gt 86400 ] || exit 0
+          title="Beta is more than a day behind main"
+          gh issue list --state open --search "in:title \"$title\"" --json title -q '.[].title' | grep -qxF "$title" ||
+            gh issue create --title "$title" --body "Main has had commits since $since that aren't on the beta. Look at the latest pages runs: $GITHUB_SERVER_URL/$GH_REPO/actions/workflows/pages.yml"
