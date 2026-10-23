@@ -23,3 +23,6 @@ mkdir -p web/shots && cp docs/screenshots/*.jpg web/shots/
 cp web/icon-180.png web/apple-touch-icon.png && cp web/icon-180.png web/apple-touch-icon-precomposed.png
 # B317: the build's commit, which an open page polls to offer a Refresh once a newer one is deployed (index.html)
 git rev-parse --short=7 HEAD 2>/dev/null > web/version.txt || date +%s > web/version.txt
+# B660: the label the page shows in its header's corner, as the main menu has it (`home.rs`): the release tag or v +
+# the crate version, and the commit
+echo "${HST_VERSION:-v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)} - $(cat web/version.txt)" > web/build.txt

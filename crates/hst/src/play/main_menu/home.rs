@@ -129,6 +129,11 @@ fn backdrop(r: Row) -> [f32; 3] {
     }
 }
 
+/// The build's version line: a release's own tag (B374) or v + the crate version, then the commit (B302).
+pub(super) fn version() -> String {
+    format!("{} - {}", crate::update::VERSION.unwrap_or(concat!("v", env!("CARGO_PKG_VERSION"))), env!("HST_COMMIT"))
+}
+
 /// The main screen.
 pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f32) {
     d.frame(0, super::WALL);
@@ -140,7 +145,7 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
     let w = d.width(&head, 16.0);
     d.outlined(|d| d.text(&head, 624.0 - w, 18.0, 16.0, WHITE));
     // B374: a release build's own tag
-    let version = format!("{} - {}", crate::update::VERSION.unwrap_or(concat!("v", env!("CARGO_PKG_VERSION"))), env!("HST_COMMIT"));
+    let version = version();
     let w = d.width(&version, 10.0);
     d.outlined(|d| d.text(&version, 624.0 - w, 37.0, 10.0, WHITE));
     d.anchor = super::Anchor::Centre;

@@ -4,3 +4,4 @@
 - Split screen: the umpire's calls (Fault, Change Sides, …) are centred on the whole screen, and each half shows only its own team's score at the top.
 - Select now switches the camera in every local match with human players: humans on both sides get the split screen (a side with two humans shares a closer view that keeps both of them in frame), and two humans teamed up against the computer get that closer view on the whole screen.
 - In split screen, the end of the match (the umpire's final call, the winner's celebration and the results) now shows full screen instead of cut off in each half.
+- The website and the title screen show the game's version and build in a corner, so you can tell which one you're on.

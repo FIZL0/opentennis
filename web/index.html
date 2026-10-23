@@ -176,6 +176,8 @@ if (!('game' in document.documentElement.dataset))
   </div></div>
   <header class="band"><div class="slides" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><div class="wrap">
     <img class="logo" src="logo.svg" alt="OpenTennis" width="1040" height="820">
+    <!-- B660: the build (version and commit, tools/web.sh's build.txt) small in the corner -->
+    <span class="build" id="build" hidden></span>
     <div class="title">
       <h1><span class="kicker">OpenTennis · a remaster of Hot Shots Tennis</span> Tennis, the way it played on PS2.</h1>
       <p class="lede">OpenTennis is a from-scratch remaster of Hot Shots Tennis (Everybody's Tennis, Minna no Tennis). It
@@ -838,6 +840,11 @@ const loaded = await read();
   window.hstCheck = check;
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check(true));
 }
+// B660: the build's version and commit in the site header's corner (build.txt: tools/web.sh); none in a dev build
+fetch('build.txt').then(r => r.ok ? r.text() : '').then(t => {
+  const el = document.getElementById('build');
+  if (el && (t = t.trim()) && t.length < 60 && !t.includes('<')) { el.textContent = t; el.hidden = false; }
+}, () => {});
 say('Opening this browser\'s storage…');
 // B457: a folder in memory with OPFS's calls the page and site.js use, for a browser that refuses OPFS (a Firefox
 // private window: "Security error when calling GetDirectory"): the ISO is picked again each visit (worker.js
