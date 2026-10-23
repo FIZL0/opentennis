@@ -212,6 +212,10 @@ mod tests {
         // match over, the camera 2.6 m past the net: drawn (the cut-away distance would hide it)
         let end = view([-0.001, -0.807, 2.611], [0.0, 0.019, 1.0], 30.93);
         assert!(!hidden(&end, false) && hidden(&end, true));
+        // B654: the cut-away from beside a net post, right at the net plane: the game draws the net (its top is below
+        // the view's lower line), both ends
+        assert!(!hidden(&view([6.285, -1.187, 0.219], [-0.747, -0.013, -0.665], 60.0), true));
+        assert!(!hidden(&view([-6.285, -1.187, 0.219], [0.958, -0.007, 0.285], 60.0), true));
     }
 
     #[test]
