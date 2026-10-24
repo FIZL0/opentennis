@@ -8,6 +8,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 
 ### Next (user priorities, in order)
 
+- [ ] **B667** **Online: second camera doesn't work** (user 2026-10-24): in an online match the second camera choice does nothing. Files: crates/hst-play/src/play.rs (camera), play/netplay
 - [ ] **B666** **P4's icons disappear in local player select** (user 2026-10-24): in local player select, the icons for player 4 disappear. Files: crates/hst/src/play/main_menu/, crates/hst-base/src/seats.rs
 - [ ] **B665** **LJ receiver camera still at the ground** (user 2026-10-24): in the LJ game the receiver's camera still sits at the ground looking up at the hit. Files: crates/hst-play/src/play.rs (camera), crates/hst-sim/src/camera.rs
 - [ ] **B664** **Suzuki's head/glasses vanish in celebrations** (user 2026-10-24): original Suzuki's head and glasses disappear when he celebrates, and the Get-a-Grip Suzuki's head goes transparent in a celebration. Possibly camera culling (crates/hst-base/src/cull.rs, lod.rs): players must never be culled. Files: cull.rs, character.rs, hst-play/src/play.rs (celebration camera)
