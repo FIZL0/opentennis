@@ -8,6 +8,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 
 ### Next (user priorities, in order)
 
+- [ ] **B668** **Mods beside the executable** (user 2026-10-24): on Windows and Linux desktop builds, store installed mods in a folder next to the executable instead of the per-user app-data dir (~/.local/share/hst/mods, %APPDATA%). Files: crates/hst-base/src/modfs.rs, crates/hst-base/src/modstore.rs
 - [ ] **B667** **Online: second camera doesn't work** (user 2026-10-24): in an online match the second camera choice does nothing. Files: crates/hst-play/src/play.rs (camera), play/netplay
 - [ ] **B666** **P4's icons disappear in local player select** (user 2026-10-24): in local player select, the icons for player 4 disappear. Files: crates/hst/src/play/main_menu/, crates/hst-base/src/seats.rs
 - [ ] **B665** **LJ receiver camera still at the ground** (user 2026-10-24): in the LJ game the receiver's camera still sits at the ground looking up at the hit. Files: crates/hst-play/src/play.rs (camera), crates/hst-sim/src/camera.rs — May not be LJ-only: check other modded characters as receiver too (user 2026-10-24)
