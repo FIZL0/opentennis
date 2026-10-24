@@ -8,6 +8,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 
 ### Next (user priorities, in order)
 
+- [ ] **B665** **LJ receiver camera still at the ground** (user 2026-10-24): in the LJ game the receiver's camera still sits at the ground looking up at the hit. Files: crates/hst-play/src/play.rs (camera), crates/hst-sim/src/camera.rs
 - [ ] **B664** **Suzuki's head/glasses vanish in celebrations** (user 2026-10-24): original Suzuki's head and glasses disappear when he celebrates, and the Get-a-Grip Suzuki's head goes transparent in a celebration. Possibly camera culling (crates/hst-base/src/cull.rs, lod.rs): players must never be culled. Files: cull.rs, character.rs, hst-play/src/play.rs (celebration camera)
 - [ ] **M148** **Bigger 3D preview on the stats screen** (user 2026-10-24): on the character screen that shows stats, make the character fill its 3D preview much larger. Drop the game-category tabs there (« Hot Shots Tennis 16 | Hot Shots Golf Fore! 24 » row) and give that space to the preview. Any aspect ratio. Files: crates/hst-base/src/inspect.rs, play/main_menu/
 - [ ] **B663** **Out-of-bounds characters too big** (user 2026-10-24): big Suzuki from the golf out-of-bounds set should match original Suzuki's size; Fernando, Fillipe, Bloom, Maruyama and Nick from the same set are also too big. Scale them to their in-game size next to the stock roster. Files: crates/hst-base/src/character.rs, mods.rs (and ../opentennis-mods if the scale lives in the mod; bump mod.json version)
