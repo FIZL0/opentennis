@@ -11,6 +11,19 @@ The material effect kinds 1..15 (`Material::effect`) drive the word pop-ups only
 ported). Neither object looks at them. Both look only at whether the contact's material is a **court surface** (the
 material's court flag, `Material::court`).
 
+## Scope of the port (user 2026-10-26)
+
+The remaster has no instant replays yet (they are shelved under B72), so **this task ports the live-play parts only**:
+- §2 except the marks save/restore across a replay (§2.1 last bullet group);
+- §3.1's trigger with only the smash burst reachable (the clod and blade bursts are gated on the replay flag, so in
+  live play they do nothing but store the kind);
+- §3.4 the smash burst, with the cut always 0 (it only applies during a replay);
+- §3.5 aging of the smash pool; §3.6 drawing of the smash pool.
+
+The parts marked **(deferred to B72)** below stay here as the record of the original's behaviour; B72's line points
+here, so they are ported when replays are. In live play they change nothing: the replay-gated bursts spend no
+random draws (the gate is checked before any draw).
+
 ## 1. Per court: the answer to "wrong mark on grass?"
 
 In live play every court shows the same `ballkon_00` mark, the same `kemuri` puff and the same ring. Only the
@@ -36,7 +49,7 @@ The port's `effect::Bounce` has the dry-weather behaviour. The original also has
 - **Dusty** = not wet AND the court's puffs flag. The port's `puffing` flag only takes the court's puffs flag.
 - Puffs animate (age, grow, fade) only when dusty or wet. Otherwise there are none.
 - Puff texture: dry `run/kemuri_01.tm2`, wet `run/spray.tm2`.
-- **Marks across a replay:**
+- **Marks across a replay (deferred to B72):**
   - At an ordinary point set-up, the marks list is saved.
   - When an instant replay starts, the marks list is restored from that copy. The replay therefore starts with the
     marks as they were when the replayed point began: marks made during the point vanish and then appear again as
@@ -99,7 +112,7 @@ The mark (3-segment strip, width 0.05, length |v_xz|, colour = the mark rgb, alp
 - A burst marks its pool active. On the trigger frame, aging (§3.5) runs right after the burst, so every particle
   ages once on the frame it is thrown.
 
-### 3.2 Clod burst (replay only, clay courts; 30 particles)
+### 3.2 Clod burst (replay only, clay courts; 30 particles) (deferred to B72)
 Same algorithm as the dive debris clods (`foot.rs` `throw`, clods), with these inputs:
 - **origin** = the ball's position on this frame;
 - **direction** = the contact's velocity (the velocity stored with the first bounce's contact record);
@@ -135,7 +148,7 @@ Constants (clod row):
 
 Cells (u, v) by index: (0,0), (32,0), (0,32), (32,32).
 
-### 3.3 Blade burst (replay only, grass courts, not when wet; 30 particles)
+### 3.3 Blade burst (replay only, grass courts, not when wet; 30 particles) (deferred to B72)
 Same algorithm as the dive debris blades (`foot.rs` `throw`, blades). Origin and direction are as in §3.2, and the
 basis is built but not used.
 
@@ -144,7 +157,7 @@ Per particle:
 2. size = lerp(size lo, hi, draw);
 3. cell from a draw;
 4. **three C-library `rand()` calls**, in the order spin z, spin y, spin x. Each is
-   lo + (hi − lo)·((rand & 0xfffff800)·2⁻³¹), in degrees converted to radians, exactly as the dive blades do;
+   lo + (hi − lo)·(rand with its low 11 bits cleared, times 2⁻³¹), in degrees converted to radians, exactly as the dive blades do;
 5. the matrix = euler(spin) applied to identity;
 6. velocity = contact velocity · push, with vertical 0;
 7. position = origin + x offset lerp (a draw) + y offset lerp (a draw).
@@ -203,20 +216,22 @@ like the dive table: locate it by these values.
 
 ### 3.5 Aging (every frame, after the trigger)
 
-**Main pool, clods:**
+**Main pool, clods (deferred to B72):**
 - pos += vel;
 - alive = pos.y < 0;
 - vel ·= decay;
 - vel.y += fall·9.8/3600 (the constant 0.0027222224);
 - size ·= shrink.
 
-**Main pool, blades:**
+**Main pool, blades (deferred to B72):**
 - pos = pos + (vel + wind·0.5), in that order;
 - pos.y += sink;
 - vel ·= decay;
 - size ·= shrink;
 - matrix = euler(spin) · matrix;
-- alive = not (y ≥ 0 or size < 0) (see Open questions);
+- alive = not (y ≥ 0 or size < 0). The threshold is 0, unlike the dive blades' 0.01 (`foot.rs`): the two
+  tables age with different tests. With shrink 0.95 the size never reaches 0, so blades die only by reaching the
+  ground plane (y ≥ 0);
 - the wind is the weather's wind vector, the one the puffs drift with.
 
 **Smash pool:** aged like clods with the clod row's decay, fall and shrink.
@@ -243,11 +258,18 @@ The save / restore messages (pause) copy each live pool away and back. This does
 
 ## 4. Randomness (this is gameplay-relevant)
 
+**Frame order.** The effects are children of one effects manager, updated once a frame in the order they were
+created: the dive/foot effects first, then the hit sparks, then the bounce debris. So on a frame where both act,
+the hit sparks' end-of-burst re-roll (a quarter of their table from `rng.sound`, `effect::Sparks::tick`) draws
+**before** the bounce debris' smash burst. The port runs the debris throw after `sparks.frame` in the same frame,
+after the ball's flight for the frame has run (it reads this frame's bounce count, contact and position). Nothing
+else in the port draws from `rng.sound` on a bounce frame (the shot's random bit is drawn at the strike).
+
 - **Sound-manager generator** (`rng.sound`, MT19937, the one sparks and dive debris draw on):
   - a smash burst takes **120 draws in live play** (4 per particle);
   - a replay clod burst takes 120;
   - a replay blade burst takes 150 (5 per particle).
-- **C-library `rand()`:** a replay blade burst takes **90 calls** (3 per blade). `rand()` seeds the next point's
+- **C-library `rand()` (deferred to B72):** a replay blade burst takes **90 calls** (3 per blade). `rand()` seeds the next point's
   shared and court generators. A grass-court instant replay therefore shifts every later point's randomness, so the
   port must spend these calls exactly as the dive blades do (`Feet::crand`).
 - The smash burst's 120 live draws matter wherever `rng.sound` is part of the replay-test state or seeds anything
@@ -256,35 +278,27 @@ The save / restore messages (pause) copy each live pool away and back. This does
 
 ## 5. Verification plan (Port phase)
 
-- **Bit-exact:** record a bounce burst with `tools/record_foot.py`-style forcing (slot 5, force replays as in the
-  P17p1 journal). Look for a first bounce inside a replay on a grass court (blades) and a clay court (clods: flip the
-  look table's flags as `FOOT_DEBRIS=dirt` does). Then compare each particle's position, velocity, size, cell,
-  matrix and colour for ~60 frames. For the smash burst, find a live smash landing at ≥ 85 km/h in a doubles match
-  (slot 5 is doubles) and compare the same, plus `rng.sound`'s state after.
-- **By eye:** `tools/screenshot.sh` of the original during a replayed bounce on grass and on clay, a live smash
-  landing, and a wet-court bounce (spray ring, rising spray puffs). Against each, a `--shot` at the same moment.
+- **Bit-exact:** the smash burst. Find a live smash landing at ≥ 85 km/h in a doubles match (slot 5 is doubles; or
+  force the shot kind / speed through PINE) and compare each particle's position, velocity, size and cell for the
+  burst's life, plus `rng.sound`'s state after the throw frame. Prefer a frame where the hit sparks also re-roll, to
+  prove the order above (or check both draws land in the right order from the generator state alone).
+- **By eye:** `tools/screenshot.sh` of the original at a live smash landing on a hard, clay and grass court, and a
+  wet-court bounce (spray ring, rising spray puffs, wet smash puff); against each, a `--shot` at the same moment.
+- The replay bursts' checks go with B72.
 
 ## Port notes
 - The port's `effect::Bounce` needs:
   - the wet flag (weather state);
-  - the body-hit flag (ring scale, and the debris gate);
-  - the marks backup for replays.
-- The debris needs:
-  - the replay flag;
+  - the body-hit flag (ring scale, and the debris gate).
+- The smash burst needs:
   - the contact velocity of the first bounce (`Contact::vel`, already recorded);
   - the ball position;
-  - the court's flags and colours (`exe::FootCourt` has grass/clay/blade/clod; `exe::BounceLook` has dust/mark);
-  - the wind;
-  - the camera mode (smash size cut in replays).
-- The instant replay is ported now (`Feet::replay` exists for the dive debris). Wire the bounce debris to the same
-  flag.
+  - the court number (size base) and its clod colour (`exe::FootCourt`);
+  - `rng.sound`, spent in sim order whatever the render settings (keep the throw in `hst-sim`).
+- The bounce debris table (count + clod row + blade row) is read from GAME.BIN via `hst-data::exe`; the port only
+  needs the clod row now, but reading the whole table keeps B72's side simple.
+- No replay flag yet: the replay-gated bursts are simply not called (they would draw nothing in live play).
 
 ## Open questions
 
-- Blade death on size: the game kills a blade whose size goes below 0 (it never does, since shrink is 0.95), while
-  the P17p1 dive journal reads its threshold as 0.01. The port should copy whatever `foot.rs` does after checking
-  both against a recording; with these constants blades die by sinking or falling below the ground first.
-- Where the debris trigger runs in the frame relative to the other users of `rng.sound` (sparks, dive debris,
-  sounds) on the same frame. Its draws must come in the right order; take the order from the recording (§5).
-- Whether an instant replay restores `rand()`'s state afterwards. If it does, the 90 blade calls don't reach later
-  points. Check `rand()`'s state before and after a forced replay on a grass court.
+none
