@@ -4,11 +4,16 @@ handler *(gm+0xbc) 0x100 + the shot camera *(handler+0x64) 0x3100 + the scene re
 (0x60 x 0x40) + scene +0x10e00 0x200. With --players each sample also gets the point globals 0x423040 0x80, the
 shot-pick counters 0x427b58 0x18, gm+0x340 0x40 and per player (4): head bone *(pl+0x17f4) 0x40, spine2 bone
 *(pl+0x17fc) 0x40, pl+0x17e0 0x10, pl+0x3d40 0x80, pl+0x3db0 0x10, pl+0x12b8 0x8, anim object *(pl+0x54) 0x40, its
-clip's length (+0x2c) 8. Usage: record_cutaway.py <out.bin> <frames> [--players]"""
+clip's length (+0x2c) 8. Usage: record_cutaway.py <out.bin> <frames> [--players] [--slot N] [--press]
+--slot loads that save instead of 5; --press taps Cross every second during the serve and rally (a human P1 in
+slots 3/4 serves and swings; needs tools/vpad.py serve), never between points (a press there skips the cut-away)."""
 import sys,time,struct
 sys.path.insert(0,'tools')
 from pine import Pine
-p=Pine(step=True); p.load_state(5); time.sleep(1)
+slot=int(sys.argv[sys.argv.index('--slot')+1]) if '--slot' in sys.argv else 5
+p=Pine(step=True); p.load_state(slot); time.sleep(1)
+if '--press' in sys.argv: import vpad
+k=0
 out=open(sys.argv[1],'wb'); n=0; want=int(sys.argv[2])
 VS=0x1d5780
 last=p.read32(VS)
@@ -16,6 +21,8 @@ while n<want:
     v=last=p.next_frame(last)
     gm=p.read32(0x422f80)
     if not gm: continue
+    k+=1
+    if '--press' in sys.argv and p.read8(gm+0x55) in (2,3) and k%60==0: vpad.send(['press cross 100'])
     ch=p.read32(gm+0xbc)
     if p.read8(ch+0x51) in (0,0xff): continue
     cam=p.read32(ch+0x64); sc=p.read32(gm+0xb8)

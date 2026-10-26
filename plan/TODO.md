@@ -38,7 +38,6 @@ index out of bounds: the len is 0 but the index is 0"
 ### Match
 
 ### Presentation
-- [ ] **B674** Post-point replay/cutaway with one human (user 2026-10-26): when a single human plays, check the original's choice of which player's reaction to show after a point (the human's loss take vs the winner's win take) and match it: which side the cutaway/replay focuses on, and win vs loss motion. Find the rule in the original (spec first), compare side by side with `tools/screenshot.sh`. Files: crates/hst-sim/src/cutaway.rs, crates/hst-sim/src/instant.rs, crates/hst-play/src/play.rs
 - [ ] **B675** Players' heads track the ball like the original (user 2026-10-26): find how the original turns a player's head (and neck/eyes if it does) toward the ball: when it tracks (rally, serve wait, between points), which bones, turn limits, speed/smoothing, handedness mirroring, what it looks at when the ball is dead. Spec first (clean-room), then port; if it feeds gameplay state keep it bit-exact, else match by eye side by side with `tools/screenshot.sh`. Mode-off replay tests stay exact. Files: crates/hst-sim/src/motion.rs, crates/hst-sim/src/pose.rs, crates/hst-base/src/character.rs, crates/hst-play/src/play.rs
 
 

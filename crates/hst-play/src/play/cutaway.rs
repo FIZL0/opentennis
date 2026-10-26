@@ -150,7 +150,7 @@ pub(super) fn step(mut g: ResMut<Game>, mut d: ResMut<Director>, q: Query<(&Figu
     if d.shot.is_none() {
         let game_end = matches!(event, Event::Game | Event::Set);
         let winner = |i: usize| i as i32 & 1 == g.post_winner & 1;
-        let [shown, other] = cutaway::roles(d.roles, g.last_hitter, game_end, g.post_winner, g.instant.replays, |i| g.players[i].dive.is_some());
+        let [shown, other] = cutaway::roles(d.roles, g.last_hitter, game_end, g.post_winner, g.instant.replays, |i| g.body_hit == Some(i as i32));
         // ponytail: 117 frames in, as every rally point recorded; the game adds 93 or 99 instead of 97 to its 20 under
         // two flags not traced yet
         let t = if game_end { 378.0 } else { 117.0 };
