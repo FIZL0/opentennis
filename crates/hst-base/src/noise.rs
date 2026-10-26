@@ -40,6 +40,8 @@ pub struct Costume {
     pub parts: Vec<(usize, Vec<Moved>)>,
     /// A mod's spring joints (standard §3b, `crate::spring`); none on the disc.
     pub springs: Vec<crate::spring::Chain>,
+    /// Their collision ellipsoids (§3c): joint, matrix in its space.
+    pub colliders: Vec<(usize, bevy::math::Mat4)>,
 }
 
 /// The costume's deformers over the parts `character::skinned_parts` built from `model` (one per material with
@@ -80,7 +82,7 @@ pub fn costume(model: &mdl::Model, noi: &[u8], parts: &[(Handle<Mesh>, Handle<St
             mesh.asset_usage = RenderAssetUsages::default();
         }
     }
-    (!out.is_empty()).then(|| Arc::new(Costume { deformers, parts: out, springs: Vec::new() }))
+    (!out.is_empty()).then(|| Arc::new(Costume { deformers, parts: out, springs: Vec::new(), colliders: Vec::new() }))
 }
 
 /// A rig's deformers and its own copies of the swaying parts' meshes; the motion set last seen. B344: the deformers

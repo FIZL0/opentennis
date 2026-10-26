@@ -1628,7 +1628,7 @@ pub fn load_with(
     for c in visual.values_mut().chain(takes.values_mut().flatten()) {
         c.tracks.retain(|t| !sprung.contains(&t.node));
     }
-    let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs }));
+    let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs, colliders: crate::spring::colliders(&nodes) }));
     Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, seats, take_voices, feet, grip, frame_gameplay: false, emote_ticks, voice_takes: HashMap::new(), size: 1.0, thigh_twist: 1.0 })
 }
 
