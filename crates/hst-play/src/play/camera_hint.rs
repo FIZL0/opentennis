@@ -1,7 +1,7 @@
 //! B651 (ours, by the user's request), every match since 2026-10-23: when live play first starts in a match where
 //! Select switches the camera (the close one behind the player or the doubles zoom, `alt_camera.rs`: humans on one
 //! team on this machine, offline), a hint over the picture says so, flashing a few times, then goes. Presentation
-//! only: nothing here reaches the sim.
+//! only: nothing here reaches the sim. Off with the Key Hints setting.
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -66,7 +66,8 @@ fn judge(w: &mut World) {
     if switch && live {
         hint.since.get_or_insert(now);
     }
-    hint.want = switch && live && hint.since.is_some_and(|s| flashing(now - s));
+    let on = super::key_hints::ON.load(std::sync::atomic::Ordering::Relaxed);
+    hint.want = on && switch && live && hint.since.is_some_and(|s| flashing(now - s));
 }
 
 /// The hint's chip for the device last used: the touch pad's SELECT, the keyboard's camera key, a pad's Select.
