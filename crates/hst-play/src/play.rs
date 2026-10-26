@@ -3128,10 +3128,15 @@ fn cancel_locks(g: &mut Game, but: Option<usize>) {
     }
 }
 
-/// Ball steps a frame for the flight in the air: the last hitter's mod `serve_speed` / `shot_speed`, else 1.
+/// Ball steps a frame for the flight in the air: the last hitter's mod `serve_speed` / `shot_speed` (a lob keeps
+/// one), else 1.
 fn ball_steps(g: &Game) -> usize {
+    let (class, kind) = (g.shot.class, g.shot.kind);
+    if kind == kind::LOB && (class == class::STROKE || class == class::VOLLEY) {
+        return 1;
+    }
     let s = usize::try_from(g.last_hitter).ok().and_then(|i| g.ball_steps.get(i)).map_or([1, 1], |s| *s);
-    s[(g.shot.class != class::SERVE) as usize] as usize
+    s[(class != class::SERVE) as usize] as usize
 }
 
 /// Player `i`'s swing pace: a mod's §6 `swing_speed` (M11), else 1.
