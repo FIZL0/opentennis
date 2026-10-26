@@ -9,3 +9,4 @@
 - Every match now opens with a flashing reminder of the button that changes the camera
 - Players' name tags no longer show over their heads during the court intro
 - Character select: when two players are both ready and one picks for the next computer player, the one after now starts on that pick (e.g. Random) instead of jumping to a new character
+- New Offbeat rule, Everyone's stats: give every player the same grade, F through A, in Serve, Stroke, Volley, Impact and Footwork

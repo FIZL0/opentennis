@@ -1,0 +1,153 @@
+//! M147: Everyone's stats, the offbeat rule that gives every player one grade, F through A, in each of the character
+//! select's five categories (Serve, Stroke, Volley, Impact, Footwork). A grade stands for the TParam.csv cells behind
+//! its category: player `i` keeps their own row (build, reach, heights, collision, hand) with each category's cells
+//! replaced by the mean of the stock characters' cells at that grade in it (the select screen's grades, read from the
+//! disc). The match then feeds that row through the same paths a character's own row takes: run, stamina, aim,
+//! power, shot timing and the serve's. Trajectory tables, shot records and the computer's AI row stay the
+//! character's.
+
+use hst_data::iso::Iso;
+use hst_sim::swing;
+
+use super::super::{Game, aim_of, mod_match, serve_character, serve_data, stats_of, tparam};
+
+/// Every category's TParam.csv columns, in the grades' order.
+const CATEGORIES: [&[usize]; 5] = [SERVE, STROKE, VOLLEY, IMPACT, FOOTWORK];
+/// Serv POW, Serv CON, the serve's near-miss scatter.
+const SERVE: &[usize] = &[12, 22, 54];
+/// Strk, Lob and Lob2 POW, the three spins, Strk CON, Rizing ADJ, the ground stroke's height errors (Strk GH / NH),
+/// Back DWN, LOW POW, Strk HI POW.
+const STROKE: &[usize] = &[13, 15, 16, 17, 18, 19, 20, 26, 34, 35, 46, 50, 53];
+/// Voley POW, Voley CON, the volley's height errors (Voley GH / NH), V DWN, V LOW POW.
+const VOLLEY: &[usize] = &[14, 21, 37, 38, 48, 51];
+/// The timing frames after / before the sweet one: rally hits, strong toss, weak toss.
+const IMPACT: &[usize] = &[28, 29, 30, 31, 32, 33];
+/// SPE, STA, the dive / backhand / smash stamina costs, Agili.
+const FOOTWORK: &[usize] = &[40, 41, 42, 43];
+
+/// The stock characters on the disc.
+const CHARACTERS: usize = 14;
+
+/// `own` with every category's cells at `grade` (0 F … 5 A): the mean of the cells of the characters in `rows` whose
+/// grade in that category (`grades`) is `grade`, or the nearest grade any of them has.
+pub fn graded_row(own: &[String], rows: &[Vec<String>], grades: &[[u8; 5]], grade: u8) -> Vec<String> {
+    let mut out = own.to_vec();
+    for (k, cells) in CATEGORIES.iter().enumerate() {
+        let Some(near) = grades.iter().map(|g| g[k]).min_by_key(|&g| g.abs_diff(grade)) else { continue };
+        let donors: Vec<&Vec<String>> = rows.iter().zip(grades).filter(|(_, g)| g[k] == near).map(|(r, _)| r).collect();
+        for &c in cells.iter() {
+            if c < out.len() {
+                out[c] = mean(donors.iter().filter_map(|r| r.get(c).map(String::as_str)));
+            }
+        }
+    }
+    out
+}
+
+/// The mean of cells like "4", "2.7" or "9/0/10", part by part ('/'): whole numbers stay whole (rounded half away
+/// from zero), anything else keeps up to four decimals.
+fn mean<'a>(cells: impl Iterator<Item = &'a str>) -> String {
+    let parts: Vec<Vec<&str>> = cells.map(|c| c.split('/').map(str::trim).collect()).collect();
+    let width = parts.iter().map(Vec::len).min().unwrap_or(0);
+    (0..width)
+        .map(|i| {
+            let vals: Vec<&str> = parts.iter().map(|p| p[i]).collect();
+            let n = vals.len() as f64;
+            if let Ok(ints) = vals.iter().map(|v| v.parse::<i64>()).collect::<Result<Vec<_>, _>>() {
+                ((ints.iter().sum::<i64>() as f64) / n).round().to_string()
+            } else {
+                let m = vals.iter().map(|v| v.parse::<f64>().unwrap_or(0.0)).sum::<f64>() / n;
+                let s = format!("{m:.4}");
+                s.trim_end_matches('0').trim_end_matches('.').to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// The select screen's grades from the disc, or None off the supported disc.
+fn disc_grades(iso: &mut Iso) -> Option<[[u8; 5]; 14]> {
+    let (cnf, bin) = (iso.read("SYSTEM.CNF").ok()?, iso.read("ZZBIN/MENU.BIN").ok()?);
+    hst_data::exe::Menu::new(&cnf, &bin).ok().map(|m| m.grades())
+}
+
+/// Every player takes `grade` (0 F … 5 A) in every category: their row (a mod's own in its slot) graded, fed to the
+/// run, stamina, aim, power, shot timing and serve.
+pub(in crate::play) fn apply(g: &mut Game, iso: &mut Iso, mm: Option<&crate::mods::MatchMod>, grade: u8) {
+    let Some(grades) = disc_grades(iso) else { return };
+    let rows: Vec<Vec<String>> = (0..CHARACTERS).map(|c| tparam(iso, c)).collect();
+    for i in 0..g.players.len() {
+        let c = g.chars[i] as usize;
+        let row = graded_row(&mod_match::row(iso, mm, i, c), &rows, &grades, grade);
+        let p = &mut g.players[i];
+        p.stats = stats_of(&row);
+        p.body.stamina = p.stats.stamina;
+        g.aim_stats[i] = aim_of(&row);
+        g.finish.power[i] = [13, 14].map(|k| row[k].parse().expect("TParam power"));
+        let s = hst_sim::player::ReachStats::from_tparam(&row.join(","));
+        g.reaches[i].grades = swing::timing(s.after, s.before).0;
+        g.timing[i].restat(&row);
+        let mut serve = serve_data(&row, &g.data[i]);
+        serve_character(iso, c, g.aim_stats[i], &mut serve);
+        g.serve_data[i] = serve;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn means_keep_whole_numbers_whole() {
+        assert_eq!(mean(["4", "4", "5"].into_iter()), "4");
+        assert_eq!(mean(["13", "14"].into_iter()), "14", "half away from zero");
+        assert_eq!(mean(["3", "2.7"].into_iter()), "2.85");
+        assert_eq!(mean(["9/0/10", "4/0/8"].into_iter()), "7/0/9");
+        assert_eq!(mean(["2.7", "2.7"].into_iter()), "2.7");
+    }
+
+    /// A graded row changes only its categories' cells, each the mean of that grade's characters (nearest grade
+    /// when none has it).
+    #[test]
+    fn a_grade_takes_its_characters_cells() {
+        let row = |v: &str| -> Vec<String> { (0..67).map(|c| if c == 11 { String::new() } else { format!("{v}{c}") }).collect() };
+        let num = |n: i32| -> Vec<String> { (0..67).map(|c| if c == 11 { String::new() } else { (n * 100 + c).to_string() }).collect() };
+        let rows = vec![num(1), num(3), num(9)];
+        let grades = [[5, 0, 0, 0, 0], [5, 0, 1, 0, 0], [0, 5, 2, 3, 4]];
+        let own = row("x");
+        let out = graded_row(&own, &rows, &grades, 5);
+        assert_eq!(out[12], "212", "Serve A: characters 0 and 1");
+        assert_eq!(out[13], "913", "Stroke A: character 2");
+        assert_eq!(out[14], "914", "Volley: nearest to A is character 2's 2");
+        assert_eq!(out[28], "928");
+        assert_eq!(out[40], "940");
+        for c in [0, 11, 23, 55, 64] {
+            assert_eq!(out[c], own[c], "cell {c} is the character's own");
+        }
+    }
+
+    /// On the disc every grade of every category has a character, and the grades run the right way: A serves, hits
+    /// and volleys harder than F, runs faster and has longer timing windows. (Not step by step: the disc's D volleyers
+    /// hit harder on average than its C ones.)
+    #[test]
+    fn disc_grades_run_from_f_to_a() {
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let grades = disc_grades(&mut iso).expect("grades");
+        for k in 0..5 {
+            for g in 0..6 {
+                assert!(grades.iter().any(|c| c[k] == g), "category {k} has grade {g}");
+            }
+        }
+        let rows: Vec<Vec<String>> = (0..CHARACTERS).map(|c| tparam(&mut iso, c)).collect();
+        let at = |g: u8, c: usize| -> f64 { graded_row(&rows[0], &rows, &grades, g)[c].split('/').next().unwrap().parse().unwrap() };
+        for (c, what) in [(12, "Serv POW"), (13, "Strk POW"), (14, "Voley POW"), (40, "SPE"), (28, "timing after")] {
+            let v: Vec<f64> = (0..6).map(|g| at(g, c)).collect();
+            assert!(v[0] < v[5], "{what} by grade: {v:?}");
+        }
+        // the graded row still reads as a TParam row
+        for g in 0..6 {
+            let row = graded_row(&rows[3], &rows, &grades, g);
+            let _ = (stats_of(&row), aim_of(&row), hst_sim::player::ReachStats::from_tparam(&row.join(",")));
+        }
+    }
+}
