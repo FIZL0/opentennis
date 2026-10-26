@@ -167,11 +167,13 @@ pub struct Build {
     pub swing: f32,
     /// It runs this many times as fast.
     pub run: f32,
+    /// Its serves, drives, volleys and smashes leave the racket this many times as fast.
+    pub power: f32,
 }
 
 impl Default for Build {
     fn default() -> Self {
-        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0 }
+        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, power: 1.0 }
     }
 }
 
@@ -263,7 +265,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
         serde_json::Value::Null => Ok(1.0),
         v => v.as_f64().filter(|x| (lo..=hi).contains(x)).map(|x| x as f32).ok_or_else(|| err(format!("`{k}` {v} must be a number {lo} to {hi}"))),
     };
-    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)? };
+    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, power: factor("shot_power", 1.0, 4.0)? };
     if disc && (!j["costumes"].is_null() || j["face"] != "morph") {
         return Err(err("`disc_body` plays the donor's disc costumes and faces: no `costumes`, `face` \"morph\"".into()));
     }
@@ -335,7 +337,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     if let Some(c) = costume_of
         && (donor != c || base != c || ai_row != c || !overrides.is_empty() || build != Build::default())
     {
-        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed` or `run_speed`")));
+        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed`, `run_speed` or `shot_power`")));
     }
     Ok(Mod {
         skeleton: None,
@@ -2683,7 +2685,7 @@ mod tests {
             read(&dir)
         };
         let m = try_(json).unwrap();
-        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25 });
+        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, power: 1.0 });
         // only a mod.json, and on the character select's roster
         assert!(list(&root).iter().any(|r| r.id == "hst_bigger_chief"), "not on the roster");
         assert_eq!((m.costumes.len(), m.disc_voice(), m.costume_of), (DISC_COSTUMES, Some(7), None));
