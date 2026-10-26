@@ -109,10 +109,10 @@ impl Follow {
         move_in(self.shot.view(), spots, width)
     }
 
-    /// One frame of [`Follow::aim_team`], as shown, for a split half: the lens also widens to keep the ball in
-    /// the picture ([`take_ball`]; ours, the one-picture alternate camera doesn't).
-    pub fn step_team(&mut self, spots: &[[f32; 3]], near: bool, ball: [f32; 3], play: Play, width: f32) -> View {
-        let v = take_ball(self.aim_team(spots, near, ball, play, width), ball, width);
+    /// One frame of [`Follow::aim_team`], as shown, for a split half: the lens also widens to keep the ball and
+    /// where it will land (`land`) in the picture ([`take_ball`]; ours, the one-picture alternate camera doesn't).
+    pub fn step_team(&mut self, spots: &[[f32; 3]], near: bool, ball: [f32; 3], land: Option<[f32; 3]>, play: Play, width: f32) -> View {
+        let v = take_ball(self.aim_team(spots, near, ball, play, width), std::iter::once(ball).chain(land), width);
         self.show(v)
     }
 
@@ -232,17 +232,19 @@ fn move_in(mut v: View, spots: &[[f32; 3]], width: f32) -> View {
 /// The share of the half-width and half-height the ball may reach out to in a split half.
 const BALL_FILL: f32 = 0.9;
 
-/// Widens the half-angle (up to [`WIDEST`]) until the ball in front of the eye fits across (`width` of the 4:3
-/// width) and up and down.
-fn take_ball(mut v: View, ball: [f32; 3], width: f32) -> View {
-    let [x, y, z] = v.local(ball);
-    if z <= 0.1 {
-        return v;
-    }
+/// Widens the half-angle (up to [`WIDEST`]) until each of `points` in front of the eye fits across (`width` of the
+/// 4:3 width) and up and down.
+fn take_ball(mut v: View, points: impl IntoIterator<Item = [f32; 3]>, width: f32) -> View {
     let tan = F(musl::tanf(v.fov));
-    let across = F(x).abs() / (F(BALL_FILL) * width * z);
-    let up = F(y).abs() / (F(BALL_FILL) * ASPECT * z);
-    let need = across.max(up);
+    let need = points.into_iter().fold(tan, |most, p| {
+        let [x, y, z] = v.local(p);
+        if z <= 0.1 {
+            return most;
+        }
+        let across = F(x).abs() / (F(BALL_FILL) * width * z);
+        let up = F(y).abs() / (F(BALL_FILL) * ASPECT * z);
+        most.max(across).max(up)
+    });
     if need > tan {
         v.fov = musl::atanf(need.0).min(WIDEST).max(v.fov);
     }
@@ -339,10 +341,12 @@ mod tests {
     #[test]
     fn a_wide_ball_widens_the_split_half() {
         let v = View { rot: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], eye: [0.0; 3], fov: 0.3 };
-        let w = take_ball(v, [4.0, 0.0, 10.0], 0.75);
+        let w = take_ball(v, [[4.0, 0.0, 10.0]], 0.75);
         assert!(w.fov > v.fov && screen(&w, [4.0, 0.0, 10.0]).is_some_and(|[x, _]| x < 320.0 + 320.0 * 0.75));
-        assert_eq!(take_ball(v, [0.0, 0.0, 10.0], 0.75).fov, v.fov);
-        assert_eq!(take_ball(v, [40.0, 0.0, 10.0], 0.75).fov, WIDEST);
-        assert_eq!(take_ball(v, [4.0, 0.0, -10.0], 0.75).fov, v.fov);
+        assert_eq!(take_ball(v, [[0.0, 0.0, 10.0]], 0.75).fov, v.fov);
+        assert_eq!(take_ball(v, [[40.0, 0.0, 10.0]], 0.75).fov, WIDEST);
+        assert_eq!(take_ball(v, [[4.0, 0.0, -10.0]], 0.75).fov, v.fov);
+        // the landing spot out wide widens it as the ball out wide does
+        assert_eq!(take_ball(v, [[0.0, 0.0, 10.0], [4.0, 0.0, 10.0]], 0.75).fov, w.fov);
     }
 }

@@ -34,7 +34,7 @@
 - Emotes in the lobby no longer play their voice line without the animation, take turns through all of a custom character's animations instead of repeating one, and a seat a custom character sits on stays under them until they stand up.
 - Custom characters whose faces have no proper talking shapes now open their mouths when they speak.
 - An emote still playing when the players walk back into place for the next serve now stops there, voice line included, instead of carrying on into the serve.
-- In split screen, each half's camera now zooms out to keep a wide ball in view.
+- In split screen, each half's camera now zooms out to keep a wide ball, and where it's going to land, in view.
 - In split screen, both players now see the ball's outline, not just one of them.
 - On custom courts with water, things under the water (like the corals at the beach resort court) now show under it instead of drawing on top.
 - Emotes on the lobby and character select cards now play exactly to their end, no longer freezing on their last frame or being cut short.

@@ -311,6 +311,16 @@ fn step_teams(g: Option<Res<Game>>, p: Option<Res<Personal>>, pads: Option<Res<P
         t.2 = g.flight.ball.pos;
     }
     let ball = t.2;
+    // where the ball in flight lands next, as the smash marker steps it on (`smash_marker::receivers`)
+    // ponytail: stepped afresh each tick (up to PATH_MAX frames of flight); cache it per shot if it ever shows
+    let land = (g.phase == Phase::Rally && g.flight.in_play && !g.flight.rolling).then(|| {
+        let mut f = g.flight;
+        let bounces = f.bounces;
+        (0..super::PATH_MAX).find_map(|_| {
+            f.step(&g.shot, &super::COURTS[g.court]);
+            (f.bounces > bounces).then_some(f.ball.pos)
+        })
+    }).flatten();
     let width = if t.3 > 0.0 { t.3 } else { 1.0 };
     for team in 0..2 {
         // the team's humans (eligible: every team has one or two)
@@ -322,13 +332,13 @@ fn step_teams(g: Option<Res<Game>>, p: Option<Res<Personal>>, pads: Option<Res<P
         let fresh = t.0.get(team).is_none_or(|h| (&h.humans, h.near) != (&humans, near)) || g.cam_cut;
         if fresh {
             let mut follow = Follow::new(&d.shots, n == 4);
-            let now = follow.step_team(&spots, near, ball, play, width);
+            let now = follow.step_team(&spots, near, ball, land, play, width);
             let h = Half { humans, near, follow, prev: now, now, move_in: None };
             if team < t.0.len() { t.0[team] = h } else { t.0.push(h) }
         } else {
             let h = &mut t.0[team];
             h.prev = h.now;
-            h.now = h.follow.step_team(&spots, near, ball, play, width);
+            h.now = h.follow.step_team(&spots, near, ball, land, play, width);
         }
         // the change of ends glides each half from behind the new end into its own shot, as the one picture's move
         // glides into the match camera's
