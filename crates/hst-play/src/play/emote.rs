@@ -200,18 +200,26 @@ pub enum Line {
 /// (`CharacterData::drawn_voice`) speaks that one in place of the key picked: sound only, the pick and its draws stay.
 pub(super) fn play_lines(
     mut g: ResMut<Game>,
-    figures: Query<(&super::Figure, &crate::character::Motion)>,
+    figures: Query<(Entity, &super::Figure, &crate::character::Motion, Option<&crate::character::Talk>)>,
     sound: Option<Res<crate::audio::Sound>>,
     voices: Option<Res<crate::audio::VoiceBanks>>,
     heard: Res<super::heard::Heard>,
     mut played: ResMut<super::heard::Played>,
+    mut commands: Commands,
+    time: Res<Time<Virtual>>,
 ) {
     let lines = std::mem::take(&mut g.lines);
     let (Some(sound), Some(voices)) = (sound, voices) else { return };
+    // a line done or cut gives the mouth back to the clip
+    for (e, .., talk) in &figures {
+        if talk.is_some_and(|t| !sound.playing(t.id)) {
+            commands.entity(e).remove::<crate::character::Talk>();
+        }
+    }
     for line in lines {
         let (i, p) = match line {
             Line::Emote(i, mut p) | Line::Reaction(i, mut p) => {
-                if let Some((_, m)) = figures.iter().find(|(f, _)| f.0 == i)
+                if let Some((_, _, m, _)) = figures.iter().find(|(_, f, ..)| f.0 == i)
                     && voice_keys(m.id).is_some_and(|v| v.0 == p.program)
                     && let Some(k) = g.data.get(i).and_then(|d| d.drawn_voice(m.id, m.sets))
                 {
@@ -233,13 +241,18 @@ pub(super) fn play_lines(
         }
         let bank = voices.0.get(p.slot as usize - 1).and_then(|b| b.as_ref());
         // B594: the player's one emote voice, through the mixer's (`audio::Sound::emote`)
-        if let Line::Emote(..) = line {
-            sound.emote(i, |s| bank.map_or(0, |b| s.play_at(b, p, at)));
+        let id = if let Line::Emote(..) = line {
+            sound.emote(i, |s| bank.map_or(0, |b| s.play_at(b, p, at)))
         } else {
             sound.stop_emotes();
-            if let Some(b) = bank {
-                sound.play_at(b, p, at);
-            }
+            bank.map_or(0, |b| sound.play_at(b, p, at))
+        };
+        // a mod's line (its own wav) moves the mouth with it
+        let pcm = bank.and_then(|b| b.wav.get(&(p.program as usize))?.get(p.key as usize));
+        if let (Some((pcm, rate)), Some((e, ..)), Some(d)) = (pcm, figures.iter().find(|(_, f, ..)| f.0 == i), g.data.get(i))
+            && let Some(talk) = crate::character::Talk::new(d, id, time.elapsed_secs_f64(), pcm, *rate)
+        {
+            commands.entity(e).insert(talk);
         }
     }
 }

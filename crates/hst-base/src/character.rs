@@ -636,6 +636,105 @@ pub struct Rig {
     pub joints: Vec<Entity>,
 }
 
+/// A voice line a mod character is speaking (looks only): per frame from `start` (seconds of virtual time), the
+/// vowel target its mouth makes and how far open. The face's other mouth targets give way as it opens; the eyes
+/// and, once the line has no shapes left, the mouth are the clip's again. `id` is the line's play.
+#[derive(Component, Clone)]
+pub struct Talk {
+    pub id: u64,
+    pub start: f64,
+    shapes: Arc<[(usize, f32)]>,
+    mouths: Arc<[usize]>,
+}
+
+/// Vowel mouth targets by how high the line's pitch sits (zero crossings): low lines round the mouth, bright ones
+/// spread it.
+const VOWELS: [&str; 5] = ["u_mouth", "o_mouth", "a_mouth", "e_mouth", "i_mouth"];
+
+impl Talk {
+    /// `data`'s mouth for mono `pcm` at `rate` Hz, or `None` without a vowel target (a face with no mouth to move).
+    pub fn new(data: &CharacterData, id: u64, start: f64, pcm: &[i16], rate: u32) -> Option<Self> {
+        let names = &data.morph_names;
+        let vowels: Vec<usize> = VOWELS
+            .iter()
+            .filter_map(|v| names.iter().position(|n| n == v))
+            .collect();
+        if vowels.is_empty() || rate == 0 {
+            return None;
+        }
+        let mouths = names
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.contains("mouth"))
+            .map(|(i, _)| i)
+            .collect();
+        Some(Self {
+            id,
+            start,
+            shapes: mouth_track(&vowels, pcm, rate).into(),
+            mouths,
+        })
+    }
+
+    /// The shape at `now` (seconds of virtual time), or `None` once the line is through.
+    fn at(&self, now: f64) -> Option<(usize, f32)> {
+        self.shapes
+            .get(((now - self.start).max(0.0) * 60.0) as usize)
+            .copied()
+    }
+}
+
+/// One (vowel target, openness) per 1/60 s of mono `pcm` at `rate` Hz.
+fn mouth_track(vowels: &[usize], pcm: &[i16], rate: u32) -> Vec<(usize, f32)> {
+    let window = (rate / 60).max(1) as usize;
+    let frames: Vec<(f32, f32)> = pcm
+        .chunks(window)
+        .map(|w| {
+            let rms = (w.iter().map(|&s| (s as f32).powi(2)).sum::<f32>() / w.len() as f32).sqrt();
+            let crossings =
+                w.windows(2).filter(|p| (p[0] < 0) != (p[1] < 0)).count() as f32 / w.len() as f32;
+            (rms, crossings)
+        })
+        .collect();
+    let peak = frames.iter().map(|f| f.0).fold(1.0, f32::max);
+    let mut sorted: Vec<f32> = frames.iter().map(|f| f.1).collect();
+    sorted.sort_by(f32::total_cmp);
+    // ponytail: loudness and zero crossings stand in for phonemes; a viseme track per line if mods ever ship one
+    let mut open = 0.0f32;
+    frames
+        .iter()
+        .map(|&(rms, zc)| {
+            // quick to open, slower to close, as a jaw does; quiet under a tenth of the line's peak stays shut
+            let target = ((rms / peak - 0.1) / 0.6).clamp(0.0, 1.0);
+            open = if target > open {
+                target
+            } else {
+                open * 0.75 + target * 0.25
+            };
+            let rank = sorted.partition_point(|&x| x < zc) as f32 / sorted.len() as f32;
+            (
+                vowels[((rank * vowels.len() as f32) as usize).min(vowels.len() - 1)],
+                open,
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[test]
+fn mouth_track_opens_on_sound_only() {
+    let rate = 6000;
+    let mut pcm = vec![0i16; 200];
+    pcm.extend((0..400).map(|i| if i % 10 < 5 { 8000 } else { -8000 }));
+    pcm.extend(vec![0i16; 600]);
+    let track = mouth_track(&[3, 4], &pcm, rate);
+    assert_eq!(track.len(), 12);
+    assert_eq!(track[0].1, 0.0);
+    assert_eq!(track[3].1, 1.0);
+    assert!(track[11].1 < 0.2 && track[11].1 < track[7].1);
+}
+
+
 /// The motion a character plays: the game's motion number and its clock (`hst_sim::motion::Clock`), with the
 /// sampled time one tick earlier (drawing blends the two).
 #[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -1475,19 +1574,20 @@ pub fn seats(mut commands: Commands, rigs: Query<(Entity, &Rig, &Motion)>, mut s
 /// the clip at the blended time; joints and face weights are written only when they change.
 pub fn animate(
     time: Res<Time<Fixed>>,
-    mut rigs: Query<(Entity, &Rig, &Motion, &mut bevy::mesh::morph::MorphWeights, Has<crate::shadow::Minor>, Option<&Visibility>)>,
+    now: Res<Time>,
+    mut rigs: Query<(Entity, &Rig, &Motion, &mut bevy::mesh::morph::MorphWeights, Has<crate::shadow::Minor>, Option<&Visibility>, Option<&Talk>)>,
     mut joints: Query<&mut Transform>,
     mut cache: Local<bevy::platform::collections::HashMap<Entity, Posing>>,
     mut frame: Local<u32>,
 ) {
     *frame = frame.wrapping_add(1);
-    for (root, rig, motion, mut weights, minor, shown) in &mut rigs {
+    for (root, rig, motion, mut weights, minor, shown, talk) in &mut rigs {
         if put_away(minor, shown) {
             continue;
         }
         let c = cache.entry(root).or_default();
         c.frame = *frame;
-        c.face(rig, motion, &mut weights);
+        c.face(rig, motion, talk, now.elapsed_secs_f64(), &mut weights);
         let Some(new) = rig.data.drawn_take(motion.id, motion.sets) else { continue };
         // a mod's own clip that the game starts or ends with a cut (an emote, a reaction) eases in from the pose last
         // drawn, and the clip after it eases out of it alike (an emote cut where its clip stops moving)
@@ -1657,7 +1757,7 @@ fn untwist_thighs(data: &CharacterData, drawn: &[(Quat, Vec3)]) -> Vec<(usize, (
 pub struct Posing {
     poses: [(Option<PoseKey>, Vec<(Quat, Vec3)>); 2],
     arm: Option<(([[f32; 4]; 4], u32, usize), Vec<(usize, Quat)>)>,
-    face: Option<(usize, u32)>,
+    face: Option<(usize, u32, Option<(usize, u32)>)>,
     frame: u32,
     /// This frame's drawn pose (each joint's rotation and translation), kept for its allocation.
     drawn: Vec<(Quat, Vec3)>,
@@ -1800,14 +1900,29 @@ impl Posing {
     /// The face: each bound track's weight at the face clock's last sampled time (unbound targets 0), written when
     /// the face or its time changed.
     // ponytail: the key cursor restarts from 0 each sample; the game walks from the last key, ≤1 ulp apart after a wrap
-    fn face(&mut self, rig: &Rig, motion: &Motion, weights: &mut Mut<bevy::mesh::morph::MorphWeights>) {
+    fn face(
+        &mut self,
+        rig: &Rig,
+        motion: &Motion,
+        talk: Option<&Talk>,
+        now: f64,
+        weights: &mut Mut<bevy::mesh::morph::MorphWeights>,
+    ) {
         // a mod's clip with a face of its own plays it on the clip's clock instead of the donor's
         let own = rig.data.drawn_face(motion.id, motion.sets);
         let (face, t) = match own {
             Some(f) => (Some(f), motion.drawn.sampled),
             None => (rig.data.faces.get(&motion.face), motion.face_clock.sampled),
         };
-        let key = (Arc::as_ptr(&rig.data) as usize ^ own.map_or(motion.face, |f| f as *const Face as usize), t.to_bits());
+        // a line spoken over a take that has its own (`take_voices`) keeps the take's mouth: it was made with it
+        let shape = talk
+            .filter(|_| rig.data.drawn_voice(motion.id, motion.sets).is_none())
+            .and_then(|t| Some((t, t.at(now)?)));
+        let key = (
+            Arc::as_ptr(&rig.data) as usize ^ own.map_or(motion.face, |f| f as *const Face as usize),
+            t.to_bits(),
+            shape.map(|s| (s.1.0, s.1.1.to_bits())),
+        );
         if self.face == Some(key) {
             return;
         }
@@ -1816,6 +1931,16 @@ impl Posing {
         w.fill(0.0);
         if let Some(face) = face {
             face.weights(hst_sim::ps2::mul(t, 80.0), w);
+        }
+        if let Some((talk, (vowel, open))) = shape {
+            for &m in talk.mouths.iter() {
+                if let Some(x) = w.get_mut(m) {
+                    *x *= 1.0 - open;
+                }
+            }
+            if let Some(x) = w.get_mut(vowel) {
+                *x = (*x + open).min(1.0);
+            }
         }
     }
 }
