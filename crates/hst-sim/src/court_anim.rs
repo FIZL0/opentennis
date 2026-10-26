@@ -6,6 +6,10 @@
 //! added to the packet's texture coordinates, swapped for packets stored swapped ([`Packet::uv_swap`]); where two
 //! tracks reach one packet the later one wins. `.MTA` tracks bind as the effects' do ([`crate::effect`]).
 //!
+//! A `.MOR` ([`CourtAnim::with_morphs`]) weights the model's morph targets, a track binding the target of its own name
+//! (`000shibuki\x01000shibuki001`), on a clock of its own as the faces' ([`crate::face`]): court 2's surf foam slides
+//! up and back down the beach. A vertex is drawn at its rest place plus each target's offset times the target's weight.
+//!
 //! [`Packet::uv_swap`]: hst_data::mdl::Packet::uv_swap
 #![deny(clippy::float_arithmetic)]
 
@@ -34,6 +38,17 @@ pub struct CourtAnim {
     alpha: Option<Channel>,
     /// Per material its alpha (1 = the MTL's 0x80).
     pub alphas: Vec<f32>,
+    morph: Option<Morphs>,
+}
+
+/// The `.MOR`: each bound track (morph target, ticks, weights, sampler cursor), the clock, and every target's weight
+/// this frame.
+struct Morphs {
+    tracks: Vec<(usize, Vec<i32>, Vec<[f32; 4]>, usize)>,
+    tpf: f32,
+    length: f32,
+    clock: Clock,
+    weights: Vec<f32>,
 }
 
 impl CourtAnim {
@@ -77,12 +92,42 @@ impl CourtAnim {
             swap,
             alpha,
             alphas: materials.iter().map(|m| m.color[3]).collect(),
+            morph: None,
         }
+    }
+
+    /// With the model's `.MOR` playing from the start (speed 1, looping) over its morph targets; tracks whose target
+    /// the model lacks never play, but count toward the clock's length.
+    pub fn with_morphs(mut self, mdl: &Model, mor: Option<&Tracks>) -> CourtAnim {
+        let Some(mor) = mor else { return self };
+        let tracks: Vec<_> = mor
+            .tracks
+            .iter()
+            .filter_map(|tr| {
+                let target = mdl.morph_names.iter().position(|n| *n == tr.name)?;
+                Some((target, tr.ticks.clone(), tr.values.clone(), 0))
+            })
+            .collect();
+        if !tracks.is_empty() {
+            self.morph = Some(Morphs {
+                tracks,
+                tpf: mor.ticks_per_frame as f32,
+                length: face::length(mor.tracks.iter().map(|t| &t.ticks[..]), mor.ticks_per_frame),
+                clock: Clock::start(1.0, true, None),
+                weights: vec![0.0; mdl.morph_names.len()],
+            });
+        }
+        self
+    }
+
+    /// Each morph target's weight this frame (empty without a `.MOR`).
+    pub fn morph_weights(&self) -> &[f32] {
+        self.morph.as_ref().map_or(&[], |m| &m.weights)
     }
 
     /// Anything to play.
     pub fn is_empty(&self) -> bool {
-        self.uva.is_empty() && self.alpha.as_ref().is_none_or(|a| a.length == 0.0)
+        self.uva.is_empty() && self.alpha.as_ref().is_none_or(|a| a.length == 0.0) && self.morph.is_none()
     }
 
     /// The `.UVA` track driving packet `packet` of material `material`.
@@ -116,6 +161,13 @@ impl CourtAnim {
             a.clock.tick(a.length);
             a.apply(&mut self.alphas, 1.0);
         }
+        if let Some(m) = &mut self.morph {
+            m.clock.tick(m.length);
+            let t = (F(m.clock.sampled) * m.tpf).0;
+            for (target, ticks, values, cursor) in &mut m.tracks {
+                m.weights[*target] = face::sample(ticks, values, t, cursor, false)[0];
+            }
+        }
     }
 }
 
@@ -146,5 +198,23 @@ mod tests {
         assert_eq!(a.uv_offset(0, 0).map(f32::to_bits), [0x3da1_1bfd; 2]);
         assert_eq!(a.uv_offset(1, 1).map(f32::to_bits), [0x3eb5_3f7c; 2]);
         assert_eq!(a.uv_offset(2, 0), [0.0; 2]);
+    }
+
+    #[test]
+    fn morph_weights_follow_the_mor() {
+        // a 100-frame `.MOR` (80 ticks a frame): one target fades in over it, another holds; a track naming no
+        // target is left out, and a target with no track stays at 0
+        let track = |name: &str, a: f32, b: f32| Track { name: name.into(), ticks: vec![0, 8000], values: vec![[a, 0.0, 0.0, 0.0], [b, 0.0, 0.0, 0.0]] };
+        let mor = Tracks { ticks_per_frame: 80, tracks: vec![track("spray1", 0.0, 1.0), track("spray2", 0.7, 0.7), track("gone", 1.0, 1.0)] };
+        let mdl = Model { morph_names: vec!["spray1".into(), "spray2".into(), "spray3".into()], ..Model::default() };
+        assert!(CourtAnim::new(&mdl, None, None, &[]).with_morphs(&mdl, None).morph_weights().is_empty());
+        let mut a = CourtAnim::new(&mdl, None, None, &[]).with_morphs(&mdl, Some(&mor));
+        assert!(!a.is_empty());
+        for _ in 0..51 {
+            a.tick();
+        }
+        let w = a.morph_weights();
+        assert!((w[0] - 0.5).abs() < 0.02, "{w:?}");
+        assert_eq!(&w[1..], [0.7, 0.0]);
     }
 }

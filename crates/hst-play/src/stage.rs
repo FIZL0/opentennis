@@ -122,6 +122,32 @@ pub fn mesh<'a>(packets: impl Iterator<Item = &'a mdl::Packet>, model: &mdl::Mod
     Some(mesh)
 }
 
+/// B678: per morph target ([`mdl::Model::morph_names`]), each vertex of [`mesh`]'s mesh of these packets moved by
+/// its offset at weight 1 (model space, the packets placed as `mesh` places them).
+pub fn morph_offsets<'a>(packets: impl Iterator<Item = &'a mdl::Packet>, model: &mdl::Model) -> Vec<Vec<[f32; 3]>> {
+    let mut out = vec![Vec::new(); model.morph_names.len()];
+    for pk in packets {
+        let base = out.first().map_or(0, Vec::len);
+        if pk.palette.len() > 1 {
+            let (verts, _, morph) = model.skin_packet(pk);
+            for (t, o) in out.iter_mut().enumerate() {
+                o.extend((0..verts.len()).map(|v| morph.get(t).and_then(|m| m.get(v)).copied().unwrap_or([0.0; 3])));
+            }
+            continue;
+        }
+        let m = pk.palette.first().and_then(|&n| model.node_bind.get(n)).map_or(Mat4::IDENTITY, Mat4::from_cols_array_2d);
+        for (t, o) in out.iter_mut().enumerate() {
+            o.resize(base + pk.vertices.len(), [0.0; 3]);
+            for &(e, d) in pk.morphs.get(t).into_iter().flatten() {
+                if let Some(o) = o.get_mut(base + e) {
+                    *o = m.transform_vector3(Vec3::from(d)).to_array();
+                }
+            }
+        }
+    }
+    out
+}
+
 pub fn image(t: &mtl::Texture) -> Image {
     let mut img = Image::new(
         Extent3d { width: t.width.max(1), height: t.height.max(1), depth_or_array_layers: 1 },

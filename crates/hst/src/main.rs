@@ -765,7 +765,7 @@ fn load_court(
     let mut shade_world = (n != 7).then(|| hst_sim::court::world(iso, n));
     // P135: structures that play their own motion (court 5's carts' wheels, court 6's horses), by plant record
     let mut posed: std::collections::HashMap<usize, _> = hst_sim::court::drawn(iso, n, season).into_iter().collect();
-    let CourtLibrary { library, mut anims, sky_colour, hole_box, raw_models, model_shapes } =
+    let CourtLibrary { library, mut anims, sky_colour, hole_box, raw_models, model_shapes, mut morphs } =
         court_library(iso, n, args.singles, skip, &posed.keys().copied().collect::<Vec<_>>(), images, meshes, gs_materials);
     // the season's fog on every court material (FGE batches use it)
     let envir = iso.read(&format!("{dir}/CMN.XB")).ok().and_then(|d| {
@@ -844,7 +844,11 @@ fn load_court(
             // the hole model's own .UVA/.MTA play from the start (water, waterfalls)
             if let Some((anim, tags)) = anims.remove(&e.stem).filter(|(a, _)| e.dir == "hole" && !a.is_empty()) {
                 let parts = parts.iter().zip(tags).map(|((_, m), t)| (m.clone(), t)).collect();
-                commands.spawn(court_anim::Playing { anim, parts });
+                let morph = morphs.remove(&e.stem).filter(|m| !m.meshes.is_empty());
+                let id = commands.spawn(court_anim::Playing { anim, parts }).id();
+                if let Some(m) = morph {
+                    commands.entity(id).insert(m);
+                }
             }
         }
     }
@@ -971,6 +975,8 @@ struct CourtLibrary {
     /// the posed structures' and the hole's models; its materials and textures only for the hole (the shade map's)
     raw_models: std::collections::HashMap<String, (mdl::Model, Option<mtl::Mtl>)>,
     model_shapes: std::collections::HashMap<String, hst_sim::shade::Shape>,
+    /// B678: the meshes each model's `.MOR` moves (court 2's surf washing up the beach)
+    morphs: std::collections::HashMap<String, court_anim::Morph>,
 }
 
 /// Court `n`'s library: every model its layout spawns (`skip` aside), from its common, ground and hole archives;
@@ -990,6 +996,7 @@ fn court_library(
     let season = singles as usize;
     let mut library = std::collections::HashMap::new();
     let mut anims = std::collections::HashMap::new();
+    let mut morphs = std::collections::HashMap::new();
     let mut sky_colour = std::collections::HashMap::new();
     let (mut hole_box, mut raw_models) = (std::collections::HashMap::new(), std::collections::HashMap::new());
     let mut model_shapes = std::collections::HashMap::new();
@@ -1016,6 +1023,16 @@ fn court_library(
             model_shapes.insert(stem.clone(), hst_sim::shade::Shape::new(&model, &mats));
             let tags: Vec<_> = parts.iter().flat_map(|(_, g, t)| std::iter::repeat_n(*t, g.len())).collect();
             let parts = add_parts(parts.into_iter().map(|(m, g, _)| (m, g)).collect(), meshes, gs_materials);
+            if !anim.morph_weights().is_empty() {
+                let mut done = std::collections::HashSet::new();
+                let moved = parts.iter().zip(&tags).filter(|((h, _), _)| done.insert(h.id())).filter_map(|((h, _), &(mi, pi))| {
+                    let packets = &model.materials[mi];
+                    let key = |p: usize| batch_key(&packets[p], anim.uv_track(mi, p));
+                    let offsets = morph_offsets((0..packets.len()).filter(|&p| key(p) == key(pi)).map(|p| &packets[p]), &model);
+                    court_anim::MorphMesh::new(meshes.get(h)?, h.id(), &offsets)
+                });
+                morphs.insert(stem.clone(), court_anim::Morph { meshes: moved.collect() });
+            }
             anims.insert(stem.clone(), (anim, tags));
             library.insert(stem.clone(), parts);
             let hole = holes.contains(stem.as_str());
@@ -1024,7 +1041,7 @@ fn court_library(
             }
         });
     }
-    CourtLibrary { library, anims, sky_colour, hole_box, raw_models, model_shapes }
+    CourtLibrary { library, anims, sky_colour, hole_box, raw_models, model_shapes, morphs }
 }
 
 /// The match's weather schedule and generators, from court `n`'s odds and the match seed (`seed`: online, the host's);
@@ -1180,7 +1197,8 @@ fn gs_models_anim(
     };
     for_models(data, keep, |stem, model, mats| {
         let _pre = textures::prefetch(&mats);
-        let anim = hst_sim::court_anim::CourtAnim::new(&model, tracks(&stem, "uva", 4).as_ref(), tracks(&stem, "mta", 1).as_ref(), &mats.materials);
+        let anim = hst_sim::court_anim::CourtAnim::new(&model, tracks(&stem, "uva", 4).as_ref(), tracks(&stem, "mta", 1).as_ref(), &mats.materials)
+            .with_morphs(&model, tracks(&stem, "mor", 1).as_ref());
         // P32: a hole material whose alpha the `.MTA` animates, or whose texture a live reload can change, keeps its
         // blended draws whole
         let fixed_alpha = tracks(&stem, "mta", 1).is_none() && std::env::var_os("HST_TEXTURE_RELOAD").is_none();
