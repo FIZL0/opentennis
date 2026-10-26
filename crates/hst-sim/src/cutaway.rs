@@ -716,11 +716,12 @@ pub struct PickInput {
 /// Who the cut-away shows and who is the other subject, from the roles `[a, b]` (a = the last hitter, b = the one
 /// before; the server and receiver until the return): `a`, unless it isn't on the last hitter's (`last`, −1 for
 /// none) team; on a point that ends a game whichever of the two is on the winning team (`winner`, team = index & 1).
-/// After every third instant replay of the match (`replays`) they swap again, unless the other one is `diving`.
-pub fn roles([a, b]: [usize; 2], last: i32, game_end: bool, winner: i32, replays: i32, diving: impl Fn(usize) -> bool) -> [usize; 2] {
+/// After every third instant replay of the match (`replays`) they swap again, unless the other one was
+/// `hit_by_ball` (stands in the hit-by-the-ball state; a diving player does get swapped onto).
+pub fn roles([a, b]: [usize; 2], last: i32, game_end: bool, winner: i32, replays: i32, hit_by_ball: impl Fn(usize) -> bool) -> [usize; 2] {
     let swap = if game_end { a as i32 & 1 != (winner != 0) as i32 } else { last >= 0 && a as i32 & 1 != last & 1 };
     let [s, o] = if swap { [b, a] } else { [a, b] };
-    if replays != 0 && replays % 3 == 0 && !diving(o) { [o, s] } else { [s, o] }
+    if replays != 0 && replays % 3 == 0 && !hit_by_ball(o) { [o, s] } else { [s, o] }
 }
 
 /// Which post-point shot comes next: the point's list (a point, a game-ending point, a team reaction) cycled by

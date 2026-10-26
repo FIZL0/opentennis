@@ -315,3 +315,83 @@ fn close_up_s05() {
     eprintln!("{n} frames checked ({close} close-up), worst {worst}; {stale} stale samples");
     assert!(close > 300 && stale < 5 && worst < 1e-3, "worst {worst}");
 }
+
+/// B674: matches with one human, P1 (`fixtures/b674/cutaway_s03.bin`, `cutaway_s04.bin`: doubles, the saves' only
+/// one-human matches; `tools/record_cutaway.py … --players --slot N --press`): the controllers change nothing, the shown and other
+/// player, the shown player's win or loss reaction and the picked shot follow the same rule as in the all-CPU match.
+/// Between them the recordings hold the human losing a point by their own miss, the CPU winning one by its own shot,
+/// and game-ending points.
+#[test]
+fn director_one_human() {
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("ISO absent, skipped"));
+    };
+    let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
+    let lists = Game::new(&cnf, &bin).unwrap().cutaway_lists();
+    let mut seen = [0; 3];
+    for name in ["cutaway_s03.bin", "cutaway_s04.bin"] {
+        let Ok(data) = fixture::read(format!("{dir}/b674/{name}")) else {
+            return fixture::skip(format_args!("b674/{name} absent, skipped"));
+        };
+        let n = one_human(&data, &lists);
+        eprintln!("{name}: human lost by own shot {}, CPU won by own shot {}, game ends {}", n[0], n[1], n[2]);
+        seen = std::array::from_fn(|i| seen[i] + n[i]);
+    }
+    assert!(seen.iter().all(|&n| n > 0), "{seen:?}");
+}
+
+/// [`director_one_human`] over one recording: the points the human lost by their own shot, the CPU won by its own
+/// shot, and the game-ending ones.
+fn one_human(data: &[u8], lists: &[Vec<u8>; 3]) -> [usize; 3] {
+    use hst_sim::{cutaway::{self, PickInput}, motion};
+    const X: usize = SAMPLE;
+    const PL: usize = X + 0xd8;
+    let i32_ = |s: &[u8], o: usize| i32::from_le_bytes(s[o..o + 4].try_into().unwrap());
+    let samples: Vec<&[u8]> = data.as_chunks::<{ PL + 4 * 0x170 }>().0.iter().map(|s| s.as_slice()).collect();
+    let pl = |i: usize| PL + 0x170 * i;
+    let roles = |s: &[u8], o: usize| i32_(s, TAB + 0x1800 + o);
+    // the post-point cut-aways: a run of one shot with a winner and the shown player reacting (the set's end
+    // sequence that follows isn't the director's)
+    let starts: Vec<usize> = (0..samples.len())
+        .filter(|&k| k == 0 || i32_(samples[k], 0) != i32_(samples[k - 1], 0) + 1 || samples[k][CAM + 0x114] != samples[k - 1][CAM + 0x114])
+        .filter(|&k| i32_(samples[k], X + 0x68) >= 0 && i32_(samples[k], pl(roles(samples[k], 0x1a0) as usize) + 0x110) != 0)
+        .collect();
+    let players = if samples.iter().any(|s| (0x198..0x1a8).step_by(4).any(|o| roles(s, o) > 1)) { 4 } else { 2 };
+    let mut seen = [0; 3];
+    for (j, &k) in starts.iter().enumerate() {
+        let s = samples[k];
+        let (last, game_end, winner, replays) = (i32_(s, X + 0x18), i32_(s, X + 0x78) > 0, i32_(s, X + 0x68), i32_(s, X + 0x98 + 0x18));
+        let hit = |i: usize| i32_(s, pl(i) + 0x110) == motion::id::HIT_BY_BALL;
+        let [shown, other] = cutaway::roles([0x198, 0x19c].map(|o| roles(s, o) as usize), last, game_end, winner, replays, hit);
+        assert_eq!([shown, other], [0x1a0, 0x1a4].map(|o| roles(s, o) as usize), "cut-away {j} roles");
+        let won = shown as i32 & 1 == winner & 1;
+        let reaction = i32_(s, pl(shown) + 0x110);
+        let base = motion::reaction(hit(shown), players, won, game_end, false);
+        let team = players == 4 && matches!(base, motion::id::WON | motion::id::LOST) && reaction >= motion::id::TEAM;
+        assert!(reaction == base || team, "cut-away {j} reaction {reaction:#x}, want {base:#x}");
+        if game_end {
+            seen[2] += 1;
+        } else if last == 0 && shown == 0 && !won {
+            seen[0] += 1;
+        } else if last & 1 == 1 && shown as i32 == last && won {
+            seen[1] += 1;
+        }
+        // the pick, from the counters the previous cut-away left (the recording starts mid-match)
+        if j > 0 {
+            let before = samples[starts[j - 1]];
+            let mut counters: [usize; 3] = std::array::from_fn(|i| i32_(before, X + 0x80 + 8 * i) as usize);
+            let number = cutaway::pick(lists, &mut counters, &PickInput {
+                team: reaction >= motion::id::TEAM,
+                game_end,
+                lost: !won,
+                low: mat(s, TAB + 61 * 0x40)[3][1] > -0.8,
+                replays,
+                character: i32_(s, pl(shown) + 0x124),
+            });
+            assert_eq!(number, s[CAM + 0x114], "cut-away {j} shot");
+            assert_eq!(counters.map(|c| c as i32), std::array::from_fn(|i| i32_(s, X + 0x80 + 8 * i)), "cut-away {j} counters");
+        }
+    }
+    seen
+}
