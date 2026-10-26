@@ -302,8 +302,12 @@ fn step_teams(g: Option<Res<Game>>, p: Option<Res<Personal>>, pads: Option<Res<P
     }
     let n = g.players.len();
     t.1 = if g.phase == Phase::Rally { t.1 + 1 } else { 0 };
-    let play = alt_cam::Play::new(g.shots.max(0) as u32, (g.phase == Phase::Rally).then_some(t.1));
-    if matches!(g.phase, Phase::Serve | Phase::Rally) || t.0.is_empty() {
+    // B669: the change of ends' move aims at the next point already (the ball in the server's hand, nothing struck),
+    // so the serve carries on from it without a jump
+    let changing = matches!(g.phase, Phase::ChangeEnds(_));
+    let shots = if changing { 0 } else { g.shots.max(0) as u32 };
+    let play = alt_cam::Play::new(shots, (g.phase == Phase::Rally).then_some(t.1));
+    if matches!(g.phase, Phase::Serve | Phase::Rally) || changing || t.0.is_empty() {
         t.2 = g.flight.ball.pos;
     }
     let ball = t.2;
