@@ -25,7 +25,7 @@ use bevy::prelude::*;
 use hst_data::iso::Iso;
 use hst_sim::sound;
 
-use super::previews::{Card, Pending};
+use super::previews::{Card, Hidden, Pending};
 use super::{Dev, Menu, Screen, Who};
 use crate::audio::{Sound, SoundBank};
 use crate::character::{self, Motion};
@@ -162,7 +162,7 @@ fn play(
     mut rigs: Query<(&mut Motion, &mut Transform, &mut UvClock)>,
     mut pending: ResMut<Pending>,
     (args, sound, time): (Res<crate::Args>, Option<Res<Sound>>, Res<Time>),
-    mut commands: Commands,
+    (mut commands, hidden): (Commands, Res<Hidden>),
 ) {
     let now = time.elapsed_secs();
     let mut live = [false; 4];
@@ -174,6 +174,9 @@ fn play(
         if plates.until[i].is_some_and(|t| now >= t) {
             plates.until[i] = None;
             inspect::apply(&mut p, inspect::Act::Pose, &mut rigs, &d);
+        }
+        if hidden.0[i] {
+            continue;
         }
         let Some((dir, _)) = plates.queued[i].take() else { continue };
         let id = MOTIONS[dir as usize];

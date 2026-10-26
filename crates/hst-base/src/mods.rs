@@ -1125,6 +1125,32 @@ fn prim(p: &gltf::Primitive, blob: &[u8], names: &[String]) -> Result<Prim, Stri
     })
 }
 
+/// How far each `*mouth*` target of a part parts the lips: the middle third of the mouth (the vertices its targets
+/// move), split at its median height, the higher half's greatest rise plus the lower's greatest drop, whichever way
+/// up the model is.
+fn lips_parted(pos: &[[f32; 3]], morph: &[(String, Vec<[f32; 3]>)]) -> Vec<(String, f32)> {
+    let mouths: Vec<_> = morph.iter().filter(|t| t.0.contains("mouth")).collect();
+    let moved: Vec<usize> = (0..pos.len()).filter(|&i| mouths.iter().any(|t| t.1[i].iter().any(|d| d.abs() > 1e-4))).collect();
+    if moved.len() < 4 {
+        return Vec::new();
+    }
+    let median = |k: usize| {
+        let mut v: Vec<f32> = moved.iter().map(|&i| pos[i][k]).collect();
+        v.sort_by(f32::total_cmp);
+        (v[v.len() / 2], v[v.len() - 1] - v[0])
+    };
+    let ((cx, w), (cy, _)) = (median(0), median(1));
+    let mid: Vec<usize> = moved.into_iter().filter(|&i| (pos[i][0] - cx).abs() < 0.2 * w).collect();
+    mouths
+        .iter()
+        .map(|(name, d)| {
+            let rise = mid.iter().filter(|&&i| pos[i][1] >= cy).map(|&i| d[i][1]).fold(0.0, f32::max);
+            let drop = mid.iter().filter(|&&i| pos[i][1] < cy).map(|&i| -d[i][1]).fold(0.0, f32::max);
+            (name.clone(), rise + drop)
+        })
+        .collect()
+}
+
 /// The skin's joints in game space (below `game_space`): each joint's world there, its parent the nearest joint above it.
 fn joints_of(doc: &gltf::Document, blob: &[u8]) -> Vec<Joint> {
     let Some(skin) = doc.skins().next() else { return Vec::new() };
@@ -1471,6 +1497,7 @@ pub fn load_with(
     }
     let mut deformers = Vec::new();
     let mut swaying = Vec::new();
+    let mut opens = HashMap::new();
     // a mesh without a skin rides the nearest joint at or above its node (Get a Grip's heads and faces), whole
     let rides = |n: &gltf::Node| {
         let mut p = Some(n.index());
@@ -1490,6 +1517,10 @@ pub fn load_with(
         deformers.extend(noise_deformers(&mesh));
         for p in mesh.primitives() {
             let mut v = prim(&p, &blob, &tn).map_err(ctx)?;
+            for (t, o) in lips_parted(&v.pos, &v.morph) {
+                let e = opens.entry(t).or_insert(0.0f32);
+                *e = e.max(o);
+            }
             if let Some(j) = rigid {
                 // into game space at bind, all on joint j
                 let to = space * w[n.index()];
@@ -1629,7 +1660,8 @@ pub fn load_with(
         c.tracks.retain(|t| !sprung.contains(&t.node));
     }
     let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs, colliders: crate::spring::colliders(&nodes) }));
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, seats, take_voices, feet, grip, frame_gameplay: false, emote_ticks, voice_takes: HashMap::new(), size: 1.0, thigh_twist: 1.0 })
+    let mouth_open = names.iter().map(|n| opens.get(n).copied().unwrap_or(0.0)).collect();
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, seats, take_voices, feet, grip, frame_gameplay: false, emote_ticks, voice_takes: HashMap::new(), size: 1.0, thigh_twist: 1.0, mouth_open })
 }
 
 /// A rigid `.glb` in the mod folder (`racket.glb`, a clip's seat): a mesh and material per primitive, as made.

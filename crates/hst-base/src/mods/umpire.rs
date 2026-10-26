@@ -137,6 +137,7 @@ pub fn load(
         pelvis: Vec::new(),
         arm: None,
         morph_names: Vec::new(),
+        mouth_open: Vec::new(),
         faces: HashMap::new(),
         part_nodes: Vec::new(),
         stance_ball: None,

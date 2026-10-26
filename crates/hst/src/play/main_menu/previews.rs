@@ -107,7 +107,7 @@ struct Fits([Option<(Rect, f32)>; 4]);
 pub(super) fn plugin(app: &mut App) {
     app.add_plugins(inspect::plugin)
         .insert_resource(Time::<Fixed>::from_hz(60.0))
-        .init_resource::<Gone>().init_resource::<Fits>().init_resource::<Pending>().init_resource::<Voices>().init_resource::<ModCard>()
+        .init_resource::<Gone>().init_resource::<Fits>().init_resource::<Pending>().init_resource::<Hidden>().init_resource::<Voices>().init_resource::<ModCard>()
         .add_systems(Startup, start_loader)
         .add_systems(PostStartup, (hover_all, start_baker))
         .add_systems(FixedUpdate, character::tick)
@@ -693,7 +693,7 @@ fn sync(
     mut cards: Local<([Option<Shown>; 4], [Option<(Key, f32)>; 4])>,
     mut loader: ResMut<Loader>,
     mut gone: ResMut<Gone>,
-    (baker, mut pending, slide, fixed, mut shows, mut fits, mut pictures): (Res<Baker>, ResMut<Pending>, Res<super::slide::Slide>, Res<Time<Fixed>>, Query<&mut Visibility, With<Shot>>, ResMut<Fits>, Query<&mut ImageNode, With<Shot>>),
+    (baker, mut pending, slide, fixed, mut shows, mut fits, mut pictures, mut hidden): (Res<Baker>, ResMut<Pending>, Res<super::slide::Slide>, Res<Time<Fixed>>, Query<&mut Visibility, With<Shot>>, ResMut<Fits>, Query<&mut ImageNode, With<Shot>>, ResMut<Hidden>),
 ) {
     let Some(art) = art else { return };
     // the cards follow the select's slide in (`slide.rs`; no fade on a 3D card), and wait while the last screen leaves
@@ -844,6 +844,7 @@ fn sync(
         {
             *v = Visibility::Inherited;
         }
+        hidden.0[p] = slot.as_ref().is_some_and(|s| s.cam.is_some() && shows.get(s.node).is_ok_and(|v| *v == Visibility::Hidden));
         for e in slot.iter().flat_map(|s| [Some(s.node), s.cover.map(|c| c.0)]).flatten() {
             let Some((i, q)) = want else { break };
             let Ok((mut node, mut z, mut flip)) = nodes.get_mut(e) else { continue };
@@ -1528,6 +1529,11 @@ fn pick_voice(who: Who, n: u8, mods: &[Mod], banks: &mut HashMap<String, Option<
 /// Each player's R2/L2 pressed on a card not yet showing its live model.
 #[derive(Resource, Default)]
 pub(super) struct Pending(pub(super) [Option<Act>; 4]);
+
+/// The cards whose live model is loaded but still hidden (under its picture, or waiting for its framing): an emote
+/// waits for it to show, else it plays out unseen under its voice.
+#[derive(Resource, Default)]
+pub(super) struct Hidden(pub(super) [bool; 4]);
 
 /// `HST_SELECT=c,c,c,c`: every player seated on the keyboard, hovering those characters (grid order is not
 /// character order: each is looked up); `c/k` on costume `k`; a trailing `!` swaps the hand (B140).

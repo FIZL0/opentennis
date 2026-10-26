@@ -102,6 +102,8 @@ pub struct CharacterData {
     pub arm: Option<Arc<ArmTable>>,
     /// Face morph targets of the skinned parts by name (`MorphWeights` on the rig root, one weight per target).
     pub morph_names: Vec<String>,
+    /// How far each of those parts the lips at full weight (a mod's, measured as it loads; empty on the disc's).
+    pub mouth_open: Vec<f32>,
     /// Faces by motion number (`.MOR` and `.UVA`, `hst_sim::face`).
     pub faces: HashMap<usize, Face>,
     /// Per part (as `parts`): the nodes its packets' palettes hold (a `.UVA` track binds by node) and whether its
@@ -661,10 +663,18 @@ impl Talk {
     /// `data`'s mouth for mono `pcm` at `rate` Hz, or `None` without a shape to make (a face with no mouth to move).
     pub fn new(data: &CharacterData, id: u64, start: f64, pcm: &[i16], rate: u32) -> Option<Self> {
         let names = &data.morph_names;
-        let vowels: Vec<usize> = SHAPES
+        // a shape that barely parts the lips (a closed grin named `laugh`) talks with the mouth shut: only those
+        // opening at least half the face's widest count, else the widest alone
+        let open = |i: usize| data.mouth_open.get(i).copied().unwrap_or(1.0);
+        let widest = (0..names.len()).filter(|&i| names[i].contains("mouth")).max_by(|&a, &b| open(a).total_cmp(&open(b)));
+        let far = |i: &usize| open(*i) >= 0.5 * widest.map_or(0.0, open);
+        let mut vowels: Vec<usize> = SHAPES
             .iter()
-            .filter_map(|row| row.iter().find_map(|v| names.iter().position(|n| n.rsplit('\x01').next() == Some(*v))))
+            .filter_map(|row| row.iter().find_map(|v| names.iter().position(|n| n.rsplit('\x01').next() == Some(*v))).filter(far))
             .collect();
+        if vowels.is_empty() && !data.mouth_open.is_empty() {
+            vowels.extend(widest.filter(|&i| open(i) > 0.0));
+        }
         if vowels.is_empty() || rate == 0 {
             return None;
         }
@@ -1085,7 +1095,7 @@ pub fn load_disc_with(
     // the game binds a face track to the target of the same name; others are dropped
     let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &skeleton, |name| model.morph_names.iter().position(|m| m == name), only)?;
     let binds = part_skins(&joints, &parts, meshes, bindposes);
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), seats: HashMap::new(), take_voices: HashMap::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new(), voice_takes: HashMap::new(), size: 1.0, thigh_twist: hst_sim::pose::thigh_twist(n, costume) })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), seats: HashMap::new(), take_voices: HashMap::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new(), voice_takes: HashMap::new(), size: 1.0, thigh_twist: hst_sim::pose::thigh_twist(n, costume), mouth_open: Vec::new() })
 }
 
 /// [`load_disc_with`] `scale` times the size (M11, a disc-body mod's §6 `scale`): every rest translation (so every
@@ -1436,6 +1446,7 @@ pub fn load_npc(
         pelvis: Vec::new(),
         arm: None,
         morph_names: model.morph_names.clone(),
+        mouth_open: Vec::new(),
         faces: HashMap::new(),
         part_nodes: Vec::new(),
         stance_ball: None,
@@ -1540,8 +1551,8 @@ pub fn racket_shown(rigs: Query<(&Rig, &Motion)>, mut shown: Query<&mut Visibili
 const SEAT_POP: f32 = 6.0;
 
 /// Draw a mod character's seat while it plays a clip of its own that sits on one (`CharacterData::seats`): it pops
-/// up from the floor as the clip starts and back down as the clip ends, or as soon after as the motion moves on.
-/// Looks only.
+/// up from the floor as the clip starts and back down once the motion moves on (a clip ending seated holds its last
+/// frame on it). Looks only.
 pub fn seats(mut commands: Commands, rigs: Query<(Entity, &Rig, &Motion)>, mut shown: Local<HashMap<Entity, (Entity, (usize, u32), f32)>>) {
     // ease-out-back: a quick overshoot reads as a pop
     let pop = |x: f32| {
@@ -1553,8 +1564,7 @@ pub fn seats(mut commands: Commands, rigs: Query<(Entity, &Rig, &Motion)>, mut s
         let seat = rig.data.drawn_seat(motion.id, motion.sets);
         let s = match shown.get_mut(&root) {
             Some((_, k, s)) if *k == key => {
-                let len = rig.data.drawn_take(motion.id, motion.sets).map_or(0.0, |c| c.length);
-                *s = pop(motion.drawn.time.min(len - motion.drawn.time) / SEAT_POP);
+                *s = pop(motion.drawn.time / SEAT_POP);
                 *s
             }
             // the motion moved on: shrink what's left, then go

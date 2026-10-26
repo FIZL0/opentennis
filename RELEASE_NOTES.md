@@ -31,3 +31,5 @@
 - Custom characters' hair no longer swings into their hats, heads or bodies.
 - Custom characters now move their mouths in time with what they say after a point.
 - Custom characters' emotes on the character select and lobby screens now say the line that goes with each animation, and their mouths move with it; more custom characters move their mouths when they talk.
+- Emotes in the lobby no longer play their voice line without the animation, take turns through all of a custom character's animations instead of repeating one, and a seat a custom character sits on stays under them until they stand up.
+- Custom characters whose faces have no proper talking shapes now open their mouths when they speak.

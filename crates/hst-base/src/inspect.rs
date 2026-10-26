@@ -211,7 +211,8 @@ pub fn apply(p: &mut Preview, act: Act, rigs: &mut Query<(&mut Motion, &mut Tran
     let pose = character::pose_frame(p.n, data.motions.get(&POSE).map_or(0.0, |c| c.length));
     *uv = if act == Act::Pose { uv_held(pose, data) } else { UvClock(Clock::start(1.0, false, None)) };
     let (motion, yaw) = match act {
-        Act::Pose => (held(pose), PI),
+        // the motion sets count on, so the next emote draws the next take (and its line), not the first again
+        Act::Pose => (Motion { sets: m.sets, ..held(pose) }, PI),
         Act::Win | Act::Loss => {
             let id = if act == Act::Win { 0x2e } else { 0x2f };
             let mut m = *m;
