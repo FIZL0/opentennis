@@ -49,3 +49,8 @@ full suite fails only on `mods::tests::oob_hair_swings_and_settles` ("oob_pc00_j
 Bounds resize, opentennis-mods `Out of Bounds sized head to foot…`). B663's slot changes that test's settle frame,
 and M147/M148 are parked on the same failure. Once B663 lands: unblock B664 and rerun
 `tools/done.sh B664 "B664: players are never culled (heads/glasses missing in celebrations)"`.
+
+## Close-out (2026-10-26)
+B663 landed and `oob_hair_swings_and_settles` passes. The fix was already merged into main, but its second cull test
+raced `off_unculls_till_it_goes` on the shared `ON` static: they ran in parallel and the B583 test failed now and
+then. The two tests now take one lock.

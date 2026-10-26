@@ -240,9 +240,13 @@ pub fn check(
 mod tests {
     use super::*;
 
+    /// The tests share the `ON` static: one at a time.
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// B583: `Off` unculls what's spawned and what spawns meanwhile; its going culls them again.
     #[test]
     fn off_unculls_till_it_goes() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let mut app = App::new();
         app.init_resource::<Assets<Mesh>>().insert_resource(crate::graphics::Graphics { cull: true, ..default() }).add_systems(Update, apply);
         set(true);
@@ -264,6 +268,7 @@ mod tests {
     /// setting on and stay so through `Off` coming and going; another rig's stay culled.
     #[test]
     fn a_never_rig_is_never_culled() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let mut app = App::new();
         app.init_resource::<Assets<Mesh>>().insert_resource(crate::graphics::Graphics { cull: true, ..default() }).add_systems(Update, (never, apply).chain());
         set(true);
