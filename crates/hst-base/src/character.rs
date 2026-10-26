@@ -131,6 +131,10 @@ pub struct CharacterData {
     /// A mod's clips drawn without the racket, by motion and take as `own_faces` (`extras.racket: false`: the racket
     /// would go through the body in a move made without one); [`racket_shown`] hides it while one plays.
     pub racketless: HashSet<(usize, usize)>,
+    /// A mod's clips that speak a voice line of their own, by motion and take as `own_faces` (`extras.voice`): the key
+    /// of the motion's reaction program its reaction and emote lines play while that clip is drawn
+    /// ([`drawn_voice`](Self::drawn_voice)).
+    pub take_voices: HashMap<(usize, usize), u8>,
     /// A mod's feet, set down where the donor's are (B543, looks only): see [`Feet`].
     pub feet: Option<Feet>,
     /// A mod's off-hand grip (looks only): see [`Grip`].
@@ -589,6 +593,11 @@ impl CharacterData {
         self.visual.contains_key(&id) && self.racketless.contains(&(id, self.drawn_k(id, sets)))
     }
 
+    /// The voice key the clip [`drawn_take`](Self::drawn_take) draws speaks, if it has one (`take_voices`).
+    pub fn drawn_voice(&self, id: usize, sets: u32) -> Option<u8> {
+        self.visual.contains_key(&id).then(|| self.take_voices.get(&(id, self.drawn_k(id, sets))).copied()).flatten()
+    }
+
     /// Which of motion `id`'s clips `drawn_take` draws: 0 the motion itself, k its k-th take.
     fn drawn_k(&self, id: usize, sets: u32) -> usize {
         self.takes.get(&id).filter(|t| !t.is_empty()).map_or(0, |t| take(sets, t.len() + 1))
@@ -950,7 +959,7 @@ pub fn load_disc_with(
     // the game binds a face track to the target of the same name; others are dropped
     let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &skeleton, |name| model.morph_names.iter().position(|m| m == name), only)?;
     let binds = part_skins(&joints, &parts, meshes, bindposes);
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new(), voice_takes: HashMap::new(), size: 1.0, thigh_twist: hst_sim::pose::thigh_twist(n, costume) })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), take_voices: HashMap::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new(), voice_takes: HashMap::new(), size: 1.0, thigh_twist: hst_sim::pose::thigh_twist(n, costume) })
 }
 
 /// [`load_disc_with`] `scale` times the size (M11, a disc-body mod's §6 `scale`): every rest translation (so every
@@ -1312,6 +1321,7 @@ pub fn load_npc(
         takes: HashMap::new(),
         own_faces: HashMap::new(),
         racketless: Default::default(),
+        take_voices: HashMap::new(),
         feet: None,
         grip: None,
         frame_gameplay: false,
