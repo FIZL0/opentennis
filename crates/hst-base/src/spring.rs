@@ -3,6 +3,8 @@
 //! `stiffness`, velocity kept by `damping`, sagging by `gravity`, at most `limit` degrees off the posed direction)
 //! and its parent turns to point at it; a chain's first record (whose parent has none) is its pinned anchor. Out of Bounds' chains carry these (its `.rem` dynamics records); the
 //! game's own solver is not ported (notes/oob.md *Dynamics*), so this is a plain mass-spring that looks the part.
+//! Masses are pushed out of the source's collision ellipsoids (§3c, `extras.colliders`) on their joints: what keeps
+//! Out of Bounds' hair out of a hat or the head.
 //! Stock characters have no spring joints: their pose and the sim are untouched.
 
 use bevy::prelude::*;
@@ -65,8 +67,8 @@ pub fn plugin(app: &mut App) {
     app.add_systems(Update, (attach, swing.after(crate::character::animate).before(crate::noise::draw)));
 }
 
-fn springs(rig: &Rig) -> &[Mass] {
-    rig.data.noise.as_ref().map_or(&[], |c| &c.springs)
+fn springs(rig: &Rig) -> (&[Mass], &[(usize, Mat4)]) {
+    rig.data.noise.as_ref().map_or((&[], &[]), |c| (&c.springs, &c.colliders))
 }
 
 fn attach(mut commands: Commands, rigs: Query<(Entity, &Rig), Added<Rig>>) {
@@ -75,7 +77,7 @@ fn attach(mut commands: Commands, rigs: Query<(Entity, &Rig), Added<Rig>>) {
         return;
     }
     for (root, rig) in &rigs {
-        if !springs(rig).is_empty() {
+        if !springs(rig).0.is_empty() {
             commands.entity(root).try_insert(Spring::default());
         }
     }
@@ -93,6 +95,46 @@ const CHILD_LAG: f32 = 2f32.to_radians();
 const HANG: usize = 180;
 
 /// One 60 Hz step of a mass toward `target`, hung at `origin`; returns the new position and motion.
+/// The skin's collision ellipsoids (standard §3c): (joint, matrix in its space mapping the unit sphere onto it).
+pub fn colliders(nodes: &[gltf::Node]) -> Vec<(usize, Mat4)> {
+    nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(k, n)| Some((k, serde_json::from_str::<serde_json::Value>(n.extras().as_ref()?.get()).ok()?)))
+        .flat_map(|(k, e)| {
+            let list = e["colliders"].as_array().cloned().unwrap_or_default();
+            list.into_iter().filter_map(move |c| {
+                let v: Vec<f32> = c.as_array()?.iter().filter_map(|x| x.as_f64().map(|x| x as f32)).collect();
+                Some((k, Mat4::from_cols_slice(v.get(..16)?)))
+            })
+        })
+        .collect()
+}
+
+/// `x` (at its segment's length from `origin`) pushed out of each ellipsoid (world matrix, its inverse) that holds
+/// it, unless the pose puts `target` inside it too (a skirt's thigh ellipsoid around a hanging tip: the collider
+/// doesn't fight the pose).
+fn outside(mut x: Vec3, origin: Vec3, target: Vec3, colliders: &[(Mat4, Mat4)]) -> Vec3 {
+    let len = (target - origin).length();
+    // ponytail: out to the surface, back to the segment's length, a few rounds: a tip that can't get out (an
+    // anchor inside the ball) stays near it; a proper sphere-segment solve if hair still pokes in
+    for _ in 0..4 {
+        let mut pushed = false;
+        for (c, inv) in colliders {
+            let u = inv.transform_point3(x);
+            if u.length_squared() < 1.0 && inv.transform_point3(target).length_squared() >= 1.0 {
+                x = c.transform_point3(u.normalize_or(Vec3::Y) * 1.001);
+                pushed = true;
+            }
+        }
+        if !pushed {
+            break;
+        }
+        x = origin + (x - origin).normalize_or_zero() * len;
+    }
+    x
+}
+
 fn step(m: &Mass, origin: Vec3, target: Vec3, (x, v): (Vec3, Vec3)) -> (Vec3, Vec3) {
     let len = (target - origin).length();
     let v = v * m.damping + (target - x) * m.stiffness * SOFT + Vec3::NEG_Y * m.gravity / 3600.0;
@@ -124,7 +166,7 @@ pub fn swing(time: Res<Time>, mut rigs: Query<(&Rig, &GlobalTransform, &mut Spri
         if crate::character::put_away(minor, shown) {
             continue;
         }
-        let masses = springs(rig);
+        let (masses, colliders) = springs(rig);
         // ponytail: whole 60 Hz steps against this frame's pose (none while paused); sub-frame targets if it judders
         s.clock += time.delta_secs() * 60.0;
         let steps = (s.clock.floor() as usize).min(4);
@@ -132,7 +174,7 @@ pub fn swing(time: Res<Time>, mut rigs: Query<(&Rig, &GlobalTransform, &mut Spri
         locals.clear();
         locals.extend(rig.joints.iter().map(|&e| joints.get(e).copied().unwrap_or_default()));
         let parents: Vec<Option<usize>> = rig.data.joints.iter().map(|j| j.parent).collect();
-        solve(masses, &parents, global.to_matrix(), &mut locals, &mut s.state, steps);
+        solve(masses, colliders, &parents, global.to_matrix(), &mut locals, &mut s.state, steps);
         for m in masses {
             if let Ok(mut tf) = joints.get_mut(rig.joints[m.parent]) {
                 tf.set_if_neq(locals[m.parent]);
@@ -143,7 +185,7 @@ pub fn swing(time: Res<Time>, mut rigs: Query<(&Rig, &GlobalTransform, &mut Spri
 
 /// One drawn frame of `masses` on a skeleton (`parents`, posed `locals`) under `root`: `steps` 60 Hz steps, then each
 /// spring's parent joint in `locals` turned to point at its mass.
-fn solve(masses: &[Mass], parents: &[Option<usize>], root: Mat4, locals: &mut [Transform], state: &mut Vec<Option<State>>, steps: usize) {
+fn solve(masses: &[Mass], colliders: &[(usize, Mat4)], parents: &[Option<usize>], root: Mat4, locals: &mut [Transform], state: &mut Vec<Option<State>>, steps: usize) {
     state.resize(masses.len(), None);
     let mut world: Vec<Option<Mat4>> = vec![None; locals.len()];
     fn posed(j: usize, parents: &[Option<usize>], root: Mat4, locals: &[Transform], w: &mut [Option<Mat4>]) -> Mat4 {
@@ -154,6 +196,14 @@ fn solve(masses: &[Mass], parents: &[Option<usize>], root: Mat4, locals: &mut [T
         w[j] = Some(m);
         m
     }
+    // on core joints (head, spine), which the springs never turn: posed once for the frame
+    let colliders: Vec<(Mat4, Mat4)> = colliders
+        .iter()
+        .map(|&(j, c)| {
+            let w = posed(j, parents, root, locals, &mut world) * c;
+            (w, w.inverse())
+        })
+        .collect();
     for (m, st) in masses.iter().zip(state.iter_mut()) {
         let frame = posed(m.parent, parents, root, locals, &mut world);
         let target = posed(m.joint, parents, root, locals, &mut world).w_axis.truncate();
@@ -177,6 +227,7 @@ fn solve(masses: &[Mass], parents: &[Option<usize>], root: Mat4, locals: &mut [T
             let (mut x, mut v) = (x.lerp(cx, c), v.lerp(cv, c));
             for _ in 0..steps {
                 (x, v) = step(m, origin, target, (x, v));
+                x = outside(x, origin, target, &colliders);
             }
             *st = Some((x, v, frame));
             dir = (x - origin).normalize_or_zero();
@@ -257,7 +308,7 @@ mod tests {
             .map(|f| {
                 let root = Mat4::from_translation(head(f));
                 let mut locals = rest.clone();
-                solve(&masses, &parents, root, &mut locals, &mut state, 1);
+                solve(&masses, &[], &parents, root, &mut locals, &mut state, 1);
                 let world = |l: &[Transform]| l.iter().scan(root, |w, t| { *w *= t.to_matrix(); Some(w.w_axis.truncate()) }).collect::<Vec<_>>();
                 let (posed, now) = (world(&rest), world(&locals));
                 (1..now.len()).map(|j| (now[j] - now[j - 1]).angle_between(posed[j] - posed[j - 1])).fold(0f32, f32::max)
@@ -288,13 +339,35 @@ mod tests {
         let bend: Vec<f32> = (0..300)
             .map(|f| {
                 let mut locals = rest.clone();
-                solve(&masses, &parents, Mat4::from_translation(if f < 10 { Vec3::ZERO } else { Vec3::X * 0.3 }), &mut locals, &mut state, 1);
+                solve(&masses, &[], &parents, Mat4::from_translation(if f < 10 { Vec3::ZERO } else { Vec3::X * 0.3 }), &mut locals, &mut state, 1);
                 locals[3].rotation.angle_between(Quat::IDENTITY)
             })
             .collect();
         let most = bend.iter().cloned().fold(0f32, f32::max);
         assert!(most > 5f32.to_radians() && most <= 20.5f32.to_radians(), "{}", most.to_degrees());
         assert!(bend[299] < 3f32.to_radians(), "{}", bend[299].to_degrees());
+    }
+
+    #[test]
+    fn a_collider_keeps_the_mass_out() {
+        // a link posed out sideways sags under gravity into a 9 cm ball below it (on the root joint): with the
+        // collider it settles on the ball's surface, not in it
+        let m = Mass { joint: 1, parent: 0, limit: 60f32.to_radians(), stiffness: 0.5, gravity: 20.0, damping: 0.83, first: true };
+        let parents = [None, Some(0)];
+        let rest = [Transform::IDENTITY, Transform::from_xyz(0.1, 0.0, 0.0)];
+        let ball = Mat4::from_scale_rotation_translation(Vec3::splat(0.09), Quat::IDENTITY, Vec3::new(0.1, -0.1, 0.0));
+        let centre = ball.w_axis.truncate();
+        let settle = |colliders: &[(usize, Mat4)]| {
+            let mut state = Vec::new();
+            let mut locals = rest;
+            for _ in 0..600 {
+                locals = rest;
+                solve(std::slice::from_ref(&m), colliders, &parents, Mat4::IDENTITY, &mut locals, &mut state, 1);
+            }
+            (locals[0].to_matrix() * locals[1].to_matrix()).w_axis.truncate().distance(centre)
+        };
+        assert!(settle(&[]) < 0.085, "{}", settle(&[]));
+        assert!(settle(&[(0, ball)]) > 0.0895, "{}", settle(&[(0, ball)]));
     }
 
     #[test]
