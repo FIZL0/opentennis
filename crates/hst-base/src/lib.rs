@@ -56,7 +56,8 @@ pub mod widescreen;
 use bevy::prelude::*;
 
 /// Everything the game saves (settings, controls, online, hints, names, favorites, pipelines.json, mods-store.json,
-/// mods-wishlist.txt, hf-token.txt, mods/, mods-online/, cache/): on desktop one per-user folder ([`store::dir`]), in the
+/// mods-wishlist.txt, hf-token.txt, mods/, mods-online/, cache/): on desktop one folder ([`store::dir`]: beside the game
+/// on Windows and Linux, B668, else per-user), in the
 /// browser its localStorage, on the phones the app's own folder beside the disc.
 pub mod store {
     use std::path::{Path, PathBuf};
@@ -71,8 +72,8 @@ pub mod store {
     /// the browser) files stay where they always were: beside the disc.
     static DIR: OnceLock<PathBuf> = OnceLock::new();
 
-    /// Desktop start-up: from now on the game's files live in [`crate::disc::data_dir`] (`$XDG_DATA_HOME/hst`,
-    /// `%APPDATA%\hst`, `~/Library/Application Support/hst`), so a launch from the desktop doesn't write into `$HOME`
+    /// Desktop start-up: from now on the game's files live in [`crate::disc::data_dir`] (beside the game where it can
+    /// write there, else `$XDG_DATA_HOME/hst`, `%APPDATA%\hst`, `~/Library/Application Support/hst`), so a launch from the desktop doesn't write into `$HOME`
     /// or `/`, a disc on read-only media keeps its settings and moving the disc keeps them. The first run brings the
     /// old ones over ([`migrate`]). `HST_DATA=<dir>` uses that folder instead, as it is (`tools/shot.sh` keeps a
     /// shot's files beside its disc).
@@ -86,13 +87,38 @@ pub mod store {
         if let Err(e) = std::fs::create_dir_all(&dir) {
             eprintln!("can't make {}: {e}", dir.display());
         }
-        migrate(beside(iso), &dir);
-        migrate(Path::new("."), &dir);
+        // B668: the files the per-user folder held before they went beside the game come over (but its mods: they
+        // play from there until updated, `modfs::moved`; and mods-online/, the online peers' mods, fetched again).
+        // What was beside the disc or in the working folder went into it already.
+        let app = crate::disc::app_data_dir();
+        if app.is_dir() && !same(&app, &dir) {
+            migrate_only(&app, &dir, |n| !matches!(n, "mods" | "mods-online"));
+            if app.join("mods").is_dir() {
+                crate::modfs::moved(&dir.join("mods"), &app.join("mods"));
+            }
+            let _ = OLD.set(app);
+        } else {
+            migrate(beside(iso), &dir);
+            migrate(Path::new("."), &dir);
+        }
         let _ = DIR.set(dir);
     }
 
+    /// B668: the per-user folder the game's files were in before they went beside the game, once [`init`] has found
+    /// one.
+    static OLD: OnceLock<PathBuf> = OnceLock::new();
+
+    /// The folder [`OLD`] names: its `mods/texture-replacements` is still read.
+    pub fn old_dir() -> Option<&'static Path> {
+        OLD.get().map(PathBuf::as_path)
+    }
+
+    fn same(a: &Path, b: &Path) -> bool {
+        a.canonicalize().ok().zip(b.canonicalize().ok()).is_some_and(|(a, b)| a == b)
+    }
+
     /// The files and folders a saved game is made of, by name.
-    const SAVED: [&str; 14] = [
+    const SAVED: [&str; 15] = [
         "settings.txt",
         "controls.txt",
         "online.txt",
@@ -100,6 +126,7 @@ pub mod store {
         "names.txt",
         "favorites.txt",
         "rejoin.txt",
+        "camera.txt",
         "pipelines.json",
         "mods-store.json",
         "mods-wishlist.txt",
@@ -112,11 +139,15 @@ pub mod store {
     /// Brings what an older build saved in `from` (beside the disc, or the working folder for the store's files) over
     /// to `to`: each one `to` doesn't have yet, copied (the old copies stay for an older build of the game).
     pub fn migrate(from: &Path, to: &Path) {
-        let same = |a: &Path, b: &Path| a.canonicalize().ok().zip(b.canonicalize().ok()).is_some_and(|(a, b)| a == b);
+        migrate_only(from, to, |_| true);
+    }
+
+    /// [`migrate`], of the files and folders `take` names.
+    pub fn migrate_only(from: &Path, to: &Path, take: impl Fn(&str) -> bool) {
         if same(from, to) {
             return;
         }
-        for name in SAVED {
+        for name in SAVED.into_iter().filter(|n| take(n)) {
             let (old, new) = (from.join(name), to.join(name));
             if !old.exists() || new.exists() {
                 continue;

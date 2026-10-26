@@ -42,7 +42,7 @@ fn root(iso: &str) -> PathBuf {
 pub fn init(iso: &str) {
     let root = &root(iso);
     // B227: the browser has no texture-replacements folder (its files are the mods' in OPFS), only packs
-    let o = if cfg!(target_arch = "wasm32") { Overrides { root: root.into(), ..default() } } else { Overrides::scan(root) };
+    let o = if cfg!(target_arch = "wasm32") { Overrides { root: root.into(), ..default() } } else { Overrides { root: root.into(), ..Overrides::scan(replacements_root(root)) } };
     let (packs, pack_dirs) = packs(root);
     eprintln!(
         "textures: {} from {} texture packs, {} PCSX2-named, {} key-named in mods/texture-replacements",
@@ -58,6 +58,13 @@ pub fn init(iso: &str) {
         used: HashMap::new(),
         scale: HashMap::new(),
     });
+}
+
+/// B668: where `mods/texture-replacements` is read from: `root`, else the per-user folder the game's files were in
+/// before they went beside the game, while that still has one and `root` doesn't.
+fn replacements_root(root: &Path) -> &Path {
+    let tr = "mods/texture-replacements";
+    crate::store::old_dir().filter(|o| !root.join(tr).is_dir() && o.join(tr).is_dir()).unwrap_or(root)
 }
 
 /// The texture packs on under `root/mods` (`mods_textures::active`): each key's file from the first pack that has it,

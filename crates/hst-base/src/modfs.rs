@@ -512,7 +512,21 @@ pub fn folder_for(root: &Path, id: &str, stage: &Path, owner: Option<&str>) -> P
                 None => stamp.is_none() && read(&d.join("mod.json")).ok() == read(&stage.join("mod.json")).ok(),
             }
     };
-    (1..).map(|n| root.join(if n == 1 { id.to_string() } else { format!("{id}-{n}") })).find(|d| !is_file(&d.join("mod.json")) || same(d)).unwrap()
+    // B668: a folder name the old mods folder holds for another mod is taken too, so the two never list one name twice
+    let old = old_root(root);
+    let free = |n: &str| old.as_ref().is_none_or(|o| !is_file(&o.join(n).join("mod.json")) || same(&o.join(n)));
+    (1..)
+        .map(|n| if n == 1 { id.to_string() } else { format!("{id}-{n}") })
+        .find(|n| free(n) && (!is_file(&root.join(n).join("mod.json")) || same(&root.join(n))))
+        .map(|n| root.join(n))
+        .unwrap()
+}
+
+/// B668: the copy of the mod [`folder_for`] put in `dir` (under `root`) that's still in `root`'s [`old_root`]: an update
+/// moves it over.
+fn left_behind(root: &Path, dir: &Path) -> Option<PathBuf> {
+    let old = old_root(root)?.join(dir.strip_prefix(root).ok()?);
+    is_file(&old.join("mod.json")).then_some(old)
 }
 
 /// A mod fetched from an online peer (`mods_online`'s cache, checked there) copied into `root` as an installed one, in
@@ -535,8 +549,8 @@ pub fn keep(from: &Path, root: &Path) -> Result<Mod, String> {
     }
     let id = mods::read_any(from)?.id;
     let dir = folder_for(root, &id, from, None);
-    if is_file(&dir.join("mod.json")) {
-        return mods::read_any(&dir);
+    if let Some(d) = Some(dir.clone()).filter(|d| is_file(&d.join("mod.json"))).or_else(|| left_behind(root, &dir)) {
+        return mods::read_any(&d);
     }
     copy(from, &dir)?;
     let m = mods::read_any(&dir)?;
@@ -548,7 +562,8 @@ pub fn keep(from: &Path, root: &Path) -> Result<Mod, String> {
 /// Whether `dir` is a folder Install made under `root` (`<id>` or `<id>-<n>`, [`folder_for`]), not one put in by hand.
 pub fn installed_by_game(root: &Path, dir: &Path, id: &str) -> bool {
     let name = dir.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    dir.parent() == Some(root) && (name == id || name.strip_prefix(&format!("{id}-")).is_some_and(|n| n.parse::<u32>().is_ok_and(|n| n >= 2)))
+    let parent = dir.parent().map(Path::to_path_buf);
+    (parent.as_deref() == Some(root) || parent.is_some() && parent == old_root(root)) && (name == id || name.strip_prefix(&format!("{id}-")).is_some_and(|n| n.parse::<u32>().is_ok_and(|n| n >= 2)))
 }
 
 /// Whether a mod's file `n` (inside its folder) is in its upscaled set (B227): ≈ 90% of the store mods' bytes (512
@@ -659,6 +674,10 @@ pub async fn install_planned<F: Future<Output = Result<Vec<u8>, String>>>(
             clear();
             return Err(format!("can't write {}: {e}", dir.display()));
         }
+        // B668: updated, the mod has moved into the new folder
+        if let Some(old) = left_behind(root, &dir) {
+            let _ = std::fs::remove_dir_all(old);
+        }
     } else {
         remove(&dir);
         let (from, to) = (key(&stage), key(&dir));
@@ -724,6 +743,27 @@ pub fn set_root(dir: std::path::PathBuf) {
 
 pub fn root() -> &'static Path {
     ROOT.get().map(|p| p.as_path()).unwrap_or(Path::new("mods"))
+}
+
+/// B668: mods folders that moved, new → old: the game's files went beside the executable, and the mods installed in the
+/// old app-data folder still play from there until an update installs them into the new one ([`install_planned`]).
+static OLD: Mutex<Vec<(PathBuf, PathBuf)>> = Mutex::new(Vec::new());
+
+/// B668: `old` holds mods from before `root` (the mods folder now) took over: [`mods::dirs`] lists them too.
+pub fn moved(root: &Path, old: &Path) {
+    let mut m = OLD.lock().unwrap();
+    m.retain(|(r, _)| r != root);
+    m.push((root.into(), old.into()));
+}
+
+/// The old mods folder [`moved`] gave `root`, if any.
+pub fn old_root(root: &Path) -> Option<PathBuf> {
+    OLD.lock().unwrap().iter().find(|(r, _)| r == root).map(|(_, o)| o.clone())
+}
+
+/// `dir` (a mod folder under `root`, or under its [`old_root`]) relative to the folder it's in.
+pub fn relative<'a>(root: &Path, dir: &'a Path) -> Option<&'a Path> {
+    dir.strip_prefix(root).ok().or_else(|| old_root(root).and_then(|o| dir.strip_prefix(o).ok()))
 }
 
 #[cfg(test)]
@@ -976,6 +1016,47 @@ pub mod tests {
         assert!(crate::mods_textures::list(root).is_empty());
         remove(Path::new("t_packzip"));
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// B668: mods in the old mods folder list beside the new folder's; installing one again (an update) puts it in the
+    /// new folder and takes it out of the old; another mod by that id in the old folder keeps its folder name.
+    #[test]
+    fn old_folder_mods_move_when_updated() {
+        let dir = test_mod("test_pc00");
+        if !dir.is_dir() {
+            return hst_data::fixture::skip("no fixtures/mods/test_pc00");
+        }
+        let t = std::env::temp_dir().join(format!("hst-b668-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let (old, new) = (t.join("old/mods"), t.join("new/mods"));
+        std::fs::create_dir_all(&new).unwrap();
+        let files = mod_files(&dir);
+        let named = |name: &str| -> Files {
+            files.iter().map(|f| (f.0.clone(), if f.0 == "mod.json" { let mut j: serde_json::Value = serde_json::from_slice(&f.1).unwrap(); j["name"] = name.into(); serde_json::to_vec(&j).unwrap() } else { f.1.clone() })).collect()
+        };
+        let zip_file = |name: &str| {
+            let p = t.join(format!("{name}.zip"));
+            std::fs::write(&p, zip_of(&named(name))).unwrap();
+            p
+        };
+        let (a, b) = (zip_file("A"), zip_file("B"));
+        let id = mods::read(&dir).unwrap().id;
+        install_file(&a, &old, None, None).unwrap();
+        install_file(&b, &old, None, None).unwrap();
+        moved(&new, &old);
+        let folders = |root: &Path| mods::dirs(root).iter().map(|d| relative(&new, d).unwrap().to_string_lossy().to_string()).collect::<Vec<_>>();
+        assert_eq!(folders(&new), [id.clone(), format!("{id}-2")]);
+        assert!(installed_by_game(&new, &old.join(&id), &id));
+        // A again: an update, into the new folder
+        let m = install_file(&a, &new, None, None).unwrap();
+        assert_eq!(m.dir, new.join(&id));
+        assert!(!old.join(&id).exists() && old.join(format!("{id}-2/mod.json")).is_file());
+        assert_eq!(folders(&new), [id.clone(), format!("{id}-2")]);
+        assert_eq!(mods::dirs(&new), [new.join(&id), old.join(format!("{id}-2"))]);
+        // a third mod of that id skips the old folder's `-2`
+        assert_eq!(install_file(&zip_file("C"), &new, None, None).unwrap().dir, new.join(format!("{id}-3")));
+        OLD.lock().unwrap().retain(|(r, _)| r != &new);
+        std::fs::remove_dir_all(&t).unwrap();
     }
 
     /// B248: two mods sharing an id both install (`<id>`, `<id>-2`); the same mod again replaces its own copy: a

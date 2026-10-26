@@ -479,6 +479,12 @@ pub fn dirs(root: &Path) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> =
         sub(root).into_iter().filter(|d| !d.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))).flat_map(|d| if crate::modfs::is_file(&d.join("mod.json")) { vec![d] } else { sub(&d) }).filter(|d| crate::modfs::is_file(&d.join("mod.json"))).collect();
     dirs.sort();
+    // B668: then the ones still in the mods folder from before the game's files moved, unless one by that folder is here
+    if let Some(old) = crate::modfs::old_root(root).filter(|o| o != root) {
+        let here: std::collections::HashSet<PathBuf> = dirs.iter().filter_map(|d| d.strip_prefix(root).ok().map(Into::into)).collect();
+        dirs.extend(self::dirs(&old).into_iter().filter(|d| d.strip_prefix(&old).is_ok_and(|r| !here.contains(r))));
+        dirs.sort_by(|a, b| crate::modfs::relative(root, a).cmp(&crate::modfs::relative(root, b)));
+    }
     dirs
 }
 

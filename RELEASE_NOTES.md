@@ -4,3 +4,4 @@
 - The unused □ button is hidden from the touch controls during a match
 - The game remembers whether you picked the close camera or the normal one; phones and touch screens start on the close camera
 - Every match now opens with a flashing reminder of the button that changes the camera
+- On Windows and Linux the game now keeps its settings, imported disc and mods in its own folder, next to the game, so the whole game moves or backs up as one folder; mods and settings from before carry over

@@ -125,7 +125,7 @@ pub fn set_order(o: Order) {
 
 /// A pack's name in the [`Order`]: its folder under `root`, `/`-separated (`mypack`, `hst-mods/mypack`).
 pub fn folder(root: &Path, dir: &Path) -> String {
-    crate::modfs::key(dir.strip_prefix(root).unwrap_or(dir))
+    crate::modfs::key(crate::modfs::relative(root, dir).unwrap_or(dir))
 }
 
 /// Takes a settings.txt line `k = v` that is the pack order's (true), else leaves it (false).
