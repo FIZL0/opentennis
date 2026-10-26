@@ -193,19 +193,20 @@ pub(super) fn hold_cursor(m: &mut Menu) {
 /// The pill over whatever menu screen is up (not in a match): a half each while both directions are going. M141:
 /// once they've all ended with mods to load, the Reload Mods button in its place.
 pub(in crate::play::main_menu) fn layout(d: &mut Draw, m: &Menu) {
-    let strips = m.add.strips();
-    if strips.is_empty() && button(m) {
+    // the game's own update (Always installs it with no one pressing Update) shares the pill, after the mods
+    let parts: Vec<_> = m.add.strips().iter().map(|s| (format!("{} {}: {}", s.verb, place(s), s.now), Some(s.share))).chain(crate::update::progress()).collect();
+    if parts.is_empty() && button(m) {
         reload_button(d, m);
     }
-    if strips.is_empty() || m.screen == Screen::Playing || m.paused {
+    if parts.is_empty() || m.screen == Screen::Playing || m.paused {
         return;
     }
     // centred across, at the top of a tall window too
     d.anchor = Anchor::Top;
     d.box3([X, TOP, W, H], 9.0, [Some(INK), Some(WHITE), Some([24.0, 30.0, 44.0])], 118.0);
-    let part = (W - 8.0) / strips.len() as f32;
-    for (k, s) in strips.iter().enumerate() {
-        strip(d, s, X + 4.0 + part * k as f32, part);
+    let part = (W - 8.0) / parts.len() as f32;
+    for (k, (line, share)) in parts.iter().enumerate() {
+        strip(d, line, *share, X + 4.0 + part * k as f32, part);
     }
     d.anchor = Anchor::Centre;
 }
@@ -223,14 +224,14 @@ fn reload_button(d: &mut Draw, m: &Menu) {
     d.anchor = Anchor::Centre;
 }
 
-/// One direction in `w` px from `x`: "Downloading 3/5: Ace Pilot" (the one going now is the batch's 3rd of 5; B601:
-/// "1-3/5: Ace Pilot +2" with three side by side), its batch's bar under it.
-fn strip(d: &mut Draw, s: &Strip, x: f32, w: f32) {
-    let line = format!("{} {}: {}", s.verb, place(s), s.now);
-    super::super::home::fit_text(d, &line, x + 6.0, TOP + 3.0, 12.0, w - 12.0, WHITE);
+/// One part in `w` px from `x`: "Downloading 3/5: Ace Pilot" (the one going now is the batch's 3rd of 5; B601:
+/// "1-3/5: Ace Pilot +2" with three side by side), or the update's words, its bar under it where it has one.
+fn strip(d: &mut Draw, line: &str, share: Option<f32>, x: f32, w: f32) {
+    super::super::home::fit_text(d, line, x + 6.0, TOP + 3.0, 12.0, w - 12.0, WHITE);
+    let Some(share) = share else { return };
     let bar = [x + 6.0, TOP + H - 5.0, w - 12.0, 2.0];
     d.q(Tex::Solid, [0.0, 0.0, 1.0, 1.0], bar, [50.0; 3], 128.0);
-    d.q(Tex::Solid, [0.0, 0.0, 1.0, 1.0], [bar[0], bar[1], bar[2] * s.share.clamp(0.0, 1.0), bar[3]], super::super::GOLD, 128.0);
+    d.q(Tex::Solid, [0.0, 0.0, 1.0, 1.0], [bar[0], bar[1], bar[2] * share.clamp(0.0, 1.0), bar[3]], super::super::GOLD, 128.0);
 }
 
 #[cfg(test)]
