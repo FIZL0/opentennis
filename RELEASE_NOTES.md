@@ -33,3 +33,5 @@
 - Custom characters' emotes on the character select and lobby screens now say the line that goes with each animation, and their mouths move with it; more custom characters move their mouths when they talk.
 - Emotes in the lobby no longer play their voice line without the animation, take turns through all of a custom character's animations instead of repeating one, and a seat a custom character sits on stays under them until they stand up.
 - Custom characters whose faces have no proper talking shapes now open their mouths when they speak.
+- In split screen, each half's camera now zooms out to keep a wide ball in view.
+- In split screen, both players now see the ball's outline, not just one of them.
