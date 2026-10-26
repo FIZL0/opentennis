@@ -183,4 +183,4 @@ during the rally switch the latch on.
 - The clip-end counter branch (zeroing the previous angles after a clip ends without a motion change) was never
   seen in the recording.
 - The exact f32 rounding of the wrapped difference ((a+π)−(b+π)) needs confirming in the port, against a recording of
-  the applied angles, ≥ 1 point (`scripts/b675_look_rec.py` logs them).
+  the applied angles, ≥ 1 point (`research/b675_look_rec.py` logs them).

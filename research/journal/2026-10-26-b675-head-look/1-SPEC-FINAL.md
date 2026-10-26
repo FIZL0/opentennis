@@ -9,7 +9,7 @@ I found how the original turns a player's head toward the ball and wrote it up i
 - It feeds gameplay: body-hit uses the head's x-row, so the port must be bit-exact. Body-hit then sees the previous
   tick's turned head.
 
-Recording: `scripts/b675_look_rec.py 5 3000 context/b675/run1.jsonl` (under `tools/pcsx2.sh`, HST_PCSX2 set). It logs
+Recording: `research/b675_look_rec.py 5 3000 context/b675/run1.jsonl` (under `tools/pcsx2.sh`, HST_PCSX2 set). It logs
 the per-player look state and the head local each frame.
 
 ## Not verified / not 1:1
