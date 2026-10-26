@@ -165,3 +165,51 @@ fn extra_turns() {
         eprintln!("{line}");
     }
 }
+
+/// B676b: each drawn thigh is the sampled local with its roll blended toward the rest roll (`pose::untwist_thigh`,
+/// the character's `pose::thigh_twist`) times the pelvis's drawn world, and the calf hangs off the plain sampled
+/// thigh, within 2e-5 per rotation entry. Skipped: the crossfade's frames (the calf doesn't hang off the dumped
+/// thigh) and one frame in slot 4 where the game drew both players' thighs plain (the frame the serve stance starts). In slot 4 Carol (character 6) wears costume 9 (the dump doesn't store it); the others' factor is the same
+/// for every costume.
+#[test]
+fn thighs_untwist_like_the_game() {
+    let Ok(mut iso) = fixture::iso() else { return };
+    let (mut halved, mut plain, mut skipped) = (0, 0, 0);
+    for file in ["b676/s4.bin", "b676/s5.bin"] {
+        let Ok(data) = fixture::read(format!("fixtures/{file}")) else { return fixture::skip(file) };
+        let mut sks = std::collections::HashMap::new();
+        for s in samples(&data) {
+            for (p, seen) in s.iter().enumerate() {
+                let sk = sks.entry(seen.c).or_insert_with(|| skeleton(&mut iso, seen.c, seen.count()));
+                let twist = hst_sim::pose::thigh_twist(seen.c, if seen.c == 6 { 9 } else { 0 });
+                for side in ["R", "L"] {
+                    let ix = |name: String| sk.names.iter().position(|x| *x == name).unwrap();
+                    let (n, calf) = (ix(format!("Bip01{side}Thigh")), ix(format!("Bip01{side}Calf")));
+                    let local = |n: usize| {
+                        let mut m = hst_sim::pose::q_matrix(seen.rotation(n));
+                        m[3] = [f(seen.nodes, n * 0x60 + 0x10), f(seen.nodes, n * 0x60 + 0x14), f(seen.nodes, n * 0x60 + 0x18), 1.0];
+                        m
+                    };
+                    let world = |m: &M4, n: usize| hst_sim::pose::vmul(m, &seen.world(sk.parent[n].unwrap()));
+                    let thigh = if twist == 1.0 { local(n) } else { hst_sim::pose::untwist_thigh(&local(n), &sk.rest[n], twist) };
+                    let calf_over = hst_sim::pose::vmul(&local(calf), &world(&local(n), n));
+                    let err = |a: &M4, b: &M4| (0..3).flat_map(|r| (0..3).map(move |k| (a[r][k] - b[r][k]).abs())).fold(0.0f32, f32::max);
+                    // a crossfade's frames: the dump's sampled rotation isn't the local the world was built from
+                    if err(&calf_over, &seen.world(calf)) > 1e-5 {
+                        continue;
+                    }
+                    let game = seen.world(n);
+                    let ours = world(&thigh, n);
+                    if err(&ours, &game) > 2e-5 && twist != 1.0 && err(&world(&local(n), n), &game) == 0.0 {
+                        skipped += 1;
+                        continue;
+                    }
+                    assert!(err(&ours, &game) <= 2e-5, "{file} v{} p{p} char {} {side} thigh: {ours:?} vs {game:?}", seen.v, seen.c);
+                    if twist == 1.0 { plain += 1 } else { halved += 1 }
+                }
+            }
+        }
+    }
+    eprintln!("{halved} untwisted thighs, {plain} plain, {skipped} drawn plain by the game");
+    assert!(halved > 1000 && plain > 1000 && skipped <= 4);
+}

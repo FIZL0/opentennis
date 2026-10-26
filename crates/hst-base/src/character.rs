@@ -146,6 +146,9 @@ pub struct CharacterData {
     pub voice_takes: HashMap<u8, u8>,
     /// How many times its disc body's size it is drawn (a disc-body mod's §6 `scale`, M11); 1 for every other.
     pub size: f32,
+    /// The share of each thigh's animated roll its skin keeps (`hst_sim::pose::thigh_twist`, B676b): the disc body's
+    /// by character and costume, 1 (drawn as animated) for every other.
+    pub thigh_twist: f32,
 }
 
 /// A mod's off hand on its racket (looks only). The donor's clips turn the costume's own bones, so on longer or
@@ -926,7 +929,7 @@ pub fn load_disc_with(
     // the game binds a face track to the target of the same name; others are dropped
     let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &skeleton, |name| model.morph_names.iter().position(|m| m == name), only)?;
     let binds = part_skins(&joints, &parts, meshes, bindposes);
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new(), voice_takes: HashMap::new(), size: 1.0 })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new(), voice_takes: HashMap::new(), size: 1.0, thigh_twist: hst_sim::pose::thigh_twist(n, costume) })
 }
 
 /// [`load_disc_with`] `scale` times the size (M11, a disc-body mod's §6 `scale`): every rest translation (so every
@@ -1294,6 +1297,7 @@ pub fn load_npc(
         emote_ticks: HashMap::new(),
         voice_takes: HashMap::new(),
         size: 1.0,
+        thigh_twist: 1.0,
     })
 }
 
@@ -1479,14 +1483,48 @@ pub fn animate(
                 c.from.clear();
             }
         }
+        let untwisted = untwist_thighs(&rig.data, &drawn);
         for (j, joint) in rig.data.joints.iter().enumerate() {
             let (Ok(mut tf), Some(&(rotation, translation))) = (joints.get_mut(rig.joints[j]), drawn.get(j)) else { continue };
+            let (rotation, translation) = untwisted.iter().find(|u| u.0 == j).map_or((rotation, translation), |u| u.1);
             tf.set_if_neq(Transform { translation, rotation, scale: joint.rest.scale });
         }
         c.drawn = drawn;
     }
     let now = *frame;
     cache.retain(|_, c| c.frame == now);
+}
+
+/// B676b: the thighs' skin keeps only `thigh_twist` of their animated roll (`hst_sim::pose::untwist_thigh`), while
+/// the calf and everything below stay where the pose `drawn` puts them: each thigh's new local, and its children's
+/// turned back by as much. Empty when the character draws its thighs as animated. Kept out of `drawn` (the pose an
+/// ease starts from), so it's always worked out from the animated thigh.
+fn untwist_thighs(data: &CharacterData, drawn: &[(Quat, Vec3)]) -> Vec<(usize, (Quat, Vec3))> {
+    let mut out = Vec::new();
+    if data.thigh_twist == 1.0 || drawn.len() != data.joints.len() {
+        return out;
+    }
+    // the game's row-vector local: its rows are our rotation matrix's columns
+    let rows = |q: Quat| {
+        let m = Mat3::from_quat(q);
+        [m.x_axis, m.y_axis, m.z_axis].map(|r| [r.x, r.y, r.z, 0.0])
+    };
+    for side in ["Bip01RThigh", "Bip01LThigh"] {
+        let Some(j) = data.joint(side) else { continue };
+        let (q, t) = drawn[j];
+        let [l0, l1, l2] = rows(q);
+        let [r0, r1, r2] = rows(data.joints[j].rest.rotation);
+        let m = hst_sim::pose::untwist_thigh(&[l0, l1, l2, [0.0, 0.0, 0.0, 1.0]], &[r0, r1, r2, [0.0, 0.0, 0.0, 1.0]], data.thigh_twist);
+        let col = |r: [f32; 4]| Vec3::new(r[0], r[1], r[2]);
+        let new = Quat::from_mat3(&Mat3::from_cols(col(m[0]), col(m[1]), col(m[2]))).normalize();
+        let back = (new.inverse() * q).normalize();
+        out.push((j, (new, t)));
+        for (k, _) in data.joints.iter().enumerate().filter(|(_, x)| x.parent == Some(j)) {
+            let (qk, tk) = drawn[k];
+            out.push((k, ((back * qk).normalize(), back * tk)));
+        }
+    }
+    out
 }
 
 /// `animate`'s per-character state: the two poses last sampled (each joint's rotation and translation), the arm
@@ -1847,6 +1885,36 @@ mod tests {
 
     /// P51: each disc character's parts list only the joints they weight, and skin every vertex (and its per-joint
     /// bounds) to the same rig joints and inverse binds as the whole skeleton's list did. Prints the joints listed.
+    /// B676b: character 0's thighs keep their bone axis but lose roll, and the calf below each lands where the
+    /// animated thigh puts it; character 1 draws its thighs as animated.
+    #[test]
+    fn thighs_untwist_and_leave_the_calves() {
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let (mut m, mut t, mut i, mut b) = (Assets::<Mesh>::default(), Assets::<StandardMaterial>::default(), Assets::<Image>::default(), Assets::<SkinnedMeshInverseBindposes>::default());
+        for (n, twist) in [(0, 0.5), (1, 1.0)] {
+            let c = load_disc_with(&mut iso, n, 0, &mut m, &mut t, &mut i, &mut b, Some(&[0x20])).unwrap();
+            assert_eq!(c.thigh_twist, twist);
+            let mut drawn = vec![];
+            pose_at(&c.joints, &c.motions[&0x20], 10.0, &mut drawn);
+            let untwisted = untwist_thighs(&c, &drawn);
+            if twist == 1.0 {
+                assert!(untwisted.is_empty());
+                continue;
+            }
+            let at = |j: usize| untwisted.iter().find(|u| u.0 == j).unwrap().1;
+            let local = |(q, v): (Quat, Vec3)| Mat4::from_rotation_translation(q, v);
+            for side in ["R", "L"] {
+                let (thigh, calf) = (c.joint(&format!("Bip01{side}Thigh")).unwrap(), c.joint(&format!("Bip01{side}Calf")).unwrap());
+                let (old, new) = (drawn[thigh].0, at(thigh).0);
+                assert!((old * Vec3::X).dot(new * Vec3::X) > 1.0 - 1e-6, "{side} thigh's axis moved");
+                let turned = old.angle_between(new).to_degrees();
+                assert!(turned > 1.0, "{side} thigh turned {turned}°");
+                let (a, z) = (local(drawn[thigh]) * local(drawn[calf]), local(at(thigh)) * local(at(calf)));
+                assert!(a.abs_diff_eq(z, 1e-4), "{side} calf moved: {a} vs {z}");
+            }
+        }
+    }
+
     #[test]
     fn parts_list_only_their_own_joints() {
         use bevy::mesh::VertexAttributeValues as V;

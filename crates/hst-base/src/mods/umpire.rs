@@ -154,6 +154,7 @@ pub fn load(
         emote_ticks: HashMap::new(),
         voice_takes: HashMap::new(),
         size: 1.0,
+        thigh_twist: 1.0,
     }))
 }
 
