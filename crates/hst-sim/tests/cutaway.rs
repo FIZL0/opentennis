@@ -26,8 +26,20 @@ fn cutaway_s05() {
         return fixture::skip(format_args!("cutaway_s05.bin or ISO absent, skipped"));
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
-    let shots = Game::new(&cnf, &bin).unwrap().camera_shots();
-    let frames: Vec<&[u8]> = data.as_chunks::<SAMPLE>().0.iter().map(|s| s.as_slice()).collect();
+    let (n, worst, stale, court) = views(&data, SAMPLE, &Game::new(&cnf, &bin).unwrap().camera_shots());
+    eprintln!("{n} frames checked, worst {worst} (court views {court}); {stale} stale samples");
+    assert!(n > 1000 && stale < 5 && worst < 1e-3, "worst {worst}");
+}
+
+/// Replays every cut-away in a `record_cutaway.py` recording (samples `stride` bytes apart) through [`Shot`]: frames
+/// checked, the worst view error (and that of the court views), stale samples skipped.
+fn views(data: &[u8], stride: usize, shots: &[hst_sim::cutaway::CameraShot]) -> (usize, f32, usize, f32) {
+    views_of(data, stride, shots, |_| true)
+}
+
+/// [`views`] over the shots `keep` takes.
+fn views_of(data: &[u8], stride: usize, shots: &[hst_sim::cutaway::CameraShot], keep: impl Fn(u8) -> bool) -> (usize, f32, usize, f32) {
+    let frames: Vec<&[u8]> = data.chunks_exact(stride).filter(|s| keep(s[CAM + 0x114])).collect();
     let vsync = |s: &[u8]| u32::from_le_bytes(s[0..4].try_into().unwrap());
     let (mut shot, mut prev): (Option<Shot>, Option<Shot>) = (None, None);
     let (mut n, mut worst, mut stale, mut court) = (0, 0.0f32, 0, 0.0f32);
@@ -78,8 +90,7 @@ fn cutaway_s05() {
         }
         n += 1;
     }
-    eprintln!("{n} frames checked, worst {worst} (court views {court}); {stale} stale samples");
-    assert!(n > 1000 && stale < 5 && worst < 1e-3, "worst {worst}");
+    (n, worst, stale, court)
 }
 
 /// The director against `cutaway2_s05.bin` (`record_cutaway.py --players`: the same samples plus the point's
@@ -284,4 +295,23 @@ fn low_angle_shot_stays_finite() {
             assert!(l[2] > 0.0 && (l[0] / l[2]).abs() < v.fov.tan() && (l[1] / l[2]).abs() < v.fov.tan(), "frame {t}: head out of the picture {l:?}");
         }
     }
+}
+
+
+/// B665: the close-up (shot 0x64, the camera on the ground in front of the shown player looking up) against
+/// `b665/cutaway64.bin`, slot 5 with the post-point lists poked to alternate 0x64 and 0x60 (`record_cutaway.py
+/// --players` after writing them; characters 1 and 5 get the close-up): the eye 0.1 m up, every view as the game's.
+#[test]
+fn close_up_s05() {
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
+    let (Ok(data), Ok(mut iso)) = (fixture::read(format!("{dir}/b665/cutaway64.bin")), fixture::iso()) else {
+        return fixture::skip(format_args!("b665/cutaway64.bin or ISO absent, skipped"));
+    };
+    let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
+    const STRIDE: usize = SAMPLE + 0xd8 + 4 * 0x170;
+    let close = data.chunks_exact(STRIDE).filter(|s| s[CAM + 0x114] == 0x64).count();
+    // the filler, 0x60, glides from the camera before it (not a post-point shot): only the close-ups are checked
+    let (n, worst, stale, _) = views_of(&data, STRIDE, &Game::new(&cnf, &bin).unwrap().camera_shots(), |n| n == 0x64);
+    eprintln!("{n} frames checked ({close} close-up), worst {worst}; {stale} stale samples");
+    assert!(close > 300 && stale < 5 && worst < 1e-3, "worst {worst}");
 }

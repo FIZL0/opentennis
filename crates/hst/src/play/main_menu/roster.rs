@@ -1236,22 +1236,29 @@ fn get_more(d: &mut Draw, label: &str, [x, y, w, h]: [f32; 4], s: &Seat) {
     d.text(label, x + 9.0 * PX, y + (h - size) / 2.0, size, s.soft);
 }
 
-/// B422: a `1P`–`4P` tag in each of `seats`' colours along tile `[x, y, w, h]`'s foot, left to right (as many as fit).
+/// B422: a `1P`–`4P` tag in each of `seats`' colours along tile `[x, y, w, h]`'s foot, left to right. B666: a row
+/// wider than the tile (three or four players on one tile) shrinks to fit, so 4P's tag isn't the one left off.
 fn tags(d: &mut Draw, [x, y, w, h]: [f32; 4], seats: &[usize]) {
-    let th = (16.0 * PY).min(h * 0.3);
+    let full = (16.0 * PY).min(h * 0.3);
+    let names: Vec<String> = seats.iter().map(|q| format!("{}P", q + 1)).collect();
+    let widths: Vec<f32> = names.iter().map(|t| d.width(t, full * 0.72) + 6.0 * PX).collect();
+    let k = tag_scale(&widths, 2.0 * PX, w - 2.0 * PX);
+    let (th, gap) = (full * k, 2.0 * PX * k);
     let size = th * 0.72;
     let mut tx = x + 2.0 * PX;
-    for &q in seats {
-        let t = format!("{}P", q + 1);
-        let tw = d.width(&t, size) + 6.0 * PX;
-        if tx + tw > x + w + 0.01 {
-            break;
-        }
+    for (&q, (t, tw)) in seats.iter().zip(names.iter().zip(widths)) {
+        let tw = tw * k;
         let s = seat(q);
         ringed(d, [tx, y + h - th - 2.0 * PY, tw, th], 5.0, 1.5, hex(BG), s.ring);
-        d.centred(&t, tx + tw / 2.0, y + h - th - 2.0 * PY + (th - size) / 2.0, size, s.ink);
-        tx += tw + 2.0 * PX;
+        d.centred(t, tx + tw / 2.0, y + h - th - 2.0 * PY + (th - size) / 2.0, size, s.ink);
+        tx += tw + gap;
     }
+}
+
+/// B666: the factor a row of tags `widths` wide with `gap` between them shrinks by to fit `room` (1 if it does).
+fn tag_scale(widths: &[f32], gap: f32, room: f32) -> f32 {
+    let total = widths.iter().sum::<f32>() + gap * widths.len().saturating_sub(1) as f32;
+    if total <= room { 1.0 } else { room.max(0.0) / total }
 }
 
 /// The costume and hand pills side by side in `[x, y, w, h]`; taps on them when `mine`. M128: beside the thumbnail,
@@ -1450,6 +1457,22 @@ mod tests {
         ranks[row] = 2;
         let text = Text { msg: Vec::new(), glyphs: default(), grades: [[0; 5]; 14], style: [0; 14], hands: [1.0; 14], ranks, mods: Vec::new() };
         assert_eq!(com_line(&m, &text, 1), "COM - Lv 3");
+    }
+
+    /// B666: four players on one tile: the tag row shrinks to the tile instead of leaving 4P's off; a row that fits
+    /// keeps its size.
+    #[test]
+    fn every_players_tag_fits_on_a_shared_tile() {
+        let text = super::super::pointer::tests::text_with_mods(0);
+        let d = Draw { out: Vec::new(), text: &text, said: String::new(), anchor: super::super::Anchor::Centre, hits: Vec::new(), outside: None, clock: 0.0 };
+        let widths: Vec<f32> = (1..=4).map(|q| d.width(&format!("{q}P"), 16.0 * PY * 0.72) + 6.0 * PX).collect();
+        // a tile two full-size tags wide
+        let tile = widths[0] + widths[1] + 4.0 * PX;
+        let k = tag_scale(&widths, 2.0 * PX, tile - 2.0 * PX);
+        assert!(k < 1.0, "four tags overflow a tile at full size");
+        let total = widths.iter().sum::<f32>() * k + 3.0 * 2.0 * PX * k;
+        assert!(total <= tile - 2.0 * PX + 1e-3, "{total}");
+        assert_eq!(tag_scale(&widths[..1], 2.0 * PX, tile - 2.0 * PX), 1.0);
     }
 
     /// B425: the Get more chip's words: the longest that fits after the heading's, else one leaving them half the room.

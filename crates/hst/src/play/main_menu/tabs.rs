@@ -88,7 +88,7 @@ pub(super) fn text(favs: &Favorites) -> String {
 
 impl Menu {
     /// A favorite's key: a disc character by number, a mod by its folder (B248's unique id).
-    fn fav_key(&self, w: Who) -> String {
+    pub(super) fn fav_key(&self, w: Who) -> String {
         match w {
             Who::Disc(c) => format!("hst {c}"),
             Who::Mod(i) => format!("mod {}", self.mods[i].folder()),
@@ -99,10 +99,10 @@ impl Menu {
         self.favs.contains(&self.fav_key(w))
     }
 
-    /// The mod games with a section, in order: by name, "Mods" (untagged) last.
+    /// The mod games with a section, in order: by name, then "Mods" (untagged), the joke characters last.
     fn games(&self) -> Vec<&str> {
         let mut g: Vec<&str> = (0..self.own_mods()).map(|i| self.mods[i].game()).filter(|&g| g != HST).collect();
-        g.sort_by_key(|&n| (n == "Mods", n));
+        g.sort_by_key(|&n| (n == crate::mods::JOKE, n == "Mods", n));
         g.dedup();
         g
     }
@@ -386,6 +386,15 @@ mod tests {
         assert_eq!(m.sections()[0].cells.last(), Some(&Some(Who::Mod(12))));
         m.put(0, Some(Who::Mod(12)));
         assert_eq!(at(&m), ("Hot Shots Tennis".into(), 1 + CHARS));
+    }
+
+    /// §6 `joke`: its own section, after "Mods", and never drawn by Random.
+    #[test]
+    fn joke_mods_sit_last_and_random_skips_them() {
+        let mut m = menu();
+        m.mods.push(a_mod(12, crate::mods::JOKE));
+        assert_eq!(names(&m).last(), Some(&(crate::mods::JOKE.to_string(), 1)));
+        assert!((0..4000).all(|seed| m.draw(0, seed).is_some_and(|(w, _)| w != Who::Mod(12))));
     }
 
     /// 1P on the keyboard, singles, 5 tiles a row; mods: 3 untagged, 7 from Golf, 2 from Get a Grip.

@@ -1,12 +1,12 @@
 //! B40g2 (concept, `concept/offbeat-rules`): the local confirm screen's Offbeat Rules. Select / − (keyboard: C) opens
-//! a box over the screen with a pill per rule (`play::offbeat`): ↑↓ choose, ✕ (or a tap) turns it on or off (size and speed: its next choice), ○ or
+//! a box over the screen with a pill per rule (`play::offbeat`): ↑↓ choose, ✕ (or a tap) turns it on or off (size, speed and stats: its next choice), ○ or
 //! Select again closes it. The match gets them as `--offbeat`. Not online: the room doesn't carry them.
 
 use super::pointer::Act;
 use super::{Draw, Effect, Menu, Press, WHITE};
 
 /// Each rule's pill, its choices' words (off first) and help line, in `Offbeat::ROWS`' order.
-const RULES: [(&str, &[&str], &str); 7] = [
+const RULES: [(&str, &[&str], &str); 8] = [
     ("Irregular bounce", ON_OFF, "Every bounce kicks off at an angle: up to 15° flatter and 15° to either side (20° for a lob)."),
     ("Slow motion", ON_OFF, "The whole point plays at two-thirds speed, from the serve to the last bounce."),
     ("Turbo rally", ON_OFF, "Each shot after the return speeds the rally up a tenth, up to double speed."),
@@ -14,16 +14,17 @@ const RULES: [(&str, &[&str], &str); 7] = [
     ("Player size", &["Normal", "Tiny", "Big"], "Players shrink to half their height, or grow into giants. Their reach stays the same."),
     ("Player speed", &["Normal", "Fast", "Slow"], "Everyone runs 60% faster, or a good deal slower. The computer players plan for it too."),
     ("Sweet spot", ON_OFF, "Every hit, serve and dive lands on the sweet spot: no mistimed or mis-hit shots."),
+    ("Everyone's stats", &["None", "F", "E", "D", "C", "B", "A"], "Every player gets the same grade in Serve, Stroke, Volley, Impact and Footwork."),
 ];
 const ON_OFF: &[&str] = &["Off", "On"];
 /// B616: each rule's short name on the strip's Rules cell (size and speed say their choice instead).
-const CHIPS: [&str; 7] = ["Bounce", "Slow-mo", "Turbo", "Ghost", "", "", "Sweet spot"];
+const CHIPS: [&str; 8] = ["Bounce", "Slow-mo", "Turbo", "Ghost", "", "", "Sweet spot", ""];
 
 impl Menu {
     /// The legend's word for Select on the confirm screen: the rules, and how many are on.
     pub(super) fn rules_label(&self) -> Option<&'static str> {
         let on = (0..RULES.len()).filter(|&i| self.offbeat.get(i) > 0).count();
-        (!self.online()).then(|| ["Rules", "Rules (1 on)", "Rules (2 on)", "Rules (3 on)", "Rules (4 on)", "Rules (5 on)", "Rules (6 on)", "Rules (7 on)"][on])
+        (!self.online()).then(|| ["Rules", "Rules (1 on)", "Rules (2 on)", "Rules (3 on)", "Rules (4 on)", "Rules (5 on)", "Rules (6 on)", "Rules (7 on)", "Rules (8 on)"][on])
     }
 
     /// The confirm screen's press with the rules box in mind: Select opens it; while it's up it takes every press.
@@ -64,6 +65,7 @@ impl Menu {
                 (_, 0) => None,
                 (4, c) => Some(["Tiny", "Big"][(c as usize - 1).min(1)]),
                 (5, c) => Some(["Fast", "Slow"][(c as usize - 1).min(1)]),
+                (7, c) => Some(["All F", "All E", "All D", "All C", "All B", "All A"][(c as usize - 1).min(5)]),
                 _ => Some(CHIPS[i]),
             })
             .collect()
@@ -100,7 +102,7 @@ pub(super) fn draw(d: &mut Draw, m: &Menu) {
     for (k, l) in super::wrap(help, 52).iter().take(2).enumerate() {
         d.label(l, sx + sw / 2.0, sy + sh - 52.0 + 12.0 * k as f32, 10.0, sw - 20.0, super::BROWN);
     }
-    let note = "Rules can be mixed. Size and speed: press again for the next choice.";
+    let note = "Rules can be mixed. Size, speed and stats: press again for the next choice.";
     d.label(note, sx + sw / 2.0, sy + sh - 22.0, 9.0, sw - 20.0, super::BROWN);
 }
 

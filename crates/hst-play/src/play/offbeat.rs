@@ -16,8 +16,10 @@
 //! - **Fast / slow players**: every run 1.6× or 0.6× as fast (the run pace a mod sets, `Stats::paced`; the CPUs plan
 //!   with it too).
 //! - **Sweet spot**: every hit, serve and dive is a sweet one: no timing or height error, never a mis-hit.
+//! - **Everyone's stats** (M147): every player plays with one grade, F through A, in all five of the select screen's
+//!   categories (`stats.rs`).
 //!
-//! Irregular bounce, player speed and sweet spot change the sim; the others change the clock or the picture, so the ticks, inputs and
+//! Irregular bounce, player speed, sweet spot and everyone's stats change the sim; the others change the clock or the picture, so the ticks, inputs and
 //! results stay the same. With every rule off the match is the original's.
 
 use bevy::prelude::*;
@@ -37,7 +39,12 @@ pub struct Offbeat {
     pub pace: u8,
     /// Every hit on the sweet spot.
     pub sweet: bool,
+    /// Everyone's stats: 0 each their own, 1 all F … 6 all A (`stats.rs`).
+    #[serde(default)]
+    pub stats: u8,
 }
+
+mod stats;
 
 /// The players' drawn scale by `Offbeat::size`.
 const SIZES: [f32; 3] = [1.0, 0.45, 1.8];
@@ -46,7 +53,16 @@ const PACES: [f32; 3] = [1.0, 1.6, 0.6];
 
 impl Offbeat {
     /// Each rule's flag names by choice (choice 0, off, has none), in the rules page's order.
-    pub const ROWS: [&[&str]; 7] = [&["irregular"], &["slow"], &["turbo"], &["ghost"], &["tiny", "big"], &["fast", "sluggish"], &["sweet"]];
+    pub const ROWS: [&[&str]; 8] = [
+        &["irregular"],
+        &["slow"],
+        &["turbo"],
+        &["ghost"],
+        &["tiny", "big"],
+        &["fast", "sluggish"],
+        &["sweet"],
+        &["stats-f", "stats-e", "stats-d", "stats-c", "stats-b", "stats-a"],
+    ];
 
     pub fn parse(s: &str) -> Self {
         let mut o = Self::default();
@@ -68,13 +84,14 @@ impl Offbeat {
 
     /// Rule `i`'s choice (0 off).
     pub fn get(&self, i: usize) -> u8 {
-        [self.irregular as u8, self.slow as u8, self.turbo as u8, self.ghost as u8, self.size, self.pace, self.sweet as u8][i]
+        [self.irregular as u8, self.slow as u8, self.turbo as u8, self.ghost as u8, self.size, self.pace, self.sweet as u8, self.stats][i]
     }
 
     pub fn set(&mut self, i: usize, v: u8) {
         match i {
             4 => self.size = v,
             5 => self.pace = v,
+            7 => self.stats = v,
             _ => *[&mut self.irregular, &mut self.slow, &mut self.turbo, &mut self.ghost, &mut self.sweet][i.min(4)] = v > 0,
         }
     }
@@ -104,11 +121,17 @@ fn start(
     game: Option<ResMut<Game>>,
     args: Res<crate::Args>,
     balls: Query<(Entity, &BallView)>,
+    match_mod: Option<Res<crate::mods::MatchMod>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     let (Some(rules), Some(mut g)) = (rules, game) else { return };
+    if rules.stats > 0
+        && let Ok(mut iso) = hst_data::iso::Iso::open(&args.iso)
+    {
+        stats::apply(&mut g, &mut iso, match_mod.as_deref(), rules.stats - 1);
+    }
     apply(&mut g, *rules);
     if !rules.irregular {
         return;
@@ -258,6 +281,31 @@ mod tests {
         };
         assert!(plain(&off) == plain(&on), "the rules changed the match");
         assert!(halved > 500 && whole > 500 && fast > 50 && ghosts > 20, "{halved} {whole} {fast} {ghosts}");
+    }
+
+    /// Everyone's stats at A: the four characters (Carol, Yuki, Jun, Kaito) run, aim, time and serve alike, a run
+    /// as fast as JJ's (the one A in Footwork), and the match plays on; the parse and flag know the grades.
+    #[test]
+    fn everyones_stats_are_one_grade() {
+        assert_eq!(Offbeat::parse("stats-a"), Offbeat { stats: 6, ..default() });
+        assert_eq!(Offbeat { stats: 1, ..default() }.flag().as_deref(), Some("stats-f"));
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let mut app = set_up(Offbeat { stats: 6, ..default() });
+        stats::apply(&mut app.world_mut().resource_mut::<Game>(), &mut iso, None, 5);
+        let jj = super::super::stats_of(&super::super::tparam(&mut iso, 5));
+        let g = app.world().resource::<Game>();
+        for i in 0..4 {
+            assert_eq!(g.players[i].stats, jj, "player {i}'s run and stamina");
+            assert_eq!(g.aim_stats[i].con, g.aim_stats[0].con);
+            assert_eq!(g.reaches[i].grades, g.reaches[0].grades);
+            assert_eq!(g.finish.power[i], g.finish.power[0]);
+            assert_eq!((g.serve_data[i].power, g.serve_data[i].strong_grades.clone()), (g.serve_data[0].power, g.serve_data[0].strong_grades.clone()));
+        }
+        for _ in 0..3000 {
+            step(&mut app);
+        }
+        let hits: u32 = app.world().resource::<Game>().match_stats.players.iter().map(|p| p.hits).sum();
+        assert!(hits > 20, "{hits} hits");
     }
 
     /// A doubles match of computer players with `rules`.

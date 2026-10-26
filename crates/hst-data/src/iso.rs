@@ -43,8 +43,40 @@ const PACK_MAGIC: &[u8; 8] = b"HSTPACK1";
 /// Pack hashes of the retail copies we know are good (B612). The hash covers the pack's index and packed files, so it
 /// is the same whatever tool ripped the disc and however the image lays its files out; a bad rip or another version
 /// gives another hash. Players who have a good copy that's refused report its hash (shown in the error) to add here.
-/// Changing `packed` changes every hash: re-import a known copy and update this list with it.
-pub const KNOWN_PACKS: &[(u64, &str)] = &[(0xd89b_5d23_0259_faef, "SCUS-97610 US 1.00")];
+/// Changing what a pack holds changes the hash: add the new one beside the old (packs already imported keep theirs and
+/// still play, [`same_disc`]), never replace it.
+pub const KNOWN_PACKS: &[(u64, &str)] = &[
+    (0xd89b_5d23_0259_faef, "SCUS-97610 US 1.00"),
+    // character face pictures blanked (`blanked`)
+    (0x3010_8488_3532_83da, "SCUS-97610 US 1.00"),
+];
+
+/// Two pack hashes are the same disc: equal, or known copies of the same release (an older import and a newer one).
+pub fn same_disc(a: u64, b: u64) -> bool {
+    let name = |h| KNOWN_PACKS.iter().find(|&&(k, _)| k == h).map(|&(_, n)| n);
+    a == b || name(a).is_some_and(|n| name(b) == Some(n))
+}
+
+/// Archive entries a pack holds as zeros: the original's character face pictures, which the remaster never draws (it
+/// bakes its own). The archive keeps its layout; only those entries' bytes are left out.
+fn blanked(path: &str, name: &str) -> bool {
+    path == "AZUMA/INPANE/INPANE.XB0" && name.to_ascii_lowercase().replace('\\', "/").contains("/face/face_")
+}
+
+/// `data` (packed file `path`) with its [`blanked`] entries zeroed, each up to the next entry's start.
+pub fn blank(path: &str, mut data: Vec<u8>) -> Vec<u8> {
+    let Ok(arc) = crate::xb::Archive::parse(&data) else { return data };
+    let mut starts: Vec<usize> = arc.entries.iter().map(|e| e.offset).collect();
+    starts.sort_unstable();
+    let spans: Vec<_> = arc.entries.iter().filter(|e| blanked(path, &e.name)).map(|e| {
+        let end = starts.iter().copied().find(|&s| s > e.offset).unwrap_or(data.len());
+        e.offset..end.min(data.len())
+    }).collect();
+    for r in spans {
+        data[r].fill(0);
+    }
+    data
+}
 
 /// What a pack leaves out: the FMV movies (217 MB), the IOP driver modules and the movie overlay — nothing the
 /// remaster reads. Everything else on the disc (≈ 170 MB) goes in, so a later port that reads a new file still finds it.
@@ -143,7 +175,7 @@ impl Iso {
         w.write_all(&index)?;
         h.write(&index);
         for (i, n) in names.iter().enumerate() {
-            let data = self.read(n)?;
+            let data = blank(n, self.read(n)?);
             w.write_all(&data)?;
             h.write(&data);
             progress(i + 1, names.len());

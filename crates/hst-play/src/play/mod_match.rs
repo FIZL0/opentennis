@@ -82,6 +82,8 @@ pub(super) fn apply(g: &mut Game, i: usize, iso: &mut Iso, m: &Mod, outfit: usiz
     let n = g.players.len();
     g.swing_pace.resize(n, 1.0);
     g.swing_pace[i] = m.build.swing;
+    g.ball_steps.resize(n, [1, 1]);
+    g.ball_steps[i] = [m.build.serve_speed, m.build.shot_speed];
     // B181: a mod character speaks only its own takes; a program it has no wav for, or a mod with no voice, is silent
     // (never its donor's). A costume pack is its disc character and keeps that voice, as a disc-body mod its donor's (M11).
     if m.disc_voice().is_none() {
@@ -125,7 +127,7 @@ mod tests {
     }
 
     /// M11: Bigger Chief (a disc-body mod of pc07, `scale` 2, `swing_speed` 2, `run_speed` 0.25) in a bot match: his
-    /// body is pc07's twice as tall, his size-bound TParam cells (reach, hit heights) doubled, his run speed a quarter of
+    /// body is pc07's twice as tall, his reach cells doubled but his hit heights pc07's, his run speed a quarter of
     /// pc07's, his swings paced at 2, and he plays (serves and returns balls).
     #[test]
     fn bigger_chief_plays() {
@@ -148,8 +150,8 @@ mod tests {
             assert_eq!(swing_pace(g, 1), 2.0);
             assert_eq!(swing_pace(g, 0), 1.0);
             let own = character_reach(&g.reach, &mut iso, 7, 1.0);
-            assert!(g.reaches[1].reach > own.reach && g.reaches[1].smash_top == 2.0 * own.smash_top, "{:?} vs {own:?}", g.reaches[1]);
-            assert_eq!(g.smash_heights[1], super::super::smash_heights(&mut iso, 7).map(|h| 2.0 * h));
+            assert!(g.reaches[1].reach > own.reach && g.reaches[1].smash_top == own.smash_top, "{:?} vs {own:?}", g.reaches[1]);
+            assert_eq!(g.smash_heights[1], super::super::smash_heights(&mut iso, 7));
             let head = |c: &character::CharacterData| c.skeleton.names.iter().position(|n| n == "Bip01Head").map(|h| hst_sim::pose::model(&c.skeleton, &c.skeleton.rest)[h][3][1]).unwrap();
             let pc07 = character::load_disc_with(&mut iso, 7, 0, &mut Assets::<Mesh>::default(), &mut Assets::<StandardMaterial>::default(), &mut Assets::<Image>::default(), &mut Assets::<SkinnedMeshInverseBindposes>::default(), None).unwrap();
             assert!((head(&g.data[1]) - 2.0 * head(&pc07)).abs() < 1e-4, "head {} vs pc07's {}", head(&g.data[1]), head(&pc07));
@@ -294,5 +296,40 @@ mod tests {
             }
         }
         assert!(!stand.visual.is_empty() && real.joints.len() != stand.joints.len(), "the stand-in draws the donor's own rig");
+    }
+    /// The published Bigger Chief (1.5× Big Chief, `stats` "S", `serve_speed` 3): his row hits as hard as the
+    /// roster's hardest hitter, his stamina is the override's, and with his hit heights pc07's his serves land in,
+    /// three ball steps a frame.
+    #[test]
+    fn bigger_chief_serves_in() {
+        if !hst_data::fixture::has_iso() {
+            return hst_data::fixture::skip("no ISO");
+        }
+        let dir = std::env::temp_dir().join(format!("hst-bigger-chief-s-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mod.json"), r#"{"standard":1,"id":"hst_bigger_chief","name":"Bigger Chief","disc_body":true,"donor":7,"hand":"right","params":{"base":7,"override":{"STA":"14"}},"ai_row":7,"face":"morph","scale":1.5,"run_speed":0.2,"stats":"S","serve_speed":3,"shot_speed":2,"version":5}"#).unwrap();
+        let m = mods::read(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        let mut iso = hst_data::fixture::iso().unwrap();
+        let row = mods::tparam(&mut iso, &m).unwrap();
+        let pow = |r: &[String], c: usize| r[c].parse::<f32>().unwrap();
+        let rows: Vec<Vec<String>> = (0..14).map(|c| super::super::tparam(&mut iso, c)).collect();
+        for c in 12..15 {
+            assert_eq!(pow(&row, c), rows.iter().map(|r| pow(r, c)).fold(0.0, f32::max), "POW {c}");
+        }
+        assert_eq!(row[41], "14");
+        let mut app = bot_match(&m, 7);
+        let mut flown = 0;
+        for _ in 0..60 * 120 {
+            app.world_mut().run_schedule(FixedUpdate);
+            let g = app.world().resource::<super::super::Game>();
+            let serving = g.shots == 1 && g.last_hitter == 1;
+            flown = if serving && g.flight.bounces == 0 { flown + 1 } else if serving { flown } else { 0 };
+            if serving && g.flight.call == hst_sim::judge::Call::In {
+                assert!(g.since_hit > 2 * flown, "{} steps in {flown} frames", g.since_hit);
+                return;
+            }
+        }
+        panic!("Bigger Chief never served in");
     }
 }

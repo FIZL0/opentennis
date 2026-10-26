@@ -1,5 +1,7 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Pop-ups and the character select no longer get cut off in tall or small windows with lots of characters installed
 - The doubles close camera no longer leaves empty ground at the bottom of the screen: it moves in on your team and widens to keep you both in view
+- The close camera no longer jumps when the players have finished changing ends
 - A match on the close camera now opens on the normal one and glides in once play starts
 - The on-screen touch buttons now say what they do (Topspin, Slice, Lob, Pause, the menu's actions) under their ✕ ○ □ △ symbols
 - With touch controls in the browser, button hints on Auto now show PlayStation symbols to match the on-screen buttons
@@ -7,5 +9,16 @@
 - The game remembers whether you picked the close camera or the normal one; phones and touch screens start on the close camera
 - Every match now opens with a flashing reminder of the button that changes the camera
 - Players' name tags no longer show over their heads during the court intro
+- Character select: when two players are both ready and one picks for the next computer player, the one after now starts on that pick (e.g. Random) instead of jumping to a new character
+- In online matches the camera button now switches to the close camera behind your own player (and your choice is kept), as it does offline
+- On the character select, when three or four players point at the same character, every player's tag now shows on it (4P's used to be left off)
+- On Windows and Linux the game now keeps its settings, imported disc and mods in its own folder, next to the game, so the whole game moves or backs up as one folder; mods and settings from before carry over
+- Modded characters no longer get the camera on the ground looking up at them after a point
+- New Offbeat rule, Everyone's stats: give every player the same grade, F through A, in Serve, Stroke, Volley, Impact and Footwork
+- Character mods can now take the roster's best stats, and can make their serves and shots fly faster along the same path, so they still land where they were aimed
+- Character mods can now take the best stats of the stock roster, and very tall mod characters' serves now land in the service box instead of flying long
+- Mods can mark themselves as joke characters: they get their own category on the character select, and Random never picks them
+- Players' heads, glasses and other parts no longer go missing or see-through when the camera cuts to a close-up of a celebration
+- Each controller and the keyboard now remembers its last character, costume and hand: the next character select, local or online and even after a restart, opens with your cursor on them
 - Choose your player: the character preview is bigger and the model fills it, and the row of game tabs above the faces is gone (the headings in the list still name each game)
 - Choose your player: the match settings stay on one row, emotes play in full and stay in frame, the stat tiles are smaller with bigger labels, and tall portrait windows show the four players in a 2×2 grid

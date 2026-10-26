@@ -242,6 +242,7 @@ impl Menu {
     pub(super) fn lobby_join(&mut self, dev: super::Dev, out: &mut Vec<Effect>) -> bool {
         let Some(i) = self.lobby_join_seat() else { return false };
         (self.seats[i], self.players[i], self.scroll[i]) = (Some(dev), default(), 0);
+        self.recall(i);
         out.extend([Effect::Sound(2), Effect::Online(Fx::Net(Cmd::Picks(self.picks())))]);
         if self.screen == Screen::Lobby {
             self.go(Screen::Chars, out);
@@ -1501,6 +1502,7 @@ impl Menu {
         self.seats[1..].fill(None);
         self.bots = [false; 4];
         self.players = [super::Player::fresh(); 4];
+        self.recall_all();
         self.scroll = [0; 4];
         self.online_open(out);
     }

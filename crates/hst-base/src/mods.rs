@@ -108,6 +108,9 @@ pub fn face_target(names: &[String], track: &str) -> Option<usize> {
     })
 }
 
+/// The select category of §6 `joke` mods (in place of their game).
+pub const JOKE: &str = "Joke characters";
+
 /// A mod's manifest (`mod.json`, §6), checked.
 #[derive(Debug, Clone)]
 pub struct Mod {
@@ -149,11 +152,11 @@ pub struct Mod {
     /// §3 `upscale` (B488): false when its textures are HD already (e.g. Hot Shots Golf Fore's), so its
     /// `textures/upscaled/` is never read nor downloaded. Absent: true.
     pub upscale: bool,
-    /// §6 `disc_body`, `scale`, `swing_speed`, `run_speed` (M11).
+    /// §6 `disc_body`, `scale`, `swing_speed`, `run_speed` (M11), `stats`, `serve_speed`, `shot_speed`.
     pub build: Build,
 }
 
-/// A mod's body and pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`, M11); [`Build::default`] for a mod
+/// A mod's body and pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`, M11, `stats`, `serve_speed`, `shot_speed`); [`Build::default`] for a mod
 /// without them, which plays exactly as its donor's body does.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Build {
@@ -161,17 +164,25 @@ pub struct Build {
     /// mod ships no model. Its costumes are [`DISC_COSTUMES`] entries.
     pub disc: bool,
     /// The whole body this many times its size: mesh, rest pose (so every motion's reach and the arm table), the
-    /// racket, and TParam's size-bound columns ([`SIZE_COLUMNS`]).
+    /// racket, and TParam's reach columns ([`SIZE_COLUMNS`]). Its hit heights stay the row's, so the trajectory
+    /// tables (made for stock heights) still aim its shots.
     pub scale: f32,
     /// Its swings (strokes, volleys, smash, serve follow-through, whiffs) play this many times faster.
     pub swing: f32,
     /// It runs this many times as fast.
     pub run: f32,
+    /// Every grade (Serve, Stroke, Volley, Impact, Footwork) this one, 0 F … 5 A: its row's graded cells are the
+    /// stock characters' at that grade ([`crate::grades`]), 6 S the roster's best. None: the row's own.
+    pub stats: Option<u8>,
+    /// Its serves, and its other shots, fly this many ball steps a frame until their first bounce: the same path,
+    /// sooner.
+    pub serve_speed: u8,
+    pub shot_speed: u8,
 }
 
 impl Default for Build {
     fn default() -> Self {
-        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0 }
+        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, stats: None, serve_speed: 1, shot_speed: 1 }
     }
 }
 
@@ -185,10 +196,10 @@ impl Build {
     }
 }
 
-/// TParam.csv columns that are body measurements and scale with §6 `scale`: height, the stroke and volley height
-/// tolerances, the reach base, margin and reach, the dive start and limit, the body-shot switch, the collision
-/// size, the underhand limit and the ideal, smash and serve heights.
-pub const SIZE_COLUMNS: [usize; 19] = [3, 34, 35, 36, 37, 38, 39, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66];
+/// TParam.csv columns that scale with §6 `scale`: the reach base, margin and reach, the dive start and limit, the
+/// body-shot switch and the collision size. Not the hit heights: grown, they put serves past the trajectory tables'
+/// heights, where they fly long.
+pub const SIZE_COLUMNS: [usize; 7] = [55, 56, 57, 58, 59, 60, 61];
 
 /// A TParam cell (`a` or `a/b/c`) × `scale`: whole numbers stay whole (rounded), decimals keep six places.
 fn scale_cell(cell: &str, scale: f32) -> String {
@@ -231,9 +242,14 @@ impl Mod {
         self.costume_of.or(self.build.disc.then_some(self.donor))
     }
 
-    /// B369: the select's category tab it goes under: its game (`source`), "Mods" when unset.
+    /// B369: the select's category tab it goes under: its game (`source`), "Mods" when unset, [`JOKE`] for a §6 `joke`.
     pub fn game(&self) -> &str {
         if self.source.is_empty() { "Mods" } else { &self.source }
+    }
+
+    /// §6 `joke`: left out of Random.
+    pub fn joke(&self) -> bool {
+        self.source == JOKE
     }
 }
 
@@ -263,7 +279,15 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
         serde_json::Value::Null => Ok(1.0),
         v => v.as_f64().filter(|x| (lo..=hi).contains(x)).map(|x| x as f32).ok_or_else(|| err(format!("`{k}` {v} must be a number {lo} to {hi}"))),
     };
-    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)? };
+    let stats = match &j["stats"] {
+        serde_json::Value::Null => None,
+        v => Some(v.as_str().and_then(|g| ["F", "E", "D", "C", "B", "A", "S"].iter().position(|&l| l == g)).ok_or_else(|| err(format!("`stats` {v} must be a grade \"F\" to \"A\" or \"S\"")))? as u8),
+    };
+    let steps = |k: &str| match &j[k] {
+        serde_json::Value::Null => Ok(1),
+        v => v.as_u64().filter(|n| (1..=4).contains(n)).map(|n| n as u8).ok_or_else(|| err(format!("`{k}` {v} must be a whole number 1 to 4"))),
+    };
+    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, stats, serve_speed: steps("serve_speed")?, shot_speed: steps("shot_speed")? };
     if disc && (!j["costumes"].is_null() || j["face"] != "morph") {
         return Err(err("`disc_body` plays the donor's disc costumes and faces: no `costumes`, `face` \"morph\"".into()));
     }
@@ -328,6 +352,12 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
         serde_json::Value::Bool(b) => *b,
         v => return Err(err(format!("`upscale` {v} must be true or false"))),
     };
+    // §6 `joke`: a joke character gets its own select category, and Random never draws it
+    let joke = match &j["joke"] {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(b) => *b,
+        v => return Err(err(format!("`joke` {v} must be true or false"))),
+    };
     let ai_row = num(&j["ai_row"], "ai_row", 13)?;
     if !j["disc_racket"].is_null() {
         num(&j["disc_racket"], "disc_racket", 13)?;
@@ -335,7 +365,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     if let Some(c) = costume_of
         && (donor != c || base != c || ai_row != c || !overrides.is_empty() || build != Build::default())
     {
-        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed` or `run_speed`")));
+        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed`, `run_speed`, `stats`, `serve_speed` or `shot_speed`")));
     }
     Ok(Mod {
         skeleton: None,
@@ -347,7 +377,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
         dir: dir.to_path_buf(),
         id: text("id")?,
         name: text("name")?,
-        source: game(j["source"].as_str().unwrap_or("")).chars().take(64).collect(),
+        source: if joke { JOKE.into() } else { game(j["source"].as_str().unwrap_or("")).chars().take(64).collect() },
         costumes,
         donor,
         hand,
@@ -479,6 +509,12 @@ pub fn dirs(root: &Path) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> =
         sub(root).into_iter().filter(|d| !d.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))).flat_map(|d| if crate::modfs::is_file(&d.join("mod.json")) { vec![d] } else { sub(&d) }).filter(|d| crate::modfs::is_file(&d.join("mod.json"))).collect();
     dirs.sort();
+    // B668: then the ones still in the mods folder from before the game's files moved, unless one by that folder is here
+    if let Some(old) = crate::modfs::old_root(root).filter(|o| o != root) {
+        let here: std::collections::HashSet<PathBuf> = dirs.iter().filter_map(|d| d.strip_prefix(root).ok().map(Into::into)).collect();
+        dirs.extend(self::dirs(&old).into_iter().filter(|d| d.strip_prefix(&old).is_ok_and(|r| !here.contains(r))));
+        dirs.sort_by(|a, b| crate::modfs::relative(root, a).cmp(&crate::modfs::relative(root, b)));
+    }
     dirs
 }
 
@@ -523,25 +559,35 @@ pub fn override_ok(k: &str, v: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The mod's TParam.csv row as cells: row `base` with the overrides (`play.rs` reads rows the same way).
+/// The mod's TParam.csv row as cells: row `base`, scaled, graded and with the overrides (`play.rs` reads rows the
+/// same way).
 pub fn tparam(iso: &mut Iso, m: &Mod) -> Result<Vec<String>, String> {
     let data = iso.read("PCDATA/PCDATA.XB").map_err(|e| e.to_string())?;
     let arc = Archive::parse(&data).map_err(|e| e.0)?;
     let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("tparam.csv")).ok_or("no TParam.csv")?;
     let csv = arc.read(e).map_err(|e| e.0)?;
-    tparam_row(&csv, m)
+    let grades = m.build.stats.and_then(|_| crate::grades::disc_grades(iso));
+    tparam_row(&csv, grades.as_ref(), m)
 }
 
-/// M113: [`tparam`] on the disc's TParam.csv already read (`csv`).
-pub fn tparam_row(csv: &[u8], m: &Mod) -> Result<Vec<String>, String> {
-    let tag = format!("{},", m.base);
-    let row = csv.split(|&b| b == b'\n').find(|l| l.starts_with(tag.as_bytes())).ok_or("no TParam.csv row")?;
-    let mut cells: Vec<String> = row.split(|&b| b == b',').map(|c| String::from_utf8_lossy(c).trim().to_string()).collect();
+/// M113: [`tparam`] on the disc's TParam.csv already read (`csv`), with the select's `grades` for a §6 `stats`
+/// (None: the row ungraded).
+pub fn tparam_row(csv: &[u8], grades: Option<&[[u8; 5]; 14]>, m: &Mod) -> Result<Vec<String>, String> {
+    let row_of = |n: usize| -> Option<Vec<String>> {
+        let tag = format!("{n},");
+        let row = csv.split(|&b| b == b'\n').find(|l| l.starts_with(tag.as_bytes()))?;
+        Some(row.split(|&b| b == b',').map(|c| String::from_utf8_lossy(c).trim().to_string()).collect())
+    };
+    let mut cells = row_of(m.base).ok_or("no TParam.csv row")?;
     if m.build.scale != 1.0 {
         for &c in &SIZE_COLUMNS {
             let cell = cells.get_mut(c).ok_or("short TParam.csv row")?;
             *cell = scale_cell(cell, m.build.scale);
         }
+    }
+    if let (Some(grade), Some(grades)) = (m.build.stats, grades) {
+        let rows: Vec<Vec<String>> = (0..crate::grades::CHARACTERS).map(row_of).collect::<Option<_>>().ok_or("no stock TParam.csv rows")?;
+        cells = crate::grades::graded_row(&cells, &rows, grades, grade);
     }
     for (k, v) in &m.overrides {
         let c = column(k).unwrap();
@@ -2128,7 +2174,7 @@ mod tests {
 
     /// An Out of Bounds mod's hair and earring chains (§3b `extras.spring`) reach the costume as spring joints. The
     /// rig whips 0.2 m sideways over 10 frames, then stands: the hair's joints swing off where they hang at rest
-    /// (the pose plus gravity's sag), then settle back there; the head they hang on is never turned.
+    /// (the pose plus gravity's sag), then settle back there within 6 s (B663's smaller Jasmine takes over 4 s); the head they hang on is never turned.
     #[test]
     fn oob_hair_swings_and_settles() {
         // Jasmine: 23 records, 5 of them chain anchors (pinned); Sophie's pigtails and ribbons (B579)
@@ -2155,7 +2201,7 @@ mod tests {
             let joints: Vec<Entity> = data.joints.iter().map(|j| w.spawn(j.rest).id()).collect();
             let root = w.spawn((crate::character::Rig { data: data.clone(), joints: joints.clone() }, GlobalTransform::IDENTITY, crate::spring::Spring::default())).id();
             let mut frames = Vec::new();
-            for f in 0..240 {
+            for f in 0..360 {
                 for (e, j) in joints.iter().zip(&data.joints) {
                     *w.get_mut::<Transform>(*e).unwrap() = j.rest;
                 }
@@ -2169,9 +2215,9 @@ mod tests {
         let (calm, whipped) = (run(0.0), run(0.02));
         let head = data.joint("Bip01Head").unwrap();
         let apart = |f: usize| calm[f].iter().zip(&whipped[f]).map(|(a, b)| a.angle_between(*b)).fold(0f32, f32::max).to_degrees();
-        eprintln!("whipped vs calm, largest joint difference every 10 frames: {:?}", (0..240).step_by(10).map(|f| apart(f).round()).collect::<Vec<_>>());
+        eprintln!("whipped vs calm, largest joint difference every 10 frames: {:?}", (0..360).step_by(10).map(|f| apart(f).round()).collect::<Vec<_>>());
         assert!((0..12).any(|f| apart(f) > 5.0), "{name}: the hair never trailed");
-        assert!(apart(239) < 0.5, "{name}: the hair never settled: {}", apart(239));
+        assert!(apart(359) < 0.5, "{name}: the hair never settled: {}", apart(359));
         assert!(whipped.iter().all(|f| f[head] == data.joints[head].rest.rotation), "{name}: the hair turned the head");
     }
 
@@ -2677,7 +2723,10 @@ mod tests {
             read(&dir)
         };
         let m = try_(json).unwrap();
-        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25 });
+        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, stats: None, serve_speed: 1, shot_speed: 1 });
+        assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"A\",\"version\"")).unwrap().build.stats, Some(5));
+        assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"S\",\"serve_speed\":3,\"version\"")).unwrap().build.serve_speed, 3);
+        assert!(!m.joke() && try_(&json.replace("\"version\"", "\"joke\":true,\"version\"")).unwrap().joke());
         // only a mod.json, and on the character select's roster
         assert!(list(&root).iter().any(|r| r.id == "hst_bigger_chief"), "not on the roster");
         assert_eq!((m.costumes.len(), m.disc_voice(), m.costume_of), (DISC_COSTUMES, Some(7), None));
@@ -2686,6 +2735,10 @@ mod tests {
             json.replace("\"scale\":2", "\"scale\":5"),
             json.replace("\"swing_speed\":2", "\"swing_speed\":0.5"),
             json.replace("\"run_speed\":0.25", "\"run_speed\":0"),
+            json.replace("\"version\"", "\"stats\":\"Z\",\"version\""),
+            json.replace("\"version\"", "\"shot_speed\":5,\"version\""),
+            json.replace("\"version\"", "\"serve_speed\":1.5,\"version\""),
+            json.replace("\"version\"", "\"joke\":1,\"version\""),
             json.replace("\"donor\"", "\"costumes\":[\"model/c00.glb\"],\"donor\""),
             json.replace("\"disc_body\":true,", "\"costume_of\":7,"),
             json.replace("\"disc_body\":true,", "\"costumes\":[],"),

@@ -18,7 +18,16 @@ fn pack_reads_like_the_disc() {
     assert!(pack.files.contains_key("ZZBIN/GAME.BIN") && !pack.files.contains_key("A/OPEN.PSS"));
     let names: Vec<String> = pack.files.keys().cloned().collect();
     for n in &names {
-        assert_eq!(pack.read(&n.to_lowercase()).unwrap(), iso.read(n).unwrap(), "{n}");
+        assert_eq!(pack.read(&n.to_lowercase()).unwrap(), hst_data::iso::blank(n, iso.read(n).unwrap()), "{n}");
+    }
+    // the disc's face pictures aren't copied; everything else in their archive still reads
+    let inpane = pack.read("AZUMA/INPANE/INPANE.XB0").unwrap();
+    let arc = hst_data::xb::Archive::parse(&inpane).unwrap();
+    let faces = arc.entries.iter().filter(|e| e.name.to_ascii_lowercase().contains("\\face\\face_")).count();
+    assert!(faces > 100, "{faces} faces");
+    for e in &arc.entries {
+        let face = e.name.to_ascii_lowercase().contains("\\face\\face_");
+        assert_eq!(arc.read(e).is_ok_and(|d| d.iter().any(|&b| b != 0)), !face, "{}", e.name);
     }
     let (p, i) = (std::fs::metadata(&out).unwrap().len(), std::fs::metadata(fixture::path(fixture::ISO)).unwrap().len());
     assert!(p * 5 < i, "pack {p} bytes vs ISO {i}");

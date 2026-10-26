@@ -1,6 +1,6 @@
 //! B301 (ours, by the user's request): the match's keyboard hints. While the keyboard plays a seat, the menus' legend strip (`legend.rs`, bottom right under the 4:3 screen's description bar, in
 //! keycaps) lists the match's keys from `controls.txt`: move, the three shots (which serve too), the emotes, the camera
-//! switch (only where it works: humans on this machine, offline; `alt_camera::offered`) and pause. A pad pressed
+//! switch (only where it works: humans on this machine; `alt_camera::offered`) and pause. A pad pressed
 //! doesn't hide it (the keyboard player still plays; user 2026-10-23), a touch does, and so does the Key Hints setting (Settings → Display,
 //! `key_hints` in settings.txt, on by default). Whatever else fills the legend (the pause menu, its Settings screens,
 //! the result screen) takes the strip instead. Presentation only: nothing here reaches the sim.
@@ -55,7 +55,7 @@ fn fill(
     }
     // B658: whatever the local humans' mix
     let original = gr.is_some_and(|gr| gr.original);
-    let camera = g.zip(pads.as_ref()).is_some_and(|(g, p)| super::alt_camera::offered(&g, p, np.is_some(), original));
+    let camera = g.zip(pads.as_ref()).is_some_and(|(g, p)| super::alt_camera::offered(&g, p, np.as_deref(), original));
     out.one(Last::Keys, items(&bind, camera));
 }
 

@@ -55,6 +55,7 @@ mod handicap;
 mod match_panel;
 mod home;
 mod look;
+mod last_picks;
 mod names;
 mod offbeat;
 mod online;
@@ -759,6 +760,8 @@ struct Menu {
     takeover: takeover::Takeover,
     /// B558: the Settings pages opened from the select or the lobby: the screen and row Back returns to (`over.rs`).
     over: Option<(Screen, usize)>,
+    /// M149: each input's last pick (`picks.txt`).
+    last_picks: last_picks::Picks,
 }
 
 impl Default for Menu {
@@ -830,6 +833,7 @@ impl Default for Menu {
             net_pause: None,
             takeover: default(),
             over: None,
+            last_picks: default(),
         }
     }
 }
@@ -951,7 +955,7 @@ impl Menu {
     fn draw(&self, p: usize, seed: u64) -> Option<(Who, usize)> {
         let vanilla = self.vanilla_lobby();
         let mods = if vanilla { 0 } else { self.own_mods() };
-        let whos = (0..CHARS).map(Who::Disc).chain((0..mods).filter(|&i| self.mods[i].costume_of.is_none()).map(Who::Mod));
+        let whos = (0..CHARS).map(Who::Disc).chain((0..mods).filter(|&i| self.mods[i].costume_of.is_none() && !self.mods[i].joke()).map(Who::Mod));
         let n = |w: Who| if vanilla { COSTUMES } else { self.costumes(w) };
         let open: Vec<(Who, Vec<usize>)> = whos.map(|w| (w, (0..n(w)).filter(|&c| self.free(p, w, c)).collect::<Vec<_>>())).filter(|(_, c)| !c.is_empty()).collect();
         let n = open.len() as u64;
@@ -1137,11 +1141,11 @@ impl Menu {
     /// B269 / B346: the computer player `dev` drives next (one 1P added, or an open seat's COM card) starts on the
     /// cell the last pick readied on, so ✕ over and over gives them all the same (e.g. all Random, or one character
     /// in its next free costumes).
-    /// B572: not one another ready human is already picking for.
-    fn carry_pick(&mut self, dev: Dev) {
-        let others = self.seats.iter().flatten().filter(|&&d| d != dev).filter_map(|&d| self.driven(d)).collect::<Vec<_>>();
+    /// B572: not one another ready human was already picking for before this press (`before`: each seated device's
+    /// [`Menu::driven`] then); one that moved on to it with `dev` (both ready, sharing the computer just readied) takes it too.
+    fn carry_pick(&mut self, dev: Dev, before: &[(Dev, Option<usize>)]) {
         if let (Some(q), Some(c)) = (self.driven(dev), self.last)
-            && self.seats[q].is_none() && !self.players[q].ready && !others.contains(&q)
+            && self.seats[q].is_none() && !self.players[q].ready && !before.iter().any(|&(d, o)| d != dev && o == Some(q))
         {
             // a character with every costume taken passes the cursor on to the next one with a costume open
             let roster = self.roster();
@@ -1297,6 +1301,7 @@ impl Menu {
             for p in &mut self.players {
                 *p = Player::fresh();
             }
+            self.recall_all();
             self.scroll = [0; 4];
             if self.online() {
                 // B195: into the lobby first (seats held), then its character select
@@ -1415,6 +1420,7 @@ impl Menu {
         self.seats = [Some(dev), None, None, None];
         self.bots = [false; 4];
         self.players = [Player::fresh(); 4];
+        self.recall(0);
         self.scroll = [0; 4];
         self.go(Screen::Chars, out);
     }
@@ -1779,9 +1785,10 @@ impl Menu {
                 self.p1 = Some(dev);
             }
             self.unready(p);
-            for (d, q) in before {
+            self.recall(p);
+            for &(d, q) in &before {
                 if self.driven(d) != q {
-                    self.carry_pick(d);
+                    self.carry_pick(d, &before);
                 }
             }
             out.push(Sound(1));
@@ -1873,7 +1880,7 @@ impl Menu {
                     self.online_ready(out);
                 } else {
                     self.chars_done(out);
-                    self.carry_pick(dev);
+                    self.carry_pick(dev, &before);
                 }
             }
         } else if k.back {
@@ -2345,7 +2352,7 @@ struct Art(Vec<Handle<Image>>, Option<Arc<SoundBank>>, Text);
 struct Slot(usize);
 
 // four human cards on the select take ~760 (B156); the confirm screen needs more than 700 (B141a)
-// B296: a full roster page (64 cells) with four players' cards takes ~2.5k
+// B296: a full roster page (64 cells) with four players' cards takes ~2.5k; more when a frame needs them (`grow`)
 const POOL: usize = 3200;
 
 /// `message0.dat`'s strings: a count, offsets from the end of the offsets, each string `07 7f` then Latin-1 to a NUL.
@@ -2415,7 +2422,7 @@ struct TParam(Vec<u8>);
 
 /// M113: mod `m`'s play style and △ grades as the select shows them (None: its TParam.csv row can't be read).
 fn mod_card(m: &crate::mods::Mod, csv: &[u8], t: &Text) -> Option<(usize, [u8; 5])> {
-    let row = crate::mods::tparam_row(csv, m).ok()?;
+    let row = crate::mods::tparam_row(csv, Some(&t.grades), m).ok()?;
     Some((mod_style(m, &t.style), mod_grades(&row, m.base, csv, &t.grades)))
 }
 
@@ -2538,6 +2545,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     menu.court_in_range();
     if fresh {
         menu.favs = tabs::load(&args.iso);
+        menu.last_picks = last_picks::load(&args.iso);
     }
     // B371: the names saved so far (another run may have added some)
     menu.names.saved = names::load(&args.iso);
@@ -3677,6 +3685,18 @@ fn step(
     }
 }
 
+/// A frame with more quads than the pool has slots (a tall window shows more of the roster, and a popup over it
+/// draws last) gets more, under the same parent before its other children, so the tail shows from the next frame
+/// instead of being cut off.
+fn grow(commands: &mut Commands, parents: &Query<&ChildOf, With<Slot>>, want: usize) {
+    let have = parents.iter().len();
+    let Some(root) = parents.iter().next().map(ChildOf::parent).filter(|_| want > have) else { return };
+    let more: Vec<Entity> = (have..want + 256)
+        .map(|i| commands.spawn((Slot(i), crate::ui_pool::quad(), BorderColor::default(), super::widescreen::Bleed { order: i as i32, on: false })).id())
+        .collect();
+    commands.entity(root).insert_children(have, &more);
+}
+
 fn draw(
     menu: Res<Menu>,
     art: Option<Res<Art>>,
@@ -3693,6 +3713,7 @@ fn draw(
     mut hits: ResMut<pointer::Hits>,
     images: Res<Assets<Image>>,
     (buttons, umpire_pics, court_pics, logo, name_art): (Option<Res<legend::Buttons>>, Option<Res<umpire_mods::Pics>>, Option<Res<court_mods::Pics>>, Option<Res<splash::Logo>>, Option<Res<names::NameArt>>),
+    (mut commands, parents): (Commands, Query<&ChildOf, With<Slot>>),
 ) {
     let Some(art) = art else { return };
     let mut pads: Vec<_> = gamepads.iter().filter(|(_, g, _)| controls::readable(g)).map(|(e, _, _)| e).collect();
@@ -3716,6 +3737,7 @@ fn draw(
     // concept: the local strip focused is the select itself, no slide
     let page = if menu.screen == Screen::Confirm && !menu.online() { Screen::Chars } else { menu.screen };
     let quads = slide.step(page, quads, time.delta_secs() * 60.0);
+    grow(&mut commands, &parents, quads.len());
     let scale = window.single().map_or(1.0, super::widescreen::unit_px) * super::widescreen::menu_scale();
     let (share, vshare) = super::widescreen::window_menu_shares(&window);
     // the quads' parent (the view) in physical pixels
@@ -3951,6 +3973,7 @@ pub fn plugin(app: &mut App) {
     app.add_systems(Update, takeover::watch.before(step).after(pointer::pointer));
     app.add_systems(Update, touch_seat::hold.after(step));
     app.add_systems(Update, takeover::updated.before(takeover::watch));
+    app.add_systems(Update, last_picks::track.before(step));
     app.init_resource::<umpire_mods::Pics>().add_systems(Update, umpire_mods::load.before(draw));
     app.init_resource::<court_mods::Pics>().add_systems(Update, court_mods::load.before(draw));
     app.add_systems(Update, trace::trace.after(online::poll).run_if(trace::on));
@@ -4669,6 +4692,25 @@ mod tests {
         assert!(m.players[1].random, "the pad keeps the computer's Random");
         assert_eq!(m.driven(Dev::Keys), Some(2));
         assert!(m.players[2].random, "1P's next computer is on Random");
+    }
+
+    /// 1P and a pad that joined both ready, then 1P readies the first computer player on Random: the next one starts
+    /// on Random too, though the pad moved on to it at the same press (it was not picking for it before).
+    #[test]
+    fn both_ready_the_next_computer_keeps_the_last_pick() {
+        let pad = Dev::Pad(Entity::from_raw_u32(9).unwrap());
+        let mut m = Menu { screen: Screen::Chars, doubles: true, seats: [Some(Dev::Keys), None, None, None], ..default() };
+        let ok = press(|p| &mut p.ok);
+        m.step(pad, ok);
+        m.players[0].random = true;
+        m.step(Dev::Keys, ok);
+        m.step(pad, ok);
+        let q = m.driven(Dev::Keys).unwrap();
+        assert!(m.seats[q].is_none() && m.players[q].random, "1P's computer starts on its Random");
+        m.step(Dev::Keys, ok);
+        let r = m.driven(Dev::Keys).unwrap();
+        assert!(r != q && m.seats[r].is_none());
+        assert!(m.players[r].random, "the next computer is on Random, not its automatic pick");
     }
 
     /// Concept: a pad joins while 1P has the strip; 1P's ○ then empties its seat (the pad stays 2P), and the next ✕

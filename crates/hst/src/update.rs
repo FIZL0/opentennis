@@ -395,10 +395,12 @@ fn steams(exe: &std::path::Path) -> bool {
     exe.components().any(|c| c.as_os_str().eq_ignore_ascii_case("steamapps"))
 }
 
-/// Where [`Way::Copy`] puts releases: `update/` in the user data folder (a Flatpak's own, `~/.var/app/<id>/data/hst`).
+/// Where [`Way::Copy`] puts releases: `update/` in the per-user data folder (a Flatpak's own,
+/// `~/.var/app/<id>/data/hst`), never beside the game (B668: a copy's own folder isn't where its data goes, and a game
+/// that copies at all can't write its own folder).
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 fn copies() -> std::path::PathBuf {
-    let d = crate::disc::data_dir().join("update");
+    let d = crate::disc::app_data_dir().join("update");
     d.canonicalize().unwrap_or(d)
 }
 

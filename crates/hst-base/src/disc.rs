@@ -9,10 +9,42 @@ use hst_data::iso::Iso;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// The game's files (`crate::store`, M143): on Windows and Linux beside the game ([`beside_game`], B668), else (and
+/// where that folder won't take files) [`app_data_dir`].
+pub fn data_dir() -> PathBuf {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| beside_game().unwrap_or_else(app_data_dir)).clone()
+}
+
+/// B668: the game's own folder (an AppImage's: the folder the `.AppImage` is in, its mount is read-only), on Windows and
+/// Linux, if the game can write there. Not: Program Files or `/usr` (not writable), a Flatpak, a Steam library (Steam
+/// owns those files and an uninstall takes the folder), a release Update put in [`app_data_dir`]'s `update/` (its data
+/// stays where the game that fetched it keeps it), or a build in a cargo checkout (`target/`: a developer's runs share
+/// one folder, `HST_DATA` picks another).
+pub fn beside_game() -> Option<PathBuf> {
+    if !cfg!(any(windows, target_os = "linux")) || std::env::var_os("FLATPAK_ID").is_some() {
+        return None;
+    }
+    let exe = std::env::var_os("APPIMAGE").filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| std::env::current_exe().ok())?;
+    let dir = exe.canonicalize().ok()?.parent()?.to_path_buf();
+    let app = app_data_dir();
+    let ours = |d: &Path| !d.components().any(|c| c.as_os_str().eq_ignore_ascii_case("steamapps")) && !d.ancestors().any(|a| a.join("Cargo.lock").is_file()) && !d.starts_with(app.canonicalize().unwrap_or(app.clone()));
+    (ours(&dir) && writable(&dir)).then_some(dir)
+}
+
+/// Whether `dir` takes a new file.
+fn writable(dir: &Path) -> bool {
+    let probe = dir.join(format!(".hst-probe-{}", std::process::id()));
+    let ok = std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
+}
+
 /// `$XDG_DATA_HOME/hst` (else `~/.local/share/hst`); `%APPDATA%\hst` on Windows; `~/Library/Application Support/hst`
 /// on macOS; the app's Documents on iOS (the folder the Files app shows, so the ISO, settings.txt and mods/ go in and
-/// out there). The game's saved files live here too (`crate::store`, M143).
-pub fn data_dir() -> PathBuf {
+/// out there). The game's saved files lived here on every platform before B668, and still do where [`beside_game`]
+/// has no folder.
+pub fn app_data_dir() -> PathBuf {
     let env = |k| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     if cfg!(target_os = "ios") {
         return env("HOME").unwrap_or_default().join("Documents");
@@ -34,8 +66,11 @@ pub fn data_dir() -> PathBuf {
     env("XDG_DATA_HOME").unwrap_or_else(|| env("HOME").unwrap_or_default().join(".local/share")).join("hst")
 }
 
+/// The imported disc: in [`data_dir`], else one imported into [`app_data_dir`] before B668 (an import then moves it).
 pub fn pack_path() -> PathBuf {
-    data_dir().join("disc.pack")
+    let new = data_dir().join("disc.pack");
+    let old = app_data_dir().join("disc.pack");
+    if !new.exists() && old.exists() { old } else { new }
 }
 
 /// Puts the disc to run from in front of `argv` (see the module doc).
@@ -62,11 +97,16 @@ pub fn resolve(argv: &mut Vec<String>) {
         }
         eprintln!("Couldn't open the disc image {}: using the imported disc", argv.remove(0));
     }
-    let pack = pack_path();
+    let mut pack = pack_path();
     if import || !pack.exists() {
         let iso = iso.or_else(pick).unwrap_or_else(|| fail("No disc image picked. Run: hst --import <your Hot Shots Tennis (USA) ISO>"));
+        let was = std::mem::replace(&mut pack, data_dir().join("disc.pack"));
         if let Err(e) = import_iso(Path::new(&iso), &pack) {
             fail(&format!("Couldn't import {iso}: {e}"));
+        }
+        // B668: a re-import into the new folder takes the old folder's pack's place
+        if was != pack {
+            let _ = std::fs::remove_file(was);
         }
     }
     argv.insert(0, pack.to_string_lossy().into_owned());

@@ -455,6 +455,9 @@ pub struct Game {
     smash_heights: Vec<[f32; 2]>,
     /// Per player a mod's swing pace (character standard §6 `swing_speed`, M11); missing is 1, the original's.
     swing_pace: Vec<f32>,
+    /// Per player a mod's ball steps a frame for its serves and other shots until their first bounce (§6
+    /// `serve_speed`, `shot_speed`); missing is one, the original's.
+    ball_steps: Vec<[u8; 2]>,
     /// Per player the contact search's reach: `reach` with the character's TParam reach and heights and its hand.
     pub reaches: Vec<Reach>,
     /// Per player its character's lowest underhand contact (TParam, m): the AI's scoop height (`ReachStats::under_min`).
@@ -1348,7 +1351,7 @@ pub fn setup(
         let f = character::spawn(&mut commands, &data, root);
         commands
             .entity(f)
-            .insert((Figure(i), effects::SwingTrail::default()));
+            .insert((Figure(i), effects::SwingTrail::default(), crate::cull::Never));
         let look = (c, outfit, game.players[i].body.handicap, game.players[i].hand < 0.0);
         handicap::wear(&mut commands, &mut iso, f, &data, look, &mut meshes, &mut materials, &mut images);
     }
@@ -1484,6 +1487,7 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
         hit_effect: None,
         smash_heights: Vec::new(),
         swing_pace: Vec::new(),
+        ball_steps: Vec::new(),
         reaches: Vec::new(),
         under_min: Vec::new(),
         strong_hand: [1.0; 4],
@@ -3832,6 +3836,15 @@ fn simulate(mut g: ResMut<Game>) {
     g.flight.rally = g.phase == Phase::Rally;
     let (before, touched) = (g.flight.bounces, g.flight.special_contacts);
     g.flight.step_world(&shot, surface, &g.world.0, &g.world.1);
+    // a fast mod shot: more of the same steps this frame, up to its first bounce or a net/post touch
+    let steps = usize::try_from(g.last_hitter).ok().and_then(|i| g.ball_steps.get(i)).map_or(1, |s| s[(shot.class != class::SERVE) as usize]);
+    for _ in 1..steps {
+        if g.flight.bounces != 0 || g.flight.special_contacts != touched {
+            break;
+        }
+        g.flight.step_world(&shot, surface, &g.world.0, &g.world.1);
+        g.since_hit += 1;
+    }
     if g.flight.special_contacts != touched {
         cancel_locks(g, None);
     }
