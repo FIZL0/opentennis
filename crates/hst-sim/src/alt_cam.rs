@@ -92,6 +92,8 @@ impl Follow {
     /// (one: the same as `aim`). The shot orbits the team's ground spot (their middle across, the deeper one's
     /// depth) with the same pull-back and ball head-room, and the eye backs further away along the ground until
     /// every one of them is in the picture across: `width` of the shot's 4:3 width shows (less in a narrow split half).
+    /// B669: then it moves back in until the nearest one stands at the bottom of the picture, widening the lens to
+    /// keep them all across ([`move_in`]), so no empty ground fills the bottom.
     pub fn aim_team(&mut self, spots: &[[f32; 3]], near: bool, ball: [f32; 3], play: Play, width: f32) -> View {
         let [first, ..] = spots else { panic!("no humans") };
         if spots.len() == 1 {
@@ -104,7 +106,7 @@ impl Follow {
             let dead = s.pitch_dead_zone();
             s.head(dead, ball);
         });
-        self.shot.view()
+        move_in(self.shot.view(), spots, width)
     }
 
     /// One frame of [`Follow::aim_team`], as shown.
@@ -187,6 +189,43 @@ fn take_in(s: &mut Shot, spots: &[[f32; 3]], width: f32) {
             s.cam[3][i] = (F(s.cam[3][i]) - u * back).0;
         }
     }
+}
+
+/// B669: where the nearest human's feet go, as a share of the half-height below the middle; the share of the
+/// half-width the humans may reach out to once moved in; the widest half-angle.
+const FEET: f32 = 0.85;
+const MOVED_FILL: f32 = 0.9;
+const WIDEST: f32 = 0.6;
+
+/// B669: moves the eye in along the ground until the human nearest it has their feet [`FEET`] down the picture, then
+/// widens the half-angle (up to [`WIDEST`]) until every one of them fits across (`width` of the 4:3 width).
+fn move_in(mut v: View, spots: &[[f32; 3]], width: f32) -> View {
+    let [fx, fy, fz] = v.rot[2];
+    let flat = (F(fz) * fz).madd(fx, fx).sqrt();
+    if flat <= 0.0 {
+        return v;
+    }
+    let along = [F(fx) / flat, F(fz) / flat];
+    // game space is y down: the feet's drop below the eye, and the nearest feet along the ground
+    let (gap, drop) = spots.iter().fold((F(f32::MAX), F::ZERO), |(gap, drop), p| {
+        let d = (F(p[2]) - v.eye[2]) * along[1] + (F(p[0]) - v.eye[0]) * along[0];
+        if d < gap { (d, F(p[1]) - v.eye[1]) } else { (gap, drop) }
+    });
+    let below = musl::atanf((F(FEET) * musl::tanf(v.fov) * ASPECT).0);
+    let want = drop / musl::tanf((F(musl::asinf(fy)) + below).0);
+    if want <= 0.0 || gap <= want {
+        return v;
+    }
+    let step = gap - want;
+    v.eye[0] = (F(v.eye[0]) + along[0] * step).0;
+    v.eye[2] = (F(v.eye[2]) + along[1] * step).0;
+    let fill = F(MOVED_FILL) * width;
+    let need = spots.iter().fold(F(musl::tanf(v.fov)), |most, p| {
+        let [x, _, z] = v.local([p[0], (F(p[1]) - WAIST).0, p[2]]);
+        if z > 0.1 { most.max((F(x).abs() + BODY) / (fill * z)) } else { most }
+    });
+    v.fov = musl::atanf(need.0).min(WIDEST);
+    v
 }
 
 /// 5 % of the way from `last` to `now`: the rotation slerped, the eye and the half-angle eased.

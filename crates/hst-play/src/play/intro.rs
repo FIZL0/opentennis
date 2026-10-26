@@ -28,7 +28,7 @@ use crate::audio::{GalleryBank, MusicBanks, Sound, SoundBank};
 use crate::{Args, Orbit};
 
 #[derive(Resource)]
-struct Intro {
+pub(super) struct Intro {
     shot: Shot,
     /// The flyover's frames, the intro's whole length in ticks, and the ticks run.
     frames: u32,

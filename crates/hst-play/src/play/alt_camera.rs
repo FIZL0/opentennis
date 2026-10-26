@@ -9,7 +9,8 @@
 //! Presentation only: the shared match camera (`Game::cam`, which the cut-aways and reaction voices read) keeps
 //! stepping as before and nothing in play reads this one; the picture shows it through `own_camera::shown`. The
 //! choice is kept (`camera.txt` in the per-user data folder, user 2026-10-23); with none saved yet a touch device
-//! starts on this camera, anything else on the normal one. Select only switches in live play (`live`): a press
+//! starts on this camera, anything else on the normal one. A match starting on it shows the intro on the normal one
+//! and glides in once play is live, as Select does (B669). Select only switches in live play (`live`): a press
 //! while the players can't move (the intro, post-point, cut-aways, change of ends, replays) is dropped.
 
 use bevy::prelude::*;
@@ -41,6 +42,8 @@ pub(super) struct AltCamera {
     serving: bool,
     /// A Select press waiting for the next tick.
     press: bool,
+    /// B669: the camera chosen at the match's start, switched to (gliding, as a press) once play is live.
+    start_on: bool,
     /// The ball the shot looks at: the live one, held where the rally left it once the point is over (B628).
     held: [f32; 3],
     /// The change of ends' move into the shot: its start view and pivot (`change_ends::start`).
@@ -166,13 +169,22 @@ fn step(
     d: Option<Res<super::cutaway::Director>>,
     own: Option<ResMut<OwnCam>>,
     args: Option<Res<crate::Args>>,
+    intro: Option<Res<super::intro::Intro>>,
     mut commands: Commands,
 ) {
     let (Some(mut alt), Some(g), Some(pads), Some(d)) = (alt, g, pads, d) else { return };
     let alt = &mut *alt;
-    let press = std::mem::take(&mut alt.press);
+    let mut press = std::mem::take(&mut alt.press);
+    // B669: every match starts on the normal camera (the intro and its banner); a chosen alternate one glides in
+    // once play is live, as Select does
     if g.is_added() {
-        alt.on = concept::forced() || saved(args.as_deref()).unwrap_or_else(touch);
+        alt.on = false;
+        alt.start_on = saved(args.as_deref()).unwrap_or_else(touch);
+    }
+    let start = alt.start_on && !alt.on && intro.is_none() && live(&g, &d);
+    if start {
+        alt.start_on = false;
+        press = true;
     }
     let Some(humans) = team(&g, &pads, np.is_some()) else { return };
     let i = humans[0];
@@ -180,7 +192,9 @@ fn step(
     if press && alt.glide.is_none() && live(&g, &d) {
         alt.on = !alt.on;
         info!("alternate camera {}", if alt.on { "on" } else { "off" });
-        save(args.as_deref(), alt.on);
+        if !start {
+            save(args.as_deref(), alt.on);
+        }
         let (prev, now) = own_camera::shown(&g, own.as_deref());
         alt.glide = Some((GLIDE, alt.last.unwrap_or(now)));
         alt.last.get_or_insert(prev);
@@ -218,7 +232,6 @@ fn step(
         }
         let spots: Vec<_> = humans.iter().map(|&h| g.players[h].pos).collect();
         let to = alt.follow.as_mut().expect("made").2.aim_team(&spots, near, alt.held, play, 1.0);
-        let to = concept::frame(to, &spots);
         // the change of ends glides from behind the new end into the shot, as the normal camera's move does
         Some(match g.phase {
             Phase::ChangeEnds(n) => {
@@ -280,105 +293,6 @@ fn step(
             commands.insert_resource(o);
         }
         None => {}
-    }
-}
-
-/// B669 (concept): framing options for the doubles zoom, picked with `HST_ALT_FRAME` (which also turns the camera
-/// on): `base` as main, `pin` tilts up until the nearest human's feet sit at the bottom, `dolly` moves in until they
-/// do and widens the lens to keep everyone across, `crane` lifts the eye with the distance and pitches down onto them.
-/// Presentation only, plain f32; game space is y down.
-mod concept {
-    use bevy::math::Vec3;
-    use hst_sim::camera::{ASPECT, View};
-
-    /// Where the nearest feet go: this share of the half-height below the middle.
-    const BOTTOM: f32 = 0.85;
-    /// The share of the half-width the humans may reach out to, their half-width, and the widest half-angle.
-    const FILL: f32 = 0.9;
-    const BODY: f32 = 0.4;
-    const WIDEST: f32 = 0.6;
-    /// The crane: eye lift per metre of ground distance to the nearest human beyond `NEAR`.
-    const LIFT: f32 = 0.35;
-    const NEAR: f32 = 6.0;
-
-    fn mode() -> Option<String> {
-        std::env::var("HST_ALT_FRAME").ok()
-    }
-
-    pub(super) fn forced() -> bool {
-        mode().is_some()
-    }
-
-    pub(super) fn frame(v: View, spots: &[[f32; 3]]) -> View {
-        match mode().as_deref() {
-            Some("pin") => pin(v, spots, true),
-            Some("dolly") => dolly(v, spots),
-            Some("crane") => crane(v, spots),
-            _ => v,
-        }
-    }
-
-    /// The feet lowest in the picture, as the angle below the view's axis.
-    fn lowest(v: &View, spots: &[[f32; 3]]) -> f32 {
-        spots.iter().map(|&p| v.local(p)).filter(|l| l[2] > 0.1).map(|l| l[1].atan2(l[2])).fold(f32::MIN, f32::max)
-    }
-
-    fn target(v: &View) -> f32 {
-        (BOTTOM * v.fov.tan() * ASPECT).atan()
-    }
-
-    /// Pitches the view down by `t` (radians) about its right axis.
-    fn tilt(v: &mut View, t: f32) {
-        let (d, f) = (Vec3::from(v.rot[1]), Vec3::from(v.rot[2]));
-        let (s, c) = t.sin_cos();
-        v.rot[1] = (d * c - f * s).into();
-        v.rot[2] = (f * c + d * s).into();
-    }
-
-    /// Tilts so the nearest feet land at the bottom (`up_only`: never pitches down).
-    fn pin(mut v: View, spots: &[[f32; 3]], up_only: bool) -> View {
-        let a = lowest(&v, spots);
-        if a == f32::MIN {
-            return v;
-        }
-        let t = a - target(&v);
-        tilt(&mut v, if up_only { t.min(0.0) } else { t });
-        v
-    }
-
-    /// Moves in along the ground until the nearest feet reach the bottom, then widens to keep everyone across.
-    fn dolly(mut v: View, spots: &[[f32; 3]]) -> View {
-        let f = Vec3::from(v.rot[2]);
-        let flat = Vec3::new(f.x, 0.0, f.z).normalize_or_zero();
-        let pitch = f.y.asin();
-        let eye = Vec3::from(v.eye);
-        let (mut gap, mut h) = (f32::MAX, -eye.y);
-        for &p in spots {
-            let d = (Vec3::from(p) - eye).dot(flat);
-            if d < gap {
-                (gap, h) = (d, p[1] - eye.y);
-            }
-        }
-        let want = h / (pitch + target(&v)).tan();
-        if gap > want && want > 0.0 {
-            v.eye = (eye + flat * (gap - want)).into();
-            let need = spots
-                .iter()
-                .map(|&p| v.local([p[0], p[1] - 1.0, p[2]]))
-                .filter(|l| l[2] > 0.1)
-                .map(|l| ((l[0].abs() + BODY) / (l[2] * FILL)).atan())
-                .fold(v.fov, f32::max);
-            v.fov = need.min(WIDEST);
-        }
-        v
-    }
-
-    /// Lifts the eye by how far it stands back, then pitches onto the nearest feet.
-    fn crane(mut v: View, spots: &[[f32; 3]]) -> View {
-        let eye = Vec3::from(v.eye);
-        let gap = spots.iter().map(|&p| Vec3::new(p[0] - eye.x, 0.0, p[2] - eye.z).length()).fold(f32::MAX, f32::min);
-        v.eye[1] -= LIFT * (gap - NEAR).max(0.0);
-        pin(v, spots, false)
     }
 }
 
