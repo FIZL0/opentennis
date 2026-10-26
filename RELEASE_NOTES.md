@@ -1,4 +1,5 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Pop-ups and the character select no longer get cut off in tall or small windows with lots of characters installed
 - The doubles close camera no longer leaves empty ground at the bottom of the screen: it moves in on your team and widens to keep you both in view
 - The close camera no longer jumps when the players have finished changing ends
 - A match on the close camera now opens on the normal one and glides in once play starts

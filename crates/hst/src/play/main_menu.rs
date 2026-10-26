@@ -2345,7 +2345,7 @@ struct Art(Vec<Handle<Image>>, Option<Arc<SoundBank>>, Text);
 struct Slot(usize);
 
 // four human cards on the select take ~760 (B156); the confirm screen needs more than 700 (B141a)
-// B296: a full roster page (64 cells) with four players' cards takes ~2.5k
+// B296: a full roster page (64 cells) with four players' cards takes ~2.5k; more when a frame needs them (`grow`)
 const POOL: usize = 3200;
 
 /// `message0.dat`'s strings: a count, offsets from the end of the offsets, each string `07 7f` then Latin-1 to a NUL.
@@ -3677,6 +3677,18 @@ fn step(
     }
 }
 
+/// A frame with more quads than the pool has slots (a tall window shows more of the roster, and a popup over it
+/// draws last) gets more, under the same parent before its other children, so the tail shows from the next frame
+/// instead of being cut off.
+fn grow(commands: &mut Commands, parents: &Query<&ChildOf, With<Slot>>, want: usize) {
+    let have = parents.iter().len();
+    let Some(root) = parents.iter().next().map(ChildOf::parent).filter(|_| want > have) else { return };
+    let more: Vec<Entity> = (have..want + 256)
+        .map(|i| commands.spawn((Slot(i), crate::ui_pool::quad(), BorderColor::default(), super::widescreen::Bleed { order: i as i32, on: false })).id())
+        .collect();
+    commands.entity(root).insert_children(have, &more);
+}
+
 fn draw(
     menu: Res<Menu>,
     art: Option<Res<Art>>,
@@ -3693,6 +3705,7 @@ fn draw(
     mut hits: ResMut<pointer::Hits>,
     images: Res<Assets<Image>>,
     (buttons, umpire_pics, court_pics, logo, name_art): (Option<Res<legend::Buttons>>, Option<Res<umpire_mods::Pics>>, Option<Res<court_mods::Pics>>, Option<Res<splash::Logo>>, Option<Res<names::NameArt>>),
+    (mut commands, parents): (Commands, Query<&ChildOf, With<Slot>>),
 ) {
     let Some(art) = art else { return };
     let mut pads: Vec<_> = gamepads.iter().filter(|(_, g, _)| controls::readable(g)).map(|(e, _, _)| e).collect();
@@ -3716,6 +3729,7 @@ fn draw(
     // concept: the local strip focused is the select itself, no slide
     let page = if menu.screen == Screen::Confirm && !menu.online() { Screen::Chars } else { menu.screen };
     let quads = slide.step(page, quads, time.delta_secs() * 60.0);
+    grow(&mut commands, &parents, quads.len());
     let scale = window.single().map_or(1.0, super::widescreen::unit_px) * super::widescreen::menu_scale();
     let (share, vshare) = super::widescreen::window_menu_shares(&window);
     // the quads' parent (the view) in physical pixels
