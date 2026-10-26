@@ -1,7 +1,7 @@
 //! M149: each input's last pick (character or Random, costume, mod character, hand), kept by the keyboard or pad that
 //! made it, not by its seat. Whenever that input readies on its own seat the pick is noted; the next select it takes
 //! a seat in (a new local match, the controller assignment's way in, an online lobby, a join with ✕) opens its cursor
-//! there. Saved in `picks.txt` beside `settings.txt`, so it survives a restart. A mod that's gone puts the cursor on
+//! there. Kept in memory only: a fresh start of the game starts every input on the default pick again. A mod that's gone puts the cursor on
 //! the default pick (the Random card); a costume that's gone, on that character's first. Computer players keep B269's
 //! `Menu::last`.
 //!
@@ -11,8 +11,6 @@
 use bevy::prelude::*;
 
 use super::{Dev, GRID, Menu, Who};
-
-const FILE: &str = "picks.txt";
 
 /// One input's last pick.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,32 +27,6 @@ pub(super) struct Saved {
 pub(super) struct Picks {
     saved: std::collections::BTreeMap<String, Saved>,
     pads: Vec<(Entity, String)>,
-    dirty: bool,
-}
-
-fn path(iso: &str) -> std::path::PathBuf {
-    super::Settings::path(iso).with_file_name(FILE)
-}
-
-/// One line per input: `<input>\t<who>\t<costume>\t<0|1 hand toggle>`.
-fn parse(text: &str) -> std::collections::BTreeMap<String, Saved> {
-    text.lines()
-        .filter_map(|l| {
-            let mut f = l.split('\t');
-            let (dev, who, costume, swap) = (f.next()?, f.next()?, f.next()?.parse().ok()?, f.next()?);
-            Some((dev.to_string(), Saved { who: who.to_string(), costume, swap: swap == "1" }))
-        })
-        .collect()
-}
-
-fn text(saved: &std::collections::BTreeMap<String, Saved>) -> String {
-    saved.iter().map(|(d, s)| format!("{d}\t{}\t{}\t{}\n", s.who, s.costume, s.swap as u8)).collect()
-}
-
-/// The saved picks (none if there's no file yet).
-pub(super) fn load(iso: &str) -> Picks {
-    let saved = crate::store::read_to_string(path(iso)).map(|t| parse(&t)).unwrap_or_default();
-    Picks { saved, ..default() }
 }
 
 /// The readable pads' keys, `pads` sorted (two of one model told apart by their order).
@@ -92,7 +64,6 @@ impl Menu {
                 changed = true;
             }
         }
-        self.last_picks.dirty |= changed;
         changed
     }
 
@@ -135,8 +106,8 @@ impl Menu {
     }
 }
 
-/// Keeps the pads' keys current, notes the picks readied, writes `picks.txt` when it changes.
-pub(super) fn track(mut menu: ResMut<Menu>, gamepads: Query<(Entity, &Gamepad)>, args: Res<crate::Args>) {
+/// Keeps the pads' keys current and notes the picks readied.
+pub(super) fn track(mut menu: ResMut<Menu>, gamepads: Query<(Entity, &Gamepad)>) {
     let mut pads: Vec<_> = gamepads.iter().filter(|(_, g)| super::controls::readable(g)).map(|(e, g)| (e, (g.vendor_id().unwrap_or(0), g.product_id().unwrap_or(0)))).collect();
     pads.sort();
     let keys = pad_keys(&pads);
@@ -145,12 +116,6 @@ pub(super) fn track(mut menu: ResMut<Menu>, gamepads: Query<(Entity, &Gamepad)>,
         m.last_picks.pads = keys;
     }
     m.note_picks();
-    if std::mem::take(&mut m.last_picks.dirty) && std::env::var_os("HST_MENU").is_none() {
-        let p = path(&args.iso);
-        if let Err(e) = crate::store::write(&p, text(&m.last_picks.saved)) {
-            warn!("{}: {e}", p.display());
-        }
-    }
 }
 
 #[cfg(test)]
@@ -184,16 +149,15 @@ mod tests {
     }
 
     #[test]
-    fn the_file_round_trips() {
+    fn ready_picks_are_noted_once() {
         let mut m = menu();
         m.seats = [Some(Dev::Keys), Some(pad(9)), None, None];
         on(&mut m, 0, 4, 2, true);
         m.players[1] = Player { ready: true, ..Player::fresh() };
         assert!(m.note_picks());
         assert!(!m.note_picks(), "nothing new");
-        let t = text(&m.last_picks.saved);
-        assert_eq!(t, "keys\thst 4\t2\t1\npad 054c:09cc 1\trandom\t0\t0\n");
-        assert_eq!(parse(&t), m.last_picks.saved);
+        assert_eq!(m.last_picks.saved["keys"], Saved { who: "hst 4".into(), costume: 2, swap: true });
+        assert_eq!(m.last_picks.saved["pad 054c:09cc 1"], Saved { who: "random".into(), costume: 0, swap: false });
     }
 
     /// Local: the keyboard is 1P, a pad joins; both ready and play. Back from the match (the menu as it was kept), a

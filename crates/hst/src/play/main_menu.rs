@@ -760,7 +760,7 @@ struct Menu {
     takeover: takeover::Takeover,
     /// B558: the Settings pages opened from the select or the lobby: the screen and row Back returns to (`over.rs`).
     over: Option<(Screen, usize)>,
-    /// M149: each input's last pick (`picks.txt`).
+    /// M149: each input's last pick, for as long as the game stays open.
     last_picks: last_picks::Picks,
 }
 
@@ -2545,7 +2545,6 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     menu.court_in_range();
     if fresh {
         menu.favs = tabs::load(&args.iso);
-        menu.last_picks = last_picks::load(&args.iso);
     }
     // B371: the names saved so far (another run may have added some)
     menu.names.saved = names::load(&args.iso);
