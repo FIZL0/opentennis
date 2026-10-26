@@ -149,9 +149,9 @@ pub struct CharacterData {
 }
 
 /// A mod's off hand on its racket (looks only). The donor's clips turn the costume's own bones, so on longer or
-/// shorter arms the hand that cradles the racket's head lands behind its strings or off it. While the hand is out at
-/// the head (not on the handle, not off the racket), the arm is bent so the hand sits where the donor's would under
-/// the same rotations, turned as the donor's is: palm under the head's bottom rim, fingers over the frame.
+/// shorter arms the hand that cradles the racket's head lands behind its strings or off it. While the donor's hand is
+/// on the racket above the handle (the head's rim, the throat), the arm is bent so the hand sits where the donor's
+/// would under the same rotations, turned as the donor's is.
 #[derive(Clone, Debug)]
 pub struct Grip {
     /// Per joint of the costume, the donor's rest translation of that name (the costume's own where it has none).
@@ -1709,9 +1709,20 @@ pub fn viewer(app: &mut App) {
 /// The disc rackets' head centre in the racket joint's frame.
 const HEAD: Vec3 = Vec3::new(0.0, 0.777, 0.0);
 
+/// Where the disc rackets' handle ends up their joint's y axis (the racket hand holds below it).
+const THROAT: Vec3 = Vec3::new(0.0, 0.15, 0.0);
+
+/// How far the donor's off hand (its wrist) is from the racket above the handle: from the axis between the throat
+/// and the head's centre. B676, from the game's posed nodes: the square stance cradles the head's bottom rim (0.61 up
+/// the joint, ~0.1 off the axis), the turned stance holds the throat (0.22 up, ~0.1 off); a free arm is ~0.6 away.
+fn off_racket(at: Vec3) -> f32 {
+    let y = at.y.clamp(THROAT.y, HEAD.y);
+    (at - Vec3::new(0.0, y, 0.0)).length()
+}
+
 /// [`Grip`]: bends the off arm (two bones) of `drawn` so the hand is where the donor's would be on the racket, by
-/// `weight` (0 leaves it, 1 all the way) and fully only while the donor's hand is within 0.2 of the head's centre
-/// (cradling it is ~0.15; the handle and a free arm are past 0.3).
+/// `weight` (0 leaves it, 1 all the way) and fully only while the donor's hand is within 0.2 of the racket above its
+/// handle ([`off_racket`]: on the head or the throat), fading out by 0.3.
 fn hold_head(d: &CharacterData, grip: &Grip, drawn: &mut [(Quat, Vec3)], weight: f32) {
     let (Some(u), Some(e), Some(h), Some(r)) = (d.joint("Bip01LUpperArm"), d.joint("Bip01LForearm"), d.joint("Bip01LHand"), d.joint("Racket")) else { return };
     if h >= drawn.len() || r >= drawn.len() {
@@ -1734,7 +1745,7 @@ fn hold_head(d: &CharacterData, grip: &Grip, drawn: &mut [(Quat, Vec3)], weight:
     let theirs = |i: usize| grip.bones[i];
     let held = down(&racket, top, &theirs).compute_affine().inverse() * down(&hand, top, &theirs).compute_affine();
     let (_, turn, at) = held.to_scale_rotation_translation();
-    let w = weight * ((0.30 - (at - HEAD).length()) / 0.10).clamp(0.0, 1.0);
+    let w = weight * ((0.30 - off_racket(at)) / 0.10).clamp(0.0, 1.0);
     if w <= 0.0 {
         return;
     }
@@ -1791,6 +1802,20 @@ fn spawn_viewer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B676: a mod's off hand holds wherever its donor's is on the racket. The stock off hands (wrist, in the racket
+    /// joint's frame, from the disc clips the game samples alike): Carol's square stance at the head's bottom rim, her
+    /// turned stance at the throat, character 10's low stand by the handle's end; Carol's forehand-turned free arm and the serve
+    /// stance's tossing hand are off it.
+    #[test]
+    fn off_hand_on_the_racket() {
+        for at in [Vec3::new(-0.041, 0.609, 0.079), Vec3::new(0.052, 0.220, 0.094), Vec3::new(0.0, 0.155, 0.105)] {
+            assert!(off_racket(at) <= 0.2, "{at}");
+        }
+        for at in [Vec3::new(0.787, -0.122, -0.566), Vec3::new(0.300, 0.369, 0.222)] {
+            assert!(off_racket(at) >= 0.3, "{at}");
+        }
+    }
     /// The strongest channel at 0.5 or more wins, the first on a tie; none that strong is neutral.
     #[test]
     fn texture_face_picks_the_strongest_channel() {
