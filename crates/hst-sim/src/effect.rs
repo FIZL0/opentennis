@@ -808,6 +808,10 @@ impl Bounce {
     }
 
     fn puff(&mut self, p: Puff) {
+        // a court without dust (the indoor hall's) shows none: its puffs never age, so one stayed at the last bounce
+        if !self.puffing {
+            return;
+        }
         if self.puffs.len() == PUFFS {
             self.puffs.remove(0);
         }
