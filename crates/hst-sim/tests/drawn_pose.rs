@@ -1,6 +1,8 @@
 //! B676: the drawn pose against the game's posed nodes. The journal's `scripts/b676_nodes.py` dumps every player's node array
 //! (sampled local rotation and position, world matrix) beside its motion player each frame; the fixtures are the
-//! slot-4 (Carol, right-handed, character 4, 3, 11) and slot-5 (characters 0, 2, 1, 5) matches, 300 samples each.
+//! slot-4 (Carol, right-handed, character 4, 3, 11) and slot-5 (characters 0, 2, 1, 5) matches, 300 samples each,
+//! and B676c1's scratch slot 8 (characters 0, 6, 2, 5 in doubles, Carol left-handed in costume 3 on the far court,
+//! in her ready stance), 60 samples.
 
 use hst_data::{ani, fixture, iso::Iso, mdl, xb::Archive};
 use hst_sim::pose::{Clip, Skeleton, M4};
@@ -92,7 +94,7 @@ fn in_frame(m: &M4, p: [f32; 3]) -> [f32; 3] {
 fn stance_poses_match_the_game() {
     let Ok(mut iso) = fixture::iso() else { return };
     let (mut quats, mut hands) = (0, 0);
-    for file in ["b676/s4.bin", "b676/s5.bin"] {
+    for file in ["b676c1/s8.bin", "b676/s4.bin", "b676/s5.bin"] {
         let Ok(data) = fixture::read(format!("fixtures/{file}")) else { return fixture::skip(file) };
         let all = samples(&data);
         let mut sks = std::collections::HashMap::new();
@@ -212,4 +214,77 @@ fn thighs_untwist_like_the_game() {
     }
     eprintln!("{halved} untwisted thighs, {plain} plain, {skipped} drawn plain by the game");
     assert!(halved > 1000 && plain > 1000 && skipped <= 4);
+}
+
+/// Convex hull (counter-clockwise) of points in the plane.
+fn hull(mut p: Vec<[f32; 2]>) -> Vec<[f32; 2]> {
+    p.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let cross = |o: [f32; 2], a: [f32; 2], b: [f32; 2]| (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    let mut h: Vec<[f32; 2]> = Vec::new();
+    for pass in 0..2 {
+        let start = h.len();
+        for &q in p.iter() {
+            while h.len() >= start + 2 && cross(h[h.len() - 2], h[h.len() - 1], q) <= 0.0 {
+                h.pop();
+            }
+            h.push(q);
+        }
+        h.pop();
+        if pass == 0 {
+            p.reverse();
+        }
+    }
+    h
+}
+
+/// Signed distance from `q` to convex polygon `h` (negative inside).
+fn outside(h: &[[f32; 2]], q: [f32; 2]) -> f32 {
+    let mut d = f32::MIN;
+    for i in 0..h.len() {
+        let (a, b) = (h[i], h[(i + 1) % h.len()]);
+        let (ex, ey) = (b[0] - a[0], b[1] - a[1]);
+        let l = (ex * ex + ey * ey).sqrt();
+        d = d.max((ex * (q[1] - a[1]) - ey * (q[0] - a[0])) / -l);
+    }
+    d
+}
+
+/// B676c1: a left-hander's off hand wraps the bottom rim of the racket head, not the strings. The game draws the racket
+/// model unmirrored on a mirrored body (`character::unmirror_rackets`), so in the drawn model's own space a point's x is
+/// minus its x in the mirrored `Racket` node's frame. Lefty Carol's four finger knuckles (where the fingers cross the
+/// string plane) then sit on or outside the strings' outline (within 3 mm) in every sample of slot 8, where through a
+/// mirrored racket they would sit 7 mm or more inside it, the hand through the lower strings.
+#[test]
+fn lefty_fingers_wrap_the_rim() {
+    let Ok(mut iso) = fixture::iso() else { return };
+    let file = "b676c1/s8.bin";
+    let Ok(data) = fixture::read(format!("fixtures/{file}")) else { return fixture::skip(file) };
+    let xb = iso.read("PC/PC06C03.XB").unwrap();
+    let arc = Archive::parse(&xb).unwrap();
+    let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().contains("racket") && e.name.to_ascii_lowercase().ends_with(".mdl")).unwrap();
+    let racket = mdl::parse(&arc.read(e).unwrap()).unwrap();
+    // the strings' draw (frame, handle, strings), the head in the model's xy plane
+    let strings = hull(racket.materials[2].iter().flat_map(|pk| pk.vertices.iter().map(|v| [v.pos[0], v.pos[1]])).collect());
+    let mut knuckles = 0;
+    let mut sk = None;
+    for s in samples(&data) {
+        let seen = s.iter().find(|p| p.c == 6).unwrap();
+        // drawn mirrored: the world matrices' rotation turns the handedness over
+        assert!(det3(&seen.world(0)) < 0.0, "Carol is left-handed in slot 8");
+        let sk = sk.get_or_insert_with(|| skeleton(&mut iso, 6, seen.count()));
+        let ix = |name: &str| sk.names.iter().position(|x| x == name).unwrap();
+        let r = ix("Racket");
+        for k in 1..=4 {
+            let [x, y, _] = in_frame(&seen.world(r), [0, 1, 2].map(|c| seen.world(ix(&format!("Bip01LFinger{k}1")))[3][c]));
+            let (drawn, mirrored) = (outside(&strings, [-x, y]), outside(&strings, [x, y]));
+            assert!(drawn >= -0.003, "finger {k} {drawn} inside the strings");
+            assert!(mirrored <= -0.007, "finger {k} {mirrored}");
+            knuckles += 1;
+        }
+    }
+    assert!(knuckles >= 200);
+}
+
+fn det3(m: &M4) -> f32 {
+    m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
 }
