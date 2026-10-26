@@ -156,7 +156,7 @@ pub struct Meta {
 
 /// The select cards' drawing version (part of their cache folder's name): bump it when the preview's drawing
 /// changes, so every card is drawn again and store pictures from before stop standing in for them.
-pub const RENDER: u32 = 14;
+pub const RENDER: u32 = 15;
 
 /// B373: a mod's kind (`meta.json` / `mod.json` `"kind"`): absent is a character, so every older entry still reads;
 /// one this game doesn't know yet reads as `Other` and shows on no tab.
