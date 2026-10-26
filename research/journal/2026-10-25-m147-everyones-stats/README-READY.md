@@ -1,4 +1,4 @@
-# M147 — Offbeat rule: everyone's stats (FINAL)
+# M147 — Offbeat rule: everyone's stats (READY: rerun done.sh after B663)
 
 User 2026-10-24: one Offbeat rules option that puts every stat category of every character at one grade, F–A;
 default None.
