@@ -8,3 +8,4 @@
 - Every match now opens with a flashing reminder of the button that changes the camera
 - Players' name tags no longer show over their heads during the court intro
 - Choose your player: the character preview is bigger and the model fills it, and the row of game tabs above the faces is gone (the headings in the list still name each game)
+- Choose your player: the match settings stay on one row, emotes play in full and stay in frame, the stat tiles are smaller with bigger labels, and tall portrait windows show the four players in a 2×2 grid

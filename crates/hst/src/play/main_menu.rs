@@ -5082,7 +5082,8 @@ mod tests {
                     }
                     if p > 0 {
                         let prev = c.parts(p - 1).card;
-                        assert!(prev[0] + prev[2] < card[0], "{a} {n} {p}: apart");
+                        // side by side, or (two to a row, roster::STACK) the next row down
+                        assert!(prev[0] + prev[2] < card[0] || prev[1] + prev[3] < card[1], "{a} {n} {p}: apart");
                     }
                 }
             }

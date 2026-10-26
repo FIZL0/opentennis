@@ -100,6 +100,8 @@ pub(super) struct Columns {
     /// seats and open ones are compact cards, narrower than this machine's players' columns).
     first: [f32; 4],
     xs: [[f32; 2]; 4],
+    /// Each column's top and height: the first's, or two rows of two in a tall window ([`STACK`]).
+    ys: [[f32; 2]; 4],
     /// M128: the grid's height: everything under the top row, a part row peeking under the last whole line.
     grid: f32,
     /// B616: the footer's height (two lines with a handicap stepper that won't fit on one).
@@ -131,6 +133,10 @@ pub(super) fn columns(view: [f32; 4], n: usize) -> Columns {
     columns_mixed(view, n, [false; 4])
 }
 
+/// Three or four full columns in a portrait view (this many times taller than wide) go two to a row instead (1P 2P
+/// over 3P 4P), filling it.
+const STACK: f32 = 1.3;
+
 /// M120: a compact card's width (mockup px), at most an even share of the row.
 const COMPACT_W: f32 = 300.0;
 
@@ -146,19 +152,25 @@ pub(super) fn columns_stepped(view: [f32; 4], n: usize, compact: [bool; 4], step
     let n = n.max(1);
     let [l, t, r, b] = view;
     let top = t + TOP_BAR * PY;
-    let room = r - l - 2.0 * MARGIN * PX - GAP * PX * (n - 1) as f32;
     let k = (0..n.min(4)).filter(|&p| compact[p]).count();
-    let even = room / n as f32;
+    let stack = n >= 3 && k == 0 && (b - t) / PY > STACK * (r - l) / PX;
+    let across = if stack { 2 } else { n };
+    let room = r - l - 2.0 * MARGIN * PX - GAP * PX * (across - 1) as f32;
+    let even = room / across as f32;
     let cw = if k < n { (COMPACT_W * PX).min(even) } else { even };
-    let w = if k < n { (room - k as f32 * cw) / (n - k) as f32 } else { even };
-    let mut xs = [[0.0; 2]; 4];
+    let w = if k < n { (room - k as f32 * cw) / (across - k) as f32 } else { even };
+    let h = if stack { (b - top - GAP * PY) / 2.0 } else { b - top };
+    let (mut xs, mut ys) = ([[0.0; 2]; 4], [[top, h]; 4]);
     let mut x = l + MARGIN * PX;
-    for (p, c) in xs.iter_mut().enumerate().take(n.min(4)) {
+    for p in 0..n.min(4) {
+        if p == across {
+            x = l + MARGIN * PX;
+        }
         let pw = if compact[p] { cw } else { w };
-        *c = [x, pw];
+        xs[p] = [x, pw];
+        ys[p][0] = top + (p / across) as f32 * (h + GAP * PY);
         x += pw + GAP * PX;
     }
-    let h = b - top;
     let inner = w - 2.0 * PAD * PX;
     // the tiles fill the width left of the scroll bar's lane: as many `TILE` wide as fit, M128: at least `MIN_COLS`
     let gx = TILE_GAP * PX;
@@ -177,13 +189,13 @@ pub(super) fn columns_stepped(view: [f32; 4], n: usize, compact: [bool; 4], step
     let rows = (((room + gy) / (th + gy)) as usize).max(1);
     let grid = room.max(rows as f32 * (th + gy) - gy) + HEADING * PY + gy;
     let whole = room >= th - 1e-3;
-    Columns { n, cols, rows, tile: [tw, th], gap: [gx, gy], first: [l + MARGIN * PX, top, w, h], xs, grid, foot: foot * PY, whole }
+    Columns { n, cols, rows, tile: [tw, th], gap: [gx, gy], first: [l + MARGIN * PX, top, w, h], xs, ys, grid, foot: foot * PY, whole }
 }
 
 impl Columns {
     /// Player `p`'s column.
     pub fn parts(&self, p: usize) -> Parts {
-        let [_, top, _, h] = self.first;
+        let [top, h] = self.ys[p.min(3)];
         let [x, w] = self.xs[p.min(3)];
         let (ix, iw) = (x + PAD * PX, w - 2.0 * PAD * PX);
         let head = [x, top, w, BAND * PY];
@@ -1327,24 +1339,33 @@ fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usiz
     }
 }
 
-/// M128: the five grades as one row of small tiles in `[x, y, w, h]`: each the stats card's pink, its name (Serve …
-/// Footwork while they all fit, else Serv Strk Vol Imp Foot with the full name in a tooltip under the mouse or a tap)
-/// over the original's letter (as [`stats`] draws it), "?" for a hidden pick.
+/// M128: the five grades as one row of small tiles in `[x, y, w, h]` (at most [`TILES_H`] tall): each the stats
+/// card's pink, its name (Serve … Footwork at the pills' size, shrunk to fit down to [`LABEL_MIN`], else Serv Strk
+/// Vol Imp Foot with the full name in a tooltip under the mouse or a tap) over the
+/// original's letter (as [`stats`] draws it), "?" for a hidden pick.
 fn grade_tiles(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4]) {
-    const FULL: [&str; 5] = ["Serve", "Stroke", "Volley", "Impact", "Footwork"];
+    let h = h.min(TILES_H * PY);
     let gap = 4.0 * PX;
     let tw = (w - 4.0 * gap) / 5.0;
-    let ls = (h * 0.34).min(10.0 * PY);
-    let ch = (h - ls - 3.0 * PY).max(0.0);
-    let short = FULL.iter().any(|l| d.width(l, ls) > tw * 0.9);
+    let ls = 13.0 * PY;
+    let ch = (h - ls - 5.0 * PY).max(0.0);
+    const FULL: [&str; 5] = ["Serve", "Stroke", "Volley", "Impact", "Footwork"];
+    let room = tw - 6.0 * PX;
+    // one size for all five: the pills' while the longest fits, shrunk down to LABEL_MIN, else the short names
+    let widest = |l: &[&str]| l.iter().map(|l| d.width(l, ls)).fold(1.0, f32::max);
+    let full = (ls * room / widest(&FULL)).min(ls);
+    let short = full < LABEL_MIN * PY;
     let labels = if short { ["Serv", "Strk", "Vol", "Imp", "Foot"] } else { FULL };
+    let size = if short { (ls * room / widest(&labels)).min(ls) } else { full };
     let mut tip = None;
     for (k, label) in labels.into_iter().enumerate() {
         let tx = x + (tw + gap) * k as f32;
         rounded(d, [tx, y, tw, h], 6.0, hex(0xf58ac0), 128.0);
-        let size = ls * (tw * 0.9 / d.width(label, ls).max(1.0)).min(1.0);
-        d.centred(label, tx + tw / 2.0, y + 2.0 * PY, size, WHITE);
-        let cy = y + ls + 2.0 * PY;
+        d.centred(label, tx + tw / 2.0, y + 3.0 * PY + (ls - size) / 2.0, size, WHITE);
+        if short && pointer::over([tx, y, tw, h], d.anchor) {
+            tip = Some((k, tx));
+        }
+        let cy = y + ls + 4.0 * PY;
         match grades {
             Some(g) => {
                 let i = (5 - g[k].min(5)) as f32;
@@ -1355,9 +1376,6 @@ fn grade_tiles(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4]) {
                 let qs = ch * 0.7;
                 ringed_text(d, "?", tx + (tw - d.width("?", qs)) / 2.0, cy + (ch - qs) / 2.0, qs, hex(0xc8ccd0));
             }
-        }
-        if short && pointer::over([tx, y, tw, h], d.anchor) {
-            tip = Some((k, tx));
         }
     }
     // the hovered tile's full name just above the row, kept within it
@@ -1371,6 +1389,12 @@ fn grade_tiles(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4]) {
         d.text(FULL[k], bx + pad, by + 3.0 * PY, ts, WHITE);
     }
 }
+
+/// The grade tiles' labels' least size (menu px) before they go to the short names.
+const LABEL_MIN: f32 = 7.0;
+
+/// The grade tiles' most height (menu px): past it a big window leaves the room under them.
+const TILES_H: f32 = 56.0;
 
 /// The pink stats card in `[x, y, w, h]`: Serve, Stroke, Volley, Impact, Footwork, each grade's letter (A at 5, F at 0)
 /// as the original draws it, "?" for a hidden pick. Browse mods' detail panel shows the same card.

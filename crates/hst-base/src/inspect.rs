@@ -649,14 +649,6 @@ pub fn frame_drawn(drawn: Rect, image: f32, aspect: f32, margin: f32) -> (Rect, 
     (Rect::from_corners(part.min / s, part.max / s), fill)
 }
 
-/// M148: the whole of a preview image (`image` wide over tall on screen) widened (or heightened) about its centre to
-/// a box `aspect` wide over tall, as shares of it (running past its edges): what a live preview shows while it plays
-/// a reaction, which can reach outside the pose's framing.
-pub fn whole_part(image: f32, aspect: f32) -> Rect {
-    let size = if aspect > image { Vec2::new(aspect / image, 1.0) } else { Vec2::new(1.0, image / aspect) };
-    Rect::from_center_size(Vec2::splat(0.5), size)
-}
-
 /// B176: a rig-framed face square's side over the head's height (hair top to the head bone).
 const HEAD_FIT: f32 = 1.6;
 
@@ -799,13 +791,6 @@ mod tests {
     }
 
     /// M148: the whole image widened to the box, centred.
-    #[test]
-    fn whole_part_widens_about_the_middle() {
-        assert_eq!(whole_part(0.8, 0.8), Rect::new(0.0, 0.0, 1.0, 1.0));
-        assert_eq!(whole_part(0.8, 1.6), Rect::new(-0.5, 0.0, 1.5, 1.0));
-        assert_eq!(whole_part(0.8, 0.4), Rect::new(0.0, -0.5, 1.0, 1.5));
-    }
-
     /// The icon centres on the head: a 20-px "head" at x 200..220 under a 2-px "racket" further left.
     #[test]
     fn face_icon_finds_the_head() {

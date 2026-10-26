@@ -114,7 +114,7 @@ mod tests {
             f(&mut k);
             k
         };
-        let mut m = Menu { screen: Screen::Confirm, seats: [Some(Dev::Keys), None, None, None], sel: 2, grid: Grid::fit_at(0.75, 1.5), ..Default::default() };
+        let mut m = Menu { screen: Screen::Confirm, seats: [Some(Dev::Keys), None, None, None], sel: 2, grid: Grid::fit_at(0.75, 2.0), ..Default::default() };
         m.players.iter_mut().take(2).for_each(|p| p.ready = true);
         assert!(m.confirm_geo().merged, "{:?}", m.confirm_geo().cells);
         let mut out = vec![];

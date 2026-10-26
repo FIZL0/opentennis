@@ -112,7 +112,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(PostStartup, (hover_all, start_baker))
         .add_systems(FixedUpdate, character::tick)
         // B140: before `inspect::place` (its clear and crop), so a camera spawned this frame renders cleared, not black
-        .add_systems(Update, ((receive, sync, fit_live, bake, buttons, picked).chain().after(super::draw).before(inspect::place), character::animate, icons))
+        .add_systems(Update, ((receive, sync, fit_live, follow, bake, buttons, picked).chain().after(super::draw).before(inspect::place), character::animate, icons))
         .add_systems(Last, despawn);
     if let Some(secs) = std::env::var("HST_STRESS").ok().and_then(|s| s.parse::<f32>().ok()) {
         app.add_systems(Update, stress(secs).before(super::step));
@@ -1314,19 +1314,35 @@ fn despawn(mut commands: Commands, mut gone: ResMut<Gone>) {
 #[derive(Component)]
 struct Shot;
 
-/// M148: each card's live model drawn with its [`Fits`] framing (the picture's crop, [`inspect::CROP`], otherwise);
-/// while it plays a reaction, which can reach past the pose's framing, the whole picture widened to its box.
-fn fit_live(fits: Res<Fits>, mut cams: Query<(&mut Preview, &Card)>, motions: Query<&Motion>) {
-    let picture = BAKE.x as f32 / BAKE.y as f32;
+/// M148: each card's live model drawn with its [`Fits`] framing (the picture's crop, [`inspect::CROP`], otherwise),
+/// reactions too.
+fn fit_live(fits: Res<Fits>, mut cams: Query<(&mut Preview, &Card)>) {
     for (mut p, Card(i)) in &mut cams {
-        let reacting = motions.get(p.rig).is_ok_and(|m| m.id != character::POSE);
-        let crop = match fits.0[*i] {
-            Some((_, aspect)) if reacting => framed(inspect::whole_part(picture, aspect)),
-            Some((part, _)) => framed(part),
-            None => inspect::CROP,
-        };
+        let crop = fits.0[*i].map_or(inspect::CROP, |(part, _)| framed(part));
         if p.crop != crop {
             p.crop = crop;
+        }
+    }
+}
+
+/// M148: a card's model while it plays a reaction (an emote, win / loss) slid along x so its hips stay where the
+/// pose has them, the fitted frame kept on the figure; back on its spot at the pose. Read from where the hips were
+/// drawn last frame (one frame behind the motion: no flicker at 60 a second).
+fn follow(cams: Query<&Preview, With<Card>>, mut rigs: Query<(&character::Rig, &Motion, &mut Transform)>, globals: Query<&GlobalTransform>, mut rest: Local<HashMap<Entity, f32>>) {
+    // the original's own centring (`inspect`'s, two characters) already holds the hips
+    for p in cams.iter().filter(|p| !p.centre) {
+        let Ok((rig, m, mut tf)) = rigs.get_mut(p.rig) else { continue };
+        let Some(hips) = rig.data.joint("Bip01Pelvis").and_then(|j| globals.get(rig.joints[j]).ok()) else { continue };
+        // the hips' x off the model's own (the parent space leaves x alone)
+        let off = hips.translation().x - tf.translation.x;
+        let x = if m.id == character::POSE {
+            rest.insert(p.rig, off);
+            0.0
+        } else {
+            rest.get(&p.rig).map_or(0.0, |r| r - off)
+        };
+        if tf.translation.x != x {
+            tf.translation.x = x;
         }
     }
 }

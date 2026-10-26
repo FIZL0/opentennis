@@ -313,10 +313,13 @@ pub(super) fn foot([l, t, r, b]: [f32; 4], local: bool) -> Geo {
 /// a court's name), Umpire (her face and a name), Sets, Games, Mods / Markers, Markers / Rules (with its chips); and
 /// Start's least and most beside the cells, the gap before it.
 const FOOT_MIN: [f32; 6] = [280.0, 180.0, 96.0, 96.0, 104.0, 104.0];
-const FOOT_MIN_LOCAL: [f32; 6] = [280.0, 180.0, 96.0, 96.0, 104.0, 200.0];
+/// Local: Court and Umpire crushed (their names ellipsize) so the whole foot, Rules and Start too, fits one row
+/// on more windows, leaving the roster more height.
+const FOOT_MIN_LOCAL: [f32; 6] = [150.0, 110.0, 80.0, 80.0, 70.0, 140.0];
 /// The local cells' shares of the room past their least (Court, Umpire, Sets, Games, Markers, Rules).
 const GROW_LOCAL: [f32; 6] = [2.2, 1.6, 1.0, 1.0, 1.0, 1.6];
-const START_MIN: f32 = 220.0;
+/// Start can shrink to half its old least (220) so a local foot stays one row.
+const START_MIN: f32 = 110.0;
 const START_MAX: f32 = 300.0;
 const GAP: f32 = 12.0;
 
@@ -843,8 +846,8 @@ pub(super) fn strip(d: &mut Draw, m: &Menu, g: &Geo, cells: &[Cell]) {
             let vw = d.width(&value, vs);
             d.text(&value, vx + ((right - aw - g.x(8.0) - vx) - vw).max(0.0) / 2.0, vy, vs, WHITE);
         } else {
-            let value = ellipsis(d, &c.value, vs, right - tx);
-            d.text(&value, tx, vy, vs, WHITE);
+            // a long court or umpire name slides along instead of ending in "…"
+            super::home::fit_text(d, &c.value, tx, vy, vs, right - tx, WHITE);
         }
     }
 }

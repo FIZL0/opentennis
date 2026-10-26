@@ -179,8 +179,10 @@ fn play(
         if !inspect::react(&mut p, id, &mut rigs, &d) {
             continue;
         }
-        // the match's length: the motion's ticks at 60 a second
-        plates.until[i] = Some(now + d.motions[&id].length.ceil().max(1.0) / 60.0);
+        // the match's length at 60 ticks a second: a mod's own clip's (it can outrun the donor's), else the motion's
+        let sets = rigs.get(p.rig).map_or(0, |(m, ..)| m.sets);
+        let ticks = d.emote_ticks(id, sets).map_or(d.motions[&id].length.ceil(), |t| t as f32);
+        plates.until[i] = Some(now + ticks.max(1.0) / 60.0);
         // B474's mute covers these too
         if let Some(s) = sound.as_ref().filter(|_| crate::audio::EMOTE_VOICES.load(std::sync::atomic::Ordering::Relaxed)) {
             let who = menu.pick(i).0;
