@@ -29,3 +29,4 @@
 - The indoor court no longer leaves a pale smudge where the ball last bounced.
 - Palm leaves, grass and flowers at the beach court, and the trees around several other courts, now sway in the breeze as in the original.
 - Custom characters' hair no longer swings into their hats, heads or bodies.
+- Custom characters now move their mouths in time with what they say after a point.
