@@ -699,10 +699,16 @@ impl Talk {
         Self::new(data, id, start, pcm, *rate)
     }
 
-    /// The line a mod's take `id` drawn by the `sets`-th motion set says in place of `key` (its own, `drawn_voice`)
-    /// when `bank` holds its own takes of `program`.
-    pub fn key(data: &CharacterData, bank: &crate::audio::SoundBank, program: u8, id: usize, sets: u32, key: u8) -> u8 {
-        data.drawn_voice(id, sets).filter(|_| bank.wav.contains_key(&(program as usize))).unwrap_or(key)
+    /// The line a mod's take `id` drawn by the `sets`-th motion set says in place of `key` when `bank` holds its own
+    /// takes of `program`: the take's own (`drawn_voice`), else `key` unless another take of `id` owns that line (a
+    /// birdie cue over a plain celebration), then the next line no take owns, or none (silent).
+    pub fn key(data: &CharacterData, bank: &crate::audio::SoundBank, program: u8, id: usize, sets: u32, key: u8) -> Option<u8> {
+        let Some(n) = bank.wav.get(&(program as usize)).map(|t| t.len().max(1)) else { return Some(key) };
+        if let Some(k) = data.drawn_voice(id, sets) {
+            return Some(k);
+        }
+        let owned = |k: usize| data.visual.contains_key(&id) && data.take_voices.iter().any(|(&(m, _), &v)| m == id && v as usize % n == k);
+        (key as usize % n..n).chain(0..n).find(|&k| !owned(k)).map(|k| k as u8)
     }
 
     /// The shape at `now` (seconds of virtual time), or `None` once the line is through.
