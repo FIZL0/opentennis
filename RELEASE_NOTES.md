@@ -15,3 +15,4 @@
 - Modded characters no longer get the camera on the ground looking up at them after a point
 - New Offbeat rule, Everyone's stats: give every player the same grade, F through A, in Serve, Stroke, Volley, Impact and Footwork
 - Character mods can now hit harder, and very tall mod characters' serves now land in the service box instead of flying long
+- Each controller and the keyboard now remembers its last character, costume and hand: the next character select, local or online and even after a restart, opens with your cursor on them

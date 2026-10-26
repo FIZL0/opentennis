@@ -55,6 +55,7 @@ mod handicap;
 mod match_panel;
 mod home;
 mod look;
+mod last_picks;
 mod names;
 mod offbeat;
 mod online;
@@ -759,6 +760,8 @@ struct Menu {
     takeover: takeover::Takeover,
     /// B558: the Settings pages opened from the select or the lobby: the screen and row Back returns to (`over.rs`).
     over: Option<(Screen, usize)>,
+    /// M149: each input's last pick (`picks.txt`).
+    last_picks: last_picks::Picks,
 }
 
 impl Default for Menu {
@@ -830,6 +833,7 @@ impl Default for Menu {
             net_pause: None,
             takeover: default(),
             over: None,
+            last_picks: default(),
         }
     }
 }
@@ -1297,6 +1301,7 @@ impl Menu {
             for p in &mut self.players {
                 *p = Player::fresh();
             }
+            self.recall_all();
             self.scroll = [0; 4];
             if self.online() {
                 // B195: into the lobby first (seats held), then its character select
@@ -1415,6 +1420,7 @@ impl Menu {
         self.seats = [Some(dev), None, None, None];
         self.bots = [false; 4];
         self.players = [Player::fresh(); 4];
+        self.recall(0);
         self.scroll = [0; 4];
         self.go(Screen::Chars, out);
     }
@@ -1779,6 +1785,7 @@ impl Menu {
                 self.p1 = Some(dev);
             }
             self.unready(p);
+            self.recall(p);
             for &(d, q) in &before {
                 if self.driven(d) != q {
                     self.carry_pick(d, &before);
@@ -2538,6 +2545,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     menu.court_in_range();
     if fresh {
         menu.favs = tabs::load(&args.iso);
+        menu.last_picks = last_picks::load(&args.iso);
     }
     // B371: the names saved so far (another run may have added some)
     menu.names.saved = names::load(&args.iso);
@@ -3951,6 +3959,7 @@ pub fn plugin(app: &mut App) {
     app.add_systems(Update, takeover::watch.before(step).after(pointer::pointer));
     app.add_systems(Update, touch_seat::hold.after(step));
     app.add_systems(Update, takeover::updated.before(takeover::watch));
+    app.add_systems(Update, last_picks::track.before(step));
     app.init_resource::<umpire_mods::Pics>().add_systems(Update, umpire_mods::load.before(draw));
     app.init_resource::<court_mods::Pics>().add_systems(Update, court_mods::load.before(draw));
     app.add_systems(Update, trace::trace.after(online::poll).run_if(trace::on));

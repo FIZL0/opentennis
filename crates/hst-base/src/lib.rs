@@ -55,7 +55,7 @@ pub mod widescreen;
 
 use bevy::prelude::*;
 
-/// Everything the game saves (settings, controls, online, hints, names, favorites, pipelines.json, mods-store.json,
+/// Everything the game saves (settings, controls, online, hints, names, favorites, picks, pipelines.json, mods-store.json,
 /// mods-wishlist.txt, hf-token.txt, mods/, mods-online/, cache/): on desktop one folder ([`store::dir`]: beside the game
 /// on Windows and Linux, B668, else per-user), in the
 /// browser its localStorage, on the phones the app's own folder beside the disc.
@@ -118,13 +118,14 @@ pub mod store {
     }
 
     /// The files and folders a saved game is made of, by name.
-    const SAVED: [&str; 15] = [
+    const SAVED: [&str; 16] = [
         "settings.txt",
         "controls.txt",
         "online.txt",
         "hints.txt",
         "names.txt",
         "favorites.txt",
+        "picks.txt",
         "rejoin.txt",
         "camera.txt",
         "pipelines.json",
