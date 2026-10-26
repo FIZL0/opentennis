@@ -30,3 +30,4 @@
 - Palm leaves, grass and flowers at the beach court, and the trees around several other courts, now sway in the breeze as in the original.
 - Custom characters' hair no longer swings into their hats, heads or bodies.
 - Custom characters now move their mouths in time with what they say after a point.
+- A hard smash that lands now throws up clods of earth, and in the rain the ball's bounces splash spray instead of raising a yellow ring and dust, as in the original.

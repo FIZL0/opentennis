@@ -48,6 +48,7 @@ use snapshot::Const;
 #[cfg(any(target_os = "android", test))]
 pub mod background;
 mod ball_shadow;
+mod bounce_debris;
 mod smash_marker;
 mod bodyhit;
 mod change_ends;
@@ -688,6 +689,7 @@ pub fn plugin(app: &mut App) {
                 .chain(),
         );
     app.add_systems(FixedUpdate, flare_tick.after(play_sounds));
+    app.add_systems(FixedUpdate, (bounce_debris::set_up.after(simulate).before(start_effects), bounce_debris::throw.after(start_effects).after(foot_fx::tick)));
     app.add_systems(Update, emote::hide_ball.after(draw));
     app.add_systems(FixedUpdate, emote::play_lines.after(play_sounds));
 }
