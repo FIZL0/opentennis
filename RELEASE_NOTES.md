@@ -15,3 +15,4 @@
 - Modded characters no longer get the camera on the ground looking up at them after a point
 - New Offbeat rule, Everyone's stats: give every player the same grade, F through A, in Serve, Stroke, Volley, Impact and Footwork
 - Character mods can now hit harder, and very tall mod characters' serves now land in the service box instead of flying long
+- Mods can mark themselves as joke characters: they get their own category on the character select, and Random never picks them
