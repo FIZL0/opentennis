@@ -13,3 +13,4 @@
 - On the character select, when three or four players point at the same character, every player's tag now shows on it (4P's used to be left off)
 - On Windows and Linux the game now keeps its settings, imported disc and mods in its own folder, next to the game, so the whole game moves or backs up as one folder; mods and settings from before carry over
 - Modded characters no longer get the camera on the ground looking up at them after a point
+- New Offbeat rule, Everyone's stats: give every player the same grade, F through A, in Serve, Stroke, Volley, Impact and Footwork
