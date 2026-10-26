@@ -1332,7 +1332,12 @@ pub fn spawn(commands: &mut Commands, data: &Arc<CharacterData>, parent: Entity)
     }
     if let Some(r) = data.joint("Racket") {
         for (mesh, material) in &data.racket {
-            let part = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::default(), crate::cull::Cullable, RacketPart)).id();
+            let part = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::default(), crate::cull::Cullable)).id();
+            // a disc character's racket is drawn unmirrored, as the original; a mod's (only mods have a grip) as
+            // made: its racket may sit off the joint's axis, in its own palm, and a flip would take it out of the hand
+            if data.grip.is_none() {
+                commands.entity(part).insert(RacketPart);
+            }
             commands.entity(joints[r]).add_child(part);
         }
     }
@@ -1346,31 +1351,15 @@ pub struct RacketPart;
 
 /// Draw every racket unmirrored: the original places the racket model at its joint with the matrix's x row times the
 /// player's hand, so on a left-hander's mirrored body it is a right-hander's racket again (the frame's dark edge at
-/// the bottom of the head, the off hand's fingers over the bottom rim, not through the strings). The flip is about
-/// the middle of the joint's racket draws across x: 0 for a disc racket, but a mod's `racket.glb` may sit off the
-/// joint's axis (in the palm of its own hand), and flipped about the axis it would leave the hand. After propagation,
+/// the bottom of the head, the off hand's fingers over the bottom rim, not through the strings). After propagation,
 /// so the frame drawn has it.
-pub fn unmirror_rackets(
-    mut parts: Query<(&ChildOf, &Mesh3d, &mut Transform, &mut GlobalTransform), With<RacketPart>>,
-    joints: Query<&GlobalTransform, Without<RacketPart>>,
-    meshes: Res<Assets<Mesh>>,
-) {
-    // ponytail: bounds from the vertices every frame (a few rackets of a few hundred vertices); cache per joint if it shows
-    let mut span: HashMap<Entity, (f32, f32)> = HashMap::new();
-    for (up, mesh, ..) in &parts {
-        let Some(b) = meshes.get(&mesh.0).and_then(bevy::camera::primitives::MeshAabb::compute_aabb) else { continue };
-        let s = span.entry(up.parent()).or_insert((f32::MAX, f32::MIN));
-        *s = (s.0.min(b.min().x), s.1.max(b.max().x));
-    }
-    for (up, _, mut t, mut g) in &mut parts {
+pub fn unmirror_rackets(mut parts: Query<(&ChildOf, &mut Transform, &mut GlobalTransform), With<RacketPart>>, joints: Query<&GlobalTransform, Without<RacketPart>>) {
+    for (up, mut t, mut g) in &mut parts {
         let Ok(joint) = joints.get(up.parent()) else { continue };
-        let want = match span.get(&up.parent()) {
-            Some(&(lo, hi)) if joint.affine().matrix3.determinant() < 0.0 => Transform::from_xyz(lo + hi, 0.0, 0.0).with_scale(Vec3::new(-1.0, 1.0, 1.0)),
-            _ => Transform::default(),
-        };
-        if *t != want {
-            *t = want;
-            *g = joint.mul_transform(want);
+        let x = if joint.affine().matrix3.determinant() < 0.0 { -1.0 } else { 1.0 };
+        if t.scale.x != x {
+            t.scale.x = x;
+            *g = joint.mul_transform(*t);
         }
     }
 }
@@ -2032,40 +2021,26 @@ mod tests {
     }
 
     /// B676c1: a racket on a mirrored (left-handed) body is drawn unmirrored, at its joint; a right-hander's is left
-    /// alone. A mod's racket off the joint's axis (handle at x 0.07..0.14, as fore_pc06's) stays in the hand: its
-    /// draws flip together about their middle.
+    /// alone.
     #[test]
     fn rackets_draw_unmirrored() {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, bevy::transform::TransformPlugin))
-            .init_resource::<Assets<Mesh>>()
             .add_systems(PostUpdate, unmirror_rackets.after(bevy::transform::TransformSystems::Propagate));
-        let quad = |lo: f32, hi: f32, y: f32| {
-            Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
-                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[lo, 0.0, 0.0], [hi, 0.0, 0.0], [lo, y, -0.05]])
-        };
-        let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
-        let (handle, head) = (meshes.add(quad(0.07, 0.14, 0.38)), meshes.add(quad(-0.13, 0.31, 1.0)));
         let racket = |app: &mut App, hand: f32| {
             let body = app.world_mut().spawn(Transform::from_scale(Vec3::new(hand, 1.0, 1.0)).with_translation(Vec3::new(1.0, 0.0, 2.0))).id();
             let joint = app.world_mut().spawn((Transform::from_xyz(0.1, 0.2, 0.3).with_rotation(Quat::from_rotation_z(0.7)), ChildOf(body))).id();
-            let parts = [&handle, &head].map(|m| app.world_mut().spawn((Mesh3d(m.clone()), Transform::default(), RacketPart, ChildOf(joint))).id());
-            (joint, parts)
+            (joint, app.world_mut().spawn((Transform::default(), RacketPart, ChildOf(joint))).id())
         };
         let (lefty, righty) = (racket(&mut app, -1.0), racket(&mut app, 1.0));
         app.update();
-        // the racket's middle across x, where the hand holds it
-        let mid = Vec3::new(0.09, 0.2, 0.0);
-        for ((joint, parts), sign) in [(lefty, -1.0), (righty, 1.0)] {
+        for ((joint, part), sign) in [(lefty, -1.0), (righty, 1.0)] {
             let at = |e: Entity| *app.world().get::<GlobalTransform>(e).unwrap();
-            let j = at(joint);
-            for part in parts {
-                let p = at(part);
-                assert!(p.affine().matrix3.determinant() > 0.0);
-                assert!((p.transform_point(mid) - j.transform_point(mid)).length() < 1e-5);
-                assert!((p.affine().matrix3.x_axis - sign * j.affine().matrix3.x_axis).length() < 1e-6);
-                assert_eq!(app.world().get::<Transform>(part).unwrap().scale.x, sign);
-            }
+            let (j, p) = (at(joint), at(part));
+            assert!(p.affine().matrix3.determinant() > 0.0);
+            assert_eq!(p.translation(), j.translation());
+            assert!((p.affine().matrix3.x_axis - sign * j.affine().matrix3.x_axis).length() < 1e-6);
+            assert_eq!(app.world().get::<Transform>(part).unwrap().scale.x, sign);
         }
     }
 }
