@@ -341,3 +341,27 @@ fn cart_clocks_hold_on_the_first_pass_paused_and_hidden() {
     let still: Vec<_> = (0..w.props.len()).filter(|p| !(3..7).contains(p)).collect();
     assert!(still.iter().all(|&p| w.props[p].nodes == disc.props[p].nodes), "only the carts move");
 }
+
+/// Court 4's waterfall (`waterbox`) plays its own `.uva` (`court_anim`): its tracks name the model's nodes, and the
+/// water's texture offset moves as the clock runs.
+#[test]
+fn court_4_waterfall_scrolls() {
+    let Ok(mut iso) = fixture::iso() else {
+        fixture::skip(format_args!("disc missing, skipped"));
+        return;
+    };
+    let hol = iso.read("COURT/04/HOL01.XB").unwrap();
+    let a = Archive::parse(&hol).unwrap();
+    let file = |end: &str| a.read(a.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(end)).unwrap()).unwrap();
+    let model = mdl::parse(&file("waterbox.mdl")).unwrap();
+    let mats = mtl::parse(&file("waterbox.mtl"), Some(&file("waterbox.mti"))).unwrap();
+    let uva = hst_data::mor::parse(&file("waterbox.uva"), 4).unwrap();
+    let mut anim = hst_sim::court_anim::CourtAnim::new(&model, Some(&uva), None, &mats.materials);
+    assert!(!anim.is_empty());
+    let bound: Vec<_> = (0..model.materials.len()).flat_map(|m| (0..model.materials[m].len()).map(move |p| (m, p))).filter(|&(m, p)| anim.uv_track(m, p).is_some()).collect();
+    assert!(!bound.is_empty(), "no packet bound");
+    anim.tick();
+    let before: Vec<_> = bound.iter().map(|&(m, p)| anim.uv_offset(m, p)).collect();
+    (0..30).for_each(|_| anim.tick());
+    assert!(bound.iter().zip(&before).any(|(&(m, p), b)| anim.uv_offset(m, p) != *b), "the water doesn't move");
+}

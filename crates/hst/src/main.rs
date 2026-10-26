@@ -852,12 +852,14 @@ fn load_court(
     if let Some(sun) = sun {
         commands.insert_resource(sun);
     }
+    let mut placed = std::collections::HashSet::new();
     for (k, p) in plants.iter().enumerate() {
         let Some(e) = layout::resolve(&list, p, season) else { continue };
         if !matches!(e.dir.as_str(), "tree" | "prop" | "structure" | "billboard") {
             continue; // creatures/gallery are animated NPCs, dmy are markers
         }
         let Some(parts) = library.get(&e.stem) else { continue };
+        placed.insert(e.stem.clone());
         let stem = &e.stem;
         let s = if p.scale > 0.0 { p.scale } else { 1.0 };
         // the world matrix the game draws it with: yaw, plus the code's tilt and extra turn (`world::place`)
@@ -912,6 +914,14 @@ fn load_court(
         if let Some(sun) = sun.filter(|_| stem.starts_with("znet")) {
             let decal = net_decal(parts, t, &sun, meshes, gs_materials, &mut look);
             spawn_parts(commands, root, &decal, Transform::default());
+        }
+    }
+    // a placed structure's own .UVA plays from the start too (court 4's waterfall, waterbox), one clock per model
+    // over its shared materials
+    for stem in placed {
+        if let (Some((anim, tags)), Some(parts)) = (anims.remove(&stem).filter(|(a, _)| !a.is_empty()), library.get(&stem)) {
+            let parts = parts.iter().zip(tags).map(|((_, m), t)| (m.clone(), t)).collect();
+            commands.spawn(court_anim::Playing { anim, parts });
         }
     }
     look.sky = sky;
