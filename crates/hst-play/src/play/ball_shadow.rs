@@ -47,7 +47,7 @@ fn outline(mut commands: Commands, views: Query<(Entity, &BallView, &ChildOf)>, 
         let o = commands.spawn((Outline, crate::shade::Ball, Transform::default(), Visibility::default(), ChildOf(up.parent()))).id();
         for c in children.iter_descendants(e) {
             if let Ok((mesh, m)) = parts.get(c) {
-                commands.spawn((mesh.clone(), m.clone(), ChildOf(o)));
+                commands.spawn((mesh.clone(), m.clone(), ChildOf(o), crate::twin_view::Billboard::TURNED));
             }
         }
     }
@@ -79,6 +79,16 @@ fn fade(
     }
 }
 
+/// The outline's matrix (game space) for a split half's camera: its eye, down axis and the ball's depth in game space
+/// (world is game's x, −y, −z), and its lens as the game's 4:3 half-width.
+fn halfs_disc(c: &Transform, fov: f32, pos: [f32; 4], disc: &impl Fn([f32; 4], [f32; 4], f32, f32) -> Mat4) -> Mat4 {
+    let game = |v: Vec3| Vec3::new(v.x, -v.y, -v.z);
+    let eye = game(c.translation);
+    let down = game(*c.down());
+    let depth = (Vec3::new(pos[0], pos[1], pos[2]) - eye).dot(game(*c.forward()));
+    disc(eye.extend(1.0).to_array(), down.extend(0.0).to_array(), depth, (fov / 2.0).tan() / super::SHOWN_ASPECT)
+}
+
 /// Scale the ball and place the shadow and the outline (game space, under the court root) for the drawn ball and camera.
 fn place(
     g: Res<Game>,
@@ -86,7 +96,9 @@ fn place(
     time: Res<Time<Fixed>>,
     world: Option<Res<crate::shade::Shade>>,
     mut balls: Query<(&BallView, &mut Transform), Without<Outline>>,
-    mut outlines: Query<&mut Transform, With<Outline>>,
+    mut outlines: Query<(&mut Transform, &Children), With<Outline>>,
+    cam: Query<(&Transform, &Projection), (With<crate::Orbit>, Without<Outline>, Without<BallView>)>,
+    mut second: crate::twin_view::Second,
 ) {
     let a = time.overstep_fraction();
     let mix = |x: [f32; 3], y: [f32; 3]| {
@@ -100,10 +112,25 @@ fn place(
     let t = view.fov.tan();
     let ball = shade::ball_scale(BALL_SCALE, depth, t, !matches!(g.phase, Phase::ChangeEnds(_)));
     let [dx, dy, dz] = view.rot[1];
-    let (outline, m) = shade::ball_outline(ball, depth, t, pos, eye, [dx, dy, dz, 0.0]);
-    let [x, y, z, p] = m.map(Vec4::from);
-    for mut tr in &mut outlines {
-        *tr = Transform::from_matrix(Mat4::from_cols(x * outline, y * outline, z * outline, p));
+    let disc = |eye: [f32; 4], down: [f32; 4], depth: f32, t: f32| {
+        let (outline, m) = shade::ball_outline(ball, depth, t, pos, eye, down);
+        let [x, y, z, p] = m.map(Vec4::from);
+        Mat4::from_cols(x * outline, y * outline, z * outline, p)
+    };
+    // split, each half's disc faces its own camera (from the other end the shared camera's shows its back, culled)
+    let split = second.eye().copied().zip(second.projection().map(|p| p.fov));
+    let main = match (split, cam.single()) {
+        (Some(_), Ok((c, Projection::Perspective(p)))) => halfs_disc(c, p.fov, pos, &disc),
+        _ => disc(eye, [dx, dy, dz, 0.0], depth, t),
+    };
+    let twin = split.map(|(c, fov)| main.inverse() * halfs_disc(&c, fov, pos, &disc));
+    for (mut tr, parts) in &mut outlines {
+        *tr = Transform::from_matrix(main);
+        if let Some(m) = twin {
+            for &c in parts {
+                second.pose(c, Transform::from_matrix(m));
+            }
+        }
     }
     // the drawn court's collision world (the sun-shade's), else the match's
     let court = world.as_ref().map_or(&g.world.0, |s| &s.world);
