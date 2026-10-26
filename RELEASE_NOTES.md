@@ -4,3 +4,4 @@
 - The unused □ button is hidden from the touch controls during a match
 - The game remembers whether you picked the close camera or the normal one; phones and touch screens start on the close camera
 - Every match now opens with a flashing reminder of the button that changes the camera
+- In online matches the camera button now switches to the close camera behind your own player (and your choice is kept), as it does offline

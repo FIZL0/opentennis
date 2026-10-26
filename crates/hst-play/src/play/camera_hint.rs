@@ -54,7 +54,7 @@ fn flashing(t: f32) -> bool {
 /// Decides this frame's: the switch works and the players can move, within the flashes.
 fn judge(w: &mut World) {
     let switch = match (w.get_resource::<Game>(), w.get_resource::<Pads>()) {
-        (Some(g), Some(p)) => alt_camera::team(g, p, w.contains_resource::<super::netplay::Netplay>()).is_some(),
+        (Some(g), Some(p)) => alt_camera::team(g, p, w.get_resource::<super::netplay::Netplay>()).is_some(),
         _ => false,
     };
     let live = w.get_resource::<Game>().is_some_and(|g| matches!(g.phase, Phase::Serve | Phase::Rally) && !g.instant.replaying)
