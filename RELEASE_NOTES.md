@@ -3,3 +3,4 @@
 - The fountain at the park court now flows, as in the original.
 - Turning Key Hints off now also hides the "Change camera" hint at the start of a match.
 - Texture packs now reach the loading screen (its hints, court picture and title card) and the "Start the Match!" banner, which kept the disc's art before.
+- Spectators react to points like the original: they let outs and other called points pass unless a game or set is won, all clap at the end of a set, and give your side a consolation reaction when the computer wins the match.

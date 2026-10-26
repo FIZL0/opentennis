@@ -375,11 +375,16 @@ fn step(
     let ends = matches!(g.phase, Phase::ChangeEnds(_));
     let played = g.score.sets[0] + g.score.sets[1];
     npcs.near.deciding = g.score.tiebreak && played + 1 == 2 * g.rules.sets - 1;
-    // a decided point turns the walkers to the middle of the winners' half (by the side their first player is on)
-    let side = if 0.0 <= g.players.get(g.post_winner as usize).map_or(0.0, |p| p.pos[2]) { 6.4 } else { -6.4 };
+    // how the walkers take the point (if at all): by its call, what it won, and whether the gallery's side won the match
+    let favoured = sound::favoured(&g.humans)[g.post_winner.clamp(0, 1) as usize];
+    let reaction = npc::point_reaction(g.rally.judge(g.body_hit).call, g.post.as_ref().and_then(|p| p.event), g.score.match_over, favoured);
+    // a decided point turns the walkers to the middle of the winners' half (by the side their first player is on); a
+    // match the gallery's side lost, to player 0's
+    let turn_to = if reaction == Some(npc::reaction::LOST) { 0 } else { g.post_winner };
+    let side = if 0.0 <= g.players.get(turn_to as usize).map_or(0.0, |p| p.pos[2]) { 6.4 } else { -6.4 };
     match_news(&mut npcs.near, &g);
     let g = &mut *g;
-    let (cheer, mut heard) = point_news(npcs, g, &mut turn, motion, players, serve, ends, side);
+    let (cheer, mut heard) = point_news(npcs, g, &mut turn, motion, players, serve, ends, side, reaction);
     if let Some((e, a)) = &mut npcs.umpire {
         let motion = turned(motion, other_side.contains(*e));
         if let Ok((rig, mut m)) = q.get_mut(*e) {
@@ -450,7 +455,7 @@ fn step(
 /// message), the scoreboard's pause over, the next serve, the change of ends. The walkers who cheer, and what the
 /// creatures said (to be heard once).
 #[allow(clippy::too_many_arguments)]
-fn point_news(npcs: &mut Npcs, g: &mut Game, turn: &mut Query<&mut Transform, With<character::Rig>>, motion: u8, players: u32, serve: bool, ends: bool, side: f32) -> ([bool; 6], Vec<(i32, u8, [f32; 3])>) {
+fn point_news(npcs: &mut Npcs, g: &mut Game, turn: &mut Query<&mut Transform, With<character::Rig>>, motion: u8, players: u32, serve: bool, ends: bool, side: f32, reaction: Option<u8>) -> ([bool; 6], Vec<(i32, u8, [f32; 3])>) {
     let rng = &mut g.rng.court;
     let mut roll = || rng.next();
     // a decided point: some cheering, the gallery's applause, then the walkers react
@@ -480,21 +485,31 @@ fn point_news(npcs: &mut Npcs, g: &mut Game, turn: &mut Query<&mut Transform, Wi
         npcs.walkers.iter_mut().for_each(|(_, w, _)| w.new_point(players > 1));
         home_walkers(&mut npcs.walkers, &g.players);
     }
-    // the match over: the manager resumes, court 5 shows its marks if the favoured team won, an unfavoured win
-    // zeroes them
-    // ponytail: the match-over phase isn't played (the next match starts at once, its new point zeroing the marks
-    // again); the walkers' cheer at it and their match-start cheer for the next match are not replayed
-    if serve && let Some(favoured) = npcs.over.take() {
+    // the match over (as the umpire calls it): the manager resumes, court 5 shows its marks if the favoured team won,
+    // an unfavoured win zeroes them; the walkers take the last point's reaction again, from the start
+    // ponytail: the match-over phase isn't played (the next match starts once her call is over, its new point zeroing
+    // the marks again); the walkers' match-start cheer for the next match is not replayed
+    let calling = g.post.as_ref().is_some_and(|p| p.calling_match);
+    if (serve || calling) && let Some(favoured) = npcs.over.take() {
         if players > 1 {
             npcs.cheers.match_over(favoured, &npcs.marks);
         }
         npcs.near.paused = false;
+        if let (true, Some(kind)) = (calling, reaction) {
+            for (e, w, home) in &mut npcs.walkers {
+                w.react_with(kind);
+                face(turn, *e, *home, side);
+            }
+        }
     }
     let mut heard = Vec::new();
     if decided {
-        for (e, w, home) in &mut npcs.walkers {
-            w.react();
-            face(turn, *e, *home, side);
+        // only a plain point, or one that won a game or set, moves the walkers (a point called out, say, doesn't)
+        if let Some(kind) = reaction {
+            for (e, w, home) in &mut npcs.walkers {
+                w.react_with(kind);
+                face(turn, *e, *home, side);
+            }
         }
         npcs.decided = true;
         for (_, t, row) in &mut npcs.triggers {
