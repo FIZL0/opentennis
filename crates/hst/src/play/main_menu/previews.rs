@@ -311,6 +311,16 @@ pub(crate) fn face(iso: &str, m: Option<&Mod>, c: usize, k: usize) -> Option<Ima
 /// (gone, failed): a launch waits on it so a quick start shows the baked faces, not clear ones (the baker draws the picks
 /// first once the menu is on `Playing`).
 pub(super) fn picks_drawn(menu: &Menu, loader: &mut Loader, baker: &Baker) -> bool {
+    // a mod rebuilt on disk since its stamp was kept: the match stamps it afresh and would look for a face never drawn
+    // (clear all match), so the picks' stamps are taken again and the baker draws the new files under them
+    // ponytail: re-hashes the picks' folders every waiting frame (a few files each, ≤ picks_wait)
+    for p in 0..menu.players() {
+        if let (Who::Mod(i), _) = menu.pick(p)
+            && let Some(m) = menu.mods.get(i).filter(|_| i < menu.own_mods())
+        {
+            loader.stamps.insert(i, stamp(m));
+        }
+    }
     (0..menu.players()).map(|p| menu.pick(p)).all(|key| {
         baker.failed.contains(&key)
             || loader.path(key, menu).is_none_or(|p| cached(&face_path(&p)))
@@ -1675,6 +1685,57 @@ mod tests {
             menu.screen = screen;
             assert!(picks_past_select(&menu).contains(&(Who::Mod(0), 1)));
         }
+    }
+
+    /// A mod rebuilt on disk after its face was drawn: the launch waits on a drawing under its new stamp (the one the
+    /// match looks for), not the kept one, and is done once that's there.
+    #[test]
+    fn a_rebuilt_pick_is_drawn_again_for_the_match() {
+        let dir = std::env::temp_dir().join(format!("hst-rebuilt-{}", std::process::id()));
+        let mod_dir = dir.join("a");
+        std::fs::create_dir_all(&mod_dir).unwrap();
+        std::fs::write(mod_dir.join("mod.json"), "{}").unwrap();
+        let mut menu = Menu { screen: Screen::Playing, ..default() };
+        menu.mods = vec![Mod {
+            dir: mod_dir.clone(),
+            id: "a".into(),
+            name: "a".into(),
+            source: String::new(),
+            costumes: vec!["model/c00.glb".into()],
+            donor: 0,
+            hand: 1.0,
+            base: 0,
+            overrides: Vec::new(),
+            ai_row: 0,
+            texture_face: false,
+            no_face: false,
+            voice: String::new(),
+            motions: None,
+            costume_of: None,
+            skeleton: None,
+            emotes: None, voice_takes: None,
+            upscale: true,
+            build: Default::default(),
+        }];
+        (menu.players[0].modded, menu.players[0].pick, menu.players[0].costume) = (true, 0, 0);
+        let (tx, _) = std::sync::mpsc::channel();
+        let (_, rx) = std::sync::mpsc::channel();
+        let mut loader = Loader { ask: tx, done: Mutex::new(rx), found: Mutex::new(std::sync::mpsc::channel().1), bad: Vec::new(), asked: default(), drawn: default(), models: default(), model_order: default(), pngs: default(), png_order: default(), dir: dir.clone(), stamps: default(), extra: Vec::new() };
+        let old = stamp(&menu.mods[0]);
+        loader.stamps.insert(0, old.clone());
+        write(&face_path(&mod_png(&dir, 0, &old)), b"old".to_vec()).unwrap();
+        // the other player's disc pick is drawn already
+        let disc = loader.path(menu.pick(1), &menu).unwrap();
+        write(&face_path(&disc), b"disc".to_vec()).unwrap();
+        std::fs::write(mod_dir.join("mod.json"), "{\"version\": 2}").unwrap();
+        let baker = Baker::default();
+        assert!(!picks_drawn(&menu, &mut loader, &baker), "the old stamp's face doesn't count");
+        let new = stamp(&menu.mods[0]);
+        assert_ne!(old, new);
+        assert_eq!(loader.path((Who::Mod(0), 0), &menu), Some(mod_png(&dir, 0, &new)), "the baker draws under the new stamp");
+        write(&face_path(&mod_png(&dir, 0, &new)), b"new".to_vec()).unwrap();
+        assert!(picks_drawn(&menu, &mut loader, &baker));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// B571: a mod installed since the start gets its own index after the roster (the same one each frame), which the
