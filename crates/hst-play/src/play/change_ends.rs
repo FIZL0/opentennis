@@ -84,9 +84,8 @@ pub(super) fn server(g: &Game) -> Option<usize> {
     Some(s.server as usize)
 }
 
-/// Whether player `i` stands idle through the change of ends (B535): everyone but the next server (and a player
-/// playing an emote out, B278). The placement leaves them a one-shot ready stance that the sim's own stand motion
-/// takes over a few ticks in, with a crossfade (or that runs out mid-move); the user wants them idle all through,
+/// Whether player `i` stands idle through the change of ends (B535): everyone but the next server. The placement leaves
+/// them a one-shot ready stance that the sim's own stand motion takes over a few ticks in, with a crossfade (or that runs out mid-move); the user wants them idle all through,
 /// as the server's stance is held. Presentation only: the sim's motion commands are untouched.
 pub(super) fn idle(g: &Game, i: usize) -> bool {
     matches!(g.phase, Phase::ChangeEnds(_)) && server(g) != Some(i) && g.players[i].emote == 0

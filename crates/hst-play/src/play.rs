@@ -1757,8 +1757,10 @@ fn reset_positions(g: &mut Game) {
         let ai = (g.players[i].ai, g.players[i].ai_hit);
         let mind = g.players[i].ai_mind;
         let formation = g.players[i].formation;
-        // an emote plays out across the placement (B278): its lock and motion carry into the serve
-        let emote = (g.players[i].emote, g.players[i].cmd);
+        // the placement ends an emote still playing from the point before, and cuts its line
+        if g.players[i].emote > 0 {
+            g.lines.push(emote::Line::Cut(i));
+        }
         g.players[i] = Player {
             pos: at.pos,
             prev: at.pos,
@@ -1775,9 +1777,6 @@ fn reset_positions(g: &mut Game) {
         (g.players[i].ai, g.players[i].ai_hit) = ai;
         g.players[i].ai_mind = mind;
         g.players[i].formation = formation;
-        if emote.0 > 0 {
-            (g.players[i].emote, g.players[i].cmd) = emote;
-        }
     }
     // with more than one human the camera keeps its end through changes of ends; only solo games turn it
     if g.humans.iter().filter(|&&h| h).count() <= 1 {

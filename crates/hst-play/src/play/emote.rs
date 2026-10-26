@@ -4,7 +4,7 @@
 //! cost. In live play only: in a rally, waiting for a serve and serving before the toss, not mid-stroke. Also in the
 //! gap after a call (a point's, a fault's or a let's), while the player can still move, until the players react
 //! (B591); never from the reaction to the next serve, nor in the changes of ends (B472). One started in the rally
-//! or the gap plays on until it's out or the point's reaction ends it (B278), and not at all once the point has won
+//! or the gap plays on until it's out, the point's reaction ends it (B278) or the players are placed for the next serve, and not at all once the point has won
 //! a game or set (B363). The flick is part of the match input (`tick_input`'s right stick bytes), so replays and online play see it alike; bots never emote. Nothing here draws from the match's generators.
 
 use bevy::prelude::*;
