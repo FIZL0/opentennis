@@ -27,3 +27,4 @@
 - Custom characters' emotes can bring a seat along: it pops in under them as they sit down and pops away once they stand back up.
 - Custom characters' swinging hair, ponytails and earrings now move the way they do in their own game: they keep their shape, swing out on a quick move and no longer sag or bob in place.
 - The indoor court no longer leaves a pale smudge where the ball last bounced.
+- Palm leaves, grass and flowers at the beach court, and the trees around several other courts, now sway in the breeze as in the original.

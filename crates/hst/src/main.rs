@@ -925,7 +925,11 @@ fn load_court(
     for stem in placed {
         if let (Some((anim, tags)), Some(parts)) = (anims.remove(&stem).filter(|(a, _)| !a.is_empty()), library.get(&stem)) {
             let parts = parts.iter().zip(tags).map(|((_, m), t)| (m.clone(), t)).collect();
-            commands.spawn(court_anim::Playing { anim, parts });
+            let id = commands.spawn(court_anim::Playing { anim, parts }).id();
+            // B678a: and its `.MOR` (palm leaves, grass, trees), every copy in step on the shared meshes
+            if let Some(m) = morphs.remove(&stem).filter(|m| !m.meshes.is_empty()) {
+                commands.entity(id).insert(m);
+            }
         }
     }
     look.sky = sky;

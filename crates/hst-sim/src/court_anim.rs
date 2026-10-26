@@ -41,10 +41,13 @@ pub struct CourtAnim {
     morph: Option<Morphs>,
 }
 
+/// A bound `.MOR` track: its morph target, ticks, weights and sampler cursor.
+type MorphTrack = (usize, Vec<i32>, Vec<[f32; 4]>, usize);
+
 /// The `.MOR`: each bound track (morph target, ticks, weights, sampler cursor), the clock, and every target's weight
 /// this frame.
 struct Morphs {
-    tracks: Vec<(usize, Vec<i32>, Vec<[f32; 4]>, usize)>,
+    tracks: Vec<MorphTrack>,
     tpf: f32,
     length: f32,
     clock: Clock,
