@@ -405,6 +405,9 @@ fn worlds(doc: &gltf::Document) -> Vec<Mat4> {
     w.into_iter().map(|m| m.unwrap_or(Mat4::IDENTITY)).collect()
 }
 
+/// Sort bias (m nearer) of a court mod's water materials, enough to break the tie with the court's other pieces.
+const WATER_LAST: f32 = 5.0;
+
 /// The `.glb`'s materials as GS draws (as a character mod's, `mods::materials_of`; the last one glTF's default), lit
 /// as `role` says.
 fn materials(doc: &gltf::Document, blob: &[u8], s: &mut Store, role: Role, clear: bool) -> Result<Vec<Vec<Handle<GsMaterial>>>, String> {
@@ -444,6 +447,10 @@ fn materials(doc: &gltf::Document, blob: &[u8], s: &mut Store, role: Role, clear
             g.key.clear = clear;
             if role == Role::Sky {
                 g.order = crate::BACKDROP;
+            } else if mtl.name.to_lowercase().contains("water") {
+                // a court's pieces all sit at its origin, so the blended ones tie in the back-to-front sort: the sea
+                // goes after them, over what lies under it (Get a Grip c04's corals drew on top of it)
+                g.order = WATER_LAST;
             }
             let h = s.materials.add(g);
             s.kept.materials.push((h.id(), role));

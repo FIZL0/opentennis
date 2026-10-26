@@ -36,3 +36,4 @@
 - An emote still playing when the players walk back into place for the next serve now stops there, voice line included, instead of carrying on into the serve.
 - In split screen, each half's camera now zooms out to keep a wide ball in view.
 - In split screen, both players now see the ball's outline, not just one of them.
+- On custom courts with water, things under the water (like the corals at the beach resort court) now show under it instead of drawing on top.
