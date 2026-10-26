@@ -60,8 +60,9 @@ impl Handshake {
         if self.build != host.build {
             return Err(crate::net::version_differs(&host.build, &self.build));
         }
+        // an older import and a newer one of the same disc play together
         if let (Some(a), Some(b)) = (self.pack, host.pack)
-            && a != b
+            && !hst_data::iso::same_disc(a, b)
         {
             return Err(format!(
                 "your imported disc ({a:016x}) isn't the same as the host's ({b:016x}). Re-import an unmodified Hot Shots Tennis (USA) disc."
@@ -93,6 +94,8 @@ mod tests {
         assert_eq!(h.check(&Handshake { pack: None, ..h.clone() }), Ok(()));
         let e = Handshake { build: "0.0.0 1a2b3c4".into(), ..h.clone() }.check(&h).unwrap_err();
         assert!(e.starts_with("a different version") && e.contains(&format!("host {}, you 0.0.0 1a2b3c4", build())), "{e}");
+        let [old, new] = [0, 1].map(|i| Some(hst_data::iso::KNOWN_PACKS[i].0));
+        assert_eq!(Handshake { pack: old, ..h.clone() }.check(&Handshake { pack: new, ..h.clone() }), Ok(()));
         let e = Handshake { pack: Some(8), ..h.clone() }.check(&h).unwrap_err();
         assert!(e.contains("imported disc (0000000000000008) isn't the same as the host's (0000000000000007)") && e.contains("Re-import"), "{e}");
     }
