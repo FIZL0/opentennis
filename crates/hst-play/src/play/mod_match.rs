@@ -82,6 +82,8 @@ pub(super) fn apply(g: &mut Game, i: usize, iso: &mut Iso, m: &Mod, outfit: usiz
     let n = g.players.len();
     g.swing_pace.resize(n, 1.0);
     g.swing_pace[i] = m.build.swing;
+    g.shot_build.resize(n, (1.0, 1.0));
+    g.shot_build[i] = (m.build.power, m.build.scale);
     // B181: a mod character speaks only its own takes; a program it has no wav for, or a mod with no voice, is silent
     // (never its donor's). A costume pack is its disc character and keeps that voice, as a disc-body mod its donor's (M11).
     if m.disc_voice().is_none() {
@@ -294,5 +296,35 @@ mod tests {
             }
         }
         assert!(!stand.visual.is_empty() && real.joints.len() != stand.joints.len(), "the stand-in draws the donor's own rig");
+    }
+    /// §6 `shot_power` 3 on a 1.5× Big Chief (the published Bigger Chief): his serve, hit far above any table's
+    /// heights, lands in the service box, and leaves the racket faster than the table's (≥ 2× Carol's).
+    #[test]
+    fn powered_serve_lands_in() {
+        if !hst_data::fixture::has_iso() {
+            return hst_data::fixture::skip("no ISO");
+        }
+        let dir = std::env::temp_dir().join(format!("hst-powered-chief-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mod.json"), r#"{"standard":1,"id":"hst_bigger_chief","name":"Bigger Chief","disc_body":true,"donor":7,"hand":"right","params":{"base":7,"override":{}},"ai_row":7,"face":"morph","scale":1.5,"run_speed":0.25,"shot_power":3,"version":2}"#).unwrap();
+        let m = mods::read(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        let mut app = bot_match(&m, 7);
+        let (mut shots, mut speeds) = (0, [0.0f32; 2]);
+        for _ in 0..60 * 120 {
+            app.world_mut().run_schedule(FixedUpdate);
+            let g = app.world().resource::<super::super::Game>();
+            if g.shots != shots {
+                shots = g.shots;
+                if shots == 1 {
+                    speeds[g.last_hitter as usize] = g.flight.ball.vel.iter().map(|c| c * c).sum::<f32>().sqrt();
+                }
+            }
+            if shots == 1 && g.last_hitter == 1 && g.flight.call == hst_sim::judge::Call::In {
+                assert!(speeds[1] > 2.0 * speeds[0], "serve speeds {speeds:?}");
+                return;
+            }
+        }
+        panic!("Bigger Chief never served in, serve speeds {speeds:?}");
     }
 }
