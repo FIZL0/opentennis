@@ -525,10 +525,10 @@ fn draw_banner(
     }
 }
 
-/// The score panel, the timing balloons and the player markers stay off while the intro runs.
+/// The score panel, the timing balloons, the player markers and name tags stay off while the intro runs.
 fn hide_hud(
     intro: Option<Res<Intro>>,
-    mut q: Query<&mut Visibility, Or<(With<super::panel::Slot>, With<super::BalloonView>, With<super::markers::Marker>)>>,
+    mut q: Query<&mut Visibility, Or<(With<super::panel::Slot>, With<super::BalloonView>, With<super::markers::Marker>, With<super::name_tags::Tag>)>>,
 ) {
     if intro.is_some() {
         for mut v in &mut q {

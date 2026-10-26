@@ -144,7 +144,7 @@ fn pointer(out: &mut Pixmap, cx: f32, above: f32) {
 
 /// One named player's head tag: its quad's material, the tag's size (disc px).
 #[derive(Component)]
-struct Tag {
+pub(super) struct Tag {
     i: usize,
     material: Handle<StandardMaterial>,
     size: [f32; 2],
