@@ -3146,8 +3146,9 @@ fn powered(g: &mut Game, sent: V3, power: f32) {
     let want = (dx * dx + dz * dz).sqrt();
     let (ux, uz) = (dx / want, dz / want);
     g.shot.wind = [0.0; 3];
-    // the first bounce's distance from `at`, the frames to it and the height (m, up) it passes the net at
-    let fly = |g: &Game, speed: f32, e: f32| {
+    // the first bounce's distance from `at`, the frames to it and the height (m, up) it passes the net at; a flight
+    // already past `stop` (m from `at`) ends there as long (halving only asks short or long)
+    let fly = |g: &Game, speed: f32, e: f32, stop: f32| {
         let mut f = start;
         let (c, s) = (hst_sim::libm::cosf(e), hst_sim::libm::sinf(e));
         f.ball.vel = [ux * c * speed, -s * speed, uz * c * speed];
@@ -3163,33 +3164,60 @@ fn powered(g: &mut Game, sent: V3, power: f32) {
                 let (x, z) = (f.landing.0[0] - at[0], f.landing.0[2] - at[2]);
                 return ((x * x + z * z).sqrt(), n, over);
             }
+            let (x, z) = (f.ball.pos[0] - at[0], f.ball.pos[2] - at[2]);
+            if x * x + z * z > stop * stop {
+                return (f32::INFINITY, n, over);
+            }
         }
-        (f32::MAX, 400, over)
+        (f32::INFINITY, 400, over)
     };
+    // the elevation landing at `want`, from its short side: halved down to 0.03 rad, then regula falsi (Illinois) on
+    // the bounce distances, where the curve is near straight (20 halvings flew ~5000 steps a hit: a hitch)
     let solve = |g: &Game, speed: f32| {
         let (mut lo, mut hi) = (-1.4f32, 0.6f32);
-        for _ in 0..30 {
+        for _ in 0..6 {
             let mid = (lo + hi) / 2.0;
-            if fly(g, speed, mid).0 < want { lo = mid } else { hi = mid }
+            if fly(g, speed, mid, want).0 < want { lo = mid } else { hi = mid }
+        }
+        let miss = |e: f32| fly(g, speed, e, f32::MAX).0 - want;
+        let (mut short, mut long) = (miss(lo), miss(hi));
+        for _ in 0..4 {
+            if !long.is_finite() || long - short < 1e-4 {
+                break;
+            }
+            let mid = lo - short * (hi - lo) / (long - short);
+            let off = miss(mid);
+            if off < 0.0 {
+                (lo, short, long) = (mid, off, long / 2.0);
+            } else {
+                (hi, long, short) = (mid, off, short / 2.0);
+            }
         }
         lo
     };
     // net cord plus the ball, a little over (the net is at most 1.07 m at the posts)
     let clear = 1.07 + 0.064 + 0.1;
     let crosses = at[2].signum() != sent[2].signum();
-    let (frames, mut solved) = (g.shot.curve_frames, (table, 0.0));
-    for step in 0..=10 {
+    let frames = g.shot.curve_frames;
+    // the fastest of ten steps from table × power down to the table's speed that clears, found by halving (slower
+    // clears more easily), each on the curve profile stretched by speed alone; only the kept one re-solves on its own
+    // flight's frames. No step clears: the table's speed.
+    let at_step = |g: &mut Game, step: i32| {
         let speed = table * (power - (power - 1.0) * step as f32 / 10.0);
         g.shot.curve_frames = (frames as f32 * table / speed) as i32;
         let e = solve(g, speed);
-        g.shot.curve_frames = fly(g, speed, e).1;
-        let e = solve(g, speed);
-        solved = (speed, e);
-        if !crosses || power == 1.0 || fly(g, speed, e).2 > clear {
-            break;
-        }
+        (speed, e, !crosses || power == 1.0 || fly(g, speed, e, f32::MAX).2 > clear)
+    };
+    let (mut fast, mut slow, mut solved) = (-1, 10, None);
+    while slow - fast > 1 {
+        let mid = (fast + slow) / 2;
+        let (speed, e, clears) = at_step(g, mid);
+        if clears { (slow, solved) = (mid, Some((speed, e))) } else { fast = mid }
     }
-    let (speed, e) = solved;
+    let (speed, e) = solved.unwrap_or_else(|| { let (speed, e, _) = at_step(g, 10); (speed, e) });
+    g.shot.curve_frames = (frames as f32 * table / speed) as i32;
+    g.shot.curve_frames = fly(g, speed, e, f32::MAX).1;
+    let e = solve(g, speed);
     let (c, s) = (hst_sim::libm::cosf(e), hst_sim::libm::sinf(e));
     g.flight.ball.vel = [ux * c * speed, -s * speed, uz * c * speed];
 }
