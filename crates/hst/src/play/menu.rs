@@ -31,6 +31,8 @@ use super::{Game, Pads};
 use crate::Args;
 use crate::audio::{Sound, SoundBank};
 
+mod plate;
+
 // Z21: not `i_dialog_00`/`01`, which our box, pills and rows (B141) stand in for, nor `hsm_yubi`, whose place the 3D
 // hand always takes (`cursor::setup` at Startup)
 const TEXTURES: [&str; 8] = [
@@ -53,6 +55,9 @@ enum Tex {
     Face(usize),
     /// The 3D pointing hand (`cursor.rs`), where the original swung `hsm_yubi`.
     Hand,
+    /// B671: player `p`'s name in the tag's place, and their character's pill (`plate.rs`), each its whole image.
+    Name(usize),
+    Chara(usize),
 }
 const DIM: Tex = Tex::Own(0);
 const POINTS: Tex = Tex::Own(1);
@@ -298,6 +303,8 @@ struct View {
     ask: Option<usize>,
     /// B254: a local match's dialog, with "Controllers".
     local: bool,
+    /// B671: each player's name and character pill widths (`plate.rs`), once set: drawn in place of the slot tag.
+    words: [Option<[f32; 2]>; 4],
 }
 
 fn layout(v: &View) -> Vec<Quad> {
@@ -353,6 +360,12 @@ fn layout(v: &View) -> Vec<Quad> {
         let (x, y) = ([100, 496][p & 1], plate_y[p / 2]);
         q(BOARD, [80, 0, 48, 48], r(x, y, 48, 48), WHITE, 128);
         q(Tex::Face(p), [0, 0, 64, 64], r(x + 2, y + 2, 64, 64), WHITE, 128);
+        if let Some(w) = v.words[p] {
+            let [name, pill] = plate::place(p, x as f32, y as f32, w);
+            q(Tex::Name(p), [0; 4], name, WHITE, 128);
+            q(Tex::Chara(p), [0; 4], pill, WHITE, 128);
+            continue;
+        }
         q(Tex::Slot, [v.slots[p] as i32 * 40, 0, 40, 24], r([144, 456][p & 1], y + 6, 40, 24), rgb(v.pill[p]), 128);
     }
     // the set in play on the bright sheet, a past set the team didn't win at half alpha
@@ -502,6 +515,8 @@ pub fn plugin(app: &mut App) {
         .insert_resource(super::front_end::FrontEnd { paused, set_paused, face: super::main_menu::face })
         .add_systems(PostStartup, setup.after(super::setup))
         .add_systems(Update, (step.after(super::read_input), pool, draw).chain().before(super::main_menu::pause::Systems))
+        .init_resource::<plate::Plates>()
+        .add_systems(Update, plate::refresh.after(step).before(draw))
         // B179: the main menus' 3D hand (`cursor.ani`) points here and on the Settings screens over the match
         .add_systems(Startup, super::main_menu::cursor::setup)
         .add_systems(Update, super::main_menu::cursor::tick.after(draw))
@@ -730,6 +745,7 @@ fn draw(
     mut hidden: Local<Vec<(Entity, Visibility)>>,
     cursor: Option<Res<super::main_menu::cursor::Cursor>>,
     mut root_z: Query<&mut GlobalZIndex, With<Root>>,
+    plates: Res<plate::Plates>,
 ) {
     let (Some(art), Some(panel_art), Some(colours)) = (art, panel_art, colours) else {
         return;
@@ -773,6 +789,7 @@ fn draw(
             fade: menu.quitting,
             ask: menu.ask,
             local: menu.local,
+            words: std::array::from_fn(|p| if p < n { plates.widths(p) } else { None }),
         })
     } else {
         Vec::new()
@@ -790,6 +807,8 @@ fn draw(
             (_, Tex::Own(k)) => art.0[k].clone(),
             (_, Tex::Slot) => panel_art.0[1].clone(),
             (_, Tex::Face(p)) => panel_art.0[panel::FACES + p].clone(),
+            (_, Tex::Name(p)) => plates.name[p].as_ref().map_or_else(Handle::default, |w| w.0.clone()),
+            (_, Tex::Chara(p)) => plates.chara[p].as_ref().map_or_else(Handle::default, |w| w.0.clone()),
             (None, Tex::Hand) => {
                 vis.set_if_neq(Visibility::Hidden);
                 continue;
@@ -797,7 +816,7 @@ fn draw(
         };
         let [u, v, w, h] = quad.src;
         // B160: a face is its whole image (INPANE's 64×64, or a baked one's larger square)
-        img.rect = (!matches!(quad.tex, Tex::Face(_)) && three_d.is_none()).then(|| Rect::new(u, v, u + w, v + h));
+        img.rect = (!matches!(quad.tex, Tex::Face(_) | Tex::Name(_) | Tex::Chara(_)) && three_d.is_none()).then(|| Rect::new(u, v, u + w, v + h));
         let [r, g, b] = quad.rgb.map(|c| c / 128.0);
         img.color = Color::srgba(r, g, b, quad.alpha / 128.0);
         let [mut x, mut y, mut w, mut h] = quad.dst;
@@ -851,6 +870,7 @@ mod tests {
             fade: None,
             ask: None,
             local: false,
+            words: [None; 4],
         }
     }
 
@@ -912,6 +932,29 @@ mod tests {
         // B293: the court on the bar's right end, the umpire under its rim
         assert_eq!(qs.iter().find(|q| q.tex == COURT).unwrap().dst, [408.0, 3.0, 192.0, 24.0]);
         assert_eq!(qs.iter().find(|q| q.tex == UMPIRE).unwrap().dst, [424.0, 34.0, 160.0, 20.0]);
+    }
+
+    /// B671: with the words set, each plate's name takes the slot tag's place (none drawn) and its character's pill sits
+    /// under the face, both inside the plate however long (and shrunk to fit); the left team's name against the centre.
+    #[test]
+    fn plates_carry_names() {
+        for players in [2, 4] {
+            for w in [[30.0, 40.0], [400.0, 300.0]] {
+                let qs = layout(&View { players, words: [Some(w); 4], ..view() });
+                assert!(!qs.iter().any(|q| q.tex == Tex::Slot));
+                for p in 0..players {
+                    let (left, right) = if p & 1 == 0 { (96.0, 184.0) } else { (456.0, 544.0) };
+                    for tex in [Tex::Name(p), Tex::Chara(p)] {
+                        let [x, _, w, h] = qs.iter().find(|q| q.tex == tex).unwrap().dst;
+                        assert!(x >= left && x + w <= right && h > 0.0, "{tex:?} {x} {w}");
+                    }
+                }
+                let name = |p| qs.iter().find(|q| q.tex == Tex::Name(p)).unwrap().dst;
+                assert_eq!(name(0)[0] + name(0)[2], 183.0);
+                assert_eq!(name(1)[0], 457.0);
+            }
+        }
+        assert_eq!((plate::who(4, Some("Ryan")), plate::who(0, Some("Ryan")), plate::who(1, None)), ("COM".into(), "Ryan".into(), "2P".into()));
     }
 
     /// B254: a local match's dialog has four pills, "Controllers" third, centred as the three; ✕ on it asks for the
