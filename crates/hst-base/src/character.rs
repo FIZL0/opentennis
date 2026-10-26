@@ -518,6 +518,15 @@ impl Face {
             w[*target] = if self.tracks[..k].iter().any(|e| e.0 == *target) { w[*target].max(v) } else { v };
         }
     }
+
+    /// Whether any of `targets` changes by a third or more through the face (a mouth that talks or changes
+    /// expression, not one held still).
+    pub fn moves(&self, targets: &[usize]) -> bool {
+        self.tracks.iter().filter(|t| targets.contains(&t.0)).any(|(_, _, v)| {
+            let (lo, hi) = v.iter().fold((f32::MAX, f32::MIN), |(lo, hi), x| (lo.min(x[0]), hi.max(x[0])));
+            hi - lo >= 0.3
+        })
+    }
 }
 
 /// The node a mod's eye materials hold in `part_nodes`, and its donor's eye tracks bind to (standard §4c).
@@ -640,7 +649,8 @@ pub struct Rig {
 
 /// A voice line a mod character is speaking (looks only): per frame from `start` (seconds of virtual time), the
 /// vowel target its mouth makes and how far open. The face's other mouth targets give way as it opens; the eyes
-/// and, once the line has no shapes left, the mouth are the clip's again. `id` is the line's play.
+/// and, once the line has no shapes left, the mouth are the clip's again. A clip whose own face moves the mouth
+/// keeps it all through ([`Face::moves`]). `id` is the line's play.
 #[derive(Component, Clone)]
 pub struct Talk {
     pub id: u64,
@@ -1949,7 +1959,8 @@ impl Posing {
             Some(f) => (Some(f), motion.drawn.sampled),
             None => (rig.data.faces.get(&motion.face), motion.face_clock.sampled),
         };
-        let shape = talk.and_then(|t| Some((t, t.at(now)?)));
+        // a clip whose own face already moves the mouth (the source game's lip-sync for its line) keeps its mouth
+        let shape = talk.filter(|t| !own.is_some_and(|f| f.moves(&t.mouths))).and_then(|t| Some((t, t.at(now)?)));
         let key = (
             Arc::as_ptr(&rig.data) as usize ^ own.map_or(motion.face, |f| f as *const Face as usize),
             t.to_bits(),

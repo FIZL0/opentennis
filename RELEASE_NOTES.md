@@ -43,3 +43,4 @@
 - The biggest custom characters can now be used in online matches; other players see them instead of a stand-in.
 - Characters with a faster ball now keep it fast after it bounces, instead of slowing to normal speed at the first bounce.
 - The character select remembers each controller's last pick only while the game stays open; starting the game afresh begins everyone on the Random card again.
+- Custom characters whose celebrations already move their mouth as they speak keep that animation, instead of a made-up mouth flapping over it.

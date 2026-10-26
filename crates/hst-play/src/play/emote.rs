@@ -761,7 +761,7 @@ mod match_tests {
     }
 
     /// A mod's emote take with a line of its own says it whatever the key picked; one without never says a line
-    /// another take owns (those are timed to their own clips). Needs the ISO and `mods/hst-mods` (skipped without).
+    /// another take owns (those are timed to their own clips), and a take whose own face moves the mouth keeps it. Needs the ISO and `mods/hst-mods` (skipped without).
     #[test]
     fn a_take_without_a_line_says_none_a_take_owns() {
         const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/oob_pc12_anya");
@@ -788,6 +788,10 @@ mod match_tests {
             }
         }
         assert!(own > 0 && free > 0, "own {own}, free {free}");
+        // the take that talks on its own keeps its mouth; the one that holds it still gets the made-up one
+        let mouths: Vec<usize> = (0..d.morph_names.len()).filter(|&i| d.morph_names[i].contains("mouth")).collect();
+        let moves = |k: usize| d.own_faces[&(id::WON_GAME as usize, k)].moves(&mouths);
+        assert!(moves(2) && !moves(3), "re_gu_set.2 talks, .3 holds still");
     }
 
     /// B591 (B472, B363 before it): 1P tosses and swings as the ball drops past (a whiff: a fault); a flick in the
