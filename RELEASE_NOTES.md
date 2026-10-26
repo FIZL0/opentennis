@@ -41,3 +41,4 @@
 - In split screen, fences and buildings at the far end of a custom court no longer flicker in and out of one player's view when the other player's camera backs up behind them.
 - A custom character's celebration no longer plays a voice line made for one of its other celebrations.
 - The biggest custom characters can now be used in online matches; other players see them instead of a stand-in.
+- Characters with a faster ball now keep it fast after it bounces, instead of slowing to normal speed at the first bounce.

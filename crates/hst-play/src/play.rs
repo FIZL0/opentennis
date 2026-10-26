@@ -3128,7 +3128,7 @@ fn cancel_locks(g: &mut Game, but: Option<usize>) {
     }
 }
 
-/// Ball steps a frame for the flight in the air: the last hitter's mod `serve_speed` / `shot_speed` (a lob keeps
+/// Ball steps a frame for the flight: the last hitter's mod `serve_speed` / `shot_speed` (a lob keeps
 /// one), else 1.
 fn ball_steps(g: &Game) -> usize {
     let (class, kind) = (g.shot.class, g.shot.kind);
@@ -3847,9 +3847,10 @@ fn simulate(mut g: ResMut<Game>) {
     g.flight.rally = g.phase == Phase::Rally;
     let (before, touched) = (g.flight.bounces, g.flight.special_contacts);
     g.flight.step_world(&shot, surface, &g.world.0, &g.world.1);
-    // a fast mod shot: more of the same steps this frame, up to its first bounce or a net/post touch
+    // a fast mod shot: more of the same steps this frame, stopping at a bounce or a net/post touch so each one is
+    // handled in its own frame
     for _ in 1..ball_steps(g) {
-        if g.flight.bounces != 0 || g.flight.special_contacts != touched {
+        if g.flight.bounces != before || g.flight.special_contacts != touched {
             break;
         }
         g.flight.step_world(&shot, surface, &g.world.0, &g.world.1);
