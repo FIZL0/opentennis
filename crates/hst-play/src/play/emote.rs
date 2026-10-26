@@ -248,9 +248,8 @@ pub(super) fn play_lines(
             bank.map_or(0, |b| sound.play_at(b, p, at))
         };
         // a mod's line (its own wav) moves the mouth with it
-        let pcm = bank.and_then(|b| b.wav.get(&(p.program as usize))?.get(p.key as usize));
-        if let (Some((pcm, rate)), Some((e, ..)), Some(d)) = (pcm, figures.iter().find(|(_, f, ..)| f.0 == i), g.data.get(i))
-            && let Some(talk) = crate::character::Talk::new(d, id, time.elapsed_secs_f64(), pcm, *rate)
+        if let (Some(b), Some((e, ..)), Some(d)) = (bank, figures.iter().find(|(_, f, ..)| f.0 == i), g.data.get(i))
+            && let Some(talk) = crate::character::Talk::of(d, b, p.program, p.key, id, time.elapsed_secs_f64())
         {
             commands.entity(e).insert(talk);
         }
@@ -695,6 +694,30 @@ mod match_tests {
                 assert_eq!(sound.plays(), before + 1, "{id}: flick {d}'s emote spoke no line");
             }
         }
+    }
+
+    /// A mod's emote line moves its mouth: every flick's line, each a mouth of its own (the take's line). Needs the
+    /// ISO and `mods/hst-mods` (skipped without).
+    #[test]
+    fn a_mod_emote_moves_its_mouth() {
+        const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/oob_pc12_anya");
+        if !hst_data::fixture::has_iso() || !std::path::Path::new(ROOT).is_dir() {
+            return eprintln!("no ISO or mods/hst-mods, skipped");
+        }
+        let m = crate::mods::read(std::path::Path::new(ROOT)).unwrap();
+        let mut a = modded([false, true, false, false], vec![], Some(m));
+        let mut pads = vec![[IDLE; 4]; 12];
+        pads[10][1] = Pad { rx: 0x80, ry: 0, ..IDLE };
+        a.insert_resource(Replay(pads.into_iter().collect()));
+        let sound = crate::audio::Sound::test(&mut hst_data::fixture::iso().unwrap());
+        a.insert_resource(sound.clone());
+        a.add_plugins(heard::plugin);
+        a.add_systems(FixedUpdate, super::play_lines.after(held_ball));
+        for _ in 0..12 {
+            step(&mut a);
+        }
+        let talks: Vec<u64> = a.world_mut().query::<(&Figure, &crate::character::Talk)>().iter(a.world()).filter(|(f, _)| f.0 == 1).map(|(_, t)| t.id).collect();
+        assert!(talks.contains(&sound.plays()), "the emote's line moves no mouth");
     }
 
     /// A mod's emote holds the player for its own clip, not the donor's: offline, and online alike whether this

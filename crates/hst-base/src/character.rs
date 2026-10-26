@@ -647,17 +647,23 @@ pub struct Talk {
     mouths: Arc<[usize]>,
 }
 
-/// Vowel mouth targets by how high the line's pitch sits (zero crossings): low lines round the mouth, bright ones
-/// spread it.
-const VOWELS: [&str; 5] = ["u_mouth", "o_mouth", "a_mouth", "e_mouth", "i_mouth"];
+/// The mouth shapes a line moves through, by how high its pitch sits (zero crossings): rounded for low lines, open,
+/// spread for bright ones; each the first of its row the face has (bare or after its object prefix). Faces name
+/// them differently (vowels on some, only expressions on others), so the open row falls back to open expressions.
+// ponytail: names from the mods' faces so far; a face with none of them keeps its clip's mouth
+const SHAPES: [&[&str]; 3] = [
+    &["u_mouth", "U_mouth", "o_mouth", "pucker_mouth"],
+    &["a_mouth", "talk_mouth1", "talk_mouth", "openM_mouth", "openL_mouth", "shout_mouth", "surprise_mouth", "ayo_mouth", "amaze_mouth", "laugh_mouth", "joy_mouth"],
+    &["i_mouth", "e_mouth"],
+];
 
 impl Talk {
-    /// `data`'s mouth for mono `pcm` at `rate` Hz, or `None` without a vowel target (a face with no mouth to move).
+    /// `data`'s mouth for mono `pcm` at `rate` Hz, or `None` without a shape to make (a face with no mouth to move).
     pub fn new(data: &CharacterData, id: u64, start: f64, pcm: &[i16], rate: u32) -> Option<Self> {
         let names = &data.morph_names;
-        let vowels: Vec<usize> = VOWELS
+        let vowels: Vec<usize> = SHAPES
             .iter()
-            .filter_map(|v| names.iter().position(|n| n == v))
+            .filter_map(|row| row.iter().find_map(|v| names.iter().position(|n| n.rsplit('\x01').next() == Some(*v))))
             .collect();
         if vowels.is_empty() || rate == 0 {
             return None;
@@ -674,6 +680,19 @@ impl Talk {
             shapes: mouth_track(&vowels, pcm, rate).into(),
             mouths,
         })
+    }
+
+    /// [`new`](Self::new) for the line `program`/`key` of `bank` (play `id`): a mod's own take, as `audio` plays it.
+    pub fn of(data: &CharacterData, bank: &crate::audio::SoundBank, program: u8, key: u8, id: u64, start: f64) -> Option<Self> {
+        let takes = bank.wav.get(&(program as usize))?;
+        let (pcm, rate) = takes.get(key as usize % takes.len().max(1))?;
+        Self::new(data, id, start, pcm, *rate)
+    }
+
+    /// The line a mod's take `id` drawn by the `sets`-th motion set says in place of `key` (its own, `drawn_voice`)
+    /// when `bank` holds its own takes of `program`.
+    pub fn key(data: &CharacterData, bank: &crate::audio::SoundBank, program: u8, id: usize, sets: u32, key: u8) -> u8 {
+        data.drawn_voice(id, sets).filter(|_| bank.wav.contains_key(&(program as usize))).unwrap_or(key)
     }
 
     /// The shape at `now` (seconds of virtual time), or `None` once the line is through.
@@ -1914,10 +1933,7 @@ impl Posing {
             Some(f) => (Some(f), motion.drawn.sampled),
             None => (rig.data.faces.get(&motion.face), motion.face_clock.sampled),
         };
-        // a line spoken over a take that has its own (`take_voices`) keeps the take's mouth: it was made with it
-        let shape = talk
-            .filter(|_| rig.data.drawn_voice(motion.id, motion.sets).is_none())
-            .and_then(|t| Some((t, t.at(now)?)));
+        let shape = talk.and_then(|t| Some((t, t.at(now)?)));
         let key = (
             Arc::as_ptr(&rig.data) as usize ^ own.map_or(motion.face, |f| f as *const Face as usize),
             t.to_bits(),

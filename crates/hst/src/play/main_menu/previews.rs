@@ -1398,6 +1398,7 @@ fn buttons(
     mut rigs: Query<(&mut Motion, &mut Transform, &mut inspect::UvClock)>,
     mut pending: ResMut<Pending>,
     (args, sound, mut voices): (Res<Args>, Option<Res<Sound>>, ResMut<Voices>),
+    (mut commands, time): (Commands, Res<Time>),
 ) {
     if menu.screen != Screen::Chars {
         return;
@@ -1435,9 +1436,17 @@ fn buttons(
         let d = rig.data.clone();
         inspect::apply(&mut p, act, &mut rigs, &d);
         let Some(s) = &sound else { continue };
-        if let Some((bank, play)) = voice(act, menu.pick(*player).0, menu.pick(*player).1, &menu.mods, &mut voices.banks, Path::new(&args.iso)) {
+        if let Some((bank, mut play)) = voice(act, menu.pick(*player).0, menu.pick(*player).1, &menu.mods, &mut voices.banks, Path::new(&args.iso)) {
+            // a mod's take with a line of its own says that one, and its mouth moves with it
+            if let Ok((m, ..)) = rigs.get(p.rig) {
+                play.key = character::Talk::key(&d, &bank, play.program, m.id, m.sets, play.key);
+            }
             // B594: the same motions as the emotes, so the same one voice per card: a plate emote's line is cut
-            voices.playing[*player] = s.emote(*player, |s| s.play_centre(&bank, play));
+            let id = s.emote(*player, |s| s.play_centre(&bank, play));
+            voices.playing[*player] = id;
+            if let Some(talk) = character::Talk::of(&d, &bank, play.program, play.key, id, time.elapsed_secs_f64()) {
+                commands.entity(p.rig).insert(talk);
+            }
         }
     }
 }

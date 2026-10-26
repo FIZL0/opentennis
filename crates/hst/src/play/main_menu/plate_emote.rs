@@ -162,6 +162,7 @@ fn play(
     mut rigs: Query<(&mut Motion, &mut Transform, &mut UvClock)>,
     mut pending: ResMut<Pending>,
     (args, sound, time): (Res<crate::Args>, Option<Res<Sound>>, Res<Time>),
+    mut commands: Commands,
 ) {
     let now = time.elapsed_secs();
     let mut live = [false; 4];
@@ -188,9 +189,14 @@ fn play(
             let who = menu.pick(i).0;
             let Plates { keys, banks, .. } = &mut *plates;
             let key = &mut keys[i][dir as usize];
-            if let Some((bank, play)) = voice(id, who, &menu.mods, banks, key, Path::new(&args.iso)) {
+            if let Some((bank, mut play)) = voice(id, who, &menu.mods, banks, key, Path::new(&args.iso)) {
+                // a mod's take with a line of its own says that one, and its mouth moves with it
+                play.key = crate::character::Talk::key(&d, &bank, play.program, id, sets, play.key);
                 // B594: one emote voice per card, its last one (a select's win / loss too) cut first
-                s.emote(i, |s| s.play_centre(&bank, play));
+                let line = s.emote(i, |s| s.play_centre(&bank, play));
+                if let Some(talk) = crate::character::Talk::of(&d, &bank, play.program, play.key, line, time.elapsed_secs_f64()) {
+                    commands.entity(p.rig).insert(talk);
+                }
             }
         }
     }
