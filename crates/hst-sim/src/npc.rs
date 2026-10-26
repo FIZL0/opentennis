@@ -124,6 +124,9 @@ pub struct Walker {
     /// The animation loops (the dodge and the cheer when set; a dodge's end stops the dodge's looping).
     pub looping: bool,
     pub wander: Wander,
+    /// The reaction taken at the next reacting tick ([`reaction`]).
+    #[serde(default)]
+    pub reaction: u8,
 }
 
 /// A walker's animations.
@@ -139,6 +142,38 @@ pub mod anim {
     pub const FROZEN: u32 = 4;
     /// The cheer (loops).
     pub const CHEER: u32 = 5;
+    /// The match lost (by the gallery's side): played once, held on its last frame.
+    pub const LOST: u32 = 6;
+}
+
+/// What a walker does about a point ([`point_reaction`]).
+pub mod reaction {
+    /// The ordinary point: the gallery's picked walkers cheer, the rest react quietly, from a random frame.
+    pub const POINT: u8 = 0;
+    /// A set won (the match going on, or won by a team the gallery favours): every walker cheers from the start.
+    pub const CHEER: u8 = 1;
+    /// The match won by a team the gallery doesn't favour: every walker plays the match-lost clip from the start,
+    /// turned to player 0's end.
+    pub const LOST: u8 = 2;
+}
+
+/// The walkers' reaction to a decided point (and, the same again, to the match's end), or `None` when they let
+/// it pass: `call` the judge's, `event` what it did to the score, `over` the match is now over, `favoured` the
+/// gallery favours the winning team (`sound::favoured`). Faults and lets never get one; a point called out,
+/// a double fault, a net-out or an illegal hit only when it won a game or a set.
+pub fn point_reaction(call: u8, event: Option<crate::score::Event>, over: bool, favoured: bool) -> Option<u8> {
+    use crate::judge::verdict;
+    use crate::score::Event;
+    if call == verdict::FAULT || call == verdict::LET {
+        return None;
+    }
+    match event {
+        Some(Event::Set) if over && !favoured => Some(reaction::LOST),
+        Some(Event::Set) => Some(reaction::CHEER),
+        Some(Event::Game) => Some(reaction::POINT),
+        Some(_) if call == verdict::POINT => Some(reaction::POINT),
+        _ => None,
+    }
 }
 
 /// A walker's reaction state.
@@ -202,9 +237,14 @@ impl Walker {
         }
     }
 
-    /// A point was decided (the game skips faults and lets).
+    /// A point was decided: the ordinary reaction ([`Walker::react_with`]).
     pub fn react(&mut self) {
-        self.mode = mode::REACT;
+        self.react_with(reaction::POINT);
+    }
+
+    /// React (on the next tick) with `kind` ([`reaction`]): the idle loops' restart, if under way, ends.
+    pub fn react_with(&mut self, kind: u8) {
+        (self.mode, self.reaction, self.counter) = (mode::REACT, kind, -1);
     }
 
     /// A new point: stop reacting; with `stagger` (any point after a decided one, or the match's first with more
@@ -219,8 +259,7 @@ impl Walker {
     /// One tick. `cheer`: this walker cheers rather than reacting quietly (the gallery's pick); `tick` the
     /// gallery's tick counter (with four players, walkers 0–1 advance their idle loop on even ticks, the rest on
     /// odd); `roll` the game's random number generator.
-    /// ponytail: singles reactions and the game mode where the favoured side decides (cheer or turn away) are not
-    /// recorded; singles always cheers.
+    /// One player on court always cheers, from the start.
     pub fn step(&mut self, players: u32, cheer: bool, tick: i32, roll: &mut impl FnMut() -> u32) {
         self.stagger(players, roll);
         self.animate(players, cheer, tick, roll);
@@ -248,8 +287,10 @@ impl Walker {
 
     fn animate(&mut self, players: u32, cheer: bool, tick: i32, roll: &mut impl FnMut() -> u32) {
         if self.mode == mode::REACT {
-            if players == 1 {
+            if players == 1 || self.reaction == reaction::CHEER {
                 self.set_anim(anim::CHEER, players);
+            } else if self.reaction == reaction::LOST {
+                self.set_anim(anim::LOST, players);
             } else {
                 self.set_anim(if cheer { anim::CHEER } else { anim::QUIET }, players);
                 self.random_frame(5.0, roll);
@@ -2201,6 +2242,59 @@ mod tests {
         let mut w = super::Walker { slot: 0, mode: 0, counter: 5, anim: 0, frame: 0.0, next: 0.0, speed: 1.0, advancing: true, lens: [60.0; 7], ..Default::default() };
         w.start(1, &mut || unreachable!());
         assert_eq!((w.anim, w.counter), (0, 0));
+    }
+
+    /// B672's captures (court 10, four computer players, and the same match with player 0 counted as human from
+    /// the first set's end): which points move the walkers, and how.
+    #[test]
+    fn point_reactions() {
+        use super::{point_reaction, reaction};
+        use crate::score::Event::*;
+        // a plain winner always; a net-out only when it won a game; faults nothing
+        assert_eq!(point_reaction(0, Some(Point), false, true), Some(reaction::POINT));
+        assert_eq!(point_reaction(5, Some(Point), false, true), None);
+        assert_eq!(point_reaction(5, Some(Game), false, true), Some(reaction::POINT));
+        assert_eq!(point_reaction(2, None, false, true), None);
+        assert_eq!(point_reaction(4, None, false, true), None);
+        // outs, double faults and illegal hits as the net-out
+        for call in [1, 3, 6] {
+            assert_eq!(point_reaction(call, Some(TiebreakPoint), false, true), None);
+            assert_eq!(point_reaction(call, Some(Set), false, false), Some(reaction::CHEER));
+        }
+        // the first set's end and a favoured match win: everyone cheers; an unfavoured one: the match-lost clip
+        assert_eq!(point_reaction(0, Some(Set), false, false), Some(reaction::CHEER));
+        assert_eq!(point_reaction(0, Some(Set), true, true), Some(reaction::CHEER));
+        assert_eq!(point_reaction(0, Some(Set), true, false), Some(reaction::LOST));
+    }
+
+    /// A set's end: every walker cheers from frame 0, picked or not, with no draw; the match-lost clip the same,
+    /// held on its last frame; the ordinary point as before (a quiet one for the unpicked, one draw).
+    #[test]
+    fn walker_reaction_kinds() {
+        use super::{anim, mode, reaction};
+        let walker = |slot| super::Walker { slot, counter: 2, lens: [60.0, 60.0, 115.0, 30.0, 30.0, 11.0, 62.0], ..Default::default() };
+        for slot in 0..4 {
+            let mut w = walker(slot);
+            w.react_with(reaction::CHEER);
+            w.step(4, false, 0, &mut || unreachable!());
+            assert_eq!((w.anim, w.frame, w.counter, w.mode, w.looping), (anim::CHEER, 0.0, -1, mode::REACTED, true));
+            let mut w = walker(slot);
+            w.react_with(reaction::LOST);
+            w.step(4, true, 0, &mut || unreachable!());
+            assert_eq!((w.anim, w.frame, w.looping, w.speed), (anim::LOST, 0.0, false, 1.0));
+            for _ in 0..100 {
+                w.step(4, false, 1, &mut || unreachable!());
+            }
+            assert_eq!((w.anim, w.frame), (anim::LOST, 62.0));
+            let mut w = walker(slot);
+            w.react();
+            let mut draws = 0;
+            w.step(4, false, 0, &mut || {
+                draws += 1;
+                0
+            });
+            assert_eq!((w.anim, w.frame, draws), (anim::QUIET, 5.0 * slot as f32, 1));
+        }
     }
 
     #[test]

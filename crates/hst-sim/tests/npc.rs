@@ -224,6 +224,7 @@ fn walkers_animate_like_the_game() {
                 advancing: s[o + 0xcc] != 0,
                 lens,
                 wander: Default::default(),
+                reaction: 0,
             }
         };
         let mut lens = vec![[0f32; 7]; n];

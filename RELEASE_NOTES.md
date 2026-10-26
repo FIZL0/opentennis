@@ -8,3 +8,4 @@
 - After every third replay, the cut-away after a point now turns to the other player even if they dove, and stays put only when the other player was hit by the ball, as in the original.
 - The pause screen's score panel now shows each player's name in place of the 1P/COM tag, and each character's name under their face.
 - With any Offbeat rule on, the pause screen shows a tab on the score panel listing the rules in play.
+- Spectators react to points like the original: they let outs and other called points pass unless a game or set is won, all clap at the end of a set, and give your side a consolation reaction when the computer wins the match.

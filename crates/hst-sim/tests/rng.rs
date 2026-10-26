@@ -111,6 +111,7 @@ fn court_draws_like_the_game() {
             advancing: s[o + 0xcc] != 0,
             lens: lens[k],
             wander: Default::default(),
+            reaction: 0,
         }
     };
     let walkers_at = |v: u32| at(&walk, wo(n), head, v).unwrap();
