@@ -951,7 +951,7 @@ impl Menu {
     fn draw(&self, p: usize, seed: u64) -> Option<(Who, usize)> {
         let vanilla = self.vanilla_lobby();
         let mods = if vanilla { 0 } else { self.own_mods() };
-        let whos = (0..CHARS).map(Who::Disc).chain((0..mods).filter(|&i| self.mods[i].costume_of.is_none()).map(Who::Mod));
+        let whos = (0..CHARS).map(Who::Disc).chain((0..mods).filter(|&i| self.mods[i].costume_of.is_none() && !self.mods[i].joke()).map(Who::Mod));
         let n = |w: Who| if vanilla { COSTUMES } else { self.costumes(w) };
         let open: Vec<(Who, Vec<usize>)> = whos.map(|w| (w, (0..n(w)).filter(|&c| self.free(p, w, c)).collect::<Vec<_>>())).filter(|(_, c)| !c.is_empty()).collect();
         let n = open.len() as u64;

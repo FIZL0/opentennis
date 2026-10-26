@@ -108,6 +108,9 @@ pub fn face_target(names: &[String], track: &str) -> Option<usize> {
     })
 }
 
+/// The select category of §6 `joke` mods (in place of their game).
+pub const JOKE: &str = "Joke characters";
+
 /// A mod's manifest (`mod.json`, §6), checked.
 #[derive(Debug, Clone)]
 pub struct Mod {
@@ -233,9 +236,14 @@ impl Mod {
         self.costume_of.or(self.build.disc.then_some(self.donor))
     }
 
-    /// B369: the select's category tab it goes under: its game (`source`), "Mods" when unset.
+    /// B369: the select's category tab it goes under: its game (`source`), "Mods" when unset, [`JOKE`] for a §6 `joke`.
     pub fn game(&self) -> &str {
         if self.source.is_empty() { "Mods" } else { &self.source }
+    }
+
+    /// §6 `joke`: left out of Random.
+    pub fn joke(&self) -> bool {
+        self.source == JOKE
     }
 }
 
@@ -330,6 +338,12 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
         serde_json::Value::Bool(b) => *b,
         v => return Err(err(format!("`upscale` {v} must be true or false"))),
     };
+    // §6 `joke`: a joke character gets its own select category, and Random never draws it
+    let joke = match &j["joke"] {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(b) => *b,
+        v => return Err(err(format!("`joke` {v} must be true or false"))),
+    };
     let ai_row = num(&j["ai_row"], "ai_row", 13)?;
     if !j["disc_racket"].is_null() {
         num(&j["disc_racket"], "disc_racket", 13)?;
@@ -349,7 +363,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
         dir: dir.to_path_buf(),
         id: text("id")?,
         name: text("name")?,
-        source: game(j["source"].as_str().unwrap_or("")).chars().take(64).collect(),
+        source: if joke { JOKE.into() } else { game(j["source"].as_str().unwrap_or("")).chars().take(64).collect() },
         costumes,
         donor,
         hand,
@@ -2686,6 +2700,7 @@ mod tests {
         };
         let m = try_(json).unwrap();
         assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, power: 1.0 });
+        assert!(!m.joke() && try_(&json.replace("\"version\"", "\"joke\":true,\"version\"")).unwrap().joke());
         // only a mod.json, and on the character select's roster
         assert!(list(&root).iter().any(|r| r.id == "hst_bigger_chief"), "not on the roster");
         assert_eq!((m.costumes.len(), m.disc_voice(), m.costume_of), (DISC_COSTUMES, Some(7), None));
@@ -2694,6 +2709,7 @@ mod tests {
             json.replace("\"scale\":2", "\"scale\":5"),
             json.replace("\"swing_speed\":2", "\"swing_speed\":0.5"),
             json.replace("\"run_speed\":0.25", "\"run_speed\":0"),
+            json.replace("\"version\"", "\"joke\":1,\"version\""),
             json.replace("\"donor\"", "\"costumes\":[\"model/c00.glb\"],\"donor\""),
             json.replace("\"disc_body\":true,", "\"costume_of\":7,"),
             json.replace("\"disc_body\":true,", "\"costumes\":[],"),
