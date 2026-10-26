@@ -930,6 +930,65 @@ impl ArmIk {
     }
 }
 
+/// The share of a thigh's animated roll its skin keeps (B676b), by character (0..14) and costume (0..10): 0.5
+/// halves it, 1.0 draws the thigh as animated. Costumes 0–4 take the first column, 5–9 the second.
+pub fn thigh_twist(character: usize, costume: usize) -> f32 {
+    const TWIST: [[f32; 2]; 14] = [
+        [0.5, 0.5],
+        [1.0, 1.0],
+        [0.5, 0.5],
+        [1.0, 1.0],
+        [0.5, 0.5],
+        [1.0, 1.0],
+        [1.0, 0.5],
+        [1.0, 1.0],
+        [1.0, 1.0],
+        [1.0, 1.0],
+        [0.5, 0.5],
+        [1.0, 1.0],
+        [0.5, 0.5],
+        [1.0, 1.0],
+    ];
+    TWIST.get(character).map_or(1.0, |t| t[(costume >= 5) as usize])
+}
+
+/// A thigh's drawn local (B676b): the animated local `local` keeps its bone axis (row 0's direction) and translation,
+/// and its roll about that axis keeps share `s` of the animated one, the rest taken from the rest local `rest` carried
+/// onto the animated axis by the shortest turn. Looks only (the skin), host arithmetic.
+#[allow(clippy::float_arithmetic)]
+pub fn untwist_thigh(local: &M4, rest: &M4, s: f32) -> M4 {
+    type V = [f32; 3];
+    let v = |r: &[f32; 4]| -> V { [r[0], r[1], r[2]] };
+    let dot = |a: V, b: V| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let cross = |a: V, b: V| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    let unit = |a: V| {
+        let n = dot(a, a).sqrt();
+        if n > 0.0 { a.map(|x| x / n) } else { [0.0; 3] }
+    };
+    let a = unit(v(&rest[0]));
+    let l0 = v(&local[0]);
+    let b = unit(cross(a, l0));
+    if b == [0.0; 3] {
+        return *local;
+    }
+    let c = unit(cross(b, a));
+    let cos = dot(l0, a).clamp(-1.0, 1.0);
+    let sin = (1.0 - cos * cos).sqrt();
+    // a rest row turned about b by the angle that carries a onto row 0's direction
+    let turn = |r: V| -> V {
+        let (x, y, z) = (dot(r, a), dot(r, c), dot(r, b));
+        let (x, y) = (x * cos - y * sin, x * sin + y * cos);
+        std::array::from_fn(|k| x * a[k] + y * c[k] + z * b[k])
+    };
+    let row = |r: V| [r[0], r[1], r[2], 0.0];
+    let blend = |i: usize| {
+        let t = turn(v(&rest[i]));
+        let l = v(&local[i]);
+        row(unit(std::array::from_fn(|k| s * l[k] + (1.0 - s) * t[k])))
+    };
+    [row(turn(v(&rest[0]))), blend(1), blend(2), local[3]]
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

@@ -1,4 +1,5 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Several players' thighs now twist only part of the way with their legs, so their shorts and skirts no longer wring round in wide stances like the serve, as in the original.
 - Custom characters keep their off hand on the racket in the side-on ready stance too, holding its throat like the originals.
 - A game update downloading by itself now shows its progress at the top of the menus, like mod downloads.
 - The fountain at the park court now flows, as in the original.
