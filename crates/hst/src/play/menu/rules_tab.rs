@@ -1,4 +1,4 @@
-//! B671a (ours, the user's board D): with any Offbeat rule on, a navy tab sits on the pause panel's gold frame, left
+//! B671a (ours, the user's board D): with any Offbeat rule on, a tab in the score frame's own rim sits on it, left
 //! of its middle, saying "OFFBEAT RULES" and a chip per rule on (the Confirm strip's short names). It wraps into more
 //! rows, growing upward, and the dialog above it moves up (and, with no more room under the top bar, shrinks) so the
 //! tab never sits over it. No rules on, no tab. Drawing only: nothing here touches the match.
@@ -11,8 +11,8 @@ use super::Game;
 /// The tab's left edge: the frame's (88) and a little in. Its widest: as far in again from the frame's right (552).
 pub(super) const X: f32 = 108.0;
 const MAX_W: f32 = 552.0 - 20.0 - X;
-/// The tab's foot runs this far onto the frame's top, under its rim.
-const SINK: f32 = 3.0;
+/// The tab's foot runs this far onto the frame's top, over its outline, so the two rims meet.
+pub(super) const SINK: f32 = 2.0;
 /// The room kept between the dialog and the tab, and the lowest the top bar's rim reaches.
 const GAP: f32 = 4.0;
 const BAR_FLOOR: f32 = 58.0;
