@@ -161,6 +161,9 @@ pub struct Grip {
     pub bones: Vec<Vec3>,
     /// How much further along the costume's racket its head is than the disc rackets' (all one shape), by the tip.
     pub reach: f32,
+    /// The middle of the costume's racket handle across the joint's x and z (a mod's racket may sit off the joint's
+    /// axis, in its own palm): a clip that turns the racket in the hand (the twirl) turns it about this.
+    pub handle: Vec3,
 }
 
 /// A mod's feet against its donor's (B543, looks only). The donor's clips bind to the costume's own bone lengths
@@ -1471,6 +1474,14 @@ pub fn animate(
         }
         // a mod's off hand holds the racket's head where its donor's does (looks only)
         if let Some(grip) = &rig.data.grip {
+            // the racket turns in the hand about its own handle, not the joint's axis beside it, which swung the
+            // handle through the palm; at the joint's rest turn (every clip but the twirl) nothing moves
+            if let Some(r) = rig.data.joint("Racket").filter(|&r| r < drawn.len()) {
+                let rest = &rig.data.joints[r].rest;
+                let o = rest.scale * grip.handle;
+                let turned = drawn[r].0 * o;
+                drawn[r].1 += rest.rotation * o - turned;
+            }
             let own = |c: &Clip| rig.data.visual.values().any(|v| std::ptr::eq(v, c)) as u8 as f32;
             let mine = match over {
                 Some((other, _, w)) => own(clip) + (own(other) - own(clip)) * w,

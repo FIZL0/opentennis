@@ -14,3 +14,4 @@
 - Left-handed players' rackets are now drawn the right way round, so Carol's and Will's off hand curls over the bottom of the racket head instead of poking through the strings, as in the original.
 - Left-handed custom characters hold their racket in their hand again, instead of beside it.
 - Custom characters whose arms are short for their racket no longer have their off arm snap straight and back in the ready stance.
+- Custom characters twirl their racket about its handle, in their hand, instead of swinging it through their palm.

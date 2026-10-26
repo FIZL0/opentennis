@@ -1594,7 +1594,10 @@ pub fn load_with(
         let mut tip = |r: &[(Handle<Mesh>, Handle<StandardMaterial>)]| {
             r.iter().filter_map(|(h, _)| match meshes.get_mut(h)?.attribute(Mesh::ATTRIBUTE_POSITION)? { bevy::mesh::VertexAttributeValues::Float32x3(p) => p.iter().map(|v| v[1]).reduce(f32::max), _ => None }).fold(f32::MIN, f32::max)
         };
-        Some(character::Grip { bones, reach: tip(&racket) - tip(&disc) })
+        let reach = tip(&racket) - tip(&disc);
+        // the handle: the racket below the disc rackets' throat
+        let handle = racket.iter().filter_map(|(h, _)| match meshes.get_mut(h)?.attribute(Mesh::ATTRIBUTE_POSITION)? { bevy::mesh::VertexAttributeValues::Float32x3(p) => Some(p.iter().filter(|v| v[1] < 0.15).map(|&v| Vec3::from(v) * Vec3::new(1.0, 0.0, 1.0)).collect::<Vec<_>>()), _ => None }).flatten().fold(None, |b: Option<(Vec3, Vec3)>, v| Some(b.map_or((v, v), |(lo, hi)| (lo.min(v), hi.max(v)))));
+        Some(character::Grip { bones, reach, handle: handle.map_or(Vec3::ZERO, |(lo, hi)| (lo + hi) / 2.0) })
     };
     let binds = crate::character::part_skins(&joints, &parts, meshes, bindposes);
     let emote_ticks = emote_ticks(m, &crate::mods_online::EMOTES)?.into_iter().filter(|(id, _)| visual.contains_key(id)).collect();
