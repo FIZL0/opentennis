@@ -37,6 +37,7 @@ index out of bounds: the len is 0 but the index is 0"
 ### Match
 
 ### Presentation
+- [ ] **B672** Crowd/NPC emotes don't match the original (user 2026-10-26): every spectator claps after each point, but in the original some jump or do excited moves. Find how the game picks each NPC's reaction (which figures, which motion, what triggers it: point type, winner, score situation, random pick) and match it: spec first (clean-room), then port in `crates/hst-sim/src/npc.rs` and the court-life drawing in hst-play; check side by side against `tools/screenshot.sh` captures. Keep sim RNG and match timing untouched unless the original draws from them. Files: crates/hst-sim/src/npc.rs, crates/hst-play/src/play.rs
 
 
 ### Confirmations
