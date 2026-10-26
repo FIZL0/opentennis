@@ -22,3 +22,4 @@
 - Sound comes back by itself when the audio output goes away and returns (the sound server restarting, waking from sleep, a Bluetooth headset switched off and on), instead of staying silent until the game is restarted.
 - Custom characters can now say the voice line that goes with each celebration animation.
 - The bounce ring when the ball hits a player before it lands now stands up facing the ball instead of lying flat in mid-air.
+- Custom characters' swinging hair, ponytails and earrings now move the way they do in their own game: they keep their shape, swing out on a quick move and no longer sag or bob in place.
