@@ -3,3 +3,4 @@
 - The fountain at the park court now flows, as in the original.
 - Turning Key Hints off now also hides the "Change camera" hint at the start of a match.
 - Texture packs now reach the loading screen (its hints, court picture and title card) and the "Start the Match!" banner, which kept the disc's art before.
+- The pause screen's score panel now shows each player's name in place of the 1P/COM tag, and each character's name under their face.
