@@ -1,4 +1,4 @@
-//! B676: the drawn pose against the game's posed nodes. `research/b676_nodes.py` dumps every player's node array
+//! B676: the drawn pose against the game's posed nodes. The journal's `scripts/b676_nodes.py` dumps every player's node array
 //! (sampled local rotation and position, world matrix) beside its motion player each frame; the fixtures are the
 //! slot-4 (Carol, right-handed, character 4, 3, 11) and slot-5 (characters 0, 2, 1, 5) matches, 300 samples each.
 
