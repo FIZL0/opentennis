@@ -34,6 +34,9 @@ names or jargon. Internal work (tests, tooling, refactors, research) gets nothin
 ## Mod versions
 Any change to a published mod (rebuilt model, motions, faces, textures, manifest fix) bumps its `mod.json` `version`
 before it is re-uploaded, so the mod store sees an update and installed copies refresh.
+`../opentennis-mods/out/mods` is the user's live mods folder, and a mods worktree that links `out/` to main's
+writes straight into it: merge main into your branch before running a packager there (`package.py`, `texpack.py`,
+court exports refuse otherwise, `tools/fresh.py`), or a stale branch rebuilds the mods without main's newer work.
 
 ## Research setup
 `research/README.md` rebuilds `context/` and `fixtures/` from the disc (extract, overlay ELFs, Ghidra project,
