@@ -172,7 +172,7 @@ fn step(
     let alt = &mut *alt;
     let press = std::mem::take(&mut alt.press);
     if g.is_added() {
-        alt.on = saved(args.as_deref()).unwrap_or_else(touch);
+        alt.on = concept::forced() || saved(args.as_deref()).unwrap_or_else(touch);
     }
     let Some(humans) = team(&g, &pads, np.is_some()) else { return };
     let i = humans[0];
@@ -218,6 +218,7 @@ fn step(
         }
         let spots: Vec<_> = humans.iter().map(|&h| g.players[h].pos).collect();
         let to = alt.follow.as_mut().expect("made").2.aim_team(&spots, near, alt.held, play, 1.0);
+        let to = concept::frame(to, &spots);
         // the change of ends glides from behind the new end into the shot, as the normal camera's move does
         Some(match g.phase {
             Phase::ChangeEnds(n) => {
@@ -279,6 +280,105 @@ fn step(
             commands.insert_resource(o);
         }
         None => {}
+    }
+}
+
+/// B669 (concept): framing options for the doubles zoom, picked with `HST_ALT_FRAME` (which also turns the camera
+/// on): `base` as main, `pin` tilts up until the nearest human's feet sit at the bottom, `dolly` moves in until they
+/// do and widens the lens to keep everyone across, `crane` lifts the eye with the distance and pitches down onto them.
+/// Presentation only, plain f32; game space is y down.
+mod concept {
+    use bevy::math::Vec3;
+    use hst_sim::camera::{ASPECT, View};
+
+    /// Where the nearest feet go: this share of the half-height below the middle.
+    const BOTTOM: f32 = 0.85;
+    /// The share of the half-width the humans may reach out to, their half-width, and the widest half-angle.
+    const FILL: f32 = 0.9;
+    const BODY: f32 = 0.4;
+    const WIDEST: f32 = 0.6;
+    /// The crane: eye lift per metre of ground distance to the nearest human beyond `NEAR`.
+    const LIFT: f32 = 0.35;
+    const NEAR: f32 = 6.0;
+
+    fn mode() -> Option<String> {
+        std::env::var("HST_ALT_FRAME").ok()
+    }
+
+    pub(super) fn forced() -> bool {
+        mode().is_some()
+    }
+
+    pub(super) fn frame(v: View, spots: &[[f32; 3]]) -> View {
+        match mode().as_deref() {
+            Some("pin") => pin(v, spots, true),
+            Some("dolly") => dolly(v, spots),
+            Some("crane") => crane(v, spots),
+            _ => v,
+        }
+    }
+
+    /// The feet lowest in the picture, as the angle below the view's axis.
+    fn lowest(v: &View, spots: &[[f32; 3]]) -> f32 {
+        spots.iter().map(|&p| v.local(p)).filter(|l| l[2] > 0.1).map(|l| l[1].atan2(l[2])).fold(f32::MIN, f32::max)
+    }
+
+    fn target(v: &View) -> f32 {
+        (BOTTOM * v.fov.tan() * ASPECT).atan()
+    }
+
+    /// Pitches the view down by `t` (radians) about its right axis.
+    fn tilt(v: &mut View, t: f32) {
+        let (d, f) = (Vec3::from(v.rot[1]), Vec3::from(v.rot[2]));
+        let (s, c) = t.sin_cos();
+        v.rot[1] = (d * c - f * s).into();
+        v.rot[2] = (f * c + d * s).into();
+    }
+
+    /// Tilts so the nearest feet land at the bottom (`up_only`: never pitches down).
+    fn pin(mut v: View, spots: &[[f32; 3]], up_only: bool) -> View {
+        let a = lowest(&v, spots);
+        if a == f32::MIN {
+            return v;
+        }
+        let t = a - target(&v);
+        tilt(&mut v, if up_only { t.min(0.0) } else { t });
+        v
+    }
+
+    /// Moves in along the ground until the nearest feet reach the bottom, then widens to keep everyone across.
+    fn dolly(mut v: View, spots: &[[f32; 3]]) -> View {
+        let f = Vec3::from(v.rot[2]);
+        let flat = Vec3::new(f.x, 0.0, f.z).normalize_or_zero();
+        let pitch = f.y.asin();
+        let eye = Vec3::from(v.eye);
+        let (mut gap, mut h) = (f32::MAX, -eye.y);
+        for &p in spots {
+            let d = (Vec3::from(p) - eye).dot(flat);
+            if d < gap {
+                (gap, h) = (d, p[1] - eye.y);
+            }
+        }
+        let want = h / (pitch + target(&v)).tan();
+        if gap > want && want > 0.0 {
+            v.eye = (eye + flat * (gap - want)).into();
+            let need = spots
+                .iter()
+                .map(|&p| v.local([p[0], p[1] - 1.0, p[2]]))
+                .filter(|l| l[2] > 0.1)
+                .map(|l| ((l[0].abs() + BODY) / (l[2] * FILL)).atan())
+                .fold(v.fov, f32::max);
+            v.fov = need.min(WIDEST);
+        }
+        v
+    }
+
+    /// Lifts the eye by how far it stands back, then pitches onto the nearest feet.
+    fn crane(mut v: View, spots: &[[f32; 3]]) -> View {
+        let eye = Vec3::from(v.eye);
+        let gap = spots.iter().map(|&p| Vec3::new(p[0] - eye.x, 0.0, p[2] - eye.z).length()).fold(f32::MAX, f32::min);
+        v.eye[1] -= LIFT * (gap - NEAR).max(0.0);
+        pin(v, spots, false)
     }
 }
 
