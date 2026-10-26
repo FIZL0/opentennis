@@ -214,10 +214,13 @@ fn step(
     let placed = g.phase == Phase::Serve && !std::mem::replace(&mut alt.serving, g.phase == Phase::Serve);
     let p = &g.players[i];
     let (spot, near, ball) = ([p.pos[0], p.pos[1], p.pos[2]], p.end > 0.0, g.flight.ball.pos);
-    if matches!(g.phase, Phase::Serve | Phase::Rally) {
+    // B669: the change of ends' move already aims at the next point (the ball in the server's hand, nothing struck),
+    // so the serve carries on from it without a jump
+    if matches!(g.phase, Phase::Serve | Phase::Rally) || changing_ends {
         alt.held = ball;
     }
-    let play = alt_cam::Play::new(g.shots.max(0) as u32, (g.phase == Phase::Rally).then_some(alt.rally));
+    let shots = if changing_ends { 0 } else { g.shots.max(0) as u32 };
+    let play = alt_cam::Play::new(shots, (g.phase == Phase::Rally).then_some(alt.rally));
     // this tick's target: the shot behind the human, the reset match camera, else none (the shared camera shows)
     // B621: a post-point cut-away shows on the shared camera as with the normal one; the next point cuts back to a
     // fresh shot behind the human
@@ -453,6 +456,44 @@ mod tests {
         let alt = a.world().resource::<AltCamera>();
         assert!(!alt.on && alt.follow.is_none());
         assert!(a.world().get_resource::<own_camera::OwnCam>().is_some_and(|o| !o.is_passive()), "the own camera went");
+    }
+
+    /// B669: with the doubles zoom on, the picture doesn't jump when the change of ends' move hands over to the serve
+    /// (skipped without the ISO).
+    #[test]
+    fn the_doubles_zoom_carries_on_after_the_change_of_ends() {
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        // all bots (idle humans never serve); the camera, stepped after each tick, follows the 1P/2P team
+        let seats = [true, true, false, false];
+        let mut a = app_with(false, false, seats);
+        a.init_resource::<AltCamera>();
+        // the match's first step reads the saved choice: turn it on after
+        a.world_mut().run_system_cached(super::step).unwrap();
+        a.world_mut().resource_mut::<AltCamera>().on = true;
+        let pads = |autoplay| Pads { slots: default(), connected: 0, seats: Some(seats), autoplay };
+        let (mut last, mut was) = (None::<[f32; 3]>, false);
+        for _ in 0..60 * 600 {
+            a.insert_resource(pads(true));
+            a.world_mut().run_schedule(FixedUpdate);
+            a.insert_resource(pads(false));
+            a.world_mut().run_system_cached(super::step).unwrap();
+            let w = a.world();
+            let (g, own) = (w.resource::<Game>(), w.get_resource::<own_camera::OwnCam>());
+            let (_, now) = own_camera::shown(g, own);
+            let changing = matches!(g.phase, Phase::ChangeEnds(_));
+            if changing {
+                assert!(w.resource::<AltCamera>().on, "the camera went off");
+            }
+            if was && !changing {
+                let jump = Vec3::from(now.eye).distance(Vec3::from(last.expect("shown")));
+                assert!(jump < 0.2, "the eye jumps {jump} m after the change of ends");
+                return;
+            }
+            (last, was) = (Some(now.eye), changing);
+        }
+        panic!("no change of ends");
     }
 
     /// B622: Select does nothing while the players can't move (the point over, the change of ends, a replay), and
