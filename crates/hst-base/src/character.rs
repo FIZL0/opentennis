@@ -159,11 +159,29 @@ pub struct CharacterData {
 pub struct Grip {
     /// Per joint of the costume, the donor's rest translation of that name (the costume's own where it has none).
     pub bones: Vec<Vec3>,
-    /// How much further along the costume's racket its head is than the disc rackets' (all one shape), by the tip.
-    pub reach: f32,
+    /// The bottom of the head's rim and the tip along the Racket joint's y: the disc rackets' (all one shape), then
+    /// the costume's. A donor's hand on the disc racket goes to the same place on this one: the throat stretched to
+    /// its rim, the head to its tip (a long-headed racket's rim sits far lower).
+    pub rim: [f32; 2],
+    pub tip: [f32; 2],
     /// The middle of the costume's racket handle across the joint's x and z (a mod's racket may sit off the joint's
     /// axis, in its own palm): a clip that turns the racket in the hand (the twirl) turns it about this.
     pub handle: Vec3,
+}
+
+impl Grip {
+    /// Where a donor's hand at `at` on the disc racket goes on this one (in the Racket joint's frame).
+    fn on_racket(&self, at: Vec3) -> Vec3 {
+        let ([r0, r1], [t0, t1]) = (self.rim, self.tip);
+        let y = if at.y <= THROAT.y {
+            at.y
+        } else if at.y <= r0 {
+            THROAT.y + (at.y - THROAT.y) * (r1 - THROAT.y) / (r0 - THROAT.y)
+        } else {
+            r1 + (at.y - r0) * (t1 - r1) / (t0 - r0)
+        };
+        Vec3::new(at.x, y, at.z) + self.handle
+    }
 }
 
 /// A mod's feet against its donor's (B543, looks only). The donor's clips bind to the costume's own bone lengths
@@ -1825,7 +1843,7 @@ fn hold_head(d: &CharacterData, grip: &Grip, drawn: &mut [(Quat, Vec3)], weight:
     let mine = |i: usize| drawn[i].1;
     let world = |j: usize| down(&up(j), None, &mine);
     let (wu, we, wh, wr) = (world(u), world(e), world(h), world(r));
-    let target = wh.translation.lerp(wr.transform_point(at + Vec3::Y * grip.reach), w);
+    let target = wh.translation.lerp(wr.transform_point(grip.on_racket(at)), w);
     let turn = wh.rotation.slerp(wr.rotation * turn, w);
     // bend the elbow to the reach, then swing the shoulder onto the target
     let (pu, pe, ph) = (wu.translation, we.translation, wh.translation);

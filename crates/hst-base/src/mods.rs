@@ -1389,6 +1389,22 @@ fn motion_of(name: &str) -> Result<(usize, Option<u32>), String> {
     Ok((id, take))
 }
 
+/// A racket's shape along its joint's y: the middle of its handle across x and z, the bottom of its head's rim and
+/// its tip. The head is widest across its middle; the rim's bottom is as far below that as the tip is above.
+fn racket_shape(meshes: &mut impl Store<Mesh>, r: &[(Handle<Mesh>, Handle<StandardMaterial>)]) -> (Vec3, f32, f32) {
+    let v: Vec<Vec3> = r.iter().filter_map(|(h, _)| match meshes.get_mut(h)?.attribute(Mesh::ATTRIBUTE_POSITION)? {
+        bevy::mesh::VertexAttributeValues::Float32x3(p) => Some(p.iter().map(|&v| Vec3::from(v)).collect::<Vec<_>>()),
+        _ => None,
+    }).flatten().collect();
+    let handle: Vec<Vec3> = v.iter().filter(|v| v.y < 0.15).copied().collect();
+    let handle = if handle.is_empty() { Vec3::ZERO } else { (handle.iter().copied().reduce(Vec3::min).unwrap() + handle.iter().copied().reduce(Vec3::max).unwrap()) * Vec3::new(0.5, 0.0, 0.5) };
+    let wide = v.iter().map(|v| (v.x - handle.x).abs()).fold(0.0, f32::max);
+    let rows: Vec<f32> = v.iter().filter(|v| (v.x - handle.x).abs() >= 0.95 * wide).map(|v| v.y).collect();
+    let tip = v.iter().map(|v| v.y).fold(f32::MIN, f32::max);
+    let middle = rows.iter().sum::<f32>() / rows.len().max(1) as f32;
+    (handle, 2.0 * middle - tip, tip)
+}
+
 /// Loads costume `costume` of mod `m` (motions, faces and arm table from the donor on the disc).
 pub fn load(
     iso: &mut Iso,
@@ -1584,20 +1600,30 @@ pub fn load_with(
         None => character::disc_motions_counted(iso, m.donor, &skeleton, |_| None, |_| false, Some(&[0]))?.motions.remove(&0),
     };
     let feet = level_feet(&mut joints, &sides, &soles, &character::disc_body(iso, m.donor)?, stand.as_ref());
-    // the off hand on the racket (`character::Grip`): the donor's bones, and how much longer this racket is than
-    // the disc ones (the donor's measures them; dropping its handles frees it)
+    // the off hand on the racket (`character::Grip`): the donor's bones, and this racket's handle, head and tip
+    // against the disc ones' (the donor's measures them; dropping its handles frees it)
     let grip = {
         let body = character::disc_body(iso, m.donor)?;
-        let bones = joints.iter().map(|j| body.node_names.iter().position(|x| *x == j.name).map_or(j.rest.translation, |i| Mat4::from_cols_array_2d(&body.node_local[i]).to_scale_rotation_translation().2)).collect();
+        let bones: Vec<Vec3> = joints.iter().map(|j| body.node_names.iter().position(|x| *x == j.name).map_or(j.rest.translation, |i| Mat4::from_cols_array_2d(&body.node_local[i]).to_scale_rotation_translation().2)).collect();
+        // a disc racket grips where the donor's does in a hand this size: rerig sizes the Racket joint with the body,
+        // which put the grip past the fingers of a big body's smaller hand (racket.glb is placed on the hand itself)
+        let at = |n: &str| joints.iter().position(|j| j.name == n);
+        if !crate::modfs::is_file(&m.dir.join("racket.glb"))
+            && let (Some(r), Some(f)) = (at("Racket"), at("Bip01RFinger1"))
+        {
+            let rest = &joints[r].rest;
+            let shift = rest.rotation.inverse() * (bones[r] * (joints[f].rest.translation.length() / bones[f].length()) - rest.translation) / rest.scale;
+            for (h, _) in &racket {
+                if let Some(bevy::mesh::VertexAttributeValues::Float32x3(p)) = meshes.get_mut(h).and_then(|m| m.attribute_mut(Mesh::ATTRIBUTE_POSITION)) {
+                    p.iter_mut().for_each(|v| *v = (Vec3::from(*v) + shift).into());
+                }
+            }
+        }
         let data = iso.read(&format!("PC/PC{:02}C00.XB", m.donor)).map_err(|e| e.to_string())?;
         let disc = character::disc_racket(&Archive::parse(&data).map_err(|e| e.0)?, m.donor, meshes, materials, images, &mut gs.clone())?;
-        let mut tip = |r: &[(Handle<Mesh>, Handle<StandardMaterial>)]| {
-            r.iter().filter_map(|(h, _)| match meshes.get_mut(h)?.attribute(Mesh::ATTRIBUTE_POSITION)? { bevy::mesh::VertexAttributeValues::Float32x3(p) => p.iter().map(|v| v[1]).reduce(f32::max), _ => None }).fold(f32::MIN, f32::max)
-        };
-        let reach = tip(&racket) - tip(&disc);
-        // the handle: the racket below the disc rackets' throat
-        let handle = racket.iter().filter_map(|(h, _)| match meshes.get_mut(h)?.attribute(Mesh::ATTRIBUTE_POSITION)? { bevy::mesh::VertexAttributeValues::Float32x3(p) => Some(p.iter().filter(|v| v[1] < 0.15).map(|&v| Vec3::from(v) * Vec3::new(1.0, 0.0, 1.0)).collect::<Vec<_>>()), _ => None }).flatten().fold(None, |b: Option<(Vec3, Vec3)>, v| Some(b.map_or((v, v), |(lo, hi)| (lo.min(v), hi.max(v)))));
-        Some(character::Grip { bones, reach, handle: handle.map_or(Vec3::ZERO, |(lo, hi)| (lo + hi) / 2.0) })
+        let (handle, rim, tip) = racket_shape(meshes, &racket);
+        let (_, disc_rim, disc_tip) = racket_shape(meshes, &disc);
+        Some(character::Grip { bones, handle, rim: [disc_rim, rim], tip: [disc_tip, tip] })
     };
     let binds = crate::character::part_skins(&joints, &parts, meshes, bindposes);
     let emote_ticks = emote_ticks(m, &crate::mods_online::EMOTES)?.into_iter().filter(|(id, _)| visual.contains_key(id)).collect();
@@ -1869,6 +1895,19 @@ mod tests {
         let m = read(&test_mod(id))?;
         let c = load(iso, &m, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3)?;
         Ok((m, c))
+    }
+
+    /// The disc rackets measure as they are: the handle on the joint's axis, the head widest 0.72 up it (its rim
+    /// from 0.5 to the tip at 0.944).
+    #[test]
+    fn disc_racket_shape() {
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let mut s = Stores(default(), default(), default(), default());
+        let data = iso.read("PC/PC06C00.XB").unwrap();
+        let arc = Archive::parse(&data).unwrap();
+        let r = character::disc_racket(&arc, 6, &mut s.0, &mut s.1, &mut s.2, &mut Default::default()).unwrap();
+        let (handle, rim, tip) = racket_shape(&mut s.0, &r);
+        assert!(handle.length() < 0.01 && (rim - 0.5).abs() < 0.03 && (tip - 0.944).abs() < 0.01, "{handle} {rim} {tip}");
     }
 
     /// Model-space joint positions of `c` playing motion `id` at time `t`, by joint name.
@@ -2545,8 +2584,19 @@ mod tests {
         }
         let mut s = Stores(default(), default(), default(), default());
         let (m, c) = load_mod(&mut iso, &mut s, "getagrip_pc12_suzuki").unwrap();
-        // every disc racket has the same vertex counts: compare where the vertices are
-        let verts = |s: &Stores, r: &[(Handle<Mesh>, Handle<StandardMaterial>)]| format!("{:?}", r.iter().map(|p| s.0.get(&p.0).unwrap().attribute(Mesh::ATTRIBUTE_POSITION)).collect::<Vec<_>>());
+        // every disc racket has the same vertex counts; the grip moves the whole racket to the hand's size, so the
+        // same racket is one offset from the original at every vertex
+        let verts = |s: &Stores, r: &[(Handle<Mesh>, Handle<StandardMaterial>)]| -> Vec<Vec3> {
+            r.iter().flat_map(|p| match s.0.get(&p.0).unwrap().attribute(Mesh::ATTRIBUTE_POSITION) {
+                Some(bevy::mesh::VertexAttributeValues::Float32x3(v)) => v.iter().map(|&v| Vec3::from(v)).collect(),
+                _ => Vec::new(),
+            }).collect()
+        };
+        let same = |a: Vec<Vec3>, b: Vec<Vec3>| a.len() == b.len() && a.iter().zip(&b).all(|(x, y)| (*x - *y - (a[0] - b[0])).length() < 1e-4);
+        // and its own textures
+        let tex = |s: &Stores, r: &[(Handle<Mesh>, Handle<StandardMaterial>)]| -> Vec<Option<Vec<u8>>> {
+            r.iter().map(|p| s.1.get(&p.1).and_then(|m| m.base_color_texture.as_ref()).and_then(|t| s.2.get(t)).and_then(|i| i.data.clone())).collect()
+        };
         let mut gs = HashMap::new();
         let disc = |iso: &mut Iso, s: &mut Stores, gs: &mut _, n: usize| {
             let data = iso.read(&format!("PC/PC{n:02}C00.XB")).unwrap();
@@ -2554,8 +2604,8 @@ mod tests {
         };
         let (own, donor) = (disc(&mut iso, &mut s, &mut gs, 13), disc(&mut iso, &mut s, &mut gs, m.donor));
         assert_ne!(m.donor, 13);
-        assert_eq!(verts(&s, &c.racket), verts(&s, &own));
-        assert_ne!(verts(&s, &c.racket), verts(&s, &donor));
+        assert!(same(verts(&s, &c.racket), verts(&s, &own)) && tex(&s, &c.racket) == tex(&s, &own));
+        assert_ne!(tex(&s, &c.racket), tex(&s, &donor));
     }
 
     /// Seeded mutations of a real mod's costume and motions `.glb` (numbers in its glTF JSON, bytes in its binary

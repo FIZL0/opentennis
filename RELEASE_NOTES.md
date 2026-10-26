@@ -15,3 +15,4 @@
 - Left-handed custom characters hold their racket in their hand again, instead of beside it.
 - Custom characters whose arms are short for their racket no longer have their off arm snap straight and back in the ready stance.
 - Custom characters twirl their racket about its handle, in their hand, instead of swinging it through their palm.
+- Custom characters without a racket of their own grip the handle in their fist, and those with long-headed rackets rest their free hand on the rim instead of through the strings.
