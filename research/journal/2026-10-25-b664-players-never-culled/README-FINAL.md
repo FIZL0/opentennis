@@ -54,3 +54,6 @@ and M147/M148 are parked on the same failure. Once B663 lands: unblock B664 and 
 B663 landed and `oob_hair_swings_and_settles` passes. The fix was already merged into main, but its second cull test
 raced `off_unculls_till_it_goes` on the shared `ON` static: they ran in parallel and the B583 test failed now and
 then. The two tests now take one lock.
+The fix and its test landed with the earlier commit (`tools/check.sh -p hst-base cull`: 2 passed). The full suite
+was first blocked by an unrelated mod hair test under B663's mod rebuild; B663 has landed and the cull tests are
+serialized, so this round reruns `tools/done.sh` to close the task.
