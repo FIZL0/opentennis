@@ -519,8 +519,8 @@ impl Face {
         }
     }
 
-    /// Whether any of `targets` changes by a third or more through the face (a mouth that talks or changes
-    /// expression, not one held still).
+    /// Whether any of `targets` changes by a third or more through the face (a mouth that moves, not one held
+    /// still).
     pub fn moves(&self, targets: &[usize]) -> bool {
         self.tracks.iter().filter(|t| targets.contains(&t.0)).any(|(_, _, v)| {
             let (lo, hi) = v.iter().fold((f32::MAX, f32::MIN), |(lo, hi), x| (lo.min(x[0]), hi.max(x[0])));
@@ -648,9 +648,9 @@ pub struct Rig {
 }
 
 /// A voice line a mod character is speaking (looks only): per frame from `start` (seconds of virtual time), the
-/// vowel target its mouth makes and how far open. The face's other mouth targets give way as it opens; the eyes
-/// and, once the line has no shapes left, the mouth are the clip's again. A clip whose own face moves the mouth
-/// keeps it all through ([`Face::moves`]). `id` is the line's play.
+/// vowel target its mouth makes and how far open. While it speaks the mouth is the line's alone (the clip's own
+/// mouth shapes would fight it), but for a take animated to its own line, which keeps its mouth; the eyes and, once
+/// the line has no shapes left, the mouth are the clip's again. `id` is the line's play.
 #[derive(Component, Clone)]
 pub struct Talk {
     pub id: u64,
@@ -1959,8 +1959,9 @@ impl Posing {
             Some(f) => (Some(f), motion.drawn.sampled),
             None => (rig.data.faces.get(&motion.face), motion.face_clock.sampled),
         };
-        // a clip whose own face already moves the mouth (the source game's lip-sync for its line) keeps its mouth
-        let shape = talk.filter(|t| !own.is_some_and(|f| f.moves(&t.mouths))).and_then(|t| Some((t, t.at(now)?)));
+        // a take keyed to its own line (`drawn_voice`) whose face moves the mouth was animated to it: its mouth stays
+        let synced = own.is_some_and(|f| talk.is_some_and(|t| f.moves(&t.mouths))) && rig.data.drawn_voice(motion.id, motion.sets).is_some();
+        let shape = talk.filter(|_| !synced).and_then(|t| Some((t, t.at(now)?)));
         let key = (
             Arc::as_ptr(&rig.data) as usize ^ own.map_or(motion.face, |f| f as *const Face as usize),
             t.to_bits(),
@@ -1978,11 +1979,11 @@ impl Posing {
         if let Some((talk, (vowel, open))) = shape {
             for &m in talk.mouths.iter() {
                 if let Some(x) = w.get_mut(m) {
-                    *x *= 1.0 - open;
+                    *x = 0.0;
                 }
             }
             if let Some(x) = w.get_mut(vowel) {
-                *x = (*x + open).min(1.0);
+                *x = open;
             }
         }
     }
