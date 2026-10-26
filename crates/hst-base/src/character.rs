@@ -1490,23 +1490,6 @@ pub fn animate(
             };
             feet.unturn(&rig.data.joints, &mut drawn, u);
         }
-        // a mod's off hand holds the racket's head where its donor's does (looks only)
-        if let Some(grip) = &rig.data.grip {
-            // the racket turns in the hand about its own handle, not the joint's axis beside it, which swung the
-            // handle through the palm; at the joint's rest turn (every clip but the twirl) nothing moves
-            if let Some(r) = rig.data.joint("Racket").filter(|&r| r < drawn.len()) {
-                let rest = &rig.data.joints[r].rest;
-                let o = rest.scale * grip.handle;
-                let turned = drawn[r].0 * o;
-                drawn[r].1 += rest.rotation * o - turned;
-            }
-            let own = |c: &Clip| rig.data.visual.values().any(|v| std::ptr::eq(v, c)) as u8 as f32;
-            let mine = match over {
-                Some((other, _, w)) => own(clip) + (own(other) - own(clip)) * w,
-                None => own(clip),
-            };
-            hold_head(&rig.data, grip, &mut drawn, 1.0 - mine);
-        }
         // the serve's follow-through turns into the ready stance (standing, bobbing from its start) as the racket comes
         // round, instead of holding it behind the back until the next motion flips it to the front (looks only)
         if over.is_none()
@@ -1524,6 +1507,25 @@ pub fn animate(
                     *d = (d.0.slerp(q, w), d.1.lerp(v, w));
                 }
             }
+        }
+        // a mod's off hand holds the racket's head where its donor's does (looks only), after the serve has turned into
+        // the stance, which it holds too: before, the stance came in with the off arm as animated and snapped onto
+        // the racket when the stance's own clip took over
+        if let Some(grip) = &rig.data.grip {
+            // the racket turns in the hand about its own handle, not the joint's axis beside it, which swung the
+            // handle through the palm; at the joint's rest turn (every clip but the twirl) nothing moves
+            if let Some(r) = rig.data.joint("Racket").filter(|&r| r < drawn.len()) {
+                let rest = &rig.data.joints[r].rest;
+                let o = rest.scale * grip.handle;
+                let turned = drawn[r].0 * o;
+                drawn[r].1 += rest.rotation * o - turned;
+            }
+            let own = |c: &Clip| rig.data.visual.values().any(|v| std::ptr::eq(v, c)) as u8 as f32;
+            let mine = match over {
+                Some((other, _, w)) => own(clip) + (own(other) - own(clip)) * w,
+                None => own(clip),
+            };
+            hold_head(&rig.data, grip, &mut drawn, 1.0 - mine, &mut c.held, time.delta_secs() * 60.0 / GRIP_EASE);
         }
         if !c.from.is_empty() {
             let w = (((time.elapsed_secs_f64() - c.eased) * 60.0) as f32 + time.overstep_fraction()) / c.ease;
@@ -1603,12 +1605,19 @@ pub struct Posing {
     /// When the fixed clock last saw a new set, and the standing pose a serve's follow-through turns into.
     set_at: f64,
     ready: Vec<(Quat, Vec3)>,
+    /// How far [`hold_head`] has the off hand on the racket, eased towards where it wants it.
+    held: f32,
 }
 
 /// Frames a mod's own clip takes to ease in from the pose before it, and the clip after it out of it, where the game
 /// cuts straight between them.
 // ponytail: picked by eye, not the source game's blend
 const EASE_IN: f32 = 10.0;
+
+/// Frames the off hand takes to go onto the racket or off it ([`hold_head`]), where a clip changes or the donor's
+/// hand leaves the head in a frame or two: at once, the arm jumped up to 90° in a frame.
+// ponytail: picked by eye
+const GRIP_EASE: f32 = 6.0;
 
 /// Frames the serve's end pose takes to ease into standing or running (see `animate`).
 // ponytail: picked by eye; the original has only its 8-frame crossfade
@@ -1813,8 +1822,8 @@ fn off_racket(at: Vec3) -> f32 {
 
 /// [`Grip`]: bends the off arm (two bones) of `drawn` so the hand is where the donor's would be on the racket, by
 /// `weight` (0 leaves it, 1 all the way) and fully only while the donor's hand is within 0.2 of the racket above its
-/// handle ([`off_racket`]: on the head or the throat), fading out by 0.3.
-fn hold_head(d: &CharacterData, grip: &Grip, drawn: &mut [(Quat, Vec3)], weight: f32) {
+/// handle ([`off_racket`]: on the head or the throat), fading out by 0.3; `on` follows that by at most `step`.
+fn hold_head(d: &CharacterData, grip: &Grip, drawn: &mut [(Quat, Vec3)], weight: f32, on: &mut f32, step: f32) {
     let (Some(u), Some(e), Some(h), Some(r)) = (d.joint("Bip01LUpperArm"), d.joint("Bip01LForearm"), d.joint("Bip01LHand"), d.joint("Racket")) else { return };
     if h >= drawn.len() || r >= drawn.len() {
         return;
@@ -1836,7 +1845,8 @@ fn hold_head(d: &CharacterData, grip: &Grip, drawn: &mut [(Quat, Vec3)], weight:
     let theirs = |i: usize| grip.bones[i];
     let held = down(&racket, top, &theirs).compute_affine().inverse() * down(&hand, top, &theirs).compute_affine();
     let (_, turn, at) = held.to_scale_rotation_translation();
-    let w = weight * ((0.30 - off_racket(at)) / 0.10).clamp(0.0, 1.0);
+    *on += (weight * ((0.30 - off_racket(at)) / 0.10).clamp(0.0, 1.0) - *on).clamp(-step, step);
+    let w = *on;
     if w <= 0.0 {
         return;
     }
