@@ -41,8 +41,34 @@ fn added(mut world: bevy::ecs::world::DeferredWorld, ctx: bevy::ecs::lifecycle::
 #[derive(Resource)]
 pub struct Off;
 
+/// B664: a rig whose meshes are never culled, whatever the setting (the players): every `Cullable` under it, the
+/// parts spawned with it and those added later (second GS draws, worn handicap pieces, the racket), is drawn wherever
+/// it is. A player's face is morphed; culled out of one shot (the close-up cuts of a celebration), its head layers
+/// and glasses could go missing or see-through on the frame they came back, with any mod's look.
+#[derive(Component)]
+pub struct Never;
+
+/// Hand every `Cullable` under a [`Never`] rig over to being drawn always: no longer `Cullable` (so `apply` leaves
+/// it), no joint-following box, `NoFrustumCulling`.
+fn never(
+    mut commands: Commands,
+    rigs: Query<Entity, Added<Never>>,
+    added: Query<Entity, Added<Cullable>>,
+    cullable: Query<(), With<Cullable>>,
+    children: Query<&Children>,
+    up: Query<&ChildOf>,
+    kept: Query<(), With<Never>>,
+) {
+    let under_never = |e: Entity| up.iter_ancestors(e).any(|a| kept.contains(a));
+    let parts = rigs.iter().flat_map(|r| children.iter_descendants(r)).filter(|&e| cullable.contains(e));
+    let late = added.iter().filter(|&e| under_never(e));
+    for e in parts.chain(late).collect::<Vec<_>>() {
+        commands.entity(e).try_remove::<(Cullable, DynamicSkinnedMeshBounds, NoAutoAabb)>().try_insert(NoFrustumCulling);
+    }
+}
+
 pub fn plugin(app: &mut App) {
-    app.add_systems(PostUpdate, (apply, unbounded).chain().before(bevy::camera::visibility::VisibilitySystems::CalculateBounds));
+    app.add_systems(PostUpdate, (never, apply, unbounded).chain().before(bevy::camera::visibility::VisibilitySystems::CalculateBounds));
     if checking() {
         app.add_systems(PostUpdate, check.after(bevy::camera::visibility::VisibilitySystems::CheckVisibility));
     }
@@ -232,5 +258,35 @@ mod tests {
         app.world_mut().remove_resource::<Off>();
         app.update();
         assert!([before, during].iter().all(|&e| !app.world().entity(e).contains::<NoFrustumCulling>()));
+    }
+
+    /// B664: a `Never` rig's skinned parts, those spawned with it and one added later, are drawn unculled with the
+    /// setting on and stay so through `Off` coming and going; another rig's stay culled.
+    #[test]
+    fn a_never_rig_is_never_culled() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>().insert_resource(crate::graphics::Graphics { cull: true, ..default() }).add_systems(Update, (never, apply).chain());
+        set(true);
+        let mesh = Mesh3d(app.world_mut().resource_mut::<Assets<Mesh>>().add(Cuboid::default()));
+        let skin = SkinnedMesh::default();
+        let player = app.world_mut().spawn(Never).id();
+        let joint = app.world_mut().spawn(ChildOf(player)).id();
+        let part = app.world_mut().spawn((mesh.clone(), skin.clone(), Cullable, ChildOf(player))).id();
+        let other = app.world_mut().spawn_empty().id();
+        let culled = app.world_mut().spawn((mesh.clone(), skin.clone(), Cullable, ChildOf(other))).id();
+        app.update();
+        let late = app.world_mut().spawn((mesh, skin, Cullable, ChildOf(joint))).id();
+        app.update();
+        let drawn = |app: &App, e: Entity| {
+            let e = app.world().entity(e);
+            e.contains::<NoFrustumCulling>() && !e.contains::<DynamicSkinnedMeshBounds>() && !e.contains::<Cullable>()
+        };
+        assert!(drawn(&app, part) && drawn(&app, late));
+        assert!(app.world().entity(culled).contains::<DynamicSkinnedMeshBounds>() && !app.world().entity(culled).contains::<NoFrustumCulling>());
+        app.insert_resource(Off);
+        app.update();
+        app.world_mut().remove_resource::<Off>();
+        app.update();
+        assert!(drawn(&app, part) && drawn(&app, late));
     }
 }
