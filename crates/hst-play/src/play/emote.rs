@@ -196,9 +196,11 @@ pub enum Line {
 }
 
 /// Plays the lines due this tick at their player, each once however often its tick runs (`heard`), cutting the emote
-/// lines still sounding (`audio::Sound::emote`, `stop_emotes`).
+/// lines still sounding (`audio::Sound::emote`, `stop_emotes`). A mod's take with a line of its own
+/// (`CharacterData::drawn_voice`) speaks that one in place of the key picked: sound only, the pick and its draws stay.
 pub(super) fn play_lines(
     mut g: ResMut<Game>,
+    figures: Query<(&super::Figure, &crate::character::Motion)>,
     sound: Option<Res<crate::audio::Sound>>,
     voices: Option<Res<crate::audio::VoiceBanks>>,
     heard: Res<super::heard::Heard>,
@@ -208,7 +210,15 @@ pub(super) fn play_lines(
     let (Some(sound), Some(voices)) = (sound, voices) else { return };
     for line in lines {
         let (i, p) = match line {
-            Line::Emote(i, p) | Line::Reaction(i, p) => (i, p),
+            Line::Emote(i, mut p) | Line::Reaction(i, mut p) => {
+                if let Some((_, m)) = figures.iter().find(|(f, _)| f.0 == i)
+                    && voice_keys(m.id).is_some_and(|v| v.0 == p.program)
+                    && let Some(k) = g.data.get(i).and_then(|d| d.drawn_voice(m.id, m.sets))
+                {
+                    p.key = k;
+                }
+                (i, p)
+            }
             // B619: a reaction starting cuts its player's emote line, once however often its tick runs
             Line::Cut(i) => {
                 if played.first(heard.tick, ("cut", i)) {

@@ -1589,7 +1589,7 @@ pub fn load_with(
             f.uv.extend(f.uv_unbound.drain(..).filter(|t| donor.contains(&t.0)).map(|(_, ticks, values)| (character::EYES, ticks, values)));
         }
     }
-    let (mut visual, mut takes, own_faces, racketless) = match &m.motions {
+    let (mut visual, mut takes, own_faces, racketless, take_voices) = match &m.motions {
         Some(f) => own_motions(&m.dir.join(f), &skeleton, &motions, only, &|t| names.iter().position(|n| n == t).or_else(|| face_target(&names, t)))?,
         None => Default::default(),
     };
@@ -1634,7 +1634,7 @@ pub fn load_with(
         c.tracks.retain(|t| !sprung.contains(&t.node));
     }
     let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs }));
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, feet, grip, frame_gameplay: false, emote_ticks, voice_takes: HashMap::new(), size: 1.0, thigh_twist: 1.0 })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, take_voices, feet, grip, frame_gameplay: false, emote_ticks, voice_takes: HashMap::new(), size: 1.0, thigh_twist: 1.0 })
 }
 
 /// `mod.json`'s `disc_racket` (§6, M1r): the disc character (0..13) whose racket it holds when it ships no
@@ -1692,8 +1692,9 @@ pub fn emote_ticks(m: &Mod, ids: &[usize]) -> Result<Vec<(usize, Vec<u32>)>, Str
 /// with it (`CharacterData::drawn_take`): returned apart, in K order, and only beside `NAME` itself. A `weights`
 /// channel is the clip's own face, its targets named by the node's `extras.targetNames` and bound by `target`
 /// (`CharacterData::own_faces`, by motion and take, 0 the motion itself). `extras.racket: false` on an animation
-/// hides the racket while it plays (`CharacterData::racketless`, keyed alike).
-type OwnMotions = (HashMap<usize, Clip>, HashMap<usize, Vec<Clip>>, HashMap<(usize, usize), Face>, HashSet<(usize, usize)>);
+/// hides the racket while it plays (`CharacterData::racketless`, keyed alike); `extras.voice: K` speaks the voice key K
+/// of its reaction's program while it is the one drawn (`CharacterData::take_voices`, keyed alike).
+type OwnMotions = (HashMap<usize, Clip>, HashMap<usize, Vec<Clip>>, HashMap<(usize, usize), Face>, HashSet<(usize, usize)>, HashMap<(usize, usize), u8>);
 fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, only: Option<&[usize]>, target: &impl Fn(&str) -> Option<usize>) -> Result<OwnMotions, String> {
     use hst_data::ani::{Anim, MOTIONS, Track};
     use gltf::animation::util::ReadOutputs;
@@ -1703,6 +1704,7 @@ fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, o
     let mut more: HashMap<usize, Vec<(u32, Clip)>> = HashMap::new();
     let mut faces: HashMap<(usize, u32), Face> = HashMap::new();
     let mut racketless: Vec<(usize, u32)> = Vec::new();
+    let mut voices: Vec<((usize, u32), u8)> = Vec::new();
     for a in doc.animations() {
         let name = a.name().unwrap_or("");
         let (id, take) = motion_of(name).map_err(ctx)?;
@@ -1710,8 +1712,12 @@ fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, o
             continue;
         }
         let d = donor.get(&id).ok_or_else(|| ctx(format!("`{name}`: the donor has no clip {id:#x} to time it by")))?;
-        if a.extras().as_ref().and_then(|e| serde_json::from_str::<serde_json::Value>(e.get()).ok()).is_some_and(|e| e["racket"] == false) {
+        let extras = a.extras().as_ref().and_then(|e| serde_json::from_str::<serde_json::Value>(e.get()).ok()).unwrap_or_default();
+        if extras["racket"] == false {
             racketless.push((id, take.unwrap_or(0)));
+        }
+        if let Some(k) = extras["voice"].as_u64() {
+            voices.push(((id, take.unwrap_or(0)), u8::try_from(k).map_err(|_| ctx(format!("`{name}`: extras.voice {k} is past 255")))?));
         }
         let mut keys: Vec<(&gltf::animation::Channel, Vec<f32>)> = Vec::new();
         let channels: Vec<_> = a.channels().collect();
@@ -1788,6 +1794,7 @@ fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, o
     let at = |id: usize, k: u32| if k == 0 { Some((id, 0)) } else { more.get(&id).and_then(|t| { let mut ks: Vec<u32> = t.iter().map(|t| t.0).collect(); ks.sort(); ks.iter().position(|&x| x == k).map(|p| (id, p + 1)) }) };
     let own_faces = faces.into_iter().filter_map(|((id, k), f)| Some((at(id, k)?, f))).collect();
     let racketless = racketless.into_iter().filter_map(|(id, k)| at(id, k)).collect();
+    let voices = voices.into_iter().filter_map(|((id, k), v)| Some((at(id, k)?, v))).collect();
     for (id, mut t) in more {
         if !out.contains_key(&id) {
             return Err(ctx(format!("takes of `{}` without the motion itself", MOTIONS[id].replace("_pc%02d", ""))));
@@ -1795,7 +1802,7 @@ fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, o
         t.sort_by_key(|t| t.0);
         takes.insert(id, t.into_iter().map(|t| t.1).collect());
     }
-    Ok((out, takes, own_faces, racketless))
+    Ok((out, takes, own_faces, racketless, voices))
 }
 
 /// The point and game reactions (`re_gu`, `re_di`, `re_gu_set`, `re_di_set`): a mod's own may end before the donor's
@@ -2451,14 +2458,17 @@ mod tests {
     }
 
     /// A `motions.glb` of one `Bip01` turning a quarter about y over 0.5 s (30 frames), once per animation name (a
-    /// trailing `!` drops the name's `!` and draws that one without the racket).
+    /// trailing `!` drops the name's `!` and draws that one without the racket, a trailing `@K` gives it voice key K).
     fn quarter_turns(names: &[&str]) -> Vec<u8> {
         let half = std::f32::consts::FRAC_1_SQRT_2;
         // and a face of one target (`smile`) rising 0 → 1 with it
         let mut bin: Vec<u8> = [0.0f32, 0.5, 0.0, 0.0, 0.0, 1.0, 0.0, half, 0.0, half, 0.0, 1.0].iter().flat_map(|f| f.to_le_bytes()).collect();
         let anims: Vec<String> = names
             .iter()
-            .map(|name| (name.trim_end_matches('!'), if name.ends_with('!') { r#","extras":{"racket":false}"# } else { "" }))
+            .map(|name| match name.split_once('@') {
+                Some((name, k)) => (name, format!(r#","extras":{{"voice":{k}}}"#)),
+                None => (name.trim_end_matches('!'), if name.ends_with('!') { r#","extras":{"racket":false}"#.into() } else { String::new() }),
+            })
             .map(|(name, racket)| format!(r#"{{"name":"{name}"{racket},"samplers":[{{"input":0,"output":1}},{{"input":0,"output":2}}],"channels":[{{"sampler":0,"target":{{"node":0,"path":"rotation"}}}},{{"sampler":1,"target":{{"node":1,"path":"weights"}}}}]}}"#))
             .collect();
         let json = format!(
@@ -2496,7 +2506,11 @@ mod tests {
             std::fs::write(&path, quarter_turns(names)).unwrap();
             own_motions(&path, &sk, &donor, None, &|n| (n == "smile").then_some(3))
         };
-        let (own, takes, faces, racketless) = load(&["re_gu.2!", "re_gu", "sh_f_t!", "re_gu.1"]).unwrap();
+        let (own, takes, faces, racketless, voices) = load(&["re_gu.2!", "re_gu", "sh_f_t!", "re_gu.1"]).unwrap();
+        assert!(voices.is_empty());
+        // a take's voice key goes by its place in K order, as its face does
+        let (.., voices) = load(&["re_gu@4", "re_gu.7@0", "re_gu.3"]).unwrap();
+        assert_eq!(voices, [((0x2c, 0), 4), ((0x2c, 2), 0)].into_iter().collect());
         assert_eq!((own.len(), takes.len(), takes[&0x2c].len()), (2, 1, 2));
         assert_eq!(racketless, [(0x10, 0), (0x2c, 2)].into_iter().collect());
         let mut keys: Vec<_> = faces.keys().copied().collect();
