@@ -416,6 +416,69 @@ fn ink_width(font: &ab_glyph::FontRef, words: &str, h: f32) -> f32 {
     b.width() * h / (-caps.bounds().top() + tail)
 }
 
+/// B671a: the pause panel's Offbeat rules tab, in disc px: its rim (the score frame's gold), padding, the label's cap
+/// height, a chip's height (white ring included) and the gaps between chips and rows.
+pub const TAB_RIM: f32 = 1.5;
+const TAB_PAD: [f32; 2] = [6.0, 3.0];
+const TAB_LABEL_H: f32 = 5.5;
+pub const TAB_CHIP_H: f32 = 12.0;
+const TAB_GAP: [f32; 2] = [4.0, 3.0];
+const TAB_LABEL: &str = "OFFBEAT RULES";
+const TAB_GOLD: [u8; 3] = [0xc9, 0xc7, 0x9a];
+const TAB_NAVY: [u8; 3] = [0x16, 0x21, 0x3d];
+const TAB_YELLOW: [u8; 3] = [0xf6, 0xd6, 0x4a];
+const TAB_ORANGE: [u8; 3] = [0xf0, 0x7a, 0x2c];
+
+/// B671a: where the tab's label (item 0) and each chip go, set in rows no wider than `max_w` (the tab's whole width,
+/// rims included), a chip never split or dropped: each item's [x, y, w] from the tab's top left (the row's height is
+/// `TAB_CHIP_H`), and the tab's size.
+pub fn tab_flow(widths: &[f32], max_w: f32) -> (Vec<[f32; 3]>, [f32; 2]) {
+    let left = TAB_RIM + TAB_PAD[0];
+    let (mut x, mut y, mut right) = (left, TAB_RIM + TAB_PAD[1], 0.0f32);
+    let mut out = Vec::with_capacity(widths.len());
+    for &w in widths {
+        if x > left && x + w > max_w - left {
+            (x, y) = (left, y + TAB_CHIP_H + TAB_GAP[1]);
+        }
+        out.push([x, y, w]);
+        right = right.max(x + w);
+        x += w + TAB_GAP[0];
+    }
+    (out, [right + TAB_PAD[0] + TAB_RIM, y + TAB_CHIP_H + TAB_PAD[1]])
+}
+
+/// B671a: the tab itself: a navy tab in the frame's gold rim (round top corners, open at the foot, where it meets
+/// the frame), "OFFBEAT RULES" in yellow, then an orange, white-ringed chip per rule, wrapping into more rows as
+/// `tab_flow` sets them. The image (at `menu_art::K`×) and its size in disc px.
+pub fn rules_tab(chips: &[&str], max_w: f32) -> (Image, [f32; 2]) {
+    let font = ab_glyph::FontRef::try_from_slice(menu_art::HEAVY).expect("menu font");
+    let side = TAB_CHIP_H * 0.5;
+    let th = TAB_CHIP_H * 0.5 - 1.0;
+    let mut widths = vec![ink_width(&font, TAB_LABEL, TAB_LABEL_H)];
+    widths.extend(chips.iter().map(|c| ink_width(&font, c, th * (1.0 + tail(&font, c))) + 2.0 * side));
+    let (at, [w, h]) = tab_flow(&widths, max_w);
+    let k = menu_art::K as f32;
+    let mut out = Pixmap::new((w * k).ceil() as u32, (h * k).ceil() as u32).expect("rules tab pixmap");
+    let (pw, ph) = (out.width() as f32, out.height() as f32);
+    let id = SkTransform::identity();
+    // the corners' radius run past the foot, so only the top two show
+    let (r, rim) = (6.0 * k, TAB_RIM * k);
+    menu_art::fill_rgb(&mut out, &menu_art::rounded(0.0, 0.0, pw, ph + r, r), TAB_GOLD, id);
+    menu_art::fill_rgb(&mut out, &menu_art::rounded(rim, rim, pw - rim, ph + r, r - rim), TAB_NAVY, id);
+    let look = |c: [u8; 3]| Look { top: c, bottom: c, edge: c, ring: c, ew: 0.0, rw: 0.0, slant: 0.0 };
+    let [x, y, lw] = at[0];
+    menu_art::stamp(&mut out, &font, [x, y + (TAB_CHIP_H - TAB_LABEL_H) / 2.0, lw, TAB_LABEL_H], TAB_LABEL, &look(TAB_YELLOW));
+    for (c, &[x, y, cw]) in chips.iter().zip(&at[1..]) {
+        menu_art::fill_rgb(&mut out, &menu_art::rounded(x * k, y * k, (x + cw) * k, (y + TAB_CHIP_H) * k, TAB_CHIP_H * k / 2.0), [255; 3], id);
+        let ring = 1.0;
+        let inner = menu_art::rounded((x + ring) * k, (y + ring) * k, (x + cw - ring) * k, (y + TAB_CHIP_H - ring) * k, (TAB_CHIP_H / 2.0 - ring) * k);
+        menu_art::fill_rgb(&mut out, &inner, TAB_ORANGE, id);
+        let cell = th * (1.0 + tail(&font, c));
+        menu_art::stamp(&mut out, &font, [x + side, y + (TAB_CHIP_H - th) / 2.0, cw - 2.0 * side, cell], c, &look([255; 3]));
+    }
+    (pixmap_image(out), [w, h])
+}
+
 fn pixmap_image(out: Pixmap) -> Image {
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
     let size = Extent3d { width: out.width(), height: out.height(), depth_or_array_layers: 1 };
@@ -425,6 +488,28 @@ fn pixmap_image(out: Pixmap) -> Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B671a: the rules tab sets its items in rows no wider than it may be, each whole and in order, a new row under
+    /// the last; one row is a chip's height and the padding.
+    #[test]
+    fn rules_tab_wraps() {
+        let (at, [w, h]) = tab_flow(&[60.0, 40.0, 40.0], 400.0);
+        assert_eq!((at.iter().map(|a| a[1]).collect::<Vec<_>>(), h), (vec![4.5; 3], 4.5 + TAB_CHIP_H + 3.0));
+        assert_eq!(w, 7.5 + 60.0 + 4.0 + 40.0 + 4.0 + 40.0 + 7.5);
+        let widths = [60.0, 40.0, 45.0, 40.0, 30.0, 30.0, 50.0, 30.0];
+        let (at, [w, h]) = tab_flow(&widths, 150.0);
+        assert!(w <= 150.0 && at.iter().all(|a| a[0] + a[2] <= 150.0 - 7.5));
+        let rows: Vec<f32> = at.iter().map(|a| a[1]).collect();
+        assert!(rows.windows(2).all(|r| r[1] >= r[0]) && rows[7] > rows[0]);
+        assert_eq!(h, rows[7] + TAB_CHIP_H + 3.0);
+        // a chip too wide for any row still shows, on its own
+        let (at, _) = tab_flow(&[60.0, 200.0], 150.0);
+        assert_eq!((at[1][0], at[1][2]), (7.5, 200.0));
+        // every rule on fits the pause panel's tab in two rows at most
+        let all = ["Bounce", "Slow-mo", "Turbo", "Ghost", "Tiny", "Fast", "Sweet spot", "All F"];
+        let (img, [w, h]) = rules_tab(&all, 424.0);
+        assert!(w <= 424.0 && h <= 4.5 + 2.0 * TAB_CHIP_H + 3.0 + 3.0 && img.width() > 0);
+    }
 
     #[test]
     fn parse() {

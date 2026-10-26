@@ -20,6 +20,20 @@ const ON_OFF: &[&str] = &["Off", "On"];
 /// B616: each rule's short name on the strip's Rules cell (size and speed say their choice instead).
 const CHIPS: [&str; 8] = ["Bounce", "Slow-mo", "Turbo", "Ghost", "", "", "Sweet spot", ""];
 
+/// B616: the rules on, by their short names (Player size, speed and stats by their choice); B671a: the pause
+/// panel's rules tab says them the same.
+pub(in crate::play) fn chips(o: &crate::play::offbeat::Offbeat) -> Vec<&'static str> {
+    (0..RULES.len())
+        .filter_map(|i| match (i, o.get(i)) {
+            (_, 0) => None,
+            (4, c) => Some(["Tiny", "Big"][(c as usize - 1).min(1)]),
+            (5, c) => Some(["Fast", "Slow"][(c as usize - 1).min(1)]),
+            (7, c) => Some(["All F", "All E", "All D", "All C", "All B", "All A"][(c as usize - 1).min(5)]),
+            _ => Some(CHIPS[i]),
+        })
+        .collect()
+}
+
 impl Menu {
     /// The legend's word for Select on the confirm screen: the rules, and how many are on.
     pub(super) fn rules_label(&self) -> Option<&'static str> {
@@ -60,15 +74,7 @@ impl Menu {
 
     /// B616: the rules on, as the Rules cell's chips say them (Player size and speed by their choice).
     pub(super) fn rules_on(&self) -> Vec<&'static str> {
-        (0..RULES.len())
-            .filter_map(|i| match (i, self.offbeat.get(i)) {
-                (_, 0) => None,
-                (4, c) => Some(["Tiny", "Big"][(c as usize - 1).min(1)]),
-                (5, c) => Some(["Fast", "Slow"][(c as usize - 1).min(1)]),
-                (7, c) => Some(["All F", "All E", "All D", "All C", "All B", "All A"][(c as usize - 1).min(5)]),
-                _ => Some(CHIPS[i]),
-            })
-            .collect()
+        chips(&self.offbeat)
     }
 
     /// `--offbeat` for the match, none online or with every rule off.
