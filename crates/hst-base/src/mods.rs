@@ -1621,10 +1621,10 @@ pub fn load_with(
     };
     let binds = crate::character::part_skins(&joints, &parts, meshes, bindposes);
     let emote_ticks = emote_ticks(m, &crate::mods_online::EMOTES)?.into_iter().filter(|(id, _)| visual.contains_key(id)).collect();
-    let springs = crate::spring::masses(&nodes, &joints);
+    let springs = crate::spring::chains(&nodes, &joints);
     // the springs swing their joints from rest: a clip's own keys on them are dropped. Out of Bounds keys its dynamic
     // bones in some other space in a few clips (Sophie's sad emote: the pigtails' anchors 120° off, swung from there)
-    let sprung: HashSet<usize> = springs.iter().flat_map(|s| [s.parent, s.joint]).collect();
+    let sprung: HashSet<usize> = springs.iter().flat_map(|s| s.joints.iter().copied()).collect();
     for c in visual.values_mut().chain(takes.values_mut().flatten()) {
         c.tracks.retain(|t| !sprung.contains(&t.node));
     }
@@ -2249,13 +2249,14 @@ mod tests {
         }
     }
 
-    /// An Out of Bounds mod's hair and earring chains (§3b `extras.spring`) reach the costume as spring joints. The
-    /// rig whips 0.2 m sideways over 10 frames, then stands: the hair's joints swing off where they hang at rest
-    /// (the pose plus gravity's sag), then settle back there within 6 s (B663's smaller Jasmine takes over 4 s); the head they hang on is never turned.
+    /// An Out of Bounds mod's hair and earring chains (§3b `extras.spring`) reach the costume as spring chains. The
+    /// rig whips 0.2 m sideways over 10 frames, then stands: the hair's joints swing off where they hang at rest,
+    /// then come to rest within 6 s (not always where they started: nothing pulls them back to the pose, as in Out
+    /// of Bounds); the head they hang on is never turned.
     #[test]
     fn oob_hair_swings_and_settles() {
-        // Jasmine: 23 records, 5 of them chain anchors (pinned); Sophie's pigtails and ribbons (B579)
-        for (name, springs) in [("oob_pc00_jasmine", 18), ("oob_pc02_sophie", 32)] {
+        // Jasmine: 23 records in 5 chains; Sophie's pigtails and ribbons (B579)
+        for (name, springs) in [("oob_pc00_jasmine", 5), ("oob_pc02_sophie", 6)] {
             oob_hair_of(name, springs);
         }
     }
@@ -2268,7 +2269,7 @@ mod tests {
         let c = load(&mut iso, &m, 0, &mut s.0, &mut s.1, &mut s.2, &mut s.3).unwrap();
         assert_eq!(c.noise.as_ref().map_or(0, |n| n.springs.len()), springs, "{name}");
         // the springs own their joints: no clip of its own keys them (Sophie's sad emote keyed her pigtails 120° off)
-        let sprung: HashSet<usize> = c.noise.as_ref().unwrap().springs.iter().flat_map(|s| [s.parent, s.joint]).collect();
+        let sprung: HashSet<usize> = c.noise.as_ref().unwrap().springs.iter().flat_map(|s| s.joints.iter().copied()).collect();
         assert!(c.visual.values().chain(c.takes.values().flatten()).all(|clip| clip.tracks.iter().all(|t| !sprung.contains(&t.node))), "{name}: a clip keys the hair");
         use bevy::ecs::system::RunSystemOnce;
         let data = std::sync::Arc::new(c);
@@ -2294,7 +2295,8 @@ mod tests {
         let apart = |f: usize| calm[f].iter().zip(&whipped[f]).map(|(a, b)| a.angle_between(*b)).fold(0f32, f32::max).to_degrees();
         eprintln!("whipped vs calm, largest joint difference every 10 frames: {:?}", (0..360).step_by(10).map(|f| apart(f).round()).collect::<Vec<_>>());
         assert!((0..12).any(|f| apart(f) > 5.0), "{name}: the hair never trailed");
-        assert!(apart(359) < 0.5, "{name}: the hair never settled: {}", apart(359));
+        let still = whipped[300].iter().zip(&whipped[359]).map(|(a, b)| a.angle_between(*b)).fold(0f32, f32::max).to_degrees();
+        assert!(still < 0.5, "{name}: the hair never settled: {still}");
         assert!(whipped.iter().all(|f| f[head] == data.joints[head].rest.rotation), "{name}: the hair turned the head");
     }
 
