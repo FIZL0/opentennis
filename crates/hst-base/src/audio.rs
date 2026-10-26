@@ -705,6 +705,14 @@ impl Sound {
         n
     }
 
+    /// B678: how many 60 Hz frames each of `plays` sounds for on `bank` (`centre_frames`), on a silent mixer of
+    /// `iso`'s tables, so a match can time a take by ticks the same on every machine, with or without an audio
+    /// device (the gallery's "This is it!" and match-end takes, `sound::Gallery::lengths`).
+    pub fn take_ticks(iso: &mut Iso, bank: &Arc<SoundBank>, plays: &[sound::Play]) -> Vec<u32> {
+        let solo = Self(Arc::new(Mutex::new(mix(iso))));
+        plays.iter().map(|&p| solo.centre_frames(bank, p)).collect()
+    }
+
     /// A mixer on `iso`'s banks with no output, for tests.
     #[cfg(any(test, feature = "testing"))]
     pub fn test(iso: &mut Iso) -> Self {
@@ -980,6 +988,23 @@ mod tests {
             .filter(|&(c, players, court, b)| voice_bank(&mut iso, c, players, court, b).is_none())
             .collect();
         assert!(missing.is_empty(), "{missing:?}");
+    }
+
+    /// B678: the gallery's "This is it!" takes (program 9) time out at their length, about 0.6–0.8 s on court 4, on
+    /// every court that says it; the match end's ovation and groan run longer.
+    #[test]
+    fn gallery_take_ticks() {
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
+        };
+        let take = |program, key| sound::Play { slot: 6, program, key, volume: 0x4c, speed: 1.0 };
+        for court in [1, 4, 6] {
+            let bank = Arc::new(gallery_bank(&mut iso, court, 0).expect("gallery bank"));
+            let t = Sound::take_ticks(&mut iso, &bank, &[take(9, 0), take(9, 1), take(3, 0), take(4, 0)]);
+            eprintln!("court {court}: {t:?}");
+            assert!(t[..2].iter().all(|n| (20..90).contains(n)), "court {court}: {t:?}");
+            assert!(t[2..].iter().all(|&n| n > 60), "court {court}: {t:?}");
+        }
     }
 
     /// B594: a character's new emote line cuts its last one (silent within a frame or two of the release), while

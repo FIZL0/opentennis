@@ -1593,8 +1593,14 @@ fn match_sounds(
     // the hit-spark table and the gallery bank (slot 6), drawn before the sound manager is made
     // the used banks live as long as the sound manager (the whole run), so a later setup skips the banks played
     let pick = game.rng.setup_gallery(gallery_used);
-    let gallery = crate::audio::gallery_bank(iso, game.stage as usize, pick);
-    commands.insert_resource(crate::audio::GalleryBank(gallery.map(std::sync::Arc::new)));
+    let gallery = crate::audio::gallery_bank(iso, game.stage as usize, pick).map(std::sync::Arc::new);
+    // B678: the gallery times its "This is it!" (program 9 keys 0, 1) and match-end (3, 4) takes by ticks
+    if let Some(b) = &gallery {
+        let take = |program, key| sound::Play { slot: 6, program, key, volume: 0x4c, speed: 1.0 };
+        let t = Sound::take_ticks(iso, b, &[take(sound::THIS_IS_IT, 0), take(sound::THIS_IS_IT, 1), take(3, 0), take(4, 0)]);
+        game.gallery.lengths([t[0], t[1]], [t[2], t[3]]);
+    }
+    commands.insert_resource(crate::audio::GalleryBank(gallery));
     // the match's court's effects (the app's start loaded the menu's court 0, which has none)
     commands.insert_resource(crate::audio::court_bank(iso, stage));
 }
@@ -2075,7 +2081,7 @@ fn strike(
             f.step(&g.shot, &COURTS[g.court]);
             path.push(path_entry(&f));
         }
-        (SmashSearch::new(&heights), path, f)
+        (SmashSearch::of(&heights), path, f)
     });
     g.marks.fresh = true;
     g.hit_effect = Some(effects::Hit {

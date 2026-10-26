@@ -4,18 +4,22 @@
 //! a smash top is searched with the heights capped at its peak. Presentation only: the match never reads the yellow
 //! marker, and any other shot is searched as the original.
 
+use hst_sim::sound;
+
 use super::{COURTS, Game, PATH_MAX};
 
 /// Whose smash `[top, middle]` heights a strike by `who` searches the yellow marker's point with: the receiving
 /// team's humans (the original). A `lob` is searched for the receiving team's players when none is human, and with
-/// the heights capped at its own predicted peak, so it always places a point (both ours).
-pub(super) fn receivers(g: &Game, who: usize, lob: bool) -> Vec<[f32; 2]> {
+/// the heights capped at its own predicted peak, so it always places a point (both ours). Each candidate names its
+/// player only when the original searches it too (a human, its heights left as they are: a capped top is one the
+/// uncapped ball never reaches), so only the original's points count for the gallery's "This is it!" ([`watch`]).
+pub(super) fn receivers(g: &Game, who: usize, lob: bool) -> Vec<([f32; 2], Option<usize>)> {
     let theirs = || (0..g.players.len()).filter(|&i| i & 1 != who & 1);
-    let humans: Vec<[f32; 2]> = theirs().filter(|&i| g.humans.get(i) == Some(&true)).map(|i| g.smash_heights[i]).collect();
+    let humans: Vec<_> = theirs().filter(|&i| g.humans.get(i) == Some(&true)).map(|i| (g.smash_heights[i], Some(i))).collect();
     if !lob {
         return humans;
     }
-    let all = if humans.is_empty() { theirs().map(|i| g.smash_heights[i]).collect() } else { humans };
+    let all = if humans.is_empty() { theirs().map(|i| (g.smash_heights[i], None)).collect() } else { humans };
     // the predicted flight's peak before its first bounce (y down)
     let (mut f, mut peak) = (g.flight, -g.flight.ball.pos[1]);
     for _ in 0..PATH_MAX {
@@ -25,7 +29,20 @@ pub(super) fn receivers(g: &Game, who: usize, lob: bool) -> Vec<[f32; 2]> {
         }
         peak = peak.max(-f.ball.pos[1]);
     }
-    all.into_iter().map(|[t, m]| [t.min(peak), m.min(peak)]).collect()
+    all.into_iter()
+        .map(|([t, m], i)| {
+            let capped = [t.min(peak), m.min(peak)];
+            (capped, i.filter(|_| capped == [t, m]))
+        })
+        .collect()
+}
+
+/// B678: what the gallery's manager sees of the rally this tick: the hit count, whether anyone has hit, and whether
+/// a player stands within 3 m of a yellow-marker point the original placed for them.
+pub(super) fn watch(g: &Game) -> sound::Watch {
+    let points = g.marks.smash.iter().flat_map(|(s, ..)| s.marks.iter().zip(&s.whose)).filter_map(|(&at, &who)| Some((at, who?)));
+    let at: Vec<[f32; 3]> = g.players.iter().map(|p| p.pos).collect();
+    sound::Watch { hits: g.shots, hitter: g.last_hitter >= 0, near: sound::Watch::near(points, &at) }
 }
 
 #[cfg(test)]

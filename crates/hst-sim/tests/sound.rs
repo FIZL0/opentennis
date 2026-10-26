@@ -744,7 +744,7 @@ fn gallery_matches_the_game() {
             let branch = s[k].hit[0x20 + 8 * (u(s[k].rally, 8) as usize & 3) + 5];
             gallery.point(sound::reaction(0, false, (branch == 4).then_some(false), &mut errors).unwrap(), &mut roll);
         }
-        for (p, angle) in gallery.step(10, 4, false, &mut roll) {
+        for (p, angle) in gallery.step(10, 4, false, &sound::Watch::default(), &mut roll) {
             want.push((k + 1, p.program, p.key, angle, p.volume));
         }
         // (the second key-on of a cheer, 18 ticks on, is the same tone)
@@ -852,7 +852,7 @@ fn gallery_match_end() {
         g.point(sound::Reaction { cheer: false, event: Some(event), chain: true }, &mut roll);
         let mut got: Vec<(i32, u8, u8)> = Vec::new();
         for t in 1..400 {
-            for (p, _) in g.step(8, 4, false, &mut roll) {
+            for (p, _) in g.step(8, 4, false, &sound::Watch::default(), &mut roll) {
                 if p.program != 10 && !got.iter().any(|&(at, ..)| at == t) {
                     got.push((t, p.program, p.key));
                 }
@@ -860,6 +860,125 @@ fn gallery_match_end() {
         }
         assert_eq!(got, due, "event {event}");
     }
+}
+
+/// B678: a counting stand-in for the court generator: every draw returns `n << 16` for the next `n` (so the stand is
+/// `n & 7`) and the draws are counted.
+fn counted(draws: &std::cell::Cell<u32>) -> impl FnMut() -> u32 + '_ {
+    move || {
+        let n = draws.get();
+        draws.set(n + 1);
+        n << 16
+    }
+}
+
+const NEAR: sound::Watch = sound::Watch { hits: 0, hitter: true, near: Some(true) };
+
+/// B678: "This is it!" (program 9 at the applause's volume) plays only on courts 1, 4 and 6, with two or more players, once a
+/// point is placed and its player is near; its one draw picks the stand (the draw's bits 16–18 into `STANDS`).
+#[test]
+fn this_is_it_courts_and_stand() {
+    for court in 0..12u8 {
+        for players in [1, 2, 4] {
+            let draws = std::cell::Cell::new(5);
+            let mut g = sound::Gallery::default();
+            let out = g.step(court, players, false, &NEAR, &mut counted(&draws));
+            let says = [1, 4, 6].contains(&court) && players >= 2;
+            assert_eq!(out.len(), says as usize, "court {court}, {players} players");
+            assert_eq!(draws.get(), 5 + says as u32, "court {court}: one draw only when it plays");
+            if let Some((p, angle)) = out.first() {
+                assert_eq!((p.slot, p.program, p.key, p.volume, p.speed), (6, sound::THIS_IS_IT, 1, 0x4c, 1.0));
+                // draw 5: stand 5 of [0, 180, 45, 225, 90, 270, 135, 325]
+                assert_eq!(*angle, 270);
+            }
+        }
+    }
+    // no point placed (or none of the original's): nothing, no draw
+    let draws = std::cell::Cell::new(0);
+    let mut g = sound::Gallery::default();
+    assert!(g.step(4, 2, false, &sound::Watch { near: None, ..NEAR }, &mut counted(&draws)).is_empty());
+    assert_eq!(draws.get(), 0);
+}
+
+/// B678: the check is once a shot. The flag is set by the first tick a point is placed, before the distance test,
+/// so a player only getting near later is no line; a new hit clears it after that tick's check (the hit's own
+/// tick still sees the old flag); a change of the hit count with no hitter does not. The keys take turns 1, 0, 1.
+#[test]
+fn this_is_it_once_a_shot() {
+    let draws = std::cell::Cell::new(0);
+    let mut roll = counted(&draws);
+    let mut g = sound::Gallery::default();
+    let far = sound::Watch { near: Some(false), ..NEAR };
+    let keys = |out: Vec<(sound::Play, i32)>| out.iter().map(|(p, _)| p.key).collect::<Vec<_>>();
+    // shot 1: far on the first tick with a point, near after: no line
+    assert!(g.step(4, 2, false, &far, &mut roll).is_empty());
+    assert!(g.step(4, 2, false, &NEAR, &mut roll).is_empty());
+    assert_eq!(draws.get(), 0);
+    // shot 2 hit this tick: the old flag still holds; from the next tick, the line (key 1), then no more
+    let hit2 = sound::Watch { hits: 2, ..NEAR };
+    assert!(g.step(4, 2, false, &hit2, &mut roll).is_empty());
+    assert_eq!(keys(g.step(4, 2, false, &hit2, &mut roll)), [1]);
+    assert!(g.step(4, 2, false, &hit2, &mut roll).is_empty());
+    // the count changing with no hitter (a new point's reset) clears nothing
+    assert!(g.step(4, 2, false, &sound::Watch { hits: 0, hitter: false, near: Some(true) }, &mut roll).is_empty());
+    // shots 3 and 4: keys 0, then 1
+    for (hits, key) in [(3, 0), (4, 1)] {
+        let w = sound::Watch { hits, ..NEAR };
+        assert!(g.step(4, 2, false, &w, &mut roll).is_empty());
+        assert_eq!(keys(g.step(4, 2, false, &w, &mut roll)), [key]);
+    }
+    assert_eq!(draws.get(), 3);
+}
+
+/// B678: while the line sounds (its take's length in ticks) a pending applause is dropped at once, and a tick with
+/// a reaction pending or the line sounding leaves the check for later; the after-match cheer waits for it instead.
+#[test]
+fn this_is_it_sounding() {
+    let draws = std::cell::Cell::new(0);
+    let mut roll = counted(&draws);
+    let applause = sound::Reaction { cheer: false, event: Some(sound::event::APPLAUSE), chain: false };
+    // the line sounds 10 ticks; an applause decided on its 5th tick is never heard
+    let mut g = sound::Gallery::default();
+    g.lengths([20, 10], [0, 0]);
+    assert_eq!(g.step(4, 2, false, &NEAR, &mut roll).len(), 1);
+    for _ in 0..3 {
+        g.step(4, 2, false, &NEAR, &mut roll);
+    }
+    g.point(applause, &mut roll);
+    for t in 0..200 {
+        assert!(g.step(4, 2, false, &NEAR, &mut roll).is_empty(), "tick {t}");
+    }
+    // a pending applause (wait 1, due next tick) keeps the check off; the applause plays, then the line
+    let mut g = sound::Gallery::default();
+    g.point(applause, &mut roll);
+    let out = g.step(4, 2, false, &NEAR, &mut roll);
+    assert_eq!(out.iter().map(|(p, _)| p.program).collect::<Vec<_>>(), [0, 0, 0]);
+    assert_eq!(g.step(4, 2, false, &NEAR, &mut roll).iter().map(|(p, _)| p.program).collect::<Vec<_>>(), [sound::THIS_IS_IT]);
+    // the line sounding for 30 ticks: the check waits too (a new shot on the line's 1st tick gets its line at 31)
+    let mut g = sound::Gallery::default();
+    g.lengths([0, 30], [0, 0]);
+    let mut at = vec![];
+    for t in 0..40 {
+        let w = sound::Watch { hits: 1 + (t > 0) as i32, ..NEAR };
+        if !g.step(4, 2, false, &w, &mut roll).is_empty() {
+            at.push(t);
+        }
+    }
+    assert_eq!(at, [0, 30]);
+    // the ovation (program 3) sounds 300 ticks: the chained cheer (7 key 0, 60 later without it) waits for its end,
+    // its count down held till then
+    let mut g = sound::Gallery::default();
+    g.lengths([0, 0], [300, 0]);
+    g.point(sound::Reaction { cheer: false, event: Some(sound::event::WON), chain: true }, &mut roll);
+    let mut got = vec![];
+    for t in 1..600 {
+        for (p, _) in g.step(8, 4, false, &sound::Watch::default(), &mut roll) {
+            if !got.iter().any(|&(at, _)| at == t) {
+                got.push((t, p.program));
+            }
+        }
+    }
+    assert_eq!(got, [(0x8c, 3), (0x8c + 359, 7), (0x8c + 419, 7)]);
 }
 
 

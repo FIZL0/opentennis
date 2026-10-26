@@ -177,7 +177,7 @@ fn court_draws_like_the_game() {
                 }
             }
             // the gallery's manager after the walkers: its cheer, its cheer marks, its tick
-            gallery.step(10, players, false, &mut roll);
+            gallery.step(10, players, false, &sound::Watch::default(), &mut roll);
             cheers.step(&mut roll);
             tick += 1;
             for e in &mut emitters {

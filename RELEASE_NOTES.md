@@ -20,3 +20,4 @@
 - Custom characters' swinging hair now stays out of their hats, heads and bodies instead of passing through them.
 - A custom character updated while the game is open no longer shows a blank face in the match's score panel and pause screen.
 - Sound comes back by itself when the audio output goes away and returns (the sound server restarting, waking from sleep, a Bluetooth headset switched off and on), instead of staying silent until the game is restarted.
+- On three of the courts a spectator now shouts "This is it!" when you run under a lob to smash it, as in the original; while they shout, the applause after the point is skipped.

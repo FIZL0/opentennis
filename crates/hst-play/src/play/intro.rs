@@ -371,7 +371,7 @@ fn sounds(intro: Option<ResMut<Intro>>, g: Option<Res<Game>>, sound: Option<Res<
             intro.gallery.point(Reaction { cheer: true, event: None, chain: false }, roll);
         }
         if !matches!(crate::weather::now(), 2 | 3) {
-            for (p, angle) in intro.gallery.step(g.stage, g.players.len() as u32, false, roll) {
+            for (p, angle) in intro.gallery.step(g.stage, g.players.len() as u32, false, &sound::Watch::default(), roll) {
                 if let Some(b) = &cheers {
                     sound.play_toward(b, p, angle);
                 }
