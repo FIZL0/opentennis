@@ -71,6 +71,8 @@ pub struct Court {
     /// The manifest's `flyover`, as a camera file (`hst_sim::cutaway::intro_script`'s 40-byte records); `None`: the
     /// layout court's.
     pub flyover: Option<Vec<u8>>,
+    /// The manifest's `scroll`: the materials (by name) whose texture slides, in texture repeats a second (u, v).
+    pub scroll: Vec<(String, Vec2)>,
 }
 
 /// M8f7: `npcs.json`, checked: the models (path, turned to the camera), the people placed and the cue sounds.
@@ -229,7 +231,22 @@ pub fn read(dir: &Path) -> Result<Court, String> {
         lens_flare: j["lens_flare"].as_str().filter(|f| crate::modfs::plain(f)).map(|f| dir.join(f)).filter(|p| crate::modfs::is_file(p)),
         people: with_people.then(|| people(dir).map_err(|e| warn!("{e}")).ok()).flatten(),
         flyover: flyover(&j["flyover"]).map_err(err)?,
+        scroll: scroll(&j["scroll"]).map_err(err)?,
     })
+}
+
+/// The manifest's `scroll`: `{"<material name>": [u, v]}`, each material's texture sliding by that many repeats a
+/// second (the sea's ripples, a river's flow).
+fn scroll(v: &serde_json::Value) -> Result<Vec<(String, Vec2)>, String> {
+    let serde_json::Value::Object(m) = v else {
+        return if v.is_null() { Ok(Vec::new()) } else { Err("`scroll` must map material names to [u, v]".into()) };
+    };
+    m.iter()
+        .map(|(name, uv)| {
+            let uv = uv.as_array().filter(|a| a.len() == 2).and_then(|a| Some(Vec2::new(a[0].as_f64()? as f32, a[1].as_f64()? as f32)));
+            uv.filter(|uv| uv.is_finite() && uv.abs().max_element() <= 10.0).map(|uv| (name.clone(), uv)).ok_or_else(|| format!("`scroll.{name}` must be two numbers within ±10"))
+        })
+        .collect()
 }
 
 /// The manifest's `flyover` (an indoor set the layout court's flyover would leave): up to 20 keys `{"frames", "eye",
@@ -306,6 +323,9 @@ mod tests {
         assert_eq!((i16::from_le_bytes([dat[40], dat[41]]), f32::from_le_bytes(dat[44..48].try_into().unwrap()), f32::from_le_bytes(dat[60..64].try_into().unwrap())), (120, 0.5, -8.0));
         assert_eq!(i16::from_le_bytes([dat[82], dat[83]]), 1);
         assert_eq!(flyover(&serde_json::Value::Null), Ok(None));
+        assert_eq!(scroll(&serde_json::json!({"sea": [0.02, -0.01]})), Ok(vec![("sea".to_string(), Vec2::new(0.02, -0.01))]));
+        assert_eq!(scroll(&serde_json::Value::Null), Ok(Vec::new()));
+        assert!(scroll(&serde_json::json!({"sea": [1]})).is_err());
         assert!(flyover(&serde_json::json!([{"eye":[0,0,0],"pitch":0,"yaw":0},{"eye":[0,0,0],"pitch":0,"yaw":0}])).unwrap_err().contains("frames"));
         assert!(flyover(&serde_json::json!([{"eye":[0,0],"pitch":0,"yaw":0}])).unwrap_err().contains("eye"));
     }

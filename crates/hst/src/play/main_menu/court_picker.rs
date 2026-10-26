@@ -253,7 +253,7 @@ mod tests {
 
     fn court(i: usize) -> crate::mods_court::Court {
         let (id, name, dir) = (format!("c{i}"), format!("Court {i}"), PathBuf::from(format!("c{i}")));
-        crate::mods_court::Court { dir, id, name, source: "Get a Grip".into(), layout: 5, light: None, sky: false, gimmick: false, bgm: None, ambience: Vec::new(), lens_flare: None, people: None, flyover: None }
+        crate::mods_court::Court { dir, id, name, source: "Get a Grip".into(), layout: 5, light: None, sky: false, gimmick: false, bgm: None, ambience: Vec::new(), lens_flare: None, people: None, flyover: None, scroll: Vec::new() }
     }
 
     fn picker(mods: usize, aspect: f32) -> Menu {

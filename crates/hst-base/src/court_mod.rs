@@ -45,7 +45,7 @@ pub fn add(app: &mut App, court: Option<Court>) {
         .init_resource::<Kept>()
         .add_systems(PostStartup, setup)
         .add_systems(PreUpdate, sounds)
-        .add_systems(Update, (keep.after(crate::weather::apply), animate))
+        .add_systems(Update, (keep.after(crate::weather::apply), animate, slide))
         .add_systems(PostUpdate, (clear_view.before(bevy::transform::TransformSystems::Propagate), clear_off))
         .add_systems(PostUpdate, bare.after(bevy::ui::UiSystems::Layout).before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
 }
@@ -83,6 +83,9 @@ enum Role {
 pub struct Kept {
     materials: Vec<(AssetId<GsMaterial>, Role)>,
     fog: Option<(Vec4, Vec4)>,
+    /// The manifest's `scroll` speeds by material name, and the materials that slide at them (`slide`).
+    speeds: Vec<(String, Vec2)>,
+    scroll: Vec<(AssetId<GsMaterial>, Vec2)>,
 }
 
 /// A glTF animation looping on its own clock: per channel the node's entity, its times and its values.
@@ -147,6 +150,7 @@ fn setup(
 ) {
     let Ok(root) = root.single() else { return };
     let c = &court.0;
+    kept.speeds.clone_from(&c.scroll);
     let mut store = Store { meshes: &mut meshes, images: &mut images, materials: &mut materials, binds: &mut binds, kept: &mut kept, upscaled: None };
     for (file, sky) in [("court.glb", false), ("gimmick.glb", false), ("sky.glb", true)] {
         let path = c.dir.join(file);
@@ -443,6 +447,9 @@ fn materials(doc: &gltf::Document, blob: &[u8], s: &mut Store, role: Role, clear
             }
             let h = s.materials.add(g);
             s.kept.materials.push((h.id(), role));
+            if let Some((_, speed)) = s.kept.speeds.iter().find(|(n, _)| *n == mtl.name) {
+                s.kept.scroll.push((h.id(), *speed));
+            }
             handles.push(h);
         }
         out.push(handles);
@@ -716,6 +723,17 @@ fn animate(time: Res<Time>, clips: Query<&Looped>, mut nodes: Query<&mut Transfo
     let now = time.elapsed_secs();
     for clip in &clips {
         clip.pose(now % clip.length, &mut nodes);
+    }
+}
+
+/// The manifest's `scroll`: each named material's texture sliding at its speed (whole repeats dropped, so the
+/// offset stays small).
+fn slide(time: Res<Time>, kept: Res<Kept>, mut materials: ResMut<Assets<GsMaterial>>) {
+    let now = time.elapsed_secs_f64();
+    for &(id, speed) in &kept.scroll {
+        if let Some(mut m) = materials.get_mut(id) {
+            m.uniform.uv_offset = speed.as_dvec2().map(|v| (v * now).rem_euclid(1.0)).as_vec2();
+        }
     }
 }
 

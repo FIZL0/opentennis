@@ -188,6 +188,7 @@ mod tests {
             lens_flare: None,
             people: None,
             flyover: None,
+            scroll: Vec::new(),
         };
         let last = *STRIP.last().unwrap();
         let mut m = Menu { screen: Screen::Confirm, seats: [Some(Dev::Keys), None, None, None], court: last, court_mods: vec![court(1, 5), court(3, 9)], ..default() };
@@ -230,7 +231,7 @@ mod tests {
     fn online_rooms_carry_the_court_mod() {
         use super::super::online::{Fx, Go};
         use crate::net::{Cmd, Room};
-        let court = |n: u8, layout| crate::mods_court::Court { dir: format!("mods/gag_c{n:02}").into(), id: format!("gag_c{n:02}"), name: format!("Court {n:02}"), source: "Get a Grip".into(), layout, light: None, sky: false, gimmick: false, bgm: None, ambience: Vec::new(), lens_flare: None, people: None, flyover: None };
+        let court = |n: u8, layout| crate::mods_court::Court { dir: format!("mods/gag_c{n:02}").into(), id: format!("gag_c{n:02}"), name: format!("Court {n:02}"), source: "Get a Grip".into(), layout, light: None, sky: false, gimmick: false, bgm: None, ambience: Vec::new(), lens_flare: None, people: None, flyover: None, scroll: Vec::new() };
         let mut m = Menu { screen: Screen::Lobby, court: COURTS + 2, court_mods: vec![court(1, 5), court(3, 9)], ..default() };
         m.sel = 1;
         m.net.go = Some(Go::Host);
@@ -267,7 +268,7 @@ mod tests {
     /// value is the installed mod's else the layout court, and a mod's tile label breaks its name in two.
     #[test]
     fn court_mod_pictures_and_labels() {
-        let court = |n: usize, name: &str| crate::mods_court::Court { dir: format!("mods/c{n}").into(), id: format!("c{n}"), name: name.into(), source: "Game".into(), layout: 4, light: None, sky: false, gimmick: false, bgm: None, ambience: Vec::new(), lens_flare: None, people: None, flyover: None };
+        let court = |n: usize, name: &str| crate::mods_court::Court { dir: format!("mods/c{n}").into(), id: format!("c{n}"), name: name.into(), source: "Game".into(), layout: 4, light: None, sky: false, gimmick: false, bgm: None, ambience: Vec::new(), lens_flare: None, people: None, flyover: None, scroll: Vec::new() };
         let m = Menu { court_mods: vec![court(0, "Mt. Sakura C.C. Courts"), court(1, "Hill")], court_pics: vec![None, Some([640.0, 360.0])], ..default() };
         assert_eq!(m.court_pic(COURTS + 2), Some((1, [640.0, 360.0])));
         assert_eq!(m.court_pic(COURTS + 1), None, "no previews/court.png: its layout's tile");
@@ -290,7 +291,7 @@ mod tests {
     #[test]
     fn a_hundred_court_mods_fit_the_picker() {
         let t = pointer::tests::text_with_mods(0);
-        let court = |n: usize| crate::mods_court::Court { dir: format!("mods/c{n}").into(), id: format!("c{n}"), name: "A Rather Long Court Name Here".into(), source: "Some Game: Its Subtitle".into(), layout: (n % 11) as u8, light: None, sky: false, gimmick: false, bgm: None, ambience: Vec::new(), lens_flare: None, people: None, flyover: None };
+        let court = |n: usize| crate::mods_court::Court { dir: format!("mods/c{n}").into(), id: format!("c{n}"), name: "A Rather Long Court Name Here".into(), source: "Some Game: Its Subtitle".into(), layout: (n % 11) as u8, light: None, sky: false, gimmick: false, bgm: None, ambience: Vec::new(), lens_flare: None, people: None, flyover: None, scroll: Vec::new() };
         for a in [4.0, 21.0 / 9.0, 16.0 / 9.0, 4.0 / 3.0, 9.0 / 16.0, 0.4] {
             for pick in [COURTS, COURTS + 1, COURTS + 50, COURTS + 100] {
                 let mut m = Menu { screen: Screen::Confirm, seats: [Some(Dev::Keys), None, None, None], court: pick, court_mods: (0..100).map(court).collect(), grid: Grid::fit(a), ..default() };
