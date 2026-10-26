@@ -1390,7 +1390,7 @@ fn motion_of(name: &str) -> Result<(usize, Option<u32>), String> {
 }
 
 /// A racket's shape along its joint's y: the middle of its handle across x and z, the bottom of its head's rim and
-/// its tip. The head is widest across its middle; the rim's bottom is as far below that as the tip is above.
+/// its tip.
 fn racket_shape(meshes: &mut impl Store<Mesh>, r: &[(Handle<Mesh>, Handle<StandardMaterial>)]) -> (Vec3, f32, f32) {
     let v: Vec<Vec3> = r.iter().filter_map(|(h, _)| match meshes.get_mut(h)?.attribute(Mesh::ATTRIBUTE_POSITION)? {
         bevy::mesh::VertexAttributeValues::Float32x3(p) => Some(p.iter().map(|&v| Vec3::from(v)).collect::<Vec<_>>()),
@@ -1399,10 +1399,9 @@ fn racket_shape(meshes: &mut impl Store<Mesh>, r: &[(Handle<Mesh>, Handle<Standa
     let handle: Vec<Vec3> = v.iter().filter(|v| v.y < 0.15).copied().collect();
     let handle = if handle.is_empty() { Vec3::ZERO } else { (handle.iter().copied().reduce(Vec3::min).unwrap() + handle.iter().copied().reduce(Vec3::max).unwrap()) * Vec3::new(0.5, 0.0, 0.5) };
     let wide = v.iter().map(|v| (v.x - handle.x).abs()).fold(0.0, f32::max);
-    let rows: Vec<f32> = v.iter().filter(|v| (v.x - handle.x).abs() >= 0.95 * wide).map(|v| v.y).collect();
-    let tip = v.iter().map(|v| v.y).fold(f32::MIN, f32::max);
-    let middle = rows.iter().sum::<f32>() / rows.len().max(1) as f32;
-    (handle, 2.0 * middle - tip, tip)
+    // a sparse head's widest vertex may be anywhere on it; its lowest wide one is the rim's bottom
+    let rim = v.iter().filter(|v| (v.x - handle.x).abs() >= 0.5 * wide).map(|v| v.y).fold(f32::MAX, f32::min);
+    (handle, rim, v.iter().map(|v| v.y).fold(f32::MIN, f32::max))
 }
 
 /// Loads costume `costume` of mod `m` (motions, faces and arm table from the donor on the disc).
@@ -1907,7 +1906,7 @@ mod tests {
         let arc = Archive::parse(&data).unwrap();
         let r = character::disc_racket(&arc, 6, &mut s.0, &mut s.1, &mut s.2, &mut Default::default()).unwrap();
         let (handle, rim, tip) = racket_shape(&mut s.0, &r);
-        assert!(handle.length() < 0.01 && (rim - 0.5).abs() < 0.03 && (tip - 0.944).abs() < 0.01, "{handle} {rim} {tip}");
+        assert!(handle.length() < 0.01 && (rim - 0.53).abs() < 0.03 && (tip - 0.944).abs() < 0.01, "{handle} {rim} {tip}");
     }
 
     /// Model-space joint positions of `c` playing motion `id` at time `t`, by joint name.
