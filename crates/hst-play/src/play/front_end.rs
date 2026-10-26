@@ -1,6 +1,6 @@
 //! P61: what the match asks of the front-end above it (the pause screen `menu.rs`, the select's preview cache in
 //! `main_menu/`), which the match's crate can't name: the app inserts [`FrontEnd`] with the match (`main.rs`
-//! `add_match`). A bare match (most tests) has none: never paused, the disc's own faces.
+//! `add_match`). A bare match (most tests) has none: never paused, no faces.
 
 use bevy::prelude::*;
 use crate::mods::Mod;

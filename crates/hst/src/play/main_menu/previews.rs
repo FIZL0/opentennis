@@ -282,7 +282,7 @@ fn cache_dir(iso: &str, name: &str) -> PathBuf {
 }
 
 /// B133: player face icon (INPANE's layout, [`inspect::face_icon`]) for the match panel, from the select preview of
-/// mod `m`'s costume `k`, else (B160) disc character `c`'s; None until that's baked (the panel shows the disc face).
+/// mod `m`'s costume `k`, else (B160) disc character `c`'s; None until that's baked (the panel's face is clear till then).
 pub(crate) fn face(iso: &str, m: Option<&Mod>, c: usize, k: usize) -> Option<Image> {
     let dir = cache_dir(iso, &cache_name(iso));
     let path = match m {
@@ -293,7 +293,7 @@ pub(crate) fn face(iso: &str, m: Option<&Mod>, c: usize, k: usize) -> Option<Ima
 }
 
 /// The players' picks all have their face close-up (the match HUD's, [`face`]) drawn, or one that can't be drawn
-/// (gone, failed): a launch waits on it so a quick start shows the baked faces, not the disc's (the baker draws the picks
+/// (gone, failed): a launch waits on it so a quick start shows the baked faces, not clear ones (the baker draws the picks
 /// first once the menu is on `Playing`).
 pub(super) fn picks_drawn(menu: &Menu, loader: &mut Loader, baker: &Baker) -> bool {
     (0..menu.players()).map(|p| menu.pick(p)).all(|key| {

@@ -454,8 +454,8 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, await_faces.run_if(resource_exists::<WaitingFaces>));
 }
 
-/// B649: players on a mod whose own face wasn't there when the match began (the select's drawing of it still under
-/// way, or a launch that didn't wait for it): their face slot, and the store's picture of the mod once asked for.
+/// B649: players whose baked face wasn't there when the match began (the select's drawing of it still under way, or a
+/// launch that didn't wait for it): their face slot, and a mod's store picture once asked for.
 #[derive(Resource, Default)]
 struct WaitingFaces(Vec<WaitingFace>);
 
@@ -479,8 +479,8 @@ fn clear_face() -> Image {
 /// B649: how often a waiting face looks in the select's cache again.
 const FACE_RETRY: f32 = 0.5;
 
-/// B649: fills a waiting mod face in place (same handle, so the panel and pop-ups pick it up) with the select's baked
-/// close-up once it's there, else the face cut from the mod's store picture (a store mod's listing picture is the
+/// B649: fills a waiting face in place (same handle, so the panel and pop-ups pick it up) with the select's baked
+/// close-up once it's there, else a mod's face cut from its store picture (a store mod's listing picture is the
 /// select's own drawing of costume 0), asked for once.
 fn await_faces(mut waiting: ResMut<WaitingFaces>, args: Res<Args>, mods: Option<Res<crate::mods::MatchMod>>, front: Option<Res<super::front_end::FrontEnd>>, mut images: ResMut<Assets<Image>>, time: Res<Time>, mut next: Local<f32>) {
     if waiting.0.is_empty() || time.elapsed_secs() < *next {
@@ -488,9 +488,9 @@ fn await_faces(mut waiting: ResMut<WaitingFaces>, args: Res<Args>, mods: Option<
     }
     *next = time.elapsed_secs() + FACE_RETRY;
     waiting.0.retain_mut(|w| {
-        let Some(m) = mods.as_ref().and_then(|m| m.get(w.player)) else { return false };
-        let mut face = front.as_ref().and_then(|f| (f.face)(&args.iso, Some(m), w.char, w.outfit));
-        if face.is_none() && w.outfit == 0 {
+        let m = mods.as_ref().and_then(|m| m.get(w.player));
+        let mut face = front.as_ref().and_then(|f| (f.face)(&args.iso, m, w.char, w.outfit));
+        if let Some(m) = m.filter(|_| face.is_none() && w.outfit == 0) {
             match &w.store {
                 None => {
                     let got = std::sync::Arc::new(std::sync::Mutex::new(None));
@@ -565,24 +565,17 @@ fn setup(mut commands: Commands, args: Res<Args>, g: Res<Game>, mut images: ResM
         let o = args.outfits.get(i).copied().unwrap_or(0);
         front.as_ref().and_then(|f| (f.face)(&args.iso, mods.as_ref().and_then(|m| m.get(i)), c as usize, o))
     }).collect();
-    // Z2: the disc face is only made where there's no own one (it was made and never drawn)
+    // never the disc's face pictures: one not baked yet (B649: a mod's, never its donor's) is clear until it comes; a
+    // launch with no menu (`--play`) has no baker, so a face never baked by a menu run stays clear
     let mut drawn = Vec::new();
     let mut waiting = WaitingFaces::default();
     for (i, (&c, own)) in g.chars.iter().zip(own).enumerate() {
         let o = args.outfits.get(i).copied().unwrap_or(0);
-        match own {
-            Some(img) => {
-                drawn.push((art.len(), img));
-                art.push(Handle::default());
-            }
-            // B649: a mod not baked yet never shows its donor's face: a clear one until its own comes
-            None if mods.as_ref().and_then(|m| m.get(i)).is_some() => {
-                waiting.0.push(WaitingFace { player: i, char: c as usize, outfit: o, face: Handle::default(), store: None });
-                drawn.push((art.len(), clear_face()));
-                art.push(Handle::default());
-            }
-            None => art.push(get(format!("face/face_{c:02}_{o:02}.tm2"))),
+        if own.is_none() {
+            waiting.0.push(WaitingFace { player: i, char: c as usize, outfit: o, face: Handle::default(), store: None });
         }
+        drawn.push((art.len(), own.unwrap_or_else(clear_face)));
+        art.push(Handle::default());
     }
     for (k, img) in drawn {
         art[k] = images.add(img);
