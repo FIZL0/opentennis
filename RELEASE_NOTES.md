@@ -17,3 +17,4 @@
 - Custom characters twirl their racket about its handle, in their hand, instead of swinging it through their palm.
 - Custom characters without a racket of their own grip the handle in their fist, and those with long-headed rackets rest their free hand on the rim instead of through the strings.
 - Custom characters' free hand eases on and off the racket instead of snapping there, such as after a serve as they settle into the ready stance.
+- A custom character updated while the game is open no longer shows a blank face in the match's score panel and pause screen.
