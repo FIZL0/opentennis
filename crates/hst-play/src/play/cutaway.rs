@@ -110,7 +110,18 @@ fn predicted(g: &Game, i: usize, t: f32, motion: Option<usize>) -> Option<(M4, M
     Some((bone(p, data, r.motion, t, pos, "Bip01Head")?, bone(p, data, r.motion, t, pos, "Bip01Spine2")?))
 }
 
-pub(super) fn step(mut g: ResMut<Game>, mut d: ResMut<Director>, q: Query<(&Figure, &Motion)>) {
+/// [`cutaway::pick`], but a mod (`own_reactions`) never gets the close-up (B665): the game keeps that shot, the camera
+/// on the ground in front of the player looking up, for the characters whose reaction is made for it, and a mod plays
+/// its own reactions. The close-up's turn goes on to the next shot that fits, as for a character without it.
+fn pick(lists: &[Vec<u8>; 3], counters: &mut [usize; 3], i: &PickInput, own_reactions: bool) -> u8 {
+    let mut n = cutaway::pick(lists, counters, i);
+    while own_reactions && n == cutaway::post::CLOSE_UP {
+        n = cutaway::pick(lists, counters, i);
+    }
+    n
+}
+
+pub(super) fn step(mut g: ResMut<Game>, mut d: ResMut<Director>, q: Query<(&Figure, &Motion)>, mods: Option<Res<crate::mods::MatchMod>>) {
     // a replay runs on its own cameras (`replay_camera`); after the match-ending one its closing shot holds
     if g.instant.replaying {
         d.shot = None;
@@ -159,7 +170,7 @@ pub(super) fn step(mut g: ResMut<Game>, mut d: ResMut<Director>, q: Query<(&Figu
             head: cutaway::IDENTITY,
             spot: [p.pos[0], p.pos[1], p.pos[2], 1.0],
         };
-        let n = cutaway::pick(
+        let n = pick(
             &d.lists,
             &mut d.counters,
             &PickInput {
@@ -170,6 +181,8 @@ pub(super) fn step(mut g: ResMut<Game>, mut d: ResMut<Director>, q: Query<(&Figu
                 replays: g.instant.replays,
                 character: g.chars[shown],
             },
+            // the match's mods, the same on every peer online (a stand-in without the looks too)
+            mods.as_ref().is_some_and(|m| m.get(shown).is_some()),
         );
         d.mirror = !d.mirror;
         info!("cut-away shot {n:#x} on player {shown} (other {other}), mirror {}", d.mirror);
@@ -232,5 +245,26 @@ mod tests {
         data.visual.insert(0x2c, data.motions[&0x10].clone());
         assert_eq!(drawn_time(&data, &m), 9.0, "not the drawn clock");
         assert_eq!(bone(&p, &data, 0x2c, drawn_time(&data, &m), pos, "Bip01Head").unwrap(), own, "not the drawn clip");
+    }
+
+    /// B665: a mod never gets the ground close-up, on any list; a disc character's picks are `cutaway::pick`'s.
+    #[test]
+    fn mods_skip_the_close_up() {
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
+        let lists = hst_data::exe::Game::new(&cnf, &bin).unwrap().cutaway_lists();
+        let mut seen = false;
+        for (team, game_end, lost, replays) in [(false, false, false, 0), (false, true, false, 0), (false, true, true, 3), (true, false, true, 1)] {
+            // character 11, whose close-up the game shows (LJ's donor)
+            let i = PickInput { team, game_end, lost, low: false, replays, character: 11 };
+            let (mut stock, mut plain, mut modded) = ([0; 3], [0; 3], [0; 3]);
+            for _ in 0..40 {
+                let n = pick(&lists, &mut stock, &i, false);
+                assert_eq!(n, cutaway::pick(&lists, &mut plain, &i), "a disc character's pick changed");
+                seen |= n == cutaway::post::CLOSE_UP;
+                assert_ne!(pick(&lists, &mut modded, &i, true), cutaway::post::CLOSE_UP, "a mod got the close-up");
+            }
+        }
+        assert!(seen, "the disc character never got the close-up");
     }
 }
