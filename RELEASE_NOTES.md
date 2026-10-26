@@ -37,3 +37,4 @@
 - In split screen, each half's camera now zooms out to keep a wide ball in view.
 - In split screen, both players now see the ball's outline, not just one of them.
 - On custom courts with water, things under the water (like the corals at the beach resort court) now show under it instead of drawing on top.
+- Emotes on the lobby and character select cards now play exactly to their end, no longer freezing on their last frame or being cut short.

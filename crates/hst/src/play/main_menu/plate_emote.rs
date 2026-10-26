@@ -39,9 +39,11 @@ const WAIT: f32 = 3.0;
 
 #[derive(Resource, Default)]
 struct Plates {
-    /// Each card's flick still to play (and when it came), its emote's end (elapsed seconds) once playing.
+    /// Each card's flick still to play (and when it came), and once playing its motion's set (`Motion::sets`) and
+    /// the frame it ends on: the card's own motion clock ends it, not a timer beside it (which drifted off the
+    /// motion, holding its last frame or cutting it short).
     queued: [Option<(u8, f32)>; 4],
-    until: [Option<f32>; 4],
+    playing: [Option<(u32, f32)>; 4],
     /// Each pad's last flick (a new one starts an emote, as the match's `tick_input` does).
     held: HashMap<Entity, Option<u8>>,
     /// The voice banks heard (by bank path), and each card's last key per emote (the takes come round in turn, as
@@ -144,7 +146,7 @@ fn input(
 
 /// Card `p` takes flick `d` unless its last emote is still playing (or waiting to): whether it did.
 fn start(plates: &mut Plates, p: usize, d: u8, now: f32) -> bool {
-    let busy = plates.queued[p].is_some_and(|(_, t)| now - t < WAIT) || plates.until[p].is_some_and(|t| now < t);
+    let busy = plates.queued[p].is_some_and(|(_, t)| now - t < WAIT) || plates.playing[p].is_some();
     if !busy {
         plates.queued[p] = Some((d, now));
     }
@@ -171,9 +173,17 @@ fn play(
         let Ok(rig) = data.get(p.rig) else { continue };
         live[i] = true;
         let d = rig.data.clone();
-        if plates.until[i].is_some_and(|t| now >= t) {
-            plates.until[i] = None;
-            inspect::apply(&mut p, inspect::Act::Pose, &mut rigs, &d);
+        if let Some((sets, end)) = plates.playing[i] {
+            match rigs.get(p.rig) {
+                // played out: back to the pose
+                Ok((m, ..)) if m.sets == sets && m.drawn.sampled >= end => {
+                    plates.playing[i] = None;
+                    inspect::apply(&mut p, inspect::Act::Pose, &mut rigs, &d);
+                }
+                Ok((m, ..)) if m.sets == sets => {}
+                // something else restarted the card's motion (the select's win / loss): it's over
+                _ => plates.playing[i] = None,
+            }
         }
         if hidden.0[i] {
             continue;
@@ -183,10 +193,11 @@ fn play(
         if !inspect::react(&mut p, id, &mut rigs, &d) {
             continue;
         }
-        // the match's length at 60 ticks a second: a mod's own clip's (it can outrun the donor's), else the motion's
+        // the take drawn plays to its end, a mod's own clip only until it stops moving (`emote_ticks`, as the match)
         let sets = rigs.get(p.rig).map_or(0, |(m, ..)| m.sets);
-        let ticks = d.emote_ticks(id, sets).map_or(d.motions[&id].length.ceil(), |t| t as f32);
-        plates.until[i] = Some(now + ticks.max(1.0) / 60.0);
+        let length = d.drawn_take(id, sets).map_or(0.0, |c| c.length);
+        let end = d.emote_ticks(id, sets).map_or(length, |t| (t as f32).min(length));
+        plates.playing[i] = Some((sets, end));
         // B474's mute covers these too
         if let Some(s) = sound.as_ref().filter(|_| crate::audio::EMOTE_VOICES.load(std::sync::atomic::Ordering::Relaxed)) {
             let who = menu.pick(i).0;
@@ -205,7 +216,7 @@ fn play(
     }
     for (i, &up) in live.iter().enumerate() {
         if !up {
-            plates.until[i] = None;
+            plates.playing[i] = None;
             match plates.queued[i] {
                 Some((_, t)) if now - t >= WAIT || !on(&menu) => plates.queued[i] = None,
                 // its picture gives way to the live model (`previews::sync` loads it for a press)
@@ -263,9 +274,9 @@ mod tests {
         assert_eq!(press(&mut app, KeyCode::Digit1)[1].map(|q| q.0), Some(2), "the waiting one stays");
         // played (`play` took it), still playing, then out
         let mut plates = app.world_mut().resource_mut::<Plates>();
-        (plates.queued[1], plates.until[1]) = (None, Some(1.0));
+        (plates.queued[1], plates.playing[1]) = (None, Some((1, 30.0)));
         assert_eq!(press(&mut app, KeyCode::Digit1)[1], None, "while it plays");
-        app.world_mut().resource_mut::<Plates>().until[1] = Some(-1.0);
+        app.world_mut().resource_mut::<Plates>().playing[1] = None;
         assert_eq!(press(&mut app, KeyCode::Digit1)[1].map(|q| q.0), Some(0));
         app.world_mut().resource_mut::<Menu>().screen = Screen::Mods;
         assert_eq!(press(&mut app, KeyCode::Digit2), [None; 4], "not on the Mods page");
