@@ -166,6 +166,28 @@ impl<'a> Game<'a> {
         Foot { steps, puffs: [row(0x41_14a0), row(0x41_14d8)], decay: self.f32(0x41_13d8), wind: self.f32(0x41_13e0), courts, debris }
     }
 
+    /// The ball's bounce debris (B680): bits per burst and the clod and blade rows (the same layout as the dive
+    /// debris' rows, its own values), and a blade's sink per frame. Clods and blades share the dive debris' cells
+    /// and least fall speed ([`Foot::debris`]).
+    pub fn bounce_debris(&self) -> BounceDebris {
+        let i = |a: u32| i32::from_le_bytes(self.at(a, 4).try_into().unwrap());
+        let pair = |a: u32| [self.f32(a), self.f32(a + 4)];
+        let row = |a: u32| DebrisRow {
+            reach: self.f32(a),
+            spread: self.f32(a + 4),
+            speed: pair(a + 8),
+            power: self.f32(a + 0x10),
+            decay: self.f32(a + 0x14),
+            size: pair(a + 0x18),
+            shrink: self.f32(a + 0x20),
+            fall: self.f32(a + 0x24),
+            offset: [pair(a + 0x28), pair(a + 0x30)],
+            spin: [pair(a + 0x38), pair(a + 0x40), pair(a + 0x48)],
+            push: self.f32(a + 0x50),
+        };
+        BounceDebris { counts: [i(0x41_6720), i(0x41_6778)], rows: [row(0x41_6724), row(0x41_677c)], sink: self.f32(0x41_67d0) }
+    }
+
     /// Frames the ball's wind tornado takes to fade out once grown.
     pub fn tornado_fade(&self) -> i32 {
         i32::from_le_bytes(self.at(0x41_6650, 4).try_into().unwrap())
@@ -672,6 +694,14 @@ pub struct Debris {
     pub rows: [DebrisRow; 2],
     pub cells: [[[i32; 2]; 4]; 2],
     pub lift: f32,
+    pub sink: f32,
+}
+
+/// See [`Game::bounce_debris`]: per kind (clods, blades) the bits a burst throws and its row.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BounceDebris {
+    pub counts: [i32; 2],
+    pub rows: [DebrisRow; 2],
     pub sink: f32,
 }
 

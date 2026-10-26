@@ -725,6 +725,9 @@ pub const MARKS: usize = 20;
 pub const MARK_LIFE: i32 = 1800;
 const PUFFS: usize = 2;
 const PUFF_LIFE: i32 = 20;
+/// A wet court's first-bounce puff starts this big (a dry one 0.15) and every puff rises 0.01 a frame (Y-down).
+const WET_PUFF: f32 = 0.25;
+const WET_RISE: f32 = -0.01;
 
 /// A ball mark on the court: a ground quad stretched along the bounce by the ball's level speed.
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
@@ -795,21 +798,49 @@ pub struct Bounce {
     pub crater_at: [[f32; 4]; 4],
     /// Marks age (in play); held marks stay.
     pub fading: bool,
-    /// The court raises dust (`BounceLook::puffs`): puffs only animate on such courts.
+    /// The court raises dust (`BounceLook::puffs`): puffs only animate on such courts, or in rain.
     pub puffing: bool,
     /// Bounces seen so far this flight.
     seen: i32,
+    /// It rained as the point was set up (`set_up`): puffs are spray, bigger and rising; a smash landing puffs instead
+    /// of raising its dust cloud; a court bounce shows the `run/spray` model in the ring's place.
+    #[serde(default)]
+    pub wet: bool,
+    /// The ball has struck a player this point: the ring shows half as big again.
+    #[serde(default)]
+    pub body_hit: bool,
+    /// The `run/spray` model ([`Bounce::with_spray`]) and whether it is the one in the ring's place.
+    #[serde(default)]
+    pub spray: Option<Effect>,
+    #[serde(default)]
+    pub spraying: bool,
 }
 
 impl Bounce {
     pub fn new(ring: Effect, crater: Effect, puffing: bool) -> Bounce {
         let z = [[0.0; 4]; 4];
-        Bounce { marks: vec![], puffs: vec![], dust: None, ring, ring_at: z, crater, crater_at: z, fading: false, puffing, seen: 0 }
+        Bounce { marks: vec![], puffs: vec![], dust: None, ring, ring_at: z, crater, crater_at: z, fading: false, puffing, seen: 0, wet: false, body_hit: false, spray: None, spraying: false }
+    }
+
+    /// The `run/spray` model a wet court's bounce shows instead of the ring.
+    pub fn with_spray(mut self, spray: Effect) -> Bounce {
+        self.spray = Some(spray);
+        self
+    }
+
+    /// A point is set up: `wet` whether it rains now (the weather's two rain states).
+    pub fn set_up(&mut self, wet: bool) {
+        self.wet = wet;
+    }
+
+    /// Puffs show and age: on a dusty court, or a wet one.
+    fn puffs_show(&self) -> bool {
+        self.puffing || self.wet
     }
 
     fn puff(&mut self, p: Puff) {
         // a court without dust (the indoor hall's) shows none: its puffs never age, so one stayed at the last bounce
-        if !self.puffing {
+        if !self.puffs_show() {
             return;
         }
         if self.puffs.len() == PUFFS {
@@ -820,7 +851,6 @@ impl Bounce {
 
     /// One frame of the ball with `bounces` so far and its contact records (`contacts` empty when it has none);
     /// `smash` when a first bounce now would be a smash landing.
-    // ponytail: wet courts (spray model, rising puffs) and the replay's larger crater are left out
     pub fn tick(&mut self, bounces: i32, contacts: &[Contact], smash: bool) {
         let (mut ring, mut crater) = (false, false);
         if let Some(c) = contacts.first().filter(|_| bounces == 1 && self.seen != 1) {
@@ -838,8 +868,12 @@ impl Bounce {
                 crater = true;
                 self.crater.start();
                 self.crater_at = [side, up, fwd, p];
-                let d = Puff::new([p[0], 0.1, p[2], p[3]], (F(0.15) * 2.0).0, (F(0.3) * 2.0).0);
-                self.dust = Some((d, [fwd[0], 0.0, fwd[2], 0.0], 0.05));
+                if self.wet {
+                    self.puff(Puff::new(p, (F(WET_PUFF) * 2.0).0, (F(0.3) * 2.0).0));
+                } else {
+                    let d = Puff::new([p[0], 0.1, p[2], p[3]], (F(0.15) * 2.0).0, (F(0.3) * 2.0).0);
+                    self.dust = Some((d, [fwd[0], 0.0, fwd[2], 0.0], 0.05));
+                }
             } else if c.court {
                 if self.marks.len() == MARKS {
                     self.marks.remove(0);
@@ -851,19 +885,29 @@ impl Bounce {
                     len,
                     alpha: 0.0,
                 });
-                self.puff(Puff::new(p, 0.15, 0.3));
+                self.puff(Puff::new(p, if self.wet { WET_PUFF } else { 0.15 }, 0.3));
             }
             if !self.crater.live {
                 ring = true;
                 let n = c.normal;
                 let pitch = crate::libm::atan2f((-F(n[1])).0, (F(n[2]) * n[2]).madd(n[0], n[0]).sqrt().0);
                 let m = world::mat_mul(&world::rot_x(pitch), &world::rot_y(crate::libm::atan2f(n[0], n[2])));
-                self.ring_at = [m[0], m[1], m[2], [p[0], p[1], p[2], 1.0]];
-                self.ring.start();
+                let k = if self.body_hit { 1.5 } else { 1.0 };
+                let row = |r: [f32; 4]| if self.body_hit { r.map(|v| (F(v) * k).0) } else { r };
+                self.ring_at = [row(m[0]), row(m[1]), row(m[2]), [p[0], p[1], p[2], 1.0]];
+                self.spraying = self.wet && c.court && !self.body_hit && self.spray.is_some();
+                // one ring object: the model it shows is swapped, so the other stops
+                if let Some(s) = self.spray.as_mut().filter(|_| self.spraying) {
+                    self.ring.live = false;
+                    s.start();
+                } else {
+                    self.spray.iter_mut().for_each(|s| s.live = false);
+                    self.ring.start();
+                }
             }
         }
         if let Some(c) = contacts.get(1).filter(|c| bounces == 2 && self.seen != 2 && c.court) {
-            self.puff(Puff::new(c.point, 0.1, 0.2));
+            self.puff(Puff::new(c.point, if self.wet { 0.2 } else { 0.1 }, 0.2));
         }
 
         let fading = self.fading;
@@ -873,8 +917,15 @@ impl Bounce {
             m.alpha = (F((before << 7) as f32) / MARK_LIFE as f32).0;
             m.life >= 0
         });
-        if self.puffing {
-            self.puffs.retain_mut(|p| p.tick(|_| {}));
+        if self.puffs_show() {
+            let rise = if self.wet { WET_RISE } else { 0.0 };
+            self.puffs.retain_mut(|p| {
+                p.tick(|p| {
+                    if rise != 0.0 {
+                        p.pos[1] = (F(p.pos[1]) + rise).0;
+                    }
+                })
+            });
         }
         if let Some((d, dir, speed)) = &mut self.dust {
             let alive = d.tick(|d| {
@@ -887,6 +938,7 @@ impl Bounce {
         }
         if !ring {
             self.ring.tick();
+            self.spray.iter_mut().for_each(Effect::tick);
         }
         if !crater {
             self.crater.tick();
@@ -924,4 +976,166 @@ fn sin_table() -> [f32; 258] {
         };
         (((musl::sin(i as f64 * std::f64::consts::PI / 512.0) * 1e6).round() + off) / 1e6) as f32
     })
+}
+
+/// Bits a bounce debris burst throws at most.
+pub const BOUNCE_BITS: usize = 30;
+/// A clod's fall a frame: 9.8 m/s² over 60² frames², times its row's `fall`.
+const CLOD_GRAVITY: f32 = 0.002_722_222_4;
+
+/// What the ball's bounce debris knows of the court: its flags (`FootCourt` grass, clay) and its disc number.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct DebrisCourt {
+    pub grass: bool,
+    pub clay: bool,
+    pub court: usize,
+}
+
+/// The ball's bounce debris: on the flight's first bounce off the court (no player struck this point) a smash
+/// landing throws a burst of clods (`par/tuti`) from the ball, up and along it, on any court. The clods fly, fall
+/// and shrink until they reach the court. The first bounce also files the court's kind (blades on grass, clods on
+/// clay), which only an instant replay's own bursts use. Draws on the sound manager's generator, four words a clod.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct BounceBits {
+    /// This flight's first bounce has been looked at.
+    seen: bool,
+    /// The last first bounce's kind: −1 none, 0 clods, 1 blades.
+    pub kind: i32,
+    /// The smash burst's clods (`foot::Bit`: at `m[3]`, `size` half wide, texture cell `cell`) and whether it shows.
+    pub smash: [crate::foot::Bit; BOUNCE_BITS],
+    pub smash_live: bool,
+}
+
+impl BounceBits {
+    /// A point is set up: the smash burst stops showing (its clods stay as they were).
+    pub fn set_up(&mut self) {
+        self.smash_live = false;
+    }
+
+    /// One frame of the ball: `bounces` so far, its first contact record (`None` while it has none), its position
+    /// now, `body_hit` a player has been struck this point, `smash` a first bounce now is a smash landing (more than
+    /// one player, a smash, 85 km/h or more). `rand` is the sound manager's generator.
+    #[allow(clippy::too_many_arguments)]
+    pub fn tick(&mut self, t: &hst_data::exe::BounceDebris, dive: &hst_data::exe::Debris, ground: DebrisCourt, bounces: i32, first: Option<&Contact>, ball: [f32; 3], body_hit: bool, smash: bool, rand: &mut impl FnMut() -> u32) {
+        if bounces == 0 {
+            self.seen = false;
+        }
+        if bounces == 1 && !self.seen {
+            self.seen = true;
+            if let Some(c) = first.filter(|c| !body_hit && c.court) {
+                self.kind = if ground.grass { 1 } else if ground.clay { 0 } else { -1 };
+                if smash {
+                    self.throw_smash(t, dive, ground.court, c.vel, ball, rand);
+                }
+                // the clod and blade bursts only throw in an instant replay (B72)
+            }
+        }
+        self.age(t);
+    }
+
+    /// The smash burst: clods thrown from the ball up and along its way in, bigger on the dusty courts.
+    fn throw_smash(&mut self, t: &hst_data::exe::BounceDebris, dive: &hst_data::exe::Debris, court: usize, vel: [f32; 4], ball: [f32; 3], rand: &mut impl FnMut() -> u32) {
+        let row = t.rows[0];
+        // the hard and indoor courts throw smaller clods
+        let scale = if matches!(court, 4 | 7 | 11) { 2.5 } else { 3.0 };
+        let (lo, hi) = (F(row.size[0]) * scale, F(row.size[1]) * scale);
+        let dir = [vel[0], -1.0, vel[2], vel[3]];
+        let o = [ball[0], ball[1], ball[2], 1.0];
+        let b = impact_matrix(dir, [0.0; 3]);
+        let mut basis = [b[0], b[1], b[2], std::array::from_fn(|k| (F::ZERO + o[k]).madd(b[2][k], row.reach).0)];
+        let unit = |x: u32| F(crate::ps2::utof(x)) * crate::rng::TWO_POW_M32;
+        let mut reach = (F(vel[2]) * vel[2]).madd(vel[0], vel[0]).sqrt();
+        if row.power > 0.0 {
+            reach = F(crate::libm::powf(reach.0, row.power));
+        }
+        let n = (t.counts[0].max(0) as usize).min(BOUNCE_BITS);
+        for k in 0..n {
+            // each clod turns the throw on about its way out by a random angle
+            basis = world::mat_mul(&crate::shot::rot_z((unit(rand()) * world::TWO_PI).0), &basis);
+            let r = unit(rand());
+            let d: [F; 4] = std::array::from_fn(|i| (F::ZERO + basis[3][i]).madd(F(basis[0][i]) * r, row.spread) - o[i]);
+            let q = F::ONE / (d[1] * d[1]).madd(d[0], d[0]).madd(d[2], d[2]).sqrt();
+            let [slow, fast] = row.speed;
+            let m = reach * (F::ZERO + slow).madd(F(fast) - slow, unit(rand()));
+            let s = &mut self.smash[k];
+            s.alive = true;
+            s.vel = d.map(|c| (c * q * m).0);
+            let y = if s.vel[1] > 0.0 { (-F(s.vel[1])).0 } else { s.vel[1] };
+            s.vel[1] = if dive.lift <= y { y } else { dive.lift };
+            s.size = ((F::ZERO + lo.0).madd(F::ONE - r, hi - lo) / 2.0).0;
+            s.m[3] = o;
+            s.cell = dive.cells[0][(rand() >> 16 & 3) as usize];
+        }
+        self.smash_live = true;
+    }
+
+    /// The smash burst's clods fly, fall and shrink; it stops showing once none is left.
+    fn age(&mut self, t: &hst_data::exe::BounceDebris) {
+        if !self.smash_live {
+            return;
+        }
+        let row = t.rows[0];
+        let mut any = false;
+        for s in self.smash.iter_mut().filter(|s| s.alive) {
+            any = true;
+            s.m[3] = std::array::from_fn(|k| (F(s.m[3][k]) + s.vel[k]).0);
+            s.alive = s.m[3][1] < 0.0;
+            s.vel = s.vel.map(|v| (F(v) * row.decay).0);
+            s.vel[1] = (F(s.vel[1]) + F(row.fall) * CLOD_GRAVITY).0;
+            s.size = (F(s.size) * row.shrink).0;
+        }
+        self.smash_live = any;
+    }
+}
+
+#[cfg(test)]
+mod bounce_bits_tests {
+    use super::*;
+    use hst_data::exe::{BounceDebris, Debris, DebrisRow};
+
+    fn tables() -> (BounceDebris, Debris) {
+        let clods = DebrisRow { reach: 2.0, spread: 3.5, speed: [0.1, 0.5], power: 1.1, decay: 1.0, size: [0.05, 0.1], shrink: 0.95, fall: 0.8, offset: [[0.0; 2]; 2], spin: [[0.0; 2]; 3], push: 0.0 };
+        let t = BounceDebris { counts: [30, 30], rows: [clods, clods], sink: 0.0005 };
+        let d = Debris { rows: [clods, clods], cells: [[[0, 0], [32, 0], [0, 32], [32, 32]]; 2], lift: -0.03, sink: 0.0005 };
+        (t, d)
+    }
+
+    /// Draws spent over a flight landing on `court` ground; `smash`, `body_hit` as `BounceBits::tick` takes them.
+    fn draws(court: bool, smash: bool, body_hit: bool) -> (usize, BounceBits) {
+        let (t, d) = tables();
+        let ground = DebrisCourt { grass: true, clay: false, court: 5 };
+        let c = Contact { point: [1.0, 0.0, 5.0, 1.0], vel: [0.1, 0.3, 0.5, 0.0], normal: [0.0, -1.0, 0.0, 0.0], court };
+        let (mut b, mut n, mut x) = (BounceBits::default(), 0, 1u32);
+        let mut rand = || {
+            n += 1;
+            x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            x
+        };
+        for (bounces, first) in [(0, None), (1, Some(&c)), (1, Some(&c)), (2, Some(&c)), (0, None)] {
+            b.tick(&t, &d, ground, bounces, first, [1.0, -0.05, 5.0], body_hit, smash, &mut rand);
+        }
+        (n, b)
+    }
+
+    #[test]
+    fn a_smash_landing_throws_thirty_clods_once() {
+        let (n, b) = draws(true, true, false);
+        assert_eq!(n, 120);
+        assert_eq!(b.kind, 1);
+        assert!(b.smash.iter().all(|s| s.size > 0.0 && s.vel[1] <= 0.0));
+        assert_eq!(draws(true, false, false).0, 0);
+        assert_eq!(draws(false, true, false).0, 0);
+        assert_eq!(draws(true, true, true).0, 0);
+    }
+
+    #[test]
+    fn clods_fall_back_to_the_court_and_the_burst_stops() {
+        let (_, mut b) = draws(true, true, false);
+        let (t, _) = tables();
+        assert!(b.smash_live);
+        for _ in 0..600 {
+            b.age(&t);
+        }
+        assert!(!b.smash_live && b.smash.iter().all(|s| !s.alive));
+    }
 }

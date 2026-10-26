@@ -11,7 +11,7 @@ use bevy::mesh::{VertexAttributeValues, morph::MorphWeights};
 use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::prelude::*;
 use hst_data::{ani, iso::Iso, mdl, mor, mtl::{self, Blend}, xb::Archive};
-use hst_sim::effect::{Bounce, Contact, Effect, Puff, Roll, SPARK_FADE, SPARKS, Sparks, Trail, impact_matrix, impact_scale, FLIGHT_POINTS, Flight, GLOW_FRAMES, Glow};
+use hst_sim::effect::{Bounce, BounceBits, Contact, DebrisCourt, Effect, Puff, Roll, SPARK_FADE, SPARKS, Sparks, Trail, impact_matrix, impact_scale, FLIGHT_POINTS, Flight, GLOW_FRAMES, Glow};
 use hst_sim::rng::Mt;
 
 const IMPACTS: [&str; 6] = ["top", "slice", "flat", "lob", "drop", "smash"];
@@ -784,6 +784,22 @@ pub struct BallBounce {
     dust: Handle<Mesh>,
     /// The court's dust and mark colours (1 = the game's 128).
     look: ([f32; 3], [f32; 3]),
+    /// The `run/spray` model shown in the ring's place on a wet court, and the wet puffs (`run/spray`).
+    spray: Shown<Fx>,
+    #[serde(skip)]
+    spray_puffs: Handle<Mesh>,
+    /// The bounce debris (the smash burst's clods, `par/tuti`), its table, the dive debris' cells and least fall,
+    /// the court as it sees it and the court's clod colour (the game's 0..128).
+    bits: BounceBits,
+    debris: (hst_data::exe::BounceDebris, hst_data::exe::Debris),
+    ground: DebrisCourt,
+    clod_rgb: [f32; 3],
+    #[serde(skip)]
+    clods: Handle<Mesh>,
+    /// Last frame was in a point's serve: a new one sets the bounce objects up.
+    serving: bool,
+    /// The ball's bounces as `frame` last saw them.
+    bounces: i32,
 }
 
 /// Bounce effects for disc court `court` (1..11; others borrow court 10's crater).
@@ -799,11 +815,16 @@ pub fn load_bounce(
     bindposes: &mut Assets<SkinnedMeshInverseBindposes>,
 ) -> Result<BallBounce, String> {
     let (cnf, bin) = (iso.read("SYSTEM.CNF").map_err(|e| e.to_string())?, iso.read("ZZBIN/GAME.BIN").map_err(|e| e.to_string())?);
-    let looks = hst_data::exe::Game::new(&cnf, &bin).map_err(|e| e.0)?.bounce_looks();
+    let game = hst_data::exe::Game::new(&cnf, &bin).map_err(|e| e.0)?;
+    let looks = game.bounce_looks();
     let colours = looks.get(court).copied().unwrap_or(looks[10]);
+    let foot = game.foot();
+    let fc = foot.courts.get(court).copied().unwrap_or(foot.courts[10]);
+    let debris = (game.bounce_debris(), foot.debris);
     let data = iso.read("AZUMA/C_EFF/EFFCT.XB0").map_err(|e| e.to_string())?;
     let arc = Archive::parse(&data).map_err(|e| e.0)?;
     let (ring, ring_view) = model(&arc, "bnd/ballbound_00", commands, parent, meshes, materials, images, bindposes)?;
+    let (spray, spray_view) = model(&arc, "run/spray", commands, parent, meshes, materials, images, bindposes)?;
     let c = if (1..=11).contains(&court) { court } else { 10 };
     let (crater, crater_view) = model(&arc, &format!("smash_bnd/c{c:02}/c{c:02}_chakudan"), commands, parent, meshes, materials, images, bindposes)?;
     // `facing`: its quads face the camera (the split view's second half gets its own, `twin_view`)
@@ -819,8 +840,19 @@ pub fn load_bounce(
     let marks = mesh("bnd/ballkon_00", false, commands)?;
     let puffs = mesh("run/kemuri_01", true, commands)?;
     let dust = mesh("run/kemuri_00", true, commands)?;
+    let spray_puffs = mesh("run/spray", true, commands)?;
+    let clods = mesh("par/tuti", true, commands)?;
     Ok(BallBounce {
-        bounce: Bounce::new(ring, crater, colours.puffs),
+        bounce: Bounce::new(ring, crater, colours.puffs).with_spray(spray),
+        spray: spray_view,
+        spray_puffs,
+        bits: BounceBits::default(),
+        debris,
+        ground: DebrisCourt { grass: fc.grass, clay: fc.clay, court },
+        clod_rgb: fc.clod_rgb,
+        clods,
+        serving: false,
+        bounces: 0,
         ring: ring_view,
         crater: crater_view,
         contacts: vec![],
@@ -832,6 +864,25 @@ pub fn load_bounce(
 }
 
 impl BallBounce {
+    /// Before `frame`, each game frame: `serving` the point is in its serve, `wet` it rains, `body_hit` the ball has
+    /// struck a player this point. A new serve sets the bounce effect (rain or not) and the debris (the smash burst
+    /// stops showing) up.
+    pub fn set_up(&mut self, serving: bool, wet: bool, body_hit: bool) {
+        if serving && !self.serving {
+            self.bounce.set_up(wet);
+            self.bits.set_up();
+        }
+        self.serving = serving;
+        self.bounce.body_hit = body_hit;
+    }
+
+    /// The bounce debris, after `frame` and the frame's hit sparks: `ball` where the ball is now, `smash` a smash
+    /// landing now (more than one player, a smash, 85 km/h or more), `rand` the sound manager's generator.
+    pub fn debris(&mut self, ball: [f32; 3], smash: bool, rand: &mut impl FnMut() -> u32) {
+        let body_hit = self.bounce.body_hit;
+        self.bits.tick(&self.debris.0, &self.debris.1, self.ground, self.bounces, self.contacts.first(), ball, body_hit, smash, rand);
+    }
+
     /// One game frame of the ball (`bounces` so far, the last landing `at` on `court` ground moving at `vel`);
     /// `smash` a smash landing at 85 km/h or more; `fading` the marks age (`play::marks_age`); `recorded` a bounce
     /// now leaves a contact record (`play::bounce_recorded`): without one it makes no mark, ring or puff; `normal` the
@@ -843,8 +894,9 @@ impl BallBounce {
             self.contacts.push(Contact { point: [at[0], at[1], at[2], 1.0], vel: [vel[0], vel[1], vel[2], 0.0], normal, court });
         }
         self.bounce.fading = fading;
+        self.bounces = bounces;
         self.bounce.tick(bounces, &self.contacts, smash);
-        for (view, at) in [(&self.ring, self.bounce.ring_at), (&self.crater, self.bounce.crater_at)] {
+        for (view, at) in [(&self.ring, self.bounce.ring_at), (&self.spray, self.bounce.ring_at), (&self.crater, self.bounce.crater_at)] {
             if let Ok(mut t) = transforms.get_mut(view.root) {
                 *t = Transform::from_matrix(Mat4::from_cols_array_2d(&at));
             }
@@ -866,6 +918,9 @@ pub fn draw_bounce(
 ) {
     let b = &fx.bounce;
     pose(&b.ring, &fx.ring, &mut q, &mut joints, &mut materials);
+    if let Some(spray) = &b.spray {
+        pose(spray, &fx.spray, &mut q, &mut joints, &mut materials);
+    }
     pose(&b.crater, &fx.crater, &mut q, &mut joints, &mut materials);
     let Ok(cam) = cam.single() else { return };
     let game = |v: Vec3| Vec3::new(v.x, -v.y, -v.z);
@@ -894,7 +949,9 @@ pub fn draw_bounce(
     }
     put(&fx.marks, quads);
     let [r, g, bl] = fx.look.0;
-    // the puffs and dust facing `cam`, into `puffs` and `dust`
+    // the puffs and dust facing `cam`, into `puffs` and `dust`; the clods too (`clods`)
+    let lin = |v: f32| Color::srgb(v / 128.0, 0.0, 0.0).to_linear().red;
+    let (clod, shade) = (fx.clod_rgb.map(lin), lin(32.0));
     let mut facing = |cam: &Transform, puffs: &Handle<Mesh>, dust: &Handle<Mesh>| {
         let (right, up) = (game(cam.rotation * Vec3::X), game(cam.rotation * Vec3::Y));
         let billboard = |p: &Puff| {
@@ -903,11 +960,38 @@ pub fn draw_bounce(
         };
         put(puffs, b.puffs.iter().filter(|p| p.life > 0).map(billboard).collect());
         put(dust, b.dust.iter().map(|(p, _, _)| billboard(p)).collect());
+        // a clod faces the camera (`size` each way) over a dark shadow on the court, one 32-pixel cell of its sheet
+        let (mut pos, mut uv, mut colour, mut index) = (vec![], vec![], vec![], vec![]);
+        for s in fx.bits.smash.iter().filter(|s| fx.bits.smash_live && s.alive) {
+            // ponytail: the sheet is 64 pixels square (the cells sit at 0 and 32)
+            let [u0, v0] = s.cell.map(|c| (c as f32 + 0.5) / 64.0);
+            let [u1, v1] = s.cell.map(|c| (c as f32 + 31.5) / 64.0);
+            let at = v3(s.m[3]);
+            let mut quad = |(a, b): (Vec3, Vec3), at: Vec3, c: [f32; 4]| {
+                let n = pos.len() as u32;
+                pos.extend([at - a + b, at + a + b, at - a - b, at + a - b].map(|v| v.to_array()));
+                uv.extend([[u0, v0], [u1, v0], [u0, v1], [u1, v1]]);
+                colour.extend([c; 4]);
+                index.extend([n, n + 1, n + 2, n + 2, n + 1, n + 3]);
+            };
+            quad((right * s.size, up * s.size), at, [clod[0], clod[1], clod[2], 1.0]);
+            quad((Vec3::X * s.size, Vec3::Z * s.size), Vec3::new(at.x, -0.01, at.z), [shade, shade, shade, 90.0 / 128.0]);
+        }
+        (pos, uv, colour, index)
     };
-    facing(cam, &fx.puffs, &fx.dust);
+    // rain: the puffs are spray, and the other sheet stays empty
+    let [shown, empty] = if b.wet { [&fx.spray_puffs, &fx.puffs] } else { [&fx.puffs, &fx.spray_puffs] };
+    let mut clods = vec![(fx.clods.clone(), facing(cam, shown, &fx.dust))];
     // a second view (`twin_view`): its own, facing it
-    if let (Some(cam), Some(puffs), Some(dust)) = (second.eye(), second.mesh(&fx.puffs), second.mesh(&fx.dust)) {
-        facing(cam, puffs, dust);
+    if let (Some(cam), Some(puffs), Some(dust), Some(c)) = (second.eye(), second.mesh(shown), second.mesh(&fx.dust), second.mesh(&fx.clods)) {
+        clods.push((c.clone(), facing(cam, puffs, dust)));
+    }
+    put(empty, vec![]);
+    if let Some(e) = second.mesh(empty) {
+        put(e, vec![]);
+    }
+    for (h, (pos, uv, colour, index)) in clods {
+        fill(&mut meshes, &h, pos, uv, colour, index);
     }
 }
 
@@ -1027,8 +1111,9 @@ impl crate::Wire for BallFlight {
 
 impl crate::Wire for BallBounce {
     fn local(&mut self, l: &Self) {
-        (self.ring, self.crater) = (l.ring.clone(), l.crater.clone());
+        (self.ring, self.crater, self.spray) = (l.ring.clone(), l.crater.clone(), l.spray.clone());
         (self.marks, self.puffs, self.dust) = (l.marks.clone(), l.puffs.clone(), l.dust.clone());
+        (self.spray_puffs, self.clods) = (l.spray_puffs.clone(), l.clods.clone());
     }
 }
 

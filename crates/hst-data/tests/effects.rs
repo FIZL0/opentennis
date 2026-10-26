@@ -82,3 +82,21 @@ fn ceremony_cameras() {
         assert!(fov.tracks[0].position.iter().all(|k| (0.3..1.4).contains(&k.1[0])), "{name}");
     }
 }
+
+/// B680: the bounce debris table: 30 clods and 30 blades, their rows (clods smaller and not slowing next to the
+/// dive's, blades smaller), the blades' sink; the dive debris' clod cells and least fall the smash burst shares.
+#[test]
+fn bounce_debris_rows() {
+    let Ok(mut iso) = fixture::iso() else { return };
+    let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
+    let game = hst_data::exe::Game::new(&cnf, &bin).unwrap();
+    let t = game.bounce_debris();
+    assert_eq!(t.counts, [30, 30]);
+    let [c, b] = t.rows;
+    assert_eq!((c.reach, c.spread, c.speed, c.power, c.decay, c.size, c.shrink, c.fall), (2.0, 3.5, [0.1, 0.5], 1.1, 1.0, [0.05, 0.1], 0.95, 0.8));
+    assert_eq!((b.reach, b.spread, b.speed, b.power, b.decay, b.size, b.shrink, b.fall, b.push), (2.0, 3.5, [0.0, 0.0], 0.0, 1.0, [0.2, 0.3], 0.95, 0.0, 0.1));
+    assert_eq!((b.offset, b.spin), ([[-0.45, 0.45], [-0.4, -0.05]], [[-15.0, 15.0], [-10.0, 10.0], [-10.0, 10.0]]));
+    assert_eq!(t.sink, 0.0005);
+    let d = game.foot().debris;
+    assert_eq!((d.cells[0], d.lift), ([[0, 0], [32, 0], [0, 32], [32, 32]], -0.03));
+}
