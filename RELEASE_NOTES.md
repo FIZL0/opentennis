@@ -17,3 +17,4 @@
 - Character mods can now hit harder, and very tall mod characters' serves now land in the service box instead of flying long
 - Mods can mark themselves as joke characters: they get their own category on the character select, and Random never picks them
 - Players' heads, glasses and other parts no longer go missing or see-through when the camera cuts to a close-up of a celebration
+- Each controller and the keyboard now remembers its last character, costume and hand: the next character select, local or online and even after a restart, opens with your cursor on them
