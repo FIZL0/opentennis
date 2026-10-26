@@ -21,3 +21,4 @@
 - A custom character updated while the game is open no longer shows a blank face in the match's score panel and pause screen.
 - Sound comes back by itself when the audio output goes away and returns (the sound server restarting, waking from sleep, a Bluetooth headset switched off and on), instead of staying silent until the game is restarted.
 - Custom characters can now say the voice line that goes with each celebration animation.
+- The bounce ring when the ball hits a player before it lands now stands up facing the ball instead of lying flat in mid-air.

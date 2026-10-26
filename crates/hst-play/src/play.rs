@@ -4191,6 +4191,7 @@ fn start_effects(
         f.bounces,
         f.landing.0,
         f.ball.vel,
+        f.normal,
         f.landing.1.court,
         smash,
         marks_age(&g),
