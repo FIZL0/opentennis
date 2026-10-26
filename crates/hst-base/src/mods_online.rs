@@ -16,8 +16,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::mods::{self, Mod};
 
-/// The most a mod's looks may weigh on the wire.
-pub const CAP: usize = 64 << 20;
+/// The most a mod's looks may weigh on the wire (the biggest converted characters are ~80 MB; a peer on an older
+/// build, capped at 64, shows the stand-in for one past that).
+pub const CAP: usize = 128 << 20;
 /// What a pack may hold: data only.
 const KINDS: [&str; 4] = ["glb", "png", "wav", "json"];
 const MAX_FILES: usize = 4096;

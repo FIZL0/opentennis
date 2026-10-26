@@ -760,6 +760,36 @@ mod match_tests {
         assert_eq!((looks, stand_in), (offline, offline), "online: with the looks, as the stand-in; offline {offline}");
     }
 
+    /// A mod's emote take with a line of its own says it whatever the key picked; one without never says a line
+    /// another take owns (those are timed to their own clips). Needs the ISO and `mods/hst-mods` (skipped without).
+    #[test]
+    fn a_take_without_a_line_says_none_a_take_owns() {
+        const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../mods/hst-mods/oob_pc12_anya");
+        if !hst_data::fixture::has_iso() || !std::path::Path::new(ROOT).is_dir() {
+            return eprintln!("no ISO or mods/hst-mods, skipped");
+        }
+        let m = crate::mods::read(std::path::Path::new(ROOT)).unwrap();
+        let mut iso = hst_data::fixture::iso().unwrap();
+        let d = crate::mods::load(&mut iso, &m, 0, &mut Assets::default(), &mut Assets::default(), &mut Assets::default(), &mut Assets::default()).unwrap();
+        let bank = crate::mods::voice(&m).unwrap();
+        let (mut own, mut free) = (0, 0);
+        for id in MOTIONS {
+            let program = super::voice_keys(id).unwrap().0;
+            let n = bank.wav[&(program as usize)].len() as u8;
+            let owned: Vec<u8> = d.take_voices.iter().filter(|(t, _)| t.0 == id).map(|(_, &k)| k).collect();
+            for sets in 0..64 {
+                let keys: Vec<Option<u8>> = (0..n).map(|k| character::Talk::key(&d, &bank, program, id, sets, k)).collect();
+                if keys.iter().all(|&k| k == keys[0]) && keys[0].is_some_and(|k| owned.contains(&k)) {
+                    own += 1;
+                } else {
+                    assert!(keys.iter().flatten().all(|k| !owned.contains(k)), "motion {id:#x} set {sets}: {keys:?} says another take's line ({owned:?})");
+                    free += 1;
+                }
+            }
+        }
+        assert!(own > 0 && free > 0, "own {own}, free {free}");
+    }
+
     /// B591 (B472, B363 before it): 1P tosses and swings as the ball drops past (a whiff: a fault); a flick in the
     /// gap after the call, before the players react, emotes — not in one that won a game (the fault's post-point
     /// turned into one) or a set; the reaction ends it, a flick from the reaction to the next serve starts nothing,

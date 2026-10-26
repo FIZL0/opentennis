@@ -40,3 +40,4 @@
 - Emotes on the lobby and character select cards now play exactly to their end, no longer freezing on their last frame or being cut short.
 - In split screen, fences and buildings at the far end of a custom court no longer flicker in and out of one player's view when the other player's camera backs up behind them.
 - A custom character's celebration no longer plays a voice line made for one of its other celebrations.
+- The biggest custom characters can now be used in online matches; other players see them instead of a stand-in.
