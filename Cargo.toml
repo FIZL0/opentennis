@@ -73,3 +73,6 @@ bevy_pbr = { path = "third_party/bevy_pbr" }
 # M101: Android pad key/motion events go to a queue (platform::android::gamepad) for `hst-base/src/android_pad.rs`, not into Touch/KeyboardInput
 # M108: an Android activity lifecycle hook (platform::android::lifecycle) for `hst-base/src/android.rs`
 winit = { path = "third_party/winit" }
+# B677: the audio output reopens when its device goes away (PipeWire restart, suspend, Bluetooth headset off) instead of
+# logging POLLERR thousands of times a second with the sound dead (src/audio_output.rs, src/lib.rs)
+bevy_audio = { path = "third_party/bevy_audio" }

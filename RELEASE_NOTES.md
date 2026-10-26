@@ -17,3 +17,4 @@
 - Custom characters twirl their racket about its handle, in their hand, instead of swinging it through their palm.
 - Custom characters without a racket of their own grip the handle in their fist, and those with long-headed rackets rest their free hand on the rim instead of through the strings.
 - Custom characters' free hand eases on and off the racket instead of snapping there, such as after a serve as they settle into the ready stance.
+- Sound comes back by itself when the audio output goes away and returns (the sound server restarting, waking from sleep, a Bluetooth headset switched off and on), instead of staying silent until the game is restarted.

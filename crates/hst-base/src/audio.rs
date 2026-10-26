@@ -777,6 +777,13 @@ impl Sound {
         ids.into_iter().for_each(|id| self.stop(id));
     }
 
+    /// B677: drops the plays whose key-ons are still to come, but not a paused match's (they wait for it).
+    pub fn drop_queued(&self) {
+        let mut m = self.0.lock().unwrap();
+        let Mix { playing, tags, .. } = &mut *m;
+        playing.retain(|p| tags.held && tags.ids.contains(&p.id));
+    }
+
     /// Ends the play `id`: no more key-ons, its voices released.
     pub fn stop(&self, id: u64) {
         let mut m = self.0.lock().unwrap();
@@ -865,7 +872,18 @@ impl Decodable for Stream {
 }
 
 pub fn plugin(app: &mut App) {
-    app.add_audio_source::<Stream>().add_systems(Startup, start);
+    app.add_audio_source::<Stream>().add_systems(Startup, start).add_systems(PostUpdate, reopened);
+}
+
+/// B677: the output device came back (a new sink pulls the mix again): the one-shot sounds started while nothing
+/// was listening would all key on at once, so they go; the music, the loops and the voices already sounding carry
+/// on where they stopped.
+fn reopened(mut reopened: MessageReader<bevy::audio::AudioOutputReopened>, sound: Option<Res<Sound>>) {
+    if reopened.read().count() > 0 {
+        if let Some(sound) = sound {
+            sound.drop_queued();
+        }
+    }
 }
 
 fn start(mut commands: Commands, args: Res<Args>, mut streams: ResMut<Assets<Stream>>) {
@@ -1178,6 +1196,34 @@ mod tests {
         let loud = out.iter().fold(0f32, |a, x| a.max(x.abs()));
         eprintln!("peak {loud}, voices left {}", m.voices.len());
         assert!(loud > 0.01 && m.voices.is_empty() && m.playing.is_empty());
+    }
+
+    /// B677: once the output device comes back, the sounds started while nothing pulled the mix go instead of all
+    /// keying on at once; a paused match's sounds wait for the match and the music goes on.
+    #[test]
+    fn a_reopened_device_drops_the_sounds_queued_while_it_was_gone() {
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
+        };
+        let bank = Arc::new(SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd").unwrap());
+        let (bgm, mid) = SoundBank::music(&mut iso, "Court", "bgmg_01").unwrap();
+        let bgm = Arc::new(bgm);
+        let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
+        let level = Level { seq: [127; 2], bank: 127, pan: [0x40; 3], ..default() };
+        sound.music(&bgm, &mid, 55);
+        sound.begin_match();
+        let held = sound.play(&bank, 0, 0, level, 0x1000);
+        sound.hold(true);
+        let queued: Vec<u64> = (0..20).map(|_| sound.play(&bank, 0, 0, level, 0x1000)).collect();
+        sound.drop_queued();
+        assert!(queued.iter().all(|&id| !sound.playing(id)) && sound.playing(held));
+        assert!(sound.music_of(&bgm));
+        sound.hold(false);
+        let mut out = Vec::new();
+        for _ in 0..10 {
+            out.extend(sound.render_frame());
+        }
+        assert!(out.iter().any(|x| x.abs() > 0.01), "the held sound and the music play on");
     }
 
     /// B203: mashing a menu cue (every frame, as a held direction's repeat or fast presses) peaks no louder than

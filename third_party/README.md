@@ -14,6 +14,7 @@ Upstream status: none of these has been sent upstream yet (2026-10-21).
 
 | Crate | Upstream | Files changed | Task: what |
 |---|---|---|---|
+| `bevy_audio` | 0.19.1 | `src/audio_output.rs`, `src/lib.rs` | B677: the output reopens when its device goes away (PipeWire restart, suspend, Bluetooth headset off): the sink's error callback logs once and raises a flag (rodio's default logs every error, thousands a second once ALSA's poll fails), a silent heartbeat source catches a device that just stops pulling, and `reopen_audio_output` opens the default sink again on a thread about once a second, queues the playing sounds on the new mixer and sends `AudioOutputReopened` |
 | `bevy_render` | 0.19.1 | `src/render_phase/mod.rs`, `src/batching/no_gpu_preprocessing.rs`, `src/view/window/mod.rs` | B385: on CPU batching (WebGL2) an unbatchable mesh with no batch data this frame keeps its slot and is skipped, instead of shifting the dynamic offsets past their end. Upstream has the same bug (no issue found). `src/view/window/mod.rs`: Mailbox (the game's VSync on Linux) falls back to Fifo, never Immediate, so it never tears. |
 | | | `src/batching/gpu_preprocessing.rs` | B395: the same slot-keeping on the GPU-preprocessing path |
 | | | `src/render_phase/mod.rs` (`dirty`), `src/batching/gpu_preprocessing.rs` (`write_binned_instance_buffers`) | P36: a retained bin's GPU buffers are uploaded only when they changed |
