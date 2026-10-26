@@ -79,29 +79,16 @@ fn image(rgba: Vec<u8>, w: u32, h: u32) -> Image {
     Image::new(size, TextureDimension::D2, rgba, TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD)
 }
 
-/// A menu sheet (alpha authored 0–255, as the INPANE ones).
-fn sheet(data: &[u8]) -> Option<Image> {
+/// A menu sheet (alpha authored 0–255, as the INPANE ones), replaced if the texture replacements have it (B670).
+fn sheet(images: &mut Assets<Image>, data: &[u8]) -> Option<Handle<Image>> {
     let p = tim2::decode_alpha8(data).ok()?.into_iter().next()?;
-    Some(image(p.rgba, p.width, p.height))
+    Some(crate::textures::add_tim2(images, image(p.rgba.clone(), p.width, p.height), &p))
 }
 
-/// An 8-bit palettised Windows BMP (the court pictures).
-fn bmp(d: &[u8]) -> Option<Image> {
-    let u32_ = |o: usize| Some(u32::from_le_bytes(d.get(o..o + 4)?.try_into().ok()?));
-    let (off, w, h) = (u32_(10)? as usize, u32_(18)?, u32_(22)?);
-    if d.get(28) != Some(&8) {
-        return None;
-    }
-    let pal = d.get(54..54 + 1024)?;
-    let stride = (w as usize + 3) & !3;
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in (0..h as usize).rev() {
-        for &i in d.get(off + y * stride..off + y * stride + w as usize)? {
-            let c = &pal[i as usize * 4..];
-            rgba.extend([c[2], c[1], c[0], 255]);
-        }
-    }
-    Some(image(rgba, w, h))
+/// An 8-bit palettised Windows BMP (the court pictures), replaced as [`sheet`].
+fn bmp(images: &mut Assets<Image>, data: &[u8]) -> Option<Handle<Image>> {
+    let (w, h, rgba) = hst_data::bmp::decode(data)?;
+    Some(crate::textures::add_bmp(images, image(rgba, w, h), data))
 }
 
 /// M117: a court mod's loading picture (PNG).
@@ -193,9 +180,9 @@ pub fn cover(iso: String, court: usize, picture: Option<std::path::PathBuf>) -> 
         let art = entry(&mut disc, "MENU/MENU00B.XB0", "/loading.tm2");
         let mut images = world.resource_mut::<Assets<Image>>();
         let own = own.map(|i| (covering(i.width() as f32, i.height() as f32), images.add(i)));
-        let [wall, back] = [(wall.as_deref(), sheet as fn(&[u8]) -> Option<Image>), (back.as_deref(), bmp)].map(|(d, f)| {
+        let [wall, back] = [(wall.as_deref(), sheet as fn(&mut Assets<Image>, &[u8]) -> Option<Handle<Image>>), (back.as_deref(), bmp)].map(|(d, f)| {
             let d = d?;
-            let h = images.add(f(d)?);
+            let h = f(&mut images, d)?;
             crate::asset_use::source(h.id(), d, "loading");
             Some(h)
         });

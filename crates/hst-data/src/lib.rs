@@ -5,6 +5,7 @@ pub mod fixture;
 pub mod iso;
 pub mod layout;
 pub mod ani;
+pub mod bmp;
 pub mod mdl;
 pub mod mor;
 pub mod mtl;
