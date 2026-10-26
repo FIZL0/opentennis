@@ -4,7 +4,8 @@
 //! point mass under gravity, held to its neighbours by length springs and dragged along by its frame's motion; after
 //! every 60 Hz step each bone turns toward the next mass, at most its limit off its bind direction in its solved
 //! parent's frame, and the masses go back where the turned bones put them. No pull toward the pose: the rigid bones
-//! and the cones keep the shape. Stock characters have no spring joints: their pose and the sim are untouched.
+//! and the cones keep the shape. A mass that ends a step inside one of the character's ellipsoids (§3c) is pushed onto
+//! its surface, so hair stays out of the head and a hat. Stock characters have no spring joints: their pose and the sim are untouched.
 
 use bevy::prelude::*;
 
@@ -20,6 +21,8 @@ const STIFF: usize = 5;
 const DAMP: usize = 6;
 const KEEP: usize = 7;
 const FEEDBACK: usize = 8;
+const BOUNCE: usize = 10;
+const SLIDE: usize = 11;
 const DT: f32 = 1.0 / 60.0;
 /// Settle calls (two steps each) a fresh chain runs from its bind pose, as the game's reset does.
 const SETTLE: usize = 10;
@@ -72,6 +75,23 @@ pub fn chains(nodes: &[gltf::Node], joints: &[Joint]) -> Vec<Chain> {
     out.into_iter().map(|joints| Chain { words: joints.iter().map(|&j| words[j].unwrap()).collect(), joints }).collect()
 }
 
+/// §3c's ellipsoids: (joint, matrix in its space that maps the unit sphere onto it), from every node's
+/// `extras.colliders`.
+pub fn colliders(nodes: &[gltf::Node]) -> Vec<(usize, Mat4)> {
+    nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(k, n)| Some((k, serde_json::from_str::<serde_json::Value>(n.extras().as_ref()?.get()).ok()?)))
+        .flat_map(|(k, e)| {
+            let list = e["colliders"].as_array().cloned().unwrap_or_default();
+            list.into_iter().filter_map(move |c| {
+                let v: Vec<f32> = c.as_array()?.iter().filter_map(|x| x.as_f64().map(|x| x as f32)).collect();
+                Some((k, Mat4::from_cols_slice(v.get(..16)?)))
+            })
+        })
+        .collect()
+}
+
 /// A chain's state, joints `0..=n` (the last is the tip): world positions and velocities, the bones' solved local
 /// rotations (`0..n`), rest lengths to the joint above, and the root frame at the last call.
 #[derive(Clone)]
@@ -87,6 +107,8 @@ struct Run {
 #[derive(Component, Default)]
 pub struct Spring {
     runs: Vec<Option<Run>>,
+    /// The colliders' world matrices at the last call.
+    shapes: Vec<Mat4>,
     clock: f32,
 }
 
@@ -96,6 +118,10 @@ pub fn plugin(app: &mut App) {
 
 fn springs(rig: &Rig) -> &[Chain] {
     rig.data.noise.as_ref().map_or(&[], |c| &c.springs)
+}
+
+fn ellipsoids(rig: &Rig) -> &[(usize, Mat4)] {
+    rig.data.noise.as_ref().map_or(&[], |c| &c.colliders)
 }
 
 fn attach(mut commands: Commands, rigs: Query<(Entity, &Rig), Added<Rig>>) {
@@ -123,7 +149,8 @@ pub fn swing(time: Res<Time>, mut rigs: Query<(&Rig, &GlobalTransform, &mut Spri
         locals.extend(rig.joints.iter().map(|&e| joints.get(e).copied().unwrap_or_default()));
         let rest: Vec<Transform> = rig.data.joints.iter().map(|j| j.rest).collect();
         let parents: Vec<Option<usize>> = rig.data.joints.iter().map(|j| j.parent).collect();
-        solve(springs(rig), &parents, &rest, global.to_matrix(), &mut locals, &mut s.runs, steps);
+        let s = &mut *s;
+        solve(springs(rig), ellipsoids(rig), &parents, &rest, global.to_matrix(), &mut locals, (&mut s.runs, &mut s.shapes), steps);
         for c in springs(rig) {
             for &j in &c.joints {
                 if let Ok(mut tf) = joints.get_mut(rig.joints[j]) {
@@ -134,9 +161,11 @@ pub fn swing(time: Res<Time>, mut rigs: Query<(&Rig, &GlobalTransform, &mut Spri
     }
 }
 
-/// One drawn frame of `chains` on a skeleton (`parents`, bind `rest`, posed `locals`) under `root`: `steps` 60 Hz
-/// steps (none: the bones keep their last turn), then each chain joint's local in `locals` set to its solved bone.
-fn solve(chains: &[Chain], parents: &[Option<usize>], rest: &[Transform], root: Mat4, locals: &mut [Transform], runs: &mut Vec<Option<Run>>, steps: usize) {
+/// One drawn frame of `chains` and `colliders` on a skeleton (`parents`, bind `rest`, posed `locals`) under `root`:
+/// `steps` 60 Hz steps (none: the bones keep their last turn), then each chain joint's local in `locals` set to its
+/// solved bone. `shapes` holds the colliders' world matrices from the last call.
+#[allow(clippy::too_many_arguments)]
+fn solve(chains: &[Chain], colliders: &[(usize, Mat4)], parents: &[Option<usize>], rest: &[Transform], root: Mat4, locals: &mut [Transform], (runs, shapes): (&mut Vec<Option<Run>>, &mut Vec<Mat4>), steps: usize) {
     runs.resize(chains.len(), None);
     let world = |mut j: Option<usize>, locals: &[Transform]| {
         let mut m = Mat4::IDENTITY;
@@ -146,6 +175,11 @@ fn solve(chains: &[Chain], parents: &[Option<usize>], rest: &[Transform], root: 
         }
         root * m
     };
+    let now: Vec<Mat4> = colliders.iter().map(|&(j, m)| world(Some(j), locals) * m).collect();
+    if shapes.len() != now.len() {
+        shapes.clone_from(&now);
+    }
+    let sweep = (&shapes[..], &now[..]);
     for (c, run) in chains.iter().zip(runs.iter_mut()) {
         let n = c.joints.len();
         // joint j's bind local; the tip's is the last bone's
@@ -157,18 +191,19 @@ fn solve(chains: &[Chain], parents: &[Option<usize>], rest: &[Transform], root: 
             None => {
                 let u = run.insert(reset(c, &bind, r));
                 for _ in 0..SETTLE {
-                    call(c, &bind, u, r, 2);
+                    call(c, &bind, u, r, (&now, &now), 2);
                 }
                 u
             }
         };
         if steps > 0 {
-            call(c, &bind, run, r, steps);
+            call(c, &bind, run, r, sweep, steps);
         }
         for (j, &k) in c.joints.iter().enumerate() {
             locals[k] = Transform { rotation: run.rot[j], ..bind(j) };
         }
     }
+    *shapes = now;
 }
 
 /// A chain on its bind pose under root frame `r`, at rest.
@@ -186,8 +221,9 @@ fn reset(c: &Chain, bind: &dyn Fn(usize) -> Transform, r: Mat4) -> Run {
     Run { v: vec![Vec3::ZERO; n + 1], rot: (0..n).map(|j| bind(j).rotation).collect(), p, rest, last: r }
 }
 
-/// One call of the game's chain step: `steps` 60 Hz steps, the root frame moving to `r` across them.
-fn call(c: &Chain, bind: &dyn Fn(usize) -> Transform, u: &mut Run, r: Mat4, steps: usize) {
+/// One call of the game's chain step: `steps` 60 Hz steps, the root frame moving to `r` and the colliders from
+/// `(was, now)` across them.
+fn call(c: &Chain, bind: &dyn Fn(usize) -> Transform, u: &mut Run, r: Mat4, (was, now): (&[Mat4], &[Mat4]), steps: usize) {
     let n = c.joints.len();
     let w = |j: usize| &c.words[j.min(n - 1)];
     let moved = r * u.last.inverse();
@@ -220,8 +256,23 @@ fn call(c: &Chain, bind: &dyn Fn(usize) -> Transform, u: &mut Run, r: Mat4, step
             u.p[j] += u.v[j] * DT;
             u.v[j] *= wj[KEEP];
         }
-        // ponytail: no collision (the game pushes masses out of the character's ellipsoids, boxes and cylinders:
-        // notes/oob.md); hair can dip into a hat or the head
+        // each mass pushed onto the surface of any ellipsoid it ends up in (placed part way through this frame's move),
+        // bounced off it and slid along it
+        let shapes: Vec<(Mat4, Mat4)> = was.iter().zip(now).map(|(&a, &b)| a + (b - a) * (i as f32 / share)).map(|m| (m, m.inverse())).collect();
+        for j in 1..=n {
+            let wj = w(j);
+            for (m, inv) in &shapes {
+                let l = inv.transform_point3(u.p[j]);
+                if l.length_squared() >= 1.0 {
+                    continue;
+                }
+                let l = l.normalize_or(Vec3::Y);
+                u.p[j] = m.transform_point3(l);
+                let normal = (Mat3::from_mat4(*inv).transpose() * l).normalize();
+                let vn = u.v[j].dot(normal) * normal;
+                u.v[j] = -wj[BOUNCE] * vn + wj[SLIDE] * (u.v[j] - vn);
+            }
+        }
         pose(c, bind, u, r);
     }
 }
@@ -285,7 +336,7 @@ mod tests {
         (0..frames)
             .map(|f| {
                 let mut locals = rest.clone();
-                solve(std::slice::from_ref(&chain), &parents, &rest, head(f), &mut locals, &mut runs, 1);
+                solve(std::slice::from_ref(&chain), &[], &parents, &rest, head(f), &mut locals, (&mut runs, &mut Vec::new()), 1);
                 locals.iter().map(|t| t.rotation).collect()
             })
             .collect()
