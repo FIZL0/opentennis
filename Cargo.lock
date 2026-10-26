@@ -670,8 +670,6 @@ dependencies = [
 [[package]]
 name = "bevy_audio"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "750809b7b007dd6de6e5c730e67973027a3d22392fa7fd6f5331f8cefb489a18"
 dependencies = [
  "bevy_app",
  "bevy_asset",

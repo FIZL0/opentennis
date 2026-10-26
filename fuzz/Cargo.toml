@@ -27,6 +27,7 @@ wgpu = { path = "../third_party/wgpu" }
 bevy_render = { path = "../third_party/bevy_render" }
 bevy_pbr = { path = "../third_party/bevy_pbr" }
 winit = { path = "../third_party/winit" }
+bevy_audio = { path = "../third_party/bevy_audio" }
 
 [profile.release]
 debug = 1
