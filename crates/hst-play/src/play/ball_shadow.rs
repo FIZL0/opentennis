@@ -98,6 +98,8 @@ fn place(
     mut outlines: Query<(&mut Transform, &Children), With<Outline>>,
     cam: Query<(&Transform, &Projection), (With<crate::Orbit>, Without<Outline>, Without<BallView>)>,
     mut second: crate::twin_view::Second,
+    mut commands: Commands,
+    unturned: Query<(), (With<Mesh3d>, Without<crate::twin_view::Billboard>, Without<crate::twin_view::TwinOf>)>,
 ) {
     let a = time.overstep_fraction();
     let mix = |x: [f32; 3], y: [f32; 3]| {
@@ -129,6 +131,10 @@ fn place(
         *tr = Transform::from_matrix(main);
         if let Some(m) = twin {
             for &c in parts {
+                // the GS swap's later draws (the soft edge, the ring that shows round the ball) are turned too
+                if unturned.contains(c) {
+                    commands.entity(c).insert(crate::twin_view::Billboard::TURNED);
+                }
                 second.pose(c, Transform::from_matrix(m));
             }
         }
@@ -148,3 +154,4 @@ fn place(
         }
     }
 }
+
