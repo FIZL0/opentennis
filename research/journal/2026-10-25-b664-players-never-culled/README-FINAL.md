@@ -43,9 +43,6 @@ head goes see-through. The user added: other mods show the same missing parts, s
 - Nothing is compared against the original here: this is rendering and visibility, not gameplay.
 
 ## Wrap-up state
-The fix and its test are done (`tools/check.sh -p hst-base cull`: 2 passed). `tools/done.sh` couldn't finish: its
-full suite fails only on `mods::tests::oob_hair_swings_and_settles` ("oob_pc00_jasmine: the hair never settled:
-0.63"). That test reads the shared `mods/hst-mods/oob_pc00_jasmine`, which B663 rebuilt at 22:48 (the Out of
-Bounds resize, opentennis-mods `Out of Bounds sized head to foot…`). B663's slot changes that test's settle frame,
-and M147/M148 are parked on the same failure. Once B663 lands: unblock B664 and rerun
-`tools/done.sh B664 "B664: players are never culled (heads/glasses missing in celebrations)"`.
+The fix and its test landed with the earlier commit (`tools/check.sh -p hst-base cull`: 2 passed). The full suite
+was first blocked by an unrelated mod hair test under B663's mod rebuild; B663 has landed and the cull tests are
+serialized, so this round reruns `tools/done.sh` to close the task.
