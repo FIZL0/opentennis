@@ -36,3 +36,4 @@
 - An emote still playing when the players walk back into place for the next serve now stops there, voice line included, instead of carrying on into the serve.
 - In split screen, each half's camera now zooms out to keep a wide ball in view.
 - In split screen, both players now see the ball's outline, not just one of them.
+- A custom character's celebration no longer plays a voice line made for one of its other celebrations.

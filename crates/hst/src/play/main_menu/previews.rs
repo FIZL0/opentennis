@@ -1440,7 +1440,8 @@ fn buttons(
         if let Some((bank, mut play)) = voice(act, menu.pick(*player).0, menu.pick(*player).1, &menu.mods, &mut voices.banks, Path::new(&args.iso)) {
             // a mod's take with a line of its own says that one, and its mouth moves with it
             if let Ok((m, ..)) = rigs.get(p.rig) {
-                play.key = character::Talk::key(&d, &bank, play.program, m.id, m.sets, play.key);
+                let Some(k) = character::Talk::key(&d, &bank, play.program, m.id, m.sets, play.key) else { continue };
+                play.key = k;
             }
             // B594: the same motions as the emotes, so the same one voice per card: a plate emote's line is cut
             let id = s.emote(*player, |s| s.play_centre(&bank, play));
