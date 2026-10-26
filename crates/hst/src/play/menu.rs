@@ -120,26 +120,31 @@ fn options(local: bool) -> &'static [i32] {
     if local { &OPTIONS_LOCAL } else { &OPTIONS }
 }
 
-/// Pill `k`'s top on the dialog of `n` rows: lifted for three sets, centred on the options.
-fn pill_y(sets_to_win: i32, n: usize, k: usize) -> i32 {
-    let lift = if sets_to_win == 3 { -72 } else { -32 };
+/// The tall score board: three sets to win, or (ours) doubles at any length, whose two plates a side need its height
+/// for each face's character pill to clear the face under it.
+fn tall(sets_to_win: i32, players: usize) -> bool {
+    sets_to_win == 3 || players >= 3
+}
+/// Pill `k`'s top on the dialog of `n` rows: lifted over the tall board, centred on the options.
+fn pill_y(tall: bool, n: usize, k: usize) -> i32 {
+    let lift = if tall { -72 } else { -32 };
     lift - (n as i32 - 1) * 16 + 0xcc + 40 * k as i32
 }
 /// B178: the confirm's Yes (0) / No (1) pill tops: two pills as the dialog would centre them, moved down 24 px to
 /// make room for the question above.
-fn ask_y(sets_to_win: i32, k: usize) -> i32 {
-    pill_y(sets_to_win, 2, k) + 24
+fn ask_y(tall: bool, k: usize) -> i32 {
+    pill_y(tall, 2, k) + 24
 }
 /// B671a: the score frame's top: lower with one or two sets to win.
-fn frame_top(sets_to_win: i32) -> f32 {
-    if (1..=2).contains(&sets_to_win) { 320.0 } else { 256.0 }
+fn frame_top(tall: bool) -> f32 {
+    if tall { 256.0 } else { 320.0 }
 }
 /// B671a: the dialog's box `[top, height]`, of `n` rows or (`ask`) the confirm's, and where it goes over a rules tab
 /// `tab_h` tall.
-fn dialog_fit(sets_to_win: i32, ask: bool, n: usize, tab_h: Option<f32>) -> rules_tab::Fit {
+fn dialog_fit(tall: bool, ask: bool, n: usize, tab_h: Option<f32>) -> rules_tab::Fit {
     let n = n as i32;
-    let [top, h] = if ask { [ask_y(sets_to_win, 0) - 46, 134] } else { [pill_y(sets_to_win, n as usize, 0) - 20, 40 * n + 32] };
-    rules_tab::Fit::new([top as f32, h as f32], frame_top(sets_to_win), tab_h)
+    let [top, h] = if ask { [ask_y(tall, 0) - 46, 134] } else { [pill_y(tall, n as usize, 0) - 20, 40 * n + 32] };
+    rules_tab::Fit::new([top as f32, h as f32], frame_top(tall), tab_h)
 }
 /// Points cells (column, row) by point index; 4 is Deuce, 5 Advantage (tiebreak: 0–7, 8 Deuce, 9 Advantage).
 const POINT_U: [i32; 10] = [0, 1, 0, 1, 0, 1, 0, 1, 0, 1];
@@ -345,7 +350,8 @@ fn layout(v: &View) -> Vec<Quad> {
     q(UMPIRE, [0, 0, 256, 32], r(424, 34, 160, 20), WHITE, 128);
 
     // the score board: the result board's frame and plates, each set's games, the points either side
-    let short = (1..=2).contains(&v.sets_to_win);
+    let big = tall(v.sets_to_win, v.players);
+    let short = !big;
     let (rows, edge_h, top, y0, centre_h, diag_y) =
         if short { (6, 80, 320, 328, 96, 368) } else { (10, 144, 256, 264, 160, 336) };
     let n = v.players;
@@ -370,7 +376,7 @@ fn layout(v: &View) -> Vec<Quad> {
     for x in [248, 390, 184, 454] {
         q(BOARD, [64, 9, 8, 22], r(x, y0, 8, centre_h), WHITE, 128);
     }
-    let (y1, y2) = if short { (328, 380) } else { (272, 372) };
+    let (y1, y2) = if short { (328, 380) } else { (272, 366) };
     let plate_y = if n < 3 { [y1 + (y2 - y1) / 2; 2] } else { [y1, y2] };
     for p in 0..n {
         let (x, y) = ([100, 496][p & 1], plate_y[p / 2]);
@@ -385,14 +391,11 @@ fn layout(v: &View) -> Vec<Quad> {
         q(Tex::Slot, [v.slots[p] as i32 * 40, 0, 40, 24], r([144, 456][p & 1], y + 6, 40, 24), rgb(v.pill[p]), 128);
     }
     if let Some(size) = v.tab {
-        q(Tex::Rules, [0; 4], rules_tab::place(frame_top(v.sets_to_win), size), WHITE, 128);
+        q(Tex::Rules, [0; 4], rules_tab::place(frame_top(big), size), WHITE, 128);
     }
     // the set in play on the bright sheet, a past set the team didn't win at half alpha
-    let (cols, games_y) = match v.sets_to_win {
-        1 => (1, 360),
-        2 => (3, 328),
-        _ => (5, 264),
-    };
+    let cols = v.sets_to_win * 2 - 1;
+    let games_y = if short { 376 } else { 344 } - 16 * cols;
     for team in 0..2 {
         for col in 0..cols {
             let y = games_y + 32 * col;
@@ -435,17 +438,17 @@ fn layout(v: &View) -> Vec<Quad> {
     let (rows, ys, sel): (Vec<Tex>, Vec<i32>, usize) = match v.ask {
         Some(a) => {
             out.push(Quad { tex: DIM, src: [0.0, 0.0, 8.0, 8.0], dst: [0.0, 0.0, 640.0, 448.0], rgb: [0.0; 3], alpha: 80.0 });
-            let y0 = ask_y(v.sets_to_win, 0);
+            let y0 = ask_y(big, 0);
             box_at(&mut out, r(160, y0 - 46, 320, 46 + 72 + 16));
             // the title as `ask_layout`'s: 22 px high
             let (w, h) = (256.0 * 22.0 / 32.0, 22.0);
             out.push(Quad { tex: ASK, src: [0.0, 0.0, 256.0, 32.0], dst: [320.0 - w / 2.0, (y0 - 32) as f32, w, h], rgb: WHITE, alpha: 128.0 });
-            (vec![YES, NO], (0..2).map(|k| ask_y(v.sets_to_win, k)).collect(), a)
+            (vec![YES, NO], (0..2).map(|k| ask_y(big, k)).collect(), a)
         }
         None => {
             let opts = options(v.local);
             let nopt = opts.len() as i32;
-            let lift = if v.sets_to_win == 3 { -72 } else { -32 };
+            let lift = if big { -72 } else { -32 };
             let top = lift - (nopt - 1) * 16 + 0xb8;
             box_at(&mut out, r(160, top, 320, 16 + 8 * (nopt * 5 - 1) + 8 + 16));
             let rows = opts
@@ -457,7 +460,7 @@ fn layout(v: &View) -> Vec<Quad> {
                     _ => RETURN,
                 })
                 .collect();
-            (rows, (0..opts.len()).map(|k| pill_y(v.sets_to_win, opts.len(), k)).collect(), v.sel)
+            (rows, (0..opts.len()).map(|k| pill_y(big, opts.len(), k)).collect(), v.sel)
         }
     };
     for (k, &y) in ys.iter().enumerate() {
@@ -480,7 +483,7 @@ fn layout(v: &View) -> Vec<Quad> {
     let hy = (ys[sel] + 8) as f32;
     out.push(Quad { tex: HAND, src: [0.0, 0.0, 64.0, 32.0], dst: [v.hand_x + 128.0, hy, 64.0, 32.0], rgb: WHITE, alpha: 128.0 });
     // B671a: the dialog (not the confirm's dimmer) clear of the rules tab
-    let fit = dialog_fit(v.sets_to_win, v.ask.is_some(), options(v.local).len(), v.tab.map(|t| t[1]));
+    let fit = dialog_fit(big, v.ask.is_some(), options(v.local).len(), v.tab.map(|t| t[1]));
     for quad in out[dialog..].iter_mut().filter(|q| q.tex != DIM) {
         quad.dst = fit.rect(quad.dst);
     }
@@ -691,15 +694,15 @@ fn step(
         spent(&mut pads);
         return;
     }
-    let sets = g.rules.sets.clamp(1, 3);
+    let big = tall(g.rules.sets.clamp(1, 3), g.players.len());
     // M124: online too (concept: with any local player), its own seats only
     menu.local = net.as_ref().is_none_or(|np| !np.lock.mine.is_empty());
     let n = options(menu.local).len();
     // B178: the confirm's pills are Yes and No
     let (ask, rows) = (menu.ask.is_some(), if menu.ask.is_some() { 2 } else { n });
-    let top = |k| if ask { ask_y(sets, k) } else { pill_y(sets, n, k) };
+    let top = |k| if ask { ask_y(big, k) } else { pill_y(big, n, k) };
     // B671a: the pills where the rules tab moved them
-    let fit = dialog_fit(sets, ask, n, rules.size().map(|t| t[1]));
+    let fit = dialog_fit(big, ask, n, rules.size().map(|t| t[1]));
     let pill = |p: Vec2| {
         let half = 144.0 * fit.s;
         ((320.0 - half)..(320.0 + half)).contains(&p.x).then(|| (0..rows).find(|&k| (0.0..32.0 * fit.s).contains(&(p.y - fit.y(top(k) as f32))))).flatten()
@@ -953,19 +956,20 @@ mod tests {
         let at = |tex: Tex, x: f32, y: f32| qs.iter().find(|q| q.tex == tex && q.dst[0] == x && q.dst[1] == y).copied();
         assert_eq!(at(TEXT, 176.0, 24.0).unwrap().src, [0.0, 40.0, 16.0, 24.0]); // "1"
         assert_eq!(at(TEXT, 248.0, 24.0).unwrap().src, [48.0, 40.0, 16.0, 24.0]); // "4"
-        assert_eq!(at(POINTS, 184.0, 352.0).unwrap().src, [0.0, 0.0, 64.0, 48.0]);
-        assert!(at(POINTS, 390.0, 352.0).is_some());
-        assert!(at(GAMES_NOW, 272.0, 360.0).is_some() && at(GAMES_NOW, 308.0, 360.0).is_some());
-        assert!(at(Tex::Face(2), 102.0, 382.0).is_some() && at(Tex::Face(1), 498.0, 330.0).is_some());
-        // three options: frame from y 120 to 272, pills at 140, 180 ("Settings", ours) and 220, the hand beside the first
-        assert!(at(PILL, 160.0, 120.0).is_some() && at(PILL, 160.0, 256.0).is_some());
-        assert!(at(PILL, 176.0, 140.0).is_some() && at(PILL, 176.0, 220.0).is_some());
+        // (ours) doubles on the tall board, so each face's pill clears the face under it
+        assert_eq!(at(POINTS, 184.0, 320.0).unwrap().src, [0.0, 0.0, 64.0, 48.0]);
+        assert!(at(POINTS, 390.0, 320.0).is_some());
+        assert!(at(GAMES_NOW, 272.0, 328.0).is_some() && at(GAMES_NOW, 308.0, 328.0).is_some());
+        assert!(at(Tex::Face(2), 102.0, 368.0).is_some() && at(Tex::Face(1), 498.0, 274.0).is_some());
+        // three options: frame from y 80 to 232, pills at 100, 140 ("Settings", ours) and 180, the hand beside the first
+        assert!(at(PILL, 160.0, 80.0).is_some() && at(PILL, 160.0, 216.0).is_some());
+        assert!(at(PILL, 176.0, 100.0).is_some() && at(PILL, 176.0, 180.0).is_some());
         // the rows centred on their pills at 160×20 (B171)
-        assert_eq!(at(RESUME, 240.0, 146.0).unwrap().alpha, 128.0);
-        assert_eq!(at(RETURN, 240.0, 226.0).unwrap().alpha, 64.0);
-        assert_eq!(at(LABEL, 240.0, 186.0).unwrap().dst, [240.0, 186.0, 160.0, 20.0]);
-        assert_eq!(qs.iter().find(|q| q.tex == HAND).unwrap().dst, [128.0, 148.0, 64.0, 32.0]);
-        assert_eq!((pill_y(1, 3, 1), pill_y(3, 3, 0)), (180, 100));
+        assert_eq!(at(RESUME, 240.0, 106.0).unwrap().alpha, 128.0);
+        assert_eq!(at(RETURN, 240.0, 186.0).unwrap().alpha, 64.0);
+        assert_eq!(at(LABEL, 240.0, 146.0).unwrap().dst, [240.0, 146.0, 160.0, 20.0]);
+        assert_eq!(qs.iter().find(|q| q.tex == HAND).unwrap().dst, [128.0, 108.0, 64.0, 32.0]);
+        assert_eq!((pill_y(false, 3, 1), pill_y(true, 3, 0)), (180, 100));
         // B293: the court on the bar's right end, the umpire under its rim
         assert_eq!(qs.iter().find(|q| q.tex == COURT).unwrap().dst, [408.0, 3.0, 192.0, 24.0]);
         assert_eq!(qs.iter().find(|q| q.tex == UMPIRE).unwrap().dst, [424.0, 34.0, 160.0, 20.0]);
@@ -1007,7 +1011,8 @@ mod tests {
                         let v = View { sets_to_win, local, ask, tab: Some([300.0, h]), ..view() };
                         let qs = layout(&v);
                         let tab = qs.iter().find(|q| q.tex == Tex::Rules).unwrap().dst;
-                        let frame = frame_top(sets_to_win);
+                        let big = tall(sets_to_win, v.players);
+                        let frame = frame_top(big);
                         assert_eq!((tab[0], tab[1] + tab[3]), (rules_tab::X, frame + 3.0));
                         let dialog: Vec<_> = qs.iter().filter(|q| [PILL, HAND, RESUME, LABEL, SEATS, RETURN, YES, NO, ASK].contains(&q.tex)).collect();
                         let bottom = dialog.iter().filter(|q| q.tex == PILL).map(|q| q.dst[1] + q.dst[3]).fold(0.0, f32::max);
@@ -1015,8 +1020,8 @@ mod tests {
                         assert!(bottom <= tab[1] - 3.9, "{sets_to_win} {local} {ask:?} {h}: {bottom} over {}", tab[1]);
                         assert!(top >= 57.9, "{top}");
                         let n = options(local).len();
-                        let fit = dialog_fit(sets_to_win, ask.is_some(), n, Some(h));
-                        let first = if ask.is_some() { ask_y(sets_to_win, 0) } else { pill_y(sets_to_win, n, 0) };
+                        let fit = dialog_fit(big, ask.is_some(), n, Some(h));
+                        let first = if ask.is_some() { ask_y(big, 0) } else { pill_y(big, n, 0) };
                         let row = dialog.iter().find(|q| q.tex == if ask.is_some() { YES } else { RESUME }).unwrap().dst;
                         assert!((fit.y(first as f32) + 16.0 * fit.s - (row[1] + row[3] / 2.0)).abs() < 0.01);
                     }
@@ -1034,7 +1039,7 @@ mod tests {
     /// controller assignment.
     #[test]
     fn controllers_row() {
-        let qs = layout(&View { local: true, ..view() });
+        let qs = layout(&View { local: true, players: 2, ..view() });
         assert!(qs.iter().any(|q| q.tex == PILL && q.dst[0] == 176.0 && q.dst[1] == 124.0));
         assert_eq!(qs.iter().find(|q| q.tex == SEATS).unwrap().dst[1], 210.0);
         assert!(qs.iter().any(|q| q.tex == RETURN && q.dst[1] == 250.0));
@@ -1161,7 +1166,7 @@ mod tests {
 
         // B178: a popup of its own: the match dimmed, a box from 134 to 268, the question as its title, Yes and No on
         // pills at 180 and 220 (No bright), the hand by No; none of the pause dialog's box or pills
-        let qs = layout(&View { ask: Some(1), ..view() });
+        let qs = layout(&View { ask: Some(1), players: 2, ..view() });
         assert!(qs.iter().any(|q| q.tex == DIM && q.rgb == [0.0; 3] && q.alpha == 80.0));
         assert!(qs.iter().any(|q| q.tex == ASK && q.dst == [232.0, 148.0, 176.0, 22.0] && q.alpha == 128.0));
         assert!(qs.iter().any(|q| q.tex == PILL && q.dst[0] == 160.0 && q.dst[1] == 134.0));
