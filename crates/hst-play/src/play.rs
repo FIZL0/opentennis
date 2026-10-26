@@ -1350,7 +1350,7 @@ pub fn setup(
         let f = character::spawn(&mut commands, &data, root);
         commands
             .entity(f)
-            .insert((Figure(i), effects::SwingTrail::default()));
+            .insert((Figure(i), effects::SwingTrail::default(), crate::cull::Never));
         let look = (c, outfit, game.players[i].body.handicap, game.players[i].hand < 0.0);
         handicap::wear(&mut commands, &mut iso, f, &data, look, &mut meshes, &mut materials, &mut images);
     }
