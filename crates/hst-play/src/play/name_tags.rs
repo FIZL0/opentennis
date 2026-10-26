@@ -371,6 +371,57 @@ fn draw(
     }
 }
 
+/// B671: the pause screen's score panel words (ours, in the menus' font): `words` white in an `ew`-px `edge`
+/// outline, `h` disc px tall with it (a descender's tail inside), as wide as they need. The image (at `menu_art::K`×)
+/// and its width in disc px.
+pub fn panel_words(words: &str, edge: [u8; 3], h: f32, ew: f32) -> (Image, f32) {
+    let font = ab_glyph::FontRef::try_from_slice(menu_art::HEAVY).expect("menu font");
+    let l = Look { top: [255; 3], bottom: [255; 3], edge, ring: edge, ew, rw: 0.0, slant: 0.0 };
+    let w = ink_width(&font, words, h - 2.0 * ew) + 2.0 * (ew + PAD);
+    let k = menu_art::K as f32;
+    let mut out = Pixmap::new((w * k).ceil() as u32, (h * k).ceil() as u32).expect("panel words pixmap");
+    menu_art::stamp(&mut out, &font, [PAD, 0.0, w - 2.0 * PAD, h], words, &l);
+    (pixmap_image(out), w)
+}
+
+/// B671: `words` white on a `fill` pill `h` disc px tall (the words half its height, as much again either side of
+/// them); the image (at `menu_art::K`×) and its width in disc px.
+pub fn panel_pill(words: &str, fill: [u8; 3], h: f32) -> (Image, f32) {
+    let font = ab_glyph::FontRef::try_from_slice(menu_art::HEAVY).expect("menu font");
+    let l = Look { top: [255; 3], bottom: [255; 3], edge: [255; 3], ring: [255; 3], ew: 0.0, rw: 0.0, slant: 0.0 };
+    let (th, side) = (h * 0.5, h * 0.5);
+    // the caps one size whatever the words: a descender's tail hangs under them, into the pill's foot
+    let cell = th * (1.0 + tail(&font, words));
+    let tw = ink_width(&font, words, cell);
+    let w = tw + 2.0 * side;
+    let k = menu_art::K as f32;
+    let mut out = Pixmap::new((w * k).ceil() as u32, (h * k).ceil() as u32).expect("panel pill pixmap");
+    let (pw, ph) = (out.width() as f32, out.height() as f32);
+    menu_art::fill_rgb(&mut out, &menu_art::rounded(0.0, 0.0, pw, ph, ph / 2.0), fill, SkTransform::identity());
+    menu_art::stamp(&mut out, &font, [side, (h - th) / 2.0, tw, cell], words, &l);
+    (pixmap_image(out), w)
+}
+
+/// A descender's tail under the baseline as a share of the caps' height (0 without one).
+fn tail(font: &ab_glyph::FontRef, words: &str) -> f32 {
+    let (Some(path), Some(caps)) = (menu_art::text_path(font, words), menu_art::text_path(font, "H")) else { return 0.0 };
+    if words.contains(['g', 'j', 'p', 'q', 'y']) { path.bounds().bottom().max(0.0) / -caps.bounds().top() } else { 0.0 }
+}
+
+/// How wide `words` set `h` disc px tall come out in `stamp` (caps, and a descender's tail, filling the height).
+fn ink_width(font: &ab_glyph::FontRef, words: &str, h: f32) -> f32 {
+    let (Some(path), Some(caps)) = (menu_art::text_path(font, words), menu_art::text_path(font, "H")) else { return 0.0 };
+    let b = path.bounds();
+    let tail = if words.contains(['g', 'j', 'p', 'q', 'y']) { b.bottom().max(0.0) } else { 0.0 };
+    b.width() * h / (-caps.bounds().top() + tail)
+}
+
+fn pixmap_image(out: Pixmap) -> Image {
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    let size = Extent3d { width: out.width(), height: out.height(), depth_or_array_layers: 1 };
+    Image::new(size, TextureDimension::D2, menu_art::unpremultiply(out), TextureFormat::Rgba8UnormSrgb, bevy::asset::RenderAssetUsages::RENDER_WORLD)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

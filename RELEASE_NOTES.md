@@ -5,3 +5,4 @@
 - Turning Key Hints off now also hides the "Change camera" hint at the start of a match.
 - Texture packs now reach the loading screen (its hints, court picture and title card) and the "Start the Match!" banner, which kept the disc's art before.
 - After every third replay, the cut-away after a point now turns to the other player even if they dove, and stays put only when the other player was hit by the ball, as in the original.
+- The pause screen's score panel now shows each player's name in place of the 1P/COM tag, and each character's name under their face.
