@@ -51,7 +51,7 @@ struct Plates {
 }
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Plates>().add_systems(Update, (input.before(super::step), play.after(super::step).before(super::draw), character::racket_shown.after(play)));
+    app.init_resource::<Plates>().add_systems(Update, (input.before(super::step), play.after(super::step).before(super::draw), character::racket_shown.after(play), character::seats.after(play)));
 }
 
 fn on(menu: &Menu) -> bool {
