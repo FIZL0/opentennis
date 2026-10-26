@@ -3137,6 +3137,7 @@ fn cancel_locks(g: &mut Game, but: Option<usize>) {
 /// toward the table's in tenths of the gain. The curve profile is stretched over the solved flight.
 // ponytail: a slice serve's side angle wind is dropped (the ball heads straight at the target); lobs and drops keep
 // the table launch.
+// Plain f32 (+ − × ÷ √ are IEEE-exact on every platform) and the game's sinf/cosf, so every peer gets the same launch.
 fn powered(g: &mut Game, sent: V3, power: f32) {
     let start = g.flight;
     let (at, v) = (start.ball.pos, start.ball.vel);
@@ -3148,7 +3149,8 @@ fn powered(g: &mut Game, sent: V3, power: f32) {
     // the first bounce's distance from `at`, the frames to it and the height (m, up) it passes the net at
     let fly = |g: &Game, speed: f32, e: f32| {
         let mut f = start;
-        f.ball.vel = [ux * e.cos() * speed, -e.sin() * speed, uz * e.cos() * speed];
+        let (c, s) = (hst_sim::libm::cosf(e), hst_sim::libm::sinf(e));
+        f.ball.vel = [ux * c * speed, -s * speed, uz * c * speed];
         f.net = false;
         let mut over = f32::MAX;
         for n in 1..400 {
@@ -3188,7 +3190,8 @@ fn powered(g: &mut Game, sent: V3, power: f32) {
         }
     }
     let (speed, e) = solved;
-    g.flight.ball.vel = [ux * e.cos() * speed, -e.sin() * speed, uz * e.cos() * speed];
+    let (c, s) = (hst_sim::libm::cosf(e), hst_sim::libm::sinf(e));
+    g.flight.ball.vel = [ux * c * speed, -s * speed, uz * c * speed];
 }
 
 fn swing_pace(g: &Game, i: usize) -> f32 {
