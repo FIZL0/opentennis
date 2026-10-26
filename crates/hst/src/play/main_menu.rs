@@ -1137,11 +1137,11 @@ impl Menu {
     /// B269 / B346: the computer player `dev` drives next (one 1P added, or an open seat's COM card) starts on the
     /// cell the last pick readied on, so ✕ over and over gives them all the same (e.g. all Random, or one character
     /// in its next free costumes).
-    /// B572: not one another ready human is already picking for.
-    fn carry_pick(&mut self, dev: Dev) {
-        let others = self.seats.iter().flatten().filter(|&&d| d != dev).filter_map(|&d| self.driven(d)).collect::<Vec<_>>();
+    /// B572: not one another ready human was already picking for before this press (`before`: each seated device's
+    /// [`Menu::driven`] then); one that moved on to it with `dev` (both ready, sharing the computer just readied) takes it too.
+    fn carry_pick(&mut self, dev: Dev, before: &[(Dev, Option<usize>)]) {
         if let (Some(q), Some(c)) = (self.driven(dev), self.last)
-            && self.seats[q].is_none() && !self.players[q].ready && !others.contains(&q)
+            && self.seats[q].is_none() && !self.players[q].ready && !before.iter().any(|&(d, o)| d != dev && o == Some(q))
         {
             // a character with every costume taken passes the cursor on to the next one with a costume open
             let roster = self.roster();
@@ -1779,9 +1779,9 @@ impl Menu {
                 self.p1 = Some(dev);
             }
             self.unready(p);
-            for (d, q) in before {
+            for &(d, q) in &before {
                 if self.driven(d) != q {
-                    self.carry_pick(d);
+                    self.carry_pick(d, &before);
                 }
             }
             out.push(Sound(1));
@@ -1873,7 +1873,7 @@ impl Menu {
                     self.online_ready(out);
                 } else {
                     self.chars_done(out);
-                    self.carry_pick(dev);
+                    self.carry_pick(dev, &before);
                 }
             }
         } else if k.back {
@@ -4669,6 +4669,25 @@ mod tests {
         assert!(m.players[1].random, "the pad keeps the computer's Random");
         assert_eq!(m.driven(Dev::Keys), Some(2));
         assert!(m.players[2].random, "1P's next computer is on Random");
+    }
+
+    /// 1P and a pad that joined both ready, then 1P readies the first computer player on Random: the next one starts
+    /// on Random too, though the pad moved on to it at the same press (it was not picking for it before).
+    #[test]
+    fn both_ready_the_next_computer_keeps_the_last_pick() {
+        let pad = Dev::Pad(Entity::from_raw_u32(9).unwrap());
+        let mut m = Menu { screen: Screen::Chars, doubles: true, seats: [Some(Dev::Keys), None, None, None], ..default() };
+        let ok = press(|p| &mut p.ok);
+        m.step(pad, ok);
+        m.players[0].random = true;
+        m.step(Dev::Keys, ok);
+        m.step(pad, ok);
+        let q = m.driven(Dev::Keys).unwrap();
+        assert!(m.seats[q].is_none() && m.players[q].random, "1P's computer starts on its Random");
+        m.step(Dev::Keys, ok);
+        let r = m.driven(Dev::Keys).unwrap();
+        assert!(r != q && m.seats[r].is_none());
+        assert!(m.players[r].random, "the next computer is on Random, not its automatic pick");
     }
 
     /// Concept: a pad joins while 1P has the strip; 1P's ○ then empties its seat (the pad stays 2P), and the next ✕

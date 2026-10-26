@@ -7,3 +7,4 @@
 - The game remembers whether you picked the close camera or the normal one; phones and touch screens start on the close camera
 - Every match now opens with a flashing reminder of the button that changes the camera
 - Players' name tags no longer show over their heads during the court intro
+- Character select: when two players are both ready and one picks for the next computer player, the one after now starts on that pick (e.g. Random) instead of jumping to a new character
