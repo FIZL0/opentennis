@@ -2150,7 +2150,7 @@ mod tests {
 
     /// An Out of Bounds mod's hair and earring chains (§3b `extras.spring`) reach the costume as spring joints. The
     /// rig whips 0.2 m sideways over 10 frames, then stands: the hair's joints swing off where they hang at rest
-    /// (the pose plus gravity's sag), then settle back there; the head they hang on is never turned.
+    /// (the pose plus gravity's sag), then settle back there within 6 s (B663's smaller Jasmine takes over 4 s); the head they hang on is never turned.
     #[test]
     fn oob_hair_swings_and_settles() {
         // Jasmine: 23 records, 5 of them chain anchors (pinned); Sophie's pigtails and ribbons (B579)
@@ -2177,7 +2177,7 @@ mod tests {
             let joints: Vec<Entity> = data.joints.iter().map(|j| w.spawn(j.rest).id()).collect();
             let root = w.spawn((crate::character::Rig { data: data.clone(), joints: joints.clone() }, GlobalTransform::IDENTITY, crate::spring::Spring::default())).id();
             let mut frames = Vec::new();
-            for f in 0..240 {
+            for f in 0..360 {
                 for (e, j) in joints.iter().zip(&data.joints) {
                     *w.get_mut::<Transform>(*e).unwrap() = j.rest;
                 }
@@ -2191,9 +2191,9 @@ mod tests {
         let (calm, whipped) = (run(0.0), run(0.02));
         let head = data.joint("Bip01Head").unwrap();
         let apart = |f: usize| calm[f].iter().zip(&whipped[f]).map(|(a, b)| a.angle_between(*b)).fold(0f32, f32::max).to_degrees();
-        eprintln!("whipped vs calm, largest joint difference every 10 frames: {:?}", (0..240).step_by(10).map(|f| apart(f).round()).collect::<Vec<_>>());
+        eprintln!("whipped vs calm, largest joint difference every 10 frames: {:?}", (0..360).step_by(10).map(|f| apart(f).round()).collect::<Vec<_>>());
         assert!((0..12).any(|f| apart(f) > 5.0), "{name}: the hair never trailed");
-        assert!(apart(239) < 0.5, "{name}: the hair never settled: {}", apart(239));
+        assert!(apart(359) < 0.5, "{name}: the hair never settled: {}", apart(359));
         assert!(whipped.iter().all(|f| f[head] == data.joints[head].rest.rotation), "{name}: the hair turned the head");
     }
 
