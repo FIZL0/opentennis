@@ -3128,6 +3128,12 @@ fn cancel_locks(g: &mut Game, but: Option<usize>) {
     }
 }
 
+/// Ball steps a frame for the flight in the air: the last hitter's mod `serve_speed` / `shot_speed`, else 1.
+fn ball_steps(g: &Game) -> usize {
+    let s = usize::try_from(g.last_hitter).ok().and_then(|i| g.ball_steps.get(i)).map_or([1, 1], |s| *s);
+    s[(g.shot.class != class::SERVE) as usize] as usize
+}
+
 /// Player `i`'s swing pace: a mod's §6 `swing_speed` (M11), else 1.
 fn swing_pace(g: &Game, i: usize) -> f32 {
     g.swing_pace.get(i).copied().unwrap_or(1.0)
@@ -3837,8 +3843,7 @@ fn simulate(mut g: ResMut<Game>) {
     let (before, touched) = (g.flight.bounces, g.flight.special_contacts);
     g.flight.step_world(&shot, surface, &g.world.0, &g.world.1);
     // a fast mod shot: more of the same steps this frame, up to its first bounce or a net/post touch
-    let steps = usize::try_from(g.last_hitter).ok().and_then(|i| g.ball_steps.get(i)).map_or(1, |s| s[(shot.class != class::SERVE) as usize]);
-    for _ in 1..steps {
+    for _ in 1..ball_steps(g) {
         if g.flight.bounces != 0 || g.flight.special_contacts != touched {
             break;
         }
