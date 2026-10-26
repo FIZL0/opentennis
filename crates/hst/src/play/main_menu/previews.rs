@@ -142,7 +142,8 @@ struct Shown {
 // ponytail: a fixed count; a check of the live target's first full draw if a slow GPU still shows a gap
 const COVER: u32 = 10;
 /// A framed card's live model with nothing measured yet (no picture of it, its bake under way) stays hidden up to this
-/// long (s), so it never shows small and then jumps to its framing; after it, it shows framed on the whole picture.
+/// long (s), so it never shows small and then jumps to its framing; after it, it shows framed on every measured
+/// character's bounds together.
 const UNFRAMED_WAIT: f32 = 2.0;
 
 /// A worker's load: the character, its hand and its assets, to move into the world's (`Err("")`: the ask was dropped
@@ -732,8 +733,11 @@ fn sync(
         let picture = BAKE.x as f32 / BAKE.y as f32;
         let fit = want.filter(|(_, q)| q.src == FIT).map(|(_, q)| {
             let aspect = q.dst[2] * UNIT_W / q.dst[3];
-            match key.and_then(|k| loader.drawn.get(&k)) {
-                Some(&drawn) => inspect::frame_drawn(drawn, picture, aspect, FIT_MARGIN),
+            // not measured yet: every measured character's bounds together (the whole picture before any)
+            let drawn = key.and_then(|k| loader.drawn.get(&k).copied())
+                .or_else(|| loader.drawn.values().copied().reduce(|a, b| a.union(b)));
+            match drawn {
+                Some(drawn) => inspect::frame_drawn(drawn, picture, aspect, FIT_MARGIN),
                 None => inspect::frame_drawn(Rect::new(0.0, 0.0, 1.0, 1.0), picture, aspect, 0.0),
             }
         });
