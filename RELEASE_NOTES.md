@@ -1,13 +1,1 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- The game remembers whether you picked the close camera or the normal one (phones and touch screens start on the close one), and every match opens with a flashing reminder of the button that switches it.
-- Online, the camera button now switches to the close camera behind your own player, as it does offline.
-- Close camera: a match opens on the normal camera and glides in once play starts, it no longer jumps after the change of ends, and in doubles it moves in on your team and widens to keep you both in view instead of showing empty ground.
-- Touch controls: the on-screen buttons are labelled (Topspin, Slice, Lob, Pause, the menu's actions), the unused □ button is hidden during a match, and in the browser button hints show PlayStation symbols to match.
-- Choose your player: a bigger character preview, the match settings on one row, emotes that play in full, smaller stat tiles with bigger labels, a 2×2 grid of players in tall windows, and no more row of game tabs above the faces.
-- Each controller and the keyboard remembers its last character, costume and hand, and opens the next character select on them, even after a restart.
-- Character select fixes: every player's tag shows when three or four point at the same character, picking for computer players no longer jumps to a new character, and pop-ups no longer get cut off in tall or small windows.
-- New Offbeat rule, Everyone's stats: every player gets the same grade, F through A, in Serve, Stroke, Volley, Impact and Footwork.
-- Mods can now take the stock roster's best stats, make their shots fly faster along the same path, and mark themselves as joke characters (their own category on the character select; Random never picks them).
-- Very tall modded characters' serves now land in the box, and modded characters no longer get the camera on the ground looking up at them after a point.
-- Heads, glasses and other parts no longer go missing in close-ups of celebrations, and name tags no longer show during the court intro.
-- On Windows and Linux the game now keeps its settings, imported disc and mods in its own folder next to the game, so it moves or backs up as one folder; your old mods and settings carry over.
