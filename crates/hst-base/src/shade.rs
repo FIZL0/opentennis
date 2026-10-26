@@ -40,12 +40,14 @@ pub struct Ball;
 #[derive(Component)]
 pub struct FixedLight(pub [Vec4; 5]);
 
-/// A rig's or the ball's own GS draws, and the (light scale, weather, player on the +z half, mirrored) last applied.
+/// A rig's or the ball's own GS draws, the (light scale, weather, player on the +z half, mirrored) last applied,
+/// and its racket's draws with their entities (culled by their own matrix: `character::unmirror_rackets`).
 #[derive(Component)]
-struct Lit(Vec<Handle<GsMaterial>>, Option<(f32, Option<u8>, bool, bool, Option<(u8, f32)>)>);
+struct Lit(Vec<Handle<GsMaterial>>, Option<(f32, Option<u8>, bool, bool, Option<(u8, f32)>)>, Vec<(Entity, Handle<GsMaterial>)>);
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, (own_materials.after(crate::noise::attach), light.after(crate::weather::apply)).chain());
+    app.add_systems(PostUpdate, crate::character::unmirror_rackets.after(bevy::transform::TransformSystems::Propagate).before(bevy::camera::visibility::VisibilitySystems::CheckVisibility));
 }
 
 /// Model-space (min, max) over the packet boxes, the box the game frames the map with.
@@ -81,9 +83,10 @@ fn own_materials(
     materials: Res<Assets<StandardMaterial>>,
     mut gs: ResMut<Assets<GsMaterial>>,
     cullable: Query<(), With<crate::cull::Cullable>>,
+    rackets: Query<(), With<crate::character::RacketPart>>,
 ) {
     for (root, rig) in &rigs {
-        let mut own = Vec::new();
+        let (mut own, mut racket) = (Vec::new(), Vec::new());
         for e in children.iter_descendants(root) {
             let Ok((m, mesh, skin, morph, t, up)) = parts.get(e) else { continue };
             let draws = match rig {
@@ -94,10 +97,17 @@ fn own_materials(
                 let h = gs.add(d);
                 own.push(h.clone());
                 if k == 0 {
+                    if rackets.contains(e) {
+                        racket.push((e, h.clone()));
+                    }
                     commands.entity(e).try_remove::<MeshMaterial3d<StandardMaterial>>().try_insert(MeshMaterial3d(h));
                     continue;
                 }
-                let mut c = commands.spawn((mesh.clone(), *t, MeshMaterial3d(h)));
+                let mut c = commands.spawn((mesh.clone(), *t, MeshMaterial3d(h.clone())));
+                if rackets.contains(e) {
+                    c.insert(crate::character::RacketPart);
+                    racket.push((c.id(), h));
+                }
                 if let Some(s) = skin {
                     c.insert(s.clone());
                 }
@@ -122,8 +132,14 @@ fn own_materials(
                 });
             }
         }
-        commands.entity(root).try_insert(Lit(own, None));
+        commands.entity(root).try_insert(Lit(own, None, racket));
     }
+}
+
+/// Whether racket draw `h` (one of `rackets`) is drawn through a mirrored matrix; `None` for any other draw.
+fn mirrored(rackets: &[(Entity, Handle<GsMaterial>)], h: &Handle<GsMaterial>, placed: &Query<&GlobalTransform>) -> Option<bool> {
+    let (e, _) = rackets.iter().find(|(_, r)| r == h)?;
+    placed.get(*e).ok().map(|g| g.affine().matrix3.determinant() < 0.0)
 }
 
 /// Light each rig's and the ball's draws when its light scale or the weather changes: the players are never shaded.
@@ -133,6 +149,7 @@ fn light(
     sun: Option<Res<crate::shadow::Sun>>,
     mut rigs: Query<(&GlobalTransform, &mut Lit, Has<Ball>, Has<crate::effects::SwingTrail>, Option<&FixedLight>)>,
     mut materials: ResMut<Assets<GsMaterial>>,
+    placed: Query<&GlobalTransform>,
 ) {
     let rain = crate::weather::now() >= 2;
     let w = look.as_ref().and_then(|l| l.last);
@@ -144,6 +161,7 @@ fn light(
             // materials may not be loaded yet on the first)
             let mirror = t.affine().matrix3.determinant() < 0.0;
             for h in &lit.0 {
+                let mirror = mirrored(&lit.2, h, &placed).unwrap_or(mirror);
                 if materials.get(h).is_some_and(|m| m.key.mirror != mirror) {
                     materials.get_mut(h).unwrap().key.mirror = mirror;
                 }
@@ -176,6 +194,13 @@ fn light(
         // a left-hander is drawn mirrored (x scale −1): its one-sided parts keep the faces towards the camera, as
         // the game's (Will's eyes are one-sided)
         let mirror = t.affine().matrix3.determinant() < 0.0;
+        // a racket's own flip can follow its body's a frame on (the ceremony sets it apart)
+        for (_, h) in &lit.2 {
+            let own = mirrored(&lit.2, h, &placed).unwrap_or(mirror);
+            if lit.1.is_some() && materials.get(h).is_some_and(|m| m.key.mirror != own) {
+                materials.get_mut(h).unwrap().key.mirror = own;
+            }
+        }
         let key = (s, w, player && p.z < 0.0, mirror, mix);
         if lit.1 == Some(key) {
             continue;
@@ -202,7 +227,7 @@ fn light(
         }
         for h in &lit.0 {
             let Some(mut m) = materials.get_mut(h) else { continue };
-            m.key.mirror = mirror;
+            m.key.mirror = mirrored(&lit.2, h, &placed).unwrap_or(mirror);
             (m.uniform.light_dir, m.uniform.light_color, m.uniform.ambient) = (dir, (colour.truncate() * s).extend(1.0), ambient);
             (m.uniform.light2_dir, m.uniform.light2_color, m.uniform.glare) = (dir2, second, !rain as u8 as f32);
             if let Some((_, Some((mut main, _, _, fog)))) = court {

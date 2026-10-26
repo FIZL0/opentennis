@@ -1332,12 +1332,31 @@ pub fn spawn(commands: &mut Commands, data: &Arc<CharacterData>, parent: Entity)
     }
     if let Some(r) = data.joint("Racket") {
         for (mesh, material) in &data.racket {
-            let part = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::default(), crate::cull::Cullable)).id();
+            let part = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::default(), crate::cull::Cullable, RacketPart)).id();
             commands.entity(joints[r]).add_child(part);
         }
     }
     commands.entity(root).insert(Rig { data: data.clone(), joints });
     root
+}
+
+/// A racket mesh (a first GS draw or a second one beside it), kept unmirrored by `unmirror_rackets`.
+#[derive(Component)]
+pub struct RacketPart;
+
+/// Draw every racket unmirrored: the original places the racket model at its joint with the matrix's x row times the
+/// player's hand, so on a left-hander's mirrored body it is a right-hander's racket again (the frame's dark edge at
+/// the bottom of the head, the off hand's fingers over the bottom rim, not through the strings). After propagation,
+/// so the frame drawn has it.
+pub fn unmirror_rackets(mut parts: Query<(&ChildOf, &mut Transform, &mut GlobalTransform), With<RacketPart>>, joints: Query<&GlobalTransform, Without<RacketPart>>) {
+    for (up, mut t, mut g) in &mut parts {
+        let Ok(joint) = joints.get(up.parent()) else { continue };
+        let x = if joint.affine().matrix3.determinant() < 0.0 { -1.0 } else { 1.0 };
+        if t.scale.x != x {
+            t.scale.x = x;
+            *g = joint.mul_transform(*t);
+        }
+    }
 }
 
 /// A background figure (`shadow::Minor`) hidden itself: not posed while it stays so (P41). Its own `Visibility` is set
@@ -1991,6 +2010,30 @@ mod tests {
         }
         assert_eq!(held[..8], [69.0, 61.0, 0.0, 62.0, 0.0, 66.0, 0.0, 57.0]);
         assert_eq!((held[12], held[13]), (0.0, 64.0));
+    }
+
+    /// B676c1: a racket on a mirrored (left-handed) body is drawn unmirrored, at its joint; a right-hander's is left
+    /// alone.
+    #[test]
+    fn rackets_draw_unmirrored() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::transform::TransformPlugin))
+            .add_systems(PostUpdate, unmirror_rackets.after(bevy::transform::TransformSystems::Propagate));
+        let racket = |app: &mut App, hand: f32| {
+            let body = app.world_mut().spawn(Transform::from_scale(Vec3::new(hand, 1.0, 1.0)).with_translation(Vec3::new(1.0, 0.0, 2.0))).id();
+            let joint = app.world_mut().spawn((Transform::from_xyz(0.1, 0.2, 0.3).with_rotation(Quat::from_rotation_z(0.7)), ChildOf(body))).id();
+            (joint, app.world_mut().spawn((Transform::default(), RacketPart, ChildOf(joint))).id())
+        };
+        let (lefty, righty) = (racket(&mut app, -1.0), racket(&mut app, 1.0));
+        app.update();
+        for ((joint, part), sign) in [(lefty, -1.0), (righty, 1.0)] {
+            let at = |e: Entity| *app.world().get::<GlobalTransform>(e).unwrap();
+            let (j, p) = (at(joint), at(part));
+            assert!(p.affine().matrix3.determinant() > 0.0);
+            assert_eq!(p.translation(), j.translation());
+            assert!((p.affine().matrix3.x_axis - sign * j.affine().matrix3.x_axis).length() < 1e-6);
+            assert_eq!(app.world().get::<Transform>(part).unwrap().scale.x, sign);
+        }
     }
 }
 

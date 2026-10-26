@@ -11,3 +11,4 @@
 - Spectators react to points like the original: they let outs and other called points pass unless a game or set is won, all clap at the end of a set, and give your side a consolation reaction when the computer wins the match.
 - In doubles, the pause screen's score board is now taller, so each player's character name no longer runs into the face below it or off the board.
 - The Offbeat rules tab on the pause screen now uses the score board's own frame, so it looks part of it.
+- Left-handed players' rackets are now drawn the right way round, so Carol's and Will's off hand curls over the bottom of the racket head instead of poking through the strings, as in the original.
