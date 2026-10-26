@@ -79,14 +79,13 @@ fn fade(
     }
 }
 
-/// The outline's matrix (game space) for a split half's camera: its eye, down axis and the ball's depth in game space
-/// (world is game's x, −y, −z), and its lens as the game's 4:3 half-width.
-fn halfs_disc(c: &Transform, fov: f32, pos: [f32; 4], disc: &impl Fn([f32; 4], [f32; 4], f32, f32) -> Mat4) -> Mat4 {
+/// A split half's camera in game space (world is game's x, −y, −z): its eye, down axis, the ball's depth and its lens
+/// as the game's 4:3 half-width.
+fn halfs_eye(c: &Transform, fov: f32, pos: [f32; 4]) -> ([f32; 4], [f32; 4], f32, f32) {
     let game = |v: Vec3| Vec3::new(v.x, -v.y, -v.z);
     let eye = game(c.translation);
-    let down = game(*c.down());
     let depth = (Vec3::new(pos[0], pos[1], pos[2]) - eye).dot(game(*c.forward()));
-    disc(eye.extend(1.0).to_array(), down.extend(0.0).to_array(), depth, (fov / 2.0).tan() / super::SHOWN_ASPECT)
+    (eye.extend(1.0).to_array(), game(*c.down()).extend(0.0).to_array(), depth, (fov / 2.0).tan() / super::SHOWN_ASPECT)
 }
 
 /// Scale the ball and place the shadow and the outline (game space, under the court root) for the drawn ball and camera.
@@ -107,23 +106,25 @@ fn place(
     };
     let (v0, view) = super::own_camera::shown(&g, own.as_deref());
     let (pos, eye) = (mix(g.prev_ball, g.flight.ball.pos), mix(v0.eye, view.eye));
-    let view = &view;
-    let depth = view.local([pos[0], pos[1], pos[2]])[2];
-    let t = view.fov.tan();
-    let ball = shade::ball_scale(BALL_SCALE, depth, t, !matches!(g.phase, Phase::ChangeEnds(_)));
     let [dx, dy, dz] = view.rot[1];
-    let disc = |eye: [f32; 4], down: [f32; 4], depth: f32, t: f32| {
+    // split, each half's ball size and disc go by its own camera (from the other end the shared camera's disc shows
+    // its back, culled; and a half's widened lens shows the ball smaller)
+    let split = second.eye().copied().zip(second.projection().map(|p| p.fov));
+    let main = match (split, cam.single()) {
+        (Some(_), Ok((c, Projection::Perspective(p)))) => halfs_eye(c, p.fov, pos),
+        _ => (eye, [dx, dy, dz, 0.0], view.local([pos[0], pos[1], pos[2]])[2], view.fov.tan()),
+    };
+    let other = split.map(|(c, fov)| halfs_eye(&c, fov, pos));
+    // one ball model for both halves: the larger size either needs
+    let grow = !matches!(g.phase, Phase::ChangeEnds(_));
+    let ball = std::iter::once(main).chain(other).map(|(_, _, depth, t)| shade::ball_scale(BALL_SCALE, depth, t, grow)).fold(0.0, f32::max);
+    let disc = |(eye, down, depth, t): ([f32; 4], [f32; 4], f32, f32)| {
         let (outline, m) = shade::ball_outline(ball, depth, t, pos, eye, down);
         let [x, y, z, p] = m.map(Vec4::from);
         Mat4::from_cols(x * outline, y * outline, z * outline, p)
     };
-    // split, each half's disc faces its own camera (from the other end the shared camera's shows its back, culled)
-    let split = second.eye().copied().zip(second.projection().map(|p| p.fov));
-    let main = match (split, cam.single()) {
-        (Some(_), Ok((c, Projection::Perspective(p)))) => halfs_disc(c, p.fov, pos, &disc),
-        _ => disc(eye, [dx, dy, dz, 0.0], depth, t),
-    };
-    let twin = split.map(|(c, fov)| main.inverse() * halfs_disc(&c, fov, pos, &disc));
+    let main = disc(main);
+    let twin = other.map(|o| main.inverse() * disc(o));
     for (mut tr, parts) in &mut outlines {
         *tr = Transform::from_matrix(main);
         if let Some(m) = twin {
