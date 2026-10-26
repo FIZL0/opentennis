@@ -141,6 +141,9 @@ struct Shown {
 /// face settles on the fixed clock, which a fast menu frame outruns: the mouth popped at the swap).
 // ponytail: a fixed count; a check of the live target's first full draw if a slow GPU still shows a gap
 const COVER: u32 = 10;
+/// A framed card's live model with nothing measured yet (no picture of it, its bake under way) stays hidden up to this
+/// long (s), so it never shows small and then jumps to its framing; after it, it shows framed on the whole picture.
+const UNFRAMED_WAIT: f32 = 2.0;
 
 /// A worker's load: the character, its hand and its assets, to move into the world's (`Err("")`: the ask was dropped
 /// as stale).
@@ -738,6 +741,10 @@ fn sync(
             Some((_, f)) => [x + f.min.x * w, y + f.min.y * h, f.width() * w, f.height() * h],
             None => [x, y, w, h],
         };
+        // its framing still to come: the live model waits hidden for its bake's measure
+        let unframed = fit.is_some()
+            && key.is_some_and(|k| !loader.drawn.contains_key(&k))
+            && since[p].is_some_and(|(_, t)| now - t < UNFRAMED_WAIT);
         fits.0[p] = fit.map(|(part, f)| (part, want.map_or(1.0, |(_, q)| q.dst[2] * f.width() * UNIT_W / (q.dst[3] * f.height()))));
         // a press, or a key not baked yet (nothing to show until the live model), loads the live model straight away;
         // B120: in the browser (a load runs inside a frame, ~30 ms on a phone) a held hover keeps the card
@@ -797,7 +804,7 @@ fn sync(
                     let image = inspect::target(&mut images, (Vec2::new(bw * UNIT_W, bh) * scale).as_uvec2());
                     let cam = inspect::spawn_into(&mut commands, &data, c, hand, 1 + p, image.clone());
                     commands.entity(cam).insert(Card(p));
-                    let shown = if cover.is_some() { Visibility::Hidden } else { Visibility::Inherited };
+                    let shown = if cover.is_some() || unframed { Visibility::Hidden } else { Visibility::Inherited };
                     let node = commands.spawn((Shot, node, shown, MaterialNode(ui.add(PreviewMaterial { image })))).id();
                     commands.entity(root).add_child(node);
                     *slot = Some(Shown { key: (w, costume), cam: Some(cam), node, cover, wh: [q.dst[2], q.dst[3]] });
@@ -825,6 +832,13 @@ fn sync(
                     *cover = None;
                 }
             }
+        }
+        if let Some(Shown { cover: None, cam: Some(_), node, .. }) = slot.as_ref()
+            && !unframed
+            && let Ok(mut v) = shows.get_mut(*node)
+            && *v == Visibility::Hidden
+        {
+            *v = Visibility::Inherited;
         }
         for e in slot.iter().flat_map(|s| [Some(s.node), s.cover.map(|c| c.0)]).flatten() {
             let Some((i, q)) = want else { break };
