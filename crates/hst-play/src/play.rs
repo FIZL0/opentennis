@@ -665,6 +665,7 @@ pub fn plugin(app: &mut App) {
                 balloons,
                 character::animate,
                 character::racket_shown,
+                character::seats,
             )
                 .chain(),
         )

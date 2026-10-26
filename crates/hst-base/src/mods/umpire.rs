@@ -148,6 +148,7 @@ pub fn load(
         takes: HashMap::new(),
         own_faces: HashMap::new(),
         racketless: Default::default(),
+        seats: Default::default(),
         take_voices: HashMap::new(),
         feet: None,
         grip: None,

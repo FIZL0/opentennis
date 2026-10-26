@@ -131,6 +131,9 @@ pub struct CharacterData {
     /// A mod's clips drawn without the racket, by motion and take as `own_faces` (`extras.racket: false`: the racket
     /// would go through the body in a move made without one); [`racket_shown`] hides it while one plays.
     pub racketless: HashSet<(usize, usize)>,
+    /// A mod's clips that sit on a seat of their own, by motion and take as `own_faces` (`extras.seat`): its meshes in
+    /// the character's root space, popped in and out with the clip ([`seats`]).
+    pub seats: HashMap<(usize, usize), Vec<(Handle<Mesh>, Handle<StandardMaterial>)>>,
     /// A mod's clips that speak a voice line of their own, by motion and take as `own_faces` (`extras.voice`): the key
     /// of the motion's reaction program its reaction and emote lines play while that clip is drawn
     /// ([`drawn_voice`](Self::drawn_voice)).
@@ -593,6 +596,11 @@ impl CharacterData {
         self.visual.contains_key(&id) && self.racketless.contains(&(id, self.drawn_k(id, sets)))
     }
 
+    /// The seat the clip [`drawn_take`](Self::drawn_take) draws sits on, if it has one (`seats`).
+    pub fn drawn_seat(&self, id: usize, sets: u32) -> Option<&[(Handle<Mesh>, Handle<StandardMaterial>)]> {
+        self.visual.contains_key(&id).then(|| self.seats.get(&(id, self.drawn_k(id, sets))).map(|s| &s[..])).flatten()
+    }
+
     /// The voice key the clip [`drawn_take`](Self::drawn_take) draws speaks, if it has one (`take_voices`).
     pub fn drawn_voice(&self, id: usize, sets: u32) -> Option<u8> {
         self.visual.contains_key(&id).then(|| self.take_voices.get(&(id, self.drawn_k(id, sets))).copied()).flatten()
@@ -959,7 +967,7 @@ pub fn load_disc_with(
     // the game binds a face track to the target of the same name; others are dropped
     let Motions { motions, paths, pelvis, arm, faces, stance_ball } = disc_motions_with(iso, n, &skeleton, |name| model.morph_names.iter().position(|m| m == name), only)?;
     let binds = part_skins(&joints, &parts, meshes, bindposes);
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), take_voices: HashMap::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new(), voice_takes: HashMap::new(), size: 1.0, thigh_twist: hst_sim::pose::thigh_twist(n, costume) })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: model.morph_names.clone(), faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face: None, visual: HashMap::new(), takes: HashMap::new(), own_faces: HashMap::new(), racketless: HashSet::new(), seats: HashMap::new(), take_voices: HashMap::new(), feet: None, grip: None, frame_gameplay: false, emote_ticks: HashMap::new(), voice_takes: HashMap::new(), size: 1.0, thigh_twist: hst_sim::pose::thigh_twist(n, costume) })
 }
 
 /// [`load_disc_with`] `scale` times the size (M11, a disc-body mod's §6 `scale`): every rest translation (so every
@@ -1321,6 +1329,7 @@ pub fn load_npc(
         takes: HashMap::new(),
         own_faces: HashMap::new(),
         racketless: Default::default(),
+        seats: HashMap::new(),
         take_voices: HashMap::new(),
         feet: None,
         grip: None,
@@ -1407,6 +1416,56 @@ pub fn racket_shown(rigs: Query<(&Rig, &Motion)>, mut shown: Query<&mut Visibili
         let Some(mut v) = rig.data.joint("Racket").and_then(|r| shown.get_mut(rig.joints[r]).ok()) else { continue };
         v.set_if_neq(if rig.data.drawn_racketless(motion.id, motion.sets) { Visibility::Hidden } else { Visibility::Inherited });
     }
+}
+
+/// Frames a seat takes to pop in or out.
+const SEAT_POP: f32 = 6.0;
+
+/// Draw a mod character's seat while it plays a clip of its own that sits on one (`CharacterData::seats`): it pops
+/// up from the floor as the clip starts and back down as the clip ends, or as soon after as the motion moves on.
+/// Looks only.
+pub fn seats(mut commands: Commands, rigs: Query<(Entity, &Rig, &Motion)>, mut shown: Local<HashMap<Entity, (Entity, (usize, u32), f32)>>) {
+    // ease-out-back: a quick overshoot reads as a pop
+    let pop = |x: f32| {
+        let x = x.clamp(0.0, 1.0) - 1.0;
+        1.0 + 2.7 * x * x * x + 1.7 * x * x
+    };
+    for (root, rig, motion) in &rigs {
+        let key = (motion.id, motion.sets);
+        let seat = rig.data.drawn_seat(motion.id, motion.sets);
+        let s = match shown.get_mut(&root) {
+            Some((_, k, s)) if *k == key => {
+                let len = rig.data.drawn_take(motion.id, motion.sets).map_or(0.0, |c| c.length);
+                *s = pop(motion.drawn.time.min(len - motion.drawn.time) / SEAT_POP);
+                *s
+            }
+            // the motion moved on: shrink what's left, then go
+            Some((e, _, s)) => {
+                *s -= 1.0 / SEAT_POP;
+                if *s > 0.0 {
+                    *s
+                } else {
+                    commands.entity(*e).despawn();
+                    shown.remove(&root);
+                    continue;
+                }
+            }
+            None => {
+                let Some(parts) = seat else { continue };
+                let e = commands.spawn((Transform::from_scale(Vec3::ZERO), Visibility::default(), ChildOf(root))).id();
+                for (mesh, material) in parts {
+                    commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::default(), ChildOf(e)));
+                }
+                shown.insert(root, (e, key, 0.0));
+                continue;
+            }
+        };
+        if let Some((e, ..)) = shown.get(&root) {
+            commands.entity(*e).insert(Transform::from_scale(Vec3::splat(s.max(0.0))));
+        }
+    }
+    // a rig gone (the match or the card torn down) takes its seat with it as its child
+    shown.retain(|r, _| rigs.contains(*r));
 }
 
 /// Sample every character's motion into its joints (unkeyed joints at rest, as the game binds a motion).

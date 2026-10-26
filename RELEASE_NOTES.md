@@ -24,3 +24,4 @@
 - The bounce ring when the ball hits a player before it lands now stands up facing the ball instead of lying flat in mid-air.
 - At Laguna Beach Resort, the surf now washes up the beach and back, as in the original.
 - Custom courts can now have moving water: their sea, rivers and pools can ripple and flow.
+- Custom characters' emotes can bring a seat along: it pops in under them as they sit down and pops away once they stand back up.

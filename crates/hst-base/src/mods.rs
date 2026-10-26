@@ -1550,25 +1550,7 @@ pub fn load_with(
 
     // the racket: racket.glb in the Racket joint's space, else disc character `disc_racket`'s (M1r), else the donor's
     let racket = match m.dir.join("racket.glb") {
-        f if crate::modfs::is_file(&f) => {
-            let (rdoc, rblob) = open(&f)?;
-            let rh = materials_of(&rdoc, &rblob, upscaled_dir(m, &f).as_deref(), images, materials, &mut gs)?;
-            let mut out = Vec::new();
-            for mesh in rdoc.meshes() {
-                for p in mesh.primitives() {
-                    let v = prim(&p, &rblob, &[]).map_err(|e| format!("{}: {e}", f.display()))?;
-                    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
-                        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, v.pos)
-                        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, v.nrm)
-                        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, v.uv)
-                        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, v.col)
-                        .with_inserted_indices(Indices::U32(v.idx));
-                    crate::lod::detail(&mut mesh, &[]);
-                    out.push((meshes.add(mesh), rh[p.material().index().unwrap_or(rh.len() - 1)].clone()));
-                }
-            }
-            out
-        }
+        f if crate::modfs::is_file(&f) => rigid(m, &f, meshes, materials, images, &mut gs)?,
         _ => {
             let n = disc_racket(&m.dir).unwrap_or(m.donor);
             let data = iso.read(&format!("PC/PC{n:02}C00.XB")).map_err(|e| e.to_string())?;
@@ -1589,10 +1571,23 @@ pub fn load_with(
             f.uv.extend(f.uv_unbound.drain(..).filter(|t| donor.contains(&t.0)).map(|(_, ticks, values)| (character::EYES, ticks, values)));
         }
     }
-    let (mut visual, mut takes, own_faces, racketless, take_voices) = match &m.motions {
+    let (mut visual, mut takes, own_faces, racketless, take_voices, seat_files) = match &m.motions {
         Some(f) => own_motions(&m.dir.join(f), &skeleton, &motions, only, &|t| names.iter().position(|n| n == t).or_else(|| face_target(&names, t)))?,
         None => Default::default(),
     };
+    // each seat file once, however many takes sit on it
+    let mut seat_glbs: HashMap<String, Vec<(Handle<Mesh>, Handle<StandardMaterial>)>> = HashMap::new();
+    let mut seats = HashMap::new();
+    for (k, f) in seat_files {
+        if !seat_glbs.contains_key(&f) {
+            let path = m.dir.join(&f);
+            if f.split(['/', '\\']).any(|p| p == ".." || p.is_empty()) || !crate::modfs::is_file(&path) {
+                return Err(format!("{}: extras.seat `{f}` is no file in the mod folder", m.dir.display()));
+            }
+            seat_glbs.insert(f.clone(), rigid(m, &path, meshes, materials, images, &mut gs)?);
+        }
+        seats.insert(k, seat_glbs[&f].clone());
+    }
     // the donor's stance, where the soles are laid flat (a card's load may not have it)
     let stand = match motions.get(&0) {
         Some(c) => Some(c.clone()),
@@ -1634,7 +1629,35 @@ pub fn load_with(
         c.tracks.retain(|t| !sprung.contains(&t.node));
     }
     let noise = (!swaying.is_empty() || !springs.is_empty()).then(|| std::sync::Arc::new(crate::noise::Costume { deformers, parts: swaying, springs }));
-    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, take_voices, feet, grip, frame_gameplay: false, emote_ticks, voice_takes: HashMap::new(), size: 1.0, thigh_twist: 1.0 })
+    Ok(CharacterData { joints, parts, racket, motions, paths, binds, pelvis, arm, morph_names: names, faces, part_nodes, stance_ball, skeleton, noise, gs, texture_face, visual, takes, own_faces, racketless, seats, take_voices, feet, grip, frame_gameplay: false, emote_ticks, voice_takes: HashMap::new(), size: 1.0, thigh_twist: 1.0 })
+}
+
+/// A rigid `.glb` in the mod folder (`racket.glb`, a clip's seat): a mesh and material per primitive, as made.
+fn rigid(
+    m: &Mod,
+    f: &Path,
+    meshes: &mut impl Store<Mesh>,
+    materials: &mut impl Store<StandardMaterial>,
+    images: &mut impl Store<Image>,
+    gs: &mut HashMap<AssetId<StandardMaterial>, Vec<crate::gs::GsMaterial>>,
+) -> Result<Vec<(Handle<Mesh>, Handle<StandardMaterial>)>, String> {
+    let (rdoc, rblob) = open(f)?;
+    let rh = materials_of(&rdoc, &rblob, upscaled_dir(m, f).as_deref(), images, materials, gs)?;
+    let mut out = Vec::new();
+    for mesh in rdoc.meshes() {
+        for p in mesh.primitives() {
+            let v = prim(&p, &rblob, &[]).map_err(|e| format!("{}: {e}", f.display()))?;
+            let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, v.pos)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, v.nrm)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, v.uv)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, v.col)
+                .with_inserted_indices(Indices::U32(v.idx));
+            crate::lod::detail(&mut mesh, &[]);
+            out.push((meshes.add(mesh), rh[p.material().index().unwrap_or(rh.len() - 1)].clone()));
+        }
+    }
+    Ok(out)
 }
 
 /// `mod.json`'s `disc_racket` (§6, M1r): the disc character (0..13) whose racket it holds when it ships no
@@ -1693,8 +1716,9 @@ pub fn emote_ticks(m: &Mod, ids: &[usize]) -> Result<Vec<(usize, Vec<u32>)>, Str
 /// channel is the clip's own face, its targets named by the node's `extras.targetNames` and bound by `target`
 /// (`CharacterData::own_faces`, by motion and take, 0 the motion itself). `extras.racket: false` on an animation
 /// hides the racket while it plays (`CharacterData::racketless`, keyed alike); `extras.voice: K` speaks the voice key K
-/// of its reaction's program while it is the one drawn (`CharacterData::take_voices`, keyed alike).
-type OwnMotions = (HashMap<usize, Clip>, HashMap<usize, Vec<Clip>>, HashMap<(usize, usize), Face>, HashSet<(usize, usize)>, HashMap<(usize, usize), u8>);
+/// of its reaction's program while it is the one drawn (`CharacterData::take_voices`, keyed alike); `extras.seat: FILE`
+/// sits on the rigid `.glb` FILE in the mod folder while it plays (`CharacterData::seats`, keyed alike; loaded by the caller).
+type OwnMotions = (HashMap<usize, Clip>, HashMap<usize, Vec<Clip>>, HashMap<(usize, usize), Face>, HashSet<(usize, usize)>, HashMap<(usize, usize), u8>, HashMap<(usize, usize), String>);
 fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, only: Option<&[usize]>, target: &impl Fn(&str) -> Option<usize>) -> Result<OwnMotions, String> {
     use hst_data::ani::{Anim, MOTIONS, Track};
     use gltf::animation::util::ReadOutputs;
@@ -1705,6 +1729,7 @@ fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, o
     let mut faces: HashMap<(usize, u32), Face> = HashMap::new();
     let mut racketless: Vec<(usize, u32)> = Vec::new();
     let mut voices: Vec<((usize, u32), u8)> = Vec::new();
+    let mut seats: Vec<((usize, u32), String)> = Vec::new();
     for a in doc.animations() {
         let name = a.name().unwrap_or("");
         let (id, take) = motion_of(name).map_err(ctx)?;
@@ -1718,6 +1743,9 @@ fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, o
         }
         if let Some(k) = extras["voice"].as_u64() {
             voices.push(((id, take.unwrap_or(0)), u8::try_from(k).map_err(|_| ctx(format!("`{name}`: extras.voice {k} is past 255")))?));
+        }
+        if let Some(f) = extras["seat"].as_str() {
+            seats.push(((id, take.unwrap_or(0)), f.to_string()));
         }
         let mut keys: Vec<(&gltf::animation::Channel, Vec<f32>)> = Vec::new();
         let channels: Vec<_> = a.channels().collect();
@@ -1795,6 +1823,7 @@ fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, o
     let own_faces = faces.into_iter().filter_map(|((id, k), f)| Some((at(id, k)?, f))).collect();
     let racketless = racketless.into_iter().filter_map(|(id, k)| at(id, k)).collect();
     let voices = voices.into_iter().filter_map(|((id, k), v)| Some((at(id, k)?, v))).collect();
+    let seats = seats.into_iter().filter_map(|((id, k), f)| Some((at(id, k)?, f))).collect();
     for (id, mut t) in more {
         if !out.contains_key(&id) {
             return Err(ctx(format!("takes of `{}` without the motion itself", MOTIONS[id].replace("_pc%02d", ""))));
@@ -1802,7 +1831,7 @@ fn own_motions(path: &Path, skeleton: &Skeleton, donor: &HashMap<usize, Clip>, o
         t.sort_by_key(|t| t.0);
         takes.insert(id, t.into_iter().map(|t| t.1).collect());
     }
-    Ok((out, takes, own_faces, racketless, voices))
+    Ok((out, takes, own_faces, racketless, voices, seats))
 }
 
 /// The point and game reactions (`re_gu`, `re_di`, `re_gu_set`, `re_di_set`): a mod's own may end before the donor's
@@ -2467,6 +2496,7 @@ mod tests {
             .iter()
             .map(|name| match name.split_once('@') {
                 Some((name, k)) => (name, format!(r#","extras":{{"voice":{k}}}"#)),
+                None if name.contains('#') => name.split_once('#').map(|(name, f)| (name, format!(r#","extras":{{"seat":"{f}"}}"#))).unwrap(),
                 None => (name.trim_end_matches('!'), if name.ends_with('!') { r#","extras":{"racket":false}"#.into() } else { String::new() }),
             })
             .map(|(name, racket)| format!(r#"{{"name":"{name}"{racket},"samplers":[{{"input":0,"output":1}},{{"input":0,"output":2}}],"channels":[{{"sampler":0,"target":{{"node":0,"path":"rotation"}}}},{{"sampler":1,"target":{{"node":1,"path":"weights"}}}}]}}"#))
@@ -2506,11 +2536,14 @@ mod tests {
             std::fs::write(&path, quarter_turns(names)).unwrap();
             own_motions(&path, &sk, &donor, None, &|n| (n == "smile").then_some(3))
         };
-        let (own, takes, faces, racketless, voices) = load(&["re_gu.2!", "re_gu", "sh_f_t!", "re_gu.1"]).unwrap();
+        let (own, takes, faces, racketless, voices, _) = load(&["re_gu.2!", "re_gu", "sh_f_t!", "re_gu.1"]).unwrap();
         assert!(voices.is_empty());
         // a take's voice key goes by its place in K order, as its face does
-        let (.., voices) = load(&["re_gu@4", "re_gu.7@0", "re_gu.3"]).unwrap();
+        let (.., voices, _) = load(&["re_gu@4", "re_gu.7@0", "re_gu.3"]).unwrap();
         assert_eq!(voices, [((0x2c, 0), 4), ((0x2c, 2), 0)].into_iter().collect());
+        // a take's seat file goes by its place in K order too
+        let (.., seats) = load(&["re_gu", "re_gu.4#seat.glb"]).unwrap();
+        assert_eq!(seats, [((0x2c, 1), "seat.glb".to_string())].into_iter().collect());
         assert_eq!((own.len(), takes.len(), takes[&0x2c].len()), (2, 1, 2));
         assert_eq!(racketless, [(0x10, 0), (0x2c, 2)].into_iter().collect());
         let mut keys: Vec<_> = faces.keys().copied().collect();
