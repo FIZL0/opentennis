@@ -19,6 +19,7 @@ pub mod effects;
 pub mod graphics;
 pub mod device;
 pub mod handshake;
+pub mod grades;
 pub mod gs;
 pub mod modfs;
 pub mod modstore;

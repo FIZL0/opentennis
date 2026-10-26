@@ -2415,7 +2415,7 @@ struct TParam(Vec<u8>);
 
 /// M113: mod `m`'s play style and △ grades as the select shows them (None: its TParam.csv row can't be read).
 fn mod_card(m: &crate::mods::Mod, csv: &[u8], t: &Text) -> Option<(usize, [u8; 5])> {
-    let row = crate::mods::tparam_row(csv, m).ok()?;
+    let row = crate::mods::tparam_row(csv, Some(&t.grades), m).ok()?;
     Some((mod_style(m, &t.style), mod_grades(&row, m.base, csv, &t.grades)))
 }
 

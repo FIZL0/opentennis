@@ -455,8 +455,6 @@ pub struct Game {
     smash_heights: Vec<[f32; 2]>,
     /// Per player a mod's swing pace (character standard §6 `swing_speed`, M11); missing is 1, the original's.
     swing_pace: Vec<f32>,
-    /// Per player a mod's shot power and body scale (§6 `shot_power`, `scale`); missing is (1, 1), the original's.
-    shot_build: Vec<(f32, f32)>,
     /// Per player the contact search's reach: `reach` with the character's TParam reach and heights and its hand.
     pub reaches: Vec<Reach>,
     /// Per player its character's lowest underhand contact (TParam, m): the AI's scoop height (`ReachStats::under_min`).
@@ -1486,7 +1484,6 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
         hit_effect: None,
         smash_heights: Vec::new(),
         swing_pace: Vec::new(),
-        shot_build: Vec::new(),
         reaches: Vec::new(),
         under_min: Vec::new(),
         strong_hand: [1.0; 4],
@@ -2059,9 +2056,6 @@ fn strike(
     let irregular = offbeat::launch(g);
     let last = g.flight;
     g.flight = Flight::struck(Ball { pos: at, vel, spin }, launched.frame, launched.frame);
-    if let Some(&(power, _)) = g.shot_build.get(who).filter(|b| **b != (1.0, 1.0) && kind != kind::LOB && kind != kind::DROP) {
-        powered(g, sent, power);
-    }
     g.flight = last.relaunch(g.flight);
     g.flight.irregular = irregular;
     ai_heard_hit(g, who, branch, vel);
@@ -3131,97 +3125,6 @@ fn cancel_locks(g: &mut Game, but: Option<usize>) {
 }
 
 /// Player `i`'s swing pace: a mod's §6 `swing_speed` (M11), else 1.
-/// A §6 `shot_power`/`scale` mod's launch (mods only, never a disc character): the table's speed × `power`, its
-/// elevation solved on the ball's own step so the first bounce lands at `sent`'s distance (the tables only cover a
-/// stock body's contact heights: a grown server's serve flew long). Too fast to clear the net, the speed comes down
-/// toward the table's in tenths of the gain. The curve profile is stretched over the solved flight.
-// ponytail: a slice serve's side angle wind is dropped (the ball heads straight at the target); lobs and drops keep
-// the table launch.
-// Plain f32 (+ − × ÷ √ are IEEE-exact on every platform) and the game's sinf/cosf, so every peer gets the same launch.
-fn powered(g: &mut Game, sent: V3, power: f32) {
-    let start = g.flight;
-    let (at, v) = (start.ball.pos, start.ball.vel);
-    let table = v.iter().map(|c| c * c).sum::<f32>().sqrt();
-    let (dx, dz) = (sent[0] - at[0], sent[2] - at[2]);
-    let want = (dx * dx + dz * dz).sqrt();
-    let (ux, uz) = (dx / want, dz / want);
-    g.shot.wind = [0.0; 3];
-    // the first bounce's distance from `at`, the frames to it and the height (m, up) it passes the net at; a flight
-    // already past `stop` (m from `at`) ends there as long (halving only asks short or long)
-    let fly = |g: &Game, speed: f32, e: f32, stop: f32| {
-        let mut f = start;
-        let (c, s) = (hst_sim::libm::cosf(e), hst_sim::libm::sinf(e));
-        f.ball.vel = [ux * c * speed, -s * speed, uz * c * speed];
-        f.net = false;
-        let mut over = f32::MAX;
-        for n in 1..400 {
-            let before = f.ball.pos;
-            f.step(&g.shot, &COURTS[g.court]);
-            if before[2].signum() != f.ball.pos[2].signum() {
-                over = -f.ball.pos[1];
-            }
-            if f.contacts > 0 {
-                let (x, z) = (f.landing.0[0] - at[0], f.landing.0[2] - at[2]);
-                return ((x * x + z * z).sqrt(), n, over);
-            }
-            let (x, z) = (f.ball.pos[0] - at[0], f.ball.pos[2] - at[2]);
-            if x * x + z * z > stop * stop {
-                return (f32::INFINITY, n, over);
-            }
-        }
-        (f32::INFINITY, 400, over)
-    };
-    // the elevation landing at `want`, from its short side: halved down to 0.03 rad, then regula falsi (Illinois) on
-    // the bounce distances, where the curve is near straight (20 halvings flew ~5000 steps a hit: a hitch)
-    let solve = |g: &Game, speed: f32| {
-        let (mut lo, mut hi) = (-1.4f32, 0.6f32);
-        for _ in 0..6 {
-            let mid = (lo + hi) / 2.0;
-            if fly(g, speed, mid, want).0 < want { lo = mid } else { hi = mid }
-        }
-        let miss = |e: f32| fly(g, speed, e, f32::MAX).0 - want;
-        let (mut short, mut long) = (miss(lo), miss(hi));
-        for _ in 0..4 {
-            if !long.is_finite() || long - short < 1e-4 {
-                break;
-            }
-            let mid = lo - short * (hi - lo) / (long - short);
-            let off = miss(mid);
-            if off < 0.0 {
-                (lo, short, long) = (mid, off, long / 2.0);
-            } else {
-                (hi, long, short) = (mid, off, short / 2.0);
-            }
-        }
-        lo
-    };
-    // net cord plus the ball, a little over (the net is at most 1.07 m at the posts)
-    let clear = 1.07 + 0.064 + 0.1;
-    let crosses = at[2].signum() != sent[2].signum();
-    let frames = g.shot.curve_frames;
-    // the fastest of ten steps from table × power down to the table's speed that clears, found by halving (slower
-    // clears more easily), each on the curve profile stretched by speed alone; only the kept one re-solves on its own
-    // flight's frames. No step clears: the table's speed.
-    let at_step = |g: &mut Game, step: i32| {
-        let speed = table * (power - (power - 1.0) * step as f32 / 10.0);
-        g.shot.curve_frames = (frames as f32 * table / speed) as i32;
-        let e = solve(g, speed);
-        (speed, e, !crosses || power == 1.0 || fly(g, speed, e, f32::MAX).2 > clear)
-    };
-    let (mut fast, mut slow, mut solved) = (-1, 10, None);
-    while slow - fast > 1 {
-        let mid = (fast + slow) / 2;
-        let (speed, e, clears) = at_step(g, mid);
-        if clears { (slow, solved) = (mid, Some((speed, e))) } else { fast = mid }
-    }
-    let (speed, e) = solved.unwrap_or_else(|| { let (speed, e, _) = at_step(g, 10); (speed, e) });
-    g.shot.curve_frames = (frames as f32 * table / speed) as i32;
-    g.shot.curve_frames = fly(g, speed, e, f32::MAX).1;
-    let e = solve(g, speed);
-    let (c, s) = (hst_sim::libm::cosf(e), hst_sim::libm::sinf(e));
-    g.flight.ball.vel = [ux * c * speed, -s * speed, uz * c * speed];
-}
-
 fn swing_pace(g: &Game, i: usize) -> f32 {
     g.swing_pace.get(i).copied().unwrap_or(1.0)
 }

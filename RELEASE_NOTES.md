@@ -14,6 +14,6 @@
 - On Windows and Linux the game now keeps its settings, imported disc and mods in its own folder, next to the game, so the whole game moves or backs up as one folder; mods and settings from before carry over
 - Modded characters no longer get the camera on the ground looking up at them after a point
 - New Offbeat rule, Everyone's stats: give every player the same grade, F through A, in Serve, Stroke, Volley, Impact and Footwork
-- Character mods can now hit harder, and very tall mod characters' serves now land in the service box instead of flying long
+- Character mods can now take the best stats of the stock roster, and very tall mod characters' serves now land in the service box instead of flying long
 - Mods can mark themselves as joke characters: they get their own category on the character select, and Random never picks them
 - Players' heads, glasses and other parts no longer go missing or see-through when the camera cuts to a close-up of a celebration

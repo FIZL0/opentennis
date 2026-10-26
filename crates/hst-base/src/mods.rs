@@ -152,11 +152,11 @@ pub struct Mod {
     /// §3 `upscale` (B488): false when its textures are HD already (e.g. Hot Shots Golf Fore's), so its
     /// `textures/upscaled/` is never read nor downloaded. Absent: true.
     pub upscale: bool,
-    /// §6 `disc_body`, `scale`, `swing_speed`, `run_speed` (M11).
+    /// §6 `disc_body`, `scale`, `swing_speed`, `run_speed` (M11), `stats`.
     pub build: Build,
 }
 
-/// A mod's body and pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`, M11); [`Build::default`] for a mod
+/// A mod's body and pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`, M11, `stats`); [`Build::default`] for a mod
 /// without them, which plays exactly as its donor's body does.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Build {
@@ -164,19 +164,21 @@ pub struct Build {
     /// mod ships no model. Its costumes are [`DISC_COSTUMES`] entries.
     pub disc: bool,
     /// The whole body this many times its size: mesh, rest pose (so every motion's reach and the arm table), the
-    /// racket, and TParam's size-bound columns ([`SIZE_COLUMNS`]).
+    /// racket, and TParam's reach columns ([`SIZE_COLUMNS`]). Its hit heights stay the row's, so the trajectory
+    /// tables (made for stock heights) still aim its shots.
     pub scale: f32,
     /// Its swings (strokes, volleys, smash, serve follow-through, whiffs) play this many times faster.
     pub swing: f32,
     /// It runs this many times as fast.
     pub run: f32,
-    /// Its serves, drives, volleys and smashes leave the racket this many times as fast.
-    pub power: f32,
+    /// Every grade (Serve, Stroke, Volley, Impact, Footwork) this one, 0 F … 5 A: its row's graded cells are the
+    /// stock characters' at that grade ([`crate::grades`]). None: the row's own.
+    pub stats: Option<u8>,
 }
 
 impl Default for Build {
     fn default() -> Self {
-        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, power: 1.0 }
+        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, stats: None }
     }
 }
 
@@ -190,10 +192,10 @@ impl Build {
     }
 }
 
-/// TParam.csv columns that are body measurements and scale with §6 `scale`: height, the stroke and volley height
-/// tolerances, the reach base, margin and reach, the dive start and limit, the body-shot switch, the collision
-/// size, the underhand limit and the ideal, smash and serve heights.
-pub const SIZE_COLUMNS: [usize; 19] = [3, 34, 35, 36, 37, 38, 39, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66];
+/// TParam.csv columns that scale with §6 `scale`: the reach base, margin and reach, the dive start and limit, the
+/// body-shot switch and the collision size. Not the hit heights: grown, they put serves past the trajectory tables'
+/// heights, where they fly long.
+pub const SIZE_COLUMNS: [usize; 7] = [55, 56, 57, 58, 59, 60, 61];
 
 /// A TParam cell (`a` or `a/b/c`) × `scale`: whole numbers stay whole (rounded), decimals keep six places.
 fn scale_cell(cell: &str, scale: f32) -> String {
@@ -273,7 +275,11 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
         serde_json::Value::Null => Ok(1.0),
         v => v.as_f64().filter(|x| (lo..=hi).contains(x)).map(|x| x as f32).ok_or_else(|| err(format!("`{k}` {v} must be a number {lo} to {hi}"))),
     };
-    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, power: factor("shot_power", 1.0, 4.0)? };
+    let stats = match &j["stats"] {
+        serde_json::Value::Null => None,
+        v => Some(v.as_str().and_then(|g| ["F", "E", "D", "C", "B", "A"].iter().position(|&l| l == g)).ok_or_else(|| err(format!("`stats` {v} must be a grade \"F\" to \"A\"")))? as u8),
+    };
+    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, stats };
     if disc && (!j["costumes"].is_null() || j["face"] != "morph") {
         return Err(err("`disc_body` plays the donor's disc costumes and faces: no `costumes`, `face` \"morph\"".into()));
     }
@@ -351,7 +357,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     if let Some(c) = costume_of
         && (donor != c || base != c || ai_row != c || !overrides.is_empty() || build != Build::default())
     {
-        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed`, `run_speed` or `shot_power`")));
+        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed`, `run_speed` or `stats`")));
     }
     Ok(Mod {
         skeleton: None,
@@ -545,25 +551,35 @@ pub fn override_ok(k: &str, v: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The mod's TParam.csv row as cells: row `base` with the overrides (`play.rs` reads rows the same way).
+/// The mod's TParam.csv row as cells: row `base`, scaled, graded and with the overrides (`play.rs` reads rows the
+/// same way).
 pub fn tparam(iso: &mut Iso, m: &Mod) -> Result<Vec<String>, String> {
     let data = iso.read("PCDATA/PCDATA.XB").map_err(|e| e.to_string())?;
     let arc = Archive::parse(&data).map_err(|e| e.0)?;
     let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("tparam.csv")).ok_or("no TParam.csv")?;
     let csv = arc.read(e).map_err(|e| e.0)?;
-    tparam_row(&csv, m)
+    let grades = m.build.stats.and_then(|_| crate::grades::disc_grades(iso));
+    tparam_row(&csv, grades.as_ref(), m)
 }
 
-/// M113: [`tparam`] on the disc's TParam.csv already read (`csv`).
-pub fn tparam_row(csv: &[u8], m: &Mod) -> Result<Vec<String>, String> {
-    let tag = format!("{},", m.base);
-    let row = csv.split(|&b| b == b'\n').find(|l| l.starts_with(tag.as_bytes())).ok_or("no TParam.csv row")?;
-    let mut cells: Vec<String> = row.split(|&b| b == b',').map(|c| String::from_utf8_lossy(c).trim().to_string()).collect();
+/// M113: [`tparam`] on the disc's TParam.csv already read (`csv`), with the select's `grades` for a §6 `stats`
+/// (None: the row ungraded).
+pub fn tparam_row(csv: &[u8], grades: Option<&[[u8; 5]; 14]>, m: &Mod) -> Result<Vec<String>, String> {
+    let row_of = |n: usize| -> Option<Vec<String>> {
+        let tag = format!("{n},");
+        let row = csv.split(|&b| b == b'\n').find(|l| l.starts_with(tag.as_bytes()))?;
+        Some(row.split(|&b| b == b',').map(|c| String::from_utf8_lossy(c).trim().to_string()).collect())
+    };
+    let mut cells = row_of(m.base).ok_or("no TParam.csv row")?;
     if m.build.scale != 1.0 {
         for &c in &SIZE_COLUMNS {
             let cell = cells.get_mut(c).ok_or("short TParam.csv row")?;
             *cell = scale_cell(cell, m.build.scale);
         }
+    }
+    if let (Some(grade), Some(grades)) = (m.build.stats, grades) {
+        let rows: Vec<Vec<String>> = (0..crate::grades::CHARACTERS).map(row_of).collect::<Option<_>>().ok_or("no stock TParam.csv rows")?;
+        cells = crate::grades::graded_row(&cells, &rows, grades, grade);
     }
     for (k, v) in &m.overrides {
         let c = column(k).unwrap();
@@ -2699,7 +2715,8 @@ mod tests {
             read(&dir)
         };
         let m = try_(json).unwrap();
-        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, power: 1.0 });
+        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, stats: None });
+        assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"A\",\"version\"")).unwrap().build.stats, Some(5));
         assert!(!m.joke() && try_(&json.replace("\"version\"", "\"joke\":true,\"version\"")).unwrap().joke());
         // only a mod.json, and on the character select's roster
         assert!(list(&root).iter().any(|r| r.id == "hst_bigger_chief"), "not on the roster");
@@ -2709,6 +2726,7 @@ mod tests {
             json.replace("\"scale\":2", "\"scale\":5"),
             json.replace("\"swing_speed\":2", "\"swing_speed\":0.5"),
             json.replace("\"run_speed\":0.25", "\"run_speed\":0"),
+            json.replace("\"version\"", "\"stats\":\"S\",\"version\""),
             json.replace("\"version\"", "\"joke\":1,\"version\""),
             json.replace("\"donor\"", "\"costumes\":[\"model/c00.glb\"],\"donor\""),
             json.replace("\"disc_body\":true,", "\"costume_of\":7,"),

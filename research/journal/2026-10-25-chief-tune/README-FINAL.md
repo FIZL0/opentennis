@@ -18,3 +18,16 @@ User: smaller, no sped-up animations, serves that land, much harder hits.
 
 ## Not verified
 - No look in the running game (user tests UI live). Feet still slide at ¼ run speed (M11 note).
+
+## Follow-up: max stats instead of shot_power (user request 2026-10-25)
+User: big characters hitched on every hit; use the max stats and drop the power solve.
+- Cause: `powered`'s launch solve flew ~5–6k `Flight::step`s per hit (bisection × 11 speed steps), 70–100 ms in a
+  frame. Tuning it got to ~10 ms; the stock tables top out at ~164 mph serves (Chief's own; pc10's special 200)
+  against the 3× serve's ~390, so the user chose stock stats over the solve.
+- Removed `powered`, `Game::shot_build`, §6 `shot_power`. New §6 `stats` ("F"–"A", `Build::stats`): the mod's row
+  graded like M147's Everyone's stats, in `mods::tparam_row` (so the select's grades show it too); the grading
+  moved to `hst-base/src/grades.rs`. Online still refuses it (`Build != default`).
+- `scale` now grows only the reach columns (55–61), not the hit heights: with the heights grown and no solve every
+  1.5× serve flew 8–9.5 m (probe); with stock heights his serves land in/out/net like a stock character's.
+- Mod v4 (opentennis-mods): `stats` "A", no `shot_power`. Tests: `mod_match::tests::bigger_chief_serves_in`,
+  `bigger_chief_plays` (heights now pc07's).
