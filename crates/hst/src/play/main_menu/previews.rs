@@ -93,16 +93,26 @@ pub(super) const UNIT_W: f32 = 14.0 / 15.0;
 /// B402: a preview's width over its height in menu units, for a picture that is the bake's 4:5 on screen (the PNG
 /// and the live drawing then show the same proportions).
 pub(super) const CARD_W: f32 = 0.8 / UNIT_W;
+/// M148: a `Tex::Preview` quad's source asking for the model framed to fill its box (any shape), [`FIT_MARGIN`] clear
+/// round it ([`inspect::frame_drawn`] on what its picture drew); any other shows the 4:5 picture whole.
+pub(super) const FIT: [f32; 4] = [0.0, 0.0, -1.0, -1.0];
+/// M148: a framed card's margin round the model, a share of its height.
+const FIT_MARGIN: f32 = 0.03;
+
+/// M148: each card's framing this frame (`sync`): the part of its picture shown (shares of it) and its box's shape
+/// (width over height on screen); None for a card showing its picture whole.
+#[derive(Resource, Default)]
+struct Fits([Option<(Rect, f32)>; 4]);
 
 pub(super) fn plugin(app: &mut App) {
     app.add_plugins(inspect::plugin)
         .insert_resource(Time::<Fixed>::from_hz(60.0))
-        .init_resource::<Gone>().init_resource::<Pending>().init_resource::<Voices>().init_resource::<ModCard>()
+        .init_resource::<Gone>().init_resource::<Fits>().init_resource::<Pending>().init_resource::<Voices>().init_resource::<ModCard>()
         .add_systems(Startup, start_loader)
         .add_systems(PostStartup, (hover_all, start_baker))
         .add_systems(FixedUpdate, character::tick)
         // B140: before `inspect::place` (its clear and crop), so a camera spawned this frame renders cleared, not black
-        .add_systems(Update, ((receive, sync, bake, buttons, picked).chain().after(super::draw).before(inspect::place), character::animate, icons))
+        .add_systems(Update, ((receive, sync, fit_live, bake, buttons, picked).chain().after(super::draw).before(inspect::place), character::animate, icons))
         .add_systems(Last, despawn);
     if let Some(secs) = std::env::var("HST_STRESS").ok().and_then(|s| s.parse::<f32>().ok()) {
         app.add_systems(Update, stress(secs).before(super::step));
@@ -151,6 +161,8 @@ pub(super) struct Loader {
     /// PNGs by key (`None`: the file didn't decode).
     pngs: HashMap<Key, Option<Handle<Image>>>,
     png_order: VecDeque<Key>,
+    /// M148: what each PNG (or bake) drew, as shares of the picture ([`inspect::drawn_share`]): a [`FIT`] card frames it.
+    drawn: HashMap<Key, Rect>,
     /// The cache folder, and per mod its folder name and newest file time (its PNGs' stamp).
     dir: PathBuf,
     stamps: HashMap<usize, String>,
@@ -194,6 +206,9 @@ impl Loader {
                 .map_err(|e| warn!("{}: {e}", path.display()))
                 .ok()
         });
+        if let Some(drawn) = image.as_ref().and_then(|i| image::RgbaImage::from_raw(i.width(), i.height(), i.data.clone()?)).and_then(|i| inspect::drawn_share(&i)) {
+            self.drawn.insert(key, drawn);
+        }
         let handle = image.map(|i| images.add(i));
         self.pngs.insert(key, handle.clone());
         self.png_order.push_back(key);
@@ -527,6 +542,7 @@ fn start_loader(mut commands: Commands, args: Res<Args>, meshes: Res<Assets<Mesh
         ask,
         done: Mutex::new(done),
         asked: HashSet::new(),
+        drawn: HashMap::new(),
         models: HashMap::new(),
         model_order: VecDeque::new(),
         pngs: HashMap::new(),
@@ -663,7 +679,7 @@ fn sync(
     mut cards: Local<([Option<Shown>; 4], [Option<(Key, f32)>; 4])>,
     mut loader: ResMut<Loader>,
     mut gone: ResMut<Gone>,
-    (baker, mut pending, slide, fixed, mut shows): (Res<Baker>, ResMut<Pending>, Res<super::slide::Slide>, Res<Time<Fixed>>, Query<&mut Visibility, With<Shot>>),
+    (baker, mut pending, slide, fixed, mut shows, mut fits, mut pictures): (Res<Baker>, ResMut<Pending>, Res<super::slide::Slide>, Res<Time<Fixed>>, Query<&mut Visibility, With<Shot>>, ResMut<Fits>, Query<&mut ImageNode, With<Shot>>),
 ) {
     let Some(art) = art else { return };
     // the cards follow the select's slide in (`slide.rs`; no fade on a 3D card), and wait while the last screen leaves
@@ -698,6 +714,21 @@ fn sync(
             Some(k) if mode() != "live" => loader.png(k, &menu, &mut images),
             _ => None,
         };
+        // M148: a FIT card frames what its picture drew (the whole picture until that's known), letterboxed in its
+        // box only where the framing reaches the picture's edge
+        let picture = BAKE.x as f32 / BAKE.y as f32;
+        let fit = want.filter(|(_, q)| q.src == FIT).map(|(_, q)| {
+            let aspect = q.dst[2] * UNIT_W / q.dst[3];
+            match key.and_then(|k| loader.drawn.get(&k)) {
+                Some(&drawn) => inspect::frame_drawn(drawn, picture, aspect, FIT_MARGIN),
+                None => inspect::frame_drawn(Rect::new(0.0, 0.0, 1.0, 1.0), picture, aspect, 0.0),
+            }
+        });
+        let boxed = |[x, y, w, h]: [f32; 4]| match fit {
+            Some((_, f)) => [x + f.min.x * w, y + f.min.y * h, f.width() * w, f.height() * h],
+            None => [x, y, w, h],
+        };
+        fits.0[p] = fit.map(|(part, f)| (part, want.map_or(1.0, |(_, q)| q.dst[2] * f.width() * UNIT_W / (q.dst[3] * f.height()))));
         // a press, or a key not baked yet (nothing to show until the live model), loads the live model straight away;
         // B120: in the browser (a load runs inside a frame, ~30 ms on a phone) a held hover keeps the card
         let held = since[p].is_some_and(|(_, t)| now - t >= SETTLE) && !cfg!(target_arch = "wasm32");
@@ -741,7 +772,7 @@ fn sync(
             if let (Some((w, costume)), Some((i, q))) = (key, want) {
                 // placed as it spawns (else it draws one frame at the image's own size, top left)
                 let mut node = Node { position_type: PositionType::Absolute, ..default() };
-                place(&mut node, q.dst, q.anchor);
+                place(&mut node, boxed(q.dst), q.anchor);
                 // B140: flipped as it spawns (else its first frame, and the PNG it covers, draws the other hand)
                 let flip = UiTransform { scale: Vec2::new(if menu.players[p].swap { -1.0 } else { 1.0 }, 1.0), ..default() };
                 let node = (node, ZIndex(i as i32), flip);
@@ -752,7 +783,8 @@ fn sync(
                         Who::Mod(i) => menu.mods[i].donor,
                     };
                     // B402: its on-screen pixels (a menu unit is narrower than tall), so it draws the shape it shows
-                    let image = inspect::target(&mut images, (Vec2::new(q.dst[2] * UNIT_W, q.dst[3]) * scale).as_uvec2());
+                    let [.., bw, bh] = boxed(q.dst);
+                    let image = inspect::target(&mut images, (Vec2::new(bw * UNIT_W, bh) * scale).as_uvec2());
                     let cam = inspect::spawn_into(&mut commands, &data, c, hand, 1 + p, image.clone());
                     commands.entity(cam).insert(Card(p));
                     let shown = if cover.is_some() { Visibility::Hidden } else { Visibility::Inherited };
@@ -787,8 +819,15 @@ fn sync(
         for e in slot.iter().flat_map(|s| [Some(s.node), s.cover.map(|c| c.0)]).flatten() {
             let Some((i, q)) = want else { break };
             let Ok((mut node, mut z, mut flip)) = nodes.get_mut(e) else { continue };
-            place(&mut node, q.dst, q.anchor);
+            place(&mut node, boxed(q.dst), q.anchor);
             z.0 = i as i32;
+            // M148: a picture shows its framed part
+            if let Ok(mut pic) = pictures.get_mut(e) {
+                let rect = fit.and_then(|(part, _)| Some((part, images.get(&pic.image)?.size().as_vec2()))).map(|(part, size)| Rect::from_corners(part.min * size, part.max * size));
+                if pic.rect != rect {
+                    pic.rect = rect;
+                }
+            }
             // the hand toggle: the drawing mirrored (the model faces the camera, so its mirror is the picture's)
             let x = if menu.players[p].swap { -1.0 } else { 1.0 };
             if flip.scale.x != x {
@@ -1016,6 +1055,9 @@ fn bake(
             let (bake, face) = sizes();
             let size = if job.face { face } else { bake };
             let rgba = straight(&data, size);
+            if !job.face && let Some(drawn) = image::RgbaImage::from_raw(size.x, size.y, rgba.clone()).and_then(|i| inspect::drawn_share(&i)) {
+                loader.drawn.insert(job.key, drawn);
+            }
             let path = if job.face { face_path(&job.path) } else { job.path.clone() };
             // B176: framed on the rig's head bone
             let head = cams.get(job.cam).ok().and_then(|p| inspect::head_px(p, bake.as_vec2(), &rigs, &globals));
@@ -1271,6 +1313,29 @@ fn despawn(mut commands: Commands, mut gone: ResMut<Gone>) {
 /// A preview's UI node.
 #[derive(Component)]
 struct Shot;
+
+/// M148: each card's live model drawn with its [`Fits`] framing (the picture's crop, [`inspect::CROP`], otherwise);
+/// while it plays a reaction, which can reach past the pose's framing, the whole picture widened to its box.
+fn fit_live(fits: Res<Fits>, mut cams: Query<(&mut Preview, &Card)>, motions: Query<&Motion>) {
+    let picture = BAKE.x as f32 / BAKE.y as f32;
+    for (mut p, Card(i)) in &mut cams {
+        let reacting = motions.get(p.rig).is_ok_and(|m| m.id != character::POSE);
+        let crop = match fits.0[*i] {
+            Some((_, aspect)) if reacting => framed(inspect::whole_part(picture, aspect)),
+            Some((part, _)) => framed(part),
+            None => inspect::CROP,
+        };
+        if p.crop != crop {
+            p.crop = crop;
+        }
+    }
+}
+
+/// M148: the original's frame that `part` (shares) of a card's picture shows.
+fn framed(part: Rect) -> Rect {
+    let size = BAKE.as_vec2();
+    inspect::sub_crop(inspect::CROP, size, Rect::from_corners(part.min * size, part.max * size))
+}
 
 /// A preview camera's player.
 #[derive(Component)]
@@ -1626,7 +1691,7 @@ mod tests {
         menu.add.set_list(vec![m("a"), m("b")]);
         let (tx, _) = std::sync::mpsc::channel();
         let (_, rx) = std::sync::mpsc::channel();
-        let mut loader = Loader { ask: tx, done: Mutex::new(rx), found: Mutex::new(std::sync::mpsc::channel().1), bad: Vec::new(), asked: default(), models: default(), model_order: default(), pngs: default(), png_order: default(), dir: PathBuf::new(), stamps: default(), extra: Vec::new() };
+        let mut loader = Loader { ask: tx, done: Mutex::new(rx), found: Mutex::new(std::sync::mpsc::channel().1), bad: Vec::new(), asked: default(), drawn: default(), models: default(), model_order: default(), pngs: default(), png_order: default(), dir: PathBuf::new(), stamps: default(), extra: Vec::new() };
         let new: Vec<_> = super::super::mods_screen::unrostered(&menu).into_iter().cloned().collect();
         assert_eq!(new.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["b"]);
         assert_eq!((loader.extra_index(&menu, &new[0], false), loader.extra_index(&menu, &new[0], false)), (1, 1));

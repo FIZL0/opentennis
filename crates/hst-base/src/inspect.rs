@@ -610,6 +610,53 @@ pub fn grow_square(sq: URect, f: f32, w: u32, h: u32) -> URect {
     URect::new(x0, y0, x0 + s, y0 + s)
 }
 
+/// M148: what a baked preview drew (every pixel with any alpha) as shares of its width and height; None if nothing did.
+pub fn drawn_share(img: &image::RgbaImage) -> Option<Rect> {
+    let (w, h) = img.dimensions();
+    let (mut lo, mut hi) = (UVec2::MAX, UVec2::ZERO);
+    for (x, y, p) in img.enumerate_pixels() {
+        if p[3] > 0 {
+            lo = lo.min(UVec2::new(x, y));
+            hi = hi.max(UVec2::new(x + 1, y + 1));
+        }
+    }
+    let size = Vec2::new(w as f32, h as f32);
+    (hi.x > lo.x).then(|| Rect::from_corners(lo.as_vec2() / size, hi.as_vec2() / size))
+}
+
+/// M148: how a preview image ([`CROP`]'s drawing, `image` wide over tall on screen) frames `drawn` (shares of it,
+/// [`drawn_share`]) in a box `aspect` wide over tall on screen: as big as it goes with `margin` (a share of the drawn
+/// height) clear all round, centred. Returns the image's part to show and the share of the box it fills: all of it,
+/// unless the framing runs past the image's edge (a short, wide box), where the part stops at the edge and the
+/// picture shrinks inside the box to keep its shape, never cutting the model.
+pub fn frame_drawn(drawn: Rect, image: f32, aspect: f32, margin: f32) -> (Rect, Rect) {
+    // in on-screen units: the image is `image` × 1
+    let s = Vec2::new(image, 1.0);
+    let mut r = Rect::from_corners(drawn.min * s, drawn.max * s).inflate(margin * drawn.height());
+    let want = Vec2::new(r.height().max(r.width() / aspect) * aspect, r.height().max(r.width() / aspect));
+    r = Rect::from_center_size(r.center(), want);
+    // pushed back inside where it fits, then cut at the edges
+    for a in 0..2 {
+        let (lo, hi) = (r.min[a], r.max[a]);
+        if hi - lo <= s[a] {
+            let d = (-lo).max(0.0) - (hi - s[a]).max(0.0);
+            r.min[a] += d;
+            r.max[a] += d;
+        }
+    }
+    let part = r.intersect(Rect::from_corners(Vec2::ZERO, s));
+    let fill = Rect::from_corners((part.min - r.min) / r.size(), (part.max - r.min) / r.size());
+    (Rect::from_corners(part.min / s, part.max / s), fill)
+}
+
+/// M148: the whole of a preview image (`image` wide over tall on screen) widened (or heightened) about its centre to
+/// a box `aspect` wide over tall, as shares of it (running past its edges): what a live preview shows while it plays
+/// a reaction, which can reach outside the pose's framing.
+pub fn whole_part(image: f32, aspect: f32) -> Rect {
+    let size = if aspect > image { Vec2::new(aspect / image, 1.0) } else { Vec2::new(1.0, image / aspect) };
+    Rect::from_center_size(Vec2::splat(0.5), size)
+}
+
 /// B176: a rig-framed face square's side over the head's height (hair top to the head bone).
 const HEAD_FIT: f32 = 1.6;
 
@@ -710,6 +757,53 @@ mod tests {
         let sq = grow_square(URect::new(100, 100, 200, 200), 1.25, 384, 480);
         assert_eq!((sq.width(), sq.height(), sq.center()), (125, 125, UVec2::new(150, 150)));
         assert_eq!(grow_square(URect::new(0, 0, 100, 100), 1.25, 384, 480).min, UVec2::ZERO);
+    }
+
+    /// M148: the drawn box is every pixel with alpha, as shares; an empty image has none.
+    #[test]
+    fn drawn_share_bounds_the_opaque_pixels() {
+        let mut img = image::RgbaImage::new(40, 50);
+        assert_eq!(drawn_share(&img), None);
+        img.put_pixel(10, 5, image::Rgba([0, 0, 0, 1]));
+        img.put_pixel(29, 44, image::Rgba([0, 0, 0, 255]));
+        assert_eq!(drawn_share(&img), Some(Rect::new(0.25, 0.1, 0.75, 0.9)));
+    }
+
+    /// M148: the framing fills the box's shape, keeps the margin round the model, stays in the image (or shrinks in
+    /// the box where it can't), at any box shape.
+    #[test]
+    fn frame_drawn_fills_the_box_round_the_model() {
+        let ok = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        // a model 0.3 × 0.7 of a 0.8-wide image, its middle a little left of the image's
+        let drawn = Rect::new(0.3, 0.1, 0.6, 0.8);
+        for aspect in [0.3, 0.5, 0.62, 0.8, 1.0, 1.5, 3.0] {
+            let (part, fill) = frame_drawn(drawn, 0.8, aspect, 0.04);
+            let m = 0.04 * drawn.height();
+            assert!(part.min.cmpge(Vec2::ZERO).all() && part.max.cmple(Vec2::ONE + 1e-5).all(), "{aspect} {part:?}");
+            assert!(part.min.y <= drawn.min.y - m + 1e-5 || ok(part.min.y, 0.0), "{aspect} {part:?}");
+            assert!(part.max.y >= drawn.max.y + m - 1e-5 || ok(part.max.y, 1.0), "{aspect} {part:?}");
+            assert!(part.min.x * 0.8 <= drawn.min.x * 0.8 - m + 1e-5 || ok(part.min.x, 0.0), "{aspect} {part:?}");
+            assert!(part.max.x * 0.8 >= drawn.max.x * 0.8 + m - 1e-5 || ok(part.max.x, 1.0), "{aspect} {part:?}");
+            // the part shown keeps its shape in the share of the box it fills
+            assert!(ok(part.width() * 0.8 / part.height(), aspect * fill.width() / fill.height()), "{aspect} {part:?} {fill:?}");
+            // as tight as it goes: the margin is met on two sides (it fills the box), or the image's edge is reached
+            let full = ok(fill.width(), 1.0) && ok(fill.height(), 1.0);
+            assert!(!full || ok(part.height(), drawn.height() + 2.0 * m) || ok(part.width() * 0.8, drawn.width() * 0.8 + 2.0 * m), "{aspect} {part:?}");
+        }
+        // a tall, narrow box: the whole height used, no letterbox
+        let (part, fill) = frame_drawn(drawn, 0.8, 0.5, 0.04);
+        assert!(ok(part.height(), 0.7 * 1.08) && fill == Rect::new(0.0, 0.0, 1.0, 1.0), "{part:?} {fill:?}");
+        // a wide one: the image's full width, the picture narrower than the box (the model kept in its middle)
+        let (part, fill) = frame_drawn(drawn, 0.8, 3.0, 0.04);
+        assert!(ok(part.width(), 1.0) && fill.height() == 1.0 && fill.width() < 1.0, "{part:?} {fill:?}");
+    }
+
+    /// M148: the whole image widened to the box, centred.
+    #[test]
+    fn whole_part_widens_about_the_middle() {
+        assert_eq!(whole_part(0.8, 0.8), Rect::new(0.0, 0.0, 1.0, 1.0));
+        assert_eq!(whole_part(0.8, 1.6), Rect::new(-0.5, 0.0, 1.5, 1.0));
+        assert_eq!(whole_part(0.8, 0.4), Rect::new(0.0, -0.5, 1.0, 1.5));
     }
 
     /// The icon centres on the head: a 20-px "head" at x 200..220 under a 2-px "racket" further left.

@@ -682,7 +682,7 @@ mod tests {
         assert!(mine.into_iter().all(|q| q.dst[1] + q.dst[3] <= gy + gh + 1e-3));
     }
 
-    /// B425: with no mods at all only 1P's rail ends in the Get more chip, past the section chips; only 1P's device's
+    /// B425: with no mods at all only 1P's first heading (M148; the rail before) ends in the Get more chip, past its words; only 1P's device's
     /// tap opens the Mods page's store; one mod installed and it's gone.
     #[test]
     fn get_more_is_1ps_only_and_only_without_mods() {
@@ -695,11 +695,11 @@ mod tests {
         let stores = |m: &Menu| super::super::drawn(m, &t, &super::super::Bindings::default(), &[], 0, 0.0).hits.iter().filter_map(|h| if let Act::Store(p) = h.act { Some((p, h.rect)) } else { None }).collect::<Vec<_>>();
         let found = stores(&m);
         assert_eq!(found.iter().map(|s| s.0).collect::<Vec<_>>(), [0]);
-        let rail = m.columns().parts(0).rail;
-        let [x, y, w, h] = found[0].1;
-        assert!(x >= rail[0] && x + w <= rail[0] + rail[2] + 1e-3 && y == rail[1] && h == rail[3], "{:?} {rail:?}", found[0].1);
+        let grid = m.columns().parts(0).grid;
+        let [x, y, w, _] = found[0].1;
+        assert!(x >= grid[0] && x + w <= grid[0] + grid[2] + 1e-3 && y == grid[1], "{:?} {grid:?}", found[0].1);
         let d = super::super::drawn(&m, &t, &super::super::Bindings::default(), &[], 0, 0.0);
-        assert!(d.hits.iter().filter(|h| matches!(h.act, Act::Section(0, _)) && h.rect[1] == y).all(|h| h.rect[0] + h.rect[2] <= x), "the chip ends the rail");
+        assert!(d.hits.iter().filter(|h| matches!(h.act, Act::Section(0, _)) && h.rect[1] == y).all(|h| h.rect[0] + h.rect[2] <= x), "the chip ends the first heading");
         // 2P's device and a hover do nothing; 1P's tap opens the store
         assert!(m.point(pad, Act::Store(0), true).is_empty() && m.screen == Screen::Chars);
         assert!(m.point(Dev::Keys, Act::Store(0), false).is_empty() && m.screen == Screen::Chars);

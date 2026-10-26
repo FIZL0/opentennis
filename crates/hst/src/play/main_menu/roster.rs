@@ -20,7 +20,7 @@ pub(super) const PX: f32 = PY * 15.0 / 14.0;
 
 /// The mockup's sizes (px at 720 lines): the top bar over the columns, the side margins and the columns' gap, a
 /// column's padding and the gap between its rows, the rows' heights (B422: the seat's header band across the card's
-/// top, the section rail over the grid; M128: the thumbnail, 124×172 at 1080 lines, the pills beside it and the
+/// top; M128: the thumbnail, 124×172 at 1080 lines, the pills beside it and the
 /// foot's Ready pill), a tile and its gap, the scroll bar, a section's heading (B382).
 const TOP_BAR: f32 = 60.0;
 pub(super) const MARGIN: f32 = 24.0;
@@ -28,10 +28,12 @@ const GAP: f32 = 12.0;
 const PAD: f32 = 10.0;
 const ROW_GAP: f32 = 8.0;
 const BAND: f32 = 50.0;
-const RAIL: f32 = 24.0;
 const PILL: f32 = 22.0;
 const THUMB_W: f32 = 124.0 * 720.0 / 1080.0;
 const THUMB_H: f32 = 172.0 * 720.0 / 1080.0;
+/// M148: the top row's height: the thumbnail's plus the section rail's (24) and its gap, the rail gone (the grid's
+/// headings name the sections); the thumbnail grows with it, keeping its shape.
+const TOP_H: f32 = THUMB_H + 24.0 + ROW_GAP;
 const FOOT: f32 = 20.0;
 const TILE: f32 = 60.0;
 /// M128: the fewest tiles a row (25 faces on view in a quarter-width column at 16:9, 5 × 5).
@@ -98,11 +100,11 @@ pub(super) struct Columns {
     /// seats and open ones are compact cards, narrower than this machine's players' columns).
     first: [f32; 4],
     xs: [[f32; 2]; 4],
-    /// M128: the grid's height: everything under the rail, a part row peeking under the last whole line.
+    /// M128: the grid's height: everything under the top row, a part row peeking under the last whole line.
     grid: f32,
     /// B616: the footer's height (two lines with a handicap stepper that won't fit on one).
     foot: f32,
-    /// B616: whether a card keeps its least height: its top, rail, footer and a whole row of tiles under a heading.
+    /// B616: whether a card keeps its least height: its top, footer and a whole row of tiles under a heading.
     pub whole: bool,
 }
 
@@ -117,8 +119,6 @@ pub(super) struct Parts {
     pub preview: [f32; 4],
     pub info: [f32; 4],
     pub pills: [f32; 4],
-    /// B422: the section rail.
-    pub rail: [f32; 4],
     /// The tiles on view, and the scroll bar right of them.
     pub grid: [f32; 4],
     pub bar: [f32; 4],
@@ -171,7 +171,7 @@ pub(super) fn columns_stepped(view: [f32; 4], n: usize, compact: [bool; 4], step
         true => super::handicap::Foot::of(inner).lines() as f32 * (FOOT + ROW_GAP) - ROW_GAP,
         false => FOOT,
     };
-    let fixed = (BAND + 2.0 * PAD + THUMB_H + RAIL + foot + 3.0 * ROW_GAP) * PY;
+    let fixed = (BAND + 2.0 * PAD + TOP_H + foot + 2.0 * ROW_GAP) * PY;
     // M128: the grid takes the rest; B382: room for a heading over its rows
     let room = h - fixed - (HEADING * PY + gy);
     let rows = (((room + gy) / (th + gy)) as usize).max(1);
@@ -193,19 +193,19 @@ impl Columns {
             y += hh + ROW_GAP * PY;
             r
         };
-        let top_ = next(THUMB_H * PY);
-        // M128: the thumbnail its 124×172 (narrower in a column too narrow for the words beside it), the rest beside it
-        let tw = (THUMB_W * PX).min(iw * 0.4);
+        let top_ = next(TOP_H * PY);
+        // M128: the thumbnail its 124×172 (M148: grown to the row's height; narrower in a column too narrow for the
+        // words beside it), the rest beside it
+        let tw = (THUMB_W * TOP_H / THUMB_H * PX).min(iw * 0.4);
         let preview = [ix, top_[1], tw, top_[3]];
         let gap = ROW_GAP * PX;
         let info = [ix + tw + gap, top_[1], iw - tw - gap, top_[3]];
         let pills = [info[0], info[1] + PILLS_Y * PY, info[2], PILL * PY];
-        let rail = next(RAIL * PY);
         let gh = self.grid_h();
         let grid = next(gh);
         let foot = [ix, top + h - PAD * PY - self.foot, iw, self.foot];
         let bar = [ix + iw - BAR * PX, grid[1], BAR * PX, gh];
-        Parts { card: [x, top, w, h], head, top: top_, preview, info, pills, rail, grid: [ix, grid[1], iw - (BAR + TILE_GAP) * PX, gh], bar, foot }
+        Parts { card: [x, top, w, h], head, top: top_, preview, info, pills, grid: [ix, grid[1], iw - (BAR + TILE_GAP) * PX, gh], bar, foot }
     }
 
     /// The grid's height: at least `rows` rows of tiles and a heading.
@@ -656,11 +656,8 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
             let fw = (pw - 8.0 * PX).min((ph - 8.0 * PY) * 92.0 / 68.0);
             d.q(C02, RANDOM_TILE, [px + (pw - fw) / 2.0, py + (ph - fw * 68.0 / 92.0) / 2.0, fw, fw * 68.0 / 92.0], WHITE, 128.0);
         } else {
-            // the bake's 128×160, its shape on screen
-            let k = 0.8 * PX / PY;
-            let rw = pw.min(ph * k);
-            let rh = rw / k;
-            d.q(Tex::Preview(p), [0.0; 4], [px + (pw - rw) / 2.0, py + (ph - rh) / 2.0, rw, rh], WHITE, 128.0);
+            // M148: the model framed to fill the thumbnail
+            d.q(Tex::Preview(p), super::previews::FIT, at.preview, WHITE, 128.0);
         }
     }
     if online && active && m.seats[p].is_some() {
@@ -699,22 +696,20 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
     let (mine_cell, mine_at) = (m.cell(p), m.place(p, &v.secs));
     let active_at: Vec<Option<usize>> = (0..n).map(|q| if is_active(m, n, q) { m.place(q, &v.secs) } else { None }).collect();
     let (heads, tiles) = c.laid(p, &v);
-    // B425: with no mods at all, 1P's rail ends in a ghost chip that opens the mod store
-    let mut rail_at = at.rail;
-    if m.store_chip(p) {
-        let [rx, ry, rw, rh] = at.rail;
-        let chips = rail_widths(d, &v.secs);
-        let total = chips.iter().sum::<f32>() + RAIL_GAP * PX * chips.len().saturating_sub(1) as f32;
-        let labels: Vec<f32> = GET_MORE.iter().map(|l| more_w(d, l)).collect();
-        let k = more_label(total, rw, RAIL_GAP * PX, &labels);
-        let gw = labels[k];
-        rail_at[2] = (rw - gw - RAIL_GAP * PX).max(0.0);
-        let gx = rx + total.min(rail_at[2]) + RAIL_GAP * PX;
-        get_more(d, GET_MORE[k], [gx, ry, gw, rh], &s);
-        d.hit([gx, ry, gw, rh], pointer::Act::Store(p));
-    }
-    rail(d, &v.secs, m.section_at(p, &v.secs), active, &s, rail_at, p);
-    for (k, rect) in heads {
+    // B425: with no mods at all, 1P's first heading on view ends in a ghost chip that opens the mod store (M148: the
+    // section rail it ended is gone)
+    for (i, (k, mut rect)) in heads.into_iter().enumerate() {
+        if i == 0 && m.store_chip(p) {
+            let [hx, hy, hw, hh] = rect;
+            let gap = 8.0 * PX;
+            let labels: Vec<f32> = GET_MORE.iter().map(|l| more_w(d, l)).collect();
+            let l = more_label(heading_w(d, &v.secs[k]), hw, gap, &labels);
+            let gw = labels[l];
+            let chip = [hx + hw - gw, hy, gw, hh];
+            get_more(d, GET_MORE[l], chip, &s);
+            d.hit(chip, pointer::Act::Store(p));
+            rect[2] = (hw - gw - gap).max(0.0);
+        }
         heading(d, &v.secs[k], rect, &s);
         d.hit(rect, pointer::Act::Section(p, k));
     }
@@ -1112,6 +1107,13 @@ fn heading(d: &mut Draw, sec: &Section, [x, y, w, h]: [f32; 4], s: &Seat) {
     }
 }
 
+/// M148: how much of a heading's width [`heading`] fills with `sec`'s name and count, before its rule.
+fn heading_w(d: &Draw, sec: &Section) -> f32 {
+    let (size, cs) = (15.0 * PY, 12.0 * PY);
+    let star = if sec.id == tabs::FAVORITES { d.width("*", size * 1.3) + 4.0 * PX } else { 0.0 };
+    2.0 * PX + star + d.width(&sec.name, size) + 6.0 * PX + d.width(&sec.cells.len().to_string(), cs) + 10.0 * PX
+}
+
 /// B422: seat `p`'s header band in `[x, y, w, h]`: `solid` the seat's colour (a computer player's dark, its words in
 /// the seat's colour), its top corners the card's; a big `1P` (B541: the player's `own` name in its place, set as the
 /// original's slot-label tags are), the character's `name` over `device`, and the `side`
@@ -1199,38 +1201,6 @@ pub(super) fn band(d: &mut Draw, s: &Seat, [x, y, w, h]: [f32; 4], solid: bool, 
     d.text(&device, nx, top + ns + 3.0 * PY, ds, ink);
 }
 
-/// B422: how far the section rail scrolls (px) to show chip `cur` of chips `widths` wide, `gap` apart, in `room`:
-/// none while they all fit or `cur` is on view from the start; else as little as keeps `cur` clear of the `fade` at
-/// a cut edge (no fade past the last chip), never past the last chip's end.
-pub(super) fn rail_offset(widths: &[f32], gap: f32, room: f32, cur: usize, fade: f32) -> f32 {
-    let n = widths.len();
-    let total = widths.iter().sum::<f32>() + gap * n.saturating_sub(1) as f32;
-    if total <= room || cur >= n {
-        return 0.0;
-    }
-    let left = widths[..cur].iter().sum::<f32>() + gap * cur as f32;
-    let right = left + widths[cur];
-    let edge = if cur + 1 == n { 0.0 } else { fade };
-    let mut off = (right - (room - edge)).max(0.0);
-    if off > 0.0 && left - off < fade {
-        off = (left - fade).max(0.0);
-    }
-    off.clamp(0.0, total - room)
-}
-
-/// The rail's fade at a cut edge (px).
-const FADE: f32 = 22.0;
-/// The rail's gap between chips (px).
-const RAIL_GAP: f32 = 5.0;
-
-/// B422: each section's chip width on the rail (its name, or a star for Favorites, and its count).
-fn rail_widths(d: &Draw, secs: &[Section]) -> Vec<f32> {
-    let (size, cs) = (13.0 * PY, 12.0 * PY);
-    let (pad, inner) = (9.0 * PX, 6.0 * PX);
-    let star = size * 1.3;
-    secs.iter().map(|sec| 2.0 * pad + if sec.id == tabs::FAVORITES { d.width("*", star) } else { d.width(&sec.name, size) } + inner + d.width(&sec.cells.len().to_string(), cs)).collect()
-}
-
 /// B425: the Get more chip's words, longest first: the first that fits after the section chips is shown.
 const GET_MORE: [&str; 3] = ["+ Get more characters", "+ Get more", "+ More"];
 
@@ -1239,9 +1209,9 @@ fn more_w(d: &Draw, s: &str) -> f32 {
     2.0 * 9.0 * PX + d.width(s, 13.0 * PY)
 }
 
-/// B425: which of the Get more chip's `labels` (widths, longest first) ends the rail: the longest that fits after
-/// the section chips (`total` wide) and a `gap` in `room`; else the longest that leaves the sections half the rail
-/// (they scroll for the rest); else the shortest. Never squeezed.
+/// B425: which of the Get more chip's `labels` (widths, longest first) ends a heading (M148; the rail before): the
+/// longest that fits after its words (`total` wide) and a `gap` in `room`; else the longest that leaves them half the
+/// room; else the shortest. Never squeezed.
 pub(super) fn more_label(total: f32, room: f32, gap: f32, labels: &[f32]) -> usize {
     let last = labels.len().saturating_sub(1);
     labels.iter().position(|&w| total + gap + w <= room).or_else(|| labels.iter().position(|&w| w + gap <= room / 2.0)).unwrap_or(last)
@@ -1252,96 +1222,6 @@ fn get_more(d: &mut Draw, label: &str, [x, y, w, h]: [f32; 4], s: &Seat) {
     let size = 13.0 * PY;
     dashed(d, [x, y, w, h], h / PY / 2.0, 1.5, s.soft, s.bg);
     d.text(label, x + 9.0 * PX, y + (h - size) / 2.0, size, s.soft);
-}
-
-/// B422: the section rail in `[x, y, w, h]`, one row that never scrolls with the grid: a chip per section (a gold star
-/// and the count for Favorites, else the name and count, so "16" reads as "16 here"), section `cur`'s filled in the
-/// seat's colour while the seat picks, the rest outlined. Chips keep their size (never squeezed): past the rail's
-/// width it scrolls sideways to keep `cur` on view, a fade and « / » at a cut edge. A tap on a chip jumps there.
-#[allow(clippy::too_many_arguments)]
-fn rail(d: &mut Draw, secs: &[Section], cur: usize, active: bool, s: &Seat, [x, y, w, h]: [f32; 4], p: usize) {
-    let (size, cs) = (13.0 * PY, 12.0 * PY);
-    let (pad, gap, inner) = (9.0 * PX, RAIL_GAP * PX, 6.0 * PX);
-    let star = size * 1.3;
-    let lead = |d: &Draw, sec: &Section| if sec.id == tabs::FAVORITES { d.width("*", star) } else { d.width(&sec.name, size) };
-    let widths = rail_widths(d, secs);
-    let fade = FADE * PX;
-    let off = rail_offset(&widths, gap, w, cur, fade);
-    let total = widths.iter().sum::<f32>() + gap * widths.len().saturating_sub(1) as f32;
-    let mut cx = x - off;
-    for (k, sec) in secs.iter().enumerate() {
-        let cw = widths[k];
-        let (l, r) = (cx.max(x), (cx + cw).min(x + w));
-        if r > l + 1.0 {
-            let start = d.out.len();
-            let filled = k == cur && active;
-            if filled {
-                rounded(d, [cx, y, cw, h], h / PY / 2.0, s.ring, 128.0);
-            } else {
-                ringed(d, [cx, y, cw, h], h / PY / 2.0, 1.5, if k == cur { s.ring } else { s.sel }, s.bg);
-            }
-            let (words, soft) = if filled { (s.ink, s.ink) } else { (hex(look::INK), s.soft) };
-            let mut tx = cx + pad;
-            if sec.id == tabs::FAVORITES {
-                d.outlined(|d| d.text("*", tx, y + (h - star) / 2.0 + 1.0 * PY, star, GOLD));
-            } else {
-                d.text(&sec.name, tx, y + (h - size) / 2.0, size, words);
-            }
-            tx += lead(d, sec) + inner;
-            d.text(&sec.cells.len().to_string(), tx, y + (h - cs) / 2.0, cs, soft);
-            clip_x(d, start, x, x + w);
-            d.hit([l, y, r - l, h], pointer::Act::Section(p, k));
-        }
-        cx += cw + gap;
-    }
-    // the cut edges: the card's tint fading in over the chips, an arrow on it
-    let edge = |d: &mut Draw, left: bool| {
-        let n = 8;
-        for i in 0..n {
-            let sw = fade / n as f32;
-            let sx = if left { x + sw * i as f32 } else { x + w - sw * (i + 1) as f32 };
-            d.q(Tex::Solid, [0.0; 4], [sx, y, sw, h], s.bg, 128.0 * (1.0 - i as f32 / n as f32));
-        }
-        let a = if left { "«" } else { "»" };
-        let aw = d.width(a, size);
-        d.text(a, if left { x + 2.0 * PX } else { x + w - aw - 2.0 * PX }, y + (h - size) / 2.0, size, s.soft);
-    };
-    if off > 0.5 {
-        edge(d, true);
-    }
-    if off + w < total - 0.5 {
-        edge(d, false);
-    }
-}
-
-/// The quads drawn since `start` cut to `l..r` across: a picture's source with its box, rounded corners squared on a
-/// cut side, those wholly outside dropped.
-pub(super) fn clip_x(d: &mut Draw, start: usize, l: f32, r: f32) {
-    let mut kept = Vec::new();
-    for mut q in d.out.drain(start..) {
-        let [qx, _, qw, _] = q.dst;
-        let (a, b) = (qx.max(l), (qx + qw).min(r));
-        if b <= a {
-            continue;
-        }
-        if qw > 0.0 && (a > qx || b < qx + qw) {
-            let k = q.src[2] / qw;
-            q.src[0] += (a - qx) * k;
-            q.src[2] = (b - a) * k;
-            if a > qx {
-                q.round[0] = 0.0;
-                q.round[3] = 0.0;
-            }
-            if b < qx + qw {
-                q.round[1] = 0.0;
-                q.round[2] = 0.0;
-            }
-            q.dst[0] = a;
-            q.dst[2] = b - a;
-        }
-        kept.push(q);
-    }
-    d.out.extend(kept);
 }
 
 /// B422: a `1P`–`4P` tag in each of `seats`' colours along tile `[x, y, w, h]`'s foot, left to right (as many as fit).
@@ -1548,41 +1428,23 @@ mod tests {
         assert_eq!(com_line(&m, &text, 1), "COM - Lv 3");
     }
 
-    /// B422: the rail stays put while its chips fit or the cursor's is on view, else scrolls as little as keeps that
-    /// chip clear of the fade, never past the last chip.
-    #[test]
-    fn the_rail_scrolls_to_the_cursors_chip() {
-        let w = [30.0, 100.0, 80.0, 120.0, 50.0];
-        // 380 + 4 gaps of 5 = 400 wide
-        assert_eq!(rail_offset(&w, 5.0, 400.0, 3, 20.0), 0.0, "all fit");
-        assert_eq!(rail_offset(&w, 5.0, 250.0, 0, 20.0), 0.0);
-        assert_eq!(rail_offset(&w, 5.0, 250.0, 1, 20.0), 0.0, "on view from the start");
-        // chip 2 ends at 220: 220 - (250 - 20) < 0, on view; chip 3 ends at 345: shifted to end at 230
-        assert_eq!(rail_offset(&w, 5.0, 250.0, 2, 20.0), 0.0);
-        assert_eq!(rail_offset(&w, 5.0, 250.0, 3, 20.0), 115.0);
-        // the last chip: right to the end, no fade after it
-        assert_eq!(rail_offset(&w, 5.0, 250.0, 4, 20.0), 150.0);
-        // a chip wider than the room keeps its start clear of the left fade
-        assert_eq!(rail_offset(&[50.0, 300.0, 50.0], 0.0, 200.0, 1, 20.0), 30.0);
-    }
-
-    /// B425: the Get more chip's words: the longest that fits after the sections, else one leaving them half the rail.
+    /// B425: the Get more chip's words: the longest that fits after the heading's, else one leaving them half the room.
     #[test]
     fn the_get_more_chip_takes_the_longest_words_that_fit() {
         let l = [150.0, 80.0, 50.0];
         assert_eq!(more_label(200.0, 400.0, 5.0, &l), 0);
         assert_eq!(more_label(200.0, 300.0, 5.0, &l), 1);
         assert_eq!(more_label(200.0, 260.0, 5.0, &l), 2);
-        // the sections scroll: the chip keeps no more than half the rail
+        // too long a heading: the chip keeps no more than half the room
         assert_eq!(more_label(400.0, 200.0, 5.0, &l), 1);
         assert_eq!(more_label(400.0, 100.0, 5.0, &l), 2);
         assert_eq!(more_label(400.0, 40.0, 5.0, &l), 2);
     }
 
-    /// B422: the header band across the card's top, the rail between the preview and the grid, at every aspect and
+    /// B422: the header band across the card's top, M148: the preview straight over the grid, at every aspect and
     /// column count.
     #[test]
-    fn band_and_rail_in_the_card() {
+    fn band_and_preview_in_the_card() {
         let inside = |r: [f32; 4], c: [f32; 4]| r[0] >= c[0] - 1e-3 && r[1] >= c[1] - 1e-3 && r[0] + r[2] <= c[0] + c[2] + 1e-3 && r[1] + r[3] <= c[1] + c[3] + 1e-3;
         for a in [0.4, 9.0 / 16.0, 4.0 / 3.0, 1.6, 16.0 / 9.0, 21.0 / 9.0, 4.0] {
             let g = super::super::Grid::fit(a);
@@ -1592,7 +1454,7 @@ mod tests {
                     let at = c.parts(p);
                     assert_eq!((at.head[0], at.head[1], at.head[2]), (at.card[0], at.card[1], at.card[2]), "{a} {n}");
                     assert!(at.head[1] + at.head[3] < at.pills[1], "{a} {n}");
-                    assert!(inside(at.rail, at.card) && at.preview[1] + at.preview[3] <= at.rail[1] + 1e-3 && at.rail[1] + at.rail[3] <= at.grid[1] + 1e-3, "{a} {n} {p}");
+                    assert!(inside(at.preview, at.card) && at.preview[1] + at.preview[3] <= at.grid[1] + 1e-3, "{a} {n} {p}");
                 }
             }
         }
