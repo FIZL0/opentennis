@@ -152,11 +152,11 @@ pub struct Mod {
     /// §3 `upscale` (B488): false when its textures are HD already (e.g. Hot Shots Golf Fore's), so its
     /// `textures/upscaled/` is never read nor downloaded. Absent: true.
     pub upscale: bool,
-    /// §6 `disc_body`, `scale`, `swing_speed`, `run_speed` (M11), `stats`.
+    /// §6 `disc_body`, `scale`, `swing_speed`, `run_speed` (M11), `stats`, `serve_speed`, `shot_speed`.
     pub build: Build,
 }
 
-/// A mod's body and pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`, M11, `stats`); [`Build::default`] for a mod
+/// A mod's body and pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`, M11, `stats`, `serve_speed`, `shot_speed`); [`Build::default`] for a mod
 /// without them, which plays exactly as its donor's body does.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Build {
@@ -172,13 +172,17 @@ pub struct Build {
     /// It runs this many times as fast.
     pub run: f32,
     /// Every grade (Serve, Stroke, Volley, Impact, Footwork) this one, 0 F … 5 A: its row's graded cells are the
-    /// stock characters' at that grade ([`crate::grades`]). None: the row's own.
+    /// stock characters' at that grade ([`crate::grades`]), 6 S the roster's best. None: the row's own.
     pub stats: Option<u8>,
+    /// Its serves, and its other shots, fly this many ball steps a frame until their first bounce: the same path,
+    /// sooner.
+    pub serve_speed: u8,
+    pub shot_speed: u8,
 }
 
 impl Default for Build {
     fn default() -> Self {
-        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, stats: None }
+        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, stats: None, serve_speed: 1, shot_speed: 1 }
     }
 }
 
@@ -277,9 +281,13 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     };
     let stats = match &j["stats"] {
         serde_json::Value::Null => None,
-        v => Some(v.as_str().and_then(|g| ["F", "E", "D", "C", "B", "A"].iter().position(|&l| l == g)).ok_or_else(|| err(format!("`stats` {v} must be a grade \"F\" to \"A\"")))? as u8),
+        v => Some(v.as_str().and_then(|g| ["F", "E", "D", "C", "B", "A", "S"].iter().position(|&l| l == g)).ok_or_else(|| err(format!("`stats` {v} must be a grade \"F\" to \"A\" or \"S\"")))? as u8),
     };
-    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, stats };
+    let steps = |k: &str| match &j[k] {
+        serde_json::Value::Null => Ok(1),
+        v => v.as_u64().filter(|n| (1..=4).contains(n)).map(|n| n as u8).ok_or_else(|| err(format!("`{k}` {v} must be a whole number 1 to 4"))),
+    };
+    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, stats, serve_speed: steps("serve_speed")?, shot_speed: steps("shot_speed")? };
     if disc && (!j["costumes"].is_null() || j["face"] != "morph") {
         return Err(err("`disc_body` plays the donor's disc costumes and faces: no `costumes`, `face` \"morph\"".into()));
     }
@@ -357,7 +365,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     if let Some(c) = costume_of
         && (donor != c || base != c || ai_row != c || !overrides.is_empty() || build != Build::default())
     {
-        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed`, `run_speed` or `stats`")));
+        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed`, `run_speed`, `stats`, `serve_speed` or `shot_speed`")));
     }
     Ok(Mod {
         skeleton: None,
@@ -2715,8 +2723,9 @@ mod tests {
             read(&dir)
         };
         let m = try_(json).unwrap();
-        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, stats: None });
+        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, stats: None, serve_speed: 1, shot_speed: 1 });
         assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"A\",\"version\"")).unwrap().build.stats, Some(5));
+        assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"S\",\"serve_speed\":3,\"version\"")).unwrap().build.serve_speed, 3);
         assert!(!m.joke() && try_(&json.replace("\"version\"", "\"joke\":true,\"version\"")).unwrap().joke());
         // only a mod.json, and on the character select's roster
         assert!(list(&root).iter().any(|r| r.id == "hst_bigger_chief"), "not on the roster");
@@ -2726,7 +2735,9 @@ mod tests {
             json.replace("\"scale\":2", "\"scale\":5"),
             json.replace("\"swing_speed\":2", "\"swing_speed\":0.5"),
             json.replace("\"run_speed\":0.25", "\"run_speed\":0"),
-            json.replace("\"version\"", "\"stats\":\"S\",\"version\""),
+            json.replace("\"version\"", "\"stats\":\"Z\",\"version\""),
+            json.replace("\"version\"", "\"shot_speed\":5,\"version\""),
+            json.replace("\"version\"", "\"serve_speed\":1.5,\"version\""),
             json.replace("\"version\"", "\"joke\":1,\"version\""),
             json.replace("\"donor\"", "\"costumes\":[\"model/c00.glb\"],\"donor\""),
             json.replace("\"disc_body\":true,", "\"costume_of\":7,"),

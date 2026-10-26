@@ -82,6 +82,8 @@ pub(super) fn apply(g: &mut Game, i: usize, iso: &mut Iso, m: &Mod, outfit: usiz
     let n = g.players.len();
     g.swing_pace.resize(n, 1.0);
     g.swing_pace[i] = m.build.swing;
+    g.ball_steps.resize(n, [1, 1]);
+    g.ball_steps[i] = [m.build.serve_speed, m.build.shot_speed];
     // B181: a mod character speaks only its own takes; a program it has no wav for, or a mod with no voice, is silent
     // (never its donor's). A costume pack is its disc character and keeps that voice, as a disc-body mod its donor's (M11).
     if m.disc_voice().is_none() {
@@ -295,27 +297,36 @@ mod tests {
         }
         assert!(!stand.visual.is_empty() && real.joints.len() != stand.joints.len(), "the stand-in draws the donor's own rig");
     }
-    /// The published Bigger Chief (1.5× Big Chief, `stats` "A"): his row hits as hard as the disc's A grades (Strk POW
-    /// at least pc07's, who is graded below A there), and with his hit heights pc07's his serves land in.
+    /// The published Bigger Chief (1.5× Big Chief, `stats` "S", `serve_speed` 3): his row hits as hard as the
+    /// roster's hardest hitter, his stamina is the override's, and with his hit heights pc07's his serves land in,
+    /// three ball steps a frame.
     #[test]
     fn bigger_chief_serves_in() {
         if !hst_data::fixture::has_iso() {
             return hst_data::fixture::skip("no ISO");
         }
-        let dir = std::env::temp_dir().join(format!("hst-bigger-chief-a-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hst-bigger-chief-s-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("mod.json"), r#"{"standard":1,"id":"hst_bigger_chief","name":"Bigger Chief","disc_body":true,"donor":7,"hand":"right","params":{"base":7,"override":{}},"ai_row":7,"face":"morph","scale":1.5,"run_speed":0.25,"stats":"A","version":3}"#).unwrap();
+        std::fs::write(dir.join("mod.json"), r#"{"standard":1,"id":"hst_bigger_chief","name":"Bigger Chief","disc_body":true,"donor":7,"hand":"right","params":{"base":7,"override":{"STA":"14"}},"ai_row":7,"face":"morph","scale":1.5,"run_speed":0.2,"stats":"S","serve_speed":3,"shot_speed":2,"version":5}"#).unwrap();
         let m = mods::read(&dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         let mut iso = hst_data::fixture::iso().unwrap();
-        let (row, own) = (mods::tparam(&mut iso, &m).unwrap(), super::super::tparam(&mut iso, 7));
+        let row = mods::tparam(&mut iso, &m).unwrap();
         let pow = |r: &[String], c: usize| r[c].parse::<f32>().unwrap();
-        assert!((12..15).all(|c| pow(&row, c) >= pow(&own, c)) && row[12..15] != own[12..15], "POW {:?} vs pc07's {:?}", &row[12..15], &own[12..15]);
+        let rows: Vec<Vec<String>> = (0..14).map(|c| super::super::tparam(&mut iso, c)).collect();
+        for c in 12..15 {
+            assert_eq!(pow(&row, c), rows.iter().map(|r| pow(r, c)).fold(0.0, f32::max), "POW {c}");
+        }
+        assert_eq!(row[41], "14");
         let mut app = bot_match(&m, 7);
+        let mut flown = 0;
         for _ in 0..60 * 120 {
             app.world_mut().run_schedule(FixedUpdate);
             let g = app.world().resource::<super::super::Game>();
-            if g.shots == 1 && g.last_hitter == 1 && g.flight.call == hst_sim::judge::Call::In {
+            let serving = g.shots == 1 && g.last_hitter == 1;
+            flown = if serving && g.flight.bounces == 0 { flown + 1 } else if serving { flown } else { 0 };
+            if serving && g.flight.call == hst_sim::judge::Call::In {
+                assert!(g.since_hit > 2 * flown, "{} steps in {flown} frames", g.since_hit);
                 return;
             }
         }

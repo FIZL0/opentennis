@@ -31,3 +31,15 @@ User: big characters hitched on every hit; use the max stats and drop the power 
   1.5× serve flew 8–9.5 m (probe); with stock heights his serves land in/out/net like a stock character's.
 - Mod v4 (opentennis-mods): `stats` "A", no `shot_power`. Tests: `mod_match::tests::bigger_chief_serves_in`,
   `bigger_chief_plays` (heights now pc07's).
+
+## Round 3: faster ball, best stats, bad stamina
+
+- §6 `serve_speed` / `shot_speed` (1–4): the match runs that many ball steps a frame for the mod player's
+  serves / other shots until the first bounce (or a net/post touch), advancing the frames-since-hit count with them
+  so the CPUs' predicted path stays in step. Same path, so it lands as aimed; stock players run one step, unchanged.
+- `stats` "S": each graded cell is the roster's best (largest or smallest, the way the A characters' mean lies from
+  the F ones'). POW is capped at 16 inside the shot code, so ×2 cells would clamp anyway; the speed comes from the
+  extra ball steps instead.
+- Bigger Chief v5: S, serve 3, shots 2, run 0.2 (S takes the best SPE, so lower than 0.25 to keep him slow),
+  STA 14 (tired below 10) and dive/backhand/smash costs 16/8/16.
+- Still refused online (Build ≠ default).
