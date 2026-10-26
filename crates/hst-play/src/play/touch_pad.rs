@@ -128,7 +128,7 @@ fn relabel(
     let group = drawn.0.iter().find(|g| g.devs.iter().any(touch)).or_else(|| drawn.0.iter().find(|g| g.devs.contains(&None))).or(drawn.0.first());
     let play = g.is_some() && !MENU.load(Ordering::Relaxed);
     let original = gr.is_some_and(|gr| gr.original);
-    let camera = g.zip(pads).is_some_and(|(g, p)| super::alt_camera::offered(&g, &p, np.is_some(), original));
+    let camera = g.zip(pads).is_some_and(|(g, p)| super::alt_camera::offered(&g, &p, np.as_deref(), original));
     let now = (play, labels(group.map_or(&[][..], |g| &g.items), play, camera, &bind));
     let mut was = LABELS.lock().unwrap();
     if *was != now {

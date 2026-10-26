@@ -1,6 +1,9 @@
 //! M7: the original's alternate match camera (`hst_sim::alt_cam`): low behind the one human, switched on and off with
-//! the `camera` bind (Select) when exactly one human plays on this machine (never online), gliding over 15 ticks
-//! each way, and fading the human toward half transparency while their body hides the ball coming at them.
+//! the `camera` bind (Select) when exactly one human plays on this machine, gliding over 15 ticks each way, and fading
+//! the human toward half transparency while their body hides the ball coming at them.
+//!
+//! B667: online the same, for the humans on this machine's own seats (`Lockstep::mine`): the other machines' players
+//! don't count, and it steps only on a new tick (a rollback's re-run ticks don't step it again, as `own_camera`).
 //!
 //! B658: humans on one team only (doubles, two humans against the computers) switch the same way to the doubles zoom
 //! (`Follow::aim_team`): the same shot and ball tracking, backed off to keep both of them in the picture; the first
@@ -18,6 +21,7 @@ use hst_sim::alt_cam::{self, Fade, Follow, GLIDE};
 use hst_sim::camera::{Camera, Scene, View, swing};
 
 use super::own_camera::{self, OwnCam};
+use super::netplay::Netplay;
 use super::{Figure, Game, Phase, Pads, controls};
 
 /// Rally ticks the fade waits before it looks at the ball.
@@ -48,6 +52,8 @@ pub(super) struct AltCamera {
     held: [f32; 3],
     /// The change of ends' move into the shot: its start view and pivot (`change_ends::start`).
     move_in: Option<(View, [f32; 3])>,
+    /// B667: online, the newest tick it stepped (the lockstep's pad log length).
+    tick: usize,
 }
 
 impl AltCamera {
@@ -71,21 +77,25 @@ pub fn plugin(app: &mut App) {
         );
 }
 
-/// The one human playing on this machine, if exactly one does and the match isn't online.
-pub(super) fn human(g: &Game, pads: &Pads, online: bool) -> Option<usize> {
+/// B667: the humans playing on this machine, by player number: online only those on its own seats.
+fn locals(g: &Game, pads: &Pads, np: Option<&Netplay>) -> Vec<usize> {
     let n = g.players.len();
-    let mut humans = (0..n).filter(|&i| pads.slot_of(i, n).is_some());
-    let first = humans.next()?;
-    (!online && humans.next().is_none()).then_some(first)
+    (0..n).filter(|&i| pads.slot_of(i, n).is_some_and(|s| np.is_none_or(|np| np.lock.mine.contains(&s)))).collect()
 }
 
-/// B658: the humans playing on this machine when they're all on one team (one human included) and the match isn't
-/// online, by player number.
-pub(super) fn team(g: &Game, pads: &Pads, online: bool) -> Option<Vec<usize>> {
-    let n = g.players.len();
-    let humans: Vec<usize> = (0..n).filter(|&i| pads.slot_of(i, n).is_some()).collect();
+/// The one human playing on this machine, if exactly one does.
+pub(super) fn human(g: &Game, pads: &Pads, np: Option<&Netplay>) -> Option<usize> {
+    match locals(g, pads, np)[..] {
+        [i] => Some(i),
+        _ => None,
+    }
+}
+
+/// B658: the humans playing on this machine when they're all on one team (one human included), by player number.
+pub(super) fn team(g: &Game, pads: &Pads, np: Option<&Netplay>) -> Option<Vec<usize>> {
+    let humans = locals(g, pads, np);
     let &first = humans.first()?;
-    (!online && humans.iter().all(|&i| i & 1 == first & 1)).then_some(humans)
+    humans.iter().all(|&i| i & 1 == first & 1).then_some(humans)
 }
 
 /// B658: the seat whose Select switches the camera: the lowest seat a human plays from.
@@ -96,8 +106,8 @@ pub(super) fn first_seat(g: &Game, pads: &Pads) -> Option<usize> {
 
 /// B658: Select switches a camera here: the alternate one or the doubles zoom (humans on one team), or the split
 /// (humans on both, `split_view`).
-pub(super) fn offered(g: &Game, pads: &Pads, online: bool, original: bool) -> bool {
-    team(g, pads, online).is_some() || super::split_view::eligible(g, pads, online, original)
+pub(super) fn offered(g: &Game, pads: &Pads, np: Option<&Netplay>, original: bool) -> bool {
+    team(g, pads, np).is_some() || super::split_view::eligible(g, pads, np.is_some(), original)
 }
 
 /// `camera.txt` in the per-user data folder: "close" (this camera) or "normal".
@@ -152,10 +162,10 @@ fn press(
     gamepads: Query<&Gamepad>,
 ) {
     let (Some(mut alt), Some(g), Some(pads), Some(bind), Some(held)) = (alt, g, pads, bind, held) else { return };
-    if team(&g, &pads, np.is_some()).is_none() {
-        return;
-    }
-    let Some(slot) = first_seat(&g, &pads) else { return };
+    let Some(humans) = team(&g, &pads, np.as_deref()) else { return };
+    // the lowest seat of this machine's humans (online, each local device sits in its seat's slot)
+    let n = g.players.len();
+    let Some(slot) = humans.iter().filter_map(|&i| pads.slot_of(i, n)).min() else { return };
     let key = held.keys() == Some(slot) && bind.key_just_pressed(&keys, controls::Action::Camera);
     let pad = held.0[slot].and_then(|e| gamepads.get(e).ok()).is_some_and(|p| bind.pad_just_pressed(p, controls::Action::Camera));
     alt.press |= key || pad;
@@ -174,19 +184,27 @@ fn step(
 ) {
     let (Some(mut alt), Some(g), Some(pads), Some(d)) = (alt, g, pads, d) else { return };
     let alt = &mut *alt;
-    let mut press = std::mem::take(&mut alt.press);
-    // B669: every match starts on the normal camera (the intro and its banner); a chosen alternate one glides in
-    // once play is live, as Select does
     if g.is_added() {
         alt.on = false;
         alt.start_on = saved(args.as_deref()).unwrap_or_else(touch);
     }
+    // B667: online, a rollback's re-run ticks (and a frame with no new tick) don't step it again
+    if let Some(np) = np.as_deref() {
+        let tick = np.lock.log.len();
+        if tick <= alt.tick {
+            return;
+        }
+        alt.tick = tick;
+    }
+    let mut press = std::mem::take(&mut alt.press);
+    // B669: every match starts on the normal camera (the intro and its banner); a chosen alternate one glides in
+    // once play is live, as Select does
     let start = alt.start_on && !alt.on && intro.is_none() && live(&g, &d);
     if start {
         alt.start_on = false;
         press = true;
     }
-    let Some(humans) = team(&g, &pads, np.is_some()) else { return };
+    let Some(humans) = team(&g, &pads, np.as_deref()) else { return };
     let i = humans[0];
     let changing_ends = matches!(g.phase, Phase::ChangeEnds(_));
     if press && alt.glide.is_none() && live(&g, &d) {
@@ -322,7 +340,7 @@ fn fade(
         return;
     }
     let (Some(g), Some(pads)) = (g, pads) else { return };
-    let Some(i) = human(&g, &pads, np.is_some()) else { return };
+    let Some(i) = human(&g, &pads, np.as_deref()) else { return };
     if kept.is_empty() {
         let Some((e, _)) = figures.iter().find(|(_, f)| f.0 == i) else { return };
         *kept = children
@@ -494,6 +512,48 @@ mod tests {
             (last, was) = (Some(now.eye), changing);
         }
         panic!("no change of ends");
+    }
+
+    /// B667: online, the camera follows this machine's own human (player 1 here, the other machine's player 0 not
+    /// counted), and steps once per new tick of the lockstep: a frame that runs no new tick (a rollback's re-run)
+    /// leaves its glide where it was (skipped without the ISO).
+    #[test]
+    fn online_it_follows_this_machines_human() {
+        use crate::net::{Pick, Room, Seat};
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let mut a = app_with(true, true, [true, true, false, false]);
+        let s = |peer: &str| Some(Seat { peer: peer.into(), pick: Pick::disc(0, 0) });
+        let room = Room { seats: vec![s("host"), s("g")], delay: 4, ..Default::default() };
+        let np = netplay::Netplay::new(room, "g".into());
+        {
+            let w = a.world();
+            let (g, pads) = (w.resource::<Game>(), w.resource::<Pads>());
+            assert_eq!(super::team(g, pads, None), None, "offline: humans on both teams");
+            assert_eq!(super::team(g, pads, Some(&np)), Some(vec![1]), "online: only this machine's");
+        }
+        a.insert_resource(np);
+        a.insert_resource(AltCamera { press: true, ..default() });
+        let new_tick = |a: &mut App| a.world_mut().resource_mut::<netplay::Netplay>().lock.log.push([tick_input::IDLE; 4]);
+        for tick in 0..40 {
+            new_tick(&mut a);
+            a.world_mut().run_schedule(FixedUpdate);
+            if tick == 5 {
+                // no new tick: it doesn't step
+                let glide = a.world().resource::<AltCamera>().glide.map(|g| g.0);
+                a.world_mut().run_schedule(FixedUpdate);
+                assert_eq!(a.world().resource::<AltCamera>().glide.map(|g| g.0), glide, "a re-run stepped the glide");
+            }
+        }
+        let w = a.world();
+        let alt = w.resource::<AltCamera>();
+        assert!(alt.on && alt.glide.is_none());
+        assert_eq!(alt.follow.as_ref().map(|f| f.0.clone()), Some(vec![1]));
+        let (g, own) = (w.resource::<Game>(), w.get_resource::<own_camera::OwnCam>());
+        let (_, now) = own_camera::shown(g, own);
+        let z = g.players[1].pos[2];
+        assert!(now.eye[2] * z > 0.0 && now.eye[2].abs() > z.abs() + 5.0, "eye {:?} not behind player 1 at z {z}", now.eye);
     }
 
     /// B622: Select does nothing while the players can't move (the point over, the change of ends, a replay), and
