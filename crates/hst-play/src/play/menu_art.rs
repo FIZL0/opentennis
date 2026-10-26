@@ -426,11 +426,12 @@ fn sheet_image(images: &mut Assets<Image>, data: &[u8], name: &str) -> Handle<Im
         return images.add(ring_glow(data));
     }
     let wall = name.starts_with("wall_") && !off;
-    let sheet = SHEETS.iter().find(|s| s.name == name).filter(|_| !off);
+    // B670: a texture pack's (or texture-replacements') own picture of a sheet wins over our rebuild of it
+    let sheet = SHEETS.iter().find(|s| s.name == name).filter(|_| !off && !replaced(data));
     // P50: while a mode starts, handed off (`crate::jobs`; `land` puts it in when it's done); P57: the disc's own
     // sheets and the walls too, and the decode with them (a menu start's ~50 decodes were ~50 ms of one frame on
     // desktop, more in the browser), unless a texture replacement may stand in for a disc sheet (`textures::add`)
-    if DEFER.get() && (wall || sheet.is_some() || !crate::textures::on()) {
+    if DEFER.get() && (wall || sheet.is_some() || !crate::textures::replacing()) {
         let data = data.to_vec();
         let job = match sheet {
             // B409: a step at a time, so the browser draws frames in between
@@ -461,6 +462,11 @@ fn sheet_image(images: &mut Assets<Image>, data: &[u8], name: &str) -> Handle<Im
     let handle = images.add(rebuilt(data, &name, sheet));
     crate::textures::ours(handle.id(), Vec2::splat(K as f32));
     handle
+}
+
+/// Whether the texture replacements have a picture for this disc sheet.
+fn replaced(data: &[u8]) -> bool {
+    crate::textures::replacing() && tim2::decode_alpha8(data).ok().and_then(|p| p.into_iter().next()).is_some_and(|p| crate::textures::has(&p.gs().key(), &hst_data::texhash::tim2_names(&p)))
 }
 
 /// A menu wall drawn again at `K`× ([`grid`]).

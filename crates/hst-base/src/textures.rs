@@ -189,6 +189,22 @@ pub fn add(
     h
 }
 
+/// B670: whether the "texture replacements" setting is on (in the browser too, unlike [`on`]).
+pub fn replacing() -> bool {
+    STATE.lock().unwrap().is_some()
+}
+
+/// B670: whether a texture pack or `texture-replacements/` has a file for this key or these PCSX2 names (none while
+/// the setting is off): the menus' own rebuilt sheets give way to it (`menu_art`).
+pub fn has(key: &str, names: &[String]) -> bool {
+    STATE.lock().unwrap().as_ref().is_some_and(|s| s.packs.contains_key(key) || s.o.files(key, names).exists())
+}
+
+/// B670: [`add`] for a BMP (no GS upload, so no PCSX2 names; keyed by [`hst_data::bmp::key`]).
+pub fn add_bmp(images: &mut impl Store<Image>, img: Image, data: &[u8]) -> Handle<Image> {
+    add(images, img, hst_data::bmp::key(data), vec![])
+}
+
 pub fn add_mtl(images: &mut impl Store<Image>, img: Image, t: &mtl::Texture) -> Handle<Image> {
     if t.levels.is_empty() {
         return images.add(img);

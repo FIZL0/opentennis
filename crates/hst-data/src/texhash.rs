@@ -219,7 +219,7 @@ pub struct DiscTexture {
     pub height: u32,
     /// RGBA8, PS2 alpha expanded (0x80 -> 0xff).
     pub rgba: Vec<u8>,
-    /// [`GsTex::key`].
+    /// [`GsTex::key`] (a BMP's: [`crate::bmp::key`]).
     pub key: String,
     /// [`GsTex::pcsx2_names`].
     pub names: Vec<String>,
@@ -246,7 +246,7 @@ pub fn tim2_names(p: &crate::tim2::Picture) -> Vec<String> {
     names
 }
 
-/// Every MTL/MTI and TIM2 texture in the disc's archives.
+/// Every MTL/MTI and TIM2 texture in the disc's archives, and the BMPs (B670: the loading screen's court pictures).
 pub fn disc_textures(iso: &mut crate::iso::Iso, mut f: impl FnMut(DiscTexture)) {
     let paths: Vec<String> = iso
         .files
@@ -316,6 +316,12 @@ pub fn disc_textures(iso: &mut crate::iso::Iso, mut f: impl FnMut(DiscTexture)) 
                             names,
                         });
                     }
+                }
+                "bmp" => {
+                    let Some((width, height, rgba, key)) = arc.read(e).ok().and_then(|b| crate::bmp::decode(&b).map(|(w, h, px)| (w, h, px, crate::bmp::key(&b)))) else {
+                        continue;
+                    };
+                    f(DiscTexture { path: format!("{base}.0"), width, height, rgba, key, names: vec![] });
                 }
                 _ => {}
             }
@@ -486,6 +492,11 @@ pub struct Files {
 }
 
 impl Files {
+    /// Whether there's a replacement file (it may still fail to decode).
+    pub fn exists(&self) -> bool {
+        self.m.is_some() || self.pack.is_some()
+    }
+
     /// The replacement (width, height, straight RGBA8), the pack's alpha expanded, else `None` (disc).
     pub fn load(&self) -> Option<(u32, u32, Vec<u8>)> {
         if let Some(t) = self.m.as_deref().and_then(read_png) {
