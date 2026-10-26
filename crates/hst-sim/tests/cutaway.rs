@@ -51,7 +51,7 @@ fn views_of(data: &[u8], stride: usize, shots: &[hst_sim::cutaway::CameraShot], 
         assert_eq!(blank.get(0), table(0), "frame 0 is the port's court centre");
         if new_run {
             // the recording starts a frame or two into the shot: catch up on the yaw channel
-            let mut sh = Shot::new(&shots, number, s[CAM + 0x50] == 0xff);
+            let mut sh = Shot::new(shots, number, s[CAM + 0x50] == 0xff);
             for _ in 0..8 {
                 if (sh.ch(6) - f(s, CAM + 0x2d58 + 6 * 0x1c)).abs() < 1e-5 {
                     break;
@@ -309,7 +309,7 @@ fn close_up_s05() {
     };
     let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
     const STRIDE: usize = SAMPLE + 0xd8 + 4 * 0x170;
-    let close = data.chunks_exact(STRIDE).filter(|s| s[CAM + 0x114] == 0x64).count();
+    let close = data.as_chunks::<STRIDE>().0.iter().filter(|s| s[CAM + 0x114] == 0x64).count();
     // the filler, 0x60, glides from the camera before it (not a post-point shot): only the close-ups are checked
     let (n, worst, stale, _) = views_of(&data, STRIDE, &Game::new(&cnf, &bin).unwrap().camera_shots(), |n| n == 0x64);
     eprintln!("{n} frames checked ({close} close-up), worst {worst}; {stale} stale samples");

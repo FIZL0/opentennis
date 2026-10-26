@@ -88,3 +88,70 @@ fn every_morph_binds() {
     eprintln!("{files} MOR files, {tracks} tracks bound, {unbound} not");
     assert!(files > 300 && unbound * 20 < tracks);
 }
+
+/// B673: each player's face through 9000 frames of the slot-5 doubles match, post-point reactions included
+/// (`fixtures/b673/face_s05.bin`, `research/face_rec.py`): the face playing is the motion's (the soft follow-throughs
+/// keep the previous one; a team reaction's losers its `_2` take five on, the whole team alike, the winners the base
+/// one), with the motion's speed and looping; restarted with the motion, the face clock ticks as the motion clock
+/// does (the motion player's countdown counts the ticks, the crossfade hold aside) over the face's own length.
+#[test]
+fn face_s05_reactions() {
+    use hst_sim::motion::Clock;
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
+    let Ok(data) = fixture::read(format!("{root}fixtures/b673/face_s05.bin")) else { return };
+    const S: usize = 8 + 4 * 0xb4;
+    let i = |b: &[u8], o: usize| i32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+    let g = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+    // (vsync, motion, clip, motion speed, motion loop, countdown, face, face clock, face length)
+    let read = |k: usize, p: usize| {
+        let b = &data[k * S + 8 + p * 0xb4..];
+        let m = &b[0x80..];
+        let face = Clock { time: g(m, 0x20), sampled: g(m, 0x1c), speed: g(m, 0x24), looping: m[0x2c] != 0, hold: None };
+        (i(&data[k * S..], 0), i(b, 0x20), i(b, 0x24), g(b, 0x40), b[0x78] != 0, i(b, 0x60), i(b, 0xb0), face, g(m, 0x14))
+    };
+    let (mut ticks, mut sets, mut reactions, mut losers) = (0, 0, 0, 0);
+    for k in 1..data.len() / S {
+        let now: Vec<_> = (0..4).map(|p| read(k, p)).collect();
+        // a team reaction: one team (players 0/2 or 1/3) on its `_2` faces, the other on the base ones
+        let team = |t: usize| [t, t + 2].map(|p| (now[p].1 >= 0x30).then_some(now[p].6 == now[p].1 + 5));
+        if let ([Some(a), Some(b)], [Some(c), Some(d)]) = (team(0), team(1)) {
+            assert!(a == b && c == d && a != c, "k={k} {now:x?}");
+            losers += 1;
+        }
+        for (p, &b) in now.iter().enumerate() {
+            let a = read(k - 1, p);
+            let ctx = format!("k={k} p={p} {a:?} -> {b:?}");
+            let face = match b.1 {
+                0x1c | 0x1d => a.6,
+                m if m >= 0x30 && b.6 == m + 5 => m + 5,
+                m => m,
+            };
+            assert_eq!(b.6, face, "{ctx}");
+            assert_eq!((b.7.speed.to_bits(), b.7.looping), (b.3.to_bits(), b.4), "{ctx}");
+            reactions += (0x2b..0x35).contains(&b.1) as i32;
+            if b.0 != a.0 + 1 {
+                continue; // a torn read skipped
+            }
+            let n = a.5 - b.5;
+            let mut c = a.7;
+            if a.1 == b.1 && a.2 == b.2 && a.6 == b.6 && (0..=2).contains(&n) {
+                (0..n).for_each(|_| c.tick(a.8));
+                ticks += n;
+            } else {
+                // set this frame: the face restarts at 0 with the motion, then up to three ticks (a reaction set on the
+                // frame after the phase change's skipped one)
+                let fits = (0..=3).any(|j| {
+                    c = Clock::start(b.7.speed, b.7.looping, None);
+                    (0..j).for_each(|_| c.tick(b.8));
+                    (c.sampled, c.time) == (b.7.sampled, b.7.time)
+                });
+                assert!(fits || b.6 == a.6 && b.7 == a.7, "set {ctx}");
+                sets += 1;
+                continue;
+            }
+            assert_eq!((c.sampled.to_bits(), c.time.to_bits()), (b.7.sampled.to_bits(), b.7.time.to_bits()), "{ctx}");
+        }
+    }
+    eprintln!("{ticks} face ticks, {sets} sets, {reactions} reaction frames, {losers} team-reaction frames");
+    assert!(ticks > 30000 && sets > 100 && reactions > 1000 && losers > 100);
+}
