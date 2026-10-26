@@ -88,7 +88,7 @@ pub(super) fn text(favs: &Favorites) -> String {
 
 impl Menu {
     /// A favorite's key: a disc character by number, a mod by its folder (B248's unique id).
-    fn fav_key(&self, w: Who) -> String {
+    pub(super) fn fav_key(&self, w: Who) -> String {
         match w {
             Who::Disc(c) => format!("hst {c}"),
             Who::Mod(i) => format!("mod {}", self.mods[i].folder()),
