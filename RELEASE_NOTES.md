@@ -13,3 +13,4 @@
 - The Offbeat rules tab on the pause screen now uses the score board's own frame, so it looks part of it.
 - Left-handed players' rackets are now drawn the right way round, so Carol's and Will's off hand curls over the bottom of the racket head instead of poking through the strings, as in the original.
 - Left-handed custom characters hold their racket in their hand again, instead of beside it.
+- Custom characters whose arms are short for their racket no longer have their off arm snap straight and back in the ready stance.

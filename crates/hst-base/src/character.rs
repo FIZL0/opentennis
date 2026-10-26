@@ -1830,7 +1830,10 @@ fn hold_head(d: &CharacterData, grip: &Grip, drawn: &mut [(Quat, Vec3)], weight:
     // bend the elbow to the reach, then swing the shoulder onto the target
     let (pu, pe, ph) = (wu.translation, we.translation, wh.translation);
     let (a, b) = ((pe - pu).length(), (ph - pe).length());
-    let c = (target - pu).length().clamp((a - b).abs() + 1e-4, a + b - 1e-4);
+    // a soft reach: past 90 % of the arm the hand eases towards full stretch and never gets there, as a target at
+    // the arm's length (a long racket on short arms) locks the arm straight one frame and bends it 40° the next
+    let (c, soft) = ((target - pu).length(), 0.9 * (a + b));
+    let c = if c > soft { soft + 0.1 * (a + b) * (1.0 - (-(c - soft) / (0.1 * (a + b))).exp()) } else { c.max((a - b).abs() + 1e-4) };
     let (su, sh) = (pu - pe, ph - pe);
     let want = ((a * a + b * b - c * c) / (2.0 * a * b)).clamp(-1.0, 1.0).acos();
     let bend = Quat::from_axis_angle(su.cross(sh).normalize_or_zero(), want - su.angle_between(sh));
