@@ -32,6 +32,7 @@ use crate::Args;
 use crate::audio::{Sound, SoundBank};
 
 mod plate;
+mod rules_tab;
 
 // Z21: not `i_dialog_00`/`01`, which our box, pills and rows (B141) stand in for, nor `hsm_yubi`, whose place the 3D
 // hand always takes (`cursor::setup` at Startup)
@@ -58,6 +59,8 @@ enum Tex {
     /// B671: player `p`'s name in the tag's place, and their character's pill (`plate.rs`), each its whole image.
     Name(usize),
     Chara(usize),
+    /// B671a: the Offbeat rules tab on the frame (`rules_tab.rs`), its whole image.
+    Rules,
 }
 const DIM: Tex = Tex::Own(0);
 const POINTS: Tex = Tex::Own(1);
@@ -126,6 +129,17 @@ fn pill_y(sets_to_win: i32, n: usize, k: usize) -> i32 {
 /// make room for the question above.
 fn ask_y(sets_to_win: i32, k: usize) -> i32 {
     pill_y(sets_to_win, 2, k) + 24
+}
+/// B671a: the score frame's top: lower with one or two sets to win.
+fn frame_top(sets_to_win: i32) -> f32 {
+    if (1..=2).contains(&sets_to_win) { 320.0 } else { 256.0 }
+}
+/// B671a: the dialog's box `[top, height]`, of `n` rows or (`ask`) the confirm's, and where it goes over a rules tab
+/// `tab_h` tall.
+fn dialog_fit(sets_to_win: i32, ask: bool, n: usize, tab_h: Option<f32>) -> rules_tab::Fit {
+    let n = n as i32;
+    let [top, h] = if ask { [ask_y(sets_to_win, 0) - 46, 134] } else { [pill_y(sets_to_win, n as usize, 0) - 20, 40 * n + 32] };
+    rules_tab::Fit::new([top as f32, h as f32], frame_top(sets_to_win), tab_h)
 }
 /// Points cells (column, row) by point index; 4 is Deuce, 5 Advantage (tiebreak: 0–7, 8 Deuce, 9 Advantage).
 const POINT_U: [i32; 10] = [0, 1, 0, 1, 0, 1, 0, 1, 0, 1];
@@ -305,6 +319,8 @@ struct View {
     local: bool,
     /// B671: each player's name and character pill widths (`plate.rs`), once set: drawn in place of the slot tag.
     words: [Option<[f32; 2]>; 4],
+    /// B671a: the rules tab's size (`rules_tab.rs`) while any Offbeat rule is on.
+    tab: Option<[f32; 2]>,
 }
 
 fn layout(v: &View) -> Vec<Quad> {
@@ -368,6 +384,9 @@ fn layout(v: &View) -> Vec<Quad> {
         }
         q(Tex::Slot, [v.slots[p] as i32 * 40, 0, 40, 24], r([144, 456][p & 1], y + 6, 40, 24), rgb(v.pill[p]), 128);
     }
+    if let Some(size) = v.tab {
+        q(Tex::Rules, [0; 4], rules_tab::place(frame_top(v.sets_to_win), size), WHITE, 128);
+    }
     // the set in play on the bright sheet, a past set the team didn't win at half alpha
     let (cols, games_y) = match v.sets_to_win {
         1 => (1, 360),
@@ -412,6 +431,7 @@ fn layout(v: &View) -> Vec<Quad> {
             }
         }
     };
+    let dialog = out.len();
     let (rows, ys, sel): (Vec<Tex>, Vec<i32>, usize) = match v.ask {
         Some(a) => {
             out.push(Quad { tex: DIM, src: [0.0, 0.0, 8.0, 8.0], dst: [0.0, 0.0, 640.0, 448.0], rgb: [0.0; 3], alpha: 80.0 });
@@ -459,6 +479,11 @@ fn layout(v: &View) -> Vec<Quad> {
     }
     let hy = (ys[sel] + 8) as f32;
     out.push(Quad { tex: HAND, src: [0.0, 0.0, 64.0, 32.0], dst: [v.hand_x + 128.0, hy, 64.0, 32.0], rgb: WHITE, alpha: 128.0 });
+    // B671a: the dialog (not the confirm's dimmer) clear of the rules tab
+    let fit = dialog_fit(v.sets_to_win, v.ask.is_some(), options(v.local).len(), v.tab.map(|t| t[1]));
+    for quad in out[dialog..].iter_mut().filter(|q| q.tex != DIM) {
+        quad.dst = fit.rect(quad.dst);
+    }
     if let Some(t) = v.fade {
         let a = (128 * t / 60).min(128) as f32;
         out.push(Quad { tex: DIM, src: [0.0, 0.0, 8.0, 8.0], dst: [0.0, 0.0, 640.0, 448.0], rgb: [0.0; 3], alpha: a });
@@ -517,6 +542,8 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, (step.after(super::read_input), pool, draw).chain().before(super::main_menu::pause::Systems))
         .init_resource::<plate::Plates>()
         .add_systems(Update, plate::refresh.after(step).before(draw))
+        .init_resource::<rules_tab::RulesTab>()
+        .add_systems(Update, rules_tab::refresh.after(step).before(draw))
         // B179: the main menus' 3D hand (`cursor.ani`) points here and on the Settings screens over the match
         .add_systems(Startup, super::main_menu::cursor::setup)
         .add_systems(Update, super::main_menu::cursor::tick.after(draw))
@@ -616,6 +643,7 @@ fn step(
     mut hovered: Local<Option<Vec2>>,
     net: Option<Res<super::netplay::Netplay>>,
     bind: Option<Res<super::controls::Bindings>>,
+    rules: Res<rules_tab::RulesTab>,
 ) {
     let any = |b: GamepadButton| gamepads.iter().filter(|g| super::controls::readable(g)).any(|g| g.just_pressed(b));
     // pause: Esc / Start, or what Controls binds it to
@@ -670,7 +698,12 @@ fn step(
     // B178: the confirm's pills are Yes and No
     let (ask, rows) = (menu.ask.is_some(), if menu.ask.is_some() { 2 } else { n });
     let top = |k| if ask { ask_y(sets, k) } else { pill_y(sets, n, k) };
-    let pill = |p: Vec2| (176.0..464.0).contains(&p.x).then(|| (0..rows).find(|&k| (0.0..32.0).contains(&(p.y - top(k) as f32)))).flatten();
+    // B671a: the pills where the rules tab moved them
+    let fit = dialog_fit(sets, ask, n, rules.size().map(|t| t[1]));
+    let pill = |p: Vec2| {
+        let half = 144.0 * fit.s;
+        ((320.0 - half)..(320.0 + half)).contains(&p.x).then(|| (0..rows).find(|&k| (0.0..32.0 * fit.s).contains(&(p.y - fit.y(top(k) as f32))))).flatten()
+    };
     // B221: the mouse over a pill moves the hand there; a right click, or a click or tap off the pills, is Back
     let (press, right) = super::main_menu::pause::pointer_press(&window, &mouse, &touches);
     let at = super::main_menu::pause::cursor_point(&window);
@@ -746,6 +779,7 @@ fn draw(
     cursor: Option<Res<super::main_menu::cursor::Cursor>>,
     mut root_z: Query<&mut GlobalZIndex, With<Root>>,
     plates: Res<plate::Plates>,
+    rules: Res<rules_tab::RulesTab>,
 ) {
     let (Some(art), Some(panel_art), Some(colours)) = (art, panel_art, colours) else {
         return;
@@ -790,6 +824,7 @@ fn draw(
             ask: menu.ask,
             local: menu.local,
             words: std::array::from_fn(|p| if p < n { plates.widths(p) } else { None }),
+            tab: rules.size(),
         })
     } else {
         Vec::new()
@@ -809,6 +844,7 @@ fn draw(
             (_, Tex::Face(p)) => panel_art.0[panel::FACES + p].clone(),
             (_, Tex::Name(p)) => plates.name[p].as_ref().map_or_else(Handle::default, |w| w.0.clone()),
             (_, Tex::Chara(p)) => plates.chara[p].as_ref().map_or_else(Handle::default, |w| w.0.clone()),
+            (_, Tex::Rules) => rules.tab.as_ref().map_or_else(Handle::default, |t| t.0.clone()),
             (None, Tex::Hand) => {
                 vis.set_if_neq(Visibility::Hidden);
                 continue;
@@ -816,7 +852,7 @@ fn draw(
         };
         let [u, v, w, h] = quad.src;
         // B160: a face is its whole image (INPANE's 64×64, or a baked one's larger square)
-        img.rect = (!matches!(quad.tex, Tex::Face(_) | Tex::Name(_) | Tex::Chara(_)) && three_d.is_none()).then(|| Rect::new(u, v, u + w, v + h));
+        img.rect = (!matches!(quad.tex, Tex::Face(_) | Tex::Name(_) | Tex::Chara(_) | Tex::Rules) && three_d.is_none()).then(|| Rect::new(u, v, u + w, v + h));
         let [r, g, b] = quad.rgb.map(|c| c / 128.0);
         img.color = Color::srgba(r, g, b, quad.alpha / 128.0);
         let [mut x, mut y, mut w, mut h] = quad.dst;
@@ -871,6 +907,7 @@ mod tests {
             ask: None,
             local: false,
             words: [None; 4],
+            tab: None,
         }
     }
 
@@ -955,6 +992,42 @@ mod tests {
             }
         }
         assert_eq!((plate::who(4, Some("Ryan")), plate::who(0, Some("Ryan")), plate::who(1, None)), ("COM".into(), "Ryan".into(), "2P".into()));
+    }
+
+    /// B671a: the rules tab sits on the frame at its left (none without rules), however many rows it wraps to; the
+    /// dialog (and the confirm) clears it, moving up first, never above the top bar's rim, then shrinking, the pointer's
+    /// pills following it.
+    #[test]
+    fn rules_tab_clears_the_dialog() {
+        assert!(!layout(&view()).iter().any(|q| q.tex == Tex::Rules));
+        for sets_to_win in 1..=3 {
+            for local in [false, true] {
+                for ask in [None, Some(0)] {
+                    for h in [21.0, 36.0, 51.0, 81.0] {
+                        let v = View { sets_to_win, local, ask, tab: Some([300.0, h]), ..view() };
+                        let qs = layout(&v);
+                        let tab = qs.iter().find(|q| q.tex == Tex::Rules).unwrap().dst;
+                        let frame = frame_top(sets_to_win);
+                        assert_eq!((tab[0], tab[1] + tab[3]), (rules_tab::X, frame + 3.0));
+                        let dialog: Vec<_> = qs.iter().filter(|q| [PILL, HAND, RESUME, LABEL, SEATS, RETURN, YES, NO, ASK].contains(&q.tex)).collect();
+                        let bottom = dialog.iter().filter(|q| q.tex == PILL).map(|q| q.dst[1] + q.dst[3]).fold(0.0, f32::max);
+                        let top = dialog.iter().filter(|q| q.tex == PILL).map(|q| q.dst[1]).fold(f32::MAX, f32::min);
+                        assert!(bottom <= tab[1] - 3.9, "{sets_to_win} {local} {ask:?} {h}: {bottom} over {}", tab[1]);
+                        assert!(top >= 57.9, "{top}");
+                        let n = options(local).len();
+                        let fit = dialog_fit(sets_to_win, ask.is_some(), n, Some(h));
+                        let first = if ask.is_some() { ask_y(sets_to_win, 0) } else { pill_y(sets_to_win, n, 0) };
+                        let row = dialog.iter().find(|q| q.tex == if ask.is_some() { YES } else { RESUME }).unwrap().dst;
+                        assert!((fit.y(first as f32) + 16.0 * fit.s - (row[1] + row[3] / 2.0)).abs() < 0.01);
+                    }
+                }
+            }
+        }
+        // room to spare: the dialog stays as it was
+        let v = View { sets_to_win: 1, tab: Some([300.0, 21.0]), ..view() };
+        let same = |q: &&Quad| q.tex == PILL;
+        assert_eq!(layout(&v).iter().filter(same).count(), layout(&view()).iter().filter(same).count());
+        assert_eq!(layout(&v).iter().filter(same).map(|q| q.dst).collect::<Vec<_>>(), layout(&view()).iter().filter(same).map(|q| q.dst).collect::<Vec<_>>());
     }
 
     /// B254: a local match's dialog has four pills, "Controllers" third, centred as the three; ✕ on it asks for the

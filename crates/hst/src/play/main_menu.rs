@@ -57,7 +57,7 @@ mod home;
 mod look;
 mod last_picks;
 mod names;
-mod offbeat;
+pub(super) mod offbeat;
 mod online;
 mod options;
 mod osk;
