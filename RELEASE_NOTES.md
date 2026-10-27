@@ -45,3 +45,4 @@
 - The character select remembers each controller's last pick only while the game stays open; starting the game afresh begins everyone on the Random card again.
 - Custom characters' mouths now follow their voice line alone while they speak, instead of mixing with the celebration's own mouth movements; celebrations animated to their own line keep their original mouth.
 - A hard smash that lands now throws up clods of earth, and in the rain the ball's bounces splash spray instead of raising a yellow ring and dust, as in the original.
+- Characters now say one of several lines when picked on the character select, custom characters included; lines from several players take turns instead of piling up, and picking the same character again cuts its own line short.
