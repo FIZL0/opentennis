@@ -2309,8 +2309,9 @@ struct Text {
     mods: Vec<(usize, [u8; 5])>,
 }
 
-/// The TParam.csv column each △ grade follows (Serve, Stroke, Volley, Footwork = speed); Impact has none.
-const GRADE_COLS: [Option<usize>; 5] = [Some(12), Some(13), Some(14), None, Some(40)];
+/// The TParam.csv column each △ grade follows (Stroke, Volley, Footwork = speed). Serve has none: a serve flies on
+/// the base character's trajectory tables (Serv POW only picks the weak toss's), so its grade is the base's; Impact neither.
+const GRADE_COLS: [Option<usize>; 5] = [None, Some(13), Some(14), None, Some(40)];
 
 /// A mod's △ grades, so its card is the disc characters' card: its base character's, except where its row changes a
 /// `GRADE_COLS` cell: there the mean grade of the disc characters nearest in that column.
@@ -4118,8 +4119,8 @@ mod tests {
         (g[0], g[1], g[2], g[3]) = ([1, 1, 1, 5, 2], [2, 2, 3, 3, 3], [4, 4, 4, 1, 4], [3, 3, 3, 1, 3]);
         let row = |s: &str| s.split(',').map(String::from).collect::<Vec<_>>();
         assert_eq!(mod_grades(&row("0,a,,,,,,,,,,,4,4,3"), 0, csv, &g), g[0]);
-        // serve 7 → character 1's grade; stroke 9 → mean of 4 and 3 rounds to 4; volley 3 is the base's; Impact, Footwork base
-        assert_eq!(mod_grades(&row("0,a,,,,,,,,,,,7,9,3"), 0, csv, &g), [2, 4, 1, 5, 2]);
+        // serve stays the base's; stroke 9 → mean of 4 and 3 rounds to 4; volley 3 is the base's; Impact, Footwork base
+        assert_eq!(mod_grades(&row("0,a,,,,,,,,,,,7,9,3"), 0, csv, &g), [1, 4, 1, 5, 2]);
     }
 
     /// B243: a locked row under the hand stays a dim grey pill, never the chosen row's gold; it can still be tapped.
