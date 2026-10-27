@@ -804,6 +804,8 @@ pub struct Device {
     /// A phone or tablet: the browser on a touch screen, the iOS or Android app.
     pub touch: bool,
     pub steam_deck: bool,
+    /// The browser build: its pick has no MSAA (a big canvas's MSAA is what a browser's GPU waits on).
+    pub browser: bool,
     /// The app's device model: iOS's `hw.machine` (`iPhone14,5`), Android's `Build.MODEL`.
     pub model: Option<String>,
     /// The screen in CSS px, portrait (narrow side first); 0 unknown.
@@ -821,7 +823,7 @@ pub struct Device {
 impl Device {
     /// This device (`touch`: the page or app is played by touch).
     pub fn here(touch: bool) -> Device {
-        let mut d = Device { touch: touch || cfg!(any(target_os = "ios", target_os = "android")), steam_deck: std::env::var("SteamDeck").is_ok_and(|v| v == "1"), ..default() };
+        let mut d = Device { touch: touch || cfg!(any(target_os = "ios", target_os = "android")), steam_deck: std::env::var("SteamDeck").is_ok_and(|v| v == "1"), browser: cfg!(target_arch = "wasm32"), ..default() };
         #[cfg(target_arch = "wasm32")]
         crate::web::device(&mut d);
         #[cfg(not(target_arch = "wasm32"))]
@@ -904,17 +906,18 @@ fn iphone_screen_tier([w, h]: [u32; 2], dpr: f32) -> u32 {
 }
 
 /// The Auto preset's first pick on `d`: Steam Deck's on a Deck (without Auto: its preset is tuned by hand and SteamOS
-/// may cap it below 60), Default elsewhere off a touch screen, Phone stepped down by `Device::steps` on a phone or tablet.
+/// may cap it below 60), Default elsewhere off a touch screen, Phone stepped down by `Device::steps` on a phone or tablet;
+/// in a browser without MSAA.
 pub fn pick(d: &Device) -> Graphics {
     if d.steam_deck {
         return Graphics::STEAM_DECK;
     }
-    if !d.touch {
-        return Graphics { auto: true, ..default() };
-    }
-    let mut g = Graphics::PHONE;
-    for _ in 0..d.steps() {
+    let mut g = if d.touch { Graphics::PHONE } else { default() };
+    for _ in 0..if d.touch { d.steps() } else { 0 } {
         g = cheaper(g).unwrap_or(g);
+    }
+    if d.browser {
+        g.msaa = 1;
     }
     Graphics { auto: true, ..g }
 }
@@ -1051,7 +1054,10 @@ impl Tune {
             }
             return None;
         }
-        let Some(c) = cheaper(g) else {
+        // far too slow (a 1440p canvas at 21 fps): straight to the render scale whose pixels would fit, then the ladder
+        let fit = g.scale as f32 * (fps / target).sqrt();
+        let jump = (!g.original && fps < target * 0.6).then(|| SCALES.into_iter().rev().find(|&s| s as f32 <= fit).unwrap_or(SCALES[0])).filter(|&s| s < g.scale);
+        let Some(c) = jump.map(|scale| Graphics { scale, ..g }).or_else(|| cheaper(g)) else {
             info!("auto graphics: {fps:.0} fps of {target:.0} at the cheapest");
             self.done = true;
             return None;
@@ -1201,6 +1207,18 @@ mod tests {
         assert_eq!(pick(&Device { steam_deck: true, ..default() }), Graphics::STEAM_DECK);
         assert_eq!(pick(&Device::default()), Graphics { auto: true, ..default() });
         assert_eq!(pick(&phone), Graphics { auto: true, ..Graphics::PHONE });
+        // a browser's without MSAA
+        assert_eq!(pick(&Device { browser: true, ..default() }), Graphics { auto: true, msaa: 1, ..default() });
+        assert_eq!(pick(&Device { browser: true, ..phone.clone() }), Graphics { auto: true, msaa: 1, ..Graphics::PHONE });
+        // far too slow: straight to the scale whose pixels fit (21 of 60 fps at 100% → 50%, 45 → 85%)
+        let slow = |fps: f32, g: Graphics| {
+            let mut t = Tune::default();
+            (0..((AUTO_SKIP + AUTO_WINDOW) * fps) as u32 + 2).find_map(|_| t.frame_time(g, 1.0 / fps, 60.0))
+        };
+        let g = Graphics { auto: true, ..default() };
+        assert_eq!(slow(21.0, g).map(|c| (c.scale, c.msaa)), Some((50, 4)));
+        assert_eq!(slow(30.0, Graphics { scale: 67, ..g }).map(|c| c.scale), Some(50));
+        assert_eq!(slow(45.0, g), cheaper(g));
         let steps = |d: Device| d.steps();
         assert_eq!(steps(Device { model: Some("iPhone16,1".into()), ..phone.clone() }), 0);
         assert_eq!(steps(Device { model: Some("iPhone14,5".into()), ..phone.clone() }), 1);
@@ -1235,12 +1253,12 @@ mod tests {
             }
             steps
         };
-        // 30 fps: one step per window plus the wait after it, from Phone to the bottom within the 16 s
+        // 40 fps: one step per window plus the wait after it, from Phone to the bottom within the 16 s
         let (mut t, mut g) = (Tune::default(), Graphics { auto: true, ..Graphics::PHONE });
-        assert_eq!(run(&mut t, &mut g, 1.0 / 30.0, AUTO_SKIP - 0.1), 0);
-        assert_eq!(run(&mut t, &mut g, 1.0 / 30.0, 2.2), 1);
+        assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, AUTO_SKIP - 0.1), 0);
+        assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, 2.2), 1);
         assert_eq!(g, Graphics { auto: true, ..Graphics::LOW });
-        assert_eq!(run(&mut t, &mut g, 1.0 / 30.0, 30.0), 3);
+        assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, 30.0), 3);
         assert_eq!((g, t.done), (Graphics { auto: true, ..Graphics::LOWEST }, true));
         // 60 fps with a hitch: no step, through after two windows
         let (mut t, mut g) = (Tune::default(), Graphics { auto: true, ..Graphics::PHONE });

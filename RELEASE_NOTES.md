@@ -14,3 +14,4 @@
 - Online, a modded character you download from another player now shows its face in the match's score panel instead of a blank one.
 - A modded character's Serve grade on the select screen now matches how well it really serves.
 - Modded characters now turn after a point the way the original characters do, so the after-point camera shows them from the front instead of from behind.
+- In the browser, the game no longer uses anti-aliasing by default, and Auto graphics now drops the render resolution straight away when a match runs far too slowly (on a big screen, for example). Browser players who never changed their graphics are switched to Auto.

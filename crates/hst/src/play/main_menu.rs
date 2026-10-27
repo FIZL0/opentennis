@@ -2529,6 +2529,18 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         if !t.contains("online_mods") {
             s.online_mods = Ask::load(&crate::mods_online::cache(&args.iso)).unwrap_or(s.online_mods);
         }
+        // a browser's settings from before Auto, graphics never changed: Auto's pick (no MSAA); Auto in a browser
+        // never keeps MSAA
+        if cfg!(target_arch = "wasm32") {
+            let g = s.graphics;
+            let keep = |n: Graphics| Graphics { windowed: g.windowed, show_fps: g.show_fps, ..n };
+            if !t.contains("auto_graphics") && g == keep(Graphics::default()) {
+                s.graphics = keep(auto_graphics());
+            }
+            if s.graphics.auto {
+                s.graphics.msaa = 1;
+            }
+        }
         s
     });
     let mut menu = kept.map(|k| k.0.clone()).unwrap_or_else(|| Menu { settings: saved.as_ref().map_or_else(|_| first(), |s| *s), mods, ..default() });
