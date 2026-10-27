@@ -70,6 +70,7 @@ html[data-game] #disc { display: none !important; }
   background: #fff; padding: .25em .9em .25em .35em; font-weight: 800; font-size: 15px; cursor: pointer; box-shadow: 0 3px 0 var(--ink); }
 #disc .autoplay input { position: absolute; opacity: 0; pointer-events: none; }
 #disc .autoplay:focus-within { outline: 3px solid var(--sky); outline-offset: 3px; }
+#disc :focus-visible { outline: 3px solid var(--sky); outline-offset: 3px; }
 #disc .sw { width: 2.4em; height: 1.4em; border: 3px solid var(--ink); border-radius: 999px; background: var(--line);
   position: relative; transition: background .15s; flex: none; }
 #disc .sw::after { content: ""; position: absolute; top: 50%; left: .12em; width: .95em; height: .95em; border-radius: 50%;

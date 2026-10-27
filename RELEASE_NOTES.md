@@ -39,3 +39,4 @@
 - Reload on the Mods page now brings installed, updated and removed mods in without restarting the game (phones and the browser included); characters you'd picked stay picked, and new pictures draw in the background.
 - Online → Adhoc: phones and computers on the same Wi-Fi or hotspot can open the game in a browser, no install, from the address and QR code shown on screen.
 - With a Safe Area margin set, the score panel's strips past the margin now vanish together with the rest of the panel when a rally starts, instead of lingering a frame.
+- On the website, a controller can now move between the buttons (d-pad or stick), press them (A), and start the game (Start).

@@ -64,6 +64,7 @@ export async function landing(dir, hasPack) {
   mods(parts);
   storage(parts);
   stats();
+  gamepad(root);
   return new Promise(resolve => {
     const go = () => {
       // `?site` dropped and the tab marked, so a reload goes into the game
@@ -86,6 +87,65 @@ export async function landing(dir, hasPack) {
     for (const a of root.querySelectorAll('.band [data-have]')) a.onclick = e => { e.preventDefault(); go(); };
     importer(go, dir);
   });
+}
+
+// ---------------------------------------------------------------- Controller
+
+// A controller works the page like a keyboard: the d-pad or left stick moves the focus to the nearest control that
+// way (held, it repeats), A (or Cross) presses it, Start presses Play. Polled only while the site shows; it stops once
+// the game takes over. Picking the ISO still needs a click or key: browsers don't open a file picker from a pad.
+function gamepad(root) {
+  const held = {};
+  const step = (dir, now) => {
+    const last = held[dir];
+    held[dir] = last ?? { at: now, next: now + 400 };
+    if (last && now < last.next) return false;
+    if (last) last.next = now + 130;
+    return true;
+  };
+  const move = ([dx, dy]) => {
+    const all = [...root.querySelectorAll('a[href], button, input:not([type=file]), select, [tabindex="0"]')]
+      .filter(e => !e.disabled && e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden');
+    const cur = root.contains(document.activeElement) ? document.activeElement : null;
+    const at = r => [r.left + r.width / 2, r.top + r.height / 2];
+    const [cx, cy] = cur ? at(cur.getBoundingClientRect()) : [innerWidth / 2, dy > 0 ? -1 : innerHeight];
+    let best, score = Infinity;
+    for (const e of all) {
+      if (e === cur) continue;
+      const [x, y] = at(e.getBoundingClientRect());
+      const along = (x - cx) * dx + (y - cy) * dy, across = Math.abs((x - cx) * dy) + Math.abs((y - cy) * dx);
+      // ponytail: nearest by distance along + 3× across; a real spatial-nav lib if the layout outgrows it
+      if (along > 1 && along + 3 * across < score) { best = e; score = along + 3 * across; }
+    }
+    if (!best) return;
+    best.focus({ focusVisible: true, preventScroll: true });
+    best.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+  const was = {};
+  const poll = now => {
+    if (root.hidden) return;
+    requestAnimationFrame(poll);
+    const pads = [...navigator.getGamepads()].filter(Boolean);
+    if (!pads.length) return;
+    const press = i => pads.some(p => p.buttons[i]?.pressed);
+    const ax = (i, s) => pads.some(p => (p.axes[i] ?? 0) * s > 0.5);
+    const dirs = { up: [press(12) || ax(1, -1), [0, -1]], down: [press(13) || ax(1, 1), [0, 1]],
+      left: [press(14) || ax(0, -1), [-1, 0]], right: [press(15) || ax(0, 1), [1, 0]] };
+    for (const [name, [on, d]] of Object.entries(dirs)) {
+      if (!on) delete held[name];
+      else if (step(name, now)) move(d);
+    }
+    for (const i of [0, 9]) {
+      const on = press(i);
+      if (on && !was[i]) {
+        const play = $('#playnow');
+        const t = i === 9 && play?.getClientRects().length ? play : root.contains(document.activeElement) ? document.activeElement : null;
+        t?.click();
+      }
+      was[i] = on;
+    }
+  };
+  requestAnimationFrame(poll);
 }
 
 // ---------------------------------------------------------------- Add to Home Screen
