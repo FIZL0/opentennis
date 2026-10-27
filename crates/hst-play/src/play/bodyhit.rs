@@ -151,6 +151,11 @@ impl Posed {
     pub(super) fn locals(&self, i: usize) -> Option<&[[[f32; 4]; 4]]> {
         Some(&self.0.get(i)?.as_ref()?.1.local)
     }
+
+    /// Player `i`'s nodes, for the head look to turn the head in.
+    pub(super) fn nodes_mut(&mut self, i: usize) -> Option<&mut Nodes> {
+        Some(&mut self.0.get_mut(i)?.as_mut()?.1)
+    }
 }
 
 /// Per player (by figure) where the bones the match reads off `Posed` are in its skeleton, and which nodes their

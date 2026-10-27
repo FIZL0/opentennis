@@ -51,6 +51,7 @@ mod ball_shadow;
 mod bounce_debris;
 mod smash_marker;
 mod bodyhit;
+mod look;
 mod change_ends;
 pub mod controls;
 mod cutaway;
@@ -609,6 +610,7 @@ struct BalloonArt([Handle<Image>; 4]);
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(bodyhit::plugin);
+    app.add_plugins(look::plugin);
     app.add_plugins(controls::plugin);
     app.add_plugins(cutaway::plugin);
     app.add_plugins(change_ends::plugin);

@@ -663,6 +663,11 @@ impl CharacterData {
     }
 }
 
+/// The match's head look this tick (`hst_sim::look`): a rotation (game rows) the head joint's clip pose is turned
+/// by in its own frame, a stock or a mod rig alike.
+#[derive(Component, Clone, Copy, PartialEq)]
+pub struct HeadTurn(pub [[f32; 4]; 4]);
+
 /// A spawned character: its data and the entity of every joint.
 #[derive(Component)]
 pub struct Rig {
@@ -1650,13 +1655,13 @@ pub struct OffCourt;
 pub fn animate(
     time: Res<Time<Fixed>>,
     now: Res<Time>,
-    mut rigs: Query<(Entity, &Rig, &Motion, &mut bevy::mesh::morph::MorphWeights, Has<crate::shadow::Minor>, Option<&Visibility>, Option<&Talk>, Has<OffCourt>)>,
+    mut rigs: Query<(Entity, &Rig, &Motion, &mut bevy::mesh::morph::MorphWeights, Has<crate::shadow::Minor>, Option<&Visibility>, Option<&Talk>, Has<OffCourt>, Option<&HeadTurn>)>,
     mut joints: Query<&mut Transform>,
     mut cache: Local<bevy::platform::collections::HashMap<Entity, Posing>>,
     mut frame: Local<u32>,
 ) {
     *frame = frame.wrapping_add(1);
-    for (root, rig, motion, mut weights, minor, shown, talk, off_court) in &mut rigs {
+    for (root, rig, motion, mut weights, minor, shown, talk, off_court, head) in &mut rigs {
         if put_away(minor, shown) {
             continue;
         }
@@ -1715,6 +1720,12 @@ pub fn animate(
                 rotation = (q * rotation).normalize();
             }
             drawn.push((rotation, if f == 0.0 { va } else { va.lerp(vb, f) }));
+        }
+        // the head look turns the head in its own frame (the game's R·local, rows)
+        if let (Some(HeadTurn(r)), Some(j)) = (head, rig.data.joint("Bip01Head")) {
+            if let Some(d) = drawn.get_mut(j) {
+                d.0 = (d.0 * Quat::from_mat4(&mat(r))).normalize();
+            }
         }
         // a mod's feet on the ground where the donor's are (B543)
         if let Some(feet) = &rig.data.feet

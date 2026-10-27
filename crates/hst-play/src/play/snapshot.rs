@@ -145,6 +145,7 @@ fn modules(e: &mut impl Each) {
     e.one::<super::change_ends::Swing>();
     e.one::<super::replay_pace::Pace>();
     e.one::<super::bodyhit::Posed>();
+    e.one::<super::look::Looks>();
     // the effects: the hit sparks draw the sound generator while they live
     e.one::<crate::effects::Impacts>();
     e.one::<crate::effects::HitSparks>();
