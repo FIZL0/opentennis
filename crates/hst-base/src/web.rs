@@ -586,6 +586,12 @@ pub fn touch_held(on: bool) {
     }
 }
 
+/// M152c: this page is a guest of an adhoc host (`index.html` `hstAdhoc`: served by its Adhoc, disc and mods from it).
+pub fn adhoc_guest() -> bool {
+    static GUEST: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *GUEST.get_or_init(|| js_sys::Reflect::get(&web_sys::window().unwrap(), &"hstAdhoc".into()).is_ok_and(|v| v.is_truthy()))
+}
+
 /// B329: what the Vibration setting can do in this browser (`web/touch.js`): `vibrate` (Android), `firefox`
 /// (Firefox for Android: the API is there but never vibrates, B525) or `none` (iOS Safari: no vibration API).
 pub fn vibration() -> String {

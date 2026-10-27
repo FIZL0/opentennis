@@ -118,7 +118,8 @@ if (iso !== '-') {
 }
 
 // the guest opens the host's address as a code: Online → Join by Code → singles → controllers → character
-const guest = await tab('guest', `${base}?code=rtch${signal}&webgl2&autoplay`);
+// M152c: GUEST_URL, the page as the host serves it (it finds the lobby by itself)
+const guest = await tab('guest', process.env.GUEST_URL ?? `${base}?code=rtch${signal}&webgl2&autoplay`);
 say(`guest menu: ${!!(await guest.wait(/loading screen down/, 120))}`);
 await sleep(3000);
 await guest.keys('ArrowDown', 'Enter');

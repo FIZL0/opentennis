@@ -813,8 +813,17 @@ for (const e of ['pointerdown', 'keydown', 'gamepadconnected']) addEventListener
 <script type="module" src="touch.js"></script>
 <script type="module">
 if (answer) await new Promise(() => {});
+// M152c: guest page mode. A page served by a host's Adhoc (adhoc.rs, plain http on the LAN) finds its info.json:
+// the disc and mods come from that host into memory only (B457's in-memory folder: no OPFS, no service worker, nothing
+// of the game left on the device), the site page is skipped and the game opens straight into the host's lobby
+// (`rtch<host:port>`, M152b's signalling at `/rtc` on the same address). `?site` opens the site page as usual.
+const adhoc = location.protocol === 'http:' && !new URLSearchParams(location.search).has('site')
+  ? await fetch('/adhoc/info.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => j?.game === 'opentennis' ? j : null).catch(() => null)
+  : null;
+// read by the game (web.rs adhoc_guest): a controller picked up takes the touch pad's seat over
+window.hstAdhoc = !!adhoc;
 // installable and playable offline (sw.js)
-navigator.serviceWorker?.register('sw.js').catch(() => {});
+if (!adhoc) navigator.serviceWorker?.register('sw.js').catch(() => {});
 // B317: a new build pushed while the page is open never reloads it: `version.txt` (the commit, tools/web.sh) as the
 // page loads, read again every minute and on coming back to the tab; once it differs, `hstLatest` holds the new
 // one and the game's main menu shows a New version card whose Refresh reloads into it (`update.rs`). B470: with the
@@ -905,6 +914,7 @@ const memoryDir = (name = '') => {
 };
 let dir;
 try {
+  if (adhoc) throw new Error('a guest of an adhoc host');
   dir = await navigator.storage.getDirectory();
 } catch (e) {
   console.warn(`hst: no OPFS (${e?.message ?? e}), keeping files in memory`);
@@ -924,7 +934,7 @@ if (q.has('forget')) {
   const hasPack = await dir.getFileHandle('disc.pack').then(() => true, () => false);
   let playing = false;
   try { playing = sessionStorage.getItem('hst-playing') === '1' || localStorage.getItem('hst-autoplay') === '1'; } catch {}
-  if (!hasPack || !playing || q.has('site')) {
+  if (!adhoc && (!hasPack || !playing || q.has('site'))) {
     clearTimeout(stuck);
     boot.hidden = true;
     const { landing } = await import('./site.js');
@@ -1080,17 +1090,77 @@ const writeFile = async (path, data) => {
 // B453's Save log (its own script) keeps a copy in reports/ too
 window.hstWriteFile = writeFile;
 
+// M152c: the host's disc pack (adhoc.rs `/adhoc/disc`) straight into the game's memory as it arrives, never stored;
+// while the host is still packing its ISO, asked again every 2 s
+async function hostDisc() {
+  for (;;) {
+    const r = await fetch('/adhoc/disc', { cache: 'no-store' });
+    if (r.status === 503) { say('The host is getting its disc ready…'); await new Promise(f => setTimeout(f, 2000)); continue; }
+    if (!r.ok) throw new Error(`the host's disc: HTTP ${r.status}`);
+    const size = Number(r.headers.get('Content-Length'));
+    pack_begin(size);
+    const reader = r.body.getReader();
+    let got = 0, shown = 0;
+    for (let c; !(c = await reader.read()).done;) {
+      pack_part(c.value);
+      got += c.value.length;
+      if (got - shown > 4e6 || got === size) { shown = got; say(`Getting the disc from the host… ${(got / 1e6).toFixed(0)} of ${(size / 1e6).toFixed(0)} MB`); }
+    }
+    if (got !== size) throw new Error(`the host's disc stopped at ${got} of ${size} bytes`);
+    return;
+  }
+}
+
+// M152c: the host's mods (info.json `mods`) into the game as the OPFS ones are: manifests and select pictures now,
+// a texture pack whole, the rest when the game wants the mod (`hstModLoad`, fetched from the host then)
+async function hostMods(pool) {
+  const url = (m, p) => m.url + p.split('/').map(encodeURIComponent).join('/');
+  const get = async u => { const r = await fetch(u); if (!r.ok) throw new Error(`${u}: HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()); };
+  const byDir = new Map(adhoc.mods.map(m => [`mods/${m.folder}`, m]));
+  let listed = 0;
+  if (adhoc.mods.length) say(`Getting mods from the host… 0 of ${adhoc.mods.length}`);
+  await pool(adhoc.mods, 4, async m => {
+    await pool(m.files, 8, async ({ path, size }) => {
+      const p = `mods/${m.folder}/${path}`;
+      if (m.kind !== 'textures' && !path.endsWith('.json') && !path.includes('previews/')) return add_mod_lazy(p, size);
+      try { add_mod_file(p, await get(url(m, path))); } catch (e) { console.warn(`hst: ${p}: ${e}`); }
+    });
+    say(`Getting mods from the host… ${++listed} of ${adhoc.mods.length}`);
+  });
+  window.hstModLoad = async d => {
+    const m = byDir.get(d);
+    await pool((m?.files ?? []).filter(f => !f.path.endsWith('.json') && !f.path.includes('previews/')), 8, async ({ path }) => {
+      try { add_mod_file(`${d}/${path}`, await get(url(m, path))); } catch (e) { console.warn(`hst: ${d}/${path}: ${e}`); }
+    });
+    mod_loaded(d);
+  };
+}
+
+// M152c: held on the boot screen until the host has a lobby open (Online → Host), then into it as the URL's `?code=`
+async function hostLobby() {
+  for (let asked = 0; ; asked++) {
+    const info = asked ? await fetch('/adhoc/info.json', { cache: 'no-store' }).then(r => r.json()).catch(() => null) : adhoc;
+    if (info?.lobby) break;
+    boot.hidden = false;
+    say('Waiting for the host to open a lobby (Online › Host)…');
+    await new Promise(f => setTimeout(f, 2000));
+  }
+  paste(`rtch${location.hostname}:${location.port || 80}`);
+}
+
 async function start() {
-  const pack = await (await dir.getFileHandle('disc.pack')).getFile();
+  const pack = adhoc ? null : await (await dir.getFileHandle('disc.pack')).getFile();
   boot.hidden = false;
-  say('Reading the disc pack…');
+  say(adhoc ? 'Loading the game from the host…' : 'Reading the disc pack…');
   // (a phone's first run picks its graphics preset in the game: main_menu.rs `first`, graphics.rs PHONE)
   await init({ module_or_path: wasm() });
-  // B468: 8 MB at a time straight into the game's memory (web.rs pack_begin), never the whole pack in JS as well
-  pack_begin(pack.size);
-  for (let at = 0; at < pack.size; at += 8 << 20) pack_part(new Uint8Array(await pack.slice(at, at + (8 << 20)).arrayBuffer()));
-  // B457: in memory, the Blob let go once read (any reload goes back to the site to pick the ISO anyway)
-  if (dir.memory) await dir.removeEntry('disc.pack');
+  if (adhoc) await hostDisc(); else {
+    // B468: 8 MB at a time straight into the game's memory (web.rs pack_begin), never the whole pack in JS as well
+    pack_begin(pack.size);
+    for (let at = 0; at < pack.size; at += 8 << 20) pack_part(new Uint8Array(await pack.slice(at, at + (8 << 20)).arrayBuffer()));
+    // B457: in memory, the Blob let go once read (any reload goes back to the site to pick the ISO anyway)
+    if (dir.memory) await dir.removeEntry('disc.pack');
+  }
   say('Starting…');
   // the select's baked cards (web.rs add_card): read now, written back as the game bakes them
   const cards = await dir.getDirectoryHandle('previews', { create: true });
@@ -1119,7 +1189,7 @@ async function start() {
     return out;
   };
   const ids = [];
-  for await (const [id, h] of mods.entries()) if (h.kind === 'directory') ids.push([id, h]);
+  if (!adhoc) for await (const [id, h] of mods.entries()) if (h.kind === 'directory') ids.push([id, h]);
   let listed = 0;
   if (ids.length) say(`Reading mods… 0 of ${ids.length}`);
   await pool(ids, 8, async ([id, h]) => {
@@ -1157,7 +1227,8 @@ async function start() {
     console.info(`hst: ${dir} read in (${(n / 1048576).toFixed(1)} MB) in ${Math.round(performance.now() - from)} ms`);
     mod_loaded(dir);
   };
-  console.info(`hst: mods read from OPFS (${(modBytes / 1048576).toFixed(1)} MB) in ${Math.round(performance.now() - modsFrom)} ms`);
+  if (adhoc) await hostMods(pool);
+  console.info(`hst: mods read from ${adhoc ? 'the host' : 'OPFS'} (${(modBytes / 1048576).toFixed(1)} MB) in ${Math.round(performance.now() - modsFrom)} ms`);
   // the Mods screen's picker (web.rs): over the Add mod row while it's up, or opened by a key or pad
   const pick = document.getElementById('modzip');
   window.hstModPicker = r => { pick.hidden = !r; if (r) Object.assign(pick.style, { left: `${r[0]}%`, top: `calc(var(--safe-top) + ${r[1] / 100} * (var(--app-h, 100dvh) - var(--safe-top)))`, width: `${r[2]}%`, height: `calc(${r[3] / 100} * (var(--app-h, 100dvh) - var(--safe-top)))` }); };
@@ -1293,6 +1364,7 @@ async function start() {
   sheet.onclick = e => { if (e.target === sheet && !fresh()) closeSheet(); };
   // a LAN answer from a tab opened with a guest's link
   new BroadcastChannel('hst-rtc').onmessage = e => paste(String(e.data));
+  if (adhoc) await hostLobby();
   try {
     run();
   } catch (e) {
