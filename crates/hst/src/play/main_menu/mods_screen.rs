@@ -1847,7 +1847,7 @@ fn page(
     // its upload carries its card and its Installed / Upload panel shows it
     if *on && let (Some(art), Some(tp)) = (&art, &tparam) {
         let v = &mut menu.add;
-        let new: Vec<_> = v.list.iter().filter(|m| !v.stats.contains_key(&m.dir) && graded.insert(m.dir.clone())).filter_map(|m| Some((m.dir.clone(), super::mod_card(m, &tp.0, &art.2)?))).collect();
+        let new: Vec<_> = v.list.iter().filter(|m| !v.stats.contains_key(&m.dir) && graded.insert(m.dir.clone())).filter_map(|m| Some((m.dir.clone(), super::mod_card(m, &tp.0, &art.2, &v.iso)?))).collect();
         if !new.is_empty() {
             v.stats.extend(new);
             v.relist();

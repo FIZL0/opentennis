@@ -853,7 +853,7 @@ impl Menu {
             }
             (m.id, m.costume_of) = (w.id, None);
             // its `stats` and serve, else its base row's (its other cells need the disc's TParam, `mods::tparam`)
-            text.mods.push((super::mod_style(&m, &text.style), super::mod_grades(&m, &[], &[], &text.grades)));
+            text.mods.push((super::mod_style(&m, &text.style), super::mod_grades(&m, &[], &[], [0.0; 3], &text.grades)));
             self.mods.push(m);
         }
     }

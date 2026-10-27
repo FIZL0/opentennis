@@ -242,6 +242,28 @@ impl Table {
         Table(words)
     }
 
+    /// The mean speed (m a frame) of [`Table::powered`]'s cells over every `step`th cell along each axis, those
+    /// whose stock speed is above zero: the generator's own cells, at a fraction of the whole table's cost (the
+    /// select card grades a powered mod by it). Power 1 is the stock table's.
+    pub fn mean_speed(&self, b: &Bounds, power: f32, spin: impl Fn(V3, V3) -> f32, step: usize) -> f32 {
+        let picked = |i: usize| [i % N, i / N % N, i / (N * N)].iter().all(|&a| a % step.max(1) == 0);
+        let speeds: Vec<i32> = (0..N * N * N)
+            .filter(|&i| picked(i) && fields(self.0[i]).1 > 0)
+            .map(|i| {
+                let (hit, target) = place(b, i);
+                let w = if power == 1.0 {
+                    self.0[i]
+                } else {
+                    let s = spin(hit, target);
+                    cell(self.0[i], hit, s, s, F(power))
+                };
+                fields(w).1
+            })
+            .collect();
+        let sum: i64 = speeds.iter().map(|&s| s as i64).sum();
+        (F(sum as f32) / speeds.len().max(1) as f32 * SPEED_UNIT).0
+    }
+
     /// The highest speed in the table (m a frame).
     pub fn top_speed(&self) -> f32 {
         let top = self.0.iter().map(|&w| fields(w).1).max().unwrap_or(0);
