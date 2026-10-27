@@ -96,7 +96,7 @@ Open tasks: `plan/TODO.md` (index: `tools/ctx.py`, next: `tools/ctx.py next`). F
   ps2-float's newlib `rand()` + MT19937
 - ball: `ball.rs` Flight, bounces, materials, COURTS · `contact.rs` plane sweep · `mesh.rs` triangle sweep, world
   query · `world.rs` prop placement, 20 m grid · `court.rs` court collision world from disc
-- shots: `shot.rs` TRAJ tables, launch · `params.rs` per-character shot records · `swing.rs` contact search,
+- shots: `shot.rs` TRAJ tables, launch (`shot/powered.rs`: a mod's `power` tables) · `params.rs` per-character shot records · `swing.rs` contact search,
   timing grades · `serve.rs` walk/toss/serve contact/box aim
 - players: `player.rs` locomotion, mover, turn, stamina · `motion.rs` motion state machine · `pose.rs` first-frame
   bone matrices

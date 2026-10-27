@@ -14,6 +14,9 @@ use crate::replay::Pad;
 use crate::vu0;
 use crate::world::{self, M4};
 
+mod powered;
+pub use powered::MAX_SPEED;
+
 /// Shot classes: the trajectory tables' and the shot records' first index (`Launch`, `Margins`, `params`).
 pub mod class {
     pub const SERVE: u8 = 0;
@@ -63,6 +66,7 @@ const SPEED_UNIT: f32 = 0.0009765625; // 1 / 1024
 /// The game aims 15 cm short of the requested target.
 const TARGET_PULL: f32 = -0.15;
 
+#[derive(Clone, PartialEq)]
 pub struct Table(Vec<u32>);
 
 impl Table {

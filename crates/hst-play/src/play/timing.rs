@@ -71,6 +71,18 @@ impl Timing {
         self.variants.extend(other.variants.into_iter().filter(|x| x.0.0 == class));
         self.character[class] = other.character[class];
     }
+
+    /// A mod's §6 `shots` `power`: each of class `class`'s variant tables `f` gives one for (kind, variant, table,
+    /// record) replaces it.
+    pub fn regenerate(&mut self, class: usize, mut f: impl FnMut(usize, usize, &Table, &[f32; 13]) -> Option<Table>) {
+        for ((c, k, v), table, record) in &mut self.variants {
+            if *c == class
+                && let Some(t) = f(*k, *v, table, record)
+            {
+                *table = t;
+            }
+        }
+    }
 }
 
 /// The timing error of player `i`'s dive `d` at its contact (the ball where it is), the lob button `lob`: its bias is

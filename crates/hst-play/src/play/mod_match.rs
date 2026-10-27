@@ -9,6 +9,7 @@ use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
 use hst_data::iso::Iso;
 use hst_sim::params::ShotParams;
+use hst_sim::shot::{Bounds, Table};
 
 use super::Game;
 use crate::audio::SoundBank;
@@ -63,6 +64,7 @@ pub(super) fn row(iso: &mut Iso, mm: Option<&MatchMod>, i: usize, c: usize) -> V
 /// Player `i`, set up as the mod's donor, takes the mod's row, AI row, hand, voices and §6 `shots`.
 pub(super) fn apply(g: &mut Game, i: usize, iso: &mut Iso, params: &ShotParams, m: &Mod, outfit: usize, voices: &mut [Option<Arc<SoundBank>>]) {
     shots(g, i, iso, params, m);
+    power(g, i, m);
     let row = mods::tparam(iso, m).unwrap_or_else(|e| panic!("mod {}: {e}", m.id));
     let cells = |k: usize| -> Vec<f32> { row[k].split('/').map(|v| v.trim().parse().expect("TParam number")).collect() };
     let doubles = g.players.len() == 4;
@@ -110,6 +112,132 @@ fn shots(g: &mut Game, i: usize, iso: &mut Iso, params: &ShotParams, m: &Mod) {
     if let Some(c) = smash {
         g.smash_tables[i] = super::character_tables(iso, c, "B", "smsh", "", 2);
         g.smash_spins[i] = std::array::from_fn(|k| hst_sim::params::spin(params.record(3, k, record_of(c))));
+    }
+}
+
+/// How a generated table's cells get their launch spin: one record spin (serves, smashes), or a stroke's or volley's
+/// record shaped by the hit (`params::rally_spin`).
+#[derive(Clone, Copy)]
+enum Spin {
+    Fixed(f32),
+    Rally([f32; 13], u8, i32),
+}
+
+/// One table to generate: (character, table, power bits) names it in the cache.
+struct Job {
+    key: (usize, String, u32),
+    table: Table,
+    bounds: Bounds,
+    spin: Spin,
+}
+
+/// Generated tables built so far this run (a second match with the same mod loads at once).
+static GENERATED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<(usize, String, u32), Table>>> = std::sync::LazyLock::new(Default::default);
+
+/// Tables generated so far (tests: none while a match plays).
+static BUILT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// `jobs`' tables, from the cache or built side by side on threads (the build is pure, so any order gives the same
+/// bits).
+fn generate(jobs: Vec<Job>) -> Vec<Table> {
+    let build = |j: &Job| {
+        BUILT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let power = f32::from_bits(j.key.2);
+        match j.spin {
+            Spin::Fixed(s) => j.table.powered(&j.bounds, power, |_, _| s),
+            Spin::Rally(rec, class, kind) => j.table.powered(&j.bounds, power, |hit, target| hst_sim::params::rally_spin(&rec, class as usize, kind as usize, hit, target).0),
+        }
+    };
+    let cached: Vec<Option<Table>> = {
+        let c = GENERATED.lock().unwrap();
+        jobs.iter().map(|j| c.get(&j.key).cloned()).collect()
+    };
+    let todo: Vec<&Job> = jobs.iter().zip(&cached).filter(|(_, c)| c.is_none()).map(|(j, _)| j).collect();
+    #[cfg(not(target_arch = "wasm32"))]
+    let built: Vec<Table> = std::thread::scope(|s| todo.iter().map(|j| s.spawn(|| build(j))).collect::<Vec<_>>().into_iter().map(|h| h.join().unwrap()).collect());
+    #[cfg(target_arch = "wasm32")]
+    let built: Vec<Table> = todo.iter().map(|j| build(j)).collect();
+    let mut c = GENERATED.lock().unwrap();
+    for (j, t) in todo.iter().zip(&built) {
+        c.insert(j.key.clone(), t.clone());
+    }
+    let mut built = built.into_iter();
+    cached.into_iter().map(|t| t.unwrap_or_else(|| built.next().unwrap())).collect()
+}
+
+/// §6 `shots` `power`: every table a powered class launches from, regenerated (`Table::powered`): serves (not the
+/// underhand), strokes and volleys (topspin, slice, flat and their timing variants; lobs and drops stay the
+/// stock touch shots) and smashes. Stock characters never come here.
+fn power(g: &mut Game, i: usize, m: &Mod) {
+    use hst_sim::shot::{class, kind};
+    let power = m.build.power;
+    if power == [1.0; 4] {
+        return;
+    }
+    let from = |k: usize| m.build.shots[k].map_or(m.donor, usize::from);
+    let radius = hst_sim::ball::Params::default().radius;
+    let mut jobs = vec![];
+    let mut job = |c: usize, name: String, table: &Table, bounds: Bounds, spin: Spin, p: f32| jobs.push(Job { key: (c, name, p.to_bits()), table: table.clone(), bounds, spin });
+    let p = power[class::SERVE as usize];
+    if p != 1.0 {
+        let c = from(0);
+        for (weak, set) in g.serve_tables[i].iter().enumerate() {
+            for (k, (t, spin, _)) in set.iter().enumerate().filter(|&(k, _)| k as i32 != kind::UNDERHAND) {
+                job(c, format!("serv{k}_{weak}"), t, Bounds::serve(false, radius), Spin::Fixed(*spin), p);
+            }
+        }
+        if let Some((t, spin, _)) = &g.specials[i].1 {
+            job(c, "serv1_up1".into(), t, Bounds::serve(false, radius), Spin::Fixed(*spin), p);
+        }
+    }
+    const RALLY: [i32; 3] = [kind::TOPSPIN, kind::SLICE, kind::FLAT];
+    let bounds = |class: u8, k: i32| if class == class::STROKE { Bounds::stroke(k, 0.0) } else { Bounds::volley(k, 0.0) };
+    for class in [class::STROKE, class::VOLLEY] {
+        let (n, p) = (class as usize - 1, power[class as usize]);
+        if p == 1.0 {
+            continue;
+        }
+        for k in RALLY {
+            let rec = g.rally_records[i][n][k as usize];
+            job(from(class as usize), format!("{class}_{k}"), &g.rally_tables[i][n][k as usize], bounds(class, k), Spin::Rally(rec, class, k), p);
+        }
+        g.timing[i].regenerate(class as usize, |k, v, t, rec| {
+            RALLY.contains(&(k as i32)).then(|| job(from(class as usize), format!("{class}_{k}_v{v}"), t, bounds(class, k as i32), Spin::Rally(*rec, class, k as i32), p));
+            None
+        });
+    }
+    let p = power[class::SMASH as usize];
+    if p != 1.0 {
+        for (k, t) in g.smash_tables[i].iter().enumerate() {
+            job(from(3), format!("smsh{k}"), t, Bounds::smash(k as i32), Spin::Fixed(g.smash_spins[i][k]), p);
+        }
+    }
+    let mut made = generate(jobs).into_iter();
+    // back in the order they were queued
+    if power[0] != 1.0 {
+        for set in g.serve_tables[i].iter_mut() {
+            for (_, (t, ..)) in set.iter_mut().enumerate().filter(|&(k, _)| k as i32 != kind::UNDERHAND) {
+                *t = made.next().unwrap();
+            }
+        }
+        if let Some((t, ..)) = &mut g.specials[i].1 {
+            *t = made.next().unwrap();
+        }
+    }
+    for class in [class::STROKE, class::VOLLEY] {
+        let n = class as usize - 1;
+        if power[class as usize] == 1.0 {
+            continue;
+        }
+        for k in RALLY {
+            g.rally_tables[i][n][k as usize] = made.next().unwrap();
+        }
+        g.timing[i].regenerate(class as usize, |k, _, _, _| RALLY.contains(&(k as i32)).then(|| made.next().unwrap()));
+    }
+    if power[3] != 1.0 {
+        for t in g.smash_tables[i].iter_mut() {
+            *t = made.next().unwrap();
+        }
     }
 }
 
@@ -374,5 +502,56 @@ mod tests {
             }
         }
         panic!("Bigger Chief never served in");
+    }
+
+    /// M151a: Bigger Chief as published (v8: serve `power` 1.4 from his own serve) in a bot match: his serve tables
+    /// are pc07's regenerated (the underhand and the other player's stay stock), a 200 mph+ serve of his lands in, and
+    /// no table is built while the match plays.
+    #[test]
+    fn powered_serve_lands_in() {
+        if !hst_data::fixture::has_iso() {
+            return hst_data::fixture::skip("no ISO");
+        }
+        let dir = std::env::temp_dir().join(format!("hst-powered-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mod.json"), r#"{"standard":1,"id":"hst_bigger_chief","name":"Bigger Chief","disc_body":true,"donor":7,"hand":"right","params":{"base":7,"override":{"STA":"14"}},"ai_row":7,"face":"morph","scale":1.5,"run_speed":0.2,"stats":"S","shots":{"serve":{"power":1.4},"stroke":9,"volley":10},"joke":true,"version":8}"#).unwrap();
+        let m = mods::read(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        let mut app = bot_match(&m, 7);
+        let built = BUILT.load(std::sync::atomic::Ordering::Relaxed);
+        {
+            use super::super::*;
+            let mut iso = hst_data::fixture::iso().unwrap();
+            let params = disc(&mut iso, None, 2).3;
+            let stock = serve_tables(&mut iso, &params, 7);
+            let g = app.world().resource::<Game>();
+            let top = |t: &[Vec<(Table, f32, f32)>; 2]| t[0][0].0.top_speed();
+            assert!(top(&g.serve_tables[1]) > 1.3 * top(&stock), "{} vs stock {}", top(&g.serve_tables[1]), top(&stock));
+            assert!(g.serve_tables[1][0][3].0 == stock[0][3].0, "the underhand serve stays stock");
+            assert!(g.serve_tables[0][0][0].0 == serve_tables(&mut iso, &params, 6)[0][0].0, "the stock player's tables stay stock");
+        }
+        // 200 mph in metres a frame (sound::kmh: × 216 km/h)
+        let fast = 200.0 * 1.609344 / 216.0;
+        let (mut serves, mut speed) = (vec![], 0.0f32);
+        for _ in 0..60 * 240 {
+            app.world_mut().run_schedule(FixedUpdate);
+            let g = app.world().resource::<super::super::Game>();
+            if g.shots == 1 && g.last_hitter == 1 {
+                if g.flight.contacts == 0 {
+                    speed = speed.max(g.flight.ball.vel.iter().map(|v| v * v).sum::<f32>().sqrt());
+                } else if speed > 0.0 {
+                    serves.push((speed * 216.0 / 1.609344, g.flight.call));
+                    if speed >= fast && g.flight.call == hst_sim::judge::Call::In {
+                        // no per-hit cost: every table was built at the match's load
+                        assert_eq!(BUILT.load(std::sync::atomic::Ordering::Relaxed), built, "a table was built during play");
+                        return eprintln!("serves (mph, call): {serves:?}");
+                    }
+                    speed = 0.0;
+                }
+            } else {
+                speed = 0.0;
+            }
+        }
+        panic!("no 200 mph serve landed in; serves (mph, call): {serves:?}");
     }
 }
