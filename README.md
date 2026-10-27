@@ -116,6 +116,12 @@ phone players can all play together.
   the guest opens it or taps **Paste** in Join by Code, then copies their own link back, and the host taps **Paste**
   in the lobby. On iOS Safari, tap Paste a second time if it asks.
 
+**Adhoc play** (on its way): a desktop or phone hosts on a Wi-Fi network or its own hotspot, and friends join from any
+browser, with nothing to install and no links to swap. Their browser connects straight to the host's game (WebRTC),
+so it works with no internet at all. The connection is in place: a browser joins a desktop host's lobby by the host's
+address and plays a full match. Next, the host serves the game page itself, so guests just open `http://<host>` and
+play.
+
 **Host your own servers.** Nothing is required, but you can run both servers yourself:
 
 - *Code server* (short codes, Find): [tools/pkarr-relay/](tools/pkarr-relay/) has a Docker Compose file (works as a

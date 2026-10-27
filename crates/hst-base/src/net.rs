@@ -828,8 +828,7 @@ struct Link(amp::UnboundedSender<(n0_future::time::Instant, Msg)>);
 #[derive(Clone)]
 enum Conn {
     Quic(Connection),
-    /// The browser on the LAN (M2k).
-    #[cfg(target_arch = "wasm32")]
+    /// The browser on the LAN (M2k), or a native host's browser guest (M152b).
     Rtc(rtc::Peer),
 }
 
@@ -837,7 +836,6 @@ impl Conn {
     fn send_datagram(&self, d: Vec<u8>) {
         match self {
             Conn::Quic(c) => drop(c.send_datagram(d.into())),
-            #[cfg(target_arch = "wasm32")]
             Conn::Rtc(p) => p.send_datagram(&d),
         }
     }
@@ -845,7 +843,6 @@ impl Conn {
     fn close(&self, why: &[u8]) {
         match self {
             Conn::Quic(c) => c.close(0u32.into(), why),
-            #[cfg(target_arch = "wasm32")]
             Conn::Rtc(p) => p.close(),
         }
     }
@@ -1771,6 +1768,15 @@ async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) 
     // iroh: the ticket, and the short code rolled in the background; the browser's LAN: a WebRTC offer per guest, a
     // fresh one each time one is answered
     let mut answers = rtc::answers();
+    // M152b: browser guests that connected by signalling (a native host's `/rtc`)
+    let mut signalled = rtc::hosting();
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(port) = std::env::var("HST_RTC_SIGNAL").ok().and_then(|p| p.parse().ok()) {
+        match rtc::listen(port).await {
+            Ok(at) => bevy::log::info!("LAN signalling on {at}"),
+            Err(e) => bevy::log::warn!("LAN signalling on port {port}: {e}"),
+        }
+    }
     let mut offer = None;
     let (ctx_, mut rolled) = amp::unbounded_channel::<Option<String>>();
     // B266: the host's home relay as it changes
@@ -1825,6 +1831,9 @@ async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) 
                     cx.say(Event::Status("That link answers an older one: send them this lobby's link again (Copy Link).".into()));
                 }
             },
+            Some((peer, conn, link, inbox)) = signalled.recv() => {
+                n0_future::task::spawn(guest(gtx.clone(), peer, conn, link, inbox));
+            }
             Some(g) = guests.recv() => h.on_guest(cx, g),
             _ = ping.tick() => h.ping(cx),
             // B215: the countdown's next second (shown on every peer), and at 0 the start
@@ -2751,6 +2760,22 @@ fn short(id: &str) -> &str {
 /// failure said) if it didn't.
 async fn connect(cx: &Ctx, code: &str, cmds: &mut amp::UnboundedReceiver<Cmd>) -> Option<(Conn, Link, Inbox, String)> {
     let code = code.trim();
+    // M152b: a host that takes our offer by signalling (a native host's address)
+    if let Some(addr) = rtc::host_addr(code) {
+        cx.say(Event::Status(format!("Joining {addr}...")));
+        let dial = rtc::dial(addr);
+        n0_future::pin!(dial);
+        return tokio::select! {
+            r = &mut dial => match r {
+                Ok((conn, link, inbox, me)) => Some((conn, link, inbox, me)),
+                Err(e) => {
+                    cx.say(Event::Failed(e));
+                    None
+                }
+            },
+            _ = wait_leave(cmds) => None,
+        };
+    }
     if rtc::is_offer(code) {
         // the browser's LAN: our answer shared back to the host (Copy Link), then wait for them (or a Leave)
         let (pending, answer) = match rtc::answer(code).await {
@@ -3062,7 +3087,7 @@ pub fn cli(mut a: Vec<String>, play: bool) -> Option<(Net, Room, String)> {
 
 /// `code` is a join code: a host's ticket, a bare endpoint ID or a short code.
 pub fn is_code(code: &str) -> bool {
-    is_short(code) || rtc::is_offer(code) || code.parse::<EndpointTicket>().is_ok() || code.parse::<EndpointId>().is_ok()
+    is_short(code) || rtc::is_offer(code) || rtc::host_addr(code).is_some() || code.parse::<EndpointTicket>().is_ok() || code.parse::<EndpointId>().is_ok()
 }
 
 /// `code` is a host's whole ticket.

@@ -73,6 +73,11 @@ js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Blob", "Document", "DomRect", "Element", "File", "FileReaderSync", "FileSystemSyncAccessHandle", "FileSystemReadWriteOptions", "Location", "Storage", "UrlSearchParams", "Window", "MessageEvent", "RtcPeerConnection", "RtcPeerConnectionState", "RtcDataChannel", "RtcDataChannelInit", "RtcDataChannelState", "RtcDataChannelType", "RtcSessionDescription", "RtcSessionDescriptionInit", "RtcSdpType", "RtcIceGatheringState"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# M152b: the native end of the browser's LAN (WebRTC data channels, `net/rtc/native.rs`; pure-Rust crypto so it builds
+# for every native target)
+str0m = { version = "0.24", default-features = false, features = ["rust-crypto"] }
+# its host candidates: this machine's LAN addresses (the version iroh's netwatch already builds)
+netdev = "0.46"
 # Android's gamepads and lifecycle (`android_pad.rs`, `android.rs`), on bevy's own winit
 winit = { version = "0.30", default-features = false }
 # lobbies: addresses and lobby list on the mainline DHT and LAN mDNS (UDP: not in the browser)
@@ -81,7 +86,8 @@ n0-mainline = "0.7"
 # the crypto reqwest uses for the pkarr relay (`net.rs` relay_get, `modstore.rs`): iroh's own ring
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 iroh-mdns-address-lookup = "0.6"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+# (`net`, `io-util`: M152b's UDP sockets and signalling listener, `net/rtc/native.rs`)
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util"] }
 
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))'.dependencies]
