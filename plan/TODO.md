@@ -20,7 +20,6 @@ index out of bounds: the len is 0 but the index is 0"
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
 - [ ] **M152** Adhoc mode: a native host serves the web build + its disc pack + enabled mods over plain http on the LAN/hotspot (e.g. phone hotspot); a guest opens http://<host-ip> in any browser and joins the host's lobby with no install. Guest keeps the pack in memory only (B457 path, nothing left on the device); WebRTC signalling by fetch to the host (no QR/paste). Plain http = no OPFS/SW/WebGPU/physical gamepads on the guest (touch controls work). Subtasks a–d. Files: crates/hst-base/src/net/rtc.rs, net.rs, disc.rs, web/index.html, web/touch.js
 - [ ] **M152c** Guest page mode: served from a host, loads pack + mods from it into memory only (B457 path, no OPFS), auto-joins the host's lobby; touch controls on; check Chrome/Safari/Firefox over plain http on a phone hotspot
-- [ ] **M154** **Linux aarch64 release build** (user 2026-10-27): build `aarch64-unknown-linux-gnu` alongside x86_64 and ship `opentennis-linux-aarch64(.tar.gz)` in releases (SHA256SUMS too). Target ARM handhelds like the Anbernic RG34XX SP on Knulli (H700, Mali G31, no Vulkan, so wgpu must run on its GL/GLES backend; link against an old enough glibc for the device). Include a ports launcher (`OpenTennis.sh` that cds into its folder) so it drops into `roms/ports/` on Batocera/Knulli. → `tools/release.sh` · `.github/workflows/pages.yml` · `dist/linux/`
 
 ### Match basics
 

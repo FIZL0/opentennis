@@ -36,7 +36,15 @@ build depends on which of the two it is.)
   3. Bevy's SSAO plugin builds its compute pipelines up front wherever the GPU has ≥ 5 storage textures; naga's GLSL
      for its depth-prepass `textureGather` is a shadow-sampler gather with no GLSL overload, and the failed pipeline
      quits the app. Vendored bevy_pbr patch: no SSAO on the GL backend (a runtime check; the game uses no SSAO).
-  Both patches are in `third_party/README.md`; `tools/patches.py` passes.
+  4. A match then panicked "Could not lock adapter context": Bevy compiles pipelines on several pool threads, GL
+     serialises them behind wgpu's context lock (6 s timeout), and slow compiles timed the waiters out. `main.rs`:
+     ARM Linux compiles pipelines on the render thread (`synchronous_pipeline_compilation`, the macOS/browser path
+     with P47's time budget).
+  5. ~3700 "wgpu-hal heuristics assumed … Cube rather than CubeArray" errors: GL can't bind Bevy's point-light
+     shadow cube-array view. ARM Linux takes the iOS simulator's path (a Cube view, `NO_CUBE_ARRAY_TEXTURES_SUPPORT`),
+     a compile-time cfg in bevy_pbr's `light.rs`/`mesh_view_bindings.rs` and bevy_render's `pipeline_cache.rs`.
+  All vendored patches are in `third_party/README.md`; `tools/patches.py` passes. Every change is gated to
+  linux-aarch64 at compile time except the SSAO one (runtime: GL backend only), so other builds are unchanged.
 - Updater: `update.rs` names `opentennis-linux-aarch64` as this platform's bare binary.
 - `tools/release.sh`: ships `opentennis-linux-aarch64.tar.gz` (the `OpenTennis/` folder, so it unpacks straight
   into `roms/ports/`) and the bare `opentennis-linux-aarch64`; both land in SHA256SUMS through the existing
@@ -49,7 +57,9 @@ build depends on which of the two it is.)
 - `tools/build.sh linux-aarch64` builds from scratch (image set-up included).
 - The binary runs on arm64 Debian 11 (glibc 2.31) under qemu-user: `docker run --platform linux/arm64`, Xvfb, Mesa
   llvmpipe, `WGPU_BACKEND=gl`, the real ISO, `--shot`: the title screen renders correctly (court, logo, text);
-  frame in `context/m154/run4/menu.png`. A `--play` match frame: see below.
+  frame in `context/m154/run4/menu.png`. `--play --shot-at 8`: players, rackets, HUD and legend render, and the
+  frame matches the native x86 build's (`context/m154/run7/match.png` vs `context/m154/host-match.png`; plain
+  `--play` draws no court on either), with no render errors left in the log.
 - `cargo check -p hst` (host) passes; full tests in `tools/done.sh`.
 
 ## Not verified / not 1:1
