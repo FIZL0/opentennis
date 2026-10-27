@@ -1057,10 +1057,16 @@ impl Tune {
             }
             return None;
         }
-        // far too slow (a 1440p canvas at 21 fps): straight to the render scale whose pixels would fit, then the ladder
-        let fit = g.scale as f32 * (fps / target).sqrt();
-        let jump = (!g.original && fps < target * 0.6).then(|| SCALES.into_iter().rev().find(|&s| s as f32 <= fit).unwrap_or(SCALES[0])).filter(|&s| s < g.scale);
-        let Some(c) = jump.map(|scale| Graphics { scale, ..g }).or_else(|| cheaper(g)) else {
+        // far too slow (a 1440p canvas at 21 fps): straight to the render scale whose pixels would fit, with the
+        // speed-ups on, no MSAA and half meshes, then the ladder
+        let jump = (fps < target * 0.6)
+            .then(|| {
+                let fit = g.scale as f32 * (fps / target).sqrt();
+                let scale = if g.original { g.scale } else { SCALES.into_iter().rev().find(|&s| s as f32 <= fit).unwrap_or(SCALES[0]).min(g.scale) };
+                Graphics { scale, fewer_shadows: true, cull: true, msaa: 1, mesh: g.mesh.min(50), ..g }
+            })
+            .filter(|c| *c != g);
+        let Some(c) = jump.or_else(|| cheaper(g)) else {
             info!("auto graphics: {fps:.0} fps of {target:.0} at the cheapest");
             self.done = true;
             return None;
@@ -1213,13 +1219,13 @@ mod tests {
         // a browser's without MSAA
         assert_eq!(pick(&Device { browser: true, ..default() }), Graphics { auto: true, msaa: 1, ..default() });
         assert_eq!(pick(&Device { browser: true, ..phone.clone() }), Graphics { auto: true, msaa: 1, ..Graphics::PHONE });
-        // far too slow: straight to the scale whose pixels fit (21 of 60 fps at 100% → 50%, 45 → 85%)
+        // far too slow: straight to the scale whose pixels fit (21 of 60 fps at 100% → 50%), MSAA off, half meshes; 45 fps: the ladder
         let slow = |fps: f32, g: Graphics| {
             let mut t = Tune::default();
             (0..((AUTO_SKIP + AUTO_WINDOW) * fps) as u32 + 2).find_map(|_| t.frame_time(g, 1.0 / fps, 60.0))
         };
         let g = Graphics { auto: true, ..default() };
-        assert_eq!(slow(21.0, g).map(|c| (c.scale, c.msaa)), Some((50, 4)));
+        assert_eq!(slow(21.0, g).map(|c| (c.scale, c.msaa, c.mesh, c.fewer_shadows && c.cull)), Some((50, 1, 50, true)));
         assert_eq!(slow(30.0, Graphics { scale: 67, ..g }).map(|c| c.scale), Some(33));
         assert_eq!(slow(45.0, g), cheaper(g));
         let steps = |d: Device| d.steps();
