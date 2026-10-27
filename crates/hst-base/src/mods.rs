@@ -1612,6 +1612,8 @@ pub fn load_with(
         }
     }
 
+    crate::occlusion::bake(meshes, parts.iter().map(|p| &p.0));
+
     // the racket: racket.glb in the Racket joint's space, else disc character `disc_racket`'s (M1r), else the donor's
     let racket = match m.dir.join("racket.glb") {
         f if crate::modfs::is_file(&f) => rigid(m, &f, meshes, materials, images, &mut gs)?,

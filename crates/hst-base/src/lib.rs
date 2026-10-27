@@ -36,6 +36,7 @@ pub mod inspect;
 pub mod lod;
 pub mod mips;
 pub mod noise;
+pub mod occlusion;
 pub mod pipelines;
 pub mod jobs;
 pub mod seats;

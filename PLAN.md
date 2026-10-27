@@ -135,7 +135,7 @@ there. It never names `hst`: hooks the top fills in go through statics/generics 
   (`android_pad.rs` pads) · `disc.rs` ISO import → disc pack · `jobs.rs` work off the frame (B409) · `chat.rs` lobby/match
   chat (M20) · `device.rs` platform + last input · `vertex_patch.rs` per-frame vertex writes without touching the mesh asset
   (B357) · `effects.rs` hit effects · `court_anim.rs` `weather.rs` `noise.rs` sim parts on court · `spring.rs` mod spring
-  bones · `inspect.rs` 3D character preview · `hud_gamma.rs` GS-style HUD blend · `mips.rs` menu art mips ·
+  bones · `occlusion.rs` Character Shading (baked vertex AO) · `inspect.rs` 3D character preview · `hud_gamma.rs` GS-style HUD blend · `mips.rs` menu art mips ·
   `asset_use.rs` drawn-texture log (Z2) · `scene_census.rs` `stall.rs` `HST_SCENE_CENSUS`/`HST_FPS` diagnostics
 - test helpers `hst`'s tests use are `#[cfg(any(test, feature = "testing"))]` (hst's dev-dependency turns `testing` on)
 

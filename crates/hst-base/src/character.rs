@@ -942,7 +942,9 @@ fn gs_of(model: &mdl::Model, mats: &mtl::Mtl, handles: &[Handle<StandardMaterial
 /// A skinned model's parts, one mesh per material (joints = the model's nodes), with its morph targets; `true`
 /// where a part carries them. A character's or a court figure's: at Graphics → Mesh's share of triangles (B364).
 pub fn skinned_parts<M: Asset>(model: &mdl::Model, handles: &[Handle<M>], meshes: &mut impl Store<Mesh>) -> Vec<(Handle<Mesh>, Handle<M>, bool)> {
-    parts_at(model, handles, meshes, true)
+    let parts = parts_at(model, handles, meshes, true);
+    crate::occlusion::bake(meshes, parts.iter().map(|p| &p.0));
+    parts
 }
 
 /// [`skinned_parts`] with every triangle whatever the Mesh setting (an effect's).
