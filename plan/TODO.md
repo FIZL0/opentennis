@@ -17,6 +17,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 index out of bounds: the len is 0 but the index is 0"
 
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
+- [ ] **M151** Adhoc mode: a native host serves the web build + its disc pack + enabled mods over plain http on the LAN/hotspot (e.g. phone hotspot); a guest opens http://<host-ip> in any browser and joins the host's lobby with no install. Guest keeps the pack in memory only (B457 path, nothing left on the device); WebRTC signalling by fetch to the host (no QR/paste). Plain http = no OPFS/SW/WebGPU/physical gamepads on the guest (touch controls work). Subtasks a–d. Files: crates/hst-base/src/net/rtc.rs, net.rs, disc.rs, web/index.html, web/touch.js
 
 ### Match basics
 
