@@ -129,7 +129,7 @@ pub fn spawn(commands: &mut Commands, data: &Arc<CharacterData>, n: usize, hand:
     let uv = uv_held(t, data);
     // a grown body (M11) drawn back at its disc size, so the card frames it as any character
     let fit = Vec3::new(hand, 1.0, 1.0) / data.size;
-    commands.entity(rig).insert((Transform { translation: Vec3::new(0.0, 1.5, 8.0), rotation: Quat::from_rotation_y(PI), scale: fit }, held(t), uv, crate::shade::FixedLight(LIGHT)));
+    commands.entity(rig).insert((Transform { translation: Vec3::new(0.0, 1.5, 8.0), rotation: Quat::from_rotation_y(PI), scale: fit }, held(t), uv, crate::shade::FixedLight(LIGHT), character::OffCourt));
     commands
         .spawn((
             Camera3d::default(),

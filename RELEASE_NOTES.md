@@ -1,4 +1,5 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Custom characters no longer spin around when they emote on the character select screen.
 - Once a player locks in their character, their card swaps the roster for a clean summary with roomier stats (no pink box), the same in local games as online.
 - Character select shows each grade as a meter with new letter tiles (and a sparkling S); the play style sits beside the name, and the hand and costume are shown only in their buttons, which no longer have the pointing hand.
 - The Mods page says whose serve, strokes, volleys or smash a character borrows, next to who they play like.
