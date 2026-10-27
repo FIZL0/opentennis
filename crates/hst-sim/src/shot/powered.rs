@@ -271,6 +271,32 @@ impl Table {
     }
 }
 
+/// A fingerprint of the table generator on this machine: a small serve table (the 27 cells `arc` samples, each a
+/// stock cell solved to land on its target) powered 1.4× with its spin moved 30°, its words hashed (64-bit FNV-1a).
+/// Online peers compare it (`handshake`): two machines with one build but a different result would build a mod's
+/// tables, and fly the ball, differently. Needs no disc; a few milliseconds.
+pub fn probe() -> u64 {
+    let b = Bounds::serve(false, RADIUS);
+    let spin = -0.2;
+    let moved = |d: f32| if d == 0.0 { spin } else { (F(spin) + F(d) * crate::lines::DEG).0 };
+    let mut t = Table(vec![0; N * N * N]);
+    for &z in &SAMPLE {
+        for &y in &SAMPLE {
+            for &x in &SAMPLE {
+                let i = x + N * (y + N * z);
+                let (hit, target) = place(&b, i);
+                let speed = 640;
+                if let Some((e, f)) = solve(hit, speed, spin, F(target[2]), UP) {
+                    t.0[i] = word(e, speed, f.frames);
+                }
+            }
+        }
+    }
+    let solved = t.0.iter().filter(|&&w| w != 0).count() as u32;
+    let p = t.shaped(&b, 1.4, |_, _| spin, |_, _| moved(-30.0));
+    p.0.iter().chain([&solved]).fold(0xcbf2_9ce4_8422_2325u64, |h, &w| (h ^ w as u64).wrapping_mul(0x100_0000_01b3))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,5 +384,17 @@ mod tests {
             assert!(if arc < 1.0 { h < own * 0.97 } else { (h / own - arc).abs() < 0.2 }, "arc {arc}: {own} -> {h}");
             assert!(kept > 0.95, "{kept}");
         }
+    }
+
+    /// The generator's fingerprint is quick and pinned: a change to the generator or the ball's step moves it (then
+    /// every platform's build moves with it; `tests/platforms.rs` checks they agree).
+    #[test]
+    fn probe_is_quick_and_pinned() {
+        let start = std::time::Instant::now();
+        let h = probe();
+        eprintln!("probe {h} in {:?}", start.elapsed());
+        assert!(start.elapsed().as_secs_f32() < 1.0);
+        assert_eq!(h, probe());
+        assert_eq!(h, 10950907952750171707, "generator fingerprint moved");
     }
 }

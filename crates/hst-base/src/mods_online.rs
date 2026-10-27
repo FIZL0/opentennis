@@ -1,5 +1,5 @@
 //! Mods in online matches (M2i). A lobby pick of a mod carries its gameplay data ([`Wire`]: donor, hand, TParam row
-//! and overrides, AI row and the costume's skeleton), and every peer simulates the mod from that, so the match plays
+//! and overrides, AI row, the costume's skeleton and its §6 body, pace and shots), and every peer simulates the mod from that, so the match plays
 //! the same whether or not a peer has the mod's looks. The looks are optional: a peer without them asks once
 //! (always / never / ask each time, kept in `mods-online/ask.txt` beside the disc); taken, they come from the mod
 //! store when it has the same mod with the same looks (M125, `modstore::fetch_looks`), else peer to peer, as
@@ -58,18 +58,39 @@ pub struct Wire {
     /// §6 `stats`: its grades by category (None: its row's own cells).
     #[serde(default)]
     pub stats: Option<[u8; 5]>,
+    /// M151d: §6 `shots` `power` and `arc` per class: every peer builds the generated tables from these and its own
+    /// disc (the handshake's `tables` fingerprint says they all build them alike).
+    #[serde(default = "ones")]
+    pub power: [f32; 4],
+    #[serde(default = "ones")]
+    pub arc: [f32; 4],
+    /// §6 `swing_speed`, `run_speed`.
+    #[serde(default = "one")]
+    pub swing: f32,
+    #[serde(default = "one")]
+    pub run: f32,
+    /// §6 `disc_body` (its costumes the donor's disc ones, which every peer loads from its own disc: no skeleton on
+    /// the wire, looks or not) and its `scale`.
+    #[serde(default)]
+    pub disc: bool,
+    #[serde(default = "one")]
+    pub scale: f32,
     /// The owner's folder (never sent).
     #[serde(skip)]
     pub dir: Option<PathBuf>,
 }
 
+fn one() -> f32 {
+    1.0
+}
+
+fn ones() -> [f32; 4] {
+    [1.0; 4]
+}
+
 impl Wire {
     /// Mod `m` in costume `costume` (reads its files: the costume's skeleton and the pack's hash).
     pub fn of(m: &Mod, costume: usize) -> Result<Wire, String> {
-        // M11: the wire carries no body or pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`) yet
-        if (mods::Build { shots: [None; 4], stats: None, ..m.build }) != mods::Build::default() {
-            return Err(format!("{}: a disc-body, scaled or paced mod doesn't play online yet", m.id));
-        }
         let (sk, looks) = kept(m, costume % m.costumes.len().max(1))?;
         Ok(Wire {
             id: m.id.clone(),
@@ -87,6 +108,12 @@ impl Wire {
             voices: mods::voice_takes(m).into_iter().filter(|(p, _)| EMOTE_PROGRAMS.contains(p)).collect(),
             shots: m.build.shots,
             stats: m.build.stats,
+            power: m.build.power,
+            arc: m.build.arc,
+            swing: m.build.swing,
+            run: m.build.run,
+            disc: m.build.disc,
+            scale: m.build.scale,
             dir: Some(m.dir.clone()),
         })
     }
@@ -101,11 +128,23 @@ impl Wire {
         if self.hand != 1.0 && self.hand != -1.0 {
             return bad("hand");
         }
+        // the ranges `mods::read` takes (`scale` only on a disc body)
+        let within = |x: f32, r: std::ops::RangeInclusive<f64>| r.contains(&(x as f64));
+        if !self.power.iter().all(|&p| within(p, mods::POWER)) || !self.arc.iter().all(|&a| within(a, mods::ARC)) {
+            return bad("shots power or arc");
+        }
+        if !within(self.swing, 1.0..=4.0) || !within(self.run, 0.1..=4.0) || !within(self.scale, 0.25..=4.0) || (!self.disc && self.scale != 1.0) {
+            return bad("body or pace");
+        }
         for (k, v) in &self.overrides {
             mods::override_ok(k, v).map_err(|e| format!("mod {:?}: {e}", self.id))?;
         }
         let n = self.names.len();
-        if n == 0 || n > MAX_JOINTS || self.parent.len() != n || self.rest.len() != n {
+        // a disc body's skeleton is the donor's, from every peer's own disc
+        if self.disc && n != 0 {
+            return bad("skeleton");
+        }
+        if (n == 0 && !self.disc) || n > MAX_JOINTS || self.parent.len() != n || self.rest.len() != n {
             return bad("skeleton");
         }
         // a tree with parents before children, as `pose::Skeleton` wants
@@ -156,10 +195,15 @@ pub fn for_match(w: &Wire, looks: Option<&Path>) -> Mod {
         build: Default::default(),
     });
     (m.donor, m.hand, m.base, m.overrides, m.ai_row) = (w.donor, w.hand, w.base, w.overrides.clone(), w.ai_row);
-    m.skeleton = Some(Arc::new(w.skeleton()));
+    // a disc body: the donor's disc costumes, faces and voice on every peer, looks or not
+    if w.disc {
+        m.costumes = (0..mods::DISC_COSTUMES).map(|k| format!("disc/c{k:02}")).collect();
+        (m.texture_face, m.no_face, m.costume_of) = (false, false, None);
+    }
+    m.skeleton = (!w.disc).then(|| Arc::new(w.skeleton()));
     m.emotes = Some(w.emotes.clone());
     m.voice_takes = Some(w.voices.clone());
-    (m.build.shots, m.build.stats) = (w.shots, w.stats);
+    m.build = mods::Build { disc: w.disc, scale: w.scale, swing: w.swing, run: w.run, stats: w.stats, shots: w.shots, power: w.power, arc: w.arc };
     m
 }
 
@@ -174,7 +218,9 @@ fn kept(m: &Mod, costume: usize) -> Result<(Skeleton, u64), String> {
     if let Some((_, got)) = KEPT.lock().unwrap().get(&key).filter(|(s, _)| *s == stamp) {
         return got.clone();
     }
-    let got = mods::skeleton(m, costume).and_then(|sk| Ok((sk, looks(&m.dir)?)));
+    // a disc body's is the donor's from the disc, not on the wire (`Wire::disc`)
+    let skeleton = |m: &Mod, costume| if m.build.disc { Ok(Skeleton { names: vec![], parent: vec![], rest: vec![] }) } else { mods::skeleton(m, costume) };
+    let got = skeleton(m, costume).and_then(|sk| Ok((sk, looks(&m.dir)?)));
     KEPT.lock().unwrap().insert(key, (stamp, got.clone()));
     got
 }
@@ -441,8 +487,19 @@ mod tests {
             voices: vec![(9, 4), (7, 5)],
             shots: [Some(11), None, Some(10), None],
             stats: Some([4, 5, 3, 1, 6]),
+            power: [1.4, 1.0, 0.8, 1.0],
+            arc: [1.0, 2.0, 0.5, 1.0],
+            swing: 1.5,
+            run: 1.2,
+            disc: false,
+            scale: 1.0,
             dir: None,
         }
+    }
+
+    /// A disc-body mod's pick: no skeleton, scaled.
+    fn disc_wire() -> Wire {
+        Wire { disc: true, scale: 1.5, names: vec![], parent: vec![], rest: vec![], ..wire() }
     }
 
     #[test]
@@ -469,6 +526,21 @@ mod tests {
         bad(Wire { emotes: vec![(EMOTES[0], vec![0])], ..wire() });
         bad(Wire { voices: vec![(0, 4)], ..wire() });
         bad(Wire { voices: vec![(9, 0)], ..wire() });
+        // M151d: §6 power, arc, pace and body within `mods::read`'s ranges; a disc body carries no skeleton
+        bad(Wire { power: [2.5, 1.0, 1.0, 1.0], ..wire() });
+        bad(Wire { arc: [1.0, 1.0, 1.0, 0.1], ..wire() });
+        bad(Wire { arc: [1.0, 1.0, f32::NAN, 1.0], ..wire() });
+        bad(Wire { swing: 0.5, ..wire() });
+        bad(Wire { run: 5.0, ..wire() });
+        bad(Wire { scale: 1.5, ..wire() });
+        assert_eq!(disc_wire().check(), Ok(()));
+        bad(Wire { scale: 8.0, ..disc_wire() });
+        bad(Wire { disc: true, ..wire() });
+        // a peer that sends none of them: stock
+        let mut j: serde_json::Value = serde_json::to_value(wire()).unwrap();
+        ["power", "arc", "swing", "run", "disc", "scale"].iter().for_each(|k| drop(j.as_object_mut().unwrap().remove(*k)));
+        let old: Wire = serde_json::from_value(j).unwrap();
+        assert_eq!((old.power, old.arc, old.swing, old.run, old.disc, old.scale), ([1.0; 4], [1.0; 4], 1.0, 1.0, false, 1.0));
     }
 
     #[test]
@@ -479,6 +551,13 @@ mod tests {
         assert_eq!(mods::voice_takes(&m), [(9, 4), (7, 5)], "a stand-in's emotes don't cycle over the owner's takes");
         assert_eq!(crate::handshake::gameplay_hash(&m), crate::handshake::gameplay_hash(&for_match(&wire(), None)));
         assert_eq!(m.skeleton.unwrap().names, ["a", "b"]);
+        // M151d: the whole §6 build plays from the wire
+        assert_eq!(m.build, mods::Build { disc: false, scale: 1.0, swing: 1.5, run: 1.2, stats: Some([4, 5, 3, 1, 6]), shots: [Some(11), None, Some(10), None], power: [1.4, 1.0, 0.8, 1.0], arc: [1.0, 2.0, 0.5, 1.0] });
+        // a disc body: the donor's disc costumes and voice, its own skeleton (no stand-in), the scale
+        let d = for_match(&disc_wire(), None);
+        assert_eq!((d.costumes.len(), d.costumes[3].as_str(), d.disc_voice(), d.no_face), (mods::DISC_COSTUMES, "disc/c03", Some(3), false));
+        assert!(d.skeleton.is_none());
+        assert_eq!((d.build.disc, d.build.scale), (true, 1.5));
     }
 
     /// B588: a peer's pick of a mod this machine has in another version (files not the same, so its looks hash

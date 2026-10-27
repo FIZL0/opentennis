@@ -35,3 +35,4 @@
 - Custom characters can hit their serves, strokes, volleys or smashes harder (up to about 268 mph), still landing where the normal shot would.
 - Custom characters can also hit higher or flatter shots that still land in the same place (with more or less topspin), or pick a ready-made shot style: cannon, laser, heavy, moonball or soft.
 - A custom character with harder-hit shots now shows it on the select screen: its Serve, Stroke and Volley grades follow how fast its shots really fly, up to S.
+- Custom characters with their own shot power or arc, a bigger body, or a faster swing or run can now be picked in online matches.

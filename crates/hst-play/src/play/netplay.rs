@@ -1319,6 +1319,59 @@ mod tests {
             }
         }
 
+        /// M151d: a mod with generated tables (§6 `shots` `power`/`arc`) and a disc body, scaled and paced, plays the
+        /// same match on its owner's machine as on one without its folder: each builds the tables from the wire and
+        /// its own disc (every peer's tables fingerprint agreeing, `handshake`). Its serves fly faster than its
+        /// donor's on both; `HST_LOOKS_TICKS` ticks (default 2500), every seat mashed.
+        #[test]
+        fn a_mod_with_generated_tables_plays_alike_on_every_peer() {
+            if !hst_data::fixture::has_iso() {
+                return eprintln!("no ISO, skipped");
+            }
+            let dir = std::env::temp_dir().join(format!("hst-m151d-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("mod.json"), r#"{"standard":1,"id":"m151d","name":"Big Server","disc_body":true,"donor":7,"hand":"right","params":{"base":7,"override":{}},"ai_row":7,"face":"morph","scale":1.25,"swing_speed":1.5,"run_speed":0.8,"stats":"S","shots":{"serve":{"power":1.4,"arc":1.5},"stroke":{"from":9,"preset":"cannon"}},"version":1}"#).unwrap();
+            let ticks: u32 = std::env::var("HST_LOOKS_TICKS").map_or(2500, |t| t.parse().unwrap());
+            REPLAYS.set(false);
+            let w = crate::mods_online::Wire::of(&crate::mods::read(&dir).unwrap(), 2).unwrap();
+            assert_eq!(w.check(), Ok(()));
+            assert!(w.disc && w.power[0] == 1.4 && w.arc[0] == 1.5 && w.scale == 1.25 && w.names.is_empty(), "{w:?}");
+            // what the other peer gets
+            let w: crate::mods_online::Wire = serde_json::from_str(&serde_json::to_string(&w).unwrap()).unwrap();
+            let seat = |char, costume| Some(Seat { peer: "host".into(), pick: Pick::disc(char, costume) });
+            let big = Some(Seat { peer: "host".into(), pick: Pick { r#mod: Some(Box::new(w)), ..Pick::disc(7, 2) } });
+            let room = Room { doubles: true, games: 4, sets: 0, umpire: 2, court: 1, seats: vec![big, seat(7, 0), seat(3, 1), seat(5, 0)], seed: 151, ..Default::default() };
+            let mut apps = [Some(dir.clone()), None].map(|d: Option<std::path::PathBuf>| app_in(&room, "host", Some(&|_| d.clone())));
+            let _ = std::fs::remove_dir_all(&dir);
+            for a in &apps {
+                let g = a.world().resource::<Game>();
+                // match order: the mod is player 0, the stock Big Chief player 2
+                let top = |i: usize| g.serve_tables[i][0][2].0.top_speed();
+                assert!(top(0) > 1.3 * top(2), "{} vs stock {}", top(0), top(2));
+            }
+            let mut np = apps.each_mut().map(|a| a.world_mut().remove_resource::<Netplay>().unwrap());
+            let mut last = [tick_input::IDLE; 4];
+            for t in 0..ticks {
+                let [a, b] = apps.each_mut().map(|a| super::super::snapshot::state_text(a.world_mut()));
+                if a != b {
+                    let at = a.bytes().zip(b.bytes()).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
+                    let from = a[..at].char_indices().rev().nth(300).map_or(0, |(i, _)| i);
+                    let cut = |s: &str| s[from..].chars().take(700).collect::<String>();
+                    panic!("tick {t}: the owner and the other peer differ\nowner: {}\nother: {}", cut(&a), cut(&b));
+                }
+                if apps[0].world().resource::<Game>().match_stats.result.is_some() {
+                    break;
+                }
+                np[0].lock.tick = t;
+                let now = [0, 1, 2, 3].map(|s| np[0].mashed(s));
+                for a in &mut apps {
+                    run_on(a.world_mut(), now, last);
+                    a.world_mut().run_schedule(FixedUpdate);
+                }
+                last = now;
+            }
+        }
+
         // ---------------------------------------------------------------- rollback (M2h)
 
         use super::super::super::rollback::{self, Rollback};
