@@ -1459,11 +1459,18 @@ struct Voices {
     playing: [u64; 4],
     /// Each card's last lock-in line (an index into its [`pick_voice`] list), so the next one differs.
     last_line: [usize; 4],
-    /// The lock-in line sounding, and whose character it is.
-    line: Option<(Who, u64)>,
-    /// Lock-in lines waiting for it to finish: (card, character, bank, take).
-    queue: VecDeque<(usize, Who, Arc<SoundBank>, sound::Play)>,
+    /// The lock-in line sounding (play id) and the mixer it's on, cut when the menu ends (the loading screen).
+    line: u64,
+    sound: Option<Sound>,
     banks: HashMap<String, Option<Arc<SoundBank>>>,
+}
+
+impl Drop for Voices {
+    fn drop(&mut self) {
+        if let Some(s) = &self.sound {
+            s.stop(self.line);
+        }
+    }
 }
 
 /// The voice a press on a card plays as its motion starts (B86a), as the original's Data → Items → Characters screen,
@@ -1500,8 +1507,8 @@ fn voice(act: Act, who: Who, costume: usize, mods: &[Mod], banks: &mut HashMap<S
 const LINES: [&str; 5] = ["CH0", "CH1", "CS0", "IT0", "IT1"];
 
 /// A player locking in a character (not Random) says one of its [`pick_voice`] lines at random, never the card's last
-/// one twice running (B181: a mod with none is silent, never a donor's voice). One line sounds at a time, the others wait their turn (dropped if their card
-/// un-readies); a pick of the character already talking cuts its own line off and starts the new one.
+/// one twice running (B181: a mod with none is silent, never a donor's voice). One line sounds at a time: each pick
+/// cuts the one before.
 fn picked(menu: Res<Menu>, mut was: Local<[bool; 4]>, (args, sound, mut voices): (Res<Args>, Option<Res<Sound>>, ResMut<Voices>)) {
     let ready = std::array::from_fn(|p| menu.players[p].ready);
     let Some(s) = &sound else { return *was = ready };
@@ -1520,16 +1527,9 @@ fn picked(menu: Res<Menu>, mut was: Local<[bool; 4]>, (args, sound, mut voices):
         let (bank, play) = lines.swap_remove(n);
         voices.last_line[p] = n;
         s.stop(voices.playing[p]);
-        voices.queue.retain(|q| q.1 != who);
-        if let Some((_, id)) = voices.line.filter(|l| l.0 == who) {
-            s.stop(id);
-            voices.line = None;
-        }
-        voices.queue.push_back((p, who, bank, play));
-    }
-    voices.queue.retain(|q| ready[q.0]);
-    if !voices.line.is_some_and(|(_, id)| s.playing(id)) {
-        voices.line = voices.queue.pop_front().map(|(_, who, bank, play)| (who, s.play_centre(&bank, play)));
+        s.stop(voices.line);
+        voices.line = s.play_centre(&bank, play);
+        voices.sound.get_or_insert_with(|| Sound::clone(s));
     }
     *was = ready;
 }
@@ -1947,6 +1947,11 @@ mod tests {
         let own = [m("voice/"), m("none/")];
         assert_eq!(pick_voice(Who::Mod(0), &own, &mut banks, iso).iter().map(|l| l.1.program).collect::<Vec<_>>(), [9]);
         assert!(pick_voice(Who::Mod(1), &own, &mut HashMap::new(), iso).is_empty());
+        // the menu ending (the loading screen coming in) cuts the lock-in line
+        let (bank, play) = pick_voice(Who::Disc(0), &mods, &mut banks, iso).swap_remove(0);
+        let line = sound.play_centre(&bank, play);
+        drop(Voices { line, sound: Some(sound.clone()), last_line: [0; 4], playing: [0; 4], banks: HashMap::new() });
+        assert!(!sound.playing(line));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
