@@ -195,9 +195,11 @@ enum Item {
 }
 /// The settings row's pills before Mode: court, umpire, sets, games, mods, markers.
 const SETTINGS: usize = 6;
+/// A seat's note for a mod this machine doesn't have and won't download.
+const STAND_IN: &str = "You don't have this mod: you'll see its base character";
 /// The prompt for a mod this machine doesn't have: fetch its looks or not, and whether to ask again.
 const ASK_ROWS: [(&str, bool, Ask); 4] =
-    [("Download, always", true, Ask::Always), ("Download this one", true, Ask::Each), ("Stand-in this time", false, Ask::Each), ("Never download", false, Ask::Never)];
+    [("Always download", true, Ask::Always), ("Download this one", true, Ask::Each), ("Not this time", false, Ask::Each), ("Never download", false, Ask::Never)];
 
 /// The prompt after a match for the mods it downloaded: add them to this machine's mods or not, and whether to ask again.
 const KEEP_ROWS: [(&str, bool, Ask); 4] =
@@ -704,27 +706,32 @@ impl Menu {
     }
 
     /// B484: the note under a `remote_mod_name` seat: what this machine does about that mod's looks (fetching them,
-    /// asking, a stand-in only once declined or unavailable).
+    /// asking, a stand-in only once declined or unavailable). The card names the mod, so the note doesn't; none on
+    /// the Random card, which doesn't give away who it drew.
     pub(super) fn remote_mod_note(&self, p: usize) -> Option<String> {
         let n = self.remote_mod_name(p)?;
         let s = self.remote(p)?;
+        let r = self.net.room.as_ref()?;
+        if r.live_of(p).filter(|_| s.human()).map_or(s.pick.random, |l| l.random) {
+            return None;
+        }
         // the seat's pick names the looks once it's in the lobby; a player still choosing only names the mod
         let h = s.pick.r#mod.as_deref().filter(|w| w.name == n).map(|w| w.looks);
         let what = match h {
-            Some(h) if self.net.looks.get(&h).is_some_and(|d| d.is_none()) => "you'll see a stand-in",
+            Some(h) if self.net.looks.get(&h).is_some_and(|d| d.is_none()) => STAND_IN,
             // B537: how far, once its bytes come (the host may still be getting it from its owner first)
             Some(h) if self.net.wanted.contains(&h) => match self.net.progress.get(&h) {
-                Some(&(got, len)) => return Some(format!("{n} mod: downloading its looks ({}%)", got * 100 / len.max(1))),
-                None => "downloading its looks...",
+                Some(&(got, len)) => return Some(format!("Downloading this mod: {}%", got * 100 / len.max(1))),
+                None => "Downloading this mod...",
             },
-            Some(h) if self.net.ask == Some(h) => "download its looks?",
+            Some(h) if self.net.ask == Some(h) => "You don't have this mod: download it?",
             _ => match self.settings.online_mods {
-                Ask::Never => "you'll see a stand-in",
-                Ask::Always => "its looks download once picked",
-                Ask::Each => "you'll be asked to download it",
+                Ask::Never => STAND_IN,
+                Ask::Always => "You don't have this mod: it downloads by itself",
+                Ask::Each => "You don't have this mod: you'll be asked",
             },
         };
-        Some(format!("{n} mod: {what}"))
+        Some(what.into())
     }
 
     /// B201: the select's panels as the lobby's seats: this machine's players moved into the seats it holds (in
@@ -1843,7 +1850,7 @@ impl Menu {
         if !self.net.wanted.remove(&h) {
             return;
         }
-        let dir = mo::unpack(pack, h, &mo::cache(iso)).map(|m| m.dir).map_err(|e| self.net.status = format!("A mod's files were rejected, so a stand-in plays it: {e}")).ok();
+        let dir = mo::unpack(pack, h, &mo::cache(iso)).map(|m| m.dir).map_err(|e| self.net.status = format!("A mod's files were broken, so you'll see its base character instead: {e}")).ok();
         self.net.looks.insert(h, dir);
     }
 }
@@ -1877,14 +1884,14 @@ fn name_of(r: &Room, peer: &str) -> String {
 /// and Start / Ready; `None` when nobody is.
 pub(super) fn downloading(m: &Menu, r: &Room) -> Option<String> {
     let me = if m.net.hosting { "host" } else { m.net.me.as_str() };
-    let who: Vec<String> = r.fetching.iter().map(|(p, pct)| format!("{} {pct}%", if p == me { "you".into() } else { name_of(r, p) })).collect();
+    let who: Vec<String> = r.fetching.iter().map(|(p, pct)| format!("{} ({pct}%)", if p == me { "you".into() } else { name_of(r, p) })).collect();
     (!who.is_empty()).then(|| who.join(", "))
 }
 
 /// B281: after Start, who the match waits for to choose about a mod, and for how long.
 fn waiting(r: &Room) -> String {
     let who: Vec<String> = r.deciding.iter().map(|p| name_of(r, p)).collect();
-    format!("Waiting for {} to decide about downloading a mod ({} s left, then a stand-in plays it).", who.join(", "), r.wait)
+    format!("Waiting for {} to choose whether to download a mod ({} s left).", who.join(", "), r.wait)
 }
 
 fn court_name(text: &super::Text, c: usize) -> String {
@@ -2464,18 +2471,18 @@ fn asked(r: &Room, h: u64) -> Option<(&str, bool)> {
 /// over the screen under it; the gold pill (row `sel`) is the cursor, and it has to be answered (`outside`: what a
 /// press off the box does).
 fn ask_popup(d: &mut Draw, name: &str, court: bool, wait: u32, sel: usize, outside: Option<Act>) {
-    let instead = if court { "on the plain court" } else { "as its base character, recoloured" };
+    let instead = if court { "the match is played on the plain court" } else { "you'll see the character it's based on, recoloured" };
     let help = match wait {
-        0 => format!("Download its looks, or play it {instead}."),
-        s => format!("The match is waiting: choose within {s} s, or it plays {instead}."),
+        0 => format!("You don't have this mod. If you don't download it, {instead}."),
+        s => format!("The match is waiting for you: choose within {s} s. If you don't download it, {instead}."),
     };
-    rows_popup(d, &format!("{name} is a mod you don't have."), &ASK_ROWS.map(|r| r.0), &help, sel, outside);
+    rows_popup(d, &format!("Download {name}?"), &ASK_ROWS.map(|r| r.0), &help, sel, outside);
 }
 
 /// After a match: keep the mods it downloaded (`keep`, by name) or not, over the lobby (○: not this time).
 fn keep_popup(d: &mut Draw, keep: &[(PathBuf, String)], sel: usize) {
     let names: Vec<&str> = keep.iter().map(|(_, n)| n.as_str()).collect();
-    let help = format!("Add {} to your mods?", names.join(", "));
+    let help = format!("Add {} to your installed mods, so you can pick them yourself?", names.join(", "));
     rows_popup(d, "Keep the mods you downloaded?", &KEEP_ROWS.map(|r| r.0), &help, sel, Some(Act::Press(Press { back: true, ..Default::default() })));
 }
 
@@ -3696,24 +3703,24 @@ mod tests {
         let r = b.net.room.as_mut().unwrap();
         r.live.clear();
         r.seats[1].as_mut().unwrap().pick = Pick { r#mod: Some(Box::new(w.clone())), ..Pick::disc(4, 0) };
-        assert_eq!(b.remote_mod_note(1).as_deref(), Some("Emi mod: you'll be asked to download it"));
+        assert_eq!(b.remote_mod_note(1).as_deref(), Some("You don't have this mod: you'll be asked"));
         b.sel = 3;
         b.settle(iso, &net);
         assert_eq!((b.net.ask, b.sel, b.mod_asking()), (Some(7), 3, true), "asked on the select, its cursor left alone");
-        assert_eq!(b.remote_mod_note(1).as_deref(), Some("Emi mod: download its looks?"));
+        assert_eq!(b.remote_mod_note(1).as_deref(), Some("You don't have this mod: download it?"));
         let cursor = b.players[0].cursor;
         b.step(Dev::Keys, Press { down: true, ..default() });
         assert_eq!((b.net.ask_row, b.players[0].cursor), (1, cursor), "the prompt takes the press, not the grid");
         let out = b.step(Dev::Keys, OK);
         assert!(out.iter().any(|e| matches!(e, Effect::Online(Fx::Net(Cmd::Want(7))))), "{out:?}");
         assert_eq!((b.net.ask, b.net.wanted.contains(&7), b.settings.online_mods, b.mod_asking()), (None, true, Ask::Each, false));
-        assert_eq!(b.remote_mod_note(1).as_deref(), Some("Emi mod: downloading its looks..."));
+        assert_eq!(b.remote_mod_note(1).as_deref(), Some("Downloading this mod..."));
         // B537: how far, as its bytes come; another mod's (not wanted here) changes nothing
         b.download_progress(7, 0, 200);
-        assert_eq!(b.remote_mod_note(1).as_deref(), Some("Emi mod: downloading its looks (0%)"));
+        assert_eq!(b.remote_mod_note(1).as_deref(), Some("Downloading this mod: 0%"));
         b.download_progress(7, 101, 200);
         b.download_progress(8, 200, 200);
-        assert_eq!(b.remote_mod_note(1).as_deref(), Some("Emi mod: downloading its looks (50%)"));
+        assert_eq!(b.remote_mod_note(1).as_deref(), Some("Downloading this mod: 50%"));
         assert!(!b.net.progress.contains_key(&8));
         // M122: and to the lobby, in 5 % steps over all of them (one not started yet counts as none in)
         assert_eq!(b.fetching(), Some(50));
@@ -3725,12 +3732,12 @@ mod tests {
         let peer = r.seats[1].as_ref().unwrap().peer.clone();
         r.fetching.insert(peer.clone(), 45);
         r.fetching.insert("host".into(), 50);
-        let who = format!("you 50%, {} 45%", name_of(r, &peer));
+        let who = format!("you (50%), {} (45%)", name_of(r, &peer));
         assert_eq!(downloading(&b, b.net.room.as_ref().unwrap()).as_deref(), Some(who.as_str()));
         assert_eq!(status_line(&b), Some(format!("Still downloading a mod: {who}.")));
         b.net.room.as_mut().unwrap().fetching.clear();
         b.got_pack(iso, 7, b"not a pack");
-        assert_eq!((b.net.progress.get(&7), b.remote_mod_note(1).as_deref()), (None, Some("Emi mod: you'll see a stand-in")), "refused");
+        assert_eq!((b.net.progress.get(&7), b.remote_mod_note(1).as_deref()), (None, Some(STAND_IN)), "refused");
         b.net.looks.clear();
         b.net.wanted.insert(7);
         // asked again (its looks never came): ○ plays it as a stand-in
@@ -3739,7 +3746,7 @@ mod tests {
         assert!(b.mod_asking());
         b.step(Dev::Keys, Press { back: true, ..default() });
         assert_eq!((b.screen, b.net.ask, b.net.looks.get(&7)), (Screen::Chars, None, Some(&None)), "○ answers, it doesn't leave the select");
-        assert_eq!(b.remote_mod_note(1).as_deref(), Some("Emi mod: you'll see a stand-in"));
+        assert_eq!(b.remote_mod_note(1).as_deref(), Some(STAND_IN));
         // "always": fetched with no prompt, on the confirm too
         while rx.try_recv().is_ok() {}
         (b.screen, b.settings.online_mods) = (Screen::Confirm, Ask::Always);

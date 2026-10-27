@@ -4,3 +4,4 @@
 - Switching your monitor's display mode (or unplugging a monitor) no longer closes the game.
 - In an online lobby, the host now sees the court a Random pick will actually play on.
 - On the website, turning the frame log on or off now takes effect at once: the Save log button appears (or goes away) straight away.
+- Clearer wording online when another player picks a mod you don't have: the character card, the download question, the lobby's Start line and the setting all say plainly what happens. A Random pick no longer gives away which mod it drew.

@@ -188,7 +188,7 @@ fn about(o: Opt) -> &'static str {
         EmoteVoices => "Hear the players' voice lines when they emote. Off mutes them on this device only; the emote itself still plays.",
         Downloads => "Download mods' upscaled textures from the mod store (most of a mod's size).",
         AtOnce => "How many mods the mod store downloads side by side (Download all, or several installs). Auto: 3 on a computer, 2 in a browser, 1 on a phone; a browser keeps each one in memory until it's saved, so it allows fewer.",
-        OnlineMods => "When an online lobby has a mod you don't have: ask each time, always download it, or never (a stand-in plays it).",
+        OnlineMods => "When another player online picks a mod you don't have: ask each time, always download it, or never (you'll see the character it's based on instead).",
         KeepDownloads => "After an online match, the mods you downloaded for it: ask whether to add them to your mods, always add them, or never.",
         Chat => "Show the online lobby's and match's text chat (T, or R2/L2 on a pad), or hide it.",
         Renderer => "Auto: WebGPU when the browser has it, else WebGL2; the one in use shows in brackets, with Hardware (drawn by the graphics card) or Software (drawn by the CPU, much slower: turn on the browser's hardware acceleration). A change asks first: the page reloads into it.",

@@ -262,7 +262,7 @@ pub(crate) fn save_graphics(iso: &str, g: Graphics) {
 
 /// The enhancements, each on or off (all on by default), the graphics settings, the volumes (B235) and the aspect
 /// ratio (B117, a `widescreen::ASPECTS` index) and what to do with an online lobby's mods (B289: the lobby's
-/// prompt asks, or its "Download, always" / "Never download" answer) and the browser build's renderer (B273, a
+/// prompt asks, or its "Always download" / "Never download" answer) and the browser build's renderer (B273, a
 /// `RENDERERS` index; web/index.html reads it from settings.txt in localStorage) and the confirm screen's last umpire
 /// pick (B191: `UMPIRES` is Random, the first-time and fallback choice) and the Menu Size (`MENU_SIZES`: 0 Auto,
 /// else tenths) and how many store downloads run at once (B339: 0 Auto, [`Settings::downloads_at_once`]) and the

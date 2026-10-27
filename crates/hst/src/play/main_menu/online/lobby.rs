@@ -289,7 +289,7 @@ fn start_button(d: &mut Draw, m: &Menu, r: Option<&Room>, g: &frame::Geo, items:
     let fetching = super::downloading(m, r);
     let ready = match (&picking, r.open()) {
         (Some(p), _) => format!("{n} of {of} ready · {p} is still picking"),
-        (None, _) if let Some(f) = &fetching => format!("{n} of {of} ready · downloading: {f}"),
+        (None, _) if let Some(f) = &fetching => format!("{n} of {of} ready · downloading a mod: {f}"),
         (None, 0) if n == of => "Everyone ready".to_string(),
         (None, 0) => format!("{n} of {of} ready"),
         (None, open) => format!("{n} of {of} ready · +{open} COM"),
