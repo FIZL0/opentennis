@@ -43,5 +43,6 @@
 - With a Safe Area margin set, the score panel's strips past the margin now vanish together with the rest of the panel when a rally starts, instead of lingering a frame.
 - On the website, a controller can now move between the buttons (d-pad or stick), press them (A), and start the game (Start).
 - In Miyabi Grove, an umbrella you walk under now stays lowered while you stand there instead of snapping back up.
+- Court props the ball or a player knocks over now stay down until the next point instead of popping straight back up.
 - A hidden pick's stats show a "?" tile in the same style as the grade letters.
 - Online → Adhoc: the page a friend opens now loads your disc and characters straight from your computer, keeps nothing on their device, and joins your lobby by itself once you host one; a controller they pick up takes over from the touch controls. The Adhoc card also says what to do if a firewall keeps the page from loading.

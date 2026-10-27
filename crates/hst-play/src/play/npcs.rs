@@ -736,8 +736,9 @@ fn figures(
                 let looping = m.clock.looping;
                 m.set(t.alt as usize, 0.0, looping, None, 0);
             }
-            // type 48 rests on its last frame (an umbrella held down): a looping clip would draw that as frame 0
-            if t.ty == 48 {
+            // held on its last frame (an umbrella held down, a knocked-over prop): a looping clip would draw that as
+            // frame 0; a looping row never reaches `len` (the sim wraps it first)
+            if t.len != 0.0 && t.len <= t.frame {
                 m.clock.looping = false;
             }
             m.clock.sampled = t.frame;
