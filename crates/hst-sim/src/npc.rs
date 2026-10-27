@@ -1320,6 +1320,14 @@ impl Trigger {
         (self.frame, self.next) = (t, t);
     }
 
+    /// Type 48's frame set: held at the clip's end while someone stays (the game shows frame `len`, not a wrap to 0).
+    fn scrub_to(&mut self, t: f32) {
+        if self.len != 0.0 {
+            self.frame = t;
+        }
+        self.next = t;
+    }
+
     /// The controller's frame set: rows without an idle repeat gap loop their animation (the spawn sets the
     /// controller's loop flag), the others hold at the ends.
     fn held(&self, t: f32, row: &TriggerRow) -> f32 {
@@ -1817,7 +1825,7 @@ impl Trigger {
                 match s {
                     0 if !far() => s = if f != 0 { 2 } else { 1 },
                     1 => {
-                        self.set_frame(f as f32, row);
+                        self.scrub_to(f as f32);
                         f += 1;
                         if self.len <= f as f32 && far() {
                             s = 0;
@@ -1825,7 +1833,7 @@ impl Trigger {
                         f = (f as f32).min(self.len) as i32;
                     }
                     2 => {
-                        self.set_frame(f as f32, row);
+                        self.scrub_to(f as f32);
                         f -= 1;
                         if f < 1 && far() {
                             s = 0;
@@ -2214,6 +2222,36 @@ mod tests {
         // out over the last 0.5 m (its last step overshoots the end a little)
         let last = seen.len() - 1;
         assert!(seen[last - 8..last].windows(2).all(|w| w[0] > w[1]) && seen[last] < 0.1, "{seen:?}");
+    }
+
+    /// Type 48 (Miyabi Grove's umbrellas): someone standing within 1.0 scrubs it to its last frame and it stays there
+    /// (the game holds frame `len`, even on a looping row); the next visit after they leave scrubs it back to 0.
+    #[test]
+    fn scrub_holds_its_end() {
+        let row = hst_data::exe::TriggerRow {
+            start: 0, mode: 0, stage: 0, exact: true, reverse_roll: false, reset_wait: (0, 0.0), end_wait: (0, 0.0), retarget: false,
+            speed: 0.0, steer: 0.0, every: (0, 0.0), pause: (0, 0.0), snap: -1, wake: false, repeat: (0, 0.0), orient: 0,
+            near: [0.0, 0.0], stages: 0, idle: (0, 0.0), sound: -1, rearm: false, hit_kmh: 0.0,
+        };
+        let home = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [7.0, 0.0, 7.0, 1.0]];
+        let mut t = super::Trigger { ty: 48, active: true, home, world: home, len: 50.0, ..Default::default() };
+        let mut roll = || 0x8000_0000u32;
+        let mut near = super::Near { pos: vec![[7.2, 0.0, 7.1, 1.0]], ..Default::default() };
+        t.reset_near(&row, &mut near, &mut roll);
+        for _ in 0..120 {
+            t.step_near(&row, &mut near, &mut roll);
+        }
+        assert_eq!((t.frame, t.scrub), (50.0, (1, 50)));
+        // left, it stays down; the next visit scrubs it back
+        let at = near.pos.clone();
+        near.pos = vec![[0.0, 0.0, 0.0, 1.0]];
+        t.step_near(&row, &mut near, &mut roll);
+        assert_eq!((t.frame, t.scrub), (50.0, (0, 50)));
+        near.pos = at;
+        for _ in 0..120 {
+            t.step_near(&row, &mut near, &mut roll);
+        }
+        assert_eq!(t.frame, 0.0);
     }
 
     /// Recorded at a doubles match's start (court 4): the four walkers register marks 0–3 (delays 0, 3, 6, 9)

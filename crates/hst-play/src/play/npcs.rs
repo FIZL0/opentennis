@@ -736,6 +736,10 @@ fn figures(
                 let looping = m.clock.looping;
                 m.set(t.alt as usize, 0.0, looping, None, 0);
             }
+            // type 48 rests on its last frame (an umbrella held down): a looping clip would draw that as frame 0
+            if t.ty == 48 {
+                m.clock.looping = false;
+            }
             m.clock.sampled = t.frame;
         }
         if t.ty == 6 {
