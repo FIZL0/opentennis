@@ -48,6 +48,7 @@ pub mod tornado;
 pub mod shade;
 pub mod instant;
 pub mod lines;
+pub mod look;
 
 /// serde has no arrays past 32 (`#[serde(with = "crate::big")]`): such an array as a sequence.
 pub mod big {
