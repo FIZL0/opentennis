@@ -250,9 +250,9 @@ fn call(c: &Chain, bind: &dyn Fn(usize) -> Transform, u: &mut Run, r: Mat4, (was
             }
             force[j] = f;
         }
-        for j in 1..=n {
+        for (j, f) in force.iter().enumerate().skip(1).take(n) {
             let wj = w(j);
-            u.v[j] += force[j] / wj[MASS] * DT;
+            u.v[j] += *f / wj[MASS] * DT;
             u.p[j] += u.v[j] * DT;
             u.v[j] *= wj[KEEP];
         }

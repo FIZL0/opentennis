@@ -879,10 +879,10 @@ pub fn plugin(app: &mut App) {
 /// was listening would all key on at once, so they go; the music, the loops and the voices already sounding carry
 /// on where they stopped.
 fn reopened(mut reopened: MessageReader<bevy::audio::AudioOutputReopened>, sound: Option<Res<Sound>>) {
-    if reopened.read().count() > 0 {
-        if let Some(sound) = sound {
-            sound.drop_queued();
-        }
+    if reopened.read().count() > 0
+        && let Some(sound) = sound
+    {
+        sound.drop_queued();
     }
 }
 
