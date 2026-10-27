@@ -51,3 +51,15 @@ Ported from SPEC.md (decompile locked): the live-play parts of §2, §3.1, §3.4
   and the unit tests, and only court 10 (grass) was recorded.
 - The crater is lit only when not wet: a rendering detail, not ported (the crater draw is unchanged).
 - The replay bursts (clods, blades, the replay size cut) are deferred to B72.
+
+## 2026-10-27 rerun
+The port (1fb79cbd) is already merged into main. `tools/check.sh -p hst-base oob_faces_all` still fails: the live
+mods folder's oob_pc18_toro still has no face clips. That has nothing to do with B680. It's filed as B684. Rerun
+`tools/done.sh B680 "…"` once B684 lands.
+The full suite also fails `hst` `plate_emote::tests::a_mods_emote_voices_take_turns` (live mods folder:
+fore_pc17_tbone motion 0x2e plays keys 1..5, the test expects 1,2,3,0,1). Also not B680; noted on B684.
+done.sh runs the suite before `--blocked` too, so this rerun blocked the task with `tools/ctx.py block` and
+committed by hand.
+
+## Not verified / not 1:1
+As in the port entry above; nothing new this session.
