@@ -14,8 +14,8 @@ ln -sfn "$(realpath "$1")" "$out/disc"
 disc=$out/disc
 ip=$(ip -4 route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')
 export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1}
-# the host runs in OUT: a `mods` there is what it serves (none: the guest picks disc characters; the CLI host doesn't
-# start a match on a guest's mod pick yet)
+# the host runs in OUT: a `mods` there is what it serves (none: the guest picks disc characters; with mods its random
+# pick may be one of them, B688)
 bin=$PWD/target/release/hst web=$PWD/web
 (cd "$out" && HST_BG=1 HST_AUTOPLAY=1 HST_ADHOC="$disc" HST_WEB="$web" RUST_LOG=info exec timeout $((secs + 300)) "$bin" net host --relay off --games 1 --play "$disc") >"$out/host.txt" 2>&1 &
 host=$!
