@@ -1802,7 +1802,12 @@ fn untwist_thighs(data: &CharacterData, drawn: &[(Quat, Vec3)]) -> Vec<(usize, (
 pub struct Posing {
     poses: [(Option<PoseKey>, Vec<(Quat, Vec3)>); 2],
     arm: Option<(([[f32; 4]; 4], u32, usize), Vec<(usize, Quat)>)>,
-    face: Option<(usize, u32, Option<(usize, u32)>)>,
+    face: Option<(usize, u32, Option<(usize, u32)>, u32)>,
+    /// A line's mouth (its mouth targets, vowel, openness) last made, how much of it is over the clip's mouth now
+    /// (eased by [`TALK_EASE`] both ways) and when that was.
+    talked: Option<(Arc<[usize]>, usize, f32)>,
+    talk_mix: f32,
+    talk_at: f64,
     frame: u32,
     /// This frame's drawn pose (each joint's rotation and translation), kept for its allocation.
     drawn: Vec<(Quat, Vec3)>,
@@ -1832,6 +1837,9 @@ const EASE_IN: f32 = 10.0;
 /// hand leaves the head in a frame or two: at once, the arm jumped up to 90° in a frame.
 // ponytail: picked by eye
 const GRIP_EASE: f32 = 6.0;
+
+/// Seconds a line's mouth takes to take over from the clip's, and to give it back.
+const TALK_EASE: f64 = 0.15;
 
 /// Frames the serve's end pose takes to ease into standing or running (see `animate`).
 // ponytail: picked by eye; the original has only its 8-frame crossfade
@@ -1962,10 +1970,24 @@ impl Posing {
         // a take keyed to its own line (`drawn_voice`) whose face moves the mouth was animated to it: its mouth stays
         let synced = own.is_some_and(|f| talk.is_some_and(|t| f.moves(&t.mouths))) && rig.data.drawn_voice(motion.id, motion.sets).is_some();
         let shape = talk.filter(|_| !synced).and_then(|t| Some((t, t.at(now)?)));
+        // the line's mouth eases over the clip's and back instead of cutting (a line through, cut, or synced)
+        if let Some((t, (vowel, open))) = shape {
+            self.talked = Some((t.mouths.clone(), vowel, open));
+        }
+        if self.talk_mix == 0.0 {
+            self.talk_at = now;
+        }
+        let step = ((now - self.talk_at).max(0.0) / TALK_EASE) as f32;
+        self.talk_at = now;
+        self.talk_mix = if shape.is_some() { (self.talk_mix + step).min(1.0) } else { (self.talk_mix - step).max(0.0) };
+        if self.talk_mix == 0.0 {
+            self.talked = None;
+        }
         let key = (
             Arc::as_ptr(&rig.data) as usize ^ own.map_or(motion.face, |f| f as *const Face as usize),
             t.to_bits(),
-            shape.map(|s| (s.1.0, s.1.1.to_bits())),
+            self.talked.as_ref().map(|s| (s.1, s.2.to_bits())),
+            self.talk_mix.to_bits(),
         );
         if self.face == Some(key) {
             return;
@@ -1976,14 +1998,15 @@ impl Posing {
         if let Some(face) = face {
             face.weights(hst_sim::ps2::mul(t, 80.0), w);
         }
-        if let Some((talk, (vowel, open))) = shape {
-            for &m in talk.mouths.iter() {
+        if let Some((mouths, vowel, open)) = &self.talked {
+            let mix = self.talk_mix;
+            for &m in mouths.iter() {
                 if let Some(x) = w.get_mut(m) {
-                    *x = 0.0;
+                    *x *= 1.0 - mix;
                 }
             }
-            if let Some(x) = w.get_mut(vowel) {
-                *x = open;
+            if let Some(x) = w.get_mut(*vowel) {
+                *x += open * mix;
             }
         }
     }
