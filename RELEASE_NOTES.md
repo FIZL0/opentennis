@@ -32,4 +32,3 @@
 - New Graphics setting, Character Shading (on by default on computers; off in the browser, on phones, on the Low presets and in Original Mode): soft shade in the players' creases, under the chin, the skirt and the arms.
 - Players now turn their heads to follow the ball during rallies, as in the original, moving smoothly and resting after the point and in celebrations and emotes; a ball can now hit a player's head where it's turned.
 - On custom courts with a distant city or landscape around them, the ball's dark outline no longer disappears when the ball is in front of it at the far end.
-- Character select: a custom character whose ball flies faster now shows it in its Serve, Stroke and Volley grades, up to S.

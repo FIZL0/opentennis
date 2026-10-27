@@ -152,11 +152,11 @@ pub struct Mod {
     /// §3 `upscale` (B488): false when its textures are HD already (e.g. Hot Shots Golf Fore's), so its
     /// `textures/upscaled/` is never read nor downloaded. Absent: true.
     pub upscale: bool,
-    /// §6 `disc_body`, `scale`, `swing_speed`, `run_speed` (M11), `stats`, `serve_speed`, `shot_speed`.
+    /// §6 `disc_body`, `scale`, `swing_speed`, `run_speed` (M11), `stats`.
     pub build: Build,
 }
 
-/// A mod's body and pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`, M11, `stats`, `serve_speed`, `shot_speed`); [`Build::default`] for a mod
+/// A mod's body and pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`, M11, `stats`); [`Build::default`] for a mod
 /// without them, which plays exactly as its donor's body does.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Build {
@@ -174,10 +174,6 @@ pub struct Build {
     /// Its grades (Serve, Stroke, Volley, Impact, Footwork), 0 F … 5 A: each category's cells are the stock
     /// characters' at that grade ([`crate::grades`]), 6 S the roster's best. None: the row's own.
     pub stats: Option<[u8; 5]>,
-    /// Its serves, and its other shots, fly this many ball steps a frame until their first bounce: the same path,
-    /// sooner.
-    pub serve_speed: u8,
-    pub shot_speed: u8,
     /// §6 `shots`: the disc character (0..13) whose serve, stroke, volley and smash ([`SHOTS`]) it hits, each one's
     /// trajectory tables, shot records and timing variants. None: the donor's.
     pub shots: [Option<u8>; 4],
@@ -188,7 +184,7 @@ pub const SHOTS: [&str; 4] = ["serve", "stroke", "volley", "smash"];
 
 impl Default for Build {
     fn default() -> Self {
-        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, stats: None, serve_speed: 1, shot_speed: 1, shots: [None; 4] }
+        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, stats: None, shots: [None; 4] }
     }
 }
 
@@ -298,10 +294,6 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
             })
         }
     };
-    let steps = |k: &str| match &j[k] {
-        serde_json::Value::Null => Ok(1),
-        v => v.as_u64().filter(|n| (1..=4).contains(n)).map(|n| n as u8).ok_or_else(|| err(format!("`{k}` {v} must be a whole number 1 to 4"))),
-    };
     if let Some(k) = j["shots"].as_object().and_then(|o| o.keys().find(|k| !SHOTS.contains(&k.as_str()))) {
         return Err(err(format!("`shots` key `{k}` must be one of {SHOTS:?}")));
     }
@@ -312,7 +304,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
             *slot = Some(num(v, &format!("shots.{k}"), 13)? as u8);
         }
     }
-    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, stats, serve_speed: steps("serve_speed")?, shot_speed: steps("shot_speed")?, shots };
+    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, stats, shots };
     if disc && (!j["costumes"].is_null() || j["face"] != "morph") {
         return Err(err("`disc_body` plays the donor's disc costumes and faces: no `costumes`, `face` \"morph\"".into()));
     }
@@ -390,7 +382,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     if let Some(c) = costume_of
         && (donor != c || base != c || ai_row != c || !overrides.is_empty() || build != Build::default())
     {
-        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed`, `run_speed`, `stats`, `serve_speed`, `shot_speed` or `shots`")));
+        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed`, `run_speed`, `stats` or `shots`")));
     }
     Ok(Mod {
         skeleton: None,
@@ -2896,11 +2888,10 @@ mod tests {
             read(&dir)
         };
         let m = try_(json).unwrap();
-        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, stats: None, serve_speed: 1, shot_speed: 1, shots: [None; 4] });
+        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, stats: None, shots: [None; 4] });
         assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"A\",\"version\"")).unwrap().build.stats, Some([5; 5]));
         assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"BACEB\",\"version\"")).unwrap().build.stats, Some([4, 5, 3, 1, 4]));
         assert!(try_(&json.replace("\"version\"", "\"stats\":\"BAC\",\"version\"")).is_err());
-        assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"S\",\"serve_speed\":3,\"version\"")).unwrap().build.serve_speed, 3);
         assert!(!m.joke() && try_(&json.replace("\"version\"", "\"joke\":true,\"version\"")).unwrap().joke());
         assert_eq!(try_(&json.replace("\"version\"", "\"shots\":{\"serve\":11,\"smash\":0},\"version\"")).unwrap().build.shots, [Some(11), None, None, Some(0)]);
         for bad in ["{\"serve\":14}", "{\"lob\":3}", "{\"volley\":\"7\"}"] {
@@ -2916,8 +2907,6 @@ mod tests {
             json.replace("\"swing_speed\":2", "\"swing_speed\":0.5"),
             json.replace("\"run_speed\":0.25", "\"run_speed\":0"),
             json.replace("\"version\"", "\"stats\":\"Z\",\"version\""),
-            json.replace("\"version\"", "\"shot_speed\":5,\"version\""),
-            json.replace("\"version\"", "\"serve_speed\":1.5,\"version\""),
             json.replace("\"version\"", "\"joke\":1,\"version\""),
             json.replace("\"donor\"", "\"costumes\":[\"model/c00.glb\"],\"donor\""),
             json.replace("\"disc_body\":true,", "\"costume_of\":7,"),

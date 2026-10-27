@@ -1719,7 +1719,7 @@ fn tick_speed(g: Res<Game>, speed: Option<ResMut<Speed>>) {
         && matches!(g.finish.prev.1, 0 | 4)
     {
         let right = g.players[g.last_hitter as usize].pos[0] < 0.0;
-        s.start(hst_sim::sound::kmh(g.flight.ball.vel) * super::ball_steps(&g) as f32, right);
+        s.start(hst_sim::sound::kmh(g.flight.ball.vel), right);
     }
 }
 

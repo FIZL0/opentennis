@@ -457,9 +457,6 @@ pub struct Game {
     smash_heights: Vec<[f32; 2]>,
     /// Per player a mod's swing pace (character standard §6 `swing_speed`, M11); missing is 1, the original's.
     swing_pace: Vec<f32>,
-    /// Per player a mod's ball steps a frame for its serves and other shots until their first bounce (§6
-    /// `serve_speed`, `shot_speed`); missing is one, the original's.
-    ball_steps: Vec<[u8; 2]>,
     /// Per player the contact search's reach: `reach` with the character's TParam reach and heights and its hand.
     pub reaches: Vec<Reach>,
     /// Per player its character's lowest underhand contact (TParam, m): the AI's scoop height (`ReachStats::under_min`).
@@ -1492,7 +1489,6 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
         hit_effect: None,
         smash_heights: Vec::new(),
         swing_pace: Vec::new(),
-        ball_steps: Vec::new(),
         reaches: Vec::new(),
         under_min: Vec::new(),
         strong_hand: [1.0; 4],
@@ -3132,17 +3128,6 @@ fn cancel_locks(g: &mut Game, but: Option<usize>) {
     }
 }
 
-/// Ball steps a frame for the flight: the last hitter's mod `serve_speed` / `shot_speed` (a lob keeps
-/// one), else 1.
-fn ball_steps(g: &Game) -> usize {
-    let (class, kind) = (g.shot.class, g.shot.kind);
-    if kind == kind::LOB && (class == class::STROKE || class == class::VOLLEY) {
-        return 1;
-    }
-    let s = usize::try_from(g.last_hitter).ok().and_then(|i| g.ball_steps.get(i)).map_or([1, 1], |s| *s);
-    s[(class != class::SERVE) as usize] as usize
-}
-
 /// Player `i`'s swing pace: a mod's §6 `swing_speed` (M11), else 1.
 fn swing_pace(g: &Game, i: usize) -> f32 {
     g.swing_pace.get(i).copied().unwrap_or(1.0)
@@ -3851,15 +3836,6 @@ fn simulate(mut g: ResMut<Game>) {
     g.flight.rally = g.phase == Phase::Rally;
     let (before, touched) = (g.flight.bounces, g.flight.special_contacts);
     g.flight.step_world(&shot, surface, &g.world.0, &g.world.1);
-    // a fast mod shot: more of the same steps this frame, stopping at a bounce or a net/post touch so each one is
-    // handled in its own frame
-    for _ in 1..ball_steps(g) {
-        if g.flight.bounces != before || g.flight.special_contacts != touched {
-            break;
-        }
-        g.flight.step_world(&shot, surface, &g.world.0, &g.world.1);
-        g.since_hit += 1;
-    }
     if g.flight.special_contacts != touched {
         cancel_locks(g, None);
     }
