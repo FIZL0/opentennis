@@ -49,7 +49,7 @@ pub fn bake<'a>(meshes: &mut impl Store<Mesh>, parts: impl IntoIterator<Item = &
             Some(Indices::U16(i)) => i.iter().map(|&i| i as usize).collect(),
             None => continue,
         };
-        tris.extend(idx.chunks_exact(3).map(|t| {
+        tris.extend(idx.as_chunks::<3>().0.iter().map(|t| {
             let (a, b, c) = (p[t[0]], p[t[1]], p[t[2]]);
             Tri { a, e1: b - a, e2: c - a, n: n[t[0]] + n[t[1]] + n[t[2]], lo: a.min(b).min(c), hi: a.max(b).max(c) }
         }));
