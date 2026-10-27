@@ -307,6 +307,20 @@ fn follow_window(
 #[derive(Component)]
 struct BleedCopy;
 
+/// Whether node `e` is shown this frame, from its own and its ancestors' `Visibility`: `InheritedVisibility` is only
+/// worked out after layout, so the copies would hide and show a frame after their nodes.
+fn shown(e: Entity, tree: &Query<(&Visibility, Option<&ChildOf>), Without<BleedCopy>>) -> bool {
+    let mut at = Some(e);
+    while let Some((v, up)) = at.and_then(|e| tree.get(e).ok()) {
+        match v {
+            Visibility::Hidden => return false,
+            Visibility::Visible => return true,
+            Visibility::Inherited => at = up.map(ChildOf::parent),
+        }
+    }
+    true
+}
+
 /// B623: keeps a copy of each `widescreen::Bleed` node on the whole picture while its edges reach past the view: same
 /// image, tint and corners, its rect carried out to the window's edges (`widescreen::bleed_out`). The copies go when
 /// their nodes do.
@@ -315,7 +329,8 @@ fn bleed(
     t: Res<Targets>,
     window: Query<&Window, With<PrimaryWindow>>,
     cams: Query<&Camera>,
-    nodes: Query<(Entity, &crate::widescreen::Bleed, &Node, Option<&ImageNode>, Option<&BackgroundColor>, &InheritedVisibility), Without<crate::widescreen::BleedOutside>>,
+    nodes: Query<(Entity, &crate::widescreen::Bleed, &Node, Option<&ImageNode>, Option<&BackgroundColor>), Without<crate::widescreen::BleedOutside>>,
+    tree: Query<(&Visibility, Option<&ChildOf>), Without<BleedCopy>>,
     mut copies: Query<(&mut Node, &mut ImageNode, &mut BackgroundColor, &mut Visibility, &mut ZIndex), (With<BleedCopy>, Without<crate::widescreen::Bleed>)>,
     mut of: Local<bevy::platform::collections::HashMap<Entity, Entity>>,
 ) {
@@ -330,10 +345,11 @@ fn bleed(
     });
     let on = cams.get(t.bleed).is_ok_and(|c| c.is_active);
     let size = window.single().map_or(Vec2::ONE, |w| Vec2::new(w.width(), w.height()));
-    for (e, b, node, img, bg, vis) in &nodes {
+    for (e, b, node, img, bg) in &nodes {
+        let shown = shown(e, &tree);
         let pct = |v: Val| if let Val::Percent(p) = v { Some(p) } else { None };
         let rect = (|| Some([pct(node.left)?, pct(node.top)?, pct(node.width)?, pct(node.height)?]))();
-        let out = rect.filter(|_| on && b.on && vis.get()).map(|r| crate::widescreen::bleed_out(r, size)).filter(|&[l, t, w, h]| l < 0.0 || t < 0.0 || l + w > 100.0 || t + h > 100.0);
+        let out = rect.filter(|_| on && b.on && shown).map(|r| crate::widescreen::bleed_out(r, size)).filter(|&[l, t, w, h]| l < 0.0 || t < 0.0 || l + w > 100.0 || t + h > 100.0);
         let Some(&copy) = of.get(&e) else {
             if let Some(r) = out {
                 // B630: drawn from its first frame (a loading screen's cover made again under a new mode)
@@ -385,7 +401,8 @@ fn bleed_outside(
     window: Query<&Window, With<PrimaryWindow>>,
     cams: Query<&Camera>,
     images: Res<Assets<Image>>,
-    nodes: Query<(Entity, &crate::widescreen::Bleed, &Node, Option<&ImageNode>, Option<&BackgroundColor>, &InheritedVisibility), With<crate::widescreen::BleedOutside>>,
+    nodes: Query<(Entity, &crate::widescreen::Bleed, &Node, Option<&ImageNode>, Option<&BackgroundColor>), With<crate::widescreen::BleedOutside>>,
+    tree: Query<(&Visibility, Option<&ChildOf>), Without<BleedCopy>>,
     mut copies: Query<(&mut Node, &mut ImageNode, &mut BackgroundColor, &mut Visibility, &mut ZIndex), (With<BleedCopy>, Without<crate::widescreen::Bleed>)>,
     mut of: Local<bevy::platform::collections::HashMap<Entity, [Entity; 4]>>,
 ) {
@@ -408,10 +425,11 @@ fn bleed_outside(
         let k = size / images.get(&t.hud)?.size_f32().max(Vec2::ONE);
         Some(Rect::from_corners(vp.physical_position.as_vec2() * k, (vp.physical_position + vp.physical_size).as_vec2() * k))
     })();
-    for (e, b, node, img, bg, vis) in &nodes {
+    for (e, b, node, img, bg) in &nodes {
+        let shown = shown(e, &tree);
         let pct = |v: Val| if let Val::Percent(p) = v { Some(p) } else { None };
         let rect = (|| Some([pct(node.left)?, pct(node.top)?, pct(node.width)?, pct(node.height)?]))();
-        let pieces = rect.filter(|_| on && b.on && vis.get()).map(|r| crate::widescreen::outside_pieces(r, size, drawn)).unwrap_or_default();
+        let pieces = rect.filter(|_| on && b.on && shown).map(|r| crate::widescreen::outside_pieces(r, size, drawn)).unwrap_or_default();
         if pieces.is_empty() && !of.contains_key(&e) {
             continue;
         }
@@ -609,6 +627,13 @@ mod tests {
         world.entity_mut(e).insert(crate::widescreen::Bleed { order: 3, on: false });
         world.run_system(run).unwrap();
         assert!(shown(&mut world).is_empty());
+        // hidden the same frame as its node (its `InheritedVisibility` is still last frame's), and back with it
+        world.entity_mut(e).insert((crate::widescreen::Bleed { order: 3, on: true }, Visibility::Hidden));
+        world.run_system(run).unwrap();
+        assert!(shown(&mut world).is_empty());
+        world.entity_mut(e).insert(Visibility::Inherited);
+        world.run_system(run).unwrap();
+        assert_eq!(shown(&mut world).len(), 1);
     }
 
     #[test]
