@@ -535,7 +535,8 @@ fn start(argv: Vec<String>) {
                     play::netplay::LOBBY.lock().unwrap().take();
                     menu_mode(app)
                 });
-                play::netplay::mode(match_mode(&args.iso, &flags, back), net, room, me)
+                let mode = play::netplay::mode(match_mode(&args.iso, &flags, back), net, room.clone(), me);
+                cli_mods(mode, &args.iso, &flags, &room)
             }
             None => mode::Mode::new(menu_mode),
         };
@@ -619,6 +620,30 @@ fn add_match(app: &mut App, viewer_mod: Option<String>, mod_slot: usize, mut slo
         }
         app.insert_resource(mm);
     }
+}
+
+/// B688: `hst net … --play`'s match with the room's mods (a guest's pick, the host's own) in their match slots
+/// (`netplay::flags`' order): the wire's gameplay, the looks from the mods folder or one received before, else the
+/// donor stands in, as the menu's online start does.
+fn cli_mods(mode: mode::Mode, iso: &str, flags: &[String], room: &net::Room) -> mode::Mode {
+    let order: &[usize] = if room.doubles { &[0, 2, 1, 3] } else { &[0, 1] };
+    let (roster, cache) = (mods::list(modfs::root()), mods_online::cache(iso));
+    let mut mm = mods::MatchMod::default();
+    for (k, &s) in order.iter().enumerate() {
+        if let Some(seat) = room.seats.get(s).and_then(Option::as_ref)
+            && let Some(w) = seat.pick.r#mod.as_deref()
+        {
+            mm.set(k, mods_online::for_match(w, mods_online::find(w, seat.pick.costume, &roster, &cache).as_deref()));
+        }
+    }
+    if mm.0.is_empty() {
+        return mode;
+    }
+    let (iso, early) = (iso.to_string(), online_mod_lineup(iso, flags, &mm));
+    mode.and(move |app| {
+        app.insert_resource(mm);
+    })
+    .early(move |w| preload::mods(w, &iso, &early))
 }
 
 /// The main menu as a mode (`mode.rs`).

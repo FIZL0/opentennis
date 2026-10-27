@@ -3069,9 +3069,18 @@ pub fn cli(mut a: Vec<String>, play: bool) -> Option<(Net, Room, String)> {
     net.send(cmd);
     let t0 = std::time::Instant::now();
     let mut said_ready = false;
+    let mut settled = None;
     loop {
         for e in net.poll() {
             println!("{:6.2}s {e:?}", t0.elapsed().as_secs_f32());
+            // B688: no looks to fetch here (`--play` draws a mod from the mods folder, else its donor): every line-up
+            // is settled at once, or a line-up with a mod waits on this peer for ever
+            if let Event::Room(r) = &e
+                && settled != Some(r.ver)
+            {
+                settled = Some(r.ver);
+                net.send(Cmd::Ready(r.ver));
+            }
             match e {
                 // no menus: a guest is ready once seated, the host starts once every seat is taken and everyone's ready
                 Event::Room(_) if !host && !said_ready => {
