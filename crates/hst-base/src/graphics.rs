@@ -1,7 +1,7 @@
 //! Video settings (remaster-only; P53: the Auto preset, picked per device and timed in matches, below): borderless fullscreen or a window, frame limit, Show FPS, vsync, render resolution scale, shadow quality, MSAA and the original
 //! 640×448 mode (`hud_gamma.rs` draws it; it also fixes the aspect ratio to 4:3 and turns texture replacements off, `main.rs`).
 //! The menu edits the [`Graphics`] resource (applied live) and passes it to a match as flags
-//! (`--windowed`, `--fps N`, `--vsync`, `--scale N`, `--shadows off|low|high|original`, `--msaa off|2x|4x`, `--original`, `--mesh N`). The simulation stays a fixed
+//! (`--windowed`, `--fps N`, `--vsync`, `--scale N`, `--shadows off|low|high|original`, `--msaa off|2x|4x`, `--original`, `--mesh N`, `--shading off`). The simulation stays a fixed
 //! 60 Hz tick whatever these are. Defaults draw as before these settings existed.
 
 use bevy::light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap};
@@ -45,6 +45,9 @@ pub struct Graphics {
     /// B364: the share of the characters' triangles drawn, in percent (`lod.rs`; 100 = their own meshes). Applies to
     /// models loaded after a change. Set by a preset (B412).
     pub mesh: u32,
+    /// Character Shading: soft contact shade baked into the characters' vertex colours (`occlusion.rs`); off in
+    /// Original Mode. Applies to models loaded after a change. Set by a preset.
+    pub shading: bool,
     /// P53: the Auto preset: picked from the device (`pick`) and, while on, the first seconds of each match's play
     /// timed and the scale and shadows stepped down (`cheaper`) until 60 fps holds (`auto_tune`). Any change to a
     /// graphics row turns it off. Not part of a preset, like the window.
@@ -53,6 +56,9 @@ pub struct Graphics {
 
 /// `Graphics::mesh` for the loaders, which have no world (`character.rs`, `mods.rs`); kept in step by `mesh_detail`.
 pub static MESH: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+
+/// `Graphics::shading` (and not Original Mode) for the loaders; kept in step by `mesh_detail`.
+pub static SHADING: AtomicBool = AtomicBool::new(true);
 
 /// Set for `--shot` and unattended (HST_BG) runs: their fixed-size window never goes fullscreen (`main.rs`).
 pub static KEEP_WINDOWED: AtomicBool = AtomicBool::new(false);
@@ -70,14 +76,14 @@ const FEWER_SHADOWS: bool = true;
 
 impl Default for Graphics {
     fn default() -> Self {
-        Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, auto: false }
+        Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, auto: false }
     }
 }
 
 impl Graphics {
     /// The Steam Deck's (picked on a Deck's first run): its native 1280×800 at High's quality (P63: the Deck holds it),
     /// with vsync and the speed-ups (Fewer Shadows, Skip Off-Screen) on.
-    pub const STEAM_DECK: Graphics = Graphics { fps: 0, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, auto: false };
+    pub const STEAM_DECK: Graphics = Graphics { fps: 0, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, auto: false };
     /// The Steam Deck preset before P63 (Low shadows): a settings.txt still on it moves up to [`Self::STEAM_DECK`].
     const STEAM_DECK_OLD: Graphics = Graphics { shadows: Shadows::Low, ..Self::STEAM_DECK };
     /// A phone's or tablet's (B351, picked on the browser build's first run on a touch screen and the iOS app's first
@@ -86,16 +92,16 @@ impl Graphics {
     /// hides the lower scale. B413: with Fewer Shadows and Skip Off-Screen on (the speed-ups that measurably help);
     /// Mesh stays 100%: 75% and 50% showed no gain native (dGPU, iGPU) or in a 4x-throttled phone browser, as the
     /// characters' few thousand triangles aren't what a phone's frame waits on.
-    pub const PHONE: Graphics = Graphics { fps: 60, vsync: false, scale: 67, shadows: Shadows::Low, msaa: 2, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, auto: false };
+    pub const PHONE: Graphics = Graphics { fps: 60, vsync: false, scale: 67, shadows: Shadows::Low, msaa: 2, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: false, auto: false };
     /// The cheapest that still looks like the game: for weak GPUs.
-    pub const LOW: Graphics = Graphics { fps: 60, vsync: false, scale: 67, shadows: Shadows::Low, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, auto: false };
+    pub const LOW: Graphics = Graphics { fps: 60, vsync: false, scale: 67, shadows: Shadows::Low, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: false, auto: false };
     /// B414: below Low, for the weakest devices: half scale, no shadows or MSAA, the characters at a quarter of their
     /// triangles, every speed-up on. 60, like every preset: 30 is unplayable (user 2026-10-15), never a default.
-    pub const LOWEST: Graphics = Graphics { fps: 60, vsync: false, scale: 50, shadows: Shadows::Off, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: true, cull: true, mesh: 25, auto: false };
+    pub const LOWEST: Graphics = Graphics { fps: 60, vsync: false, scale: 50, shadows: Shadows::Off, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: true, cull: true, mesh: 25, shading: false, auto: false };
     /// B412: the best look, with every speed-up off (Fewer Shadows, Skip Off-Screen; full meshes). Default is the
     /// balanced one: the same picture with the speed-ups on.
-    pub const HIGH: Graphics = Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: false, cull: false, mesh: 100, auto: false };
-    pub const PRESETS: [(&str, Graphics); 6] = [("High", Self::HIGH), ("Default", Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, auto: false }), ("Steam Deck", Self::STEAM_DECK), ("Low", Self::LOW), ("Lowest", Self::LOWEST), ("Phone", Self::PHONE)];
+    pub const HIGH: Graphics = Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: false, cull: false, mesh: 100, shading: true, auto: false };
+    pub const PRESETS: [(&str, Graphics); 6] = [("High", Self::HIGH), ("Default", Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, auto: false }), ("Steam Deck", Self::STEAM_DECK), ("Low", Self::LOW), ("Lowest", Self::LOWEST), ("Phone", Self::PHONE)];
 
     /// Read one `key = value` (settings.txt or a flag's name and value); false if the key isn't one of these.
     pub fn set(&mut self, key: &str, v: &str) -> bool {
@@ -109,6 +115,7 @@ impl Graphics {
             "windowed" => self.windowed = v != "off",
             "show_fps" => self.show_fps = ["off", "on", "detailed"].iter().position(|&n| n == v).unwrap_or(1) as u8,
             "cull" => self.cull = v != "off",
+            "shading" | "character_shading" => self.shading = v != "off",
             "mesh" => self.mesh = v.trim_end_matches('%').trim().parse::<u32>().map_or(self.mesh, |m| m.clamp(10, 100)),
             "shadows" => self.shadows = SHADOWS.into_iter().find(|s| s.name() == v).unwrap_or(self.shadows),
             "fewer_shadows" | "fewer-shadows" => self.fewer_shadows = v != "off",
@@ -123,7 +130,7 @@ impl Graphics {
         let fps = if self.fps == 0 { "uncapped".to_string() } else { self.fps.to_string() };
         let on = |b: bool| if b { "on" } else { "off" };
         format!(
-            "frame_limit = {fps}\nvsync = {}\nrender_scale = {}\nshadows = {}\nanti_aliasing = {}\noriginal = {}\nwindowed = {}\nshow_fps = {}\nfewer_shadows = {}\ncull = {}\nmesh = {}\nauto_graphics = {}\n",
+            "frame_limit = {fps}\nvsync = {}\nrender_scale = {}\nshadows = {}\nanti_aliasing = {}\noriginal = {}\nwindowed = {}\nshow_fps = {}\nfewer_shadows = {}\ncull = {}\nmesh = {}\ncharacter_shading = {}\nauto_graphics = {}\n",
             on(self.vsync),
             self.scale,
             self.shadows.name(),
@@ -134,6 +141,7 @@ impl Graphics {
             on(self.fewer_shadows),
             on(self.cull),
             self.mesh,
+            on(self.shading),
             on(self.auto)
         )
     }
@@ -164,6 +172,9 @@ impl Graphics {
         }
         if self.mesh != 100 {
             f.extend(["--mesh".into(), self.mesh.to_string()]);
+        }
+        if !self.shading {
+            f.extend(["--shading".into(), "off".into()]);
         }
         f
     }
@@ -398,6 +409,7 @@ fn log_unpacking(b: Res<bevy::render::batching::gpu_preprocessing::BinUnpackingB
 fn mesh_detail(g: Res<Graphics>) {
     if g.is_changed() {
         MESH.store(g.mesh, Ordering::Relaxed);
+        SHADING.store(g.shading && !g.original, Ordering::Relaxed);
     }
 }
 
@@ -1102,7 +1114,7 @@ mod tests {
     #[test]
     fn text_and_flags_round_trip() {
         for (_, p) in Graphics::PRESETS {
-            let mut g = Graphics { fps: 7, vsync: !p.vsync, scale: 30, shadows: Shadows::Off, msaa: 3, original: !p.original, windowed: true, show_fps: 1, fewer_shadows: !FEWER_SHADOWS, cull: !p.cull, mesh: 50, auto: !p.auto };
+            let mut g = Graphics { fps: 7, vsync: !p.vsync, scale: 30, shadows: Shadows::Off, msaa: 3, original: !p.original, windowed: true, show_fps: 1, fewer_shadows: !FEWER_SHADOWS, cull: !p.cull, mesh: 50, shading: !p.shading, auto: !p.auto };
             for (k, v) in p.text().lines().filter_map(|l| l.split_once('=')) {
                 assert!(g.set(k, v), "{k}");
             }
@@ -1116,8 +1128,8 @@ mod tests {
         assert_eq!(Graphics { windowed: true, ..default() }.flags().last().unwrap(), "--windowed");
         assert_eq!(Graphics { cull: false, ..default() }.preset(), "Custom");
         assert_eq!(Graphics { cull: false, ..default() }.flags()[8..], ["--cull", "off"]);
-        assert_eq!(Graphics::PHONE.flags(), ["--fps", "60", "--scale", "67", "--shadows", "low", "--msaa", "2x"]);
-        assert_eq!(Graphics::LOW.flags(), ["--fps", "60", "--scale", "67", "--shadows", "low", "--msaa", "off"]);
+        assert_eq!(Graphics::PHONE.flags(), ["--fps", "60", "--scale", "67", "--shadows", "low", "--msaa", "2x", "--shading", "off"]);
+        assert_eq!(Graphics::LOW.flags(), ["--fps", "60", "--scale", "67", "--shadows", "low", "--msaa", "off", "--shading", "off"]);
         // B413: the cheap presets run with the speed-ups that help, at full Mesh
         for p in [Graphics::PHONE, Graphics::LOW, Graphics::STEAM_DECK] {
             assert!(p.fewer_shadows && p.cull && p.mesh == 100);
@@ -1145,7 +1157,7 @@ mod tests {
         let w = Graphics { windowed: true, show_fps: 1, ..default() };
         assert_eq!((w.keep(Graphics::HIGH).preset(), w.keep(Graphics::HIGH).windowed, w.keep(Graphics::HIGH).show_fps), ("High", true, 1));
         // B414: Lowest, below Low, with every speed-up on
-        assert_eq!(Graphics::LOWEST.flags(), ["--fps", "60", "--scale", "50", "--shadows", "off", "--msaa", "off", "--mesh", "25"]);
+        assert_eq!(Graphics::LOWEST.flags(), ["--fps", "60", "--scale", "50", "--shadows", "off", "--msaa", "off", "--mesh", "25", "--shading", "off"]);
         assert_eq!((Graphics::LOWEST.preset(), w.keep(Graphics::LOWEST).preset()), ("Lowest", "Lowest"));
         assert!(Graphics::LOWEST.fewer_shadows && Graphics::LOWEST.cull && Graphics::LOWEST.mesh == MESHES[0] && Graphics::LOWEST.scale == 50);
         let names: Vec<_> = Graphics::PRESETS.iter().map(|(n, _)| *n).collect();

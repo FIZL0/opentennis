@@ -440,6 +440,12 @@ impl Settings {
         }
         // P63: an older build's Steam Deck preset (Low shadows) moves up to the current one
         s.graphics = s.graphics.upgrade();
+        // before Character Shading: settings that are a preset's take the preset's value
+        if !text.contains("character_shading")
+            && let Some((_, p)) = Graphics::PRESETS.iter().find(|(_, p)| s.graphics.keep(*p) == Graphics { shading: p.shading, ..s.graphics })
+        {
+            s.graphics.shading = p.shading;
+        }
         s.upscaled_downloads = downloads.unwrap_or(s.upscaled_textures);
         s.aspect = aspect.or(wide).unwrap_or(s.aspect);
         s.volumes = Volumes::parse(text);

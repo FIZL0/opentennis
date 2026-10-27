@@ -121,7 +121,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
             "--original" => gfx.original = true,
             "--show-fps" => gfx.show_fps = 1,
             "--show-fps-detailed" => gfx.show_fps = 2,
-            "--fps" | "--scale" | "--shadows" | "--msaa" | "--fewer-shadows" | "--mesh" => _ = gfx.set(&x[2..], &a.next().unwrap_or_default()),
+            "--fps" | "--scale" | "--shadows" | "--msaa" | "--fewer-shadows" | "--mesh" | "--shading" => _ = gfx.set(&x[2..], &a.next().unwrap_or_default()),
             "--cull" => {
                 let v = a.next().unwrap_or_default();
                 gfx.set("cull", &v);
@@ -496,6 +496,7 @@ fn start(argv: Vec<String>) {
     app.add_plugins(MaterialPlugin::<effects::OnTop>::default());
     app.add_systems(PostUpdate, effects::morph_on_cpu);
     graphics::MESH.store(gfx.mesh, std::sync::atomic::Ordering::Relaxed);
+    graphics::SHADING.store(gfx.shading && !gfx.original, std::sync::atomic::Ordering::Relaxed);
     let _ = graphics::SAVE.set(play::main_menu::save_graphics);
     app.add_plugins(graphics::plugin::<play::Game>).insert_resource(gfx);
     app.add_plugins((noise::plugin, mash::plugin, spring::plugin, chat::plugin, vertex_patch::plugin));
@@ -634,6 +635,7 @@ pub fn match_mode(iso: &str, flags: &[String], back: mode::Mode) -> mode::Mode {
     let (iso, early) = (args.iso.clone(), lineup(&args, &slot_mods, viewer_mod.is_some().then_some(mod_slot)));
     let early_mods = mod_lineup(&args, &slot_mods, viewer_mod.as_ref().map(|d| (mod_slot, d)));
     graphics::MESH.store(gfx.mesh, std::sync::atomic::Ordering::Relaxed);
+    graphics::SHADING.store(gfx.shading && !gfx.original, std::sync::atomic::Ordering::Relaxed);
     mode::Mode::new(move |app| {
         app.insert_resource(gfx);
         // the app's own `--shot` goes on through the match

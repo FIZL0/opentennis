@@ -59,6 +59,8 @@ pub(super) enum Opt {
     FewerShadows,
     /// B364: the characters' share of triangles (`Graphics::mesh`, `lod.rs`).
     Mesh,
+    /// Soft contact shade on the characters (`Graphics::shading`, `occlusion.rs`).
+    Shading,
     /// B374: look for a newer release at start (`crate::update`), desktop only.
     UpdateCheck,
     /// B411: Graphics' last row, ✕ opens the Advanced sub-page (`Screen::Advanced`).
@@ -89,7 +91,7 @@ pub(super) fn tab(page: Screen) -> usize {
 /// Renderer instead (B273).
 const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] } else { &[Display, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] };
 /// What a preset sets, then the textures, then the way into Advanced.
-const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Upscaled, Advanced];
+const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Shading, Upscaled, Advanced];
 /// B411: Graphics → Advanced, the speed-up switches for a slow device.
 const ADVANCED: &[Opt] = &[Mesh, FewerShadows, Cull];
 const SOUND: &[Opt] = &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices];
@@ -151,6 +153,7 @@ fn label(o: Opt) -> &'static str {
         UpdateCheck => "Updates",
         FewerShadows => "Fewer Shadows",
         Mesh => "Mesh",
+        Shading => "Character Shading",
         Advanced => "Advanced",
     }
 }
@@ -173,6 +176,7 @@ fn about(o: Opt) -> &'static str {
         Fps => "The most frames drawn a second (the game itself always runs at 60 Hz).",
         Vsync => "Wait for the display between frames: no tearing, at most its refresh rate.",
         Mesh => "Draw the players, their rackets and the court's figures (umpire, ball kids, crowd) with this share of their triangles: lower runs faster on a weak GPU, most of all with detailed mod characters. Faces and the edges between parts keep their shape. Applies to characters loaded after a change (the next match).",
+        Shading => "Soft shade in the players' and figures' creases (under the chin, skirt and arms), worked out once as each loads. Off in Original Mode. Applies to characters loaded after a change (the next match).",
         Original => "Draw at the PS2's 640x448, 4:3, with the disc's textures, scaled up unfiltered.",
         Downloads if locked(o) => "Upscaled textures aren't available in the browser.",
         Upscaled if cfg!(target_arch = "wasm32") => "Draw the installed texture packs' textures in place of the disc's (from the next match).",
@@ -317,7 +321,7 @@ impl Settings {
     pub(super) fn step(&mut self, o: Opt, d: isize) {
         let g = &mut self.graphics;
         // P53: setting the graphics by hand ends Auto's timing
-        g.auto &= !matches!(o, Scale | Shadows | Msaa | Fps | Vsync | Original | Cull | FewerShadows | Mesh);
+        g.auto &= !matches!(o, Scale | Shadows | Msaa | Fps | Vsync | Original | Cull | FewerShadows | Mesh | Shading);
         match o {
             Display => g.windowed = !g.windowed,
             Aspect => self.aspect = (self.aspect as isize + d).rem_euclid(aspect_choices() as isize) as u8,
@@ -340,6 +344,7 @@ impl Settings {
             Vsync => g.vsync = !g.vsync,
             Original => g.original = !g.original,
             Cull => g.cull = !g.cull,
+            Shading => g.shading = !g.shading,
             // Upscaled Downloads follows Texture Replacements (B227)
             Upscaled => {
                 self.upscaled_textures = !self.upscaled_textures;
@@ -432,6 +437,7 @@ impl Settings {
             Original => on_off(g.original),
             Cull => on_off(g.cull),
             Mesh => format!("{} %", g.mesh),
+            Shading => on_off(g.shading),
             Upscaled => on_off(self.upscaled_textures),
             Volume(i) => self.volumes.0[i].to_string(),
             MenuMusic => on_off(self.menu_music),
@@ -979,7 +985,7 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         }
     }
     if let Some(&o) = opts.get(m.sel) {
-        let preset = matches!(o, Scale | Shadows | Msaa | Fps | Vsync | Original | Mesh | FewerShadows | Cull);
+        let preset = matches!(o, Scale | Shadows | Msaa | Fps | Vsync | Original | Mesh | FewerShadows | Cull | Shading);
         let note = if preset {
             "Set by Preset. Changing it switches Preset to Custom."
         } else if o == MenuSize {
