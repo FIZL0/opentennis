@@ -69,17 +69,23 @@ fn setup(mut commands: Commands, args: Res<Args>) {
     commands.insert_resource(super::replay_camera::ReplayCamera::new(game.camera_shots(), game.replay_cameras()));
 }
 
-/// Bone `name`'s world matrix with the player's motion `id` as drawn at time `t` (clamped to its length), the player
+/// Bone `name`'s world matrix with the player's motion `id` (started by the `sets`-th motion set: a mod's take) as drawn at time `t` (clamped to its length), the player
 /// standing at `pos`. Drawn (B502): a mod's own clip for the motion (its reactions 0x2c..0x2f can face up to half a
 /// turn from the donor's the game plays), else the gameplay clip, so a shot frames the body on screen. Online, a mod's
 /// gameplay clip (B556, `CharacterData::framed`): the camera decides the match's draws (`reaction_voices`), and a peer
 /// without the mod's looks draws its donor.
-pub(super) fn bone(p: &Player, data: &CharacterData, id: usize, t: f32, pos: [f32; 4], name: &str) -> Option<M4> {
+pub(super) fn bone(p: &Player, data: &CharacterData, id: usize, sets: u32, t: f32, pos: [f32; 4], name: &str) -> Option<M4> {
     let sk = &data.skeleton;
-    let c = data.framed(id)?;
+    let c = data.framed(id, sets)?;
     let n = sk.names.iter().position(|s| s == name)?;
     let mut m = player_matrix(p);
     m[3] = pos;
+    // a mod's own reaction turned as drawn (`CharacterData::reaction_turn`): its root turned in the model's frame
+    if let Some(q) = data.reaction_turn(id, c, t) {
+        let r = [Vec3::X, Vec3::Y, Vec3::Z].map(|a| (q * a).to_array());
+        let row = |i: usize| -> [f32; 4] { std::array::from_fn(|j| r[i][0] * m[0][j] + r[i][1] * m[1][j] + r[i][2] * m[2][j]) };
+        (m[0], m[1], m[2]) = (row(0), row(1), row(2));
+    }
     Some(node_world(sk, &c.locals(sk, t.min(c.length)), n, &m))
 }
 
@@ -92,12 +98,14 @@ pub(super) fn drawn_time(data: &CharacterData, m: &Motion) -> f32 {
 /// with the gameplay one and runs at its speed, so `t` frames in on either clock): a team reaction (and `gu_set`)
 /// carries the player along its root path. One without a reaction (a body-hit player standing) holds `motion`, its
 /// current one, where it stands.
-fn predicted(g: &Game, i: usize, t: f32, motion: Option<usize>) -> Option<(M4, M4)> {
+fn predicted(g: &Game, i: usize, t: f32, motion: Option<(usize, u32)>) -> Option<(M4, M4)> {
     let (p, data) = (&g.players[i], &g.data[i]);
     let Some(r) = p.root else {
-        let (id, pos) = (motion?, [p.pos[0], p.pos[1], p.pos[2], 1.0]);
-        return Some((bone(p, data, id, t, pos, "Bip01Head")?, bone(p, data, id, t, pos, "Bip01Spine2")?));
+        let ((id, sets), pos) = (motion?, [p.pos[0], p.pos[1], p.pos[2], 1.0]);
+        return Some((bone(p, data, id, sets, t, pos, "Bip01Head")?, bone(p, data, id, sets, t, pos, "Bip01Spine2")?));
     };
+    // the take the reaction draws: set the tick it started
+    let sets = motion.filter(|m| m.0 == r.motion).map_or(0, |m| m.1);
     let len = data.motions.get(&r.motion)?.length;
     let pos = match data.paths.get(&r.motion) {
         Some(path) if r.motion == id::WON_GAME as usize || r.motion >= id::TEAM as usize => {
@@ -107,7 +115,7 @@ fn predicted(g: &Game, i: usize, t: f32, motion: Option<usize>) -> Option<(M4, M
         }
         _ => [p.pos[0], p.pos[1], p.pos[2], 1.0],
     };
-    Some((bone(p, data, r.motion, t, pos, "Bip01Head")?, bone(p, data, r.motion, t, pos, "Bip01Spine2")?))
+    Some((bone(p, data, r.motion, sets, t, pos, "Bip01Head")?, bone(p, data, r.motion, sets, t, pos, "Bip01Spine2")?))
 }
 
 /// [`cutaway::pick`], but a mod (`own_reactions`) never gets the close-up (B665): the game keeps that shot, the camera
@@ -154,7 +162,7 @@ pub(super) fn step(mut g: ResMut<Game>, mut d: ResMut<Director>, q: Query<(&Figu
         // ponytail: 117 frames in, as every rally point recorded; the game adds 93 or 99 instead of 97 to its 20 under
         // two flags not traced yet
         let t = if game_end { 378.0 } else { 117.0 };
-        let motion = |i: usize| q.iter().find(|(f, _)| f.0 == i).map(|(_, m)| m.id);
+        let motion = |i: usize| q.iter().find(|(f, _)| f.0 == i).map(|(_, m)| (m.id, m.sets));
         let (Some(s), Some(o)) = (predicted(&g, shown, t, motion(shown)), predicted(&g, other, t, motion(other))) else {
             return;
         };
@@ -200,7 +208,7 @@ fn show(g: &mut Game, d: &mut Director, q: &Query<(&Figure, &Motion)>) {
     if let Some((_, m)) = q.iter().find(|(f, _)| f.0 == *shown) {
         let p = &g.players[*shown];
         frames.spot = [p.pos[0], p.pos[1], p.pos[2], 1.0];
-        if let Some(h) = bone(p, &g.data[*shown], m.id, drawn_time(&g.data[*shown], m), [p.pos[0], p.pos[1], p.pos[2], 1.0], "Bip01Head") {
+        if let Some(h) = bone(p, &g.data[*shown], m.id, m.sets, drawn_time(&g.data[*shown], m), [p.pos[0], p.pos[1], p.pos[2], 1.0], "Bip01Head") {
             frames.head = cutaway::head_frame(&h, p.hand < 0.0);
         }
     }
@@ -220,8 +228,8 @@ mod tests {
     use super::*;
     use crate::character;
 
-    /// B502: a cut-away frames the clip drawn: a stock player's gameplay reaction as before, a mod's own reaction
-    /// (0x2c..0x2f, up to half a turn from the donor's) on its own clock.
+    /// B502: a cut-away frames the clip drawn: a stock player's gameplay reaction as before, a mod's own reaction on its
+    /// own clock (a team one here: the won/lost ones also turn, `mod_reactions_turn_like_the_donor`).
     #[test]
     fn frames_follow_the_drawn_clip() {
         let Ok(mut iso) = hst_data::fixture::iso() else { return };
@@ -231,7 +239,7 @@ mod tests {
         p.body.face.dir = [0.6, 0.0, 0.8, 0.0];
         let pos = [1.0, 0.0, 2.0, 1.0];
         let mut m = Motion::default();
-        m.set(0x2c, 1.0, false, None, 0);
+        m.set(0x30, 1.0, false, None, 0);
         (m.clock.sampled, m.drawn.sampled) = (5.0, 9.0);
         let gameplay = |id: usize, t: f32| {
             let (sk, c) = (&data.skeleton, &data.motions[&id]);
@@ -239,12 +247,12 @@ mod tests {
             w[3] = pos;
             node_world(sk, &c.locals(sk, t.min(c.length)), sk.names.iter().position(|s| s == "Bip01Head").unwrap(), &w)
         };
-        let (stock, own) = (gameplay(0x2c, 5.0), gameplay(0x10, 9.0));
+        let (stock, own) = (gameplay(0x30, 5.0), gameplay(0x10, 9.0));
         assert_eq!(drawn_time(&data, &m), 5.0, "stock clock changed");
-        assert_eq!(bone(&p, &data, 0x2c, drawn_time(&data, &m), pos, "Bip01Head").unwrap(), stock, "stock frames changed");
-        data.visual.insert(0x2c, data.motions[&0x10].clone());
+        assert_eq!(bone(&p, &data, 0x30, 0, drawn_time(&data, &m), pos, "Bip01Head").unwrap(), stock, "stock frames changed");
+        data.visual.insert(0x30, data.motions[&0x10].clone());
         assert_eq!(drawn_time(&data, &m), 9.0, "not the drawn clock");
-        assert_eq!(bone(&p, &data, 0x2c, drawn_time(&data, &m), pos, "Bip01Head").unwrap(), own, "not the drawn clip");
+        assert_eq!(bone(&p, &data, 0x30, 0, drawn_time(&data, &m), pos, "Bip01Head").unwrap(), own, "not the drawn clip");
     }
 
     /// B665: a mod never gets the ground close-up, on any list; a disc character's picks are `cutaway::pick`'s.
@@ -266,5 +274,33 @@ mod tests {
             }
         }
         assert!(seen, "the disc character never got the close-up");
+    }
+
+    /// A mod's own won-point reaction (which holds its root) turns where the donor's does, so a shot made for the
+    /// donor's turn (0x66, 0x68 look past the player at the other one) sees its face, not its back.
+    #[test]
+    fn mod_reactions_turn_like_the_donor() {
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods/getagrip_pc06_mitsuzane");
+        let Ok(m) = crate::mods::read(&dir) else { return eprintln!("no mods/hst-mods/getagrip_pc06_mitsuzane, skipped") };
+        let (mut a, mut b, mut c, mut d) = (Assets::default(), Assets::default(), Assets::default(), Assets::default());
+        let data = crate::mods::load(&mut iso, &m, 0, &mut a, &mut b, &mut c, &mut d).unwrap();
+        let mut p = Player { hand: 1.0, ..default() };
+        p.body.face.dir = [0.0, 0.0, 1.0, 0.0];
+        let pos = [0.0, 0.0, 0.0, 1.0];
+        let facing = |h: M4| [-h[2][0], -h[2][2]];
+        let donor = |id: usize| {
+            let (sk, c) = (&data.skeleton, &data.motions[&id]);
+            let n = sk.names.iter().position(|s| s == "Bip01Head").unwrap();
+            facing(node_world(sk, &c.locals(sk, 117.0f32.min(c.length)), n, &player_matrix(&p)))
+        };
+        for (id, turns) in [(0x2c, true), (0x2d, false)] {
+            assert!(data.own(data.drawn(id).unwrap()), "{id:#x}: no own clip");
+            assert_eq!(data.reaction_turn(id, data.drawn(id).unwrap(), 117.0).is_some_and(|q| q.angle_between(Quat::IDENTITY) > 1.0), turns, "{id:#x}");
+            let (own, don) = (facing(bone(&p, &data, id, 0, 117.0, pos, "Bip01Head").unwrap()), donor(id));
+            assert!(own[0] * don[0] + own[1] * don[1] > 0.5, "{id:#x}: faces {own:?}, the donor {don:?}");
+        }
+        // the donor's own clip (online without the looks) never turns
+        assert!(data.reaction_turn(0x2c, &data.motions[&0x2c], 117.0).is_none());
     }
 }

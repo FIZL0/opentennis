@@ -634,9 +634,31 @@ impl CharacterData {
         self.visual.values().chain(self.takes.values().flatten()).any(|v| std::ptr::eq(v, clip))
     }
 
-    /// The clip a camera frames motion `id` by: the one drawn, but an online mod's gameplay clip (`frame_gameplay`).
-    pub fn framed(&self, id: usize) -> Option<&Clip> {
-        if self.frame_gameplay { self.motions.get(&id) } else { self.drawn(id) }
+    /// The turn about the vertical a mod's own post-point reaction (0x2c..0x2f) is drawn with `t` frames in: as far
+    /// as the donor's reaction has turned its root by then (its win turns to face the other way). Those reactions
+    /// are made for the game's post-point shots, some of which (the over-the-shoulder ones) only see the face of a
+    /// player turned that way; a mod's own clip holds its root, so it was shot from behind. None for other clips.
+    pub fn reaction_turn(&self, id: usize, clip: &Clip, t: f32) -> Option<Quat> {
+        use hst_sim::motion::id::{LOST_GAME, WON};
+        if !(WON as usize..=LOST_GAME as usize).contains(&id) || !self.own(clip) {
+            return None;
+        }
+        let donor = self.motions.get(&id)?;
+        let root = self.joint("Bip01")?;
+        let k = donor.tracks.iter().position(|tr| tr.node == root)?;
+        // the root's facing axis on the ground, as an angle about the vertical
+        let yaw = |t: f32| {
+            let [x, y, z, w] = donor.sample_drawn(k, t.min(donor.length)).0?;
+            let f = Quat::from_xyzw(-x, -y, -z, w) * Vec3::Z;
+            Some(f.x.atan2(f.z))
+        };
+        Some(Quat::from_rotation_y(yaw(t)? - yaw(0.0)?))
+    }
+
+    /// The clip a camera frames motion `id` started by the `sets`-th motion set by: the one drawn (its take), but an
+    /// online mod's gameplay clip (`frame_gameplay`).
+    pub fn framed(&self, id: usize, sets: u32) -> Option<&Clip> {
+        if self.frame_gameplay { self.motions.get(&id) } else { self.drawn_take(id, sets) }
     }
 }
 
@@ -1751,6 +1773,12 @@ pub fn animate(
             if w >= 1.0 {
                 c.from.clear();
             }
+        }
+        // a mod's own post-point reaction turns where the donor's does
+        if let (Some(turn), Some(r)) = (rig.data.reaction_turn(motion.id, new, ends[0] + (ends[1] - ends[0]) * f), rig.data.joint("Bip01"))
+            && let Some(d) = drawn.get_mut(r)
+        {
+            *d = (turn * d.0, turn * d.1);
         }
         let untwisted = untwist_thighs(&rig.data, &drawn);
         for (j, joint) in rig.data.joints.iter().enumerate() {
