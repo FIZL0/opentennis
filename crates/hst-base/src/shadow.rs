@@ -75,8 +75,97 @@ pub struct Sun {
 }
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Update, (casters, low.after(casters), aim));
+    app.add_systems(Update, (casters, low.after(casters), aim, sun_layers));
+    app.add_systems(PostUpdate, eye_layers.after(EyePasses).before(bevy::camera::visibility::VisibilitySystems::CheckVisibility));
     projected::plugin(app);
+}
+
+/// B683: the render layer a model hidden by the eye is moved to: no camera draws it, the sun's shadow map does.
+pub const EYE_HIDDEN: usize = 27;
+
+/// B683: the passes that hide a model by where the camera is (the net the eye is right at, a prop it is buried in or
+/// right in front of, a court mod's piece between it and the court, a house it stands in). They take the model out of
+/// the picture only: the original's shadows (its shade map and per-caster textures) don't depend on what the eye
+/// skips, and a caster set `Hidden` dropped its shadow too, so the low alternate camera, moving in and out of those
+/// zones behind the baseline, made the shadows on the court pop (Fighill's end fences, Queen's end stands).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EyePasses;
+
+/// B683: why a model is out of the picture: one bit per pass that hides it (they don't fight over one `Visibility`:
+/// Grand Palais' end houses are both a house the eye can stand in and a prop it can be buried in). While any bit is
+/// set its meshes are on [`EYE_HIDDEN`] only, still casting.
+#[derive(Component, Default)]
+pub struct EyeHidden(u8);
+
+impl EyeHidden {
+    pub const NET: u8 = 1;
+    pub const BURIED: u8 = 2;
+    pub const IN_FRONT: u8 = 4;
+    pub const INSIDE: u8 = 8;
+    pub const PIECE: u8 = 16;
+
+    /// Set or clear `pass`'s bit (marks it changed only when it changes).
+    pub fn set(this: &mut Mut<EyeHidden>, pass: u8, hidden: bool) {
+        let v = if hidden { this.0 | pass } else { this.0 & !pass };
+        if this.0 != v {
+            this.0 = v;
+        }
+    }
+
+    /// Hidden by `pass` alone.
+    pub fn of(pass: u8) -> Self {
+        Self(pass)
+    }
+
+    pub fn hidden(&self) -> bool {
+        self.0 != 0
+    }
+}
+
+/// A mesh [`eye_layers`] moved to [`EYE_HIDDEN`], with the layers it had before.
+#[derive(Component)]
+struct EyeKept(Option<bevy::camera::visibility::RenderLayers>);
+
+/// The match's sun casts what every view draws and what the eye hid ([`EYE_HIDDEN`]); a light that came with its own
+/// layers (a menu's) keeps them.
+fn sun_layers(mut commands: Commands, lights: Query<Entity, (Added<DirectionalLight>, Without<bevy::camera::visibility::RenderLayers>)>) {
+    use crate::twin_view::{BOTTOM, TOP};
+    for e in &lights {
+        commands.entity(e).insert(bevy::camera::visibility::RenderLayers::from_layers(&[0, TOP, BOTTOM, EYE_HIDDEN]));
+    }
+}
+
+/// Each [`EyeHidden`] model whose bits changed (and a mesh added under a hidden one): its meshes onto [`EYE_HIDDEN`]
+/// while hidden, back onto their own layers once shown.
+#[allow(clippy::type_complexity)]
+fn eye_layers(
+    mut commands: Commands,
+    changed: Query<(Entity, &EyeHidden), Changed<EyeHidden>>,
+    added: Query<Entity, Added<Mesh3d>>,
+    models: Query<&EyeHidden>,
+    up: Query<&ChildOf>,
+    children: Query<&Children>,
+    meshes: Query<(Option<&bevy::camera::visibility::RenderLayers>, Option<&EyeKept>), With<Mesh3d>>,
+) {
+    let mut put = |e: Entity, hidden: bool| {
+        let Ok((layers, kept)) = meshes.get(e) else { return };
+        match (hidden, kept) {
+            (true, None) => _ = commands.entity(e).try_insert((EyeKept(layers.cloned()), bevy::camera::visibility::RenderLayers::layer(EYE_HIDDEN))),
+            (false, Some(EyeKept(Some(l)))) => _ = commands.entity(e).try_insert(l.clone()).try_remove::<EyeKept>(),
+            (false, Some(EyeKept(None))) => _ = commands.entity(e).try_remove::<(EyeKept, bevy::camera::visibility::RenderLayers)>(),
+            _ => {}
+        }
+    };
+    for (root, h) in &changed {
+        for e in std::iter::once(root).chain(children.iter_descendants(root)) {
+            put(e, h.hidden());
+        }
+    }
+    for e in &added {
+        if std::iter::once(e).chain(up.iter_ancestors(e)).any(|a| models.get(a).is_ok_and(EyeHidden::hidden)) {
+            put(e, true);
+        }
+    }
 }
 
 impl Sun {
@@ -172,6 +261,36 @@ fn aim(sun: Option<Res<Sun>>, mut lights: Query<&mut Transform, Added<Directiona
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B683: a model the eye hides keeps casting: its meshes go to `EYE_HIDDEN` only, and get their own layers back
+    /// (or none) once no pass hides it.
+    #[test]
+    fn eye_hidden_meshes_move_to_the_sun_only_layer_and_back() {
+        use bevy::camera::visibility::RenderLayers;
+        let mut app = App::new();
+        app.add_systems(Update, eye_layers);
+        let root = app.world_mut().spawn(EyeHidden::default()).id();
+        let plain = app.world_mut().spawn((Mesh3d::default(), ChildOf(root))).id();
+        let top = app.world_mut().spawn((Mesh3d::default(), RenderLayers::layer(crate::twin_view::TOP), ChildOf(plain))).id();
+        app.update();
+        let layers = |app: &App, e| app.world().get::<RenderLayers>(e).cloned();
+        let hide = |app: &mut App, pass, on| EyeHidden::set(&mut app.world_mut().get_mut::<EyeHidden>(root).unwrap(), pass, on);
+        assert_eq!((layers(&app, plain), layers(&app, top)), (None, Some(RenderLayers::layer(crate::twin_view::TOP))));
+        hide(&mut app, EyeHidden::BURIED, true);
+        hide(&mut app, EyeHidden::INSIDE, true);
+        app.update();
+        assert_eq!((layers(&app, plain), layers(&app, top)), (Some(RenderLayers::layer(EYE_HIDDEN)), Some(RenderLayers::layer(EYE_HIDDEN))));
+        // a mesh that turns up under it while hidden is moved too
+        let late = app.world_mut().spawn((Mesh3d::default(), ChildOf(top))).id();
+        // one pass letting go isn't enough
+        hide(&mut app, EyeHidden::BURIED, false);
+        app.update();
+        assert_eq!(layers(&app, late), Some(RenderLayers::layer(EYE_HIDDEN)));
+        assert_eq!(layers(&app, plain), Some(RenderLayers::layer(EYE_HIDDEN)));
+        hide(&mut app, EyeHidden::INSIDE, false);
+        app.update();
+        assert_eq!((layers(&app, plain), layers(&app, top), layers(&app, late)), (None, Some(RenderLayers::layer(crate::twin_view::TOP)), None));
+    }
 
     #[test]
     fn low_keeps_the_shadows_on_the_court() {

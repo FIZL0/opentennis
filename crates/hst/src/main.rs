@@ -574,7 +574,7 @@ fn start(argv: Vec<String>) {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
     }
     app.insert_resource(args).insert_resource(ClearColor(Color::srgb(0.25, 0.3, 0.35))).add_systems(Update, (orbit, auto_shot, clouds))
-        .add_systems(PostUpdate, (fixed_eye, follow, backdrops, hide_inside).chain().before(bevy::transform::TransformSystems::Propagate).before(hst_base::twin_view::sync)).run();
+        .add_systems(PostUpdate, (fixed_eye, follow, backdrops, hide_inside.in_set(hst_base::shadow::EyePasses)).chain().before(bevy::transform::TransformSystems::Propagate).before(hst_base::twin_view::sync)).run();
 }
 
 /// P50: the players' disc characters and costumes (`play::setup`'s line-up), but a mod's slots.
@@ -1484,19 +1484,21 @@ fn clouds(
 /// through the wall, so its casing's back half drew a ∧ in mid-court; the original shows only the court there (its
 /// GS output has no prim nearer than the floor at that spot).
 /// ponytail: by eye, not the original's rule (not found: its VU1 clip pass accepts those triangles); only the houses.
+/// B683: hidden from the cameras only (`shadow::EyeHidden`), its shadow stays.
 #[derive(Component)]
+#[require(hst_base::shadow::EyeHidden)]
 struct HideInside {
     lo: Vec3,
     hi: Vec3,
     at: bevy::math::Affine3A,
 }
 
-fn hide_inside(camera: Query<&Transform, With<Orbit>>, mut models: Query<(&HideInside, &mut Visibility)>) {
+fn hide_inside(camera: Query<&Transform, With<Orbit>>, mut models: Query<(&HideInside, &mut hst_base::shadow::EyeHidden)>) {
     let Ok(camera) = camera.single() else { return };
     let eye = camera.translation * Vec3::new(1.0, -1.0, -1.0);
     for (h, mut v) in &mut models {
         let e = h.at.transform_point3(eye);
-        v.set_if_neq(if e.cmpge(h.lo).all() && e.cmple(h.hi).all() { Visibility::Hidden } else { Visibility::Inherited });
+        hst_base::shadow::EyeHidden::set(&mut v, hst_base::shadow::EyeHidden::INSIDE, e.cmpge(h.lo).all() && e.cmple(h.hi).all());
     }
 }
 

@@ -47,7 +47,7 @@ pub fn add(app: &mut App, court: Option<Court>) {
         .add_systems(PostStartup, setup)
         .add_systems(PreUpdate, sounds)
         .add_systems(Update, (keep.after(crate::weather::apply), animate, slide))
-        .add_systems(PostUpdate, (clear_view.before(bevy::transform::TransformSystems::Propagate), clear_off))
+        .add_systems(PostUpdate, (clear_view.in_set(crate::shadow::EyePasses).before(bevy::transform::TransformSystems::Propagate), clear_off))
         .add_systems(PostUpdate, bare.after(bevy::ui::UiSystems::Layout).before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate));
 }
 
@@ -703,6 +703,8 @@ pub fn blocks(eye: Vec3, lo: Vec3, hi: Vec3) -> bool {
 /// are while `cull::Off` holds (B583: the intro's flyover).
 /// B634: with a second view on (`twin_view`), hidden from the half whose eye it stands in front of only (its meshes
 /// put on the other half's layer), and from both when it stands in front of both.
+/// B683: hidden means put on `shadow::EYE_HIDDEN` (no camera draws it, the sun still does), so its shadow stays put
+/// as the camera moves in and out of it.
 #[allow(clippy::too_many_arguments)]
 fn clear_view(
     mut commands: Commands,
@@ -710,7 +712,6 @@ fn clear_view(
     off: Option<Res<crate::cull::Off>>,
     second: Option<Res<crate::twin_view::SecondEye>>,
     pieces: Query<&ClearView>,
-    mut vis: Query<&mut Visibility>,
     children: Query<&Children>,
     meshes: Query<(), With<Mesh3d>>,
     mut shown_in: Local<HashMap<Entity, Option<usize>>>,
@@ -728,14 +729,9 @@ fn clear_view(
             (false, Some(true)) => (false, Some(crate::twin_view::TOP)),
             (false, _) => (false, None),
         };
-        let v = if hidden { Visibility::Hidden } else { Visibility::Inherited };
-        for &e in &cv.hide {
-            if let Ok(mut x) = vis.get_mut(e) {
-                x.set_if_neq(v);
-            }
-        }
+        let only = if hidden { Some(crate::shadow::EYE_HIDDEN) } else { only };
         let Some(&key) = cv.hide.first() else { continue };
-        if !hidden && shown_in.insert(key, only).unwrap_or(None) != only {
+        if shown_in.insert(key, only).unwrap_or(None) != only {
             for e in cv.hide.iter().flat_map(|&e| std::iter::once(e).chain(children.iter_descendants(e))).filter(|&e| meshes.contains(e)) {
                 match only {
                     Some(l) => _ = commands.entity(e).try_insert(RenderLayers::layer(l)),
