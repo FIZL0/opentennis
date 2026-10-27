@@ -22,6 +22,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 - [~] **B554** Black box on the court on Microsoft Edge (user 2026-10-17, web build, online doubles on court 4 — room court index 3): a solid black rectangle stands behind the net, centre court, with the net's glass-like panel beside it (context/reports/2026-10-17/1.png). Probably a prop or a transparent/shadow material whose texture or blend failed on Edge's WebGPU/WebGL backend. Reproduce (Edge or Chromium with the same backend, that court), find the mesh (cull/lod/gs/shade), fix it (crates/hst-base/src/gs.rs, crates/hst-base/src/textures.rs, crates/hst-play/src/stage.rs) BLOCKED: no repro: native court 4 has no such object and the web harness can't import the ISO on the new landing page; needs a working Chromium/Edge run or more detail from the user (offline? ?webgl2? from the first point or after the change of ends?)
 1949cf8c6b5b557f/bevy_render-0.19.1/src/render_phase/mod.rs:1241:40:
 index out of bounds: the len is 0 but the index is 0"
+- [ ] **B681** CPU Will King (10th outfit) doesn't use his good serve (user 2026-10-27): playing against CPU Will in the King costume he never hits his special/strong serve. Check how the outfit maps to character data (serve params, AI serve choice) vs the original with the same pick → crates/hst-sim/src/serve.rs · crates/hst-sim/src/params.rs · crates/hst-sim/src/ai.rs · crates/hst-play/src/play.rs bot_serve
 
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
 
