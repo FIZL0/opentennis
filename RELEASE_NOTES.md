@@ -1,4 +1,5 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- With the alternate camera, shadows of fences, walls and stands no longer pop in and out as the camera moves behind the baseline.
 - In post-point shots, custom characters already face their opponent when the camera cuts to them, instead of turning around on screen.
 - Character Shading is softer and smoother: no more dirty-looking smudges on faces, under caps or down the neck.
 - Custom characters no longer spin around when they emote on the character select screen.

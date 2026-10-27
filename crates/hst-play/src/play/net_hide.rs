@@ -22,15 +22,18 @@ use bevy::prelude::*;
 use hst_sim::camera::View;
 
 use super::Game;
+use crate::shadow::{EyeHidden, EyePasses};
 
 /// The court object the close-camera test hides (the net).
 #[derive(Component)]
+#[require(EyeHidden)]
 pub struct HideNearCamera;
 
 /// A court object (categories 17–20, its code's third character not '0') the same pass skips while the eye is
 /// buried in it: `pos` is its plant's ground position, `prop` its collision object in `Game::world` once found
 /// (`None` inside: the model has no collision mesh, so the test never hides it).
 #[derive(Component)]
+#[require(EyeHidden)]
 pub struct HideAroundEye {
     pub pos: [f32; 3],
     pub prop: Option<Option<usize>>,
@@ -38,13 +41,15 @@ pub struct HideAroundEye {
 
 /// A tree or prop model with its box in game space (B303's fallback, `in_front`).
 #[derive(Component)]
+#[require(EyeHidden)]
 pub struct NearBox {
     pub lo: Vec3,
     pub hi: Vec3,
 }
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Update, hide.after(super::camera)).add_systems(PostUpdate, (hide_around_eye, hide_near_pieces).before(bevy::transform::TransformSystems::Propagate));
+    app.add_systems(Update, hide.after(super::camera).in_set(EyePasses))
+        .add_systems(PostUpdate, (hide_around_eye, hide_near_pieces).in_set(EyePasses).before(bevy::transform::TransformSystems::Propagate));
 }
 
 /// The objects the eye test runs on: the pass's categories with the code character the setup checks.
@@ -121,10 +126,10 @@ pub fn hidden(v: &View, cutaway: bool) -> bool {
     low < top
 }
 
-fn hide(g: Res<Game>, own: Option<Res<super::own_camera::OwnCam>>, d: Option<Res<super::cutaway::Director>>, off: Option<Res<crate::cull::Off>>, mut q: Query<&mut Visibility, With<HideNearCamera>>) {
-    let vis = if off.is_none() && hidden(&super::own_camera::shown(&g, own.as_deref()).1, d.is_some_and(|d| d.showing())) { Visibility::Hidden } else { Visibility::Inherited };
+fn hide(g: Res<Game>, own: Option<Res<super::own_camera::OwnCam>>, d: Option<Res<super::cutaway::Director>>, off: Option<Res<crate::cull::Off>>, mut q: Query<&mut EyeHidden, With<HideNearCamera>>) {
+    let gone = off.is_none() && hidden(&super::own_camera::shown(&g, own.as_deref()).1, d.is_some_and(|d| d.showing()));
     for mut v in &mut q {
-        v.set_if_neq(vis);
+        EyeHidden::set(&mut v, EyeHidden::NET, gone);
     }
 }
 
@@ -132,13 +137,13 @@ fn hide(g: Res<Game>, own: Option<Res<super::own_camera::OwnCam>>, d: Option<Res
 /// nothing while `cull::Off` holds (the intro's flyover).
 /// B634: while the split view is on, a prop that buries either half's eye is hidden (from both).
 #[allow(clippy::type_complexity)]
-fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, second: Option<Res<crate::twin_view::SecondEye>>, mut q: Query<(Option<&mut HideAroundEye>, Option<&NearBox>, &mut Visibility), Or<(With<HideAroundEye>, With<NearBox>)>>) {
+fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, second: Option<Res<crate::twin_view::SecondEye>>, mut q: Query<(Option<&mut HideAroundEye>, Option<&NearBox>, &mut EyeHidden), Or<(With<HideAroundEye>, With<NearBox>)>>) {
     let (Some(g), Ok((t, proj))) = (g, camera.single()) else { return };
     let Some(view) = drawn_view(t, proj, &window) else { return };
     let views: Vec<(View, f32)> = std::iter::once(view).chain(second_view(second.as_deref())).map(|v| { let r = reach(&v); (v, r) }).collect();
     let world = &g.world.0;
     for (h, near, mut v) in &mut q {
-        let hidden = off.is_none() && h.is_some_and(|mut h| {
+        let buried = off.is_none() && h.is_some_and(|mut h| {
             let pos = h.pos;
             // the prop whose placement takes the plant's ground position to its model origin (looked up once; read
             // through `Mut` without marking it changed after that)
@@ -149,8 +154,10 @@ fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, cam
                 })
             }) };
             prop.is_some_and(|i| views.iter().any(|(v, r)| buried_at(v, *r, &world.models, &world.props[i])))
-        }) || off.is_none() && near.is_some_and(|b| views.iter().any(|(v, r)| in_front_at(v, *r, b.lo, b.hi)));
-        v.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
+        });
+        let in_front = off.is_none() && near.is_some_and(|b| views.iter().any(|(v, r)| in_front_at(v, *r, b.lo, b.hi)));
+        EyeHidden::set(&mut v, EyeHidden::BURIED, buried);
+        EyeHidden::set(&mut v, EyeHidden::IN_FRONT, in_front);
     }
 }
 
@@ -179,7 +186,7 @@ fn second_view(second: Option<&crate::twin_view::SecondEye>) -> Option<View> {
 /// line out to 3 m), since a telephoto's longer reach also takes the pieces in frame far behind the player it
 /// follows (Dubno's caution flags); nothing while `cull::Off` holds (the intro's flyover).
 #[allow(clippy::type_complexity)]
-fn hide_near_pieces(off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, second: Option<Res<crate::twin_view::SecondEye>>, pieces: Query<&crate::court_mod::NearPiece>, mut vis: Query<&mut Visibility, (Without<HideAroundEye>, Without<NearBox>)>) {
+fn hide_near_pieces(mut commands: Commands, off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, second: Option<Res<crate::twin_view::SecondEye>>, pieces: Query<&crate::court_mod::NearPiece>, mut vis: Query<Option<&mut EyeHidden>, (Without<HideAroundEye>, Without<NearBox>)>) {
     let Ok((t, proj)) = camera.single() else { return };
     let Some(view) = drawn_view(t, proj, &window) else { return };
     // B634: in front of either half's eye while the split view is on
@@ -187,8 +194,10 @@ fn hide_near_pieces(off: Option<Res<crate::cull::Off>>, camera: Query<(&Transfor
     for np in &pieces {
         let hidden = off.is_none() && np.boxes.iter().any(|&(lo, hi)| views.iter().any(|v| in_front_at(v, 1.0, lo, hi)));
         for &e in &np.hide {
-            if let Ok(mut v) = vis.get_mut(e) {
-                v.set_if_neq(if hidden { Visibility::Hidden } else { Visibility::Inherited });
+            match vis.get_mut(e) {
+                Ok(Some(mut v)) => EyeHidden::set(&mut v, EyeHidden::PIECE, hidden),
+                Ok(None) if hidden => _ = commands.entity(e).try_insert(EyeHidden::of(EyeHidden::PIECE)),
+                _ => {}
             }
         }
     }

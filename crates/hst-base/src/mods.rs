@@ -2267,7 +2267,12 @@ mod tests {
             let r = oob_faces_follow_the_donor(&mut iso, &id).unwrap();
             eprintln!("{r}");
             // B546: every donor face finds a stand-in, but Fernando's blink (opaque sunglasses, no eye target)
-            let none = if id == "oob_pc05_fernando" { "{\"blink_eye\"}" } else { "{}" };
+            // B685: Toro has no face targets at all (his source model only turns his face node)
+            let none = match id.as_str() {
+                "oob_pc05_fernando" => "{\"blink_eye\"}",
+                "oob_pc18_toro" => "{\"anger_eye\", \"anger_mouth\", \"blink_eye\", \"doki_eye\", \"doki_mouth\", \"joy_eye\", \"joy_mouth\", \"sorrow_eye\", \"sorrow_mouth\"}",
+                _ => "{}",
+            };
             assert!(r.ends_with(&format!("no target for {none}")), "{r}");
         }
     }
