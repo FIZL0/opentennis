@@ -63,6 +63,8 @@ pub struct View {
     /// B484: the prompt's cursor when it's asked over the select or the confirm (the lobby's is `sel`).
     pub ask_row: usize,
     pub ready: Option<u32>,
+    /// The other side's mod faces still being drawn here (`previews::lent_drawn`): Ready holds for them, `poll` caps it.
+    pub faces: bool,
     /// B530: the line-up (`Room.ver`) this machine last tried to send its custom characters' picks again for.
     pub rewired: Option<u32>,
     /// B641: the picks this machine last sent from the select during the host's countdown (what its players were on).
@@ -1764,7 +1766,7 @@ impl Menu {
         let court_known = court.is_none_or(|c| self.net.looks.contains_key(&c.looks));
         // B530: and the mods' looks drawn here read in (the browser's, as the court's)
         let mods_in = room.mods().all(|(_, w)| self.net.looks.get(&w.looks).is_some_and(|d| d.as_ref().is_none_or(|d| crate::modfs::ready(d))));
-        if self.net.ready != Some(room.ver) && court_in && court_known && mods_in {
+        if self.net.ready != Some(room.ver) && court_in && court_known && mods_in && !self.net.faces {
             self.net.ready = Some(room.ver);
             net.send(Cmd::Ready(room.ver));
         }
@@ -2524,7 +2526,19 @@ pub(super) fn poll(
     time: Res<Time>,
     mut commands: Commands,
     art: Option<ResMut<super::Art>>,
+    (mut loader, baker, mut since): (Option<ResMut<super::previews::Loader>>, Option<Res<super::previews::Baker>>, Local<Option<f32>>),
 ) {
+    // the other side's mods' faces drawn before this machine says Ready, as a local launch waits (`picks_drawn`);
+    // ponytail: capped at a mod launch's wait, so a bake that never lands can't hold the match
+    let drawn = match (loader.as_deref_mut(), baker.as_deref()) {
+        (Some(l), Some(b)) if menu.online() && !menu.net.started => super::previews::lent_drawn(&menu, l, b),
+        _ => true,
+    };
+    let t = *since.get_or_insert(time.elapsed_secs());
+    menu.net.faces = !drawn && time.elapsed_secs() - t < 8.0;
+    if drawn {
+        *since = None;
+    }
     menu.net.spin = (menu.net.spin + time.delta_secs()) % 60.0;
     // B558: the lobby's screen back under the Settings pages for this, the pages again after (`over.rs`)
     let held = super::over::under(&mut menu);

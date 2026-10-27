@@ -10,3 +10,4 @@
 - In the browser, saved logs are also kept on the site's page under Storage, next to any desync reports, each with a Download button.
 - Online, a character you downloaded from another player is no longer downloaded again when they bring a newer version of it to a later lobby.
 - A character's mouth now eases back into its animation when a spoken emote line ends, instead of snapping.
+- Online, a modded character you download from another player now shows its face in the match's score panel instead of a blank one.

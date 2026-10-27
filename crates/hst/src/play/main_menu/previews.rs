@@ -331,6 +331,16 @@ pub(super) fn picks_drawn(menu: &Menu, loader: &mut Loader, baker: &Baker) -> bo
     })
 }
 
+/// Online: the other side's mod picks (borrowed looks, past this machine's own mods) have their face close-up drawn, or
+/// can't be: this machine's Ready waits on it, so a mod downloaded just before the start has its face in the match HUD.
+pub(super) fn lent_drawn(menu: &Menu, loader: &mut Loader, baker: &Baker) -> bool {
+    let own = menu.own_mods();
+    (0..menu.players())
+        .map(|p| menu.pick(p))
+        .filter(|&(w, _)| matches!(w, Who::Mod(i) if i >= own))
+        .all(|key| baker.failed.contains(&key) || loader.path(key, menu).is_none_or(|p| cached(&face_path(&p))))
+}
+
 /// B649: how long a launch waits on [`picks_drawn`] (s): a mod pick's drawing loads its model first, or its store
 /// picture comes over the network, so it gets longer than a disc pick's (~0.5 s bake); the match's panel shows a mod's
 /// face as soon as it's there, never its donor's.
