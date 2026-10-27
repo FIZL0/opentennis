@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Draws the select card's grade letters (our own art) into crates/hst/assets/grades.png: one 64-px cell per grade,
-F E D C B A S left to right, then a sparkle star for S's twinkle. Chunky rounded capitals (the menu's own M PLUS Rounded
+F E D C B A S left to right, then a sparkle star for S's twinkle, then "?" for a hidden pick. Chunky rounded capitals (the menu's own M PLUS Rounded
 ExtraBold), a dark rim, a glossy two-tone fill in the grade's colour; S white-gold with a warm halo.
 Run from the repo root: python3 tools/grade_tiles.py"""
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -16,6 +16,7 @@ COLOURS = {
     "B": ["#ffc6b8", "#ff6150", "#e3262c", "#a3101c"],
     "A": ["#fff7b8", "#ffd02a", "#ff9d00", "#d86200"],
     "S": ["#ffffff", "#fff6da", "#f2d47e", "#b9892a"],
+    "?": ["#ffffff", "#e4e7ea", "#c8ccd0", "#9aa0a6"],
 }
 
 
@@ -79,8 +80,9 @@ def star():
     return img.resize((C, C), Image.LANCZOS)
 
 
-sheet = Image.new("RGBA", (8 * C, C), (0, 0, 0, 0))
+sheet = Image.new("RGBA", (9 * C, C), (0, 0, 0, 0))
 for i, letter in enumerate("FEDCBAS"):
     sheet.paste(tile(letter), (i * C, 0))
 sheet.paste(star(), (7 * C, 0))
+sheet.paste(tile("?"), (8 * C, 0))
 sheet.save("crates/hst/assets/grades.png", optimize=True)

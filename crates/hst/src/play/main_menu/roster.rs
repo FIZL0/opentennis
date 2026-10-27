@@ -386,14 +386,6 @@ pub(super) fn ellipsis(d: &Draw, s: &str, size: f32, max: f32) -> String {
     format!("{}...", cut.trim_end())
 }
 
-/// Words with a thin dark ring (four ways round: the stats card's labels).
-fn ringed_text(d: &mut Draw, s: &str, x: f32, y: f32, size: f32, rgb: [f32; 3]) {
-    for (dx, dy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
-        d.text(s, x + dx * PX, y + dy * PY, size, [40.0, 14.0, 30.0]);
-    }
-    d.text(s, x, y, size, rgb);
-}
-
 /// The legend's □ / Tab art (`Tex::Glyph`'s), the mode pill's button.
 pub(super) const MODE_GLYPH: u8 = 4;
 
@@ -1405,10 +1397,8 @@ fn meters(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4], row: f3
         let cell = [x + w - lt, ry, lt, rh];
         match g {
             Some(g) => letter(d, g, cell),
-            None => {
-                let qs = rh * 0.7;
-                ringed_text(d, "?", cell[0] + (lt - d.width("?", qs)) / 2.0, ry + (rh - qs) / 2.0, qs, hex(0xc8ccd0));
-            }
+            // the sheet's "?" tile, past the letters and the sparkle
+            None => letter(d, 8, cell),
         }
     }
 }
@@ -1435,8 +1425,8 @@ fn letter(d: &mut Draw, g: u8, [x, y, w, h]: [f32; 4]) {
     let c = h.min(w * PY / PX);
     let cw = c * PX / PY;
     let (cx, cy) = (x + (w - cw) / 2.0, y + (h - c) / 2.0);
-    d.q(Tex::Grades, [64.0 * f32::from(g.min(6)), 0.0, 64.0, 64.0], [cx, cy, cw, c], WHITE, 128.0);
-    if g > 5 {
+    d.q(Tex::Grades, [64.0 * f32::from(if g == 8 { 8 } else { g.min(6) }), 0.0, 64.0, 64.0], [cx, cy, cw, c], WHITE, 128.0);
+    if (6..8).contains(&g) {
         for (k, [sx, sy, size]) in [[0.88, 0.1, 0.42], [0.08, 0.45, 0.3], [0.86, 0.88, 0.28]].into_iter().enumerate() {
             let a = ((d.clock / 1.8 + k as f32 / 3.0).fract() * std::f32::consts::TAU).sin().max(0.0);
             let s = size * c * (0.4 + 0.6 * a);
