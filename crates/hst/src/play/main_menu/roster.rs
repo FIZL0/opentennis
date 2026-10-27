@@ -584,7 +584,19 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
     let at = c.parts(p);
     // M120: another machine's seat (or an open one) online: a compact card, no roster
     if m.compact(p) {
-        return compact_card(d, m, text, &s, at.card, p);
+        return match m.card_facts(text, p) {
+            Some(f) => compact_card(d, m, text, &s, at.card, p, f, false),
+            None => open_seat_saying(d, &s, at.card, p, m.lobby_join_seat() == Some(p), open_line(m)),
+        };
+    }
+    // a pick locked in (and no pad waiting to take a computer's seat): the same compact card, the roster put away
+    if pl.ready && m.seats[p] != Some(Dev::Open) && join_glyph(m, p).is_none() {
+        let com = m.seats[p].is_none();
+        let owner = if com { "Computer".to_string() } else { dev_name(m.seats[p], pads) };
+        let rank = com.then(|| com_line(m, text, p).trim_start_matches("COM - ").to_string());
+        let device = (online && !com).then(|| *crate::device::CURRENT.lock().unwrap_or_else(|e| e.into_inner()));
+        let f = super::online::Facts { owner, ping: None, state: "Ready", rank, device, fetching: None };
+        return compact_card(d, m, text, &s, at.card, p, f, mine);
     }
     let active = is_active(m, n, p);
     let human = matches!(m.seats[p], Some(Dev::Keys | Dev::Pad(_))) || m.remote(p).is_some_and(|s| s.human());
@@ -695,7 +707,7 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
     // the pills: the costume (L1 / R1) on the left, the hand (Select) on the right
     pills(d, m, text, bind, &s, p, at.pills, mine);
     let gy = iy + GRADES_Y * PY;
-    meters(d, if hidden { None } else { Some(grades_of(text, m.who(p))) }, [ix, gy, iw, iy + ih - gy], false);
+    meters(d, if hidden { None } else { Some(grades_of(text, m.who(p))) }, [ix, gy, iw, iy + ih - gy], METER_ROW);
 
     // B481: a computer player a device here can take over: the join bar across its thumbnail and stats
     if let Some(style) = join_glyph(m, p) {
@@ -836,11 +848,12 @@ pub(super) fn open_line(m: &Menu) -> &'static str {
 /// the header band (the player's name over "Online" and their ping, their platform and input after it: M95), the
 /// figure full width, the character's name and play style, its hand and costume, then the roster card's stats where a
 /// local card has its grid, and along the foot what it is and where they are.
-fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p: usize) {
-    let Some(f) = m.card_facts(text, p) else {
-        return open_seat_saying(d, s, card, p, m.lobby_join_seat() == Some(p), open_line(m));
-    };
+#[allow(clippy::too_many_arguments)]
+fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p: usize, f: super::online::Facts, mine: bool) {
     let [x, y, w, h] = card;
+    if mine {
+        d.hit(card, pointer::Act::Grid(p));
+    }
     let com = f.rank.is_some();
     if com {
         rounded(d, card, 14.0, s.bg, 128.0);
@@ -858,7 +871,8 @@ fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p
     let sub = match f.ping {
         Some(ms) => format!("Online - {ms} ms"),
         None if com => "Computer".into(),
-        None => "Online".into(),
+        None if m.online() => "Online".into(),
+        None => "This machine".into(),
     };
     // concept: the host's △ on the focused card: a computer's Remove, a guest's Kick
     let focused = m.screen == super::Screen::Lobby && m.net.hosting && m.lobby_focus() == Some(p);
@@ -947,7 +961,6 @@ fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p
     d.text(&what, ix, foot_y + (foot_h - ws) / 2.0, ws, s.soft);
 }
 
-/// M95: a player's platform and input in a navy pill in the top right corner of the well ending at `right` from `top`.
 /// M95: a player's platform and input icons just after the header band's device line (`[right, middle]` from
 /// [`band`]), in the band's own colours (`solid`: a human's seat-coloured band).
 fn device_icons(d: &mut Draw, dev: crate::device::Device, [right, mid]: [f32; 2], s: &Seat, solid: bool) {
@@ -1352,33 +1365,29 @@ fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usiz
 
 /// The five grades as meters in `[x, y, w, h]` (rows at most [`METER_ROW`] tall): each its name (Serve … Footwork, else
 /// Serv … Foot where the full ones don't fit), six steps F→A filled in the grade's colour (S: all six white-gold,
-/// glowing) and its letter; empty steps and "?" for a hidden pick. `pink`: on the pink stats card (white names, pale
-/// pink empty steps) rather than a white one.
-fn meters(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4], pink: bool) {
+/// glowing) and its letter; empty steps and "?" for a hidden pick. `row`: the most row height (menu px); the words,
+/// steps and letters grow with it.
+fn meters(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4], row: f32) {
     const FULL: [&str; 5] = ["Serve", "Stroke", "Volley", "Impact", "Footwork"];
     const SHORT: [&str; 5] = ["Serv", "Strk", "Vol", "Imp", "Foot"];
     // F E D C B A
     const COLOURS: [u32; 6] = [0x909090, 0x8c3cd2, 0x2072e2, 0x2fae24, 0xe3262c, 0xff9d00];
-    let rh = (h / 5.0).min(METER_ROW * PY);
-    let ls = (rh * 0.66).min(13.0 * PY);
+    let rh = (h / 5.0).min(row * PY);
+    let ls = (rh * 0.66).min((13.0 + (row - METER_ROW) * 0.25) * PY);
     let widest = |l: &[&str; 5], d: &Draw| l.iter().map(|l| d.width(l, ls)).fold(1.0, f32::max);
     // the full names while they leave the bar at least 45% of the row
     let labels = if widest(&FULL, d) <= w * 0.32 { FULL } else { SHORT };
     let lw = widest(&labels, d).min(w * 0.32);
     let size = ls * (lw / widest(&labels, d)).min(1.0);
-    let lt = rh * PX / PY;
+    let lt = rh.min((METER_ROW + (row - METER_ROW) * 0.5) * PY) * PX / PY;
     let gap = 5.0 * PX;
     let (bx, bw) = (x + lw + gap, w - lw - lt - 2.0 * gap);
-    let (step_gap, bh) = (2.0 * PX, (rh * 0.38).clamp(3.0 * PY, 8.0 * PY));
+    let (step_gap, bh) = (2.0 * PX, (rh * 0.38).clamp(3.0 * PY, (8.0 + (row - METER_ROW) * 0.15) * PY));
     let sw = (bw - 5.0 * step_gap) / 6.0;
-    let empty = hex(if pink { 0xffc2df } else { 0xe4e0ea });
+    let empty = hex(0xe4e0ea);
     for (k, label) in labels.into_iter().enumerate() {
         let ry = y + rh * k as f32;
-        if pink {
-            ringed_text(d, label, x, ry + (rh - size) / 2.0, size, WHITE);
-        } else {
-            d.text(label, x, ry + (rh - size) / 2.0, size, hex(0xd85a9c));
-        }
+        d.text(label, x, ry + (rh - size) / 2.0, size, hex(0xd85a9c));
         let g = grades.map(|g| g[k]);
         let by = ry + (rh - bh) / 2.0;
         if g.is_some_and(|g| g > 5) {
@@ -1435,19 +1444,15 @@ fn letter(d: &mut Draw, g: u8, [x, y, w, h]: [f32; 4]) {
     }
 }
 
-/// The pink stats card in `[x, y, w, h]`: the grades as [`meters`], "?" for a hidden pick. Browse mods' detail panel
-/// shows the same card.
+/// The stats in `[x, y, w, h]`: the grades as [`meters`] (rows up to [`STATS_ROW`] tall, centred), "?" for a hidden
+/// pick. Browse mods' detail panel and the locked-in card show the same.
 pub(super) fn stats(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4]) {
-    rounded(d, [x, y, w, h], 10.0, hex(0xf58ac0), 128.0);
-    let (px, py) = (8.0 * PX, 5.0 * PY);
-    let rows = [x + px, y + py, w - 2.0 * px, h - 2.0 * py];
-    // rows as tall as the card allows, centred in it
-    let rh = (rows[3] / 5.0).min(STATS_ROW * PY);
-    meters(d, grades, [rows[0], rows[1] + (rows[3] - 5.0 * rh) / 2.0, rows[2], 5.0 * rh], true);
+    let rh = (h / 5.0).min(STATS_ROW * PY);
+    meters(d, grades, [x, y + (h - 5.0 * rh) / 2.0, w, 5.0 * rh], STATS_ROW);
 }
 
-/// The stats card's most row height (menu px).
-const STATS_ROW: f32 = 26.0;
+/// The stats' most row height (menu px).
+const STATS_ROW: f32 = 34.0;
 
 #[cfg(test)]
 mod tests {
