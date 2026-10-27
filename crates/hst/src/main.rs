@@ -1119,12 +1119,21 @@ fn net_decal(
         let mut mesh = meshes.get(m)?.clone();
         let Some(bevy::mesh::VertexAttributeValues::Float32x3(pos)) = mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION) else { return None };
         for v in pos {
+            // what lies under the floor (the indoor court's mirrored net, game y > 0) casts nothing: it folds onto
+            // the foot of the net instead of a second hatch on the other side
             let w = t.transform_point(Vec3::from(*v));
+            let w = w.with_y(w.y.min(0.0));
             *v = (w - sun.dir * (w.y / sun.dir.y) - Vec3::Y * 0.01).to_array();
         }
         let mut g = gs_materials.get(g)?.clone();
         g.key = gs::GsKey { modulate: true, test: gs::Test::Never, blend: Some(hst_data::mtl::Blend::Normal), fog: false, cull: false, ..g.key };
         (g.uniform.color, g.uniform.highlight, g.uniform.shadow) = (Vec4::ZERO, 0.0, 0.0);
+        // the game's net shadow is a 128² shadow texture over the whole net (~10 cm texels): soft, no strands. The
+        // net mesh's levels 4 up blur its cords into that shade; at full detail a high sun (the indoor court's)
+        // packs them into a hatched strip along the net's foot
+        if g.uniform.screen_lod != 0.0 {
+            g.uniform.screen_lod = 4.0;
+        }
         let g = gs_materials.add(g);
         look.decals.insert(g.id());
         Some((meshes.add(mesh), g))

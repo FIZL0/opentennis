@@ -131,7 +131,8 @@ pub struct GsUniform {
     /// 1: VU1 skips the normal transform (object flag bit 1: the batch's `mdl::Packet::flags`, and every sky and
     /// background draw), so N' = (1, 0, 0): colour = vc · mat · (ambient + light), no second light or specular.
     pub unlit: f32,
-    /// 1: the texture has mip levels the GS never had (main.rs `cutout_mips`), picked by the on-screen texel size.
+    /// Not 0: the texture has mip levels the GS never had (main.rs `cutout_mips`), picked by the on-screen texel size,
+    /// this many levels up (1; the net's shadow decal more, `net_decal`).
     pub screen_lod: f32,
 }
 
