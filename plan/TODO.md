@@ -23,6 +23,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 1949cf8c6b5b557f/bevy_render-0.19.1/src/render_phase/mod.rs:1241:40:
 index out of bounds: the len is 0 but the index is 0"
 - [ ] **B681** CPU Will King (10th outfit) doesn't use his good serve (user 2026-10-27): playing against CPU Will in the King costume he never hits his special/strong serve. Check how the outfit maps to character data (serve params, AI serve choice) vs the original with the same pick → crates/hst-sim/src/serve.rs · crates/hst-sim/src/params.rs · crates/hst-sim/src/ai.rs · crates/hst-play/src/play.rs bot_serve
+- [ ] **B682** Ball outline missing against skyboxes (user 2026-10-27): on courts like Dubno, when the player on the far side serves, the ball's outline isn't drawn where the ball is in front of the sky. Find why the outline pass drops it over the skybox (depth/draw order) and fix → crates/hst-play/src/play.rs draw · crates/hst-play/src/stage.rs (sky)
 
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
 
