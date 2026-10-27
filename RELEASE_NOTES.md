@@ -4,3 +4,4 @@
 - Switching your monitor's display mode (or unplugging a monitor) no longer closes the game.
 - In an online lobby, the host now sees the court a Random pick will actually play on.
 - On the website, turning the frame log on or off now takes effect at once: the Save log button appears (or goes away) straight away.
+- Online, a character you downloaded from another player is no longer downloaded again when they bring a newer version of it to a later lobby.
