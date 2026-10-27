@@ -332,7 +332,8 @@ pub fn cache(iso: &str) -> PathBuf {
 /// A folder here with the looks `w` names: a received copy, or one of `roster` with the same id whose pack hashes the
 /// same, else (B588) one with the same id whose costume `costume` has the pick's rig (joint names and tree): the
 /// same mod in another version, or a copy built by hand, draws in its place (gameplay comes from the wire either way)
-/// instead of a download being asked for a mod this machine has.
+/// instead of a download being asked for a mod this machine has; last, a copy received earlier in another version
+/// (the owner rebuilt the mod since) on the same rig.
 pub fn find(w: &Wire, costume: usize, roster: &[Mod], cache: &Path) -> Option<PathBuf> {
     let got = cache.join(format!("{:016x}", w.looks));
     if crate::modfs::is_file(&got.join("mod.json")) {
@@ -340,7 +341,12 @@ pub fn find(w: &Wire, costume: usize, roster: &[Mod], cache: &Path) -> Option<Pa
     }
     let same = || roster.iter().filter(|m| m.id == w.id);
     let rig = |m: &&Mod| kept(m, costume % m.costumes.len().max(1)).is_ok_and(|(sk, _)| sk.names == w.names && sk.parent == w.parent);
-    same().find(|m| looks(&m.dir) == Ok(w.looks)).or_else(|| same().find(rig)).map(|m| m.dir.clone())
+    if let Some(m) = same().find(|m| looks(&m.dir) == Ok(w.looks)).or_else(|| same().find(rig)) {
+        return Some(m.dir.clone());
+    }
+    // ponytail: reads every received copy's mod.json per lookup; fine for a handful, index them if the cache grows big
+    let received: Vec<_> = crate::modfs::read_dir(cache).into_iter().filter_map(|d| crate::mods::read_any(&d).ok()).filter(|m| m.id == w.id).collect();
+    received.iter().find(rig).map(|m| m.dir.clone())
 }
 
 /// What to do with a remote mod's looks.
@@ -474,7 +480,11 @@ mod tests {
         assert_eq!(find(&Wire { id: "other".into(), ..w.clone() }, 0, std::slice::from_ref(&mine), &cache), None);
         let mut names = w.names.clone();
         names[0] += "x";
-        assert_eq!(find(&Wire { names, ..w.clone() }, 0, std::slice::from_ref(&mine), &cache), None);
+        assert_eq!(find(&Wire { names: names.clone(), ..w.clone() }, 0, std::slice::from_ref(&mine), &cache), None);
+        // a copy received before the owner rebuilt the mod (another hash): found in the cache by id and rig too
+        let old = copy(&cache.join("00000000000000aa"));
+        assert_eq!(find(&w, 0, &[], &cache), Some(old.dir.clone()));
+        assert_eq!(find(&Wire { names, ..w.clone() }, 0, &[], &cache), None);
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
