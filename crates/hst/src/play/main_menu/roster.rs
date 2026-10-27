@@ -933,8 +933,9 @@ fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p
         d.label(&ellipsis(d, &note, ns, iw), ix + iw / 2.0, cy, ns, iw, hex(look::INK));
         cy += ns + ROW_GAP * PY;
     }
-    // the stats
-    stats(d, if pl.random { None } else { Some(grades_of(text, who)) }, [ix, cy, iw, (foot_y - ROW_GAP * PY - cy).max(0.0)]);
+    // the stats, inset from the card's sides
+    let inset = 18.0 * PX;
+    stats(d, if pl.random { None } else { Some(grades_of(text, who)) }, [ix + inset, cy, iw - 2.0 * inset, (foot_y - ROW_GAP * PY - cy).max(0.0)]);
     // the foot: what it is on the left, where they are in a pill on the right
     let what = match (&f.rank, who) {
         (Some(rank), _) => format!("COM - {rank}"),
@@ -1375,8 +1376,8 @@ fn meters(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4], row: f3
     let rh = (h / 5.0).min(row * PY);
     let ls = (rh * 0.66).min((13.0 + (row - METER_ROW) * 0.25) * PY);
     let widest = |l: &[&str; 5], d: &Draw| l.iter().map(|l| d.width(l, ls)).fold(1.0, f32::max);
-    // the full names while they leave the bar at least 45% of the row
-    let labels = if widest(&FULL, d) <= w * 0.32 { FULL } else { SHORT };
+    // the full names while they leave the bar at least 45% of the row; bigger rows (the stats) keep them, smaller
+    let labels = if row > METER_ROW || widest(&FULL, d) <= w * 0.32 { FULL } else { SHORT };
     let lw = widest(&labels, d).min(w * 0.32);
     let size = ls * (lw / widest(&labels, d)).min(1.0);
     let lt = rh.min((METER_ROW + (row - METER_ROW) * 0.5) * PY) * PX / PY;
@@ -1387,7 +1388,7 @@ fn meters(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4], row: f3
     let empty = hex(0xe4e0ea);
     for (k, label) in labels.into_iter().enumerate() {
         let ry = y + rh * k as f32;
-        d.text(label, x, ry + (rh - size) / 2.0, size, hex(0xd85a9c));
+        d.text(label, x, ry + (rh - size) / 2.0, size, hex(look::INK));
         let g = grades.map(|g| g[k]);
         let by = ry + (rh - bh) / 2.0;
         if g.is_some_and(|g| g > 5) {
