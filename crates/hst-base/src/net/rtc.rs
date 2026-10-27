@@ -152,6 +152,47 @@ pub fn is_answer(text: &str) -> bool {
     Sig::parse(text, ANSWER).is_some()
 }
 
+/// M152b: a host's signalling address as a join code: `rtch<host:port>` (the guest POSTs its offer to
+/// `http://<host:port>/rtc`, `native.rs`).
+pub const HOST: &str = "rtch";
+
+/// The signalling address in a host code (bare or in a link).
+pub fn host_addr(text: &str) -> Option<&str> {
+    let code = text.trim().rsplit("code=").next()?.split('&').next()?;
+    let a = code.strip_prefix(HOST)?;
+    let (host, port) = a.rsplit_once(':')?;
+    (!host.is_empty() && port.parse::<u16>().is_ok() && !a.contains(['/', ' ', '?', '#'])).then_some(a)
+}
+
+/// A guest that connected by signalling, for the lobby hosting now.
+type Arrival = (String, super::Conn, super::Link, super::Inbox);
+
+/// M152b: the hosting lobby's inbox for guests connected through [`native::signal`] (any thread: the listener runs on
+/// tokio's).
+static LOBBY: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<Arrival>>> = std::sync::Mutex::new(None);
+
+/// The guests that connect by signalling from now on (the host's lobby; until the receiver drops).
+pub(in crate::net) fn hosting() -> tokio::sync::mpsc::UnboundedReceiver<Arrival> {
+    let (s, r) = tokio::sync::mpsc::unbounded_channel();
+    *LOBBY.lock().unwrap() = Some(s);
+    r
+}
+
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+fn is_hosting() -> bool {
+    LOBBY.lock().unwrap().as_ref().is_some_and(|s| !s.is_closed())
+}
+
+/// A connected guest to the hosting lobby (closed if it's gone meanwhile).
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+fn arrived(name: String, conn: super::Conn, link: super::Link, inbox: super::Inbox) {
+    let lobby = LOBBY.lock().unwrap().clone();
+    let gone = conn.clone();
+    if lobby.is_none_or(|l| l.send((name, conn, link, inbox)).is_err()) {
+        gone.close(b"no lobby");
+    }
+}
+
 thread_local! {
     /// The hosting lobby's inbox for answers (pasted, or handed over by a second tab).
     static ANSWERS: std::cell::RefCell<Option<tokio::sync::mpsc::UnboundedSender<String>>> = const { std::cell::RefCell::new(None) };
@@ -360,6 +401,32 @@ mod web {
         }
     }
 
+    /// M152b: offer to a host's signalling address (`host:port`, a native host's, `native.rs`) and connect with the
+    /// answer it replies: the connection, its link and arrivals, and our name as the host knows it (the offer's ufrag).
+    pub(in crate::net) async fn dial(host: &str) -> Result<(Conn, Link, Inbox, String), String> {
+        let (peer, inbox) = Peer::new()?;
+        let o = peer.local(peer.pc.create_offer(), RtcSdpType::Offer).await?;
+        let reply = crate::modstore::client()
+            .post(format!("http://{host}/rtc"))
+            .body(o.code(OFFER))
+            .send()
+            .await
+            .map_err(|e| format!("Couldn't reach the host: {e}"))?;
+        let ok = reply.status().is_success();
+        let text = reply.text().await.map_err(|e| e.to_string())?;
+        let a = Sig::parse(&text, ANSWER).filter(|a| ok && a.to == o.ufrag).ok_or(if ok { "The host's answer made no sense.".into() } else { text })?;
+        peer.remote(&a, RtcSdpType::Answer).await?;
+        let pc = peer.pc.clone();
+        match n0_future::time::timeout(Duration::from_secs(30), peer.open(inbox)).await {
+            Ok(Ok((c, l, i))) => Ok((c, l, i, o.ufrag)),
+            Ok(Err(e)) => Err(e),
+            Err(_) => {
+                pc.close();
+                Err("Couldn't connect to the host: are both on the same network?".into())
+            }
+        }
+    }
+
     /// The guest's side: answered, waiting for the host to take the answer.
     pub struct Pending {
         peer: Peer,
@@ -391,7 +458,16 @@ mod web {
     }
 }
 
-// natively there's no WebRTC (LAN is iroh's, by mDNS): the types exist so the lobby code is the same
+// natively, M152b: hosting browser guests (and dialling such a host) by signalling; native-to-native LAN is still
+// iroh's, by mDNS. The copied-code flow (offer/answer by link) stays the browser's: the types exist so the lobby code
+// is the same
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::{Peer, listen, signal};
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::net) use native::dial;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub enum Offer {}
 
@@ -469,6 +545,48 @@ mod tests {
         assert_eq!(back, Sig { to: String::new(), ..s });
         assert!(Sig::parse("rtcoAAAA", OFFER).is_none());
         assert!(Sig::parse("endpointabc", OFFER).is_none());
+    }
+
+    #[test]
+    fn host_codes_name_a_signalling_address() {
+        assert_eq!(host_addr("rtch192.168.43.1:8790"), Some("192.168.43.1:8790"));
+        assert_eq!(host_addr("http://192.168.43.1:8790/?code=rtchhost.local:80"), Some("host.local:80"));
+        assert_eq!(host_addr("rtch192.168.43.1"), None);
+        assert_eq!(host_addr("rtch:80"), None);
+        assert_eq!(host_addr("rtchx:80/evil"), None);
+        assert_eq!(host_addr("rtcoAAAA"), None);
+    }
+
+    /// M152b: a native host takes a guest's offer at `/rtc`, and both ends talk on the two channels. The guest here is
+    /// native too (str0m on both ends); a browser guest is `tools/web_lan.mjs`'s `rtch` mode.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_native_host_takes_a_guest_by_signalling() {
+        use super::super::Msg;
+        use std::time::Duration;
+        native::LOOPBACK.store(true, std::sync::atomic::Ordering::Relaxed);
+        let at = listen(0).await.unwrap();
+        let addr = format!("127.0.0.1:{}", at.port());
+        // no lobby open: refused
+        assert!(dial(&addr).await.is_err());
+        let mut lobby = hosting();
+        let (gconn, glink, mut ginbox, me) = dial(&addr).await.unwrap();
+        let (name, hconn, hlink, mut hinbox) = tokio::time::timeout(Duration::from_secs(10), lobby.recv()).await.unwrap().unwrap();
+        assert_eq!(name, me);
+        let within = Duration::from_secs(5);
+        glink.send(&Msg::Ping(7));
+        assert_eq!(tokio::time::timeout(within, hinbox.msgs.recv()).await.unwrap(), Some(Ok(Msg::Ping(7))));
+        hlink.send(&Msg::Bye("x".repeat(100_000)));
+        assert_eq!(tokio::time::timeout(within, ginbox.msgs.recv()).await.unwrap(), Some(Ok(Msg::Bye("x".repeat(100_000)))));
+        // datagrams can drop: one of a few gets through
+        for _ in 0..5 {
+            hconn.send_datagram(vec![1, 2, 3]);
+            gconn.send_datagram(vec![4, 5]);
+        }
+        assert_eq!(tokio::time::timeout(within, ginbox.dgrams.recv()).await.unwrap(), Some(vec![1, 2, 3]));
+        assert_eq!(tokio::time::timeout(within, hinbox.dgrams.recv()).await.unwrap(), Some(vec![4, 5]));
+        gconn.close(b"bye");
+        assert!(matches!(tokio::time::timeout(Duration::from_secs(40), hinbox.msgs.recv()).await.unwrap(), Some(Err(_))));
     }
 
     #[test]
