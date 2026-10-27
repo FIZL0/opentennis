@@ -45,3 +45,4 @@
 - The character select remembers each controller's last pick only while the game stays open; starting the game afresh begins everyone on the Random card again.
 - Custom characters' mouths now follow their voice line alone while they speak, instead of mixing with the celebration's own mouth movements; celebrations animated to their own line keep their original mouth.
 - A hard smash that lands now throws up clods of earth, and in the rain the ball's bounces splash spray instead of raising a yellow ring and dust, as in the original.
+- In split screen, the sky and distant scenery (like the Earth on the training court) now show properly in the bottom half too, instead of drifting or vanishing.

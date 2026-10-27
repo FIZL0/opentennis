@@ -114,7 +114,7 @@ impl Second<'_> {
 }
 
 #[allow(clippy::type_complexity)]
-fn sync(
+pub fn sync(
     mut commands: Commands,
     eye: Option<Res<SecondEye>>,
     twins: Option<ResMut<Twins>>,

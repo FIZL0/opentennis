@@ -567,7 +567,7 @@ fn start(argv: Vec<String>) {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
     }
     app.insert_resource(args).insert_resource(ClearColor(Color::srgb(0.25, 0.3, 0.35))).add_systems(Update, (orbit, auto_shot, clouds))
-        .add_systems(PostUpdate, (fixed_eye, follow, backdrops, hide_inside).chain().before(bevy::transform::TransformSystems::Propagate)).run();
+        .add_systems(PostUpdate, (fixed_eye, follow, backdrops, hide_inside).chain().before(bevy::transform::TransformSystems::Propagate).before(hst_base::twin_view::sync)).run();
 }
 
 /// P50: the players' disc characters and costumes (`play::setup`'s line-up), but a mod's slots.
@@ -1492,13 +1492,34 @@ fn hide_inside(camera: Query<&Transform, With<Orbit>>, mut models: Query<(&HideI
     }
 }
 
-/// Runs after every Update camera move, so the backdrop never lags the camera by a frame.
-fn backdrops(camera: Query<&Transform, (With<Orbit>, Without<Backdrop>)>, mut models: Query<(&Backdrop, &mut Transform)>) {
+/// Runs after every Update camera move, so the backdrop never lags the camera by a frame. With a second view on
+/// (split screen) each backdrop mesh gets a twin standing at that view's eye instead.
+#[allow(clippy::type_complexity)]
+fn backdrops(
+    camera: Query<&Transform, (With<Orbit>, Without<Backdrop>)>,
+    mut models: Query<(Entity, &Backdrop, &mut Transform)>,
+    children: Query<&Children>,
+    parts: Query<(&Transform, &ChildOf, Has<hst_base::twin_view::Billboard>), (With<Mesh3d>, Without<Backdrop>, Without<Orbit>)>,
+    globals: Query<&GlobalTransform>,
+    mut second: hst_base::twin_view::Second,
+    mut commands: Commands,
+) {
     let Ok(camera) = camera.single() else { return };
     // game space is Bevy's turned a half-turn about X
     let eye = camera.translation * Vec3::new(1.0, -1.0, -1.0);
-    for (b, mut t) in &mut models {
+    let shift = second.eye().map(|e| e.translation - camera.translation);
+    for (e, b, mut t) in &mut models {
         *t = Transform::from_translation(eye + Vec3::Y * b.lift).with_rotation(Quat::from_rotation_y(b.yaw));
+        let Some(shift) = shift else { continue };
+        // the twin is the mesh moved by the eyes' difference (world space), said in its parent's space
+        for c in children.iter_descendants(e) {
+            let Ok((local, parent, turned)) = parts.get(c) else { continue };
+            if !turned {
+                commands.entity(c).insert(hst_base::twin_view::Billboard::TURNED);
+            }
+            let to_parent = globals.get(parent.parent()).map_or(Mat3::IDENTITY, |g| Mat3::from(g.affine().matrix3).inverse());
+            second.pose(c, Transform { translation: local.translation + to_parent * shift, ..*local });
+        }
     }
 }
 
