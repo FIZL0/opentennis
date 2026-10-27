@@ -17,9 +17,11 @@ const TOP: f32 = 196.0;
 impl Menu {
     /// Each frame: a newer version found while nothing else is up on the main menu opens the popup, or (Always) starts
     /// its install.
+    /// Always also starts it on the splash, whose New version card shows the progress; Ask waits for the main menu.
     pub(super) fn update_offer(&mut self) {
         let free = self.screen == Screen::Main && !self.paused && self.over.is_none() && self.add.ask.is_none() && self.stale.0.is_none() && self.update_ask.is_none();
-        if !free {
+        let splash = self.screen == Screen::Press && self.quit.is_none() && crate::update::ALWAYS.load(std::sync::atomic::Ordering::Relaxed);
+        if !free && !splash {
             return;
         }
         match crate::update::offer() {
