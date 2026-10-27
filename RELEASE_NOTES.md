@@ -37,3 +37,4 @@
 - A custom character with harder-hit shots now shows it on the select screen: its Serve, Stroke and Volley grades follow how fast its shots really fly, up to S.
 - Custom characters with their own shot power or arc, a bigger body, or a faster swing or run can now be picked in online matches.
 - Reload on the Mods page now brings installed, updated and removed mods in without restarting the game (phones and the browser included); characters you'd picked stay picked, and new pictures draw in the background.
+- Online → Adhoc: phones and computers on the same Wi-Fi or hotspot can open the game in a browser, no install, from the address and QR code shown on screen.
