@@ -78,10 +78,11 @@ export async function landing(dir, hasPack) {
     const auto = $('#autoplay');
     auto.checked = get('hst-autoplay') === '1';
     auto.onchange = () => put('hst-autoplay', auto.checked ? '1' : '0');
-    // B453: index.html's frame log and the game's (web.rs), from the next start
+    // B453: index.html's frame log and the game's (web.rs) start with the page: a reload turns them (and the Save log
+    // button) on or off at once
     const fps = $('#fpslog');
     fps.checked = get('hst-fps') === '1';
-    fps.onchange = () => put('hst-fps', fps.checked ? '1' : '0');
+    fps.onchange = () => { put('hst-fps', fps.checked ? '1' : '0'); location.reload(); };
     for (const a of root.querySelectorAll('.band [data-have]')) a.onclick = e => { e.preventDefault(); go(); };
     importer(go, dir);
   });
