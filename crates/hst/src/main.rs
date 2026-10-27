@@ -462,8 +462,6 @@ fn start(argv: Vec<String>) {
     }
     app.add_systems(Last, update::recheck);
     // Bevy 0.19 despawns a monitor's windows with it (`HasWindows` is linked_spawn): a monitor switching modes drops
-    // out for a moment and took the window, and the game, with it. Nothing reads the link, so no window keeps one.
-    // Bevy 0.19 despawns a monitor's windows with it (`HasWindows` is linked_spawn): a monitor switching modes drops
     // out for a moment and took the window, and the game, with it. Nothing reads the link, so no monitor keeps one
     // (taking it off a monitor unlinks its windows; taking `OnMonitor` off the window instead left it in the list).
     app.add_observer(|on: On<Add, bevy::window::HasWindows>, mut commands: Commands| {
