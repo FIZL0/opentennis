@@ -1,5 +1,6 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
 - In post-point shots, custom characters already face their opponent when the camera cuts to them, instead of turning around on screen.
+- Character Shading is softer and smoother: no more dirty-looking smudges on faces, under caps or down the neck.
 - Custom characters no longer spin around when they emote on the character select screen.
 - Once a player locks in their character, their card swaps the roster for a clean summary with roomier stats (no pink box), the same in local games as online.
 - Character select shows each grade as a meter with new letter tiles (and a sparkling S); the play style sits beside the name, and the hand and costume are shown only in their buttons, which no longer have the pointing hand.

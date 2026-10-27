@@ -6,7 +6,11 @@
 //! whose nearest hit is a face's back has gone into another part (a leg inside its shoe): it counts as open, and a
 //! vertex most of whose rays do that is hidden inside, so it stays unshaded (its black would bleed up the triangle).
 //! A face's side comes from its vertices' normals (normal + tangent slots, `gs.wgsl`'s skinned normal), not its
-//! winding. Rest pose only: the shade doesn't follow the motion.
+//! winding. A hit shades less the further it is, so a cap's brim dims a face softly instead of in blotches; then
+//! vertices at one spot (seams, part joins) share one value and a few passes smooth it over the mesh's edges.
+//! Rest pose only: the shade doesn't follow the motion. A face (a part with morph targets: face, teeth, tongue)
+//! doesn't shade itself: its lips' and eyelids' crease shade would smear across it as the expression changes; the
+//! cap, hair and collar still shade it.
 
 use crate::character::Store;
 use bevy::mesh::{Indices, VertexAttributeValues as V};
@@ -16,6 +20,8 @@ use std::sync::atomic::Ordering;
 const RAYS: usize = 32;
 /// How far a crease shades, in metres.
 const REACH: f32 = 0.2;
+/// Smoothing passes over the mesh's edges.
+const SMOOTH: usize = 2;
 
 struct Tri {
     a: Vec3,
@@ -25,6 +31,8 @@ struct Tri {
     n: Vec3,
     lo: Vec3,
     hi: Vec3,
+    /// a face's (a part with morph targets)
+    face: bool,
 }
 
 /// Shade `parts`' vertex colours when Character Shading is on (`graphics::SHADING`).
@@ -36,6 +44,7 @@ pub fn bake<'a>(meshes: &mut impl Store<Mesh>, parts: impl IntoIterator<Item = &
     // every part's vertices (position, normal) and triangles, in the model's space
     let mut verts = Vec::new();
     let mut tris = Vec::new();
+    let mut edges = Vec::new();
     for h in &parts {
         let Some(m) = meshes.get_mut(*h) else { continue };
         let (Some(V::Float32x3(pos)), Some(V::Float32x3(nrm))) = (m.attribute(Mesh::ATTRIBUTE_POSITION), m.attribute(Mesh::ATTRIBUTE_NORMAL)) else { continue };
@@ -49,13 +58,17 @@ pub fn bake<'a>(meshes: &mut impl Store<Mesh>, parts: impl IntoIterator<Item = &
             Some(Indices::U16(i)) => i.iter().map(|&i| i as usize).collect(),
             None => continue,
         };
+        let base = verts.len();
+        edges.extend(idx.as_chunks::<3>().0.iter().flat_map(|t| [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])]).map(|(a, b)| (base + a, base + b)));
+        let face = m.has_morph_targets();
         tris.extend(idx.as_chunks::<3>().0.iter().map(|t| {
             let (a, b, c) = (p[t[0]], p[t[1]], p[t[2]]);
-            Tri { a, e1: b - a, e2: c - a, n: n[t[0]] + n[t[1]] + n[t[2]], lo: a.min(b).min(c), hi: a.max(b).max(c) }
+            Tri { a, e1: b - a, e2: c - a, n: n[t[0]] + n[t[1]] + n[t[2]], lo: a.min(b).min(c), hi: a.max(b).max(c), face }
         }));
-        verts.extend(p.into_iter().zip(n));
+        verts.extend(p.into_iter().zip(n).map(|(p, n)| (p, n, face)));
     }
-    let ao = visibility(&verts, &tris);
+    let mut ao = visibility(&verts, &tris);
+    smooth(&mut ao, &verts, &edges);
     let mut at = 0;
     for h in parts {
         let Some(m) = meshes.get_mut(h) else { continue };
@@ -71,28 +84,52 @@ pub fn bake<'a>(meshes: &mut impl Store<Mesh>, parts: impl IntoIterator<Item = &
     }
 }
 
+/// Welds vertices at one spot (to 0.1 mm) to their mean, then averages each with its edge neighbours.
+fn smooth(ao: &mut [f32], verts: &[(Vec3, Vec3, bool)], edges: &[(usize, usize)]) {
+    let mut spot: std::collections::HashMap<[i32; 3], (f32, f32)> = Default::default();
+    let keys: Vec<[i32; 3]> = verts.iter().map(|(p, ..)| (*p * 1e4).round().as_ivec3().to_array()).collect();
+    for (k, v) in keys.iter().zip(ao.iter()) {
+        let e = spot.entry(*k).or_default();
+        *e = (e.0 + v, e.1 + 1.0);
+    }
+    // the passes run over spots, so a seam's two sides stay one value
+    let mut val: std::collections::HashMap<[i32; 3], f32> = spot.into_iter().map(|(k, (s, n))| (k, s / n)).collect();
+    for _ in 0..SMOOTH {
+        let mut sum: std::collections::HashMap<[i32; 3], (f32, f32)> = val.iter().map(|(k, v)| (*k, (*v, 1.0))).collect();
+        for &(a, b) in edges {
+            let (ka, kb) = (keys[a], keys[b]);
+            let (va, vb) = (val[&ka], val[&kb]);
+            sum.entry(ka).and_modify(|e| *e = (e.0 + vb, e.1 + 1.0));
+            sum.entry(kb).and_modify(|e| *e = (e.0 + va, e.1 + 1.0));
+        }
+        val = sum.into_iter().map(|(k, (s, n))| (k, s / n)).collect();
+    }
+    ao.iter_mut().zip(&keys).for_each(|(a, k)| *a = val[k]);
+}
+
 /// Each vertex's share of open rays, spread over the CPU's cores.
-fn visibility(verts: &[(Vec3, Vec3)], tris: &[Tri]) -> Vec<f32> {
+fn visibility(verts: &[(Vec3, Vec3, bool)], tris: &[Tri]) -> Vec<f32> {
     #[cfg(target_arch = "wasm32")]
-    return verts.iter().map(|&(p, n)| vertex(p, n, tris)).collect();
+    return verts.iter().map(|&(p, n, face)| vertex(p, n, face, tris)).collect();
     #[cfg(not(target_arch = "wasm32"))]
     {
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
         let chunk = verts.len().div_ceil(threads).max(1);
         std::thread::scope(|s| {
-            let jobs: Vec<_> = verts.chunks(chunk).map(|c| s.spawn(move || c.iter().map(|&(p, n)| vertex(p, n, tris)).collect::<Vec<_>>())).collect();
+            let jobs: Vec<_> = verts.chunks(chunk).map(|c| s.spawn(move || c.iter().map(|&(p, n, face)| vertex(p, n, face, tris)).collect::<Vec<_>>())).collect();
             jobs.into_iter().flat_map(|j| j.join().unwrap()).collect()
         })
     }
 }
 
-fn vertex(p: Vec3, n: Vec3, tris: &[Tri]) -> f32 {
+/// `face`: the vertex is a face's, which its own face doesn't shade.
+fn vertex(p: Vec3, n: Vec3, face: bool, tris: &[Tri]) -> f32 {
     let Some(n) = n.try_normalize() else { return 1.0 };
     let o = p + n * 0.003;
     // only the triangles within reach
-    let near: Vec<&Tri> = tris.iter().filter(|t| (o.clamp(t.lo, t.hi) - o).length_squared() < REACH * REACH).collect();
+    let near: Vec<&Tri> = tris.iter().filter(|t| (o.clamp(t.lo, t.hi) - o).length_squared() < REACH * REACH && !(face && t.face)).collect();
     let (t, b) = n.any_orthonormal_pair();
-    let (mut open, mut inside) = (0, 0);
+    let (mut open, mut inside) = (0.0, 0);
     for i in 0..RAYS {
         // cosine-weighted: a Fibonacci spiral over the disc, lifted onto the hemisphere
         let r = ((i as f32 + 0.5) / RAYS as f32).sqrt();
@@ -115,15 +152,16 @@ fn vertex(p: Vec3, n: Vec3, tris: &[Tri]) -> f32 {
             }
         }
         match nearest {
-            None => open += 1,
+            None => open += 1.0,
             Some((_, true)) => inside += 1,
-            Some((_, false)) => {}
+            // a far hit shades less
+            Some((h, false)) => open += (h / REACH).powi(2),
         }
     }
     if inside * 2 > RAYS {
         return 1.0;
     }
-    (open + inside) as f32 / RAYS as f32
+    (open + inside as f32) / RAYS as f32
 }
 
 #[cfg(test)]
@@ -132,18 +170,28 @@ mod tests {
 
     fn tri(a: [f32; 3], b: [f32; 3], c: [f32; 3], up: Vec3) -> Tri {
         let (a, b, c) = (Vec3::from(a), Vec3::from(b), Vec3::from(c));
-        Tri { a, e1: b - a, e2: c - a, n: up * 3.0, lo: a.min(b).min(c), hi: a.max(b).max(c) }
+        Tri { a, e1: b - a, e2: c - a, n: up * 3.0, lo: a.min(b).min(c), hi: a.max(b).max(c), face: false }
+    }
+
+    #[test]
+    fn smooth_welds_and_blends() {
+        // two copies of one spot (a seam) and a neighbour along an edge
+        let v = |x: f32| (Vec3::new(x, 0.0, 0.0), Vec3::Y, false);
+        let mut ao = [0.0, 1.0, 1.0];
+        smooth(&mut ao, &[v(0.0), v(0.0), v(1.0)], &[(0, 2)]);
+        assert_eq!(ao[0], ao[1], "seam shares one value");
+        assert!(ao[0] > 0.5 && ao[2] < 1.0, "{ao:?}");
     }
 
     #[test]
     fn open_shaded_and_inside() {
         // a 1 m ceiling 5 cm above the origin, facing down
         let roof = [tri([-1.0, 0.05, -1.0], [1.0, 0.05, -1.0], [0.0, 0.05, 1.0], Vec3::NEG_Y)];
-        assert_eq!(vertex(Vec3::ZERO, Vec3::NEG_Y, &roof), 1.0, "facing away");
-        assert!(vertex(Vec3::ZERO, Vec3::Y, &roof) < 0.2, "under it");
-        assert_eq!(vertex(Vec3::new(0.0, -0.5, 0.0), Vec3::Y, &roof), 1.0, "out of reach");
+        assert_eq!(vertex(Vec3::ZERO, Vec3::NEG_Y, false, &roof), 1.0, "facing away");
+        assert!(vertex(Vec3::ZERO, Vec3::Y, false, &roof) < 0.3, "under it");
+        assert_eq!(vertex(Vec3::new(0.0, -0.5, 0.0), Vec3::Y, false, &roof), 1.0, "out of reach");
         // the same roof facing up: the vertex is inside whatever it bounds
         let lid = [tri([-1.0, 0.05, -1.0], [1.0, 0.05, -1.0], [0.0, 0.05, 1.0], Vec3::Y)];
-        assert_eq!(vertex(Vec3::ZERO, Vec3::Y, &lid), 1.0, "inside");
+        assert_eq!(vertex(Vec3::ZERO, Vec3::Y, false, &lid), 1.0, "inside");
     }
 }
