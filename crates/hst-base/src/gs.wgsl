@@ -264,7 +264,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let dx = dpdx(texels);
     let dy = dpdy(texels);
     if gs.screen_lod != 0.0 {
-        level = max(0.5 * log2(max(dot(dx, dx), dot(dy, dy))) + 1.0, 0.0);
+        level = max(0.5 * log2(max(dot(dx, dx), dot(dy, dy))) + gs.screen_lod, 0.0);
     }
     let t = textureSampleLevel(gs_texture, gs_sampler, in.uv + gs.uv_offset, level);
     rgb = t.rgb * rgb;
