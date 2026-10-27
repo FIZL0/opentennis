@@ -84,4 +84,6 @@ fn main() {
         h[20].d(musl::sin(x as f64));
     }
     NAMES.iter().zip(&h).for_each(|(n, h)| println!("{n} {:016x}", h.0));
+    // a mod's generated trajectory tables (online peers compare it in the handshake)
+    println!("shot::probe {:016x}", hst_sim::shot::probe());
 }

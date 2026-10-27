@@ -730,6 +730,9 @@ pub enum Msg {
         /// M142: its disc pack's hash (`handshake::Handshake::pack`), checked with the build at the door.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pack: Option<u64>,
+        /// M151d: its generated tables' fingerprint (`handshake::Handshake::tables`), checked with the build.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tables: Option<u64>,
     },
     Room(Room),
     Refused(String),
@@ -1704,14 +1707,14 @@ fn micros(t0: n0_future::time::Instant) -> u64 {
 
 /// A guest's arrivals into the host task: its Hello first (else it's dropped), then what it says and sends, then gone.
 async fn guest(gtx: amp::UnboundedSender<Guest>, peer: String, conn: Conn, link: Link, mut inbox: Inbox) {
-    let Some(Ok(Msg::Hello { build, picks, name, courts, device, seat, pack })) = inbox.msgs.recv().await else {
+    let Some(Ok(Msg::Hello { build, picks, name, courts, device, seat, pack, tables })) = inbox.msgs.recv().await else {
         conn.close(b"no hello");
         return;
     };
     let g = gtx.clone();
     let p = gtx.clone();
     n0_future::task::spawn(read_packs(conn.clone(), move |h, b| drop(g.send(Guest::Pack(h, b))), move |h, got, n| drop(p.send(Guest::Progress(h, got, n)))));
-    let _ = gtx.send(Guest::In { peer: peer.clone(), name, picks, hand: Handshake { build, pack }, link: link.clone(), conn, courts, device, seat });
+    let _ = gtx.send(Guest::In { peer: peer.clone(), name, picks, hand: Handshake { build, pack, tables }, link: link.clone(), conn, courts, device, seat });
     loop {
         tokio::select! {
             m = inbox.msgs.recv() => match m {
@@ -2877,7 +2880,7 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
         let _ = n0_future::time::timeout(Duration::from_secs(10), ep.online()).await;
     }
     let Some((conn, link, inbox, me)) = connect(cx, code, cmds).await else { return false };
-    link.send(&Msg::Hello { build: hand.build.clone(), picks: picks.clone(), name: cx.name.clone(), courts: cx.courts.clone(), device: *cx.device.lock().unwrap(), seat: cx.seat, pack: hand.pack });
+    link.send(&Msg::Hello { build: hand.build.clone(), picks: picks.clone(), name: cx.name.clone(), courts: cx.courts.clone(), device: *cx.device.lock().unwrap(), seat: cx.seat, pack: hand.pack, tables: hand.tables });
     cx.say(Event::Me(me.clone()));
     let Inbox { msgs: mut inbox, mut dgrams } = inbox;
     let ev = cx.ev.clone();
@@ -3675,7 +3678,7 @@ mod tests {
     fn vanilla_lobby_has_no_mods() {
         let w = crate::mods_online::Wire {
             id: "x".into(), name: "X".into(), donor: 5, hand: 1.0, base: 5, overrides: vec![], ai_row: 5,
-            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 1, emotes: vec![], voices: vec![], shots: [None; 4], stats: None, dir: None,
+            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 1, emotes: vec![], voices: vec![], shots: [None; 4], stats: None, power: [1.0; 4], arc: [1.0; 4], swing: 1.0, run: 1.0, disc: false, scale: 1.0, dir: None,
         };
         let modded = Pick { r#mod: Some(Box::new(w)), swap: true, random: true, ..Pick::disc(5, 2) };
         let mut r = room(false);
@@ -4269,7 +4272,7 @@ mod tests {
     fn a_refused_mod_pick_keeps_the_guest() {
         let bad = crate::mods_online::Wire {
             id: "x".into(), name: "X".into(), donor: 3, hand: 1.0, base: 3, overrides: vec![("nope".into(), "1".into())], ai_row: 3,
-            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 1, emotes: vec![], voices: vec![], shots: [None; 4], stats: None, dir: None,
+            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 1, emotes: vec![], voices: vec![], shots: [None; 4], stats: None, power: [1.0; 4], arc: [1.0; 4], swing: 1.0, run: 1.0, disc: false, scale: 1.0, dir: None,
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -4398,7 +4401,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             };
             let code2 = code.clone();
-            let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &Handshake { build: "0.0.0 1a2b3c4".into(), pack: None }).await });
+            let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &Handshake { build: "0.0.0 1a2b3c4".into(), pack: None, tables: None }).await });
             let why = loop {
                 match gev.try_recv() {
                     Ok(Event::Failed(w)) => break w,
@@ -4415,7 +4418,7 @@ mod tests {
             let (gcx, gev) = cx().await;
             let (_gcmd, mut grx) = amp::unbounded_channel();
             let code = code2;
-            let other = Handshake { build: our_build().into(), pack: Some(2) };
+            let other = Handshake { build: our_build().into(), pack: Some(2), tables: None };
             let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &other).await });
             let why = loop {
                 match gev.try_recv() {
@@ -4496,7 +4499,7 @@ mod tests {
         let hc = crate::mods_online::hash(&court_pack);
         let wire = crate::mods_online::Wire {
             id: "x".into(), name: "X".into(), donor: 3, hand: 1.0, base: 3, overrides: vec![], ai_row: 3,
-            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: h, emotes: vec![], voices: vec![], shots: [None; 4], stats: None, dir: Some(dir.clone()),
+            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: h, emotes: vec![], voices: vec![], shots: [None; 4], stats: None, power: [1.0; 4], arc: [1.0; 4], swing: 1.0, run: 1.0, disc: false, scale: 1.0, dir: Some(dir.clone()),
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -4572,7 +4575,7 @@ mod tests {
         DECIDE_MS.store(2000, std::sync::atomic::Ordering::Relaxed);
         let wire = crate::mods_online::Wire {
             id: "x".into(), name: "X".into(), donor: 3, hand: 1.0, base: 3, overrides: vec![], ai_row: 3,
-            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 9, emotes: vec![], voices: vec![], shots: [None; 4], stats: None, dir: None,
+            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 9, emotes: vec![], voices: vec![], shots: [None; 4], stats: None, power: [1.0; 4], arc: [1.0; 4], swing: 1.0, run: 1.0, disc: false, scale: 1.0, dir: None,
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -4631,7 +4634,7 @@ mod tests {
         let h = crate::mods_online::hash(&pack);
         let wire = crate::mods_online::Wire {
             id: "x".into(), name: "X".into(), donor: 3, hand: 1.0, base: 3, overrides: vec![], ai_row: 3,
-            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: h, emotes: vec![], voices: vec![], shots: [None; 4], stats: None, dir: Some(dir.clone()),
+            names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: h, emotes: vec![], voices: vec![], shots: [None; 4], stats: None, power: [1.0; 4], arc: [1.0; 4], swing: 1.0, run: 1.0, disc: false, scale: 1.0, dir: Some(dir.clone()),
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {

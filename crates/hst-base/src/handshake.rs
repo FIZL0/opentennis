@@ -1,6 +1,6 @@
 //! Online match setup (M2e): the host picks the match seed, and a joining peer's handshake (in its lobby Hello) must
 //! agree with the host's on what the lobby can't make the same, its build and its disc, else the host refuses it with
-//! a message saying what differs (M142). The rest that changes the simulation is the lobby's own: the rules, seats
+//! a message saying what differs (M142), and on how it builds a mod's generated shot tables (M151d: `tables`). The rest that changes the simulation is the lobby's own: the rules, seats
 //! and picks (B40g3: each player's handicap with them, the host's to set) come from the host's `Room`, a mod's
 //! gameplay data from the wire (`mods_online::Wire`); anything that still drifts shows in the desync hash.
 
@@ -18,6 +18,16 @@ pub struct Handshake {
     pub build: String,
     /// The disc pack's hash (`Iso::pack_hash`); `None` running from an ISO (its disc ID is checked at start).
     pub pack: Option<u64>,
+    /// M151d: this machine's fingerprint of the generated trajectory tables (`hst_sim::shot::probe`): a mod's §6
+    /// `shots` `power`/`arc` tables are built by every peer from the wire, so they must come out the same. `None`
+    /// from a peer that doesn't send it.
+    pub tables: Option<u64>,
+}
+
+/// This machine's [`Handshake::tables`], worked out once (a few milliseconds).
+pub fn tables() -> u64 {
+    static TABLES: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *TABLES.get_or_init(hst_sim::shot::probe)
 }
 
 /// The build: two builds can't be trusted to simulate alike. M22: one id for the lobby's Hello (`net.rs`) and this
@@ -52,7 +62,7 @@ pub fn set_pack(hash: Option<u64>) {
 impl Handshake {
     /// This app's.
     pub fn here() -> Handshake {
-        Handshake { build: build().into(), pack: pack() }
+        Handshake { build: build().into(), pack: pack(), tables: Some(tables()) }
     }
 
     /// A joining peer's handshake (`self`) against the host's: `Ok` to play, else why not, in words for the player.
@@ -68,15 +78,20 @@ impl Handshake {
                 "your imported disc ({a:016x}) isn't the same as the host's ({b:016x}). Re-import an unmodified Hot Shots Tennis (USA) disc."
             ));
         }
+        if let (Some(a), Some(b)) = (self.tables, host.tables)
+            && a != b
+        {
+            return Err(format!("your device computes the game differently from the host's ({a:016x}, host {b:016x}): you can't play together."));
+        }
         Ok(())
     }
 }
 
-/// A mod's gameplay data (what feeds the simulation: donor, hand, TParam row and overrides, AI row) as a 64-bit
+/// A mod's gameplay data (what feeds the simulation: donor, hand, TParam row and overrides, AI row, §6 build) as a 64-bit
 /// FNV-1a hash, the same on every platform. Looks (models, textures, faces, voice, motions drawn) aren't in it.
 #[cfg(test)]
 pub fn gameplay_hash(m: &crate::mods::Mod) -> u64 {
-    let s = format!("{} {} {} {:?} {}", m.donor, m.hand.to_bits(), m.base, m.overrides, m.ai_row);
+    let s = format!("{} {} {} {:?} {} {:?}", m.donor, m.hand.to_bits(), m.base, m.overrides, m.ai_row, m.build);
     s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3))
 }
 
@@ -87,7 +102,7 @@ mod tests {
 
     #[test]
     fn same_build_and_disc_join_and_differences_are_refused() {
-        let h = Handshake { build: build().into(), pack: Some(7) };
+        let h = Handshake { build: build().into(), pack: Some(7), tables: Some(tables()) };
         assert_eq!(h.check(&h), Ok(()));
         // an ISO (no pack hash) is taken on its disc ID, on either side
         assert_eq!(Handshake { pack: None, ..h.clone() }.check(&h), Ok(()));
@@ -98,6 +113,11 @@ mod tests {
         assert_eq!(Handshake { pack: old, ..h.clone() }.check(&Handshake { pack: new, ..h.clone() }), Ok(()));
         let e = Handshake { pack: Some(8), ..h.clone() }.check(&h).unwrap_err();
         assert!(e.contains("imported disc (0000000000000008) isn't the same as the host's (0000000000000007)") && e.contains("Re-import"), "{e}");
+        // M151d: the generated tables' fingerprint must agree (a peer without one is taken on its build)
+        assert_eq!(Handshake::here().tables, Some(tables()));
+        assert_eq!(Handshake { tables: None, ..h.clone() }.check(&h), Ok(()));
+        let e = Handshake { tables: Some(tables() ^ 1), ..h.clone() }.check(&h).unwrap_err();
+        assert!(e.contains("computes the game differently"), "{e}");
     }
 
     #[test]
@@ -128,5 +148,6 @@ mod tests {
         assert_ne!(h, gameplay_hash(&Mod { hand: -1.0, ..m.clone() }));
         assert_ne!(h, gameplay_hash(&Mod { ai_row: 4, ..m.clone() }));
         assert_ne!(h, gameplay_hash(&Mod { overrides: vec![("Strk POW".into(), "6".into())], ..m.clone() }));
+        assert_ne!(h, gameplay_hash(&Mod { build: crate::mods::Build { power: [1.4, 1.0, 1.0, 1.0], ..Default::default() }, ..m.clone() }));
     }
 }

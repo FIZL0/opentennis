@@ -15,7 +15,7 @@ use crate::vu0;
 use crate::world::{self, M4};
 
 mod powered;
-pub use powered::MAX_SPEED;
+pub use powered::{MAX_SPEED, probe};
 
 /// Shot classes: the trajectory tables' and the shot records' first index (`Launch`, `Margins`, `params`).
 pub mod class {
