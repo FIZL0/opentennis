@@ -379,7 +379,7 @@ mod tests {
         }
     }
 
-    /// B596: a mod's emote voices go through all of its own takes (T-Bone: four of 9, five of 7, three of 8, past the
+    /// B596: a mod's emote voices go through all of its own takes (T-Bone: six of 9, five of 7, three of 8, past the
     /// disc's keys or short of them). Needs the ISO and the mods repo's packaged mods in `mods/hst-mods`.
     #[test]
     fn a_mods_emote_voices_take_turns() {
@@ -393,7 +393,7 @@ mod tests {
         }
         let mods = [crate::mods::read(dir).unwrap()];
         let mut banks = HashMap::new();
-        for (id, program, keys) in [(0x2e, 9, &[1, 2, 3, 0, 1][..]), (0x2c, 7, &[1, 2, 3, 4, 0]), (0x2d, 8, &[1, 2, 0, 1])] {
+        for (id, program, keys) in [(0x2e, 9, &[1, 2, 3, 4, 5, 0, 1][..]), (0x2c, 7, &[1, 2, 3, 4, 0]), (0x2d, 8, &[1, 2, 0, 1])] {
             let mut key = 0;
             let got: Vec<_> = keys.iter().map(|_| voice(id, Who::Mod(0), &mods, &mut banks, &mut key, iso).map(|(_, p)| (p.program, p.key)).unwrap()).collect();
             assert_eq!(got, keys.iter().map(|&k| (program, k)).collect::<Vec<_>>(), "motion {id:#x}");
