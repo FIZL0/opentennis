@@ -10,8 +10,10 @@ use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source, SpatialPlayer};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc, Mutex,
+    Arc,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Mutex;
 use tracing::warn;
 
 use crate::{AudioSink, AudioSinkPlayback};
@@ -22,6 +24,7 @@ pub(crate) struct AudioOutput {
     stream: Option<MixerDeviceSink>,
     // HST (B677): set by the open sink's error callback once its device has gone away (a PipeWire restart, a
     // suspend, a Bluetooth headset switched off), so `reopen_audio_output` drops it and opens the default sink again
+    #[cfg(not(target_arch = "wasm32"))]
     lost: Arc<AtomicBool>,
     // HST (B677): how far the device has pulled the mixer, and when that last moved: an output whose server went
     // away can also just stop pulling with no error at all (pipewire-alsa sits in `poll` once PipeWire is killed)
@@ -42,9 +45,10 @@ impl Default for AudioOutput {
             }
         };
         #[cfg(target_arch = "wasm32")]
-        let _ = pulls;
+        let _ = (lost, pulls);
         Self {
             stream,
+            #[cfg(not(target_arch = "wasm32"))]
             lost,
             #[cfg(not(target_arch = "wasm32"))]
             pulled: (pulls, 0, std::time::Instant::now()),
