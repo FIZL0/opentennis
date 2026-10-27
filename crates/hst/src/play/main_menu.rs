@@ -2520,6 +2520,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     commands.remove_resource::<Roster>();
     let (mods, mods_dir) = (std::mem::take(&mut roster.0), std::mem::take(&mut roster.1));
     let fresh = kept.is_none();
+    crate::mods_online::clear(&crate::mods_online::cache(&args.iso));
     // first run (no settings.txt): the Auto preset's pick for this device (P53; B351: a phone's is Phone or below it,
     // the browser on a touch screen too; a Steam Deck's its own)
     let first = || Settings { graphics: auto_graphics(), ..Settings::default() };

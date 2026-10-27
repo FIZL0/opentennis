@@ -15,3 +15,4 @@
 - A match that runs well under 60 fps now lowers its graphics by itself even with hand-picked settings (Auto already did), so a slow computer stays playable.
 - A modded character's Serve grade on the select screen now matches how well it really serves.
 - Modded characters now turn after a point the way the original characters do, so the after-point camera shows them from the front instead of from behind.
+- Online, keeping a character you downloaded from another player now installs it as the store's mod when that's where it came from, so it gets updates like any other store mod. Downloads you don't keep are cleared the next time you start the game.
