@@ -284,7 +284,12 @@ pub fn unpack(pack: &[u8], looks: u64, cache: &Path) -> Result<Mod, String> {
             crate::modfs::write(&p, b.to_vec())?;
         }
         // any kind (a pick's character, the host's court), every file as hostile input
-        crate::modfs::check_all(&dir, &files.iter().map(|f| f.0.clone()).collect::<Vec<_>>())
+        let m = crate::modfs::check_all(&dir, &files.iter().map(|f| f.0.clone()).collect::<Vec<_>>())?;
+        // it came from the store: kept, it's that store mod (`store.json` isn't part of the looks)
+        if let Some(s) = crate::modstore::fetched_stamp(looks) {
+            crate::modfs::write(&dir.join("store.json"), s)?;
+        }
+        Ok(m)
     })();
     if got.is_err() {
         gone();
@@ -327,6 +332,17 @@ impl CourtWire {
 /// the custom roster).
 pub fn cache(iso: &str) -> PathBuf {
     crate::store::path(iso, "mods-online")
+}
+
+/// Once a run: drops what earlier runs received (`cache`'s folders; one kept was copied into the mods by then), so
+/// downloads nobody kept don't pile up. The lobby prompt's old `ask.txt` stays.
+pub fn clear(cache: &Path) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        for d in std::fs::read_dir(cache).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    });
 }
 
 /// A folder here with the looks `w` names: a received copy, or one of `roster` with the same id whose pack hashes the
@@ -485,6 +501,27 @@ mod tests {
         let old = copy(&cache.join("00000000000000aa"));
         assert_eq!(find(&w, 0, &[], &cache), Some(old.dir.clone()));
         assert_eq!(find(&Wire { names, ..w.clone() }, 0, &[], &cache), None);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// A copy the store handed the lobby is stamped as that store mod, so keeping it installs the store mod.
+    #[test]
+    fn a_store_copy_kept_is_the_store_mod() {
+        let src = &hst_data::fixture::path("fixtures/mods/test_pc00");
+        if !src.is_dir() {
+            return hst_data::fixture::skip("no fixtures/mods/test_pc00");
+        }
+        let tmp = std::env::temp_dir().join(format!("hst-keepstore-{}", std::process::id()));
+        let p = pack(src).unwrap();
+        let s = crate::modstore::Stamp { sha256: "ab".into(), rev: "main".into(), verified: true, author: "me".into(), render: None };
+        crate::modstore::fetched_for_test(hash(&p), &s);
+        let got = unpack(&p, hash(&p), &tmp.join("cache")).unwrap();
+        assert_eq!(pack(&got.dir).map(|b| hash(&b)), Ok(hash(&p)), "the stamp isn't part of the looks");
+        let kept = crate::modfs::keep(&got.dir, &tmp.join("mods")).unwrap();
+        assert_eq!(crate::modstore::stamp(&kept.dir).map(|s| (s.sha256, s.author)), Some(("ab".into(), "me".into())));
+        // one from its owner isn't
+        let again = unpack(&p, hash(&p), &tmp.join("cache2")).unwrap();
+        assert!(crate::modstore::stamp(&again.dir).is_none());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
