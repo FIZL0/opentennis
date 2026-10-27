@@ -3390,6 +3390,12 @@ mod tests {
         let mut m = Menu { screen: Screen::Online, p1: Some(pad), seats: [Some(pad), None, None, None], ..default() };
         m.step(Dev::Keys, Press { ok: true, ..default() });
         assert_eq!((m.seats[0], m.p1), (Some(Dev::Keys), Some(Dev::Keys)));
+        // the pad opened Join by Code: the keyboard types the code and its Enter joins, the pad stays 1P
+        let mut m = Menu { screen: Screen::Code, p1: Some(pad), seats: [Some(pad), None, None, None], ..default() };
+        "AB23".chars().for_each(|c| m.type_char(c));
+        m.sel = m.keys().len() + 2;
+        m.step(Dev::Keys, Press { ok: true, ..default() });
+        assert_eq!((m.seats[0], m.p1, m.net.go), (Some(pad), Some(pad), Some(Go::Code)));
     }
 
     #[test]

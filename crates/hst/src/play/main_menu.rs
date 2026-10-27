@@ -1475,8 +1475,10 @@ impl Menu {
             Some(lead) if k.back && dev == Dev::Keys && self.online() && !self.seats.contains(&Some(dev)) && matches!(self.screen, Screen::Chars | Screen::Lobby) => lead,
             _ => dev,
         };
-        // concept: whoever works the online menus goes into the lobby as 1P
-        if k.ok && matches!(self.screen, Screen::Online | Screen::Lobbies | Screen::Code) && matches!(dev, Dev::Keys | Dev::Pad(_)) && self.seats[0] != Some(dev) && (dev == Dev::Keys || self.p1 == Some(dev)) {
+        // concept: whoever works the online menus goes into the lobby as 1P; on Join by Code the device that opened it
+        // keeps 1P, so the keyboard typing the code (and its Enter) doesn't take it from that pad
+        let typing = self.screen == Screen::Code && dev == Dev::Keys && self.seats[0].is_some();
+        if k.ok && !typing && matches!(self.screen, Screen::Online | Screen::Lobbies | Screen::Code) && matches!(dev, Dev::Keys | Dev::Pad(_)) && self.seats[0] != Some(dev) && (dev == Dev::Keys || self.p1 == Some(dev)) {
             (self.seats[0], self.p1) = (Some(dev), Some(dev));
         }
         // a lobby link's start (`online::linked`): the first device to press anything is this machine's player
