@@ -247,8 +247,8 @@ fn strip(d: &mut Draw, m: &Menu, r: Option<&Room>, g: &frame::Geo, on: &dyn Fn(I
         let cell = |label| Cell { label, value: "...".into(), arrows: false, sel: false, thumb: Thumb::None };
         return frame::strip(d, m, g, &[cell("COURT"), cell("UMPIRE"), cell("SETS"), cell("GAMES"), cell("MODS"), cell("MARKERS")]);
     };
-    // the host's own choice (Random stays Random), a guest's the lobby's
-    let (court, sets, games, umpire) = if host { (m.court, m.sets, m.games, m.umpire as usize) } else { (m.room_court_value(r), r.sets, r.games, r.umpire as usize) };
+    // the host's own choice (Random as the court it drew), a guest's the lobby's
+    let (court, sets, games, umpire) = if host { (m.court_pick(), m.sets, m.games, m.umpire as usize) } else { (m.room_court_value(r), r.sets, r.games, r.umpire as usize) };
     let umpire_name = match r.umpire_mod.as_ref().filter(|_| !host && !r.vanilla) {
         // M8f3: the host's umpire mod by its name (a guest without it hears the donor)
         Some((_, name)) => name.clone(),
