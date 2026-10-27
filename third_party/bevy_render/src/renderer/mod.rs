@@ -176,6 +176,19 @@ async fn find_adapter_by_name(
     None
 }
 
+/// HST (M154): the primary window's display, for the instance (see `initialize_renderer`).
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#[derive(Debug)]
+struct PrimaryDisplay(bevy_window::RawHandleWrapper);
+
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+impl wgpu::rwh::HasDisplayHandle for PrimaryDisplay {
+    fn display_handle(&self) -> Result<wgpu::rwh::DisplayHandle<'_>, wgpu::rwh::HandleError> {
+        // SAFETY: the wrapper keeps its window, and with it the display connection, alive
+        Ok(unsafe { wgpu::rwh::DisplayHandle::borrow_raw(self.0.get_display_handle()) })
+    }
+}
+
 /// Initializes the renderer by retrieving and preparing the GPU instance, device and queue
 /// for the specified backend.
 pub async fn initialize_renderer(
@@ -189,6 +202,14 @@ pub async fn initialize_renderer(
         backends,
         flags: options.instance_flags,
         memory_budget_thresholds: options.instance_memory_budget_thresholds,
+        // HST (M154): ARM Linux runs on wgpu's GL ES (EGL), which only presents to the display its instance was made
+        // on: with none, the window's surface offered no present modes and creating it panicked
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        display: primary_window
+            .as_ref()
+            .and_then(|holder| holder.0.lock().ok()?.clone())
+            .map(|wrapper| Box::new(PrimaryDisplay(wrapper)) as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>),
+        #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
         display: None,
         backend_options: wgpu::BackendOptions {
             gl: wgpu::GlBackendOptions {

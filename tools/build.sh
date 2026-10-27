@@ -1,6 +1,8 @@
 #!/bin/bash
-# tools/build.sh [linux|windows|ios|android|all] — optimised (release) builds of the game into dist/:
+# tools/build.sh [linux|linux-aarch64|windows|ios|android|all] — optimised (release) builds of the game into dist/:
 #   dist/linux/opentennis        run: ./opentennis "Hot Shots Tennis (USA).iso"
+#   dist/linux-aarch64/OpenTennis/  ARM Linux (M154, tools/linux-aarch64.sh): opentennis + OpenTennis.sh, the launcher a
+#                         handheld's Ports menu runs (the folder goes in ROCKNIX's roms/ports/)
 #   dist/windows/opentennis.exe  run: drop the ISO on opentennis.exe, or `opentennis.exe "Hot Shots Tennis (USA).iso"`
 #   dist/ios/opentennis-ios.ipa  unsigned (M91): the player signs it (AltStore, Sideloadly…); the ISO goes in its Files folder.
 #                         Needs the iOS SDK once: tools/ios-sdk.py Xcode_*.xip (see tools/ios-build.sh)
@@ -53,6 +55,28 @@ linux() {
     fi
 }
 
+# M154: cross-compiled in a Debian 11 container (glibc 2.31, like sniper's), its cross compiler and arm64 libraries set up
+# once into the local image hst-linux-aarch64; its Rust toolchain and cargo cache in ~/.cache/hst-linux-aarch64, its
+# build in target/linux-aarch64
+linux_aarch64() {
+    if ! docker info >/dev/null 2>&1; then
+        echo "linux-aarch64 build needs docker (see linux above)" >&2
+        exit 1
+    fi
+    local img=hst-linux-aarch64
+    if ! docker image inspect $img >/dev/null 2>&1; then
+        docker rm -f $img-setup >/dev/null 2>&1 || true
+        docker run -i --platform linux/amd64 --name $img-setup debian:bullseye sh -s setup < tools/linux-aarch64.sh
+        docker commit $img-setup $img >/dev/null && docker rm $img-setup >/dev/null
+    fi
+    mkdir -p ~/.cache/hst-linux-aarch64
+    docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" -v ~/.cache/hst-linux-aarch64:/cache -w /src \
+        -e HST_VERSION -e HST_COMMIT -e HOME=/cache -e CARGO_HOME=/cache/cargo -e RUSTUP_HOME=/cache/rustup -e CARGO_TARGET_DIR=/src/target/linux-aarch64 \
+        $img sh -ec '
+            [ -x /cache/cargo/bin/rustup ] || curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain none --no-modify-path
+            PATH=/cache/cargo/bin:$PATH sh tools/linux-aarch64.sh build'
+}
+
 windows() {
     local t=x86_64-pc-windows-gnu
     if ! command -v x86_64-w64-mingw32-gcc >/dev/null || ! rustc --print target-libdir --target $t 2>/dev/null | xargs test -d; then
@@ -69,9 +93,10 @@ windows() {
 
 case $what in
     linux) linux ;;
+    linux-aarch64) linux_aarch64 ;;
     windows) windows ;;
     ios) mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa ;;
     android) tools/apk.sh ;;
-    all) linux; windows; mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa; tools/apk.sh ;;
-    *) echo "usage: tools/build.sh [linux|windows|ios|android|all]" >&2; exit 2 ;;
+    all) linux; linux_aarch64; windows; mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa; tools/apk.sh ;;
+    *) echo "usage: tools/build.sh [linux|linux-aarch64|windows|ios|android|all]" >&2; exit 2 ;;
 esac

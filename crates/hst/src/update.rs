@@ -49,6 +49,8 @@ pub static NO_CHECK_FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 #[cfg(not(target_arch = "wasm32"))]
 const ASSET: Option<&str> = if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
     Some("opentennis-linux-x86_64")
+} else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+    Some("opentennis-linux-aarch64")
 } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
     Some("opentennis-windows-x86_64.exe")
 } else if cfg!(target_os = "android") {

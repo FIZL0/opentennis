@@ -274,6 +274,14 @@ impl RenderCreation {
                 let settings = render_creation.clone();
 
                 let async_renderer = async move {
+                    // HST (M154): see below: the window's display is needed, so wait for winit to make the window
+                    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+                    while primary_window
+                        .as_ref()
+                        .is_some_and(|holder| holder.0.lock().is_ok_and(|w| w.is_none()))
+                    {
+                        std::thread::sleep(core::time::Duration::from_millis(1));
+                    }
                     let render_resources = renderer::initialize_renderer(
                         backends,
                         primary_window,
@@ -291,8 +299,13 @@ impl RenderCreation {
                 bevy_tasks::IoTaskPool::get()
                     .spawn_local(async_renderer)
                     .detach();
+                // HST (M154): ARM Linux runs on GL ES (EGL), whose instance must be made on the window's display, and
+                // winit makes the window only once the app runs: created off the main thread, like the browser's, and
+                // the app waits for it (`RenderPlugin::ready`)
+                #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+                std::thread::spawn(move || bevy_tasks::block_on(async_renderer));
                 // Otherwise, just block for it to complete
-                #[cfg(not(target_arch = "wasm32"))]
+                #[cfg(not(any(target_arch = "wasm32", all(target_os = "linux", target_arch = "aarch64"))))]
                 bevy_tasks::block_on(async_renderer);
             }
         }

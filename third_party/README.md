@@ -20,8 +20,12 @@ Upstream status: none of these has been sent upstream yet (2026-10-21).
 | | | `src/render_phase/mod.rs` (`dirty`), `src/batching/gpu_preprocessing.rs` (`write_binned_instance_buffers`) | P36: a retained bin's GPU buffers are uploaded only when they changed |
 | | | `src/render_resource/pipeline_cache.rs` (`compile_budget`) | P47: where pipelines compile on the render thread (browser, macOS) a queue pass stops after a time budget, set by `crates/hst-play/src/mode.rs` |
 | | | `src/render_resource/pipeline_cache.rs` (`dedup`, `prewarm_render_pipeline`) | P55: queueing a render pipeline equal to a cached one returns its id; pre-warmed ones (`crates/hst-base/src/pipelines.rs`) aren't `requested` until the game asks |
+| | | `src/render_resource/pipeline_cache.rs` (`NO_CUBE_ARRAY_TEXTURES_SUPPORT`) | M154: that shader def on ARM Linux too (see bevy_pbr's `light.rs`) |
+| | | `src/renderer/mod.rs` (`PrimaryDisplay`), `src/settings.rs` (`create_render`) | M154: on ARM Linux (GL ES over EGL) the wgpu instance gets the primary window's display, without which its surface had no present modes; so the renderer is created off the main thread once winit has made the window, as in the browser |
 | | | `src/view/mod.rs` | B438: the main texture's sRGB `view_formats` only where the adapter has `VIEW_FORMATS` (WebGL2 hasn't, and the texture failed to create) |
 | `bevy_pbr` | 0.19.1 | `src/render/gpu_preprocess.rs` | P37: the mesh-preprocess bind groups kept while their buffers stay the same (bin-unpacking metadata at a dynamic offset), not rebuilt per view and phase each frame |
+| | | `src/render/light.rs`, `src/render/mesh_view_bindings.rs` | M154: ARM Linux's point-light shadow map is a Cube view, not a CubeArray (GL ES can't bind one; the iOS simulator's path) |
+| | | `src/ssao/mod.rs` | M154: SSAO isn't set up on the GL backend (naga's GLSL for its depth gather doesn't compile, and the failed pipeline quit the app); the game uses no SSAO |
 | | | `src/cluster/mod.rs` | B468: CPU clustering reuses each view's cluster buffers instead of new ones every frame (WebGPU frees them only at GC) |
 | `wgpu` | 29.0.4 | `src/backend/webgpu.rs` | B328: WebGPU device features/limits read once, not from the browser on every draw. 30.0.1 still reads them each time |
 | `winit` | 0.30.13 | `src/platform_impl/ios/window.rs`, `src/platform_impl/ios/event_loop.rs` | M91: iOS 27's UIScene lifecycle; windows join the app's scene once it connects |

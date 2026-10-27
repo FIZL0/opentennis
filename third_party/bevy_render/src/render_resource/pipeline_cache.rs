@@ -271,7 +271,8 @@ impl PipelineCache {
             global_shader_defs.push("SIXTEEN_BYTE_ALIGNMENT".into());
         }
 
-        if cfg!(target_abi = "sim") {
+        // HST (M154): ARM Linux too (GL ES binds no cube arrays; the point-light shadow view is a Cube there)
+        if cfg!(any(target_abi = "sim", all(target_os = "linux", target_arch = "aarch64"))) {
             global_shader_defs.push("NO_CUBE_ARRAY_TEXTURES_SUPPORT".into());
         }
 
