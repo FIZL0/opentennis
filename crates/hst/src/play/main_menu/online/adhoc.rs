@@ -55,9 +55,16 @@ pub(super) fn words() -> String {
             if s.urls.is_empty() {
                 return "Not on a network: join a Wi-Fi network or turn on this device's hotspot.".into();
             }
-            let mut w = format!("Open {} in a browser on the same Wi-Fi or hotspot (or scan the code).", s.urls.join(" or "));
-            if !s.note.is_empty() {
-                w += &format!(" {}", s.note);
+            // M152e: a firewall hint takes the room of the longer wording
+            let mut w = if s.hint.is_empty() {
+                format!("Open {} in a browser on the same Wi-Fi or hotspot (or scan the code).", s.urls.join(" or "))
+            } else {
+                format!("Open {} on the same Wi-Fi or hotspot.", s.urls.join(" or "))
+            };
+            for more in [&s.note, &s.hint] {
+                if !more.is_empty() {
+                    w += &format!(" {more}");
+                }
             }
             // M152c: the guest page joins this device's lobby by itself, and a firewall that asks nothing (Linux)
             // drops them silently

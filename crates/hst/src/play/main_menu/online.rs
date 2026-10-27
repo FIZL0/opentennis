@@ -2892,7 +2892,7 @@ pub(super) fn sample(m: &mut Menu) {
     // B236: the loading, empty and failed states
     match menu.as_str() {
         "lobbies-searching" | "lobbies-none" | "lobbies-failed" => m.net.list.clear(),
-        "online" | "online-custom" => m.net.room = None,
+        "online" | "online-custom" | "online-adhoc" => m.net.room = None,
         // B467: the Online card when the lobby list couldn't be read (the pkarr relay refusing this network)
         "online-unread" => {
             (m.net.room, m.net.finding) = (None, 1);
@@ -2911,6 +2911,11 @@ pub(super) fn sample(m: &mut Menu) {
             m.heard(Event::Failed("Couldn't reach the host (timed out).".into()));
         }
         "lobbies-none" => m.heard(Event::Found(vec![])),
+        // M152e: Adhoc serving, with this PC's firewall hint if it has one
+        "online-adhoc" => {
+            m.sel = adhoc::ROW;
+            adhoc::set(true, "");
+        }
         // B450: the host's court picker over the lobby; ACE-42 lacks every third court mod (left off its row)
         "lobby-courts" => {
             let ids = m.court_mod_ids();
