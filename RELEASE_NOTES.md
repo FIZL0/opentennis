@@ -6,3 +6,4 @@
 - On the website, turning the frame log on or off now takes effect at once: the Save log button appears (or goes away) straight away.
 - Clearer wording online when another player picks a mod you don't have: the character card, the download question, the lobby's Start line and the setting all say plainly what happens. A Random pick no longer gives away which mod it drew.
 - In the browser, Save log now tells you where the log file went (usually your Downloads folder) so you can send it with a bug report.
+- In the browser, saved logs are also kept on the site's page under Storage, next to any desync reports, each with a Download button.

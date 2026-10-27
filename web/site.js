@@ -390,6 +390,12 @@ const bytes = async d => {
   return n;
 };
 const fileSize = async (d, name) => { try { return (await (await d.getFileHandle(name)).getFile()).size; } catch { return 0; } };
+// reports/'s files (Save log's logs, desync reports) as [name, File], newest first
+const reportFiles = async d => {
+  const r = await sub(d, 'reports'), out = [];
+  if (r) for await (const [name, h] of r.entries()) if (h.kind === 'file') out.push([name, await h.getFile()]);
+  return out.sort((a, b) => b[1].lastModified - a[1].lastModified);
+};
 const drop = async (d, name) => { try { await d.removeEntry(name, { recursive: true }); return true; } catch (e) { return e.name === 'NotFoundError' || e; } };
 
 // M16: installed mods (OPFS mods/<id>/, mod.json beside their files), with remove and remove all
@@ -464,7 +470,13 @@ async function storage(parts) {
       try { localStorage.removeItem(STORE_CACHE); } catch {}
       return true;
     }))),
-    row('Desync reports', reports, null, reports ? pill('Clear', () => busy('clear the reports', () => drop(dir, 'reports'))) : null),
+    row('Logs & reports', reports, reports ? null : 'none saved', reports ? pill('Clear', () => busy('clear the logs and reports', () => drop(dir, 'reports'))) : null),
+    // each saved log (Save log) and desync report, newest first, to download and send with a bug report
+    ...(await reportFiles(dir)).map(([name, f]) => row(name, f.size, null, pill('Download', () => {
+      const a = el('a', { href: URL.createObjectURL(f), download: name });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    }, ''))),
     !dir.memory && persisted === false && navigator.storage?.persist ? row('Keep it', null, 'the browser may clear all this when space runs low', pill('Keep my data', () => navigator.storage.persist().then(ok => { if (!ok) alert('The browser said no (Chrome agrees once the site is installed or bookmarked).'); storage(parts); }))) : null,
     row('Everything', null, 'disc data, mods, settings, login', pill('Erase everything', () => {
       if (!confirm('Erase everything OpenTennis keeps in this browser: the disc data, mods, cards, settings, your name and your Hugging Face login?')) return;
