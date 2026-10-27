@@ -122,7 +122,7 @@ Open tasks: `plan/TODO.md` (index: `tools/ctx.py`, next: `tools/ctx.py next`). F
 and relinks only `hst`); `hst`'s `main.rs` re-exports it (`pub use hst_base::*`), so `crate::audio` etc. still resolve
 there. It never names `hst`: hooks the top fills in go through statics/generics (`graphics::SAVE`, `graphics::plugin::<Game>`)
 
-- `lib.rs` `Args`, `Orbit`, `store` (settings file I/O), `Wire` (snapshot encoding) · `handshake.rs` online match seed
+- `lib.rs` `Args`, `Orbit`, `store` (settings file I/O), `Wire` (snapshot encoding) · `adhoc.rs` LAN http server for browser guests (M152a) · `handshake.rs` online match seed
   (`MatchSeed`) and peer handshake check (M2e) · `mods_online.rs` mods in online lobbies: gameplay wire, looks packs,
   stand-ins (M2i) · `mods_umpire.rs` umpire mods: manifest, calls over the donor's bank (M8f3) · `mods_textures.rs` texture packs: manifest,
   order/off (M5a) · `mods.rs`/`mods/`

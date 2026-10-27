@@ -36,3 +36,4 @@
 - Custom characters can also hit higher or flatter shots that still land in the same place (with more or less topspin), or pick a ready-made shot style: cannon, laser, heavy, moonball or soft.
 - A custom character with harder-hit shots now shows it on the select screen: its Serve, Stroke and Volley grades follow how fast its shots really fly, up to S.
 - Custom characters with their own shot power or arc, a bigger body, or a faster swing or run can now be picked in online matches.
+- Online → Adhoc: phones and computers on the same Wi-Fi or hotspot can open the game in a browser, no install, from the address and QR code shown on screen.
