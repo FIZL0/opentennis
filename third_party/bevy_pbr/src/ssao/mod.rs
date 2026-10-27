@@ -68,6 +68,16 @@ impl Plugin for ScreenSpaceAmbientOcclusionPlugin {
             warn!("ScreenSpaceAmbientOcclusionPlugin not loaded. GPU lacks support: Limits::max_storage_textures_per_shader_stage is less than 5.");
             return;
         }
+        // HST (M154): on GL (ARM Linux's GL ES) naga writes the depth prepass's gather as a shadow-sampler gather GLSL
+        // has no overload for, and the failed pipeline quits the app; nothing in the game uses SSAO
+        if render_app
+            .world()
+            .get_resource::<bevy_render::renderer::RenderAdapterInfo>()
+            .is_some_and(|info| info.backend == wgpu_types::Backend::Gl)
+        {
+            warn!("ScreenSpaceAmbientOcclusionPlugin not loaded: its depth gather doesn't translate to GLSL.");
+            return;
+        }
 
         render_app
             .init_gpu_resource::<SsaoPipelines>()

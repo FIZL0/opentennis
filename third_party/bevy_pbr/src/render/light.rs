@@ -1423,6 +1423,8 @@ pub fn prepare_lights(
                 // See https://github.com/bevyengine/bevy/pull/12052 - remove if support is added.
                 #[cfg(all(
                     not(target_abi = "sim"),
+                    // HST (M154): ARM Linux's GL ES binds no cube arrays (like the iOS simulator): Cube
+                    not(all(target_os = "linux", target_arch = "aarch64")),
                     any(
                         not(feature = "webgl"),
                         not(target_arch = "wasm32"),
@@ -1432,6 +1434,7 @@ pub fn prepare_lights(
                 dimension: Some(TextureViewDimension::CubeArray),
                 #[cfg(any(
                     target_abi = "sim",
+                    all(target_os = "linux", target_arch = "aarch64"),
                     all(feature = "webgl", target_arch = "wasm32", not(feature = "webgpu"))
                 ))]
                 dimension: Some(TextureViewDimension::Cube),

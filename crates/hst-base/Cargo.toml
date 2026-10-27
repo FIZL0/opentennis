@@ -94,6 +94,11 @@ iroh-mdns-address-lookup = "0.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util"] }
 
 
+# M154: ARM Linux handhelds (Mali GPUs with no Vulkan driver): wgpu's GL ES backend beside Vulkan (the version bevy
+# already builds; EGL is loaded at run time, nothing more to link)
+[target.'cfg(all(target_os = "linux", target_arch = "aarch64"))'.dependencies]
+wgpu = { version = "29", features = ["gles"] }
+
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))'.dependencies]
 # Add mod's file picker on desktop (the xdg portal on Linux; the browser build uses the page's input, iOS the Files app; none on Android)
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
