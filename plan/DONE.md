@@ -1016,6 +1016,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B686** oob_pc19_sackboy plays no faces: his morphs (m_laugh, m_down, b_angry, b_worried, …) match no HST channel; pick stand-ins by eye from his contact sheet (../opentennis-mods tools/rerig/rerig.py FACE_PICKS, oob2gltf/check.py --face), repackage, bump mod.json version, then drop his exemption in crates/hst-base/src/mods.rs oob_faces_all
 - [x] **B682** Ball outline missing against skyboxes (user 2026-10-27): on courts like Dubno, when the player on the far side serves, the ball's outline isn't drawn where the ball is in front of the sky. Find why the outline pass drops it over the skybox (depth/draw order) and fix → crates/hst-play/src/play.rs draw · crates/hst-play/src/stage.rs (sky)
 - [x] **B683** Alternate camera render issues (user 2026-10-27): shadows pop in, worst on Fig Hill; background vanishes on Queen's Tennis Garden. Check culling/LOD/shadow ranges against the alternate camera's view, not just the default one. Files: crates/hst-base/src/cull.rs, lod.rs, shadow.rs
+- [x] **B681** CPU Will King (10th outfit) doesn't use his good serve (user 2026-10-27): playing against CPU Will in the King costume he never hits his special/strong serve. Check how the outfit maps to character data (serve params, AI serve choice) vs the original with the same pick → crates/hst-sim/src/serve.rs · crates/hst-sim/src/params.rs · crates/hst-sim/src/ai.rs · crates/hst-play/src/play.rs bot_serve
 
 
 ### Shots
