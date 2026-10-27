@@ -76,16 +76,15 @@ web-sys = { version = "0.3", features = ["Blob", "Document", "DomRect", "Element
 # M152b: the native end of the browser's LAN (WebRTC data channels, `net/rtc/native.rs`; pure-Rust crypto so it builds
 # for every native target)
 str0m = { version = "0.24", default-features = false, features = ["rust-crypto"] }
-# its host candidates: this machine's LAN addresses (the version iroh's netwatch already builds)
+# its host candidates: this machine's LAN addresses (the version iroh's netwatch already builds; also M152a's `adhoc.rs`)
 netdev = "0.46"
 # Android's gamepads and lifecycle (`android_pad.rs`, `android.rs`), on bevy's own winit
 winit = { version = "0.30", default-features = false }
 # lobbies: addresses and lobby list on the mainline DHT and LAN mDNS (UDP: not in the browser)
 iroh-mainline-address-lookup = "0.6"
 n0-mainline = "0.7"
-# M152a adhoc hosting (`adhoc.rs`): the LAN addresses to show (the version netwatch already builds), a release's
+# M152a adhoc hosting (`adhoc.rs`): the LAN addresses to show (`netdev`, above), a release's
 # web.tar.gz unpacked (already built for reqwest/iroh), the address as a QR code
-netdev = { version = "0.46", default-features = false }
 flate2 = "1"
 qrcode = { version = "0.14", default-features = false }
 # the crypto reqwest uses for the pkarr relay (`net.rs` relay_get, `modstore.rs`): iroh's own ring
