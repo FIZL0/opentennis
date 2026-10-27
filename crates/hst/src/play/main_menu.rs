@@ -2316,14 +2316,15 @@ struct Text {
 }
 
 /// A mod's △ grades: its row's ([`crate::grades::grades_of`]), the shots' power from whoever's serve, strokes and
-/// volleys it hits (`donor`, or §6 `shots`); without the disc's rows (a lobby's download), its §6 `stats`, else its base's.
+/// volleys it hits (`donor`, or §6 `shots`), times its §6 `serve_speed` / `shot_speed`; without the disc's rows (a lobby's download), its §6 `stats`, else its base's.
 fn mod_grades(m: &crate::mods::Mod, row: &[String], csv: &[u8], grades: &[[u8; 5]; 14]) -> [u8; 5] {
     let rows: Vec<Vec<String>> = (0..14).filter_map(|c| crate::mods::row_of(csv, c)).collect();
     if rows.len() < 14 || row.is_empty() {
         return m.build.stats.unwrap_or(grades[m.base]);
     }
     let power = [0, 1, 2].map(|k| &rows[m.build.shots[k].map_or(m.donor, usize::from)][..]);
-    crate::grades::grades_of(row, power, &rows, grades)
+    let (serve, shot) = (f64::from(m.build.serve_speed), f64::from(m.build.shot_speed));
+    crate::grades::grades_of(row, power, [serve, shot, shot], &rows, grades)
 }
 
 /// A mod's play style: its base row's, or its `タイプ` override's.

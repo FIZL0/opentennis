@@ -53,25 +53,28 @@ pub const POWER: [usize; 3] = [12, 13, 14];
 /// How good `row` is in each category, as one number the disc's hand-set grades all rise with (fit to the 14 stock
 /// rows, research/journal/2026-10-27-mod-grades): power with a little control or spin, the volley against ground
 /// power (net players grade up), Impact the early rally-hit window less a little serve power (the harder a
-/// character hits, the harder to time), Footwork speed less a little reach. `power` rows give the POWER columns.
-pub fn scores(row: &[String], power: [&[String]; 3]) -> [f64; 5] {
+/// character hits, the harder to time), Footwork speed less a little reach. `power` rows give the POWER columns;
+/// `speed` multiplies them (a mod's §6 `serve_speed`, `shot_speed`, `shot_speed`: its ball flies that many times as
+/// fast), all but in Impact, which is the hitter's own timing.
+pub fn scores(row: &[String], power: [&[String]; 3], speed: [f64; 3]) -> [f64; 5] {
     let v = |r: &[String], c: usize| r.get(c).and_then(|s| s.split('/').next()?.trim().parse::<f64>().ok()).unwrap_or(0.0);
     let [serve, stroke, volley] = [0, 1, 2].map(|k| v(power[k], POWER[k]));
+    let [fast_serve, fast_stroke, fast_volley] = [serve * speed[0], stroke * speed[1], volley * speed[2]];
     [
-        serve + 0.1 * v(row, 22),                       // Serv CON
-        stroke + 0.1 * v(row, 17),                      // Top SPIN
-        volley - 0.25 * stroke + 0.1 * v(row, 21),      // Voley CON
+        fast_serve + 0.1 * v(row, 22),                       // Serv CON
+        fast_stroke + 0.1 * v(row, 17),                      // Top SPIN
+        fast_volley - 0.25 * fast_stroke + 0.1 * v(row, 21), // Voley CON
         v(row, 28) - 0.1 * serve,                       // rally hits' early good frames
         v(row, 40) - 0.01 * v(row, 57),                 // SPE, reach
     ]
 }
 
-/// The grades `row` plays at ([`scores`], POWER from `power`): per category, each cut halfway between the stock
+/// The grades `row` plays at ([`scores`], POWER from `power`, times `speed`): per category, each cut halfway between the stock
 /// characters' (`rows`, `grades`) neighbouring grades; [`S`] as far past the best of them as that one is past A's cut.
 /// A stock row gets its own grades.
-pub fn grades_of(row: &[String], power: [&[String]; 3], rows: &[Vec<String>], grades: &[[u8; 5]]) -> [u8; 5] {
-    let stock: Vec<[f64; 5]> = rows.iter().map(|r| scores(r, [r, r, r])).collect();
-    let own = scores(row, power);
+pub fn grades_of(row: &[String], power: [&[String]; 3], speed: [f64; 3], rows: &[Vec<String>], grades: &[[u8; 5]]) -> [u8; 5] {
+    let stock: Vec<[f64; 5]> = rows.iter().map(|r| scores(r, [r, r, r], [1.0; 3])).collect();
+    let own = scores(row, power, speed);
     std::array::from_fn(|k| {
         let at = |pick: &dyn Fn(u8) -> bool| -> Vec<f64> { stock.iter().zip(grades).filter(|(_, g)| pick(g[k])).map(|(s, _)| s[k]).collect() };
         let cut = |g: u8| {
@@ -180,10 +183,13 @@ mod tests {
         let rows: Vec<Vec<String>> = (0..CHARACTERS).map(|c| crate::mods::row_of(&csv, c).unwrap()).collect();
         for c in 0..CHARACTERS {
             let r = &rows[c][..];
-            assert_eq!(grades_of(r, [r, r, r], &rows, &grades), grades[c], "character {c}");
+            assert_eq!(grades_of(r, [r, r, r], [1.0; 3], &rows, &grades), grades[c], "character {c}");
         }
         let mut fast = rows[5].clone(); // the best Footwork
         fast[40] = "14".into();
-        assert_eq!(grades_of(&fast, [&rows[5]; 3], &rows, &grades)[4], S);
+        assert_eq!(grades_of(&fast, [&rows[5]; 3], [1.0; 3], &rows, &grades)[4], S);
+        // the hardest stock serve flying three times as fast is an S
+        let r = &rows[7][..];
+        assert_eq!(grades_of(r, [r, r, r], [3.0, 1.0, 1.0], &rows, &grades)[0], S);
     }
 }
