@@ -178,11 +178,17 @@ pub struct Build {
     /// sooner.
     pub serve_speed: u8,
     pub shot_speed: u8,
+    /// §6 `shots`: the disc character (0..13) whose serve, stroke, volley and smash ([`SHOTS`]) it hits, each one's
+    /// trajectory tables, shot records and timing variants. None: the donor's.
+    pub shots: [Option<u8>; 4],
 }
+
+/// §6 `shots`' keys, in `shot::class` order.
+pub const SHOTS: [&str; 4] = ["serve", "stroke", "volley", "smash"];
 
 impl Default for Build {
     fn default() -> Self {
-        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, stats: None, serve_speed: 1, shot_speed: 1 }
+        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, stats: None, serve_speed: 1, shot_speed: 1, shots: [None; 4] }
     }
 }
 
@@ -287,7 +293,17 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
         serde_json::Value::Null => Ok(1),
         v => v.as_u64().filter(|n| (1..=4).contains(n)).map(|n| n as u8).ok_or_else(|| err(format!("`{k}` {v} must be a whole number 1 to 4"))),
     };
-    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, stats, serve_speed: steps("serve_speed")?, shot_speed: steps("shot_speed")? };
+    if let Some(k) = j["shots"].as_object().and_then(|o| o.keys().find(|k| !SHOTS.contains(&k.as_str()))) {
+        return Err(err(format!("`shots` key `{k}` must be one of {SHOTS:?}")));
+    }
+    let mut shots = [None; 4];
+    for (slot, k) in shots.iter_mut().zip(SHOTS) {
+        let v = &j["shots"][k];
+        if !v.is_null() {
+            *slot = Some(num(v, &format!("shots.{k}"), 13)? as u8);
+        }
+    }
+    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, stats, serve_speed: steps("serve_speed")?, shot_speed: steps("shot_speed")?, shots };
     if disc && (!j["costumes"].is_null() || j["face"] != "morph") {
         return Err(err("`disc_body` plays the donor's disc costumes and faces: no `costumes`, `face` \"morph\"".into()));
     }
@@ -365,7 +381,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     if let Some(c) = costume_of
         && (donor != c || base != c || ai_row != c || !overrides.is_empty() || build != Build::default())
     {
-        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed`, `run_speed`, `stats`, `serve_speed` or `shot_speed`")));
+        return Err(err(format!("`costume_of` {c} needs `donor`, `params.base` and `ai_row` {c} and no `params.override`, `disc_body`, `scale`, `swing_speed`, `run_speed`, `stats`, `serve_speed`, `shot_speed` or `shots`")));
     }
     Ok(Mod {
         skeleton: None,
@@ -2856,10 +2872,15 @@ mod tests {
             read(&dir)
         };
         let m = try_(json).unwrap();
-        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, stats: None, serve_speed: 1, shot_speed: 1 });
+        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, stats: None, serve_speed: 1, shot_speed: 1, shots: [None; 4] });
         assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"A\",\"version\"")).unwrap().build.stats, Some(5));
         assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"S\",\"serve_speed\":3,\"version\"")).unwrap().build.serve_speed, 3);
         assert!(!m.joke() && try_(&json.replace("\"version\"", "\"joke\":true,\"version\"")).unwrap().joke());
+        assert_eq!(try_(&json.replace("\"version\"", "\"shots\":{\"serve\":11,\"smash\":0},\"version\"")).unwrap().build.shots, [Some(11), None, None, Some(0)]);
+        for bad in ["{\"serve\":14}", "{\"lob\":3}", "{\"volley\":\"7\"}"] {
+            assert!(try_(&json.replace("\"version\"", &format!("\"shots\":{bad},\"version\""))).is_err(), "{bad}");
+        }
+        try_(json).unwrap();
         // only a mod.json, and on the character select's roster
         assert!(list(&root).iter().any(|r| r.id == "hst_bigger_chief"), "not on the roster");
         assert_eq!((m.costumes.len(), m.disc_voice(), m.costume_of), (DISC_COSTUMES, Some(7), None));

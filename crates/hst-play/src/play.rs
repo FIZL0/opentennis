@@ -1335,7 +1335,7 @@ pub fn setup(
         banks.push(hst_sim::rng::voice_bank(&line_up, i, &banks, drawn));
         voices.push(voice_bank(&mut iso, c, n, game.stage as u32, banks[i]).map(std::sync::Arc::new));
         if let Some(m) = modded {
-            mod_match::apply(&mut game, i, &mut iso, m, outfit, &mut voices);
+            mod_match::apply(&mut game, i, &mut iso, &shot_params, m, outfit, &mut voices);
         }
         hand_swap::apply(&mut game, i, swap.as_deref());
         handicap::apply(&mut game, i, handicaps.as_deref());

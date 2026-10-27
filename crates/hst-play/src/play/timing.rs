@@ -19,7 +19,8 @@ type Variant = ((usize, usize, usize), Table, [f32; 13]);
 /// One player's character: its timing stats, bias per frame from the press, the volley-class down-2 thresholds
 /// and its listed variants ((class, kind, variant) with the table and the variant's shot record).
 pub struct Timing {
-    character: usize,
+    /// Whose table-mode thresholds each shot class keeps (a mod's §6 `shots` can mix them).
+    character: [usize; 4],
     stats: ReachStats,
     bias: Vec<i32>,
     down2: [f32; 14],
@@ -54,7 +55,7 @@ pub fn load(iso: &mut Iso, params: &ShotParams, c: usize) -> Timing {
         }
     }
     let bias = swing::timing(stats.after, stats.before).1;
-    Timing { character: c, stats, bias, down2: exe.down2_blend(), variants }
+    Timing { character: [c; 4], stats, bias, down2: exe.down2_blend(), variants }
 }
 
 impl Timing {
@@ -62,6 +63,13 @@ impl Timing {
     pub fn restat(&mut self, row: &[String]) {
         self.stats = ReachStats::from_tparam(&row.join(","));
         self.bias = swing::timing(self.stats.after, self.stats.before).1;
+    }
+
+    /// A mod's §6 `shots`: class `class`'s variants and table-mode thresholds from `other`'s character.
+    pub fn take(&mut self, class: usize, other: Timing) {
+        self.variants.retain(|x| x.0.0 != class);
+        self.variants.extend(other.variants.into_iter().filter(|x| x.0.0 == class));
+        self.character[class] = other.character[class];
     }
 }
 
@@ -146,7 +154,7 @@ pub fn launch(g: &Game, who: usize, src: usize, class: u8, kind: i32, (branch, g
     if counter {
         blend = 0.0;
     }
-    let mode = swing::table_mode(class, t.character, grade, kind, blend, &t.down2);
+    let mode = swing::table_mode(class, t.character[class as usize], grade, kind, blend, &t.down2);
     let variant = if kind == kind::LOB { swing::lob_variant(&s.stats, grade) } else { swing::mode_variant(mode) };
     // the bounds are taken from the hit moved back by the scatter, as the lookup's
     let sc = hst_sim::serve::scatter_along(sx, sz, at, target);

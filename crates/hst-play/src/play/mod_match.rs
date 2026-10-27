@@ -8,6 +8,7 @@ use std::sync::Arc;
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
 use hst_data::iso::Iso;
+use hst_sim::params::ShotParams;
 
 use super::Game;
 use crate::audio::SoundBank;
@@ -59,8 +60,9 @@ pub(super) fn row(iso: &mut Iso, mm: Option<&MatchMod>, i: usize, c: usize) -> V
     }
 }
 
-/// Player `i`, set up as the mod's donor, takes the mod's row, AI row, hand and voices.
-pub(super) fn apply(g: &mut Game, i: usize, iso: &mut Iso, m: &Mod, outfit: usize, voices: &mut [Option<Arc<SoundBank>>]) {
+/// Player `i`, set up as the mod's donor, takes the mod's row, AI row, hand, voices and §6 `shots`.
+pub(super) fn apply(g: &mut Game, i: usize, iso: &mut Iso, params: &ShotParams, m: &Mod, outfit: usize, voices: &mut [Option<Arc<SoundBank>>]) {
+    shots(g, i, iso, params, m);
     let row = mods::tparam(iso, m).unwrap_or_else(|e| panic!("mod {}: {e}", m.id));
     let cells = |k: usize| -> Vec<f32> { row[k].split('/').map(|v| v.trim().parse().expect("TParam number")).collect() };
     let doubles = g.players.len() == 4;
@@ -88,6 +90,28 @@ pub(super) fn apply(g: &mut Game, i: usize, iso: &mut Iso, m: &Mod, outfit: usiz
     // (never its donor's). A costume pack is its disc character and keeps that voice, as a disc-body mod its donor's (M11).
     if m.disc_voice().is_none() {
         voices[i] = mods::voice(m).map(Arc::new);
+    }
+}
+
+/// §6 `shots`: each shot class another disc character's tables, records and timing variants (the setup loaded the
+/// donor's).
+fn shots(g: &mut Game, i: usize, iso: &mut Iso, params: &ShotParams, m: &Mod) {
+    use hst_sim::params::record_of;
+    let [serve, stroke, volley, smash] = m.build.shots.map(|c| c.map(usize::from).filter(|&c| c != m.donor));
+    if let Some(c) = serve {
+        g.serve_tables[i] = super::serve_tables(iso, params, c);
+        g.specials[i] = super::serve_specials(iso, params, c);
+    }
+    for (class, c) in [(1, stroke), (2, volley)] {
+        let Some(c) = c else { continue };
+        let [strokes, volleys] = super::rally_tables(iso, c);
+        g.rally_tables[i][class - 1] = if class == 1 { strokes } else { volleys };
+        g.rally_records[i][class - 1] = std::array::from_fn(|k| params.record(class, k, record_of(c)).try_into().unwrap());
+        g.timing[i].take(class, super::timing::load(iso, params, c));
+    }
+    if let Some(c) = smash {
+        g.smash_tables[i] = super::character_tables(iso, c, "B", "smsh", "", 2);
+        g.smash_spins[i] = std::array::from_fn(|k| hst_sim::params::spin(params.record(3, k, record_of(c))));
     }
 }
 
@@ -167,6 +191,31 @@ mod tests {
     }
 
     /// A bot singles match, Carol against mod `m` (set up as disc character `char`), after its first update.
+    /// §6 `shots`: a mod of pc01 hitting pc11's serve and pc10's volleys gets their tables and records; its strokes
+    /// stay pc01's.
+    #[test]
+    fn shots_come_from_their_characters() {
+        if !hst_data::fixture::has_iso() {
+            return hst_data::fixture::skip("no ISO");
+        }
+        let dir = std::env::temp_dir().join(format!("hst-shots-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mod.json"), r#"{"standard":1,"id":"hst_shots","name":"Shots","disc_body":true,"donor":1,"hand":"right","params":{"base":1},"ai_row":1,"face":"morph","shots":{"serve":11,"volley":10},"version":1}"#).unwrap();
+        let m = mods::read(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        let app = bot_match(&m, 1);
+        use super::super::*;
+        let mut iso = hst_data::fixture::iso().unwrap();
+        let params = disc(&mut iso, None, 2).3;
+        let spins = |t: &[Vec<(hst_sim::shot::Table, f32, f32)>; 2]| t.iter().flatten().map(|x| (x.1, x.2)).collect::<Vec<_>>();
+        let rec = |class: usize, c: usize| -> [[f32; 13]; 5] { std::array::from_fn(|k| params.record(class, k, params::record_of(c)).try_into().unwrap()) };
+        let g = app.world().resource::<Game>();
+        assert_eq!(spins(&g.serve_tables[1]), spins(&serve_tables(&mut iso, &params, 11)));
+        assert_ne!(spins(&g.serve_tables[1]), spins(&serve_tables(&mut iso, &params, 1)));
+        assert_eq!((g.rally_records[1][0], g.rally_records[1][1]), (rec(1, 1), rec(2, 10)));
+        assert_ne!(rec(2, 10), rec(2, 1));
+    }
+
     fn bot_match(m: &Mod, char: usize) -> App {
         use super::super::*;
         // every player a bot

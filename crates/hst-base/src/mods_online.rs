@@ -52,6 +52,9 @@ pub struct Wire {
     /// cycles its emote lines over them, whether or not it has the takes.
     #[serde(default)]
     pub voices: Vec<(u8, u8)>,
+    /// §6 `shots`: whose serve, stroke, volley and smash it hits (None: the donor's).
+    #[serde(default)]
+    pub shots: [Option<u8>; 4],
     /// The owner's folder (never sent).
     #[serde(skip)]
     pub dir: Option<PathBuf>,
@@ -61,7 +64,7 @@ impl Wire {
     /// Mod `m` in costume `costume` (reads its files: the costume's skeleton and the pack's hash).
     pub fn of(m: &Mod, costume: usize) -> Result<Wire, String> {
         // M11: the wire carries no body or pace (§6 `disc_body`, `scale`, `swing_speed`, `run_speed`) yet
-        if m.build != mods::Build::default() {
+        if (mods::Build { shots: [None; 4], ..m.build }) != mods::Build::default() {
             return Err(format!("{}: a disc-body, scaled or paced mod doesn't play online yet", m.id));
         }
         let (sk, looks) = kept(m, costume % m.costumes.len().max(1))?;
@@ -79,6 +82,7 @@ impl Wire {
             looks,
             emotes: mods::emote_ticks(m, &EMOTES)?,
             voices: mods::voice_takes(m).into_iter().filter(|(p, _)| EMOTE_PROGRAMS.contains(p)).collect(),
+            shots: m.build.shots,
             dir: Some(m.dir.clone()),
         })
     }
@@ -87,8 +91,8 @@ impl Wire {
     /// TParam overrides `mods::read` loads (`mods::override_ok`), and a skeleton that is a tree.
     pub fn check(&self) -> Result<(), String> {
         let bad = |what: &str| Err(format!("mod {:?}: bad {what}", self.id));
-        if self.donor > 13 || self.base > 13 || self.ai_row > 13 {
-            return bad("donor, params base or AI row");
+        if self.donor > 13 || self.base > 13 || self.ai_row > 13 || self.shots.iter().flatten().any(|&c| c > 13) {
+            return bad("donor, params base, AI row or shots");
         }
         if self.hand != 1.0 && self.hand != -1.0 {
             return bad("hand");
@@ -151,6 +155,7 @@ pub fn for_match(w: &Wire, looks: Option<&Path>) -> Mod {
     m.skeleton = Some(Arc::new(w.skeleton()));
     m.emotes = Some(w.emotes.clone());
     m.voice_takes = Some(w.voices.clone());
+    m.build.shots = w.shots;
     m
 }
 
@@ -414,6 +419,7 @@ mod tests {
             looks: 1,
             emotes: vec![(EMOTES[2], vec![90, 200])],
             voices: vec![(9, 4), (7, 5)],
+            shots: [Some(11), None, Some(10), None],
             dir: None,
         }
     }
@@ -427,6 +433,7 @@ mod tests {
         assert_eq!(w.check(), Ok(()));
         let bad = |w: Wire| assert!(w.check().is_err(), "{w:?}");
         bad(Wire { donor: 14, ..wire() });
+        bad(Wire { shots: [None, None, None, Some(14)], ..wire() });
         bad(Wire { hand: 0.5, ..wire() });
         bad(Wire { overrides: vec![("nope".into(), "1".into())], ..wire() });
         bad(Wire { overrides: vec![("Strk POW".into(), "1,2".into())], ..wire() });

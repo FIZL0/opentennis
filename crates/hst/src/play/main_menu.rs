@@ -2310,7 +2310,7 @@ struct Text {
 }
 
 /// The TParam.csv column each △ grade follows (Stroke, Volley, Footwork = speed). Serve has none: a serve flies on
-/// the base character's trajectory tables (Serv POW only picks the weak toss's), so its grade is the base's; Impact neither.
+/// its donor's trajectory tables (Serv POW only picks the weak toss's), so [`mod_card`] takes that one's; Impact neither.
 const GRADE_COLS: [Option<usize>; 5] = [None, Some(13), Some(14), None, Some(40)];
 
 /// A mod's △ grades, so its card is the disc characters' card: its base character's, except where its row changes a
@@ -2429,7 +2429,10 @@ struct TParam(Vec<u8>);
 /// M113: mod `m`'s play style and △ grades as the select shows them (None: its TParam.csv row can't be read).
 fn mod_card(m: &crate::mods::Mod, csv: &[u8], t: &Text) -> Option<(usize, [u8; 5])> {
     let row = crate::mods::tparam_row(csv, Some(&t.grades), m).ok()?;
-    Some((mod_style(m, &t.style), mod_grades(&row, m.base, csv, &t.grades)))
+    let mut g = mod_grades(&row, m.base, csv, &t.grades);
+    // its serve flies on its donor's tables, or §6 `shots.serve`'s
+    g[0] = t.grades[m.build.shots[0].map_or(m.donor, usize::from)][0];
+    Some((mod_style(m, &t.style), g))
 }
 
 /// [`read_text`]'s mod roster and its folder, for [`setup`].
