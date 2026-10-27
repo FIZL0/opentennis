@@ -1,49 +1,28 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- Character select previews no longer appear small and then jump to size the first time a character is shown.
-- Several players' thighs now twist only part of the way with their legs, so their shorts and skirts no longer wring round in wide stances like the serve, as in the original.
-- Custom characters keep their off hand on the racket in the side-on ready stance too, holding its throat like the originals.
-- A game update downloading by itself now shows its progress at the top of the menus, like mod downloads.
-- The fountain at the park court now flows, as in the original.
-- Turning Key Hints off now also hides the "Change camera" hint at the start of a match.
-- Texture packs now reach the loading screen (its hints, court picture and title card) and the "Start the Match!" banner, which kept the disc's art before.
-- After every third replay, the cut-away after a point now turns to the other player even if they dove, and stays put only when the other player was hit by the ball, as in the original.
-- The pause screen's score panel now shows each player's name in place of the 1P/COM tag, and each character's name under their face.
-- With any Offbeat rule on, the pause screen shows a tab on the score panel listing the rules in play.
-- Spectators react to points like the original: they let outs and other called points pass unless a game or set is won, all clap at the end of a set, and give your side a consolation reaction when the computer wins the match.
-- In doubles, the pause screen's score board is now taller, so each player's character name no longer runs into the face below it or off the board.
-- The Offbeat rules tab on the pause screen now uses the score board's own frame, so it looks part of it.
-- Left-handed players' rackets are now drawn the right way round, so Carol's and Will's off hand curls over the bottom of the racket head instead of poking through the strings, as in the original.
-- Left-handed custom characters hold their racket in their hand again, instead of beside it.
-- Custom characters whose arms are short for their racket no longer have their off arm snap straight and back in the ready stance.
-- Custom characters twirl their racket about its handle, in their hand, instead of swinging it through their palm.
-- Custom characters without a racket of their own grip the handle in their fist, and those with long-headed rackets rest their free hand on the rim instead of through the strings.
-- Custom characters' free hand eases on and off the racket instead of snapping there, such as after a serve as they settle into the ready stance.
-- A custom character updated while the game is open no longer shows a blank face in the match's score panel and pause screen.
-- Sound comes back by itself when the audio output goes away and returns (the sound server restarting, waking from sleep, a Bluetooth headset switched off and on), instead of staying silent until the game is restarted.
-- Custom characters can now say the voice line that goes with each celebration animation.
-- The bounce ring when the ball hits a player before it lands now stands up facing the ball instead of lying flat in mid-air.
-- At Laguna Beach Resort, the surf now washes up the beach and back, as in the original.
-- Custom courts can now have moving water: their sea, rivers and pools can ripple and flow.
-- Custom characters' emotes can bring a seat along: it pops in under them as they sit down and pops away once they stand back up.
-- Custom characters' swinging hair, ponytails and earrings now move the way they do in their own game: they keep their shape, swing out on a quick move and no longer sag or bob in place.
-- The indoor court no longer leaves a pale smudge where the ball last bounced.
-- Palm leaves, grass and flowers at the beach court, and the trees around several other courts, now sway in the breeze as in the original.
-- Custom characters' hair no longer swings into their hats, heads or bodies.
-- Custom characters now move their mouths in time with what they say after a point.
-- Custom characters' emotes on the character select and lobby screens now say the line that goes with each animation, and their mouths move with it; more custom characters move their mouths when they talk.
-- Emotes in the lobby no longer play their voice line without the animation, take turns through all of a custom character's animations instead of repeating one, and a seat a custom character sits on stays under them until they stand up.
-- Custom characters whose faces have no proper talking shapes now open their mouths when they speak.
-- An emote still playing when the players walk back into place for the next serve now stops there, voice line included, instead of carrying on into the serve.
-- In split screen, each half's camera now zooms out to keep a wide ball, and where it's going to land, in view.
-- In split screen, both players now see the ball's outline, not just one of them.
-- On custom courts with water, things under the water (like the corals at the beach resort court) now show under it instead of drawing on top.
-- Emotes on the lobby and character select cards now play exactly to their end, no longer freezing on their last frame or being cut short.
-- In split screen, fences and buildings at the far end of a custom court no longer flicker in and out of one player's view when the other player's camera backs up behind them.
-- A custom character's celebration no longer plays a voice line made for one of its other celebrations.
-- The biggest custom characters can now be used in online matches; other players see them instead of a stand-in.
-- Characters with a faster ball now keep it fast after it bounces, instead of slowing to normal speed at the first bounce.
-- The character select remembers each controller's last pick only while the game stays open; starting the game afresh begins everyone on the Random card again.
-- Custom characters' mouths now follow their voice line alone while they speak, instead of mixing with the celebration's own mouth movements; celebrations animated to their own line keep their original mouth.
+- The fountain at the park court now flows, the surf at Laguna Beach Resort washes up the beach and back, and palm leaves, grass, flowers and trees around the courts sway in the breeze, as in the original.
 - A hard smash that lands now throws up clods of earth, and in the rain the ball's bounces splash spray instead of raising a yellow ring and dust, as in the original.
-- In split screen, the sky and distant scenery (like the Earth on the training court) now show properly in the bottom half too, instead of drifting or vanishing.
-- Characters now say one of several lines when picked on the character select, custom characters included; each pick cuts off the line before it instead of piling up, and the line stops once the match starts loading.
+- Spectators react to points like the original: they let outs and other called points pass unless a game or set is won, all clap at the end of a set, and give your side a consolation reaction when the computer wins the match.
+- After every third replay, the cut-away after a point now turns to the other player even if they dove, and stays put only when the other player was hit by the ball, as in the original.
+- Characters with a faster ball now keep it fast after it bounces, instead of slowing to normal speed at the first bounce.
+- Several players' thighs now twist only part of the way with their legs, so their shorts and skirts no longer wring round in wide stances like the serve, as in the original.
+- Left-handed players' rackets are now drawn the right way round, so Carol's and Will's off hand curls over the bottom of the racket head instead of poking through the strings.
+- The bounce ring when the ball hits a player before it lands now stands up facing the ball instead of lying flat in mid-air.
+- The indoor court no longer leaves a pale smudge where the ball last bounced.
+- An emote still playing when the players walk back into place for the next serve now stops there, voice line included, instead of carrying on into the serve.
+- Split screen: each half's camera zooms out to keep a wide ball and where it will land in view, both players see the ball's outline, the sky and distant scenery (like the Earth on the training court) show properly in the bottom half, and far fences and buildings on custom courts no longer flicker in and out of view.
+- Characters now say one of several lines when picked on the character select, custom characters included; each pick cuts off the line before it, and the line stops once the match starts loading.
+- The character select remembers each controller's last pick only while the game stays open; starting the game afresh begins everyone on the Random card again.
+- Character select previews no longer appear small and then jump to size the first time a character is shown.
+- Emotes on the character select and lobby cards play exactly to their end, say the line that goes with each animation, take turns through all of a custom character's animations, and never play a voice line without its animation.
+- The pause screen's score panel shows each player's name in place of the 1P/COM tag and each character's name under their face; in doubles the board is taller so the names fit, and with any Offbeat rule on a tab in the board's own frame lists the rules in play.
+- Turning Key Hints off now also hides the "Change camera" hint at the start of a match.
+- Texture packs now reach the loading screen (its hints, court picture and title card) and the "Start the Match!" banner.
+- A game update downloading by itself now shows its progress at the top of the menus, like mod downloads.
+- Sound comes back by itself when the audio output goes away and returns (the sound server restarting, waking from sleep, a Bluetooth headset switched off and on), instead of staying silent until the game is restarted.
+- Custom characters now talk: they say the voice line that goes with each celebration (never one made for another), and their mouths move in time with what they say, falling back to opening the mouth when their face has no talking shapes; celebrations animated to their own line keep their original mouth.
+- Custom characters hold their racket better: left-handers grip it in their hand again, everyone twirls it about the handle in their hand, those without a racket of their own grip the handle in their fist, the off hand holds the throat in the side-on ready stance, rests on the rim of long-headed rackets instead of through the strings, eases on and off instead of snapping, and short-armed characters' off arm no longer snaps straight.
+- Custom characters' swinging hair, ponytails and earrings now move the way they do in their own game: they keep their shape, swing out on a quick move, no longer sag or bob in place, and no longer swing into hats, heads or bodies.
+- Custom characters' emotes can bring a seat along: it pops in under them as they sit down and stays until they stand back up.
+- The biggest custom characters can now be used in online matches; other players see them instead of a stand-in.
+- A custom character updated while the game is open no longer shows a blank face in the match's score panel and pause screen.
+- Custom courts can now have moving water: their sea, rivers and pools ripple and flow, and things under the water show beneath it instead of drawing on top.
