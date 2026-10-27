@@ -993,8 +993,7 @@ pub static SAVE: std::sync::OnceLock<fn(&str, Graphics)> = std::sync::OnceLock::
 /// cheaper (`cheaper`, saved to settings.txt so the next match starts there) after each that falls under 93 % of 60
 /// fps (or of the display's rate when that's lower: a browser in Low Power Mode at 30 Hz isn't the game's fault),
 /// until two in a row hold, the bottom is reached, or 16 s have been timed. Never steps up; each match checks again
-/// (a heavier court). Hand-picked settings (Auto off) are stepped down the same way, but only below 80 % of that
-/// (~45 fps): a match that crawls is never what was picked. Drawing only: the simulation's tick and RNG don't see it.
+/// (a heavier court). Drawing only: the simulation's tick and RNG don't see it.
 fn auto_tune(mut g: ResMut<Graphics>, time: Res<Time<Real>>, frames: Res<bevy::diagnostic::FrameCount>, monitors: Query<&bevy::window::Monitor>, args: Option<Res<crate::Args>>, mut t: Local<Tune>) {
     let new_match = frames.0 != t.frame.wrapping_add(1);
     t.frame = frames.0;
@@ -1003,7 +1002,7 @@ fn auto_tune(mut g: ResMut<Graphics>, time: Res<Time<Real>>, frames: Res<bevy::d
         info!("graphics at match start: {} (auto {}), {}% scale, shadows {}, msaa {}, mesh {}%, fps cap {}", g.preset(), g.auto, g.scale, g.shadows.name(), msaa_name(g.msaa), g.mesh, g.fps);
         *t = Tune { frame: frames.0, ..default() };
     }
-    if NO_AUTO.load(Ordering::Relaxed) {
+    if !g.auto || NO_AUTO.load(Ordering::Relaxed) {
         return;
     }
     #[cfg(target_arch = "wasm32")]
@@ -1011,13 +1010,7 @@ fn auto_tune(mut g: ResMut<Graphics>, time: Res<Time<Real>>, frames: Res<bevy::d
     #[cfg(not(target_arch = "wasm32"))]
     let hz = monitors.iter().filter_map(|m| m.refresh_rate_millihertz).max().map_or(60.0, |m| m as f32 / 1000.0);
     let _ = &monitors;
-    // hand-picked: its own frame cap kept and timed against (a 30 fps cap isn't slow)
-    let cap = if g.auto || g.fps == 0 { f32::MAX } else { g.fps as f32 };
-    let target = hz.min(60.0).min(cap) * if g.auto { 1.0 } else { 0.8 };
-    if let Some(mut c) = t.frame_time(*g, time.delta_secs(), target) {
-        if !g.auto {
-            c.fps = g.fps;
-        }
+    if let Some(c) = t.frame_time(*g, time.delta_secs(), hz.min(60.0)) {
         *g = c;
         if let (Some(a), Some(save)) = (&args, SAVE.get()) {
             save(&a.iso, c);
