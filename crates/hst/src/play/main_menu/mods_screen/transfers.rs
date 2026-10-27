@@ -163,9 +163,9 @@ pub(super) fn offer(m: &mut Menu) {
 }
 
 /// M141: the Reload Mods button is up: everything done, mods changed since the start, the popup down, a calm screen
-/// (not the select or a lobby, where a restart would drop the players' picks).
+/// (not the select or a lobby, where players hold picks; M153: nor while a reload runs).
 pub(in crate::play::main_menu) fn button(m: &Menu) -> bool {
-    m.add.changed && m.add.idle() && calm(m)
+    m.add.changed && m.add.reloading.is_none() && m.add.idle() && calm(m)
 }
 
 /// M141: Play local / Play online picked by `dev` with new mods waiting and everything done: unless Play without them
@@ -196,7 +196,7 @@ pub(in crate::play::main_menu) fn layout(d: &mut Draw, m: &Menu) {
     // the game's own update (Always installs it with no one pressing Update) shares the pill, after the mods
     let parts: Vec<_> = m.add.strips().iter().map(|s| (format!("{} {}: {}", s.verb, place(s), s.now), Some(s.share))).chain(crate::update::progress()).collect();
     if parts.is_empty() && button(m) {
-        reload_button(d, m);
+        reload_button(d);
     }
     if parts.is_empty() || m.screen == Screen::Playing || m.paused {
         return;
@@ -211,15 +211,13 @@ pub(in crate::play::main_menu) fn layout(d: &mut Draw, m: &Menu) {
     d.anchor = Anchor::Centre;
 }
 
-/// M141: "Reload Mods" (the phone apps': "Close to load mods") in the pill's place, gold under the pointer; a tap
-/// reloads.
-fn reload_button(d: &mut Draw, m: &Menu) {
+/// M141: "Reload Mods" in the pill's place, gold under the pointer; a tap reloads (M153: in place, on every platform).
+fn reload_button(d: &mut Draw) {
     d.anchor = Anchor::Top;
     let rect = [X + 50.0, TOP, W - 100.0, H + 4.0];
     let on = pointer::over(rect, Anchor::Top);
     d.box3(rect, 9.0, [Some(INK), Some(WHITE), Some(if on { [96.0, 78.0, 24.0] } else { [24.0, 30.0, 44.0] })], 118.0);
-    let word = if m.add.app.0 { "Close to load mods" } else { "Reload Mods" };
-    d.label(word, X + W / 2.0, TOP + 5.0, 14.0, W - 120.0, if on { WHITE } else { GOLD });
+    d.label("Reload Mods", X + W / 2.0, TOP + 5.0, 14.0, W - 120.0, if on { WHITE } else { GOLD });
     d.hit(rect, Act::Reload);
     d.anchor = Anchor::Centre;
 }

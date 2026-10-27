@@ -550,18 +550,8 @@ fn start_loader(mut commands: Commands, args: Res<Args>, meshes: Res<Assets<Mesh
         crate::web::cards_keep(&format!("{name}~"));
         cache_dir(&args.iso, &name)
     };
-    let (report, found) = std::sync::mpsc::channel();
-    // ponytail: native only; the browser's mods still turn broken on their first hover
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let settings = super::Settings::path(&args.iso);
-        let (root, cache) = (settings.with_file_name("mods"), settings.with_file_name("cache").join("mod_checks.txt"));
-        std::thread::spawn(move || check_mods(&root, &cache, &report));
-    }
-    #[cfg(target_arch = "wasm32")]
-    drop(report);
     commands.insert_resource(Loader {
-        found: Mutex::new(found),
+        found: Mutex::new(check_all(&args.iso)),
         bad: Vec::new(),
         ask,
         done: Mutex::new(done),
@@ -619,6 +609,21 @@ fn receive(mut loader: ResMut<Loader>, mut menu: Option<ResMut<Menu>>, mut asset
     }
 }
 
+/// [`check_mods`] of the mods folder beside `iso`'s settings on a thread of its own: the broken costumes it finds.
+fn check_all(iso: &str) -> Receiver<PathBuf> {
+    let (report, found) = std::sync::mpsc::channel();
+    // ponytail: native only; the browser's mods still turn broken on their first hover
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let settings = super::Settings::path(iso);
+        let (root, cache) = (settings.with_file_name("mods"), settings.with_file_name("cache").join("mod_checks.txt"));
+        std::thread::spawn(move || check_mods(&root, &cache, &report));
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = (iso, report);
+    found
+}
+
 /// Every mod costume under `root` checked once ([`crate::mods::costume_ok`]) on a thread of its own, the broken ones
 /// sent to `report`. Verdicts are kept in `cache` by file size and time, so a later start reads no unchanged file
 /// (a phone's mods aren't parsed again each launch).
@@ -654,6 +659,51 @@ fn check_mods(root: &Path, cache: &Path, report: &Sender<PathBuf>) {
     }
     if let Err(e) = std::fs::create_dir_all(cache.parent().unwrap()).and_then(|_| std::fs::write(cache, new)) {
         warn!("{}: {e}", cache.display());
+    }
+}
+
+/// M153: no mod's picture is loading or drawing (a reload may swap the roster: they're keyed by roster index).
+pub(super) fn mods_idle(loader: &Loader, baker: &Baker) -> bool {
+    let modded = |k: &Key| matches!(k.0, Who::Mod(_));
+    !loader.asked.iter().any(|k| modded(k) && !loader.models.contains_key(k)) && !baker.job.as_ref().is_some_and(|j| modded(&j.key)) && !baker.fetching
+}
+
+/// M153: the roster was swapped in place (`mods_screen/live.rs`): every mod index the loader, the baker and the icons
+/// held is dropped (an index may be another mod now), the stamps read again (B259: updated and removed mods' drawings
+/// go), the costumes checked again, and the mods' pictures queued as at the start, the ones not drawn yet first: drawn
+/// in the background on any screen till they're in.
+pub(super) fn reroster(iso: &str, menu: &Menu, loader: &mut Loader, baker: &mut Baker, icons: &mut super::Icons, card: &mut ModCard) {
+    let modded = |k: &Key| matches!(k.0, Who::Mod(_));
+    loader.asked.retain(|k| !modded(k));
+    loader.models.retain(|k, _| !modded(k));
+    loader.model_order.retain(|k| !modded(k));
+    loader.pngs.retain(|k, _| !modded(k));
+    loader.png_order.retain(|k| !modded(k));
+    loader.drawn.retain(|k, _| !modded(k));
+    loader.extra.clear();
+    loader.stamps = drop_stale(&loader.dir, &menu.mods).into_iter().enumerate().collect();
+    loader.bad.clear();
+    loader.found = Mutex::new(check_all(iso));
+    icons.0.retain(|w, _| !matches!(w, Who::Mod(_)));
+    // the icons' unreadable faces are tried again
+    card.baked += 1;
+    baker.failed.retain(|k| !modded(k));
+    baker.tried.retain(|k| !modded(k));
+    baker.queue.retain(|k| !modded(k));
+    let costumes = if cfg!(target_arch = "wasm32") { 1 } else { super::COSTUMES };
+    for (i, m) in menu.mods.iter().enumerate().rev().filter(|_| costumes > 1) {
+        baker.queue.extend((1..m.costumes.len()).rev().map(|k| (Who::Mod(i), k)));
+    }
+    baker.queue.extend((0..menu.mods.len()).rev().map(|i| (Who::Mod(i), 0)));
+    let new: Vec<Key> = (0..menu.mods.len()).map(|i| (Who::Mod(i), 0)).filter(|&k| loader.path(k, menu).is_some_and(|p| !(cached(&p) && cached(&face_path(&p))))).collect();
+    baker.queue.extend(new.iter().rev());
+    (baker.hold, baker.reload) = (false, new);
+}
+
+/// The baker's next key off its queue, and off a reload's list (drawn, failed or its drawing under way).
+fn pop(baker: &mut Baker) {
+    if let Some(key) = baker.queue.pop() {
+        baker.reload.retain(|k| *k != key);
     }
 }
 
@@ -904,6 +954,10 @@ pub(super) struct Baker {
     tried: HashSet<Key>,
     fetching: bool,
     got: Arc<Mutex<Option<(Key, PathBuf, Option<Vec<u8>>)>>>,
+    /// M153: a mods reload waits to swap its roster in (no new drawing starts), then the new and changed mods' costume 0
+    /// it draws in the background on any screen, each off the list once drawn or failed (`mods_screen/live.rs`).
+    pub(super) hold: bool,
+    reload: Vec<Key>,
 }
 
 struct Job {
@@ -939,20 +993,26 @@ impl Job {
     }
 }
 
-fn start_baker(mut commands: Commands, menu: Res<Menu>, mut loader: ResMut<Loader>) {
-    // B259: each mod's stamp now, and every other mod drawing goes (an updated mod's old one, a removed mod's)
-    let stamps: Vec<String> = menu.mods.iter().map(stamp).collect();
+/// B259: each of `mods`' stamps now, and every other mod drawing in `dir` goes (an updated mod's old one, a removed
+/// mod's).
+fn drop_stale(dir: &Path, mods: &[Mod]) -> Vec<String> {
+    let stamps: Vec<String> = mods.iter().map(stamp).collect();
     #[cfg(not(target_arch = "wasm32"))]
-    for e in std::fs::read_dir(&loader.dir).into_iter().flatten().flatten() {
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         if stale(&e.file_name().to_string_lossy(), &stamps) {
             let _ = std::fs::remove_file(e.path());
         }
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let pre = format!("{}~", card_name(&loader.dir));
+        let pre = format!("{}~", card_name(dir));
         crate::web::cards_drop(|n| n.strip_prefix(pre.as_str()).is_some_and(|n| stale(n, &stamps)));
     }
+    stamps
+}
+
+fn start_baker(mut commands: Commands, menu: Res<Menu>, mut loader: ResMut<Loader>) {
+    let stamps = drop_stale(&loader.dir, &menu.mods);
     loader.stamps.extend(stamps.into_iter().enumerate());
     // every mod's costumes after the disc's (B99: an unbaked one is blank until its live model loads)
     let mut queue = Vec::new();
@@ -1032,7 +1092,7 @@ fn bake(
     // B589: past the select (the confirm, a launch waiting in `picks_drawn`), the players' picks: a Random draw is made
     // as the player readies and the select moves on at once, so a drawn mod never had its turn there
     let picks = picks_past_select(&menu);
-    if !matches!(menu.screen, Screen::Chars | Screen::Assign) && asked.is_none() && home.is_empty() && lent.is_empty() && fresh.is_empty() && view.is_empty() && picks.is_empty() && baker.job.is_none() && baker.warmed {
+    if !matches!(menu.screen, Screen::Chars | Screen::Assign) && asked.is_none() && home.is_empty() && lent.is_empty() && fresh.is_empty() && view.is_empty() && picks.is_empty() && baker.reload.is_empty() && baker.job.is_none() && baker.warmed {
         return;
     }
     // a hovered card without a PNG jumps the queue (the tiles on view next, then the new installs)
@@ -1144,16 +1204,20 @@ fn bake(
             card.baked += 1;
         }
     }
+    // M153: a reload waiting to swap its roster in
+    if baker.hold {
+        return;
+    }
     // the next key without a PNG
     while let Some(&key) = baker.queue.last() {
-        if menu.screen != Screen::Chars && Some(key) != asked && !home.contains(&key) && !lent.contains(&key) && !fresh.contains(&key) && !view.contains(&key) && !picks.contains(&key) && baker.warmed {
+        if menu.screen != Screen::Chars && Some(key) != asked && !home.contains(&key) && !lent.contains(&key) && !fresh.contains(&key) && !view.contains(&key) && !picks.contains(&key) && !baker.reload.contains(&key) && baker.warmed {
             return;
         }
         let path = loader.path(key, &menu);
         // B160: a baked one without its face close-up (a run quit between the two) is drawn again
         let done = |p: &PathBuf| cached(p) && cached(&face_path(p));
         let Some(path) = path.filter(|p| !done(p) && !baker.failed.contains(&key)) else {
-            baker.queue.pop();
+            pop(baker);
             continue;
         };
         let m = match key.0 {
@@ -1173,7 +1237,7 @@ fn bake(
             None => return,
             Some(None) => {
                 baker.failed.insert(key);
-                baker.queue.pop();
+                pop(baker);
             }
             Some(Some((data, hand))) => {
                 // B187: drawn from the frame after its load (in the browser a load runs inside a frame), not on top
@@ -1181,7 +1245,7 @@ fn bake(
                     *loaded = Some(key);
                     return;
                 }
-                baker.queue.pop();
+                pop(baker);
                 let c = match key.0 {
                     Who::Disc(c) => c,
                     Who::Mod(i) => loader.mod_at(&menu, i).map_or(0, |m| m.donor),

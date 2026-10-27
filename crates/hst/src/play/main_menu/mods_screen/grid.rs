@@ -1094,12 +1094,7 @@ impl Menu {
                 },
                 "All mods" => self.mods_back(out),
                 "Update all" => self.update_all(out),
-                _ => {
-                    out.push(Sound(2));
-                    if let Err(e) = super::reload(self.add.app.0, out) {
-                        self.add.status = e;
-                    }
-                }
+                _ => self.reload_mods(out),
             },
             Slot::Pill(i) => {
                 match v.pills()[i] {

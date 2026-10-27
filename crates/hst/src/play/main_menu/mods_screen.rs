@@ -31,6 +31,7 @@ use crate::modstore::{self, Entry, Event, Kind, Up};
 use crate::mods::Mod;
 
 pub(super) mod grid;
+mod live;
 mod packs;
 mod transfers;
 
@@ -159,23 +160,8 @@ pub(super) struct View {
     inst: Vec<Entry>,
     /// B383: the last press was a pad's (the search box's ✕ then opens the keyboard on screen).
     pub(super) pad: bool,
-    /// B420: the iOS / Android app, which can't start itself again: Reload closes it instead (the player opens it
-    /// again) and the popup asks to close.
-    app: PhoneApp,
-}
-
-/// B420: whether this is the phone apps' build (`View::app`); `HST_APP=1` makes a desktop `--shot` show theirs.
-#[derive(Clone, Copy, Debug)]
-struct PhoneApp(bool);
-
-impl Default for PhoneApp {
-    fn default() -> Self {
-        PhoneApp(PhoneApp::BUILD)
-    }
-}
-
-impl PhoneApp {
-    const BUILD: bool = cfg!(any(target_os = "ios", target_os = "android"));
+    /// M153: a Reload under way (the roster rebuilt in place, `live.rs`).
+    reloading: Option<live::Reloading>,
 }
 
 #[derive(Clone, Debug)]
@@ -1187,9 +1173,7 @@ impl Menu {
             self.add.status = "Choose a mod .zip file: a character, court, umpire or texture pack.".into();
             out.push(Sound(2));
         } else if s == 1 {
-            if let Err(e) = reload(self.add.app.0, out) {
-                self.add.status = e;
-            }
+            self.reload_mods(out);
         } else if s == 2 {
             let n = self.add.locals().iter().filter(|m| ours(m)).count();
             if n == 0 {
@@ -1250,32 +1234,6 @@ fn ours(m: &Mod) -> bool {
     cfg!(target_arch = "wasm32") || crate::modfs::installed_by_game(root(), &m.dir, &m.id)
 }
 
-/// Reload: the browser reloads the page; the desktop game starts itself again with the same arguments and closes (the
-/// select's roster, the mods' textures and sounds are all read at startup). B420: the iOS / Android app (`app`) can't
-/// start itself, so it only closes, at once (an `AppExit` doesn't end an iOS app); the player opens it again. Mods and
-/// settings are on disk already.
-fn reload(app: bool, out: &mut Vec<Effect>) -> Result<(), String> {
-    if app {
-        std::process::exit(0);
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = out;
-        crate::web::reload();
-        Ok(())
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let exe = std::env::current_exe().map_err(|e| format!("Couldn't restart: {e}. Restart the game by hand."))?;
-        std::process::Command::new(exe)
-            .args(std::env::args_os().skip(1))
-            .spawn()
-            .map_err(|e| format!("Couldn't restart: {e}. Restart the game by hand."))?;
-        out.push(Effect::Quit);
-        Ok(())
-    }
-}
-
 /// The Reload / Later popup's pills (640×448): their tops, 40 px apart as the pause dialog's.
 const ASK_TOP: f32 = 226.0;
 
@@ -1284,6 +1242,10 @@ impl Menu {
     /// Reload and Later, ✕ chooses; ○ does nothing (B387: only Later closes it, and Browse then keeps a Reload pill
     /// while the change stands). Returns whether the popup was up.
     pub(super) fn ask_step(&mut self, k: Press, out: &mut Vec<Effect>) -> bool {
+        // M153: a reload's overlay takes every press till it's done
+        if self.add.reloading.is_some() {
+            return true;
+        }
         let Some(a) = self.add.ask else { return false };
         if k.up || k.down || k.left || k.right {
             self.add.ask = Some(1 - a);
@@ -1301,14 +1263,16 @@ impl Menu {
         true
     }
 
-    /// Reload (the popup's, M141's Reload Mods button's): the game starts again with the mods as they are now.
+    /// Reload (the popup's, M141's Reload Mods button's, the Mods page's): M153: the mods as they are now come in
+    /// without a restart (`live.rs`), the overlay up till they have.
     pub(super) fn reload_mods(&mut self, out: &mut Vec<Effect>) {
-        out.push(Effect::Sound(2));
-        if let Err(e) = reload(self.add.app.0, out) {
-            // the desktop couldn't start itself again: say so on the Mods row's note and close
-            self.add.status = e;
-            (self.add.ask, self.add.play) = (None, None);
+        // never with players holding picks (the select, a lobby, a match): transfers.rs offers it only off them
+        if self.paused || self.net.room.is_some() || self.over.is_some() || matches!(self.screen, Screen::Assign | Screen::Chars | Screen::Confirm | Screen::Lobby | Screen::Playing) {
+            out.push(Effect::Sound(1));
+            return;
         }
+        out.push(Effect::Sound(2));
+        self.reload_live();
     }
 }
 
@@ -1323,42 +1287,23 @@ pub(super) fn show_keys(m: &Menu) -> bool {
     m.add.child.is_none() && m.add.nophone.is_none() && m.add.wipe.is_none() && !m.add.empty_kind()
 }
 
-/// B420: the popup's question and its two pills: the phone apps can only close. M141: a Play pick's asks to reload
-/// or play on.
+/// The popup's question and its two pills. M141: a Play pick's asks to reload or play on. M153: a reload is in place
+/// (no restart), on every platform.
 fn ask_words(v: &View) -> (&'static str, [&'static str; 2], &'static str) {
     if v.play.is_some() {
-        return if v.app.0 {
-            (
-                "Close the game to use them?",
-                ["Close game", "Play without them"],
-                "New mods load when the game starts, and the app can't restart itself. Close game shuts it now: open it again to play with them. Play without them plays with the mods it started with.",
-            )
-        } else {
-            ("Reload now to use them?", ["Reload now", "Play without them"], "New mods load when the game starts. Reload now restarts the game with them; Play without them plays with the mods it started with.")
-        };
-    }
-    if v.app.0 {
-        (
-            "Close the game to use them?",
-            ["Close game", "Later"],
-            "Mod changes take effect when the game starts, and the app can't restart itself. Close game shuts it now: open it again to play with them. Later carries on without them.",
-        )
+        ("Reload now to use them?", ["Reload now", "Play without them"], "Reload now brings the new mods in (a few seconds); Play without them plays with the mods as they were.")
     } else {
-        ("Reload now to use them?", ["Reload", "Later"], "Mod changes take effect after a restart. Reload restarts the game now; Later carries on without them.")
+        ("Reload now to use them?", ["Reload", "Later"], "Reload brings your mod changes in now; Later carries on without them.")
     }
 }
 
-/// B420: what the Mods page's Reload pill does, for its description.
-pub(super) fn reload_said(v: &View) -> &'static str {
-    if v.app.0 {
-        "Close the game so your mod changes take effect: open it again and new mods join the select screens, removed ones leave."
-    } else {
-        "Restart the game so your mod changes take effect: new mods join the select screens, removed ones leave."
-    }
+/// What the Mods page's Reload pill does, for its description.
+pub(super) fn reload_said(_: &View) -> &'static str {
+    "Bring your mod changes in: new mods join the select screens, updated ones change, removed ones leave."
 }
 
 pub(super) fn reload_due(m: &Menu) -> bool {
-    m.add.changed && m.add.ask.is_none() && m.add.idle()
+    m.add.changed && m.add.ask.is_none() && m.add.reloading.is_none() && m.add.idle()
 }
 
 /// The main screen's Mods picture: which installed mods are the store's (their zips' sha256), read once at startup
@@ -1440,6 +1385,9 @@ pub(super) fn news(d: &mut Draw, m: &Menu, [x, y, w, h]: [f32; 4]) {
 /// dimmed menu in the pause dialog's style (`menu.rs`: rounded box, title, a pill per choice, the chosen one bright,
 /// the hand beside it).
 pub(super) fn ask_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
+    if live::layout(d, m) {
+        return;
+    }
     let Some(a) = m.add.ask else { return };
     use super::super::menu::{CHOSEN, PANEL, UNCHOSEN};
     // the menu's own hand goes; the popup has its own
@@ -1621,7 +1569,7 @@ pub(super) fn sample_updates(m: &mut Menu) {
 /// `HST_MENU=browsemods` (Browse, its entries made up from the installed mods: Verified, Installed and Update all
 /// shown, someone's folded; with `HST_CHILD=1` narrowed to FIZL0's, B255's Download all under way) / `mymods` (My public mods, the same made-up entries, one's Take down open; `HST_CHILD=wipe`: B445's Remove all uploads warning) / `uploadmods` (Upload, Upload
 /// all open, the first mods tagged with each upload state; `HST_CHILD=0`: none open, the first mod hovered) / `signinmods` (Upload signed out, Sign in's buttons open) / `addmods` with `HST_CHILD=1` (Installed, a
-/// mod's Remove open; B383: the Installed grid) / `reloadmods` (the main menu, B205's popup up; `HST_APP=1`: the phone apps' Close game one): for `--shot`s.
+/// mod's Remove open; B383: the Installed grid) / `reloadmods` (the main menu, B205's popup up) / `reloading` (M153: the reload's overlay): for `--shot`s.
 pub(super) fn sample(m: &mut Menu, screen: &str) {
     let v = &mut m.add;
     v.refresh();
@@ -1715,11 +1663,10 @@ pub(super) fn sample(m: &mut Menu, screen: &str) {
         }
     } else if screen == "reloadmods" {
         (v.changed, v.ask) = (true, Some(0));
-        // B420: `HST_APP=1`: the phone apps' popup (Close game)
-        if std::env::var_os("HST_APP").is_some() {
-            v.app = PhoneApp(true);
-        }
         m.sel = 3;
+    } else if screen == "reloading" {
+        // M153: the reload's overlay part way through
+        v.reloading = Some(live::sample());
     } else if screen == "uploadmods" {
         v.page = Page::Upload;
         v.account = Some("FIZL0".into());
@@ -2189,6 +2136,7 @@ fn browse_pictures(menu: &mut Menu, shelf: &mut Shelf, images: &mut Assets<Image
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Shelf>().add_systems(Update, (page.before(super::draw), grid::typing.before(super::step), grid::roll_time.before(super::draw)));
+    app.add_systems(Update, live::run.after(super::step).before(super::draw));
 }
 
 #[cfg(test)]
@@ -2791,23 +2739,24 @@ mod tests {
     /// B208: on a phone Add mod (B383: Installed's word) and the header's Upload are greyed and put up the popup
     /// instead (no picker, no page), as does Show → My uploads; ✕, ○ or a tap anywhere closes it; the other Shows
     /// still open; the file input stays off.
-    /// B420: the phone apps can't restart, so the popup asks to close the game (Later still closes only the popup) and
-    /// the Reload pill says it closes; the desktop's keeps Reload.
+    /// M153: Reload is in place on every platform: the popup's Reload starts it, its overlay takes every press, and
+    /// Later still closes only the popup.
     #[test]
-    fn app_popup_closes_the_game() {
+    fn reload_is_in_place() {
         let mut m = Menu { screen: Screen::Main, ..default() };
         assert_eq!(ask_words(&m.add).1, ["Reload", "Later"]);
-        assert!(reload_said(&m.add).starts_with("Restart"));
-        m.add.app = PhoneApp(true);
-        let (ask, words, said) = ask_words(&m.add);
-        assert_eq!((ask, words), ("Close the game to use them?", ["Close game", "Later"]));
-        assert!(said.contains("can't restart") && reload_said(&m.add).starts_with("Close the game"));
         (m.add.changed, m.add.ask) = (true, Some(0));
         let mut out = Vec::new();
         assert!(m.ask_step(Press { down: true, ..default() }, &mut out));
         assert!(m.ask_step(ok(), &mut out));
         assert_eq!((m.add.ask, m.add.changed), (None, true));
         assert_eq!(out, [Effect::Sound(0), Effect::Sound(1)]);
+        m.add.ask = Some(0);
+        out.clear();
+        assert!(m.ask_step(ok(), &mut out));
+        assert!(m.add.reloading.is_some() && m.add.ask.is_none() && !reload_due(&m));
+        assert_eq!(out, [Effect::Sound(2)], "no Quit: nothing restarts");
+        assert!(m.ask_step(Press { back: true, ..default() }, &mut out), "the overlay takes presses");
     }
 
     #[test]

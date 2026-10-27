@@ -103,6 +103,11 @@ pub fn clear() {
     MOD_LOADS.lock().unwrap().clear();
 }
 
+/// M153: the mods were reloaded in the menu: a costume load started before (an updated mod's old file) is dropped.
+pub fn forget_mods() {
+    MOD_LOADS.lock().unwrap().clear();
+}
+
 /// [`crate::mods::load`] of `m`'s costume `costume`, taken from a load started early ([`mods`]) if there is one.
 #[allow(clippy::too_many_arguments)]
 pub fn load_mod(
