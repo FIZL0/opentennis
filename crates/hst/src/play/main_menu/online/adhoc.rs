@@ -67,8 +67,12 @@ pub(super) fn words() -> String {
                 }
             }
             // M152c: the guest page joins this device's lobby by itself, and a firewall that asks nothing (Linux)
-            // drops them silently
-            w += " Host a lobby to play. Page won't load? Let OpenTennis through this device's firewall.";
+            // drops them silently; M152c1: the page and the game share one port, so the hint's one command lets them
+            // through
+            w += " Host a lobby to play.";
+            if s.hint.is_empty() {
+                w += " Page won't load? Let OpenTennis through this device's firewall.";
+            }
             return w;
         }
     }

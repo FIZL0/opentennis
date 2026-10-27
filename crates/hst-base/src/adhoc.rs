@@ -24,7 +24,7 @@
 //! be read in parts or resumed).
 
 use std::io::{self, Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
@@ -102,13 +102,20 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
             old.shared.stop.store(true, Relaxed);
             // wakes the accept so its thread sees `stop`
             let _ = TcpStream::connect_timeout(&SocketAddr::from((Ipv4Addr::LOCALHOST, old.port)), Duration::from_millis(200));
+            crate::net::rtc::pin(None);
         }
         return Ok(());
     }
     if s.is_some() {
         return Ok(());
     }
-    let listener = PORTS.iter().find_map(|&p| TcpListener::bind((Ipv4Addr::UNSPECIFIED, p)).ok()).map_or_else(|| TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)), Ok).map_err(|e| format!("Couldn't open a port: {e}"))?;
+    // M152c1: guests' WebRTC comes in on UDP at the same port number (`net::rtc::pin`), so a port that's free for both
+    let listener = PORTS
+        .iter()
+        .find_map(|&p| {
+            let _udp = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, p)).ok()?;
+            TcpListener::bind((Ipv4Addr::UNSPECIFIED, p)).ok()
+        }).map_or_else(|| TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)), Ok).map_err(|e| format!("Couldn't open a port: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let shared = Arc::new(Shared { disc: served_disc(disc), web: Mutex::new(Web::Looking), mods: Mutex::new(mods()), stop: AtomicBool::new(false), reached: AtomicBool::new(false) });
     let own = own_addrs();
@@ -133,9 +140,11 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
             }
         })
         .map_err(|e| e.to_string())?;
-    bevy::log::info!("adhoc: serving on port {port}: {:?}", urls(port));
+    crate::net::rtc::pin(Some(port));
+    let fw = firewall(port);
+    bevy::log::info!("adhoc: serving on port {port}: {:?}, firewall: {fw:?}", urls(port));
     let now = Instant::now();
-    *s = Some(Server { port, shared, since: now, firewall: Mutex::new((now, firewall(port))) });
+    *s = Some(Server { port, shared, since: now, firewall: Mutex::new((now, fw)) });
     Ok(())
 }
 
@@ -209,14 +218,14 @@ impl Firewall {
     /// while) when it might, never when it lets the port in.
     fn hint(self, port: u16, late: bool) -> String {
         match self {
-            Firewall::UfwBlocks => format!("This PC's firewall blocks guests: allow them with sudo ufw allow {port}/tcp"),
+            Firewall::UfwBlocks => format!("This PC's firewall blocks guests: allow them with sudo ufw allow {port}"),
             Firewall::UfwOpen => String::new(),
             _ if !late => String::new(),
-            Firewall::Ufw => format!("No one yet? This PC's firewall may block them: sudo ufw allow {port}/tcp"),
-            Firewall::Firewalld => format!("No one yet? This PC's firewall may block them: sudo firewall-cmd --add-port={port}/tcp"),
+            Firewall::Ufw => format!("No one yet? This PC's firewall may block them: sudo ufw allow {port}"),
+            Firewall::Firewalld => format!("No one yet? This PC's firewall may block them: sudo firewall-cmd --add-port={port}/tcp --add-port={port}/udp"),
             Firewall::Unknown if cfg!(windows) => "No one yet? Let OpenTennis through Windows Firewall on private networks.".into(),
             Firewall::Unknown if cfg!(target_os = "macos") => "No one yet? Let OpenTennis through the firewall: System Settings > Network > Firewall.".into(),
-            Firewall::Unknown => format!("No one yet? This PC's firewall may block them: allow TCP port {port}."),
+            Firewall::Unknown => format!("No one yet? This PC's firewall may block them: allow TCP and UDP port {port}."),
         }
     }
 }
@@ -227,13 +236,14 @@ fn firewall(port: u16) -> Firewall {
         return Firewall::Unknown;
     }
     let read = |p: &str| std::fs::read_to_string(p).ok();
-    let ufw_on = read("/etc/ufw/ufw.conf").is_some_and(|c| c.lines().any(|l| l.trim() == "ENABLED=yes"));
+    let ufw_on = read("/etc/ufw/ufw.conf").is_some_and(|c| ufw_enabled(&c));
     if !ufw_on {
         return if Path::new("/etc/firewalld").is_dir() { Firewall::Firewalld } else { Firewall::Unknown };
     }
     let policy = read("/etc/default/ufw").and_then(|c| c.lines().find_map(|l| l.trim().strip_prefix("DEFAULT_INPUT_POLICY=").map(|v| v.trim_matches('"').to_string())));
     match read("/etc/ufw/user.rules") {
-        Some(rules) => match ufw_lets_in(&rules, port, policy.as_deref().unwrap_or("DROP")) {
+        // M152c1: the page comes in on TCP, guests' WebRTC on UDP at the same port
+        Some(rules) => match ["tcp", "udp"].iter().all(|proto| ufw_lets_in(&rules, port, proto, policy.as_deref().unwrap_or("DROP"))) {
             true => Firewall::UfwOpen,
             false => Firewall::UfwBlocks,
         },
@@ -241,17 +251,22 @@ fn firewall(port: u16) -> Firewall {
     }
 }
 
-/// Whether ufw's rules (`user.rules`, whose `### tuple ###` lines list them in order) let a TCP connection from the
+/// Whether ufw's config switches it on (`ENABLED=yes`).
+fn ufw_enabled(conf: &str) -> bool {
+    conf.lines().filter_map(|l| l.trim().strip_prefix("ENABLED=")).next_back().is_some_and(|v| v.trim_matches(['"', '\'', ' ']).eq_ignore_ascii_case("yes"))
+}
+
+/// Whether ufw's rules (`user.rules`, whose `### tuple ###` lines list them in order) let `proto` (tcp, udp) from the
 /// LAN in on `port`: the first incoming rule for it decides; none falls to the default `policy`. A rule for some
 /// sources only (a LAN range) counts as letting guests in.
-fn ufw_lets_in(rules: &str, port: u16, policy: &str) -> bool {
+fn ufw_lets_in(rules: &str, port: u16, want: &str, policy: &str) -> bool {
     for l in rules.lines() {
         let Some(t) = l.strip_prefix("### tuple ###") else { continue };
         let f: Vec<&str> = t.split_whitespace().collect();
         // action proto dport dst sport src [dapp sapp] direction
         let [action, proto, dport, ..] = f[..] else { continue };
         let dir = f.iter().skip(6).rfind(|w| !w.starts_with("comment=")).copied().unwrap_or("in");
-        if !dir.starts_with("in") || !(proto == "tcp" || proto == "any") {
+        if !dir.starts_with("in") || !(proto == want || proto == "any") {
             continue;
         }
         let has = dport == "any"
@@ -854,15 +869,20 @@ mod tests {
                      ### tuple ### allow tcp 80 0.0.0.0/0 any 0.0.0.0/0 out\n\
                      ### tuple ### allow any 81,90:99 0.0.0.0/0 any 0.0.0.0/0 in_wlan0\n";
         // udp only, a range, a LAN-only rule, a deny first, outgoing only, a list
-        assert!(!ufw_lets_in(rules, 8080, "DROP"));
-        assert!(ufw_lets_in(rules, 9944, "DROP"));
-        assert!(ufw_lets_in(rules, 8000, "DROP"));
-        assert!(!ufw_lets_in(rules, 8888, "ACCEPT"));
-        assert!(!ufw_lets_in(rules, 80, "DROP"));
-        assert!(ufw_lets_in(rules, 80, "ACCEPT"));
-        assert!(ufw_lets_in(rules, 95, "REJECT"));
+        assert!(!ufw_lets_in(rules, 8080, "tcp", "DROP"));
+        assert!(ufw_lets_in(rules, 9944, "tcp", "DROP"));
+        assert!(ufw_lets_in(rules, 8000, "tcp", "DROP"));
+        assert!(!ufw_lets_in(rules, 8888, "tcp", "ACCEPT"));
+        assert!(!ufw_lets_in(rules, 80, "tcp", "DROP"));
+        assert!(ufw_lets_in(rules, 80, "tcp", "ACCEPT"));
+        assert!(ufw_lets_in(rules, 95, "tcp", "REJECT"));
         assert_eq!(Firewall::UfwOpen.hint(8080, true), "");
-        assert!(Firewall::UfwBlocks.hint(8080, false).ends_with("sudo ufw allow 8080/tcp"));
+        assert!(ufw_lets_in(rules, 8080, "udp", "DROP"));
+        assert!(!ufw_lets_in(rules, 9944, "udp", "DROP"));
+        assert!(Firewall::UfwBlocks.hint(8080, false).ends_with("sudo ufw allow 8080"));
+        assert!(ufw_enabled("# comment\nENABLED=yes\nLOGLEVEL=low"));
+        assert!(!ufw_enabled("ENABLED=no\n"));
+        assert!(!ufw_enabled("#ENABLED=yes\n"));
         assert_eq!(Firewall::Unknown.hint(8080, false), "");
         assert!(!Firewall::Unknown.hint(8080, true).is_empty());
     }

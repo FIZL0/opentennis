@@ -9,15 +9,16 @@
 
 use super::super::{Conn, Inbox, Link, Msg};
 use super::{ANSWER, OFFER, Sig};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use str0m::change::{SdpAnswer, SdpOffer, SdpPendingOffer};
 use str0m::channel::{ChannelConfig, ChannelId, Reliability};
 use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc};
 use tokio::net::UdpSocket;
-use tokio::sync::{mpsc as amp, oneshot};
+use tokio::sync::{mpsc as amp, oneshot, watch};
 
 /// Out to the connection's driver.
 enum Out {
@@ -60,9 +61,22 @@ fn addresses() -> Vec<IpAddr> {
     ips
 }
 
-/// A fresh `Rtc` with a socket and host candidate per address.
-async fn bind() -> Result<(Rtc, Vec<UdpSocket>), String> {
+/// A packet in: its bytes, where from, which of our addresses it came to.
+type Packet = (Vec<u8>, SocketAddr, SocketAddr);
+
+/// A connection's sockets: its own (each read on a task of its own until the connection's packet receiver drops), or
+/// the pinned port's, shared with every other guest's ([`Mux`]: what we send to an address routes it back to us).
+struct Socks {
+    socks: Vec<Arc<UdpSocket>>,
+    mux: Option<(Arc<Mux>, amp::Sender<Packet>)>,
+}
+
+const NO_ADDRESS: &str = "No network address: join a Wi-Fi network (or a phone's hotspot) first.";
+
+/// A fresh `Rtc` with a socket and host candidate per address, the sockets' packets into the receiver.
+async fn bind() -> Result<(Rtc, Socks, amp::Receiver<Packet>), String> {
     let mut rtc = Rtc::builder().build(Instant::now());
+    let (pt, packets) = amp::channel::<Packet>(256);
     let mut socks = Vec::new();
     for ip in addresses() {
         let Ok(s) = UdpSocket::bind(SocketAddr::new(ip, 0)).await else {
@@ -71,15 +85,235 @@ async fn bind() -> Result<(Rtc, Vec<UdpSocket>), String> {
         let Ok(at) = s.local_addr() else { continue };
         if let Ok(c) = Candidate::host(at, "udp") {
             rtc.add_local_candidate(c);
+            let s = Arc::new(s);
+            n0_future::task::spawn(read_own(s.clone(), at, pt.clone()));
             socks.push(s);
         }
     }
     if socks.is_empty() {
-        return Err(
-            "No network address: join a Wi-Fi network (or a phone's hotspot) first.".into(),
-        );
+        return Err(NO_ADDRESS.into());
     }
-    Ok((rtc, socks))
+    Ok((rtc, Socks { socks, mux: None }, packets))
+}
+
+/// One of a connection's own sockets, read until the connection ends (`recv_from` waits on one socket).
+async fn read_own(s: Arc<UdpSocket>, at: SocketAddr, pt: amp::Sender<Packet>) {
+    let mut buf = vec![0; 2000];
+    loop {
+        tokio::select! {
+            r = s.recv_from(&mut buf) => match r {
+                Ok((n, from)) => if pt.send((buf[..n].to_vec(), from, at)).await.is_err() { return },
+                Err(_) => continue,
+            },
+            _ = pt.closed() => return,
+        }
+    }
+}
+
+// ---------------------------------------------------------------- the pinned port
+
+/// M152c1: while adhoc serves, every guest's WebRTC goes through one UDP port, the page's own port number, so one
+/// firewall rule (TCP and UDP on that port) covers adhoc. One socket per address for all guests; packets go to the
+/// connection by the address they come from: one we sent to, or, the first time, the ICE check's user name (it starts
+/// with our side's ufrag).
+struct Mux {
+    port: u16,
+    socks: std::sync::Mutex<Vec<Arc<UdpSocket>>>,
+    routes: std::sync::Mutex<HashMap<SocketAddr, amp::Sender<Packet>>>,
+    ufrags: std::sync::Mutex<HashMap<String, amp::Sender<Packet>>>,
+    /// Dropped with the mux: its readers stop and the port closes.
+    alive: watch::Sender<()>,
+}
+
+/// The pinned port; the mux on it once a guest has come (connections hold it too, so a match outlives `pin(None)`).
+static PINNED: std::sync::Mutex<(Option<u16>, Option<Arc<Mux>>)> =
+    std::sync::Mutex::new((None, None));
+
+/// Pins browser guests' WebRTC to UDP `port` (`None`: each connection on ports of its own again, the default).
+pub fn pin(port: Option<u16>) {
+    let mut p = PINNED.lock().unwrap();
+    if p.0 != port {
+        *p = (port, None);
+    }
+}
+
+/// The pinned port's mux, made the first time (in the runtime: its readers are tasks); None when nothing is pinned.
+fn mux() -> Option<Arc<Mux>> {
+    let mut p = PINNED.lock().unwrap();
+    let port = p.0?;
+    Some(
+        p.1.get_or_insert_with(|| {
+            Arc::new(Mux {
+                port,
+                socks: Default::default(),
+                routes: Default::default(),
+                ufrags: Default::default(),
+                alive: watch::channel(()).0,
+            })
+        })
+        .clone(),
+    )
+}
+
+impl Mux {
+    /// Its sockets, one per address now up (bound the first time an address is seen; one that's taken is left out).
+    fn sockets(self: &Arc<Self>) -> Vec<Arc<UdpSocket>> {
+        let mut socks = self.socks.lock().unwrap();
+        for ip in addresses() {
+            let at = SocketAddr::new(ip, self.port);
+            if socks.iter().any(|s| s.local_addr().is_ok_and(|a| a == at)) {
+                continue;
+            }
+            let bound = std::net::UdpSocket::bind(at)
+                .and_then(|s| s.set_nonblocking(true).map(|_| s))
+                .and_then(UdpSocket::from_std);
+            match bound {
+                Ok(s) => {
+                    let s = Arc::new(s);
+                    n0_future::task::spawn(read_mux(
+                        Arc::downgrade(self),
+                        s.clone(),
+                        at,
+                        self.alive.subscribe(),
+                    ));
+                    socks.push(s);
+                }
+                Err(e) => {
+                    bevy::log::info!("LAN: UDP {at} is taken ({e}): guests can't use that address")
+                }
+            }
+        }
+        socks.clone()
+    }
+
+    /// A packet to the connection it belongs to, if any.
+    fn deliver(&self, data: Vec<u8>, from: SocketAddr, at: SocketAddr) {
+        let mut routes = self.routes.lock().unwrap();
+        let to = match routes.get(&from).filter(|t| !t.is_closed()) {
+            Some(t) => Some(t.clone()),
+            None => stun_ufrag(&data)
+                .and_then(|u| {
+                    self.ufrags
+                        .lock()
+                        .unwrap()
+                        .get(u)
+                        .filter(|t| !t.is_closed())
+                        .cloned()
+                })
+                .inspect(|t| drop(routes.insert(from, t.clone()))),
+        };
+        if let Some(t) = to {
+            let _ = t.try_send((data, from, at));
+        }
+    }
+
+    /// `ufrag` (our side's) and what we send to belong to the connection reading `t`; ended connections' go.
+    fn claim(&self, ufrag: Option<&str>, to: Option<SocketAddr>, t: &amp::Sender<Packet>) {
+        if let Some(u) = ufrag {
+            let mut ufrags = self.ufrags.lock().unwrap();
+            ufrags.retain(|_, t| !t.is_closed());
+            ufrags.insert(u.to_string(), t.clone());
+        }
+        if let Some(a) = to {
+            let mut routes = self.routes.lock().unwrap();
+            if !routes.get(&a).is_some_and(|r| r.same_channel(t)) {
+                routes.retain(|_, t| !t.is_closed());
+                routes.insert(a, t.clone());
+            }
+        }
+    }
+}
+
+/// Tests: the pinned port's sockets' addresses and how many live connections it routes to.
+#[cfg(test)]
+pub(super) fn pinned() -> Option<(Vec<SocketAddr>, usize)> {
+    let m = PINNED.lock().unwrap().1.clone()?;
+    let at = m
+        .socks
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s.local_addr().ok())
+        .collect();
+    let mut conns: Vec<amp::Sender<Packet>> = Vec::new();
+    for t in m.routes.lock().unwrap().values().filter(|t| !t.is_closed()) {
+        if !conns.iter().any(|c| c.same_channel(t)) {
+            conns.push(t.clone());
+        }
+    }
+    Some((at, conns.len()))
+}
+
+/// One of the pinned port's sockets, read until the mux goes.
+async fn read_mux(
+    mux: std::sync::Weak<Mux>,
+    s: Arc<UdpSocket>,
+    at: SocketAddr,
+    mut alive: watch::Receiver<()>,
+) {
+    let mut buf = vec![0; 2000];
+    loop {
+        tokio::select! {
+            r = s.recv_from(&mut buf) => match (r, mux.upgrade()) {
+                (Ok((n, from)), Some(m)) => m.deliver(buf[..n].to_vec(), from, at),
+                (_, None) => return,
+                (Err(_), _) => continue,
+            },
+            _ = alive.changed() => return,
+        }
+    }
+}
+
+/// The ufrag a STUN binding request is for (its user name is `<receiver's ufrag>:<sender's>`); None for anything else.
+fn stun_ufrag(p: &[u8]) -> Option<&str> {
+    let word = |i: usize| {
+        p.get(i..i + 2)
+            .map(|b| u16::from_be_bytes([b[0], b[1]]) as usize)
+    };
+    if word(0)? != 1 || p.get(4..8)? != [0x21, 0x12, 0xa4, 0x42] {
+        return None;
+    }
+    let end = (20 + word(2)?).min(p.len());
+    let mut i = 20;
+    while i + 4 <= end {
+        let (kind, len) = (word(i)?, word(i + 2)?);
+        let v = p.get(i + 4..i + 4 + len)?;
+        if kind == 6 {
+            return std::str::from_utf8(v).ok()?.split(':').next();
+        }
+        i += 4 + len.div_ceil(4) * 4;
+    }
+    None
+}
+
+/// The host's sockets for a guest: the pinned port's while one is pinned (and bound), else its own.
+async fn bind_host() -> Result<(Rtc, Socks, amp::Receiver<Packet>), String> {
+    let Some(mux) = mux() else {
+        return bind().await;
+    };
+    let socks = mux.sockets();
+    if socks.is_empty() {
+        return bind().await;
+    }
+    let mut rtc = Rtc::builder().build(Instant::now());
+    for s in &socks {
+        if let Ok(c) = s
+            .local_addr()
+            .map_err(|e| e.to_string())
+            .and_then(|a| Candidate::host(a, "udp").map_err(|e| e.to_string()))
+        {
+            rtc.add_local_candidate(c);
+        }
+    }
+    let (pt, packets) = amp::channel::<Packet>(256);
+    Ok((
+        rtc,
+        Socks {
+            socks,
+            mux: Some((mux, pt)),
+        },
+        packets,
+    ))
 }
 
 /// `sig` as the description str0m reads: IP candidates only (no mDNS names); `setup`: the DTLS role the remote takes.
@@ -125,7 +359,7 @@ fn config((id, label, reliable): (u16, &str, bool)) -> ChannelConfig {
 /// The host's side: the answer to a guest's offer `code` (its code) and the connection, opening in the background.
 pub(in crate::net) async fn accept(code: &str) -> Result<(String, Opening), String> {
     let o = Sig::parse(code, OFFER).ok_or("not a LAN offer")?;
-    let (mut rtc, socks) = bind().await?;
+    let (mut rtc, socks, packets) = bind_host().await?;
     // the browser offers actpass and the answer code can't say which role we took: the browser reads it as active
     // (`Sig::sdp`), so we're the DTLS client, which str0m picks for a passive remote
     let offer = SdpOffer::from_sdp_string(&remote_sdp(&o, true, "passive"))
@@ -134,35 +368,38 @@ pub(in crate::net) async fn accept(code: &str) -> Result<(String, Opening), Stri
         .sdp_api()
         .accept_offer(offer)
         .map_err(|e| e.to_string())?;
-    let _ = drain(&mut rtc, &socks.iter().collect::<Vec<_>>(), &mut |_| {});
     let mut a = ours(answer.to_sdp_string())?;
+    if let Some((m, t)) = &socks.mux {
+        m.claim(Some(&a.ufrag), None, t);
+    }
+    let _ = drain(&mut rtc, &socks, &mut |_| {});
     a.to = o.ufrag.clone();
     let ids = channels(&mut rtc, &socks, |rtc, c| {
         rtc.direct_api().create_data_channel(c)
     });
-    Ok((a.code(ANSWER), drive(rtc, socks, ids, o.ufrag)))
+    Ok((a.code(ANSWER), drive(rtc, socks, packets, ids, o.ufrag)))
 }
 
 /// Our channels' ids, made one at a time (str0m: every change is drained before the next).
 fn channels(
     rtc: &mut Rtc,
-    socks: &[UdpSocket],
+    socks: &Socks,
     mut make: impl FnMut(&mut Rtc, ChannelConfig) -> ChannelId,
 ) -> [ChannelId; 2] {
     CHANNELS.map(|c| {
         let id = make(rtc, config(c));
-        let _ = drain(rtc, &socks.iter().collect::<Vec<_>>(), &mut |_| {});
+        let _ = drain(rtc, socks, &mut |_| {});
         id
     })
 }
 
 /// The guest's side, natively: offer to the host's signalling address (`host:port`), connect with its answer.
 pub(in crate::net) async fn dial(host: &str) -> Result<(Conn, Link, Inbox, String), String> {
-    let (mut rtc, socks) = bind().await?;
+    let (mut rtc, socks, packets) = bind().await?;
     let mut change = rtc.sdp_api();
     let ids = CHANNELS.map(|c| change.add_channel_with_config(config(c)));
     let (offer, pending): (SdpOffer, SdpPendingOffer) = change.apply().ok_or("no offer")?;
-    let _ = drain(&mut rtc, &socks.iter().collect::<Vec<_>>(), &mut |_| {});
+    let _ = drain(&mut rtc, &socks, &mut |_| {});
     let o = ours(offer.to_sdp_string())?;
     let reply = crate::modstore::client()
         .post(format!("http://{host}/rtc"))
@@ -194,7 +431,7 @@ pub(in crate::net) async fn dial(host: &str) -> Result<(Conn, Link, Inbox, Strin
     rtc.sdp_api()
         .accept_answer(pending, answer)
         .map_err(|e| e.to_string())?;
-    let (conn, link, inbox, _) = drive(rtc, socks, ids, a.ufrag).open().await?;
+    let (conn, link, inbox, _) = drive(rtc, socks, packets, ids, a.ufrag).open().await?;
     Ok((conn, link, inbox, o.ufrag))
 }
 
@@ -248,7 +485,8 @@ fn link(peer: Peer) -> Link {
 /// The connection's driver: packets in, the app's sends out, timers; until it closes.
 fn drive(
     mut rtc: Rtc,
-    socks: Vec<UdpSocket>,
+    socks: Socks,
+    mut packets: amp::Receiver<Packet>,
     [msgs, dgrams]: [ChannelId; 2],
     name: String,
 ) -> Opening {
@@ -256,30 +494,8 @@ fn drive(
     let (mt, msgs_rx) = amp::unbounded_channel();
     let (dt, dgrams_rx) = amp::unbounded_channel();
     let (done, opened) = oneshot::channel();
-    let socks: Vec<std::sync::Arc<UdpSocket>> =
-        socks.into_iter().map(std::sync::Arc::new).collect();
-    // each socket read on a task of its own until the driver ends (`recv_from` waits on one socket)
-    let (pt, mut packets) = amp::channel::<(Vec<u8>, SocketAddr, SocketAddr)>(256);
-    for s in &socks {
-        let (s, pt) = (s.clone(), pt.clone());
-        n0_future::task::spawn(async move {
-            let Ok(at) = s.local_addr() else { return };
-            let mut buf = vec![0; 2000];
-            loop {
-                tokio::select! {
-                    r = s.recv_from(&mut buf) => match r {
-                        Ok((n, from)) => if pt.send((buf[..n].to_vec(), from, at)).await.is_err() { return },
-                        Err(_) => continue,
-                    },
-                    _ = pt.closed() => return,
-                }
-            }
-        });
-    }
-    drop(pt);
     n0_future::task::spawn(async move {
-        let socks: Vec<&UdpSocket> = socks.iter().map(|s| &**s).collect();
-        let socks: &[&UdpSocket] = &socks;
+        let socks = &socks;
         let mut done = Some(done);
         let mut open = [false; 2];
         // reliable messages the send buffer had no room for yet, oldest first
@@ -381,12 +597,16 @@ fn drive(
 }
 
 /// Send what the connection has to send; its events to `on`; the next deadline (None: it failed).
-fn drain(rtc: &mut Rtc, socks: &[&UdpSocket], on: &mut dyn FnMut(Event)) -> Option<Instant> {
+fn drain(rtc: &mut Rtc, socks: &Socks, on: &mut dyn FnMut(Event)) -> Option<Instant> {
     loop {
         match rtc.poll_output() {
             Ok(Output::Timeout(t)) => return Some(t),
             Ok(Output::Transmit(t)) => {
+                if let Some((m, pt)) = &socks.mux {
+                    m.claim(None, Some(t.destination), pt);
+                }
                 if let Some(s) = socks
+                    .socks
                     .iter()
                     .find(|s| s.local_addr().is_ok_and(|a| a == t.source))
                 {
@@ -501,4 +721,26 @@ async fn serve(mut s: tokio::net::TcpStream) {
     );
     let _ = s.write_all(reply.as_bytes()).await;
     let _ = s.shutdown().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stun_ufrag;
+
+    #[test]
+    fn stun_user_names() {
+        // a binding request: PRIORITY, then USERNAME "abcd:wxyz" (9 bytes, padded to 12)
+        let mut p = vec![0, 1, 0, 24, 0x21, 0x12, 0xa4, 0x42];
+        p.extend([7; 12]);
+        p.extend([0x00, 0x24, 0, 4, 1, 2, 3, 4]);
+        p.extend([0x00, 0x06, 0, 9]);
+        p.extend(b"abcd:wxyz\0\0\0");
+        assert_eq!(stun_ufrag(&p), Some("abcd"));
+        // a response (no user name to go by), DTLS, a short packet
+        p[1] = 0x01;
+        p[0] = 0x01;
+        assert_eq!(stun_ufrag(&p), None);
+        assert_eq!(stun_ufrag(&[22, 254, 253, 0, 0]), None);
+        assert_eq!(stun_ufrag(&p[..30]), None);
+    }
 }

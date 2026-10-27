@@ -47,3 +47,4 @@
 - A hidden pick's stats show a "?" tile in the same style as the grade letters.
 - Online → Adhoc: the page a friend opens now loads your disc and characters straight from your computer, keeps nothing on their device, and joins your lobby by itself once you host one; a controller they pick up takes over from the touch controls. The Adhoc card also says what to do if a firewall keeps the page from loading.
 - When you share the game over your network with Adhoc and your PC's firewall is in the way, its card now says so and how to let other devices in.
+- Adhoc play now uses one network port for both the page and the game, and on Linux with a firewall on, the Adhoc card shows the exact command that lets guests in.
