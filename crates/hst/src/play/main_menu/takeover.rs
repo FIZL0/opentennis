@@ -4,7 +4,7 @@
 //! makes the pad 1P (its seat and [`Menu::p1`]: the legend's hints follow it) and frees the keyboard to join as
 //! another player, with a short toast saying so; No or Esc keep the keyboard and that pad isn't asked again until
 //! it's unplugged or 1P's device changes; [`WAIT`] seconds untouched just close it (the pad's next button asks again). Not on the splash (its first press takes 1P), the screens a press
-//! joins a player on (the online lobby among them; the online menus before it do ask), over a paused match (its
+//! joins a player on (the online lobby and select only when the pad has no open seat to join; the online menus before them do ask), over a paused match (its
 //! controller assignment does it there), nor on a touch page (a pad's press takes the screen's 1P there, B247).
 
 use bevy::prelude::*;
@@ -51,7 +51,9 @@ impl Menu {
             self.screen,
             Screen::Main | Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::Controls | Screen::ModSettings | Screen::Mobile | Screen::Mode | Screen::Mods | Screen::Extras | Screen::Online | Screen::Lobbies | Screen::Code
         );
-        screens
+        // online, the code typed on the keyboard seats it as 1P: a pad with no open seat to join may still take it over
+        let online = matches!(self.screen, Screen::Lobby | Screen::Chars) && self.online() && self.lobby_join_seat().is_none();
+        (screens || online)
             && self.p1 == Some(Dev::Keys)
             && matches!(self.seats[0], None | Some(Dev::Keys))
             && !self.paused
@@ -380,6 +382,15 @@ mod tests {
         // the online menus before the lobby ask too
         assert!(may(Menu { screen: Screen::Online, ..keys_menu() }));
         assert!(!may(Menu { paused: true, ..keys_menu() }));
+        // online, the keyboard that typed the code holds 1P: a pad with no seat to join asks; one that can join, joins
+        for screen in [Screen::Lobby, Screen::Chars] {
+            let mut m = Menu { screen, seats: [Some(Dev::Keys), None, None, None], ..keys_menu() };
+            m.net.go = Some(super::super::online::Go::Code);
+            m.net.me = "me".into();
+            m.net.room = Some(crate::net::Room::default());
+            assert!(may(m.clone()), "{screen:?}");
+            assert!(!may(Menu { doubles: true, seats: [Some(Dev::Keys), Some(Dev::Open), None, None], ..m }), "{screen:?}");
+        }
     }
 
     #[test]
