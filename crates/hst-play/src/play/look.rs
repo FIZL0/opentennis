@@ -149,10 +149,14 @@ fn aim(g: &Game, i: usize) -> Target {
 
 /// The drawn rig's head turn this tick, as a rotation in the head's own frame: the look's new local is that rotation
 /// times the clip's (identity while the player doesn't look).
-fn show(mut commands: Commands, looks: Res<Looks>, q: Query<(Entity, &Figure, Option<&HeadTurn>)>) {
-    for (e, f, shown) in &q {
+fn show(mut commands: Commands, looks: Res<Looks>, g: Res<Game>, q: Query<(Entity, &Figure, &Motion, Option<&HeadTurn>)>) {
+    // drawn only in play: after the point and in a reaction, emote or celebration the clip keeps the head
+    // (user 2026-10-27; the sim's head, which body hits read, still turns as the game's)
+    let play = matches!(g.phase, Phase::Serve | Phase::Rally);
+    for (e, f, m, shown) in &q {
         let Some(seat) = looks.seats.get(f.0) else { continue };
-        let r: M4 = seat.turned.map_or(hst_sim::world::IDENTITY, |[nod, turn]| mat_mul(&rot_y(nod), &rot_x(turn)));
+        let turned = seat.turned.filter(|_| play && g.players[f.0].emote == 0 && !(id::HIT_BY_BALL..=id::TEAM).contains(&(m.id as i32)));
+        let r: M4 = turned.map_or(hst_sim::world::IDENTITY, |[nod, turn]| mat_mul(&rot_y(nod), &rot_x(turn)));
         let turn = HeadTurn(r);
         if shown != Some(&turn) {
             commands.entity(e).insert(turn);
