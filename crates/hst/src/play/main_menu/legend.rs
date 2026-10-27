@@ -21,6 +21,7 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
     match m.screen {
         // B516: the splash's one press (none once 1P is taken)
         // B581: and △ for the New version card's button
+        Screen::Press if m.update_ask.is_some() => v.extend([(Act::UpDown, "Move"), (Act::Ok, "Choose"), (Act::Back, "No")]),
         Screen::Press if m.quit.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Stay")]),
         Screen::Press if m.p1.is_none() => {
             v.push((Act::Ok, "Start"));

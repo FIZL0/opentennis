@@ -214,10 +214,11 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, pads: &[Entity], controllers: usize
     // a click or tap anywhere is the keyboard's press (`pointer::device`: 1P has no device yet)
     d.popup(Some(pointer::press(|k| k.ok = true)));
     build(d);
-    if m.p1.is_none() && m.quit.is_none() {
+    if m.p1.is_none() && m.quit.is_none() && m.update_ask.is_none() {
         new_version(d);
     }
     quit_layout(d, m);
+    super::update_ask::layout(d, m, 0.0);
 }
 
 /// "Press (✕) or (Enter)" centred on x 320 from `y` (text `size`): the shown pad's ✕ / A art (`pad`: one is plugged

@@ -1481,6 +1481,9 @@ impl Menu {
         }
         // a lobby link's start (`online::linked`): the first device to press anything is this machine's player
         if self.screen == Screen::Press {
+            if self.update_ask_step(k, &mut out) {
+                return out;
+            }
             if !self.splash_quit(k, &mut out) && (self.splash_step(dev, k.ok) || self.splash_update(k.card)) {
                 out.push(Effect::Sound(2));
             }

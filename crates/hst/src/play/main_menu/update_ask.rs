@@ -1,4 +1,4 @@
-//! M140: the first time a run finds a newer version (Settings → Updates on Ask), the main menu asks Update? over a
+//! M140: the first time a run finds a newer version (Settings → Updates on Ask), the main menu (or the splash) asks Update? over a
 //! dimmed screen, in the newer-version popup's style (`home::stale_layout`): Always (remembered: later ones install by
 //! themselves), Yes, No (the notice stays put away for the run, as its Later does) or Never (remembered: no more
 //! checks, Settings → Updates on Never). Like the mods' online prompt (`mods_online::Ask`), and changeable in Settings.
@@ -17,11 +17,11 @@ const TOP: f32 = 196.0;
 impl Menu {
     /// Each frame: a newer version found while nothing else is up on the main menu opens the popup, or (Always) starts
     /// its install.
-    /// Always also starts it on the splash, whose New version card shows the progress; Ask waits for the main menu.
+    /// The splash too, before 1P is taken (its New version card shows an install's progress).
     pub(super) fn update_offer(&mut self) {
-        let free = self.screen == Screen::Main && !self.paused && self.over.is_none() && self.add.ask.is_none() && self.stale.0.is_none() && self.update_ask.is_none();
-        let splash = self.screen == Screen::Press && self.quit.is_none() && crate::update::ALWAYS.load(std::sync::atomic::Ordering::Relaxed);
-        if !free && !splash {
+        let free = self.screen == Screen::Main && !self.paused && self.over.is_none() && self.add.ask.is_none() && self.stale.0.is_none();
+        let splash = self.screen == Screen::Press && self.p1.is_none() && self.quit.is_none();
+        if !(free || splash) || self.update_ask.is_some() {
             return;
         }
         match crate::update::offer() {
