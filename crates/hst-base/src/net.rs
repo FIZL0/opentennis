@@ -1777,6 +1777,15 @@ async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) 
             Err(e) => bevy::log::warn!("LAN signalling on port {port}: {e}"),
         }
     }
+    // M152c (dev): `HST_ADHOC=<disc>` serves the guest page, that disc and the mods while this lobby is up (the menu's
+    // Online → Adhoc does it for players), its `/rtc` taking guests into this lobby
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(disc) = std::env::var_os("HST_ADHOC") {
+        match crate::adhoc::set(true, std::path::Path::new(&disc)) {
+            Ok(()) => eprintln!("adhoc: serving at {:?}", crate::adhoc::status().map(|s| s.urls)),
+            Err(e) => eprintln!("adhoc: {e}"),
+        }
+    }
     let mut offer = None;
     let (ctx_, mut rolled) = amp::unbounded_channel::<Option<String>>();
     // B266: the host's home relay as it changes

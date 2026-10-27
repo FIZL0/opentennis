@@ -183,6 +183,11 @@ fn is_hosting() -> bool {
     LOBBY.lock().unwrap().as_ref().is_some_and(|s| !s.is_closed())
 }
 
+/// M152c: whether a lobby is open to guests that signal (the adhoc server's `info.json` tells the guest page).
+pub fn lobby_open() -> bool {
+    is_hosting()
+}
+
 /// A connected guest to the hosting lobby (closed if it's gone meanwhile).
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn arrived(name: String, conn: super::Conn, link: super::Link, inbox: super::Inbox) {

@@ -9,9 +9,12 @@
 //!   checkout, its `web/` (`tools/web.sh` builds it)
 //! - `/adhoc/info.json`: this build's version, the web build's state, the disc (its URL, name, size) and the mods
 //!   (each one's id, name, kind, folder URL and files with their sizes)
-//! - `/adhoc/disc`: the disc the game runs from (a pack, or the ISO)
+//! - `/adhoc/disc`: the disc the game runs from as a pack (M152c: an ISO is packed once into `cache/adhoc.pack`
+//!   first, so a guest downloads ~170 MB, not the whole image; the guest page reads it into memory)
 //! - `/adhoc/mods/<folder>/<file>`: a listed mod's files (characters, courts and umpires, and the texture packs that
 //!   are switched on)
+//! - `POST /rtc`: M152b's signalling (a guest's WebRTC offer in, the answer out) for the lobby hosting now, so the
+//!   guest page (M152c) joins on the same address and port it was served from
 //!
 //! A plain thread per connection (a handful of guests), HTTP/1.1 keep-alive, GET and HEAD, byte ranges (a big disc can
 //! be read in parts or resumed).
@@ -93,7 +96,7 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
     }
     let listener = PORTS.iter().find_map(|&p| TcpListener::bind((Ipv4Addr::UNSPECIFIED, p)).ok()).map_or_else(|| TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)), Ok).map_err(|e| format!("Couldn't open a port: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let shared = Arc::new(Shared { disc: disc.to_path_buf(), web: Mutex::new(Web::Looking), mods: Mutex::new(mods()), stop: AtomicBool::new(false) });
+    let shared = Arc::new(Shared { disc: served_disc(disc), web: Mutex::new(Web::Looking), mods: Mutex::new(mods()), stop: AtomicBool::new(false) });
     let sh = shared.clone();
     std::thread::Builder::new().name("adhoc-web".into()).spawn(move || find_web(&sh)).map_err(|e| e.to_string())?;
     let sh = shared.clone();
@@ -115,6 +118,28 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
     bevy::log::info!("adhoc: serving on port {port}: {:?}", urls(port));
     *s = Some(Server { port, shared });
     Ok(())
+}
+
+/// M152c: the pack a guest downloads for `disc`: `disc` itself if it's a pack, else `cache/adhoc.pack` in the game's folder,
+/// packed from the ISO in the background unless an earlier run left a good one (until then `/adhoc/disc` says so).
+fn served_disc(disc: &Path) -> PathBuf {
+    let pack = |p: &Path| hst_data::iso::Iso::open(p).ok().and_then(|i| i.pack_hash);
+    if pack(disc).is_some() {
+        return disc.to_path_buf();
+    }
+    let out = crate::store::path(&disc.to_string_lossy(), "cache").join("adhoc.pack");
+    if pack(&out).is_some_and(|h| hst_data::iso::KNOWN_PACKS.iter().any(|k| k.0 == h)) {
+        return out;
+    }
+    let (from, to) = (disc.to_path_buf(), out.clone());
+    let _ = std::thread::Builder::new().name("adhoc-pack".into()).spawn(move || {
+        let made = std::fs::create_dir_all(to.parent().unwrap()).and_then(|_| hst_data::iso::Iso::open(&from)?.write_pack(&to, |_, _| {}));
+        match made {
+            Ok(_) => bevy::log::info!("adhoc: packed {} for guests", from.display()),
+            Err(e) => bevy::log::warn!("adhoc: couldn't pack {} for guests: {e}", from.display()),
+        }
+    });
+    out
 }
 
 /// The running server's addresses and state.
@@ -228,7 +253,8 @@ fn info(sh: &Shared) -> Vec<u8> {
         "game": "opentennis",
         "version": VERSION.unwrap_or("dev"),
         "web": web,
-        "disc": { "url": "/adhoc/disc", "name": name, "size": size },
+        "disc": { "url": "/adhoc/disc", "name": name, "size": size, "ready": sh.disc.is_file() },
+        "lobby": crate::net::rtc::lobby_open(),
         "mods": list,
     });
     serde_json::to_vec_pretty(&j).unwrap()
@@ -338,6 +364,9 @@ fn untar(mut r: impl Read, dir: &Path) -> io::Result<()> {
 #[derive(Debug, PartialEq)]
 struct Request {
     head: bool,
+    /// A POST (`/rtc`), whose body is `len` bytes.
+    post: bool,
+    len: usize,
     path: String,
     range: Option<String>,
     close: bool,
@@ -355,7 +384,23 @@ fn serve(mut c: TcpStream, sh: &Shared) -> io::Result<()> {
             reply(&mut c, "405 Method Not Allowed", "text/plain", b"GET only\n", true, false)?;
             return Ok(());
         };
-        route(&mut c, sh, &req)?;
+        if req.post {
+            // an offer code is ~150 bytes
+            if req.len > 8 << 10 {
+                return reply(&mut c, "413 Payload Too Large", "text/plain", b"too big\n", true, false);
+            }
+            while buf.len() < req.len {
+                let mut chunk = [0u8; 4096];
+                match c.read(&mut chunk)? {
+                    0 => return Ok(()),
+                    n => buf.extend_from_slice(&chunk[..n]),
+                }
+            }
+            let body: Vec<u8> = buf.drain(..req.len).collect();
+            post(&mut c, &req, &String::from_utf8_lossy(&body))?;
+        } else {
+            route(&mut c, sh, &req)?;
+        }
         if req.close {
             return Ok(());
         }
@@ -388,15 +433,17 @@ fn parse(head: &str) -> Option<Request> {
     let mut lines = head.split("\r\n");
     let mut first = lines.next()?.split(' ');
     let (method, target, version) = (first.next()?, first.next()?, first.next().unwrap_or("HTTP/1.0"));
-    if method != "GET" && method != "HEAD" {
+    if method != "GET" && method != "HEAD" && method != "POST" {
         return None;
     }
-    let mut req = Request { head: method == "HEAD", path: decode(target.split(['?', '#']).next()?), range: None, close: version == "HTTP/1.0" };
+    let mut req = Request { head: method == "HEAD", post: method == "POST", len: 0, path: decode(target.split(['?', '#']).next()?), range: None, close: version == "HTTP/1.0" };
     for l in lines {
         let Some((k, v)) = l.split_once(':') else { continue };
         let v = v.trim();
         if k.eq_ignore_ascii_case("range") {
             req.range = Some(v.to_string());
+        } else if k.eq_ignore_ascii_case("content-length") {
+            req.len = v.parse().ok()?;
         } else if k.eq_ignore_ascii_case("connection") {
             req.close = v.eq_ignore_ascii_case("close") || req.close && !v.eq_ignore_ascii_case("keep-alive");
         }
@@ -439,6 +486,21 @@ fn under(dir: &Path, rel: &str) -> Option<PathBuf> {
     Some(dir.join(rel)).filter(|p| p.is_file())
 }
 
+/// Answers a POST: `/rtc` takes a guest's offer code for the hosting lobby (M152b's `signal`, on the game's runtime: the
+/// connection it opens carries on there) and answers with the answer code, else why not.
+fn post(c: &mut TcpStream, req: &Request, body: &str) -> io::Result<()> {
+    if req.path != "/rtc" {
+        return reply(c, "404 Not Found", "text/plain", b"not found\n", req.close, false);
+    }
+    let (code, text) = crate::runtime().block_on(crate::net::rtc::signal(body.trim()));
+    let status = match code {
+        200 => "200 OK",
+        400 => "400 Bad Request",
+        _ => "503 Service Unavailable",
+    };
+    reply(c, status, "text/plain; charset=utf-8", text.as_bytes(), req.close, false)
+}
+
 /// Answers `req`.
 fn route(c: &mut TcpStream, sh: &Shared, req: &Request) -> io::Result<()> {
     let p = req.path.as_str();
@@ -447,6 +509,9 @@ fn route(c: &mut TcpStream, sh: &Shared, req: &Request) -> io::Result<()> {
         return reply(c, "200 OK", "application/json", &body, req.close, req.head);
     }
     if p == "/adhoc/disc" {
+        if !sh.disc.is_file() {
+            return reply(c, "503 Service Unavailable", "text/plain", b"The host is still getting the disc ready.\n", req.close, req.head);
+        }
         return file(c, &sh.disc, "application/octet-stream", req, sh);
     }
     if let Some(rest) = p.strip_prefix("/adhoc/mods/") {
@@ -578,10 +643,12 @@ mod tests {
     #[test]
     fn requests_parse() {
         let r = parse("GET /mods/a%20b/x.png?v=1 HTTP/1.1\r\nHost: x\r\nRange: bytes=5-9").unwrap();
-        assert_eq!(r, Request { head: false, path: "/mods/a b/x.png".into(), range: Some("bytes=5-9".into()), close: false });
+        assert_eq!(r, Request { head: false, post: false, len: 0, path: "/mods/a b/x.png".into(), range: Some("bytes=5-9".into()), close: false });
         assert!(parse("HEAD / HTTP/1.0\r\n").unwrap().close);
         assert!(!parse("GET / HTTP/1.0\r\nConnection: keep-alive").unwrap().close);
-        assert!(parse("POST / HTTP/1.1\r\n").is_none());
+        assert!(parse("PUT / HTTP/1.1\r\n").is_none());
+        let p = parse("POST /rtc HTTP/1.1\r\nContent-Length: 12").unwrap();
+        assert!(p.post && p.len == 12);
         assert_eq!(decode("%2"), "%2");
         assert_eq!(encode("hst-mods/Ann é"), "hst-mods/Ann%20%C3%A9");
     }
@@ -657,6 +724,12 @@ mod tests {
         assert!(text.starts_with("HTTP/1.1 200 OK\r\nContent-Type: text/html"), "{text}");
         assert!(text.contains("<p>hi") && text.contains("206 Partial Content") && text.contains("Content-Range: bytes 16-19/256"));
         assert!(out.ends_with(&[16, 17, 18, 19]));
+        // M152c: signalling on the same port; no lobby is hosting in this test
+        let mut c = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+        c.write_all(b"POST /rtc HTTP/1.1\r\nContent-Length: 5\r\nConnection: close\r\n\r\nrtco1").unwrap();
+        let mut out = String::new();
+        c.read_to_string(&mut out).unwrap();
+        assert!(out.starts_with("HTTP/1.1 503") && out.ends_with("No lobby is open on this machine."), "{out}");
         sh.stop.store(true, Relaxed);
         let _ = std::fs::remove_dir_all(&d);
     }
