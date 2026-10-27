@@ -7,7 +7,8 @@
 //! vertex most of whose rays do that is hidden inside, so it stays unshaded (its black would bleed up the triangle).
 //! A face's side comes from its vertices' normals (normal + tangent slots, `gs.wgsl`'s skinned normal), not its
 //! winding. A hit shades less the further it is, so a cap's brim dims a face softly instead of in blotches; then
-//! vertices at one spot (seams, part joins) share one value and a few passes smooth it over the mesh's edges.
+//! vertices at one spot (seams, part joins) share one value and a few passes smooth it over the mesh's edges. The
+//! rays walk a bounding-volume tree of the triangles, so a mod's 50k-triangle model bakes in a blink.
 //! Rest pose only: the shade doesn't follow the motion. A face (a part with morph targets: face, teeth, tongue)
 //! doesn't shade itself: its lips' and eyelids' crease shade would smear across it as the expression changes; the
 //! cap, hair and collar still shade it.
@@ -23,6 +24,7 @@ const REACH: f32 = 0.2;
 /// Smoothing passes over the mesh's edges.
 const SMOOTH: usize = 2;
 
+#[derive(Clone, Copy)]
 struct Tri {
     a: Vec3,
     e1: Vec3,
@@ -67,7 +69,7 @@ pub fn bake<'a>(meshes: &mut impl Store<Mesh>, parts: impl IntoIterator<Item = &
         }));
         verts.extend(p.into_iter().zip(n).map(|(p, n)| (p, n, face)));
     }
-    let mut ao = visibility(&verts, &tris);
+    let mut ao = visibility(&verts, &Bvh::new(tris));
     smooth(&mut ao, &verts, &edges);
     let mut at = 0;
     for h in parts {
@@ -107,27 +109,100 @@ fn smooth(ao: &mut [f32], verts: &[(Vec3, Vec3, bool)], edges: &[(usize, usize)]
     ao.iter_mut().zip(&keys).for_each(|(a, k)| *a = val[k]);
 }
 
+/// The model's triangles in a bounding-volume tree (median splits), so a ray tests only the few it can reach.
+struct Bvh {
+    tris: Vec<Tri>,
+    /// (lo, hi, first, count): a leaf's triangles, or with count 0 an inner node whose children are `first`, `first + 1`
+    nodes: Vec<(Vec3, Vec3, usize, usize)>,
+}
+
+impl Bvh {
+    fn new(mut tris: Vec<Tri>) -> Self {
+        let mut nodes = if tris.is_empty() { vec![] } else { vec![(Vec3::ZERO, Vec3::ZERO, 0, tris.len())] };
+        let mut todo = vec![0];
+        while let Some(i) = todo.pop().filter(|_| !nodes.is_empty()) {
+            let (_, _, first, count) = nodes[i];
+            let span = &mut tris[first..first + count];
+            let (lo, hi) = span.iter().fold((Vec3::MAX, Vec3::MIN), |(l, h), t| (l.min(t.lo), h.max(t.hi)));
+            nodes[i] = (lo, hi, first, count);
+            if count <= 4 {
+                continue;
+            }
+            let axis = (hi - lo).max_position();
+            let half = count / 2;
+            span.select_nth_unstable_by(half, |a, b| (a.lo + a.hi)[axis].total_cmp(&(b.lo + b.hi)[axis]));
+            let kid = nodes.len();
+            nodes[i] = (lo, hi, kid, 0);
+            nodes.extend([(lo, hi, first, half), (lo, hi, first + half, count - half)]);
+            todo.extend([kid, kid + 1]);
+        }
+        Bvh { tris, nodes }
+    }
+
+    /// The nearest triangle within reach along `d` from `o`: its distance, and whether the ray met its back.
+    /// `face`: skip faces' triangles.
+    fn cast(&self, o: Vec3, d: Vec3, face: bool) -> Option<(f32, bool)> {
+        let inv = d.recip();
+        let mut nearest: Option<(f32, bool)> = None;
+        // ponytail: fixed stack; median splits keep the depth near log2(triangles / 4), far under 64
+        let mut stack = [0usize; 64];
+        let mut depth = usize::from(!self.nodes.is_empty());
+        while depth > 0 {
+            depth -= 1;
+            let (lo, hi, first, count) = self.nodes[stack[depth]];
+            let reach = nearest.map_or(REACH, |(h, _)| h);
+            let (t1, t2) = ((lo - o) * inv, (hi - o) * inv);
+            if t1.min(t2).max_element().max(0.0) > t2.max(t1).min_element().min(reach) {
+                continue;
+            }
+            if count == 0 {
+                stack[depth] = first;
+                stack[depth + 1] = first + 1;
+                depth += 2;
+                continue;
+            }
+            for tri in &self.tris[first..first + count] {
+                if face && tri.face {
+                    continue;
+                }
+                let q = d.cross(tri.e2);
+                let det = tri.e1.dot(q);
+                if det.abs() < 1e-9 {
+                    continue;
+                }
+                let s = o - tri.a;
+                let u = s.dot(q) / det;
+                let r = s.cross(tri.e1);
+                let v = d.dot(r) / det;
+                let h = tri.e2.dot(r) / det;
+                if u >= 0.0 && v >= 0.0 && u + v <= 1.0 && h > 1e-4 && h < nearest.map_or(REACH, |(x, _)| x) {
+                    nearest = Some((h, d.dot(tri.n) > 0.0));
+                }
+            }
+        }
+        nearest
+    }
+}
+
 /// Each vertex's share of open rays, spread over the CPU's cores.
-fn visibility(verts: &[(Vec3, Vec3, bool)], tris: &[Tri]) -> Vec<f32> {
+fn visibility(verts: &[(Vec3, Vec3, bool)], bvh: &Bvh) -> Vec<f32> {
     #[cfg(target_arch = "wasm32")]
-    return verts.iter().map(|&(p, n, face)| vertex(p, n, face, tris)).collect();
+    return verts.iter().map(|&(p, n, face)| vertex(p, n, face, bvh)).collect();
     #[cfg(not(target_arch = "wasm32"))]
     {
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
         let chunk = verts.len().div_ceil(threads).max(1);
         std::thread::scope(|s| {
-            let jobs: Vec<_> = verts.chunks(chunk).map(|c| s.spawn(move || c.iter().map(|&(p, n, face)| vertex(p, n, face, tris)).collect::<Vec<_>>())).collect();
+            let jobs: Vec<_> = verts.chunks(chunk).map(|c| s.spawn(move || c.iter().map(|&(p, n, face)| vertex(p, n, face, bvh)).collect::<Vec<_>>())).collect();
             jobs.into_iter().flat_map(|j| j.join().unwrap()).collect()
         })
     }
 }
 
 /// `face`: the vertex is a face's, which its own face doesn't shade.
-fn vertex(p: Vec3, n: Vec3, face: bool, tris: &[Tri]) -> f32 {
+fn vertex(p: Vec3, n: Vec3, face: bool, bvh: &Bvh) -> f32 {
     let Some(n) = n.try_normalize() else { return 1.0 };
     let o = p + n * 0.003;
-    // only the triangles within reach
-    let near: Vec<&Tri> = tris.iter().filter(|t| (o.clamp(t.lo, t.hi) - o).length_squared() < REACH * REACH && !(face && t.face)).collect();
     let (t, b) = n.any_orthonormal_pair();
     let (mut open, mut inside) = (0.0, 0);
     for i in 0..RAYS {
@@ -135,23 +210,7 @@ fn vertex(p: Vec3, n: Vec3, face: bool, tris: &[Tri]) -> f32 {
         let r = ((i as f32 + 0.5) / RAYS as f32).sqrt();
         let a = i as f32 * 2.399_963;
         let d = (t * r * a.cos() + b * r * a.sin() + n * (1.0 - r * r).sqrt()).normalize();
-        let mut nearest: Option<(f32, bool)> = None;
-        for tri in &near {
-            let q = d.cross(tri.e2);
-            let det = tri.e1.dot(q);
-            if det.abs() < 1e-9 {
-                continue;
-            }
-            let s = o - tri.a;
-            let u = s.dot(q) / det;
-            let r = s.cross(tri.e1);
-            let v = d.dot(r) / det;
-            let h = tri.e2.dot(r) / det;
-            if u >= 0.0 && v >= 0.0 && u + v <= 1.0 && h > 1e-4 && h < REACH && nearest.is_none_or(|(x, _)| h < x) {
-                nearest = Some((h, d.dot(tri.n) > 0.0));
-            }
-        }
-        match nearest {
+        match bvh.cast(o, d, face) {
             None => open += 1.0,
             Some((_, true)) => inside += 1,
             // a far hit shades less
@@ -186,12 +245,39 @@ mod tests {
     #[test]
     fn open_shaded_and_inside() {
         // a 1 m ceiling 5 cm above the origin, facing down
-        let roof = [tri([-1.0, 0.05, -1.0], [1.0, 0.05, -1.0], [0.0, 0.05, 1.0], Vec3::NEG_Y)];
+        let roof = Bvh::new(vec![tri([-1.0, 0.05, -1.0], [1.0, 0.05, -1.0], [0.0, 0.05, 1.0], Vec3::NEG_Y)]);
         assert_eq!(vertex(Vec3::ZERO, Vec3::NEG_Y, false, &roof), 1.0, "facing away");
         assert!(vertex(Vec3::ZERO, Vec3::Y, false, &roof) < 0.3, "under it");
         assert_eq!(vertex(Vec3::new(0.0, -0.5, 0.0), Vec3::Y, false, &roof), 1.0, "out of reach");
         // the same roof facing up: the vertex is inside whatever it bounds
-        let lid = [tri([-1.0, 0.05, -1.0], [1.0, 0.05, -1.0], [0.0, 0.05, 1.0], Vec3::Y)];
+        let lid = Bvh::new(vec![tri([-1.0, 0.05, -1.0], [1.0, 0.05, -1.0], [0.0, 0.05, 1.0], Vec3::Y)]);
         assert_eq!(vertex(Vec3::ZERO, Vec3::Y, false, &lid), 1.0, "inside");
+    }
+
+    #[test]
+    fn tree_finds_what_every_triangle_finds() {
+        // a soup of small triangles in a 40 cm box, cast at from points inside it
+        let mut seed = 1u32;
+        let mut f = || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 8) as f32 / (1 << 24) as f32 - 0.5
+        };
+        let mut v = || Vec3::new(f(), f(), f());
+        let tris: Vec<Tri> = (0..3000)
+            .map(|i| {
+                let a = v() * 0.4;
+                let mut t = tri(a.into(), (a + v() * 0.05).into(), (a + v() * 0.05).into(), v());
+                t.face = i % 7 == 0;
+                t
+            })
+            .collect();
+        let rays: Vec<_> = (0..2000).map(|i| (v() * 0.4, v().normalize(), i % 3 == 0)).collect();
+        // one leaf: every triangle tested
+        let every = Bvh { tris: tris.clone(), nodes: vec![(Vec3::splat(-1.0), Vec3::splat(1.0), 0, tris.len())] };
+        let want: Vec<_> = rays.iter().map(|&(o, d, face)| every.cast(o, d, face)).collect();
+        let bvh = Bvh::new(tris);
+        let got: Vec<_> = rays.iter().map(|&(o, d, face)| bvh.cast(o, d, face)).collect();
+        assert!(want.iter().filter(|w| w.is_some()).count() > 200, "the soup is hit");
+        assert_eq!(got, want);
     }
 }
