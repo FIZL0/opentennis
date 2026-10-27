@@ -472,8 +472,19 @@ if (fpsLog) {
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([lines.join('\n') + '\n'], { type: 'text/plain' })), download: 'hst-log.txt' });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    // a download's folder is the browser's, not the page's to know: where it usually lands
+    const ios = /iPhone|iPad/.test(navigator.userAgent) || navigator.userAgent.includes('Mac') && navigator.maxTouchPoints > 1;
+    const where = ios ? 'the Files app, in Downloads (or tap the download arrow in the address bar)'
+      : /Android/.test(navigator.userAgent) ? 'your Downloads folder (Files app, or the browser\'s Downloads)'
+      : 'your Downloads folder (your browser\'s download list shows it)';
+    note.textContent = `Saved hst-log.txt to ${where}. Send that file with your bug report. (Tap to close)`;
+    note.hidden = false;
+    clearTimeout(note.timer);
+    note.timer = setTimeout(() => note.hidden = true, 15000);
   };
-  addEventListener('DOMContentLoaded', () => document.body.append(save));
+  const note = Object.assign(document.createElement('div'), { hidden: true, onclick: () => note.hidden = true });
+  note.style.cssText = 'position:fixed;top:30px;left:50%;transform:translateX(-50%);z-index:2147483647;max-width:min(90vw,420px);font:14px system-ui;padding:10px 14px;border-radius:8px;background:#1d1b26;color:#fff;box-shadow:0 4px 16px #0008;text-align:center';
+  addEventListener('DOMContentLoaded', () => document.body.append(save, note));
 }
 </script>
 <script>
