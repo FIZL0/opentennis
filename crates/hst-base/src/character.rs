@@ -1722,10 +1722,11 @@ pub fn animate(
             drawn.push((rotation, if f == 0.0 { va } else { va.lerp(vb, f) }));
         }
         // the head look turns the head in its own frame (the game's R·local, rows)
-        if let (Some(HeadTurn(r)), Some(j)) = (head, rig.data.joint("Bip01Head"))
-            && let Some(d) = drawn.get_mut(j)
-        {
-            d.0 = (d.0 * Quat::from_mat4(&mat(r))).normalize();
+        // eased by frame, so its steps and snaps (tracking on/off, a new motion) don't show
+        let want = head.map_or(Quat::IDENTITY, |HeadTurn(r)| Quat::from_mat4(&mat(r)));
+        c.head = c.head.slerp(want, 1.0 - (-now.delta_secs() / HEAD_EASE).exp()).normalize();
+        if let Some(d) = rig.data.joint("Bip01Head").and_then(|j| drawn.get_mut(j)) {
+            d.0 = (d.0 * c.head).normalize();
         }
         // a mod's feet on the ground where the donor's are (B543)
         if let Some(feet) = &rig.data.feet
@@ -1874,6 +1875,8 @@ pub struct Posing {
     ready: Vec<(Quat, Vec3)>,
     /// How far [`hold_head`] has the off hand on the racket, eased towards where it wants it.
     held: f32,
+    /// The head look's turn as drawn, eased towards the match's (see [`HEAD_EASE`]).
+    head: Quat,
 }
 
 /// Frames a mod's own clip takes to ease in from the pose before it, and the clip after it out of it, where the game
@@ -1892,6 +1895,11 @@ const TALK_EASE: f64 = 0.15;
 /// Frames the serve's end pose takes to ease into standing or running (see `animate`).
 // ponytail: picked by eye; the original has only its 8-frame crossfade
 const SERVE_EASE: f32 = 10.0;
+
+/// Seconds the drawn head look takes to close ~63% of the way to the match's turn. Drawing only: body hits read the
+/// match's exact head.
+// ponytail: picked by eye; the original draws its 7°-a-tick steps and snaps raw
+const HEAD_EASE: f32 = 0.15;
 
 /// The serve clip's times (frames) its follow-through turns into the ready stance between: from just after the
 /// swing until the racket would have come round behind the back.
