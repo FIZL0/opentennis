@@ -140,7 +140,7 @@ impl Look {
             let want = match target {
                 Target::Ball(ball) => {
                     let mut q = inverse(&mat_mul(&pose.clip, &pose.parent));
-                    q[3] = std::array::from_fn(|k| (F(q[3][k]) + (-F(q[1][k])) * -EYE).0);
+                    q[3] = std::array::from_fn(|k| (F(q[3][k]) + (-F(q[1][k])) * (-F(EYE)).0).0);
                     let l = crate::vu0::transform(&q, ball);
                     angles([l[1], l[0], (-F(l[2])).0, 0.0])
                 }

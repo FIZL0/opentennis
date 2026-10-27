@@ -1017,6 +1017,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B682** Ball outline missing against skyboxes (user 2026-10-27): on courts like Dubno, when the player on the far side serves, the ball's outline isn't drawn where the ball is in front of the sky. Find why the outline pass drops it over the skybox (depth/draw order) and fix → crates/hst-play/src/play.rs draw · crates/hst-play/src/stage.rs (sky)
 - [x] **B683** Alternate camera render issues (user 2026-10-27): shadows pop in, worst on Fig Hill; background vanishes on Queen's Tennis Garden. Check culling/LOD/shadow ranges against the alternate camera's view, not just the default one. Files: crates/hst-base/src/cull.rs, lod.rs, shadow.rs
 - [x] **B681** CPU Will King (10th outfit) doesn't use his good serve (user 2026-10-27): playing against CPU Will in the King costume he never hits his special/strong serve. Check how the outfit maps to character data (serve params, AI serve choice) vs the original with the same pick → crates/hst-sim/src/serve.rs · crates/hst-sim/src/params.rs · crates/hst-sim/src/ai.rs · crates/hst-play/src/play.rs bot_serve
+- [x] **B687** Test a_mods_emote_voices_take_turns (crates/hst/src/play/main_menu/plate_emote.rs) fails on main 0f7878a4: the repackaged T-Bone mod in mods/hst-mods now gives motion 0x2e keys 1,2,3,4,5 instead of 1,2,3,0,1 (seen in B681's done.sh run). Update the expectation to the mod's current takes or make the test not depend on the live mods folder
 
 
 ### Shots

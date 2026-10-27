@@ -379,8 +379,9 @@ mod tests {
         }
     }
 
-    /// B596: a mod's emote voices go through all of its own takes (T-Bone: six of 9, five of 7, three of 8, past the
-    /// disc's keys or short of them). Needs the ISO and the mods repo's packaged mods in `mods/hst-mods`.
+    /// B596: a mod's emote voices go through all of its own takes (T-Bone's 9, 7 and 8, past the disc's keys or short
+    /// of them). Needs the ISO and the mods repo's packaged mods in `mods/hst-mods`; the take counts come from the
+    /// mod's voice folder (`<program>_<take>.wav`), so a repackage with more or fewer takes doesn't break it.
     #[test]
     fn a_mods_emote_voices_take_turns() {
         let iso = Path::new(hst_data::fixture::ISO_PATH);
@@ -393,7 +394,12 @@ mod tests {
         }
         let mods = [crate::mods::read(dir).unwrap()];
         let mut banks = HashMap::new();
-        for (id, program, keys) in [(0x2e, 9, &[1, 2, 3, 4, 5, 0, 1][..]), (0x2c, 7, &[1, 2, 3, 4, 0]), (0x2d, 8, &[1, 2, 0, 1])] {
+        let files: Vec<String> = std::fs::read_dir(dir.join("voice")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        for (id, program) in [(0x2e, 9u8), (0x2c, 7), (0x2d, 8)] {
+            let n = files.iter().filter(|f| f.strip_suffix(".wav").and_then(|f| f.split_once('_')).is_some_and(|(p, k)| p == program.to_string() && k.parse::<u8>().is_ok())).count() as u8;
+            assert!(n >= 2, "motion {id:#x}: T-Bone has {n} takes of program {program}, the test wants at least two");
+            // from take 1 round to 0 and on to 1 again
+            let keys: Vec<u8> = (1..=n + 1).map(|i| i % n).collect();
             let mut key = 0;
             let got: Vec<_> = keys.iter().map(|_| voice(id, Who::Mod(0), &mods, &mut banks, &mut key, iso).map(|(_, p)| (p.program, p.key)).unwrap()).collect();
             assert_eq!(got, keys.iter().map(|&k| (program, k)).collect::<Vec<_>>(), "motion {id:#x}");

@@ -1722,10 +1722,10 @@ pub fn animate(
             drawn.push((rotation, if f == 0.0 { va } else { va.lerp(vb, f) }));
         }
         // the head look turns the head in its own frame (the game's R·local, rows)
-        if let (Some(HeadTurn(r)), Some(j)) = (head, rig.data.joint("Bip01Head")) {
-            if let Some(d) = drawn.get_mut(j) {
-                d.0 = (d.0 * Quat::from_mat4(&mat(r))).normalize();
-            }
+        if let (Some(HeadTurn(r)), Some(j)) = (head, rig.data.joint("Bip01Head"))
+            && let Some(d) = drawn.get_mut(j)
+        {
+            d.0 = (d.0 * Quat::from_mat4(&mat(r))).normalize();
         }
         // a mod's feet on the ground where the donor's are (B543)
         if let Some(feet) = &rig.data.feet

@@ -152,7 +152,7 @@ fn turns_the_head_like_the_game() {
     let Ok(data) = fixture::read("fixtures/b675/run1.bin") else { return fixture::skip("b675/run1.bin") };
     let mut lengths = Lengths::new(&mut iso);
     let rests: Vec<M4> = lengths.1.iter().map(rest).collect();
-    let all: Vec<Frame> = data.chunks_exact(LEN).map(Frame).collect();
+    let all: Vec<Frame> = data.as_chunks::<LEN>().0.iter().map(|c| Frame(c)).collect();
     let stroke = |m: i32| (0x10..=0x1f).contains(&m) || (0x25..=0x2a).contains(&m);
     let (mut since, mut tracked, mut released, mut idle) = ([0usize; 4], 0, 0, 0);
     for w in all.windows(3) {
