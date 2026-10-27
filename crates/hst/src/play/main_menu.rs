@@ -2309,18 +2309,15 @@ struct Text {
     mods: Vec<(usize, [u8; 5])>,
 }
 
-/// A mod's △ grades: its §6 `stats` (its cells are those grades'), else each category the grade of the disc
-/// character nearest its row over that category's cells ([`crate::grades::grades_of`]); except Serve: a serve flies on its donor's trajectory tables (Serv POW only picks
-/// the weak toss's), or §6 `shots.serve`'s, so it's that character's.
+/// A mod's △ grades: its row's ([`crate::grades::grades_of`]), the shots' power from whoever's serve, strokes and
+/// volleys it hits (`donor`, or §6 `shots`); without the disc's rows (a lobby's download), its §6 `stats`, else its base's.
 fn mod_grades(m: &crate::mods::Mod, row: &[String], csv: &[u8], grades: &[[u8; 5]; 14]) -> [u8; 5] {
     let rows: Vec<Vec<String>> = (0..14).filter_map(|c| crate::mods::row_of(csv, c)).collect();
-    let mut g = match m.build.stats {
-        Some(g) => g.map(|g| g.min(5)), // S is the roster's best cells: an A on the card
-        None if rows.len() == 14 => crate::grades::grades_of(row, &rows, grades, m.base),
-        None => grades[m.base],
-    };
-    g[0] = grades[m.build.shots[0].map_or(m.donor, usize::from)][0];
-    g
+    if rows.len() < 14 || row.is_empty() {
+        return m.build.stats.unwrap_or(grades[m.base]);
+    }
+    let power = [0, 1, 2].map(|k| &rows[m.build.shots[k].map_or(m.donor, usize::from)][..]);
+    crate::grades::grades_of(row, power, &rows, grades)
 }
 
 /// A mod's play style: its base row's, or its `タイプ` override's.

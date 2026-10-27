@@ -1,6 +1,7 @@
 //! The character select's five grades (Serve, Stroke, Volley, Impact, Footwork; F through A) as TParam.csv cells:
 //! a row at a grade takes, in each category, the mean of the cells of the stock characters at that grade. M147's
-//! Everyone's stats grades every player; a mod's §6 `stats` grades its own row (`mods::tparam_row`).
+//! Everyone's stats grades every player; a mod's §6 `stats` grades its own row (`mods::tparam_row`). The other way,
+//! [`grades_of`] reads the grades a row plays at, for a mod's select card.
 
 use hst_data::iso::Iso;
 
@@ -45,33 +46,42 @@ pub fn graded_row(own: &[String], rows: &[Vec<String>], grades: &[[u8; 5]], grad
     out
 }
 
-/// The grades `row` plays at, category by category: the grade of the character in `rows` nearest it over that
-/// category's cells (each part's distance over the roster's spread of it). A tie is `base`'s grade if it's among
-/// them (the disc's grades are hand-set: rows 3, 6, 7, 12, 13 share their Impact cells but not their grade), else
-/// the mean grade, rounded. A stock row gets its own grades.
-pub fn grades_of(row: &[String], rows: &[Vec<String>], grades: &[[u8; 5]], base: usize) -> [u8; 5] {
-    let parts = |r: &[String], c: usize| -> Vec<f64> { r.get(c).map_or(vec![], |s| s.split('/').map(|v| v.trim().parse().unwrap_or(f64::NAN)).collect()) };
+/// Serv POW, Strk POW, Voley POW: the columns a character's shots fly by (its trajectory tables and shot records are
+/// authored from them), so a mod's come from whoever's serve, strokes and volleys it hits.
+pub const POWER: [usize; 3] = [12, 13, 14];
+
+/// How good `row` is in each category, as one number the disc's hand-set grades all rise with (fit to the 14 stock
+/// rows, research/journal/2026-10-27-mod-grades): power with a little control or spin, the volley against ground
+/// power (net players grade up), Impact the early rally-hit window less a little serve power (the harder a
+/// character hits, the harder to time), Footwork speed less a little reach. `power` rows give the POWER columns.
+pub fn scores(row: &[String], power: [&[String]; 3]) -> [f64; 5] {
+    let v = |r: &[String], c: usize| r.get(c).and_then(|s| s.split('/').next()?.trim().parse::<f64>().ok()).unwrap_or(0.0);
+    let [serve, stroke, volley] = [0, 1, 2].map(|k| v(power[k], POWER[k]));
+    [
+        serve + 0.1 * v(row, 22),                       // Serv CON
+        stroke + 0.1 * v(row, 17),                      // Top SPIN
+        volley - 0.25 * stroke + 0.1 * v(row, 21),      // Voley CON
+        v(row, 28) - 0.1 * serve,                       // rally hits' early good frames
+        v(row, 40) - 0.01 * v(row, 57),                 // SPE, reach
+    ]
+}
+
+/// The grades `row` plays at ([`scores`], POWER from `power`): per category, each cut halfway between the stock
+/// characters' (`rows`, `grades`) neighbouring grades; [`S`] as far past the best of them as that one is past A's cut.
+/// A stock row gets its own grades.
+pub fn grades_of(row: &[String], power: [&[String]; 3], rows: &[Vec<String>], grades: &[[u8; 5]]) -> [u8; 5] {
+    let stock: Vec<[f64; 5]> = rows.iter().map(|r| scores(r, [r, r, r])).collect();
+    let own = scores(row, power);
     std::array::from_fn(|k| {
-        let dist = |other: &[String]| -> f64 {
-            CATEGORIES[k]
-                .iter()
-                .flat_map(|&c| {
-                    let spread: Vec<Vec<f64>> = rows.iter().map(|r| parts(r, c)).collect();
-                    parts(row, c).into_iter().zip(parts(other, c)).enumerate().map(move |(i, (a, b))| {
-                        let col = spread.iter().filter_map(|p| p.get(i).copied()).filter(|v| !v.is_nan());
-                        let (lo, hi) = col.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| (lo.min(v), hi.max(v)));
-                        if hi > lo && !(a - b).is_nan() { (a - b).abs() / (hi - lo) } else { 0.0 }
-                    })
-                })
-                .sum()
+        let at = |pick: &dyn Fn(u8) -> bool| -> Vec<f64> { stock.iter().zip(grades).filter(|(_, g)| pick(g[k])).map(|(s, _)| s[k]).collect() };
+        let cut = |g: u8| {
+            let below = at(&|x| x < g).into_iter().fold(f64::NEG_INFINITY, f64::max);
+            let above = at(&|x| x >= g).into_iter().fold(f64::INFINITY, f64::min);
+            if below.is_finite() && above.is_finite() { (below + above) / 2.0 } else { f64::INFINITY }
         };
-        let d: Vec<f64> = rows.iter().map(|r| dist(r)).collect();
-        let best = d.iter().copied().fold(f64::INFINITY, f64::min);
-        if d.get(base).is_some_and(|x| x - best < 1e-9) {
-            return grades[base][k];
-        }
-        let near: Vec<u32> = d.iter().zip(grades).filter(|(x, _)| **x - best < 1e-9).map(|(_, g)| g[k] as u32).collect();
-        ((near.iter().sum::<u32>() * 2 + near.len() as u32) / (2 * near.len().max(1) as u32)) as u8
+        let top = at(&|_| true).into_iter().fold(f64::NEG_INFINITY, f64::max);
+        let grade = (1..=5).filter(|&g| own[k] > cut(g)).count() as u8;
+        if grade == 5 && own[k] > 2.0 * top - cut(5) { S } else { grade }
     })
 }
 
@@ -161,7 +171,7 @@ mod tests {
         }
     }
 
-    /// Every stock row reads back as its own grades.
+    /// Every stock row reads back as its own grades, and a row past the roster's best is an S.
     #[test]
     fn rows_read_back_as_their_grades() {
         let Ok(mut iso) = hst_data::fixture::iso() else { return hst_data::fixture::skip("no ISO") };
@@ -169,7 +179,11 @@ mod tests {
         let csv = crate::mods::tparam_csv(&mut iso).unwrap();
         let rows: Vec<Vec<String>> = (0..CHARACTERS).map(|c| crate::mods::row_of(&csv, c).unwrap()).collect();
         for c in 0..CHARACTERS {
-            assert_eq!(grades_of(&rows[c], &rows, &grades, c), grades[c], "character {c}");
+            let r = &rows[c][..];
+            assert_eq!(grades_of(r, [r, r, r], &rows, &grades), grades[c], "character {c}");
         }
+        let mut fast = rows[5].clone(); // the best Footwork
+        fast[40] = "14".into();
+        assert_eq!(grades_of(&fast, [&rows[5]; 3], &rows, &grades)[4], S);
     }
 }

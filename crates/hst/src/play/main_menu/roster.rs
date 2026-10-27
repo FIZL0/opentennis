@@ -1374,8 +1374,9 @@ fn grade_tiles(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4]) {
         }
         let cy = y + ls + 4.0 * PY;
         match grades {
+            Some(g) if g[k] > 5 => d.centred("S", tx + tw / 2.0, cy, ch, hex(0xffd23f)),
             Some(g) => {
-                let i = (5 - g[k].min(5)) as f32;
+                let i = (5 - g[k]) as f32;
                 let c = ch.min(tw * PY / PX);
                 d.q(super::ATTRS, [232.0, 24.0 * i, 24.0, 24.0], [tx + (tw - c * PX / PY) / 2.0, cy + (ch - c) / 2.0, c * PX / PY, c], WHITE, 128.0);
             }
