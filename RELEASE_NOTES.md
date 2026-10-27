@@ -33,3 +33,4 @@
 - Players now turn their heads to follow the ball during rallies, as in the original, moving smoothly and resting after the point and in celebrations and emotes; a ball can now hit a player's head where it's turned.
 - On custom courts with a distant city or landscape around them, the ball's dark outline no longer disappears when the ball is in front of it at the far end.
 - Custom characters can hit their serves, strokes, volleys or smashes harder (up to about 268 mph), still landing where the normal shot would.
+- A custom character with harder-hit shots now shows it on the select screen: its Serve, Stroke and Volley grades follow how fast its shots really fly, up to S.

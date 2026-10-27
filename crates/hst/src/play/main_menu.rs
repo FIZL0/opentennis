@@ -2316,14 +2316,15 @@ struct Text {
 }
 
 /// A mod's △ grades: its row's ([`crate::grades::grades_of`]), the shots' power from whoever's serve, strokes and
-/// volleys it hits (`donor`, or §6 `shots`); without the disc's rows (a lobby's download), its §6 `stats`, else its base's.
-fn mod_grades(m: &crate::mods::Mod, row: &[String], csv: &[u8], grades: &[[u8; 5]; 14]) -> [u8; 5] {
+/// volleys it hits (`donor`, or §6 `shots`) and what its §6 `power` tables fly faster (`gain`,
+/// [`crate::grades::power_gain`]); without the disc's rows (a lobby's download), its §6 `stats`, else its base's.
+fn mod_grades(m: &crate::mods::Mod, row: &[String], csv: &[u8], gain: [f64; 3], grades: &[[u8; 5]; 14]) -> [u8; 5] {
     let rows: Vec<Vec<String>> = (0..14).filter_map(|c| crate::mods::row_of(csv, c)).collect();
     if rows.len() < 14 || row.is_empty() {
         return m.build.stats.unwrap_or(grades[m.base]);
     }
     let power = [0, 1, 2].map(|k| &rows[m.build.shots[k].map_or(m.donor, usize::from)][..]);
-    crate::grades::grades_of(row, power, &rows, grades)
+    crate::grades::grades_of(row, power, gain, &rows, grades)
 }
 
 /// A mod's play style: its base row's, or its `タイプ` override's.
@@ -2414,10 +2415,12 @@ struct Sheets {
 #[derive(Resource)]
 struct TParam(Vec<u8>);
 
-/// M113: mod `m`'s play style and △ grades as the select shows them (None: its TParam.csv row can't be read).
-fn mod_card(m: &crate::mods::Mod, csv: &[u8], t: &Text) -> Option<(usize, [u8; 5])> {
+/// M113: mod `m`'s play style and △ grades as the select shows them (None: its TParam.csv row can't be read); its
+/// faster tables measured on the disc at `iso` (none if it won't open).
+fn mod_card(m: &crate::mods::Mod, csv: &[u8], t: &Text, iso: &str) -> Option<(usize, [u8; 5])> {
     let row = crate::mods::tparam_row(csv, Some(&t.grades), m).ok()?;
-    Some((mod_style(m, &t.style), mod_grades(m, &row, csv, &t.grades)))
+    let gain = Iso::open(iso).map_or([0.0; 3], |mut iso| crate::grades::power_gain(&mut iso, m));
+    Some((mod_style(m, &t.style), mod_grades(m, &row, csv, gain, &t.grades)))
 }
 
 /// [`read_text`]'s mod roster and its folder, for [`setup`].
@@ -2488,7 +2491,7 @@ fn read_text(mut commands: Commands, args: Res<Args>, mut sheets: ResMut<Sheets>
     let roster: Vec<_> = crate::mods::list(&mods_dir)
         .into_iter()
         .filter_map(|m| match crate::mods::tparam(&mut iso, &m) {
-            Ok(row) => Some(((mod_style(&m, &style), mod_grades(&m, &row, &csv, &grades)), m)),
+            Ok(row) => Some(((mod_style(&m, &style), mod_grades(&m, &row, &csv, crate::grades::power_gain(&mut iso, &m), &grades)), m)),
             Err(e) => {
                 warn!("{}: {e}", m.dir.display());
                 None
@@ -4073,7 +4076,7 @@ mod tests {
             let (dir, pr) = item.rsplit_once('@').unwrap();
             let m = crate::mods::read_any(std::path::Path::new(dir)).unwrap();
             let row = crate::mods::tparam(&mut iso, &m).unwrap();
-            let (st, g) = (mod_style(&m, &style), mod_grades(&m, &row, &csv, &grades));
+            let (st, g) = (mod_style(&m, &style), mod_grades(&m, &row, &csv, crate::grades::power_gain(&mut iso, &m), &grades));
             let baked = std::env::var("HST_BAKED").ok().map(|b| {
                 let name = super::previews::dir_stamp(&m.dir);
                 std::fs::read(std::path::Path::new(&b).join(format!("m-{name}-0.png"))).unwrap_or_else(|e| panic!("{}: no bake: {e}", m.id))

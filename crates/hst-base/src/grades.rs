@@ -53,25 +53,26 @@ pub const POWER: [usize; 3] = [12, 13, 14];
 /// How good `row` is in each category, as one number the disc's hand-set grades all rise with (fit to the 14 stock
 /// rows, research/journal/2026-10-27-mod-grades): power with a little control or spin, the volley against ground
 /// power (net players grade up), Impact the early rally-hit window less a little serve power (the harder a
-/// character hits, the harder to time), Footwork speed less a little reach. `power` rows give the POWER columns.
-pub fn scores(row: &[String], power: [&[String]; 3]) -> [f64; 5] {
+/// character hits, the harder to time), Footwork speed less a little reach. `power` rows give the POWER columns;
+/// `gain` ([`power_gain`]) is what the serve's, strokes' and volleys' tables fly faster than those rows' own.
+pub fn scores(row: &[String], power: [&[String]; 3], gain: [f64; 3]) -> [f64; 5] {
     let v = |r: &[String], c: usize| r.get(c).and_then(|s| s.split('/').next()?.trim().parse::<f64>().ok()).unwrap_or(0.0);
     let [serve, stroke, volley] = [0, 1, 2].map(|k| v(power[k], POWER[k]));
     [
-        serve + 0.1 * v(row, 22),                       // Serv CON
-        stroke + 0.1 * v(row, 17),                      // Top SPIN
-        volley - 0.25 * stroke + 0.1 * v(row, 21),      // Voley CON
+        serve + gain[0] + 0.1 * v(row, 22),             // Serv CON
+        stroke + gain[1] + 0.1 * v(row, 17),            // Top SPIN
+        volley + gain[2] - 0.25 * stroke + 0.1 * v(row, 21), // Voley CON
         v(row, 28) - 0.1 * serve,                       // rally hits' early good frames
         v(row, 40) - 0.01 * v(row, 57),                 // SPE, reach
     ]
 }
 
-/// The grades `row` plays at ([`scores`], POWER from `power`): per category, each cut halfway between the stock
-/// characters' (`rows`, `grades`) neighbouring grades; [`S`] as far past the best of them as that one is past A's cut.
-/// A stock row gets its own grades.
-pub fn grades_of(row: &[String], power: [&[String]; 3], rows: &[Vec<String>], grades: &[[u8; 5]]) -> [u8; 5] {
-    let stock: Vec<[f64; 5]> = rows.iter().map(|r| scores(r, [r, r, r])).collect();
-    let own = scores(row, power);
+/// The grades `row` plays at ([`scores`], POWER from `power`, faster tables' `gain`): per category, each cut halfway
+/// between the stock characters' (`rows`, `grades`) neighbouring grades; [`S`] as far past the best of them as that
+/// one is past A's cut. A stock row gets its own grades.
+pub fn grades_of(row: &[String], power: [&[String]; 3], gain: [f64; 3], rows: &[Vec<String>], grades: &[[u8; 5]]) -> [u8; 5] {
+    let stock: Vec<[f64; 5]> = rows.iter().map(|r| scores(r, [r, r, r], [0.0; 3])).collect();
+    let own = scores(row, power, gain);
     std::array::from_fn(|k| {
         let at = |pick: &dyn Fn(u8) -> bool| -> Vec<f64> { stock.iter().zip(grades).filter(|(_, g)| pick(g[k])).map(|(s, _)| s[k]).collect() };
         let cut = |g: u8| {
@@ -83,6 +84,88 @@ pub fn grades_of(row: &[String], power: [&[String]; 3], rows: &[Vec<String>], gr
         let grade = (1..=5).filter(|&g| own[k] > cut(g)).count() as u8;
         if grade == 5 && own[k] > 2.0 * top - cut(5) { S } else { grade }
     })
+}
+
+/// The POW (TParam.csv's Serv / Strk / Voley POW) one mph of a class's mean table speed is worth: the stock
+/// characters' tables were authored from their POW, and across the 14 their serve, ground stroke and volley tables'
+/// mean speeds rise with it in a near straight line (r 0.97, 0.99, 1.00; research/journal/2026-10-27-m151c-grades).
+const POW_PER_MPH: [f64; 3] = [0.305, 0.937, 0.651];
+/// Metres a frame to mph (60 frames a second).
+const MPH: f64 = 60.0 * 3600.0 / 1609.344;
+/// Every this many cells along each axis a table's speed is sampled at (4 × 4 × 4 of its 16³).
+const SAMPLE: usize = 5;
+
+/// A mod's serve, strokes and volleys at a §6 `shots` `power`, as the POW they'd take to fly that fast: the
+/// generated tables' mean speed (`Table::mean_speed`, the generator's own cells on a sample) less the stock ones' it
+/// was built from, by [`POW_PER_MPH`]. Topspin, slice and flat of each (the serve's base tables), the way the match
+/// regenerates them. 0 at power 1; remembered for the run, by character, class and power.
+pub fn power_gain(iso: &mut Iso, m: &crate::mods::Mod) -> [f64; 3] {
+    let from = [0, 1, 2].map(|k| m.build.shots[k].map_or(m.donor, usize::from));
+    gains(iso, from, [0, 1, 2].map(|k| m.build.power[k]))
+}
+
+/// [`power_gain`] of serves, strokes and volleys from characters `from` at `power`.
+fn gains(iso: &mut Iso, from: [usize; 3], power: [f32; 3]) -> [f64; 3] {
+    static SEEN: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<(usize, usize, u32), f64>>> = std::sync::LazyLock::new(Default::default);
+    let mut out = [0.0; 3];
+    let Some(params) = shot_params(iso) else { return out };
+    for (k, gain) in out.iter_mut().enumerate().filter(|&(k, _)| power[k] != 1.0) {
+        let (c, p) = (from[k], power[k]);
+        if let Some(&g) = SEEN.lock().unwrap().get(&(c, k, p.to_bits())) {
+            *gain = g;
+            continue;
+        }
+        let Some(tables) = class_tables(iso, c, k) else { continue };
+        let mean = |p: f32| {
+            let one = |(kind, t): (usize, &hst_sim::shot::Table)| class_speed(&params, c, k, kind, t, p);
+            #[cfg(not(target_arch = "wasm32"))]
+            let speeds: Vec<f64> = std::thread::scope(|s| tables.iter().enumerate().map(|t| s.spawn(move || one(t))).collect::<Vec<_>>().into_iter().map(|h| h.join().unwrap()).collect());
+            #[cfg(target_arch = "wasm32")]
+            let speeds: Vec<f64> = tables.iter().enumerate().map(one).collect();
+            speeds.iter().sum::<f64>() / speeds.len() as f64
+        };
+        *gain = (mean(p) - mean(1.0)) * MPH * POW_PER_MPH[k];
+        SEEN.lock().unwrap().insert((c, k, p.to_bits()), *gain);
+    }
+    out
+}
+
+/// The disc's shot records.
+fn shot_params(iso: &mut Iso) -> Option<hst_sim::params::ShotParams> {
+    let src = hst_data::exe::Game::new(&iso.read("SYSTEM.CNF").ok()?, &iso.read("ZZBIN/GAME.BIN").ok()?).ok()?.shot_params();
+    Some(hst_sim::params::ShotParams::build(&src.base, &src.kinds, &src.weights, src.middle_mix))
+}
+
+/// Character `c`'s topspin, slice and flat tables of class `k` (0 serve, 1 stroke, 2 volley).
+fn class_tables(iso: &mut Iso, c: usize, k: usize) -> Option<Vec<hst_sim::shot::Table>> {
+    let name = ["serv", "strk", "voly"][k];
+    let archives: Vec<Vec<u8>> = ["A", "B"].iter().map(|ab| iso.read(&format!("TRAJ/TRAJ{c:02}{ab}.XB"))).collect::<Result<_, _>>().ok()?;
+    let archives: Vec<hst_data::xb::Archive> = archives.iter().map(|d| hst_data::xb::Archive::parse(d).ok()).collect::<Option<_>>()?;
+    (0..3)
+        .map(|kind| {
+            let file = format!("tr_pc{c:02}_{name}{kind}.dat");
+            let (arc, e) = archives.iter().find_map(|a| Some((a, a.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&file))?)))?;
+            hst_sim::shot::Table::parse(&arc.read(e).ok()?)
+        })
+        .collect()
+}
+
+/// Table `t`'s ([`class_tables`]) mean speed at power `p` (m a frame), each cell launched with the spin its shot
+/// record gives it.
+fn class_speed(params: &hst_sim::params::ShotParams, c: usize, k: usize, kind: usize, t: &hst_sim::shot::Table, p: f32) -> f64 {
+    use hst_sim::{params, shot::Bounds};
+    let rec = params.record(k, kind, params::record_of(c));
+    let speed = match k {
+        0 => {
+            let spin = params::spin(rec);
+            t.mean_speed(&Bounds::serve(false, hst_sim::ball::Params::default().radius), p, |_, _| spin, SAMPLE)
+        }
+        _ => {
+            let b = if k == 1 { Bounds::stroke(kind as i32, 0.0) } else { Bounds::volley(kind as i32, 0.0) };
+            t.mean_speed(&b, p, |hit, target| params::rally_spin(rec, k, kind, hit, target).0, SAMPLE)
+        }
+    };
+    speed as f64
 }
 
 /// Part by part ('/'): `a` where it equals `f`, else the largest (`a` above `f`) or smallest of cell `c` in `rows`.
@@ -180,10 +263,33 @@ mod tests {
         let rows: Vec<Vec<String>> = (0..CHARACTERS).map(|c| crate::mods::row_of(&csv, c).unwrap()).collect();
         for c in 0..CHARACTERS {
             let r = &rows[c][..];
-            assert_eq!(grades_of(r, [r, r, r], &rows, &grades), grades[c], "character {c}");
+            assert_eq!(grades_of(r, [r, r, r], [0.0; 3], &rows, &grades), grades[c], "character {c}");
         }
         let mut fast = rows[5].clone(); // the best Footwork
         fast[40] = "14".into();
-        assert_eq!(grades_of(&fast, [&rows[5]; 3], &rows, &grades)[4], S);
+        assert_eq!(grades_of(&fast, [&rows[5]; 3], [0.0; 3], &rows, &grades)[4], S);
+    }
+
+    /// A serve at power 1.4 from the best server's tables flies far past the roster's best: it reads S, where the POW
+    /// it was taken from alone reads A. Strokes a little faster grade up from their stock grade, slower ones down; power
+    /// 1 adds nothing, and the gain is the same twice (one sample, cached).
+    #[test]
+    fn faster_tables_grade_up() {
+        let Ok(mut iso) = hst_data::fixture::iso() else { return hst_data::fixture::skip("no ISO") };
+        let grades = disc_grades(&mut iso).unwrap();
+        let csv = crate::mods::tparam_csv(&mut iso).unwrap();
+        let rows: Vec<Vec<String>> = (0..CHARACTERS).map(|c| crate::mods::row_of(&csv, c).unwrap()).collect();
+        let start = std::time::Instant::now();
+        let gain = gains(&mut iso, [7, 4, 4], [1.4, 1.15, 0.8]);
+        eprintln!("gains {gain:?} in {:?}", start.elapsed());
+        assert!(start.elapsed().as_secs_f32() < 3.0);
+        assert_eq!(gains(&mut iso, [7, 4, 4], [1.4, 1.15, 0.8]), gain);
+        assert_eq!(gains(&mut iso, [7, 4, 4], [1.0; 3]), [0.0; 3]);
+        assert!(gain[0] > 5.0 && gain[1] > 0.0 && gain[2] < 0.0, "{gain:?}");
+        let (chief, b) = (&rows[7][..], &rows[4][..]);
+        assert_eq!(grades_of(chief, [chief, b, b], [0.0; 3], &rows, &grades)[0], 5, "his own serve: A");
+        let g = grades_of(chief, [chief, b, b], gain, &rows, &grades);
+        assert_eq!(g[0], S, "the cannon");
+        assert!(g[1] > grades[4][1] && g[2] < grades[4][2], "{g:?} vs {:?}", grades[4]);
     }
 }

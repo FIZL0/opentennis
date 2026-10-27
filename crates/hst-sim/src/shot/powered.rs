@@ -138,24 +138,46 @@ fn cell(w: u32, hit: V3, spin: f32, power: F) -> u32 {
     best
 }
 
+/// Cell `i`'s hit (Y-down, before the net at z 0) and target on axes `b`: the hitter's distance to the net crossing,
+/// the hit height and the crossing's to the target.
+fn place(b: &Bounds, i: usize) -> (V3, V3) {
+    let at = |i: usize| F(i as f32) / (N - 1) as f32;
+    let (x, y, z) = (i % N, i / N % N, i / (N * N));
+    let to_net = -(F(b.near) + (F(b.far) - b.near) * at(x));
+    let low = if b.sloped { low_bound((-to_net).0) } else { b.low };
+    let height = (F(low) + (F(b.high) - low) * at(y)).min(ABOVE_GROUND);
+    let past = F(b.short) + (F(b.long) - b.short) * at(z);
+    ([0.0, height.0, (-to_net).0], [0.0, 0.0, past.0])
+}
+
 impl Table {
     /// This table at `power` (1 = stock) over its axes `b` (see the module notes). `spin(hit, target)` is the
     /// launch spin a shot from `hit` to `target` gets (the shot record's).
     pub fn powered(&self, b: &Bounds, power: f32, spin: impl Fn(V3, V3) -> f32) -> Table {
-        let at = |i: usize| F(i as f32) / (N - 1) as f32;
         let words = (0..N * N * N)
             .map(|i| {
-                let (x, y, z) = (i % N, i / N % N, i / (N * N));
-                // the hitter's distance to the net crossing, the hit height and the crossing's to the target
-                let to_net = -(F(b.near) + (F(b.far) - b.near) * at(x));
-                let low = if b.sloped { low_bound((-to_net).0) } else { b.low };
-                let height = (F(low) + (F(b.high) - low) * at(y)).min(ABOVE_GROUND);
-                let past = F(b.short) + (F(b.long) - b.short) * at(z);
-                let hit = [0.0, height.0, (-to_net).0];
-                cell(self.0[i], hit, spin(hit, [0.0, 0.0, past.0]), F(power))
+                let (hit, target) = place(b, i);
+                cell(self.0[i], hit, spin(hit, target), F(power))
             })
             .collect();
         Table(words)
+    }
+
+    /// The mean speed (m a frame) of [`Table::powered`]'s cells over every `step`th cell along each axis, those
+    /// whose stock speed is above zero: the generator's own cells, at a fraction of the whole table's cost (the
+    /// select card grades a powered mod by it). Power 1 is the stock table's.
+    pub fn mean_speed(&self, b: &Bounds, power: f32, spin: impl Fn(V3, V3) -> f32, step: usize) -> f32 {
+        let picked = |i: usize| [i % N, i / N % N, i / (N * N)].iter().all(|&a| a % step.max(1) == 0);
+        let speeds: Vec<i32> = (0..N * N * N)
+            .filter(|&i| picked(i) && fields(self.0[i]).1 > 0)
+            .map(|i| {
+                let (hit, target) = place(b, i);
+                let w = if power == 1.0 { self.0[i] } else { cell(self.0[i], hit, spin(hit, target), F(power)) };
+                fields(w).1
+            })
+            .collect();
+        let sum: i64 = speeds.iter().map(|&s| s as i64).sum();
+        (F(sum as f32) / speeds.len().max(1) as f32 * SPEED_UNIT).0
     }
 
     /// The highest speed in the table (m a frame).
