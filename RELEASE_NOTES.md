@@ -16,3 +16,4 @@
 - Modded characters now turn after a point the way the original characters do, so the after-point camera shows them from the front instead of from behind.
 - In the browser, the game no longer uses anti-aliasing by default, and Auto graphics now drops the render resolution straight away when a match runs far too slowly (on a big screen, for example). Browser players who never changed their graphics are switched to Auto.
 - Online, keeping a character you downloaded from another player now installs it as the store's mod when that's where it came from, so it gets updates like any other store mod. Downloads you don't keep are cleared the next time you start the game.
+- Render Scale now goes down to 33% and 25%, and Auto uses them when even half resolution is too slow (a 4K screen's 50% is still 1080p).

@@ -61,7 +61,7 @@ pub static KEEP_WINDOWED: AtomicBool = AtomicBool::new(false);
 /// 90 for the OLED Steam Deck's 90 Hz screen.
 pub const FPS: [u32; 9] = [30, 60, 90, 120, 144, 240, 360, 480, 0];
 /// P63: above 100 % supersamples (the scene drawn larger, filtered down to the window).
-pub const SCALES: [u32; 8] = [50, 67, 75, 85, 100, 125, 150, 200];
+pub const SCALES: [u32; 10] = [25, 33, 50, 67, 75, 85, 100, 125, 150, 200];
 pub const SHADOWS: [Shadows; 4] = [Shadows::Off, Shadows::Low, Shadows::High, Shadows::Original];
 pub const MSAA: [u32; 3] = [1, 2, 4];
 pub const MESHES: [u32; 4] = [25, 50, 75, 100];
@@ -941,6 +941,9 @@ pub fn cheaper(g: Graphics) -> Option<Graphics> {
         c.shadows = Shadows::Off;
     } else if g.mesh > 25 {
         c.mesh = 25;
+    } else if g.scale > SCALES[0] && !g.original {
+        // a 4K screen's 50 % is still 1080p
+        c.scale = SCALES.into_iter().rev().find(|&s| s < g.scale)?;
     } else {
         return None;
     }
@@ -1138,7 +1141,7 @@ mod tests {
         // B414: Lowest, below Low, with every speed-up on
         assert_eq!(Graphics::LOWEST.flags(), ["--fps", "60", "--scale", "50", "--shadows", "off", "--msaa", "off", "--mesh", "25"]);
         assert_eq!((Graphics::LOWEST.preset(), w.keep(Graphics::LOWEST).preset()), ("Lowest", "Lowest"));
-        assert!(Graphics::LOWEST.fewer_shadows && Graphics::LOWEST.cull && Graphics::LOWEST.mesh == MESHES[0] && Graphics::LOWEST.scale == SCALES[0]);
+        assert!(Graphics::LOWEST.fewer_shadows && Graphics::LOWEST.cull && Graphics::LOWEST.mesh == MESHES[0] && Graphics::LOWEST.scale == 50);
         let names: Vec<_> = Graphics::PRESETS.iter().map(|(n, _)| *n).collect();
         assert_eq!(names, ["High", "Default", "Steam Deck", "Low", "Lowest", "Phone"]);
         // P63: the Deck at High's look with vsync and the speed-ups; an old Deck settings.txt moves up to it
@@ -1193,12 +1196,12 @@ mod tests {
         }
         let look = |g: &Graphics| (g.scale, g.shadows, g.msaa, g.mesh);
         let scales: Vec<_> = rungs.iter().map(|g| g.scale).collect();
-        assert_eq!(scales, [100, 85, 75, 67, 67, 67, 67, 50, 50, 50]);
+        assert_eq!(scales, [100, 85, 75, 67, 67, 67, 67, 50, 50, 50, 33, 25]);
         for p in [Graphics::PHONE, Graphics::LOW, Graphics::LOWEST] {
             assert!(rungs.iter().any(|r| look(r) == look(&p)), "{p:?}");
         }
         assert_eq!(cheaper(Graphics::PHONE), Some(Graphics::LOW));
-        assert_eq!((cheaper(Graphics::LOW).unwrap().scale, cheaper(Graphics::LOWEST)), (50, None));
+        assert_eq!((cheaper(Graphics::LOW).unwrap().scale, cheaper(Graphics::LOWEST).map(|c| c.scale)), (50, Some(33)));
         assert_eq!(cheaper(Graphics::HIGH), Some(Graphics::default()));
         assert_eq!(cheaper(Graphics { scale: 200, ..default() }).unwrap().scale, 150);
         assert_eq!(cheaper(Graphics { fps: 30, ..Graphics::LOW }).unwrap().fps, 60);
@@ -1217,7 +1220,7 @@ mod tests {
         };
         let g = Graphics { auto: true, ..default() };
         assert_eq!(slow(21.0, g).map(|c| (c.scale, c.msaa)), Some((50, 4)));
-        assert_eq!(slow(30.0, Graphics { scale: 67, ..g }).map(|c| c.scale), Some(50));
+        assert_eq!(slow(30.0, Graphics { scale: 67, ..g }).map(|c| c.scale), Some(33));
         assert_eq!(slow(45.0, g), cheaper(g));
         let steps = |d: Device| d.steps();
         assert_eq!(steps(Device { model: Some("iPhone16,1".into()), ..phone.clone() }), 0);
@@ -1258,8 +1261,8 @@ mod tests {
         assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, AUTO_SKIP - 0.1), 0);
         assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, 2.2), 1);
         assert_eq!(g, Graphics { auto: true, ..Graphics::LOW });
-        assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, 30.0), 3);
-        assert_eq!((g, t.done), (Graphics { auto: true, ..Graphics::LOWEST }, true));
+        assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, 30.0), 5);
+        assert_eq!((g, t.done), (Graphics { auto: true, scale: 25, ..Graphics::LOWEST }, true));
         // 60 fps with a hitch: no step, through after two windows
         let (mut t, mut g) = (Tune::default(), Graphics { auto: true, ..Graphics::PHONE });
         let mut steps = run(&mut t, &mut g, 1.0 / 60.0, 4.0);
