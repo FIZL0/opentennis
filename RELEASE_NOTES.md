@@ -9,11 +9,14 @@
 - Clearer wording online when another player picks a mod you don't have: the character card, the download question, the lobby's Start line and the setting all say plainly what happens. A Random pick no longer gives away which mod it drew.
 - In the browser, Save log now tells you where the log file went (usually your Downloads folder) so you can send it with a bug report.
 - In the browser, saved logs are also kept on the site's page under Storage, next to any desync reports, each with a Download button.
-- Online, a character you downloaded from another player is no longer downloaded again when they bring a newer version of it to a later lobby.
+- Online, a character you downloaded from another player is no longer downloaded again when they bring a newer version of it to another lobby while the game is still open.
 - A character's mouth now eases back into its animation when a spoken emote line ends, instead of snapping.
 - Online, a modded character you download from another player now shows its face in the match's score panel instead of a blank one.
-- A match that runs well under 60 fps now lowers its graphics by itself even with hand-picked settings (Auto already did), so a slow computer stays playable.
 - A modded character's Serve grade on the select screen now matches how well it really serves.
 - Modded characters now turn after a point the way the original characters do, so the after-point camera shows them from the front instead of from behind.
 - A custom character can now hit its serve, groundstrokes, volleys and smash like different stock characters, and its Serve grade on the select screen follows whose serve it has.
 - Every grade on a modded character's select card now reflects how it really plays, in online lobbies too.
+- In the browser, the game no longer uses anti-aliasing by default, and Auto graphics now drops the render resolution straight away when a match runs far too slowly (on a big screen, for example). Browser players who never changed their graphics are switched to Auto.
+- Online, keeping a character you downloaded from another player now installs it as the store's mod when that's where it came from, so it gets updates like any other store mod. Downloads you don't keep are cleared the next time you start the game.
+- Graphics → Resolution is now called Render Scale (it only changes the 3D scene: menus and the HUD stay sharp) and goes down to 33% and 25%, and Auto uses them when even half resolution is too slow (a 4K screen's 50% is still 1080p).
+- When a match runs far too slowly, Auto graphics now also turns off anti-aliasing, halves the characters' detail and turns on the other speed-ups in the same step as lowering the render scale, instead of one at a time.

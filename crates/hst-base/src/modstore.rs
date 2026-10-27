@@ -742,6 +742,26 @@ pub struct Stamp {
     pub render: Option<u32>,
 }
 
+impl Stamp {
+    fn of(e: &Entry) -> Stamp {
+        Stamp { sha256: e.meta.sha256.clone(), rev: e.rev.clone(), verified: e.verified, author: e.meta.author.clone(), render: e.meta.render }
+    }
+}
+
+/// The store copies [`fetch_looks`] handed an online lobby, by looks: `mods_online::unpack` stamps the received
+/// folder with them, so keeping it afterwards is that store mod installed (updates and all), not a loose copy.
+static FETCHED: std::sync::Mutex<std::collections::BTreeMap<u64, Vec<u8>>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// The `store.json` of the store copy fetched with the looks `looks`, if one was (taken: asked once).
+pub fn fetched_stamp(looks: u64) -> Option<Vec<u8>> {
+    FETCHED.lock().unwrap().remove(&looks)
+}
+
+#[cfg(test)]
+pub(crate) fn fetched_for_test(looks: u64, stamp: &Stamp) {
+    FETCHED.lock().unwrap().insert(looks, serde_json::to_vec(stamp).unwrap());
+}
+
 pub fn stamp(dir: &Path) -> Option<Stamp> {
     serde_json::from_slice(&modfs::read(&dir.join("store.json")).ok()?).ok()
 }
@@ -787,8 +807,7 @@ pub fn install(e: &Entry, root: &Path, upscaled: bool) {
                 },
                 m => m?,
             };
-            let s = Stamp { sha256: e.meta.sha256.clone(), rev: e.rev.clone(), verified: e.verified, author: e.meta.author.clone(), render: e.meta.render };
-            modfs::write(&m.dir.join("store.json"), serde_json::to_vec(&s).unwrap())?;
+            modfs::write(&m.dir.join("store.json"), serde_json::to_vec(&Stamp::of(&e)).unwrap())?;
             keep(&m)
         };
         send(Event::Installed(key, got.await));
@@ -836,7 +855,10 @@ pub fn fetch_looks(id: String, looks: u64, stage: std::path::PathBuf, tell: impl
                 modfs::remove(&stage);
                 let _ = std::fs::remove_dir_all(&stage);
                 match b {
-                    Ok(b) if crate::mods_online::hash(&b) == looks => return Ok(b),
+                    Ok(b) if crate::mods_online::hash(&b) == looks => {
+                        FETCHED.lock().unwrap().insert(looks, serde_json::to_vec(&Stamp::of(&e)).unwrap());
+                        return Ok(b);
+                    }
                     Ok(_) => bevy::log::info!("store mod {}: other looks than the lobby's", e.key()),
                     Err(err) => bevy::log::info!("store mod {}: {err}", e.key()),
                 }

@@ -61,7 +61,7 @@ pub static KEEP_WINDOWED: AtomicBool = AtomicBool::new(false);
 /// 90 for the OLED Steam Deck's 90 Hz screen.
 pub const FPS: [u32; 9] = [30, 60, 90, 120, 144, 240, 360, 480, 0];
 /// P63: above 100 % supersamples (the scene drawn larger, filtered down to the window).
-pub const SCALES: [u32; 8] = [50, 67, 75, 85, 100, 125, 150, 200];
+pub const SCALES: [u32; 10] = [25, 33, 50, 67, 75, 85, 100, 125, 150, 200];
 pub const SHADOWS: [Shadows; 4] = [Shadows::Off, Shadows::Low, Shadows::High, Shadows::Original];
 pub const MSAA: [u32; 3] = [1, 2, 4];
 pub const MESHES: [u32; 4] = [25, 50, 75, 100];
@@ -804,6 +804,8 @@ pub struct Device {
     /// A phone or tablet: the browser on a touch screen, the iOS or Android app.
     pub touch: bool,
     pub steam_deck: bool,
+    /// The browser build: its pick has no MSAA (a big canvas's MSAA is what a browser's GPU waits on).
+    pub browser: bool,
     /// The app's device model: iOS's `hw.machine` (`iPhone14,5`), Android's `Build.MODEL`.
     pub model: Option<String>,
     /// The screen in CSS px, portrait (narrow side first); 0 unknown.
@@ -821,7 +823,7 @@ pub struct Device {
 impl Device {
     /// This device (`touch`: the page or app is played by touch).
     pub fn here(touch: bool) -> Device {
-        let mut d = Device { touch: touch || cfg!(any(target_os = "ios", target_os = "android")), steam_deck: std::env::var("SteamDeck").is_ok_and(|v| v == "1"), ..default() };
+        let mut d = Device { touch: touch || cfg!(any(target_os = "ios", target_os = "android")), steam_deck: std::env::var("SteamDeck").is_ok_and(|v| v == "1"), browser: cfg!(target_arch = "wasm32"), ..default() };
         #[cfg(target_arch = "wasm32")]
         crate::web::device(&mut d);
         #[cfg(not(target_arch = "wasm32"))]
@@ -904,17 +906,18 @@ fn iphone_screen_tier([w, h]: [u32; 2], dpr: f32) -> u32 {
 }
 
 /// The Auto preset's first pick on `d`: Steam Deck's on a Deck (without Auto: its preset is tuned by hand and SteamOS
-/// may cap it below 60), Default elsewhere off a touch screen, Phone stepped down by `Device::steps` on a phone or tablet.
+/// may cap it below 60), Default elsewhere off a touch screen, Phone stepped down by `Device::steps` on a phone or tablet;
+/// in a browser without MSAA.
 pub fn pick(d: &Device) -> Graphics {
     if d.steam_deck {
         return Graphics::STEAM_DECK;
     }
-    if !d.touch {
-        return Graphics { auto: true, ..default() };
-    }
-    let mut g = Graphics::PHONE;
-    for _ in 0..d.steps() {
+    let mut g = if d.touch { Graphics::PHONE } else { default() };
+    for _ in 0..if d.touch { d.steps() } else { 0 } {
         g = cheaper(g).unwrap_or(g);
+    }
+    if d.browser {
+        g.msaa = 1;
     }
     Graphics { auto: true, ..g }
 }
@@ -938,6 +941,9 @@ pub fn cheaper(g: Graphics) -> Option<Graphics> {
         c.shadows = Shadows::Off;
     } else if g.mesh > 25 {
         c.mesh = 25;
+    } else if g.scale > SCALES[0] && !g.original {
+        // a 4K screen's 50 % is still 1080p
+        c.scale = SCALES.into_iter().rev().find(|&s| s < g.scale)?;
     } else {
         return None;
     }
@@ -993,8 +999,7 @@ pub static SAVE: std::sync::OnceLock<fn(&str, Graphics)> = std::sync::OnceLock::
 /// cheaper (`cheaper`, saved to settings.txt so the next match starts there) after each that falls under 93 % of 60
 /// fps (or of the display's rate when that's lower: a browser in Low Power Mode at 30 Hz isn't the game's fault),
 /// until two in a row hold, the bottom is reached, or 16 s have been timed. Never steps up; each match checks again
-/// (a heavier court). Hand-picked settings (Auto off) are stepped down the same way, but only below 80 % of that
-/// (~45 fps): a match that crawls is never what was picked. Drawing only: the simulation's tick and RNG don't see it.
+/// (a heavier court). Drawing only: the simulation's tick and RNG don't see it.
 fn auto_tune(mut g: ResMut<Graphics>, time: Res<Time<Real>>, frames: Res<bevy::diagnostic::FrameCount>, monitors: Query<&bevy::window::Monitor>, args: Option<Res<crate::Args>>, mut t: Local<Tune>) {
     let new_match = frames.0 != t.frame.wrapping_add(1);
     t.frame = frames.0;
@@ -1003,7 +1008,7 @@ fn auto_tune(mut g: ResMut<Graphics>, time: Res<Time<Real>>, frames: Res<bevy::d
         info!("graphics at match start: {} (auto {}), {}% scale, shadows {}, msaa {}, mesh {}%, fps cap {}", g.preset(), g.auto, g.scale, g.shadows.name(), msaa_name(g.msaa), g.mesh, g.fps);
         *t = Tune { frame: frames.0, ..default() };
     }
-    if NO_AUTO.load(Ordering::Relaxed) {
+    if !g.auto || NO_AUTO.load(Ordering::Relaxed) {
         return;
     }
     #[cfg(target_arch = "wasm32")]
@@ -1011,13 +1016,7 @@ fn auto_tune(mut g: ResMut<Graphics>, time: Res<Time<Real>>, frames: Res<bevy::d
     #[cfg(not(target_arch = "wasm32"))]
     let hz = monitors.iter().filter_map(|m| m.refresh_rate_millihertz).max().map_or(60.0, |m| m as f32 / 1000.0);
     let _ = &monitors;
-    // hand-picked: its own frame cap kept and timed against (a 30 fps cap isn't slow)
-    let cap = if g.auto || g.fps == 0 { f32::MAX } else { g.fps as f32 };
-    let target = hz.min(60.0).min(cap) * if g.auto { 1.0 } else { 0.8 };
-    if let Some(mut c) = t.frame_time(*g, time.delta_secs(), target) {
-        if !g.auto {
-            c.fps = g.fps;
-        }
+    if let Some(c) = t.frame_time(*g, time.delta_secs(), hz.min(60.0)) {
         *g = c;
         if let (Some(a), Some(save)) = (&args, SAVE.get()) {
             save(&a.iso, c);
@@ -1058,7 +1057,16 @@ impl Tune {
             }
             return None;
         }
-        let Some(c) = cheaper(g) else {
+        // far too slow (a 1440p canvas at 21 fps): straight to the render scale whose pixels would fit, with the
+        // speed-ups on, no MSAA and half meshes, then the ladder
+        let jump = (fps < target * 0.6)
+            .then(|| {
+                let fit = g.scale as f32 * (fps / target).sqrt();
+                let scale = if g.original { g.scale } else { SCALES.into_iter().rev().find(|&s| s as f32 <= fit).unwrap_or(SCALES[0]).min(g.scale) };
+                Graphics { scale, fewer_shadows: true, cull: true, msaa: 1, mesh: g.mesh.min(50), ..g }
+            })
+            .filter(|c| *c != g);
+        let Some(c) = jump.or_else(|| cheaper(g)) else {
             info!("auto graphics: {fps:.0} fps of {target:.0} at the cheapest");
             self.done = true;
             return None;
@@ -1139,7 +1147,7 @@ mod tests {
         // B414: Lowest, below Low, with every speed-up on
         assert_eq!(Graphics::LOWEST.flags(), ["--fps", "60", "--scale", "50", "--shadows", "off", "--msaa", "off", "--mesh", "25"]);
         assert_eq!((Graphics::LOWEST.preset(), w.keep(Graphics::LOWEST).preset()), ("Lowest", "Lowest"));
-        assert!(Graphics::LOWEST.fewer_shadows && Graphics::LOWEST.cull && Graphics::LOWEST.mesh == MESHES[0] && Graphics::LOWEST.scale == SCALES[0]);
+        assert!(Graphics::LOWEST.fewer_shadows && Graphics::LOWEST.cull && Graphics::LOWEST.mesh == MESHES[0] && Graphics::LOWEST.scale == 50);
         let names: Vec<_> = Graphics::PRESETS.iter().map(|(n, _)| *n).collect();
         assert_eq!(names, ["High", "Default", "Steam Deck", "Low", "Lowest", "Phone"]);
         // P63: the Deck at High's look with vsync and the speed-ups; an old Deck settings.txt moves up to it
@@ -1194,12 +1202,12 @@ mod tests {
         }
         let look = |g: &Graphics| (g.scale, g.shadows, g.msaa, g.mesh);
         let scales: Vec<_> = rungs.iter().map(|g| g.scale).collect();
-        assert_eq!(scales, [100, 85, 75, 67, 67, 67, 67, 50, 50, 50]);
+        assert_eq!(scales, [100, 85, 75, 67, 67, 67, 67, 50, 50, 50, 33, 25]);
         for p in [Graphics::PHONE, Graphics::LOW, Graphics::LOWEST] {
             assert!(rungs.iter().any(|r| look(r) == look(&p)), "{p:?}");
         }
         assert_eq!(cheaper(Graphics::PHONE), Some(Graphics::LOW));
-        assert_eq!((cheaper(Graphics::LOW).unwrap().scale, cheaper(Graphics::LOWEST)), (50, None));
+        assert_eq!((cheaper(Graphics::LOW).unwrap().scale, cheaper(Graphics::LOWEST).map(|c| c.scale)), (50, Some(33)));
         assert_eq!(cheaper(Graphics::HIGH), Some(Graphics::default()));
         assert_eq!(cheaper(Graphics { scale: 200, ..default() }).unwrap().scale, 150);
         assert_eq!(cheaper(Graphics { fps: 30, ..Graphics::LOW }).unwrap().fps, 60);
@@ -1208,6 +1216,18 @@ mod tests {
         assert_eq!(pick(&Device { steam_deck: true, ..default() }), Graphics::STEAM_DECK);
         assert_eq!(pick(&Device::default()), Graphics { auto: true, ..default() });
         assert_eq!(pick(&phone), Graphics { auto: true, ..Graphics::PHONE });
+        // a browser's without MSAA
+        assert_eq!(pick(&Device { browser: true, ..default() }), Graphics { auto: true, msaa: 1, ..default() });
+        assert_eq!(pick(&Device { browser: true, ..phone.clone() }), Graphics { auto: true, msaa: 1, ..Graphics::PHONE });
+        // far too slow: straight to the scale whose pixels fit (21 of 60 fps at 100% → 50%), MSAA off, half meshes; 45 fps: the ladder
+        let slow = |fps: f32, g: Graphics| {
+            let mut t = Tune::default();
+            (0..((AUTO_SKIP + AUTO_WINDOW) * fps) as u32 + 2).find_map(|_| t.frame_time(g, 1.0 / fps, 60.0))
+        };
+        let g = Graphics { auto: true, ..default() };
+        assert_eq!(slow(21.0, g).map(|c| (c.scale, c.msaa, c.mesh, c.fewer_shadows && c.cull)), Some((50, 1, 50, true)));
+        assert_eq!(slow(30.0, Graphics { scale: 67, ..g }).map(|c| c.scale), Some(33));
+        assert_eq!(slow(45.0, g), cheaper(g));
         let steps = |d: Device| d.steps();
         assert_eq!(steps(Device { model: Some("iPhone16,1".into()), ..phone.clone() }), 0);
         assert_eq!(steps(Device { model: Some("iPhone14,5".into()), ..phone.clone() }), 1);
@@ -1242,13 +1262,13 @@ mod tests {
             }
             steps
         };
-        // 30 fps: one step per window plus the wait after it, from Phone to the bottom within the 16 s
+        // 40 fps: one step per window plus the wait after it, from Phone to the bottom within the 16 s
         let (mut t, mut g) = (Tune::default(), Graphics { auto: true, ..Graphics::PHONE });
-        assert_eq!(run(&mut t, &mut g, 1.0 / 30.0, AUTO_SKIP - 0.1), 0);
-        assert_eq!(run(&mut t, &mut g, 1.0 / 30.0, 2.2), 1);
+        assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, AUTO_SKIP - 0.1), 0);
+        assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, 2.2), 1);
         assert_eq!(g, Graphics { auto: true, ..Graphics::LOW });
-        assert_eq!(run(&mut t, &mut g, 1.0 / 30.0, 30.0), 3);
-        assert_eq!((g, t.done), (Graphics { auto: true, ..Graphics::LOWEST }, true));
+        assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, 30.0), 5);
+        assert_eq!((g, t.done), (Graphics { auto: true, scale: 25, ..Graphics::LOWEST }, true));
         // 60 fps with a hitch: no step, through after two windows
         let (mut t, mut g) = (Tune::default(), Graphics { auto: true, ..Graphics::PHONE });
         let mut steps = run(&mut t, &mut g, 1.0 / 60.0, 4.0);

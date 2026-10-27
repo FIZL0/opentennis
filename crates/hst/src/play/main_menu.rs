@@ -2505,6 +2505,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     commands.remove_resource::<Roster>();
     let (mods, mods_dir) = (std::mem::take(&mut roster.0), std::mem::take(&mut roster.1));
     let fresh = kept.is_none();
+    crate::mods_online::clear(&crate::mods_online::cache(&args.iso));
     // first run (no settings.txt): the Auto preset's pick for this device (P53; B351: a phone's is Phone or below it,
     // the browser on a touch screen too; a Steam Deck's its own)
     let first = || Settings { graphics: auto_graphics(), ..Settings::default() };
@@ -2513,6 +2514,18 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         // B289: an older build kept the lobby prompt's answer in the online mod cache
         if !t.contains("online_mods") {
             s.online_mods = Ask::load(&crate::mods_online::cache(&args.iso)).unwrap_or(s.online_mods);
+        }
+        // a browser's settings from before Auto, graphics never changed: Auto's pick (no MSAA); Auto in a browser
+        // never keeps MSAA
+        if cfg!(target_arch = "wasm32") {
+            let g = s.graphics;
+            let keep = |n: Graphics| Graphics { windowed: g.windowed, show_fps: g.show_fps, ..n };
+            if !t.contains("auto_graphics") && g == keep(Graphics::default()) {
+                s.graphics = keep(auto_graphics());
+            }
+            if s.graphics.auto {
+                s.graphics.msaa = 1;
+            }
         }
         s
     });
