@@ -919,7 +919,7 @@ fn iphone_screen_tier([w, h]: [u32; 2], dpr: f32) -> u32 {
 
 /// The Auto preset's first pick on `d`: Steam Deck's on a Deck (without Auto: its preset is tuned by hand and SteamOS
 /// may cap it below 60), Default elsewhere off a touch screen, Phone stepped down by `Device::steps` on a phone or tablet;
-/// in a browser without MSAA.
+/// in a browser without MSAA or Character Shading.
 pub fn pick(d: &Device) -> Graphics {
     if d.steam_deck {
         return Graphics::STEAM_DECK;
@@ -929,7 +929,7 @@ pub fn pick(d: &Device) -> Graphics {
         g = cheaper(g).unwrap_or(g);
     }
     if d.browser {
-        g.msaa = 1;
+        (g.msaa, g.shading) = (1, false);
     }
     Graphics { auto: true, ..g }
 }
@@ -962,6 +962,8 @@ pub fn cheaper(g: Graphics) -> Option<Graphics> {
     if (1..60).contains(&c.fps) {
         c.fps = 60;
     }
+    // Low's and below
+    c.shading &= c.scale > 67;
     Some(c)
 }
 
@@ -1070,12 +1072,12 @@ impl Tune {
             return None;
         }
         // far too slow (a 1440p canvas at 21 fps): straight to the render scale whose pixels would fit, with the
-        // speed-ups on, no MSAA and half meshes, then the ladder
+        // speed-ups on, no MSAA or Character Shading and half meshes, then the ladder
         let jump = (fps < target * 0.6)
             .then(|| {
                 let fit = g.scale as f32 * (fps / target).sqrt();
                 let scale = if g.original { g.scale } else { SCALES.into_iter().rev().find(|&s| s as f32 <= fit).unwrap_or(SCALES[0]).min(g.scale) };
-                Graphics { scale, fewer_shadows: true, cull: true, msaa: 1, mesh: g.mesh.min(50), ..g }
+                Graphics { scale, fewer_shadows: true, cull: true, msaa: 1, mesh: g.mesh.min(50), shading: false, ..g }
             })
             .filter(|c| *c != g);
         let Some(c) = jump.or_else(|| cheaper(g)) else {
@@ -1229,8 +1231,8 @@ mod tests {
         assert_eq!(pick(&Device::default()), Graphics { auto: true, ..default() });
         assert_eq!(pick(&phone), Graphics { auto: true, ..Graphics::PHONE });
         // a browser's without MSAA
-        assert_eq!(pick(&Device { browser: true, ..default() }), Graphics { auto: true, msaa: 1, ..default() });
-        assert_eq!(pick(&Device { browser: true, ..phone.clone() }), Graphics { auto: true, msaa: 1, ..Graphics::PHONE });
+        assert_eq!(pick(&Device { browser: true, ..default() }), Graphics { auto: true, msaa: 1, shading: false, ..default() });
+        assert_eq!(pick(&Device { browser: true, ..phone.clone() }), Graphics { auto: true, msaa: 1, shading: false, ..Graphics::PHONE });
         // far too slow: straight to the scale whose pixels fit (21 of 60 fps at 100% → 50%), MSAA off, half meshes; 45 fps: the ladder
         let slow = |fps: f32, g: Graphics| {
             let mut t = Tune::default();
