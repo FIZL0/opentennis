@@ -44,3 +44,4 @@
 - On the website, a controller can now move between the buttons (d-pad or stick), press them (A), and start the game (Start).
 - In Miyabi Grove, an umbrella you walk under now stays lowered while you stand there instead of snapping back up.
 - A hidden pick's stats show a "?" tile in the same style as the grade letters.
+- When you share the game over your network with Adhoc and your PC's firewall is in the way, its card now says so and how to let other devices in.

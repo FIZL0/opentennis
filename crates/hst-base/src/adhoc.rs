@@ -13,6 +13,10 @@
 //! - `/adhoc/mods/<folder>/<file>`: a listed mod's files (characters, courts and umpires, and the texture packs that
 //!   are switched on)
 //!
+//! M152e: the host can't see a guest that never gets through, so the card says how to let them in: at once when this
+//! PC's firewall (ufw) is on and has no rule letting the port in, and after a while with no guest otherwise; never
+//! once a request has come from another machine.
+//!
 //! A plain thread per connection (a handful of guests), HTTP/1.1 keep-alive, GET and HEAD, byte ranges (a big disc can
 //! be read in parts or resumed).
 
@@ -21,7 +25,7 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The ports tried in turn: 80 gives the shortest address; a desktop that may not open it (below 1024) gets the next.
 const PORTS: [u16; 4] = [80, 8080, 8000, 8888];
@@ -36,6 +40,8 @@ pub struct Status {
     pub urls: Vec<String>,
     /// The web build's state in words ("" once it's there).
     pub note: String,
+    /// How to let guests through this PC's firewall, while none has got through and it may be in the way ("" else).
+    pub hint: String,
 }
 
 /// Where the web build is.
@@ -63,12 +69,20 @@ struct Shared {
     web: Mutex<Web>,
     mods: Mutex<Vec<Served>>,
     stop: AtomicBool,
+    /// A request has come from another machine.
+    reached: AtomicBool,
 }
 
 struct Server {
     port: u16,
     shared: Arc<Shared>,
+    since: Instant,
+    /// The firewall's verdict on the port and when it was read (it's read again now and then: the host may open it).
+    firewall: Mutex<(Instant, Firewall)>,
 }
+
+/// How long the server runs with no guest before the card says the firewall may be in the way.
+const NO_GUEST: Duration = Duration::from_secs(20);
 
 static SERVER: Mutex<Option<Server>> = Mutex::new(None);
 
@@ -93,7 +107,8 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
     }
     let listener = PORTS.iter().find_map(|&p| TcpListener::bind((Ipv4Addr::UNSPECIFIED, p)).ok()).map_or_else(|| TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)), Ok).map_err(|e| format!("Couldn't open a port: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let shared = Arc::new(Shared { disc: disc.to_path_buf(), web: Mutex::new(Web::Looking), mods: Mutex::new(mods()), stop: AtomicBool::new(false) });
+    let shared = Arc::new(Shared { disc: disc.to_path_buf(), web: Mutex::new(Web::Looking), mods: Mutex::new(mods()), stop: AtomicBool::new(false), reached: AtomicBool::new(false) });
+    let own = own_addrs();
     let sh = shared.clone();
     std::thread::Builder::new().name("adhoc-web".into()).spawn(move || find_web(&sh)).map_err(|e| e.to_string())?;
     let sh = shared.clone();
@@ -105,6 +120,9 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
                     break;
                 }
                 let Ok(c) = c else { continue };
+                if c.peer_addr().is_ok_and(|a| !a.ip().is_loopback() && !own.contains(&a.ip())) {
+                    sh.reached.store(true, Relaxed);
+                }
                 let sh = sh.clone();
                 let _ = std::thread::Builder::new().name("adhoc-conn".into()).spawn(move || {
                     let _ = serve(c, &sh);
@@ -113,7 +131,8 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
         })
         .map_err(|e| e.to_string())?;
     bevy::log::info!("adhoc: serving on port {port}: {:?}", urls(port));
-    *s = Some(Server { port, shared });
+    let now = Instant::now();
+    *s = Some(Server { port, shared, since: now, firewall: Mutex::new((now, firewall(port))) });
     Ok(())
 }
 
@@ -128,7 +147,98 @@ pub fn status() -> Option<Status> {
         Web::Ready(_) => String::new(),
         Web::Missing(why) => why.clone(),
     };
-    Some(Status { urls: urls(s.port), note })
+    let hint = if s.shared.reached.load(Relaxed) {
+        String::new()
+    } else {
+        let mut fw = s.firewall.lock().unwrap();
+        if fw.0.elapsed() > Duration::from_secs(2) {
+            *fw = (Instant::now(), firewall(s.port));
+        }
+        fw.1.hint(s.port, s.since.elapsed() > NO_GUEST)
+    };
+    Some(Status { urls: urls(s.port), note, hint })
+}
+
+/// This machine's own addresses (a request from one of them is the host itself, not a guest).
+fn own_addrs() -> Vec<std::net::IpAddr> {
+    netdev::get_interfaces().into_iter().flat_map(|i| i.ipv4.into_iter().map(|n| n.addr().into()).chain(i.ipv6.into_iter().map(|n| n.addr().into()))).collect()
+}
+
+/// What this PC's firewall does with guests' requests to the server's port, as far as the game can read it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Firewall {
+    /// ufw is on and lets nothing in on the port.
+    UfwBlocks,
+    /// ufw is on and lets the port in.
+    UfwOpen,
+    /// ufw is on but its rules can't be read.
+    Ufw,
+    /// firewalld is installed (its rules need root to read).
+    Firewalld,
+    /// Nothing the game can read.
+    Unknown,
+}
+
+impl Firewall {
+    /// The card's words on letting guests in: at once when the firewall blocks the port, after `late` (no guest for a
+    /// while) when it might, never when it lets the port in.
+    fn hint(self, port: u16, late: bool) -> String {
+        match self {
+            Firewall::UfwBlocks => format!("This PC's firewall blocks guests: allow them with sudo ufw allow {port}/tcp"),
+            Firewall::UfwOpen => String::new(),
+            _ if !late => String::new(),
+            Firewall::Ufw => format!("No one yet? This PC's firewall may block them: sudo ufw allow {port}/tcp"),
+            Firewall::Firewalld => format!("No one yet? This PC's firewall may block them: sudo firewall-cmd --add-port={port}/tcp"),
+            Firewall::Unknown if cfg!(windows) => "No one yet? Let OpenTennis through Windows Firewall on private networks.".into(),
+            Firewall::Unknown if cfg!(target_os = "macos") => "No one yet? Let OpenTennis through the firewall: System Settings > Network > Firewall.".into(),
+            Firewall::Unknown => format!("No one yet? This PC's firewall may block them: allow TCP port {port}."),
+        }
+    }
+}
+
+/// Reads this PC's firewall setup for `port` (Linux: ufw's own files, which most installs let anyone read).
+fn firewall(port: u16) -> Firewall {
+    if !cfg!(target_os = "linux") {
+        return Firewall::Unknown;
+    }
+    let read = |p: &str| std::fs::read_to_string(p).ok();
+    let ufw_on = read("/etc/ufw/ufw.conf").is_some_and(|c| c.lines().any(|l| l.trim() == "ENABLED=yes"));
+    if !ufw_on {
+        return if Path::new("/etc/firewalld").is_dir() { Firewall::Firewalld } else { Firewall::Unknown };
+    }
+    let policy = read("/etc/default/ufw").and_then(|c| c.lines().find_map(|l| l.trim().strip_prefix("DEFAULT_INPUT_POLICY=").map(|v| v.trim_matches('"').to_string())));
+    match read("/etc/ufw/user.rules") {
+        Some(rules) => match ufw_lets_in(&rules, port, policy.as_deref().unwrap_or("DROP")) {
+            true => Firewall::UfwOpen,
+            false => Firewall::UfwBlocks,
+        },
+        None => Firewall::Ufw,
+    }
+}
+
+/// Whether ufw's rules (`user.rules`, whose `### tuple ###` lines list them in order) let a TCP connection from the
+/// LAN in on `port`: the first incoming rule for it decides; none falls to the default `policy`. A rule for some
+/// sources only (a LAN range) counts as letting guests in.
+fn ufw_lets_in(rules: &str, port: u16, policy: &str) -> bool {
+    for l in rules.lines() {
+        let Some(t) = l.strip_prefix("### tuple ###") else { continue };
+        let f: Vec<&str> = t.split_whitespace().collect();
+        // action proto dport dst sport src [dapp sapp] direction
+        let [action, proto, dport, ..] = f[..] else { continue };
+        let dir = f.iter().skip(6).rfind(|w| !w.starts_with("comment=")).copied().unwrap_or("in");
+        if !dir.starts_with("in") || !(proto == "tcp" || proto == "any") {
+            continue;
+        }
+        let has = dport == "any"
+            || dport.split(',').any(|d| match d.split_once(':') {
+                Some((a, b)) => a.parse().is_ok_and(|a: u16| a <= port) && b.parse().is_ok_and(|b: u16| port <= b),
+                None => d.parse() == Ok(port),
+            });
+        if has {
+            return matches!(action, "allow" | "limit");
+        }
+    }
+    policy == "ACCEPT"
 }
 
 /// `http://<ip>[:port]` for each private IPv4 address of this machine's interfaces that are up (no loopback, no
@@ -638,7 +748,7 @@ mod tests {
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join("index.html"), "<p>hi").unwrap();
         std::fs::write(d.join("disc.pack"), (0..=255u8).collect::<Vec<_>>()).unwrap();
-        let sh = Arc::new(Shared { disc: d.join("disc.pack"), web: Mutex::new(Web::Ready(d.clone())), mods: Mutex::new(Vec::new()), stop: AtomicBool::new(false) });
+        let sh = Arc::new(Shared { disc: d.join("disc.pack"), web: Mutex::new(Web::Ready(d.clone())), mods: Mutex::new(Vec::new()), stop: AtomicBool::new(false), reached: AtomicBool::new(false) });
         let l = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = l.local_addr().unwrap().port();
         let s2 = sh.clone();
@@ -659,6 +769,29 @@ mod tests {
         assert!(out.ends_with(&[16, 17, 18, 19]));
         sh.stop.store(true, Relaxed);
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn ufw_rules() {
+        let rules = "### tuple ### allow udp 8080 0.0.0.0/0 any 0.0.0.0/0 in\n\
+                     ### tuple ### allow tcp 9943:9944 0.0.0.0/0 any 0.0.0.0/0 alvr - in\n\
+                     ### tuple ### allow tcp 8000 0.0.0.0/0 any 192.168.0.0/16 in comment=6f\n\
+                     ### tuple ### deny tcp 8888 0.0.0.0/0 any 0.0.0.0/0 in\n\
+                     ### tuple ### allow tcp 8888 0.0.0.0/0 any 0.0.0.0/0 in\n\
+                     ### tuple ### allow tcp 80 0.0.0.0/0 any 0.0.0.0/0 out\n\
+                     ### tuple ### allow any 81,90:99 0.0.0.0/0 any 0.0.0.0/0 in_wlan0\n";
+        // udp only, a range, a LAN-only rule, a deny first, outgoing only, a list
+        assert!(!ufw_lets_in(rules, 8080, "DROP"));
+        assert!(ufw_lets_in(rules, 9944, "DROP"));
+        assert!(ufw_lets_in(rules, 8000, "DROP"));
+        assert!(!ufw_lets_in(rules, 8888, "ACCEPT"));
+        assert!(!ufw_lets_in(rules, 80, "DROP"));
+        assert!(ufw_lets_in(rules, 80, "ACCEPT"));
+        assert!(ufw_lets_in(rules, 95, "REJECT"));
+        assert_eq!(Firewall::UfwOpen.hint(8080, true), "");
+        assert!(Firewall::UfwBlocks.hint(8080, false).ends_with("sudo ufw allow 8080/tcp"));
+        assert_eq!(Firewall::Unknown.hint(8080, false), "");
+        assert!(!Firewall::Unknown.hint(8080, true).is_empty());
     }
 
     #[test]
