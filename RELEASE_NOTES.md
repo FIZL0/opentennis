@@ -11,3 +11,4 @@
 - Online, a character you downloaded from another player is no longer downloaded again when they bring a newer version of it to a later lobby.
 - A character's mouth now eases back into its animation when a spoken emote line ends, instead of snapping.
 - Online, a modded character you download from another player now shows its face in the match's score panel instead of a blank one.
+- A match that runs well under 60 fps now lowers its graphics by itself even with hand-picked settings (Auto already did), so a slow computer stays playable.

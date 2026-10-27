@@ -438,6 +438,15 @@ let fpsLog = new URLSearchParams(location.search).has('fps');
 try { fpsLog ||= localStorage.getItem('hst-fps') === '1'; } catch {}
 if (fpsLog) {
   const t0 = performance.now(), lines = [`hst-log ${navigator.userAgent} ${location.search}`];
+  // the GPU and screen (a browser's WebGPU adapter often says nothing): what a slow match's log needs
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    const ext = gl?.getExtension('WEBGL_debug_renderer_info');
+    lines.push(`gpu (webgl2): ${ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl ? gl.getParameter(gl.RENDERER) : 'none'}`);
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+  } catch {}
+  navigator.gpu?.requestAdapter().then(a => a && lines.push(`gpu (webgpu): ${a.info?.vendor} ${a.info?.architecture} ${a.info?.description}`), () => {});
+  lines.push(`screen ${screen.width}x${screen.height} at ${devicePixelRatio}x, window ${innerWidth}x${innerHeight}`);
   const keep = (type, args) => {
     lines.push(`${Math.round(performance.now() - t0)}ms ${type}: ${[...args].filter(a => !/^(color|font-style|background):/.test(a)).map(a => typeof a === 'string' ? a.replace(/%c/g, '') : String(a?.stack ?? a)).join(' ')}`);
     if (lines.length > 20000) lines.splice(1, 5000);
