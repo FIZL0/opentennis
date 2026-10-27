@@ -24,4 +24,4 @@
 - Online, keeping a character you downloaded from another player now installs it as the store's mod when that's where it came from, so it gets updates like any other store mod. Downloads you don't keep are cleared the next time you start the game.
 - Graphics → Resolution is now called Render Scale (it only changes the 3D scene: menus and the HUD stay sharp) and goes down to 33% and 25%, and Auto uses them when even half resolution is too slow (a 4K screen's 50% is still 1080p).
 - When a match runs far too slowly, Auto graphics now also turns off anti-aliasing, halves the characters' detail and turns on the other speed-ups in the same step as lowering the render scale, instead of one at a time.
-- New Graphics setting, Character Shading (on by default, off on the lowest presets and in Original Mode): soft shade in the players' creases, under the chin, the skirt and the arms.
+- New Graphics setting, Character Shading (on by default on computers; off in the browser, on phones, on the Low presets and in Original Mode): soft shade in the players' creases, under the chin, the skirt and the arms.
