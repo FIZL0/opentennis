@@ -7,6 +7,10 @@
 //! landing to keep and the height it passes the net at; the faster cell keeps that landing on its flatter solution.
 //! A cell that can't clear the net as well (up to the centre cord plus a ball and a margin) steps its power down toward the
 //! stock speed; none clears, it stays the stock cell. Its flight frames move by the difference the model flies.
+//!
+//! A mod's `arc` raises or lowers the flight at the same landing: at a set speed and landing only the spin is left to
+//! change, so the table is built for a launch spin moved by one amount (`Table::arc_spin`, more topspin flies higher),
+//! and the match launches the class with that spin.
 
 use super::{ABOVE_GROUND, ANGLE_UNIT, Bounds, N, RADIUS, SPEED_UNIT, Table, launch, low_bound};
 use crate::ball::{Ball, Params, V3};
@@ -24,6 +28,8 @@ const MAX_FRAMES: i32 = 400;
 const CLEAR: f32 = 1.04;
 /// Power steps from the asked power down to the stock speed.
 const STEPS: i32 = 10;
+/// The net cord's height at the centre (m), what `arc` measures heights over the net from.
+const CORD: f32 = 0.914;
 
 /// One modelled flight: where it lands past the net (m), the frames to it, and the height it crosses the net at (m
 /// up; −∞ when it lands short of the net).
@@ -110,24 +116,26 @@ fn solve(hit: V3, speed: i32, spin: f32, want: F, top: i32) -> Option<(i32, Flow
     }
 }
 
-/// One cell at `power`: the stock word when the stock flight never lands, or no step clears the net.
-fn cell(w: u32, hit: V3, spin: f32, power: F) -> u32 {
+/// One cell at `power`, launched with `spin` (`stock` is the stock cell's spin, the landing's): the stock word when
+/// the stock flight never lands. When no step clears the net, the stock word, or with a changed spin the stock speed
+/// re-solved to the landing (net or not).
+fn cell(w: u32, hit: V3, stock_spin: f32, spin: f32, power: F) -> u32 {
     let (e0, s0, f0) = fields(w);
     if s0 <= 0 {
         return w;
     }
-    let Some(stock) = fly(hit, e0, s0, spin) else { return w };
+    let Some(stock) = fly(hit, e0, s0, stock_spin) else { return w };
     let clear = if stock.over < CLEAR { stock.over } else { F(CLEAR) };
     let at = |step: i32| {
-        let k = power - (power - 1.0) * (F(step as f32) / STEPS as f32);
-        let speed = ((F(s0 as f32) * k).0.round() as i32).min(MAX_SPEED);
+        let speed = speed_at(s0, power, step);
         solve(hit, speed, spin, stock.landing, e0).filter(|(_, f)| f.over >= clear).map(|(e, f)| word(e, speed, f0 + f.frames - stock.frames))
     };
     if let Some(w) = at(0) {
         return w;
     }
+    let fallback = if spin == stock_spin { w } else { solve(hit, s0, spin, stock.landing, e0).map_or(w, |(e, f)| word(e, s0, f0 + f.frames - stock.frames)) };
     // the fastest clearing step, found by halving (slower clears more easily)
-    let (mut fast, mut slow, mut best) = (0, STEPS, w);
+    let (mut fast, mut slow, mut best) = (0, STEPS, fallback);
     while slow - fast > 1 {
         let mid = (fast + slow) / 2;
         match at(mid) {
@@ -138,21 +146,97 @@ fn cell(w: u32, hit: V3, spin: f32, power: F) -> u32 {
     best
 }
 
+/// The cell speed (table units) `step` tenths of the way from `power` back to stock.
+fn speed_at(s0: i32, power: F, step: i32) -> i32 {
+    let k = power - (power - 1.0) * (F(step as f32) / STEPS as f32);
+    ((F(s0 as f32) * k).0.round() as i32).min(MAX_SPEED)
+}
+
+/// Cell `i`'s hit (Y-down, z < 0, the net at z = 0) and target (on the court past the net) over axes `b`.
+fn place(b: &Bounds, i: usize) -> (V3, V3) {
+    let at = |i: usize| F(i as f32) / (N - 1) as f32;
+    let (x, y, z) = (i % N, i / N % N, i / (N * N));
+    // the hitter's distance to the net crossing, the hit height and the crossing's to the target
+    let to_net = -(F(b.near) + (F(b.far) - b.near) * at(x));
+    let low = if b.sloped { low_bound((-to_net).0) } else { b.low };
+    let height = (F(low) + (F(b.high) - low) * at(y)).min(ABOVE_GROUND);
+    let past = F(b.short) + (F(b.long) - b.short) * at(z);
+    ([0.0, height.0, (-to_net).0], [0.0, 0.0, past.0])
+}
+
+/// The cells `arc` measures a table's height over the net on: 3 × 3 × 3 spread over its axes.
+const SAMPLE: [usize; 3] = [2, 7, 13];
+/// The spin change `arc` searches (record degrees, either way).
+const SPIN_RANGE: f32 = 360.0;
+/// Halvings of that range.
+const SPIN_STEPS: i32 = 16;
+
 impl Table {
+    /// The change to the launch spin (record degrees) that makes this table at `power` pass the net `arc` times as
+    /// high over the cord as it would at its own spin (1 = no change), each cell still landing where the stock one
+    /// did: more topspin dips the ball, so the same landing at the same speed flies higher. Measured as the mean on
+    /// a spread of cells, searched by halving within ±[`SPIN_RANGE`]; an arc out of reach takes the range's end.
+    /// `spin(hit, target, change)` is the launch spin of a shot from `hit` to `target` with the record spin moved by
+    /// `change`.
+    pub fn arc_spin(&self, b: &Bounds, power: f32, arc: f32, spin: impl Fn(V3, V3, f32) -> f32) -> f32 {
+        if arc == 1.0 {
+            return 0.0;
+        }
+        let power = F(power);
+        let cells: Vec<(usize, V3, V3)> = SAMPLE
+            .iter()
+            .flat_map(|&z| SAMPLE.iter().flat_map(move |&y| SAMPLE.iter().map(move |&x| x + N * (y + N * z))))
+            .map(|i| (i, place(b, i).0, place(b, i).1))
+            .collect();
+        // the mean height over the cord the generated sample cells pass at
+        let height = |change: f32| {
+            let (mut sum, mut n) = (F::ZERO, 0);
+            for &(i, hit, target) in &cells {
+                let s = spin(hit, target, change);
+                let (e, v, _) = fields(cell(self.0[i], hit, spin(hit, target, 0.0), s, power));
+                if let Some(f) = fly(hit, e, v, s).filter(|f| v > 0 && f.over > F(f32::NEG_INFINITY)) {
+                    sum += f.over - CORD;
+                    n += 1;
+                }
+            }
+            (n > 0).then(|| sum / n as f32)
+        };
+        let Some(own) = height(0.0) else { return 0.0 };
+        let want = own * arc;
+        let (mut lo, mut hi) = (-F(SPIN_RANGE), F(SPIN_RANGE));
+        let (Some(at_lo), Some(at_hi)) = (height(lo.0), height(hi.0)) else { return 0.0 };
+        // which end raises the ball (the ball's spin sign is the record's convention)
+        let rising = at_hi > at_lo;
+        if (want > at_hi) == rising && (want > at_lo) == rising {
+            return if rising { hi.0 } else { lo.0 };
+        }
+        if (want < at_hi) == rising && (want < at_lo) == rising {
+            return if rising { lo.0 } else { hi.0 };
+        }
+        for _ in 0..SPIN_STEPS {
+            let mid = (lo + hi) * 0.5;
+            match height(mid.0) {
+                Some(h) if (h < want) == rising => lo = mid,
+                Some(_) => hi = mid,
+                None => break,
+            }
+        }
+        ((lo + hi) * 0.5).0
+    }
+
     /// This table at `power` (1 = stock) over its axes `b` (see the module notes). `spin(hit, target)` is the
     /// launch spin a shot from `hit` to `target` gets (the shot record's).
     pub fn powered(&self, b: &Bounds, power: f32, spin: impl Fn(V3, V3) -> f32) -> Table {
-        let at = |i: usize| F(i as f32) / (N - 1) as f32;
+        self.shaped(b, power, &spin, &spin)
+    }
+
+    /// This table at `power` launched with `spin` instead of its own `stock` spin (`arc_spin`): each cell keeps the
+    /// landing its stock spin gives.
+    pub fn shaped(&self, b: &Bounds, power: f32, stock: impl Fn(V3, V3) -> f32, spin: impl Fn(V3, V3) -> f32) -> Table {
         let words = (0..N * N * N)
             .map(|i| {
-                let (x, y, z) = (i % N, i / N % N, i / (N * N));
-                // the hitter's distance to the net crossing, the hit height and the crossing's to the target
-                let to_net = -(F(b.near) + (F(b.far) - b.near) * at(x));
-                let low = if b.sloped { low_bound((-to_net).0) } else { b.low };
-                let height = (F(low) + (F(b.high) - low) * at(y)).min(ABOVE_GROUND);
-                let past = F(b.short) + (F(b.long) - b.short) * at(z);
-                let hit = [0.0, height.0, (-to_net).0];
-                cell(self.0[i], hit, spin(hit, [0.0, 0.0, past.0]), F(power))
+                let (hit, target) = place(b, i);
+                cell(self.0[i], hit, stock(hit, target), spin(hit, target), F(power))
             })
             .collect();
         Table(words)
@@ -210,5 +294,47 @@ mod tests {
         assert_eq!(hash, 10488497513274300435, "generated bits moved");
         let top = t.powered(&b, 2.0, |_, _| spin).top_speed();
         assert!(top <= (F(MAX_SPEED as f32) * SPEED_UNIT).0 && top > 1.9, "{top}");
+    }
+
+    /// The mean height (m) table `t`'s cells pass over the cord, launched with `spin`, and the share landing within
+    /// 5 cm of `stock`'s (the stock table at its own spin `spin0`).
+    fn heights(t: &Table, stock: &Table, b: &Bounds, spin0: f32, spin: f32) -> (f32, f32) {
+        let (mut sum, mut n, mut kept, mut all) = (F::ZERO, 0, 0, 0);
+        for i in 0..N * N * N {
+            let (hit, _) = place(b, i);
+            let (e0, s0, _) = fields(stock.0[i]);
+            let (e, s, _) = fields(t.0[i]);
+            let (Some(a), Some(f)) = (fly(hit, e0, s0, spin0), fly(hit, e, s, spin)) else { continue };
+            all += 1;
+            kept += ((f.landing - a.landing).0.abs() < 0.05) as i32;
+            if f.over.0.is_finite() {
+                sum += f.over - CORD;
+                n += 1;
+            }
+        }
+        ((sum / n as f32).0, (F(kept as f32) / all as f32).0)
+    }
+
+    /// `arc`: Big Chief's flat serve at power 1.4, flatter (0.6) and higher (1.5): the spin change found moves the
+    /// table's mean height over the cord by about that factor, every cell still lands where the stock one did, and an
+    /// arc of 1 is the plain powered table.
+    #[test]
+    fn arc_serve_table() {
+        let Some((t, spin)) = serve(7, "A", "tr_pc07_serv2.dat", 2) else { return hst_data::fixture::skip("no ISO") };
+        let b = Bounds::serve(false, RADIUS);
+        let moved = |d: f32| if d == 0.0 { spin } else { (F(spin) + F(d) * crate::lines::DEG).0 };
+        assert_eq!(t.arc_spin(&b, 1.4, 1.0, |_, _, d| moved(d)), 0.0);
+        let plain = t.powered(&b, 1.4, |_, _| spin);
+        let (own, _) = heights(&plain, &t, &b, spin, spin);
+        for arc in [0.6, 1.5] {
+            let start = std::time::Instant::now();
+            let d = t.arc_spin(&b, 1.4, arc, |_, _, d| moved(d));
+            let a = t.shaped(&b, 1.4, |_, _| spin, |_, _| moved(d));
+            let (h, kept) = heights(&a, &t, &b, spin, moved(d));
+            eprintln!("record spin {} rad, arc {arc}: change {d}°, height {own} -> {h} ({}), {kept} kept, top {} in {:?}", spin, h / own, a.top_speed(), start.elapsed());
+            // flatter stops where cells would pass the net lower than the rule allows (they step their speed down)
+            assert!(if arc < 1.0 { h < own * 0.97 } else { (h / own - arc).abs() < 0.2 }, "arc {arc}: {own} -> {h}");
+            assert!(kept > 0.95, "{kept}");
+        }
     }
 }

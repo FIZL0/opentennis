@@ -180,17 +180,26 @@ pub struct Build {
     /// §6 `shots` `power` per class ([`SHOTS`] order, 1 = stock): the class's trajectory tables regenerated with every
     /// speed × power, each landing where the stock one did (`Table::powered`).
     pub power: [f32; 4],
+    /// §6 `shots` `arc` per class (1 = as `power` flies it): the class's tables built for a launch spin that passes
+    /// the net this many times as high over the cord, each landing where the stock one did (`Table::arc_spin`).
+    pub arc: [f32; 4],
 }
 
 /// §6 `shots` `power`'s range.
 pub const POWER: std::ops::RangeInclusive<f64> = 0.5..=2.0;
+
+/// §6 `shots` `arc`'s range.
+pub const ARC: std::ops::RangeInclusive<f64> = 0.25..=2.5;
+
+/// §6 `shots` `preset`s: name, power, arc (flat 0.75, very flat 0.5, high 1.5, very high 2).
+pub const PRESETS: [(&str, f32, f32); 5] = [("cannon", 1.4, 0.75), ("laser", 1.2, 0.5), ("heavy", 1.1, 1.5), ("moonball", 0.8, 2.0), ("soft", 0.9, 1.0)];
 
 /// §6 `shots`' keys, in `shot::class` order.
 pub const SHOTS: [&str; 4] = ["serve", "stroke", "volley", "smash"];
 
 impl Default for Build {
     fn default() -> Self {
-        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, stats: None, shots: [None; 4], power: [1.0; 4] }
+        Build { disc: false, scale: 1.0, swing: 1.0, run: 1.0, stats: None, shots: [None; 4], power: [1.0; 4], arc: [1.0; 4] }
     }
 }
 
@@ -303,18 +312,27 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     if let Some(k) = j["shots"].as_object().and_then(|o| o.keys().find(|k| !SHOTS.contains(&k.as_str()))) {
         return Err(err(format!("`shots` key `{k}` must be one of {SHOTS:?}")));
     }
-    // an entry is a character number, or {"from": N, "power": x} (either key may be left out)
-    let (mut shots, mut power) = ([None; 4], [1.0; 4]);
-    for ((slot, pow), k) in shots.iter_mut().zip(&mut power).zip(SHOTS) {
+    // an entry is a character number, or {"from": N, "preset": name, "power": x, "arc": y} (any key may be left out;
+    // `power` and `arc` override the preset's)
+    let (mut shots, mut power, mut arc) = ([None; 4], [1.0; 4], [1.0; 4]);
+    for (((slot, pow), arc), k) in shots.iter_mut().zip(&mut power).zip(&mut arc).zip(SHOTS) {
         let v = &j["shots"][k];
         let from = match v.as_object() {
             Some(o) => {
-                if let Some(bad) = o.keys().find(|x| !["from", "power"].contains(&x.as_str())) {
-                    return Err(err(format!("`shots.{k}` key `{bad}` must be `from` or `power`")));
+                if let Some(bad) = o.keys().find(|x| !["from", "preset", "power", "arc"].contains(&x.as_str())) {
+                    return Err(err(format!("`shots.{k}` key `{bad}` must be `from`, `preset`, `power` or `arc`")));
                 }
-                if let Some(p) = o.get("power") {
-                    *pow = p.as_f64().filter(|x| POWER.contains(x)).ok_or_else(|| err(format!("`shots.{k}.power` {p} must be a number {} to {}", POWER.start(), POWER.end())))? as f32;
+                if let Some(p) = o.get("preset") {
+                    let names = PRESETS.map(|p| p.0);
+                    (_, *pow, *arc) = *PRESETS.iter().find(|x| p.as_str() == Some(x.0)).ok_or_else(|| err(format!("`shots.{k}.preset` {p} must be one of {names:?}")))?;
                 }
+                let factor = |key: &str, range: &std::ops::RangeInclusive<f64>| -> Result<Option<f32>, String> {
+                    o.get(key)
+                        .map(|p| p.as_f64().filter(|x| range.contains(x)).map(|x| x as f32).ok_or_else(|| err(format!("`shots.{k}.{key}` {p} must be a number {} to {}", range.start(), range.end()))))
+                        .transpose()
+                };
+                *pow = factor("power", &POWER)?.unwrap_or(*pow);
+                *arc = factor("arc", &ARC)?.unwrap_or(*arc);
                 &v["from"]
             }
             None => v,
@@ -323,7 +341,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
             *slot = Some(num(from, &format!("shots.{k}"), 13)? as u8);
         }
     }
-    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, stats, shots, power };
+    let build = Build { disc, scale: factor("scale", 0.25, 4.0)?, swing: factor("swing_speed", 1.0, 4.0)?, run: factor("run_speed", 0.1, 4.0)?, stats, shots, power, arc };
     if disc && (!j["costumes"].is_null() || j["face"] != "morph") {
         return Err(err("`disc_body` plays the donor's disc costumes and faces: no `costumes`, `face` \"morph\"".into()));
     }
@@ -2907,15 +2925,17 @@ mod tests {
             read(&dir)
         };
         let m = try_(json).unwrap();
-        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, stats: None, shots: [None; 4], power: [1.0; 4] });
+        assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, stats: None, shots: [None; 4], power: [1.0; 4], arc: [1.0; 4] });
         assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"A\",\"version\"")).unwrap().build.stats, Some([5; 5]));
         assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"BACEB\",\"version\"")).unwrap().build.stats, Some([4, 5, 3, 1, 4]));
         assert!(try_(&json.replace("\"version\"", "\"stats\":\"BAC\",\"version\"")).is_err());
         assert!(!m.joke() && try_(&json.replace("\"version\"", "\"joke\":true,\"version\"")).unwrap().joke());
         assert_eq!(try_(&json.replace("\"version\"", "\"shots\":{\"serve\":11,\"smash\":0},\"version\"")).unwrap().build.shots, [Some(11), None, None, Some(0)]);
         let b = try_(&json.replace("\"version\"", "\"shots\":{\"serve\":{\"power\":1.4},\"stroke\":{\"from\":3,\"power\":0.8},\"volley\":{\"from\":2}},\"version\"")).unwrap().build;
-        assert_eq!((b.shots, b.power), ([None, Some(3), Some(2), None], [1.4, 0.8, 1.0, 1.0]));
-        for bad in ["{\"serve\":14}", "{\"lob\":3}", "{\"volley\":\"7\"}", "{\"serve\":{\"power\":3}}", "{\"serve\":{\"power\":\"1.2\"}}", "{\"serve\":{\"speed\":1.2}}", "{\"serve\":{\"from\":14}}"] {
+        assert_eq!((b.shots, b.power, b.arc), ([None, Some(3), Some(2), None], [1.4, 0.8, 1.0, 1.0], [1.0; 4]));
+        let b = try_(&json.replace("\"version\"", "\"shots\":{\"serve\":{\"preset\":\"cannon\"},\"stroke\":{\"preset\":\"heavy\",\"arc\":1.2},\"volley\":{\"arc\":0.5},\"smash\":{\"preset\":\"moonball\",\"power\":0.7}},\"version\"")).unwrap().build;
+        assert_eq!((b.power, b.arc), ([1.4, 1.1, 1.0, 0.7], [0.75, 1.2, 0.5, 2.0]));
+        for bad in ["{\"serve\":{\"preset\":\"rocket\"}}", "{\"serve\":{\"preset\":3}}", "{\"serve\":{\"arc\":3}}", "{\"serve\":{\"arc\":0.1}}", "{\"serve\":14}", "{\"lob\":3}", "{\"volley\":\"7\"}", "{\"serve\":{\"power\":3}}", "{\"serve\":{\"power\":\"1.2\"}}", "{\"serve\":{\"speed\":1.2}}", "{\"serve\":{\"from\":14}}"] {
             assert!(try_(&json.replace("\"version\"", &format!("\"shots\":{bad},\"version\""))).is_err(), "{bad}");
         }
         try_(json).unwrap();

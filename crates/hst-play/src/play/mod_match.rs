@@ -123,40 +123,63 @@ enum Spin {
     Rally([f32; 13], u8, i32),
 }
 
-/// One table to generate: (character, table, power bits) names it in the cache.
+impl Spin {
+    /// The launch spin from `hit` to `target` with the record spin moved by `change` degrees (§6 `arc`).
+    fn at(&self, hit: [f32; 3], target: [f32; 3], change: f32) -> f32 {
+        match *self {
+            Spin::Fixed(s) => moved(s, change),
+            Spin::Rally(rec, class, kind) => hst_sim::params::rally_spin(&moved_record(rec, change), class as usize, kind as usize, hit, target).0,
+        }
+    }
+}
+
+/// Launch spin `s` (radians) moved by `change` degrees.
+fn moved(s: f32, change: f32) -> f32 {
+    if change == 0.0 { s } else { (hst_sim::ps2::F(s) + hst_sim::ps2::F(change) * hst_sim::lines::DEG).0 }
+}
+
+/// Shot record `rec` with its launch spin moved by `change` degrees.
+fn moved_record(mut rec: [f32; 13], change: f32) -> [f32; 13] {
+    if change != 0.0 {
+        let s = &mut rec[hst_sim::params::field::SPIN];
+        *s = (hst_sim::ps2::F(*s) + change).0;
+    }
+    rec
+}
+
+/// One table to generate: (character, table, power bits, arc bits) names it in the cache.
 struct Job {
-    key: (usize, String, u32),
+    key: (usize, String, u32, u32),
     table: Table,
     bounds: Bounds,
     spin: Spin,
 }
 
-/// Generated tables built so far this run (a second match with the same mod loads at once).
-static GENERATED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<(usize, String, u32), Table>>> = std::sync::LazyLock::new(Default::default);
+/// Generated tables built so far this run, with their spin change (a second match with the same mod loads at once).
+type Built = (Table, f32);
+static GENERATED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<(usize, String, u32, u32), Built>>> = std::sync::LazyLock::new(Default::default);
 
 /// Tables generated so far (tests: none while a match plays).
 static BUILT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// `jobs`' tables, from the cache or built side by side on threads (the build is pure, so any order gives the same
-/// bits).
-fn generate(jobs: Vec<Job>) -> Vec<Table> {
+/// `jobs`' tables and spin changes, from the cache or built side by side on threads (the build is pure, so any order
+/// gives the same bits).
+fn generate(jobs: Vec<Job>) -> Vec<Built> {
     let build = |j: &Job| {
         BUILT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let power = f32::from_bits(j.key.2);
-        match j.spin {
-            Spin::Fixed(s) => j.table.powered(&j.bounds, power, |_, _| s),
-            Spin::Rally(rec, class, kind) => j.table.powered(&j.bounds, power, |hit, target| hst_sim::params::rally_spin(&rec, class as usize, kind as usize, hit, target).0),
-        }
+        let (power, arc) = (f32::from_bits(j.key.2), f32::from_bits(j.key.3));
+        let change = j.table.arc_spin(&j.bounds, power, arc, |hit, target, d| j.spin.at(hit, target, d));
+        (j.table.shaped(&j.bounds, power, |hit, target| j.spin.at(hit, target, 0.0), |hit, target| j.spin.at(hit, target, change)), change)
     };
-    let cached: Vec<Option<Table>> = {
+    let cached: Vec<Option<Built>> = {
         let c = GENERATED.lock().unwrap();
         jobs.iter().map(|j| c.get(&j.key).cloned()).collect()
     };
     let todo: Vec<&Job> = jobs.iter().zip(&cached).filter(|(_, c)| c.is_none()).map(|(j, _)| j).collect();
     #[cfg(not(target_arch = "wasm32"))]
-    let built: Vec<Table> = std::thread::scope(|s| todo.iter().map(|j| s.spawn(|| build(j))).collect::<Vec<_>>().into_iter().map(|h| h.join().unwrap()).collect());
+    let built: Vec<Built> = std::thread::scope(|s| todo.iter().map(|j| s.spawn(|| build(j))).collect::<Vec<_>>().into_iter().map(|h| h.join().unwrap()).collect());
     #[cfg(target_arch = "wasm32")]
-    let built: Vec<Table> = todo.iter().map(|j| build(j)).collect();
+    let built: Vec<Built> = todo.iter().map(|j| build(j)).collect();
     let mut c = GENERATED.lock().unwrap();
     for (j, t) in todo.iter().zip(&built) {
         c.insert(j.key.clone(), t.clone());
@@ -165,78 +188,96 @@ fn generate(jobs: Vec<Job>) -> Vec<Table> {
     cached.into_iter().map(|t| t.unwrap_or_else(|| built.next().unwrap())).collect()
 }
 
-/// §6 `shots` `power`: every table a powered class launches from, regenerated (`Table::powered`): serves (not the
-/// underhand), strokes and volleys (topspin, slice, flat and their timing variants; lobs and drops stay the
-/// stock touch shots) and smashes. Stock characters never come here.
+/// §6 `shots` `power` and `arc`: every table a shaped class launches from, regenerated (`Table::shaped`), and its
+/// launch spin moved by the table's change: serves (not the underhand), strokes and volleys (topspin, slice, flat
+/// and their timing variants; lobs and drops stay the stock touch shots) and smashes. Stock characters never come
+/// here.
 fn power(g: &mut Game, i: usize, m: &Mod) {
     use hst_sim::shot::{class, kind};
-    let power = m.build.power;
-    if power == [1.0; 4] {
+    let (power, arc) = (m.build.power, m.build.arc);
+    let shaped = |c: u8| power[c as usize] != 1.0 || arc[c as usize] != 1.0;
+    if ![0, 1, 2, 3].into_iter().any(shaped) {
         return;
     }
     let from = |k: usize| m.build.shots[k].map_or(m.donor, usize::from);
     let radius = hst_sim::ball::Params::default().radius;
     let mut jobs = vec![];
-    let mut job = |c: usize, name: String, table: &Table, bounds: Bounds, spin: Spin, p: f32| jobs.push(Job { key: (c, name, p.to_bits()), table: table.clone(), bounds, spin });
-    let p = power[class::SERVE as usize];
-    if p != 1.0 {
+    let mut job = |c: usize, name: String, table: &Table, bounds: Bounds, spin: Spin, class: u8| {
+        let key = (c, name, power[class as usize].to_bits(), arc[class as usize].to_bits());
+        jobs.push(Job { key, table: table.clone(), bounds, spin })
+    };
+    if shaped(class::SERVE) {
         let c = from(0);
         for (weak, set) in g.serve_tables[i].iter().enumerate() {
             for (k, (t, spin, _)) in set.iter().enumerate().filter(|&(k, _)| k as i32 != kind::UNDERHAND) {
-                job(c, format!("serv{k}_{weak}"), t, Bounds::serve(false, radius), Spin::Fixed(*spin), p);
+                job(c, format!("serv{k}_{weak}"), t, Bounds::serve(false, radius), Spin::Fixed(*spin), class::SERVE);
             }
         }
         if let Some((t, spin, _)) = &g.specials[i].1 {
-            job(c, "serv1_up1".into(), t, Bounds::serve(false, radius), Spin::Fixed(*spin), p);
+            job(c, "serv1_up1".into(), t, Bounds::serve(false, radius), Spin::Fixed(*spin), class::SERVE);
         }
     }
     const RALLY: [i32; 3] = [kind::TOPSPIN, kind::SLICE, kind::FLAT];
     let bounds = |class: u8, k: i32| if class == class::STROKE { Bounds::stroke(k, 0.0) } else { Bounds::volley(k, 0.0) };
     for class in [class::STROKE, class::VOLLEY] {
-        let (n, p) = (class as usize - 1, power[class as usize]);
-        if p == 1.0 {
+        if !shaped(class) {
             continue;
         }
+        let n = class as usize - 1;
         for k in RALLY {
             let rec = g.rally_records[i][n][k as usize];
-            job(from(class as usize), format!("{class}_{k}"), &g.rally_tables[i][n][k as usize], bounds(class, k), Spin::Rally(rec, class, k), p);
+            job(from(class as usize), format!("{class}_{k}"), &g.rally_tables[i][n][k as usize], bounds(class, k), Spin::Rally(rec, class, k), class);
         }
         g.timing[i].regenerate(class as usize, |k, v, t, rec| {
-            RALLY.contains(&(k as i32)).then(|| job(from(class as usize), format!("{class}_{k}_v{v}"), t, bounds(class, k as i32), Spin::Rally(*rec, class, k as i32), p));
+            RALLY.contains(&(k as i32)).then(|| job(from(class as usize), format!("{class}_{k}_v{v}"), t, bounds(class, k as i32), Spin::Rally(*rec, class, k as i32), class));
             None
         });
     }
-    let p = power[class::SMASH as usize];
-    if p != 1.0 {
+    if shaped(class::SMASH) {
         for (k, t) in g.smash_tables[i].iter().enumerate() {
-            job(from(3), format!("smsh{k}"), t, Bounds::smash(k as i32), Spin::Fixed(g.smash_spins[i][k]), p);
+            job(from(3), format!("smsh{k}"), t, Bounds::smash(k as i32), Spin::Fixed(g.smash_spins[i][k]), class::SMASH);
         }
     }
     let mut made = generate(jobs).into_iter();
     // back in the order they were queued
-    if power[0] != 1.0 {
+    if shaped(class::SERVE) {
         for set in g.serve_tables[i].iter_mut() {
-            for (_, (t, ..)) in set.iter_mut().enumerate().filter(|&(k, _)| k as i32 != kind::UNDERHAND) {
-                *t = made.next().unwrap();
+            for (_, (t, spin, _)) in set.iter_mut().enumerate().filter(|&(k, _)| k as i32 != kind::UNDERHAND) {
+                let change;
+                (*t, change) = made.next().unwrap();
+                *spin = moved(*spin, change);
             }
         }
-        if let Some((t, ..)) = &mut g.specials[i].1 {
-            *t = made.next().unwrap();
+        if let Some((t, spin, _)) = &mut g.specials[i].1 {
+            let change;
+            (*t, change) = made.next().unwrap();
+            *spin = moved(*spin, change);
         }
     }
     for class in [class::STROKE, class::VOLLEY] {
-        let n = class as usize - 1;
-        if power[class as usize] == 1.0 {
+        if !shaped(class) {
             continue;
         }
+        let n = class as usize - 1;
         for k in RALLY {
-            g.rally_tables[i][n][k as usize] = made.next().unwrap();
+            let change;
+            (g.rally_tables[i][n][k as usize], change) = made.next().unwrap();
+            let rec = &mut g.rally_records[i][n][k as usize];
+            *rec = moved_record(*rec, change);
         }
-        g.timing[i].regenerate(class as usize, |k, _, _, _| RALLY.contains(&(k as i32)).then(|| made.next().unwrap()));
+        g.timing[i].regenerate(class as usize, |k, _, _, rec| {
+            RALLY.contains(&(k as i32)).then(|| {
+                let (t, change) = made.next().unwrap();
+                *rec = moved_record(*rec, change);
+                t
+            })
+        });
     }
-    if power[3] != 1.0 {
-        for t in g.smash_tables[i].iter_mut() {
-            *t = made.next().unwrap();
+    if shaped(class::SMASH) {
+        for (k, t) in g.smash_tables[i].iter_mut().enumerate() {
+            let change;
+            (*t, change) = made.next().unwrap();
+            g.smash_spins[i][k] = moved(g.smash_spins[i][k], change);
         }
     }
 }
@@ -553,5 +594,59 @@ mod tests {
             }
         }
         panic!("no 200 mph serve landed in; serves (mph, call): {serves:?}");
+    }
+
+    /// M151b: Bigger Chief with presets, a "heavy" serve (power 1.1, arc 1.5) and "moonball" strokes from pc09 (power
+    /// 0.8, arc 2): his serve spins and stroke records' spins move up (more topspin flies higher at the same
+    /// landing), the other player's stay stock, and in a bot match his serves and strokes land in.
+    #[test]
+    fn preset_shots_land_in() {
+        if !hst_data::fixture::has_iso() {
+            return hst_data::fixture::skip("no ISO");
+        }
+        let dir = std::env::temp_dir().join(format!("hst-preset-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mod.json"), r#"{"standard":1,"id":"hst_preset_chief","name":"Preset Chief","disc_body":true,"donor":7,"hand":"right","params":{"base":7,"override":{}},"ai_row":7,"face":"morph","shots":{"serve":{"preset":"heavy"},"stroke":{"from":9,"preset":"moonball"}},"version":1}"#).unwrap();
+        let m = mods::read(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!((m.build.power, m.build.arc), ([1.1, 0.8, 1.0, 1.0], [1.5, 2.0, 1.0, 1.0]));
+        let start = std::time::Instant::now();
+        let mut app = bot_match(&m, 7);
+        eprintln!("match set up in {:?}", start.elapsed());
+        let built = BUILT.load(std::sync::atomic::Ordering::Relaxed);
+        {
+            use super::super::*;
+            let mut iso = hst_data::fixture::iso().unwrap();
+            let params = disc(&mut iso, None, 2).3;
+            let stock = serve_tables(&mut iso, &params, 7);
+            let g = app.world().resource::<Game>();
+            for k in [kind::TOPSPIN, kind::SLICE, kind::FLAT] {
+                let (own, base) = (g.serve_tables[1][0][k as usize].1, stock[0][k as usize].1);
+                assert!(own > base, "serve kind {k}: spin {own} vs stock {base}");
+                let spin = |r: &[f32; 13]| r[hst_sim::params::field::SPIN];
+                let stock_rec: [f32; 13] = params.record(1, k as usize, hst_sim::params::record_of(9)).try_into().unwrap();
+                assert!(spin(&g.rally_records[1][0][k as usize]) > spin(&stock_rec), "stroke kind {k}");
+            }
+            assert!(g.serve_tables[1][0][3] .1 == stock[0][3].1, "the underhand serve stays stock");
+            assert!(g.serve_tables[0][0][0].1 == serve_tables(&mut iso, &params, 6)[0][0].1, "the stock player's spins stay stock");
+        }
+        let (mut serves, mut strokes) = (vec![], vec![]);
+        let mut seen = false;
+        for _ in 0..60 * 240 {
+            app.world_mut().run_schedule(FixedUpdate);
+            let g = app.world().resource::<super::super::Game>();
+            if g.last_hitter == 1 && g.flight.contacts > 0 && !seen {
+                seen = true;
+                (if g.shots == 1 { &mut serves } else { &mut strokes }).push(g.flight.call);
+            } else if g.flight.contacts == 0 {
+                seen = false;
+            }
+            let ins = |v: &Vec<hst_sim::judge::Call>| v.iter().filter(|&&c| c == hst_sim::judge::Call::In).count();
+            if ins(&serves) >= 2 && ins(&strokes) >= 3 {
+                assert_eq!(BUILT.load(std::sync::atomic::Ordering::Relaxed), built, "a table was built during play");
+                return eprintln!("serves {serves:?}, rally shots {strokes:?}");
+            }
+        }
+        panic!("too few in: serves {serves:?}, rally shots {strokes:?}");
     }
 }
