@@ -72,7 +72,7 @@ impl Sig {
             if offer { "actpass" } else { "active" }
         );
         for (i, (addr, port)) in self.cands.iter().enumerate() {
-            s += &format!("a=candidate:{} 1 udp {} {addr} {port} typ host\r\n", i + 1, 2122260223 - i as u32);
+            s += &format!("a=candidate:{} 1 udp {} {addr} {port} typ host\r\n", i + 1, 2122260223 - i as u64);
         }
         s + "a=end-of-candidates\r\n"
     }
@@ -422,12 +422,15 @@ mod web {
         let a = Sig::parse(&text, ANSWER).filter(|a| ok && a.to == o.ufrag).ok_or(if ok { "The host's answer made no sense.".into() } else { text })?;
         peer.remote(&a, RtcSdpType::Answer).await?;
         let pc = peer.pc.clone();
+        // M152c1: signalling got through on the host's port, so a host firewall that lets TCP in but not UDP is likely
+        let port = host.rsplit_once(':').map_or("", |(_, p)| p);
+        let why = format!("Couldn't connect to the host: are both on the same network? If the host's firewall is on, it must let port {port} through for UDP too, not just TCP.");
         match n0_future::time::timeout(Duration::from_secs(30), peer.open(inbox)).await {
             Ok(Ok((c, l, i))) => Ok((c, l, i, o.ufrag)),
-            Ok(Err(e)) => Err(e),
+            Ok(Err(_)) => Err(why),
             Err(_) => {
                 pc.close();
-                Err("Couldn't connect to the host: are both on the same network?".into())
+                Err(why)
             }
         }
     }
@@ -469,7 +472,7 @@ mod web {
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{Peer, listen, signal};
+pub use native::{Peer, listen, pin, signal};
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::net) use native::dial;
 
@@ -569,8 +572,10 @@ mod tests {
     async fn a_native_host_takes_a_guest_by_signalling() {
         use super::super::Msg;
         use std::time::Duration;
+        let _one = SIGNALLING.lock().await;
         native::LOOPBACK.store(true, std::sync::atomic::Ordering::Relaxed);
-        let at = listen(0).await.unwrap();
+        // on the game's runtime: the listener outlives each test's own, and the other signalling test reuses it
+        let at = crate::runtime().spawn(listen(0)).await.unwrap().unwrap();
         let addr = format!("127.0.0.1:{}", at.port());
         // no lobby open: refused
         assert!(dial(&addr).await.is_err());
@@ -592,6 +597,46 @@ mod tests {
         assert_eq!(tokio::time::timeout(within, hinbox.dgrams.recv()).await.unwrap(), Some(vec![4, 5]));
         gconn.close(b"bye");
         assert!(matches!(tokio::time::timeout(Duration::from_secs(40), hinbox.msgs.recv()).await.unwrap(), Some(Err(_))));
+    }
+
+    /// The signalling tests share the listener, the hosting lobby and the pinned port: one at a time.
+    #[cfg(not(target_arch = "wasm32"))]
+    static SIGNALLING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// M152c1: with the port pinned, two guests at once both connect through the host's one UDP socket.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn guests_share_the_pinned_port() {
+        use super::super::Msg;
+        use std::time::Duration;
+        let _one = SIGNALLING.lock().await;
+        native::LOOPBACK.store(true, std::sync::atomic::Ordering::Relaxed);
+        let port = std::net::UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        pin(Some(port));
+        // on the game's runtime: the listener outlives each test's own, and the other signalling test reuses it
+        let at = crate::runtime().spawn(listen(0)).await.unwrap().unwrap();
+        let addr = format!("127.0.0.1:{}", at.port());
+        let mut lobby = hosting();
+        let within = Duration::from_secs(10);
+        let mut guests = Vec::new();
+        for i in 0..2 {
+            let (_gconn, glink, ginbox, me) = dial(&addr).await.unwrap();
+            let (name, _hconn, hlink, hinbox) = tokio::time::timeout(within, lobby.recv()).await.unwrap().unwrap();
+            assert_eq!(name, me);
+            glink.send(&Msg::Ping(i));
+            guests.push((glink, ginbox, hlink, hinbox, _gconn, _hconn));
+        }
+        // each guest's message reaches its own connection, and back
+        for (i, (_, ginbox, hlink, hinbox, ..)) in guests.iter_mut().enumerate() {
+            assert_eq!(tokio::time::timeout(within, hinbox.msgs.recv()).await.unwrap(), Some(Ok(Msg::Ping(i as u64))));
+            hlink.send(&Msg::Ping(10 + i as u64));
+            assert_eq!(tokio::time::timeout(within, ginbox.msgs.recv()).await.unwrap(), Some(Ok(Msg::Ping(10 + i as u64))));
+        }
+        assert_eq!(native::pinned(), Some((vec![std::net::SocketAddr::from(([127, 0, 0, 1], port))], 2)));
+        for g in &guests {
+            g.4.close(b"bye");
+        }
+        pin(None);
     }
 
     #[test]

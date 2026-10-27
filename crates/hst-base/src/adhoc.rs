@@ -20,7 +20,7 @@
 //! be read in parts or resumed).
 
 use std::io::{self, Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
@@ -39,6 +39,8 @@ pub struct Status {
     pub urls: Vec<String>,
     /// The web build's state in words ("" once it's there).
     pub note: String,
+    /// M152c1: the command that lets guests through this machine's firewall (ufw, firewalld), when one is on.
+    pub firewall: Option<String>,
 }
 
 /// Where the web build is.
@@ -71,6 +73,7 @@ struct Shared {
 struct Server {
     port: u16,
     shared: Arc<Shared>,
+    firewall: Option<String>,
 }
 
 static SERVER: Mutex<Option<Server>> = Mutex::new(None);
@@ -88,13 +91,20 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
             old.shared.stop.store(true, Relaxed);
             // wakes the accept so its thread sees `stop`
             let _ = TcpStream::connect_timeout(&SocketAddr::from((Ipv4Addr::LOCALHOST, old.port)), Duration::from_millis(200));
+            crate::net::rtc::pin(None);
         }
         return Ok(());
     }
     if s.is_some() {
         return Ok(());
     }
-    let listener = PORTS.iter().find_map(|&p| TcpListener::bind((Ipv4Addr::UNSPECIFIED, p)).ok()).map_or_else(|| TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)), Ok).map_err(|e| format!("Couldn't open a port: {e}"))?;
+    // M152c1: guests' WebRTC comes in on UDP at the same port number (`net::rtc::pin`), so a port that's free for both
+    let listener = PORTS
+        .iter()
+        .find_map(|&p| {
+            let _udp = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, p)).ok()?;
+            TcpListener::bind((Ipv4Addr::UNSPECIFIED, p)).ok()
+        }).map_or_else(|| TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)), Ok).map_err(|e| format!("Couldn't open a port: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let shared = Arc::new(Shared { disc: served_disc(disc), web: Mutex::new(Web::Looking), mods: Mutex::new(mods()), stop: AtomicBool::new(false) });
     let sh = shared.clone();
@@ -115,8 +125,10 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
             }
         })
         .map_err(|e| e.to_string())?;
-    bevy::log::info!("adhoc: serving on port {port}: {:?}", urls(port));
-    *s = Some(Server { port, shared });
+    crate::net::rtc::pin(Some(port));
+    let firewall = firewall(port);
+    bevy::log::info!("adhoc: serving on port {port}: {:?}{}", urls(port), firewall.as_deref().map(|c| format!(", firewall: {c}")).unwrap_or_default());
+    *s = Some(Server { port, shared, firewall });
     Ok(())
 }
 
@@ -153,7 +165,36 @@ pub fn status() -> Option<Status> {
         Web::Ready(_) => String::new(),
         Web::Missing(why) => why.clone(),
     };
-    Some(Status { urls: urls(s.port), note })
+    Some(Status { urls: urls(s.port), note, firewall: s.firewall.clone() })
+}
+
+/// M152c1: the command that opens `port` (TCP for the page and signalling, UDP for the game) in the Linux firewall that's
+/// on, ufw or firewalld; None without one (or elsewhere: Windows and macOS ask the player on the first listen).
+fn firewall(port: u16) -> Option<String> {
+    if !cfg!(target_os = "linux") || cfg!(target_os = "android") {
+        return None;
+    }
+    let ufw = std::fs::read_to_string("/etc/ufw/ufw.conf").ok().is_some_and(|c| ufw_enabled(&c));
+    let active = |unit: &str| std::process::Command::new("systemctl").args(["is-active", "--quiet", unit]).status().is_ok_and(|s| s.success());
+    let firewalld = active("firewalld");
+    firewall_command(port, ufw && active("ufw"), firewalld)
+}
+
+/// Whether ufw's config switches it on (`ENABLED=yes`).
+fn ufw_enabled(conf: &str) -> bool {
+    conf.lines().filter_map(|l| l.trim().strip_prefix("ENABLED=")).next_back().is_some_and(|v| v.trim_matches(['"', '\'', ' ']).eq_ignore_ascii_case("yes"))
+}
+
+fn firewall_command(port: u16, ufw: bool, firewalld: bool) -> Option<String> {
+    if firewalld {
+        // the running rules only: gone at the next reboot, as adhoc is at the next run
+        Some(format!("sudo firewall-cmd --add-port={port}/tcp --add-port={port}/udp"))
+    } else if ufw {
+        // without a protocol ufw allows both
+        Some(format!("sudo ufw allow {port}"))
+    } else {
+        None
+    }
 }
 
 /// `http://<ip>[:port]` for each private IPv4 address of this machine's interfaces that are up (no loopback, no
@@ -732,6 +773,16 @@ mod tests {
         assert!(out.starts_with("HTTP/1.1 503") && out.ends_with("No lobby is open on this machine."), "{out}");
         sh.stop.store(true, Relaxed);
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn firewall_commands() {
+        assert!(ufw_enabled("# comment\nENABLED=yes\nLOGLEVEL=low"));
+        assert!(!ufw_enabled("ENABLED=no\n"));
+        assert!(!ufw_enabled("#ENABLED=yes\n"));
+        assert_eq!(firewall_command(8080, true, false).as_deref(), Some("sudo ufw allow 8080"));
+        assert_eq!(firewall_command(80, true, true).as_deref(), Some("sudo firewall-cmd --add-port=80/tcp --add-port=80/udp"));
+        assert_eq!(firewall_command(80, false, false), None);
     }
 
     #[test]
