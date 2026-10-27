@@ -277,9 +277,11 @@ fn scene_off(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob:
                     np.boxes.push(b);
                 }
             }
+            let wide = !sky && bounds(&m, &rest).is_some_and(surrounds_play);
             let m = s.meshes.add(m);
             for mat in &mats[p.material().index().unwrap_or(mats.len() - 1)] {
-                let mut e = commands.spawn((Mesh3d(m.clone()), MeshMaterial3d(mat.clone()), Transform::default(), ChildOf(nodes[&n.index()])));
+                let mat = if wide { panorama(s, mat) } else { mat.clone() };
+                let mut e = commands.spawn((Mesh3d(m.clone()), MeshMaterial3d(mat), Transform::default(), ChildOf(nodes[&n.index()])));
                 if let Some(sk) = &skinned {
                     e.insert((sk.clone(), crate::cull::Cullable));
                     if let Some(cv) = clear.and_then(|c| clears.get_mut(&c)) {
@@ -408,6 +410,30 @@ fn worlds(doc: &gltf::Document) -> Vec<Mat4> {
 
 /// Sort bias (m nearer) of a court mod's water materials, enough to break the tie with the court's other pieces.
 const WATER_LAST: f32 = 5.0;
+
+/// B682: sort offset of a court mod's panorama ([`surrounds_play`]): after the sky's backdrops, before everything else.
+const PANORAMA: f32 = crate::BACKDROP / 2.0;
+
+/// B682: a box (game space) that reaches 100 m out from the court on every side: a distant-view ring standing round
+/// it (Dubno's city and sea, Canada's mountains, the resort's clouds), far beyond any camera. Sorted by its centre, the
+/// court's middle, its blended draws went after anything beyond the net, and covered a far ball's outline (its soft
+/// edge writes no Z) wherever the ball stood in front of it. Fences, roofs, water and ground decals reach less far.
+fn surrounds_play((lo, hi): (Vec3, Vec3)) -> bool {
+    const OUT: f32 = 100.0;
+    lo.x < -OUT && hi.x > OUT && lo.z < -OUT && hi.z > OUT
+}
+
+/// A panorama's copy of `mat`, blended first like the disc courts' backdrops, lit and scrolled as `mat` is.
+fn panorama(s: &mut Store, mat: &Handle<GsMaterial>) -> Handle<GsMaterial> {
+    let Some(g) = s.materials.get(mat).filter(|g| g.alpha_mode() == AlphaMode::Blend) else { return mat.clone() };
+    let h = s.materials.add(GsMaterial { order: PANORAMA, ..g.clone() });
+    let k = &mut *s.kept;
+    let roles: Vec<_> = k.materials.iter().filter(|(id, _)| *id == mat.id()).map(|&(_, r)| (h.id(), r)).collect();
+    let speeds: Vec<_> = k.scroll.iter().filter(|(id, _)| *id == mat.id()).map(|&(_, v)| (h.id(), v)).collect();
+    k.materials.extend(roles);
+    k.scroll.extend(speeds);
+    h
+}
 
 /// The `.glb`'s materials as GS draws (as a character mod's, `mods::materials_of`; the last one glTF's default), lit
 /// as `role` says.
@@ -907,6 +933,34 @@ mod tests {
         let cabin = Vec3::new(9.5, -2.0, 1.8);
         assert!(boxes.iter().any(|(lo, hi)| cabin.cmpge(*lo).all() && cabin.cmple(*hi).all()), "{boxes:?}");
         assert!(boxes.iter().all(|(lo, _)| -lo.y >= 0.5));
+    }
+
+    /// B682: the court mods' blended pieces that draw first as panoramas: Dubno's distant city is one (its far-side
+    /// ball outline was covered), and none is a net, fence, roof or water.
+    #[test]
+    fn court_mod_panoramas() {
+        let Ok(root) = std::env::var("HST_MODS") else { return eprintln!("no HST_MODS, skipped") };
+        let courts = crate::mods_court::list(std::path::Path::new(&root));
+        let mut found = Vec::new();
+        for c in &courts {
+            for file in ["court.glb", "gimmick.glb"] {
+                let Ok((doc, blob)) = crate::mods::open(&c.dir.join(file)) else { continue };
+                let worlds = worlds(&doc);
+                let to_game = doc.nodes().find(|n| n.name() == Some("game_space")).map_or(Mat4::IDENTITY, |n| worlds[n.index()]).inverse();
+                for n in doc.nodes().filter(|n| n.skin().is_none()) {
+                    let rest = [to_game * worlds[n.index()]];
+                    for p in n.mesh().iter().flat_map(|m| m.primitives()) {
+                        let blend = p.material().alpha_mode() == gltf::material::AlphaMode::Blend;
+                        if blend && primitive(&p, &blob, None, &rest, false).and_then(|m| bounds(&m, &rest)).is_some_and(surrounds_play) {
+                            found.push(format!("{}: {}", c.id, p.material().name().unwrap_or("")));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(found.iter().any(|f| f.starts_with("gag_c20_city: c20_bg_Enkei")), "{found:?}");
+        assert!(!found.iter().any(|f| ["net", "fence", "fance", "roof", "water"].iter().any(|k| f.to_lowercase().contains(k))), "{found:?}");
+        eprintln!("{found:#?}");
     }
 
     /// B506: every court mod under `$HST_MODS`: the creatures left out for standing in the players' room are whole (a

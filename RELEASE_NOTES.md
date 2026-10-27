@@ -30,3 +30,4 @@
 - When a match runs far too slowly, Auto graphics now also turns off anti-aliasing, halves the characters' detail and turns on the other speed-ups in the same step as lowering the render scale, instead of one at a time.
 - New Graphics setting, Character Shading (on by default on computers; off in the browser, on phones, on the Low presets and in Original Mode): soft shade in the players' creases, under the chin, the skirt and the arms.
 - Players now turn their heads to follow the ball during rallies, as in the original, and a ball can now hit a player's head where it's turned.
+- On custom courts with a distant city or landscape around them, the ball's dark outline no longer disappears when the ball is in front of it at the far end.
