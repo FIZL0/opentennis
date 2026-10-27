@@ -8,6 +8,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 
 ### Next (user priorities, in order)
 
+- [ ] **M152d** Self-signed HTTPS opt-in: test whether Chrome/Safari treat a bypassed self-signed cert page as a secure context (Gamepad API, WebGPU, OPFS); if yes, offer it so guests get physical gamepads
 - [ ] **M152c** Guest page mode: served from a host, loads pack + mods from it into memory only (B457 path, no OPFS), auto-joins the host's lobby; touch controls on; check Chrome/Safari/Firefox over plain http on a phone hotspot
 - [ ] **M152b** Native WebRTC host (str0m or similar) speaking rtc.rs's channels (ids 0/1, same lobby protocol); signalling: guest POSTs its offer/answer to the host server, no QR/paste; prove a native host + browser guest match with web_lan.mjs-style check
 - [ ] **M152a** Adhoc host server: native build serves web/ (pkg), the disc pack and enabled mods over http on all LAN interfaces; menu toggle + shows http://<ip> (and a QR) on screen; desktop + Android + iOS
