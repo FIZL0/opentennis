@@ -43,16 +43,13 @@ const BAR: f32 = 6.0;
 const HEADING: f32 = 22.0;
 /// B426: the least of a row that shows under the grid's last whole line.
 const PEEK: f32 = 12.0;
-/// M128: down the words beside the thumbnail (px from its top): the character's name, hand · costume, the pills, the
-/// play style bar and the grade tiles, and the sizes of the ones without a constant of their own.
+/// M128: down the words beside the thumbnail (px from its top): the character's name with its play style after it, the
+/// pills and the grade meters, and the sizes of the ones without a constant of their own.
 const NAME_Y: f32 = 0.0;
 const NAME_S: f32 = 17.0;
-const SUB_Y: f32 = 20.0;
-const SUB_S: f32 = 12.0;
-const PILLS_Y: f32 = 36.0;
-const STYLE_Y: f32 = 63.0;
-const STYLE_H: f32 = 20.0;
-const GRADES_Y: f32 = 87.0;
+const STYLE_S: f32 = 13.0;
+const PILLS_Y: f32 = 23.0;
+const GRADES_Y: f32 = 51.0;
 
 pub(super) use super::frame::hex;
 
@@ -648,7 +645,7 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
         Some(Dev::Pad(e)) => Some((Some(e), "Start")),
         _ => None,
     };
-    band(d, &s, at.head, solid, p, m.player_name(p).as_deref(), &name, &device, side, swap, false, naming);
+    let dev_end = band(d, &s, at.head, solid, p, m.player_name(p).as_deref(), &name, &device, side, swap, false, naming);
     if mine && m.seats[p].is_some() {
         // B371: a tap on the seat's number or names opens the name picker
         let [hx, hy, hw, hh] = at.head;
@@ -673,29 +670,32 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
         }
     }
     if online && active && m.seats[p].is_some() {
-        // M95 (M120): online, this machine's platform and input in the thumbnail's corner, as the other players' cards
-        device_pill(d, *crate::device::CURRENT.lock().unwrap_or_else(|e| e.into_inner()), px + pw, py, &s);
+        // M95 (M120): online, this machine's platform and input after the header's device line, as the other players'
+        // cards (not over the character)
+        device_icons(d, *crate::device::CURRENT.lock().unwrap_or_else(|e| e.into_inner()), dev_end, &s, solid);
     }
-    // beside it: the character's name, its hand and costume, the pills, the play style, the grades
+    // beside it: the character's name and play style, the pills (they say the hand and costume), the grades
     let [ix, iy, iw, ih] = at.info;
     let hidden = pl.random || !active;
     let ns = NAME_S * PY;
-    d.text(&ellipsis(d, &name, ns, iw), ix, iy + NAME_Y * PY, ns, hex(look::INK));
-    let hand = if hidden { "Hand ?" } else if m.hand(text, p) < 0.0 { "Left" } else { "Right" };
-    let costume = if hidden { "Costume ?".to_string() } else { format!("Costume {}", pl.costume + 1) };
-    super::frame::dotted(d, &format!("{hand} · {costume}"), ix, iy + SUB_Y * PY, SUB_S * PY, iw, s.soft, false);
-    // the pills: the costume (L1 / R1) on the left, the hand (Select) on the right
-    pills(d, m, text, bind, &s, p, at.pills, mine);
     let style_of = |w: Who| match w {
         Who::Mod(i) => text.mods[i].0,
         Who::Disc(ch) => text.style[ch],
     };
-    let sh = STYLE_H * PY;
-    rounded(d, [ix, iy + STYLE_Y * PY, iw, sh], 8.0, hex(look::INK), 128.0);
-    let style = if hidden { "?" } else { STYLE_NAMES[style_of(m.who(p)).min(3)] };
-    d.label(style, ix + iw / 2.0, iy + STYLE_Y * PY + (sh - 13.0 * PY) / 2.0, 13.0 * PY, iw - 10.0 * PX, hex(0xffd23f));
+    let style = (!hidden).then(|| STYLE_NAMES[style_of(m.who(p)).min(3)]);
+    let (ss, sgap) = (STYLE_S * PY, 7.0 * PX);
+    // the name gives up room to the style only down to half the line
+    let sw = style.map_or(0.0, |st| d.width(st, ss) + sgap);
+    let shown = ellipsis(d, &name, ns, (iw - sw).max(iw / 2.0));
+    d.text(&shown, ix, iy + NAME_Y * PY, ns, hex(look::INK));
+    if let Some(st) = style {
+        let sx = ix + d.width(&shown, ns) + sgap;
+        d.text(&ellipsis(d, st, ss, ix + iw - sx), sx, iy + NAME_Y * PY + (ns - ss) * 0.7, ss, s.soft);
+    }
+    // the pills: the costume (L1 / R1) on the left, the hand (Select) on the right
+    pills(d, m, text, bind, &s, p, at.pills, mine);
     let gy = iy + GRADES_Y * PY;
-    grade_tiles(d, if hidden { None } else { Some(grades_of(text, m.who(p))) }, [ix, gy, iw, iy + ih - gy]);
+    meters(d, if hidden { None } else { Some(grades_of(text, m.who(p))) }, [ix, gy, iw, iy + ih - gy], false);
 
     // B481: a computer player a device here can take over: the join bar across its thumbnail and stats
     if let Some(style) = join_glyph(m, p) {
@@ -833,9 +833,9 @@ pub(super) fn open_line(m: &Menu) -> &'static str {
 }
 
 /// M120: seat `p`'s compact card online (another machine's player or the computer's; an open seat is the open card):
-/// the header band (the player's name over "Online" and their ping), the figure full width with their platform and
-/// input (M95) in its corner, the character's name, hand and costume, then the roster card's own style bar and stats
-/// list where a local card has its grid, and along the foot what it is and where they are.
+/// the header band (the player's name over "Online" and their ping, their platform and input after it: M95), the
+/// figure full width, the character's name and play style, its hand and costume, then the roster card's stats where a
+/// local card has its grid, and along the foot what it is and where they are.
 fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p: usize) {
     let Some(f) = m.card_facts(text, p) else {
         return open_seat_saying(d, s, card, p, m.lobby_join_seat() == Some(p), open_line(m));
@@ -865,7 +865,7 @@ fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p
     let lead = m.lead().map(|d| legend::dev_style(if let Dev::Pad(e) = d { Some(e) } else { None }));
     let side = if !focused { "" } else if com { "Remove" } else { "Kick" };
     let glyph = lead.filter(|_| !side.is_empty()).map(|s| (s, 3));
-    band(d, s, [x, y, w, BAND * PY], !com, p, m.player_name(p).as_deref(), &f.owner, &sub, side, glyph, false, None);
+    let dev_end = band(d, s, [x, y, w, BAND * PY], !com, p, m.player_name(p).as_deref(), &f.owner, &sub, side, glyph, false, None);
     let (ix, iw) = (x + PAD * PX, w - 2.0 * PAD * PX);
     let mut cy = y + (BAND + PAD) * PY;
     let foot_h = 30.0 * PY;
@@ -889,12 +889,24 @@ fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p
         d.q(Tex::Preview(p), [0.0; 4], [ix + (iw - rw) / 2.0, cy + (ph - rh) / 2.0, rw, rh], WHITE, 128.0);
     }
     if let Some(dev) = f.device {
-        device_pill(d, dev, ix + iw, cy, s);
+        device_icons(d, dev, dev_end, s, !com);
     }
     cy += ph + ROW_GAP * PY;
-    // the character's name, its hand and costume under it
+    // the character's name and play style, its hand and costume under it (this card has no pills to say them)
+    let style_of = |w: Who| match w {
+        Who::Mod(i) => text.mods[i].0,
+        Who::Disc(ch) => text.style[ch],
+    };
     let ns = 24.0 * PY;
-    d.text(&ellipsis(d, &name, ns, iw), ix, cy, ns, hex(look::INK));
+    let (ss, sgap) = (16.0 * PY, 8.0 * PX);
+    let style = (!pl.random).then(|| STYLE_NAMES[style_of(who).min(3)]);
+    let sw = style.map_or(0.0, |st| d.width(st, ss) + sgap);
+    let shown = ellipsis(d, &name, ns, (iw - sw).max(iw / 2.0));
+    d.text(&shown, ix, cy, ns, hex(look::INK));
+    if let Some(st) = style {
+        let sx = ix + d.width(&shown, ns) + sgap;
+        d.text(&ellipsis(d, st, ss, ix + iw - sx), sx, cy + (ns - ss) * 0.7, ss, s.soft);
+    }
     cy += ns + 2.0 * PY;
     let hand = if pl.random { "Hand ?" } else if m.hand(text, p) < 0.0 { "Left" } else { "Right" };
     let costume = if pl.random { "Costume ?".to_string() } else { format!("Costume {}", pl.costume + 1) };
@@ -907,16 +919,7 @@ fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p
         d.label(&ellipsis(d, &note, ns, iw), ix + iw / 2.0, cy, ns, iw, hex(look::INK));
         cy += ns + ROW_GAP * PY;
     }
-    // the roster card's style bar and stats list
-    let style_of = |w: Who| match w {
-        Who::Mod(i) => text.mods[i].0,
-        Who::Disc(ch) => text.style[ch],
-    };
-    let sh = 24.0 * PY;
-    rounded(d, [ix, cy, iw, sh], 8.0, hex(look::INK), 128.0);
-    let style = if pl.random { "?" } else { STYLE_NAMES[style_of(who).min(3)] };
-    d.label(style, ix + iw / 2.0, cy + 5.0 * PY, 14.0 * PY, iw - 10.0 * PX, hex(0xffd23f));
-    cy += sh + 4.0 * PY;
+    // the stats
     stats(d, if pl.random { None } else { Some(grades_of(text, who)) }, [ix, cy, iw, (foot_y - ROW_GAP * PY - cy).max(0.0)]);
     // the foot: what it is on the left, where they are in a pill on the right
     let what = match (&f.rank, who) {
@@ -945,11 +948,12 @@ fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p
 }
 
 /// M95: a player's platform and input in a navy pill in the top right corner of the well ending at `right` from `top`.
-fn device_pill(d: &mut Draw, dev: crate::device::Device, right: f32, top: f32, s: &Seat) {
-    let navy = super::frame::NAVY;
-    let pill = [right - 6.0 * PX - 61.0 * PX, top + 6.0 * PY, 61.0 * PX, 22.0 * PY];
-    rounded(d, pill, 11.0, navy, 128.0);
-    super::frame::device_icons(d, dev, pill[0] + pill[2] - 10.0 * PX, pill[1] + pill[3] / 2.0, (PX, PY), s.ring, navy);
+/// M95: a player's platform and input icons just after the header band's device line (`[right, middle]` from
+/// [`band`]), in the band's own colours (`solid`: a human's seat-coloured band).
+fn device_icons(d: &mut Draw, dev: crate::device::Device, [right, mid]: [f32; 2], s: &Seat, solid: bool) {
+    let (fill, ink) = if solid { (s.ring, s.ink) } else { (s.sel, hex(look::INK)) };
+    let (k, gap) = (0.8, 7.0 * PX);
+    super::frame::device_icons(d, dev, right + gap + 41.0 * k * PX, mid, (k * PX, k * PY), ink, fill);
 }
 
 /// B481: the button art on computer player `p`'s join bar, if an unseated pad can take the seat: on a local roster
@@ -1132,7 +1136,7 @@ fn heading_w(d: &Draw, sec: &Section) -> f32 {
 /// pill on the right (`glyph`'s button art before it; left of the ✕ when `drop`; left out when the column is too
 /// narrow for it and a name).
 #[allow(clippy::too_many_arguments)]
-pub(super) fn band(d: &mut Draw, s: &Seat, [x, y, w, h]: [f32; 4], solid: bool, p: usize, own: Option<&str>, name: &str, device: &str, side: &str, glyph: Option<(legend::Style, u8)>, drop: bool, naming: Option<(Option<Entity>, &str)>) {
+pub(super) fn band(d: &mut Draw, s: &Seat, [x, y, w, h]: [f32; 4], solid: bool, p: usize, own: Option<&str>, name: &str, device: &str, side: &str, glyph: Option<(legend::Style, u8)>, drop: bool, naming: Option<(Option<Entity>, &str)>) -> [f32; 2] {
     // B471: the panel's header strip inside the card's outline, a dark rule under it; a computer player's in the
     // seat's light tint with dark words
     let (fill, ink) = if solid { (s.ring, s.ink) } else { (s.sel, hex(look::INK)) };
@@ -1211,6 +1215,8 @@ pub(super) fn band(d: &mut Draw, s: &Seat, [x, y, w, h]: [f32; 4], solid: bool, 
     d.text(&name, nx, top, ns, ink);
     let device = ellipsis(d, device, ds, room);
     d.text(&device, nx, top + ns + 3.0 * PY, ds, ink);
+    // where the device line ends (its right, its middle): the online cards put the platform and input there
+    [nx + d.width(&device, ds), top + ns + 3.0 * PY + ds / 2.0]
 }
 
 /// B425: the Get more chip's words, longest first: the first that fits after the section chips is shown.
@@ -1298,7 +1304,7 @@ fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usiz
     };
     let widths = |d: &Draw, i: usize, k: f32| {
         let cw = (pad + icon + gap) * k + chips(d, LeftTrigger, &l1, k) + d.width(&costume[i], ts * k) + gap * k + chips(d, RightTrigger, &r1, k) + (pad - gap) * k;
-        let hw = (pad + icon + gap) * k + d.width(hand[i], ts * k) + gap * k + chips(d, Select, &sel, k) + (pad - gap) * k;
+        let hw = pad * k + d.width(hand[i], ts * k) + gap * k + chips(d, Select, &sel, k) + (pad - gap) * k;
         (cw, hw)
     };
     let between = 6.0 * PX;
@@ -1330,8 +1336,6 @@ fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usiz
     let hb = [hx, y, hw, ph];
     look::outlined_pill(d, hb, grey, 2.0);
     let mut cx = hx + pad;
-    d.q(Tex::Cursor, [0.0, 0.0, 64.0, 32.0], [cx - 3.0 * k * PX, y + (ph - icon * 0.8 * PY / PX) / 2.0, icon + 5.0 * k * PX, icon * 0.8 * PY / PX], WHITE, 128.0);
-    cx += icon + gap;
     d.text(hand[i], cx, y + (ph - ts) / 2.0, ts, WHITE);
     cx += d.width(hand[i], ts) + gap;
     if chips(d, Select, &sel, k) > 0.0 {
@@ -1346,97 +1350,104 @@ fn pills(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, s: &Seat, p: usiz
     }
 }
 
-/// M128: the five grades as one row of small tiles in `[x, y, w, h]` (at most [`TILES_H`] tall): each the stats
-/// card's pink, its name (Serve … Footwork at the pills' size, shrunk to fit down to [`LABEL_MIN`], else Serv Strk
-/// Vol Imp Foot with the full name in a tooltip under the mouse or a tap) over the
-/// original's letter (as [`stats`] draws it), "?" for a hidden pick.
-fn grade_tiles(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4]) {
-    let h = h.min(TILES_H * PY);
-    let gap = 4.0 * PX;
-    let tw = (w - 4.0 * gap) / 5.0;
-    let ls = 13.0 * PY;
-    let ch = (h - ls - 5.0 * PY).max(0.0);
+/// The five grades as meters in `[x, y, w, h]` (rows at most [`METER_ROW`] tall): each its name (Serve … Footwork, else
+/// Serv … Foot where the full ones don't fit), six steps F→A filled in the grade's colour (S: all six white-gold,
+/// glowing) and its letter; empty steps and "?" for a hidden pick. `pink`: on the pink stats card (white names, pale
+/// pink empty steps) rather than a white one.
+fn meters(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4], pink: bool) {
     const FULL: [&str; 5] = ["Serve", "Stroke", "Volley", "Impact", "Footwork"];
-    let room = tw - 6.0 * PX;
-    // one size for all five: the pills' while the longest fits, shrunk down to LABEL_MIN, else the short names
-    let widest = |l: &[&str]| l.iter().map(|l| d.width(l, ls)).fold(1.0, f32::max);
-    let full = (ls * room / widest(&FULL)).min(ls);
-    let short = full < LABEL_MIN * PY;
-    let labels = if short { ["Serv", "Strk", "Vol", "Imp", "Foot"] } else { FULL };
-    let size = if short { (ls * room / widest(&labels)).min(ls) } else { full };
-    let mut tip = None;
+    const SHORT: [&str; 5] = ["Serv", "Strk", "Vol", "Imp", "Foot"];
+    // F E D C B A
+    const COLOURS: [u32; 6] = [0x909090, 0x8c3cd2, 0x2072e2, 0x2fae24, 0xe3262c, 0xff9d00];
+    let rh = (h / 5.0).min(METER_ROW * PY);
+    let ls = (rh * 0.66).min(13.0 * PY);
+    let widest = |l: &[&str; 5], d: &Draw| l.iter().map(|l| d.width(l, ls)).fold(1.0, f32::max);
+    // the full names while they leave the bar at least 45% of the row
+    let labels = if widest(&FULL, d) <= w * 0.32 { FULL } else { SHORT };
+    let lw = widest(&labels, d).min(w * 0.32);
+    let size = ls * (lw / widest(&labels, d)).min(1.0);
+    let lt = rh * PX / PY;
+    let gap = 5.0 * PX;
+    let (bx, bw) = (x + lw + gap, w - lw - lt - 2.0 * gap);
+    let (step_gap, bh) = (2.0 * PX, (rh * 0.38).clamp(3.0 * PY, 8.0 * PY));
+    let sw = (bw - 5.0 * step_gap) / 6.0;
+    let empty = hex(if pink { 0xffc2df } else { 0xe4e0ea });
     for (k, label) in labels.into_iter().enumerate() {
-        let tx = x + (tw + gap) * k as f32;
-        rounded(d, [tx, y, tw, h], 6.0, hex(0xf58ac0), 128.0);
-        d.centred(label, tx + tw / 2.0, y + 3.0 * PY + (ls - size) / 2.0, size, WHITE);
-        if short && pointer::over([tx, y, tw, h], d.anchor) {
-            tip = Some((k, tx));
+        let ry = y + rh * k as f32;
+        if pink {
+            ringed_text(d, label, x, ry + (rh - size) / 2.0, size, WHITE);
+        } else {
+            d.text(label, x, ry + (rh - size) / 2.0, size, hex(0xd85a9c));
         }
-        let cy = y + ls + 4.0 * PY;
-        match grades {
-            Some(g) if g[k] > 5 => d.centred("S", tx + tw / 2.0, cy, ch, hex(0xffd23f)),
-            Some(g) => {
-                let i = (5 - g[k]) as f32;
-                let c = ch.min(tw * PY / PX);
-                d.q(super::ATTRS, [232.0, 24.0 * i, 24.0, 24.0], [tx + (tw - c * PX / PY) / 2.0, cy + (ch - c) / 2.0, c * PX / PY, c], WHITE, 128.0);
-            }
+        let g = grades.map(|g| g[k]);
+        let by = ry + (rh - bh) / 2.0;
+        if g.is_some_and(|g| g > 5) {
+            rounded(d, [bx - 2.0 * PX, by - 2.0 * PY, bw + 4.0 * PX, bh + 4.0 * PY], bh / 2.0 + 2.0, hex(0xffe7a0), 70.0);
+        }
+        for i in 0..6u8 {
+            let c = match g {
+                Some(6..) => hex(0xf2d47e),
+                Some(g) if i <= g => hex(COLOURS[g as usize]),
+                _ => empty,
+            };
+            rounded(d, [bx + (sw + step_gap) * i as f32, by, sw, bh], bh / 2.0, c, 128.0);
+        }
+        let cell = [x + w - lt, ry, lt, rh];
+        match g {
+            Some(g) => letter(d, g, cell),
             None => {
-                let qs = ch * 0.7;
-                ringed_text(d, "?", tx + (tw - d.width("?", qs)) / 2.0, cy + (ch - qs) / 2.0, qs, hex(0xc8ccd0));
+                let qs = rh * 0.7;
+                ringed_text(d, "?", cell[0] + (lt - d.width("?", qs)) / 2.0, ry + (rh - qs) / 2.0, qs, hex(0xc8ccd0));
             }
         }
-    }
-    // the hovered tile's full name just above the row, kept within it
-    if let Some((k, tx)) = tip {
-        let ts = 11.0 * PY;
-        let (pad, bh) = (5.0 * PX, ts + 6.0 * PY);
-        let bw = d.width(FULL[k], ts) + 2.0 * pad;
-        let bx = (tx + (tw - bw) / 2.0).clamp(x, (x + w - bw).max(x));
-        let by = y - bh - 2.0 * PY;
-        rounded(d, [bx, by, bw, bh], 6.0, hex(look::INK), 128.0);
-        d.text(FULL[k], bx + pad, by + 3.0 * PY, ts, WHITE);
     }
 }
 
-/// The grade tiles' labels' least size (menu px) before they go to the short names.
-const LABEL_MIN: f32 = 7.0;
+/// The meters' most row height (menu px): past it a big window leaves the room under them.
+const METER_ROW: f32 = 19.0;
 
-/// The grade tiles' most height (menu px): past it a big window leaves the room under them.
-const TILES_H: f32 = 56.0;
+/// Our own grade letters (`tools/grade_tiles.py`): 64-px cells F E D C B A S, then S's sparkle.
+const GRADES_PNG: &[u8] = include_bytes!("../../../assets/grades.png");
 
-/// The pink stats card in `[x, y, w, h]`: Serve, Stroke, Volley, Impact, Footwork, each grade's letter (A at 5, F at 0)
-/// as the original draws it, "?" for a hidden pick. Browse mods' detail panel shows the same card.
+/// The grade letters' image (`Tex::Grades`).
+#[derive(Resource)]
+pub(super) struct GradeArt(pub Handle<Image>);
+
+pub(super) fn load_grades(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
+    let Ok(i) = Image::from_buffer(GRADES_PNG, ImageType::Extension("png"), CompressedImageFormats::NONE, true, ImageSampler::linear(), bevy::asset::RenderAssetUsages::RENDER_WORLD) else { return };
+    commands.insert_resource(GradeArt(images.add(i)));
+}
+
+/// Grade `g`'s letter (0 F … 5 A, 6 S) as a square centred in `[x, y, w, h]`; S twinkles, three sparkles round it
+/// growing and fading in turn.
+fn letter(d: &mut Draw, g: u8, [x, y, w, h]: [f32; 4]) {
+    let c = h.min(w * PY / PX);
+    let cw = c * PX / PY;
+    let (cx, cy) = (x + (w - cw) / 2.0, y + (h - c) / 2.0);
+    d.q(Tex::Grades, [64.0 * f32::from(g.min(6)), 0.0, 64.0, 64.0], [cx, cy, cw, c], WHITE, 128.0);
+    if g > 5 {
+        for (k, [sx, sy, size]) in [[0.88, 0.1, 0.42], [0.08, 0.45, 0.3], [0.86, 0.88, 0.28]].into_iter().enumerate() {
+            let a = ((d.clock / 1.8 + k as f32 / 3.0).fract() * std::f32::consts::TAU).sin().max(0.0);
+            let s = size * c * (0.4 + 0.6 * a);
+            d.q(Tex::Grades, [448.0, 0.0, 64.0, 64.0], [cx + sx * cw - s * PX / PY / 2.0, cy + sy * c - s / 2.0, s * PX / PY, s], WHITE, 128.0 * a);
+        }
+    }
+}
+
+/// The pink stats card in `[x, y, w, h]`: the grades as [`meters`], "?" for a hidden pick. Browse mods' detail panel
+/// shows the same card.
 pub(super) fn stats(d: &mut Draw, grades: Option<[u8; 5]>, [x, y, w, h]: [f32; 4]) {
     rounded(d, [x, y, w, h], 10.0, hex(0xf58ac0), 128.0);
-    let rh = (h - 8.0 * PY) / 5.0;
-    let size = (rh * 0.62).min(14.0 * PY);
-    let disc = (rh - 4.0 * PY).min(20.0 * PY);
-    for (k, label) in ["Serve", "Stroke", "Volley", "Impact", "Footwork"].into_iter().enumerate() {
-        let ry = y + 4.0 * PY + rh * k as f32;
-        if k > 0 {
-            d.q(Tex::Solid, [0.0; 4], [x + 6.0 * PX, ry - 1.0 * PY, w - 12.0 * PX, 2.0 * PY], hex(0xffc2df), 128.0);
-        }
-        let room = w - 20.0 * PX - disc * PX / PY;
-        let k_fit = (room / d.width(label, size).max(1.0)).min(1.0);
-        ringed_text(d, label, x + 8.0 * PX, ry + (rh - size * k_fit) / 2.0, size * k_fit, WHITE);
-        // B384: the original's own letter (the attribute sheet's A-F: a gradient fill in the grade's colour with a dark
-        // rim, straight on the card, no badge); its 24-px cell the row's height up to 30 px (the letter fills 17 of it)
-        let dw = disc * PX / PY;
-        let (cx, cy) = (x + w - 8.0 * PX - dw, ry + (rh - disc) / 2.0);
-        match grades {
-            Some(g) => {
-                let (i, c) = ((5 - g[k].min(5)) as f32, rh.min(30.0 * PY));
-                let cell = [cx + (dw - c * PX / PY) / 2.0, cy + (disc - c) / 2.0, c * PX / PY, c];
-                d.q(super::ATTRS, [232.0, 24.0 * i, 24.0, 24.0], cell, WHITE, 128.0);
-            }
-            None => {
-                let ls = disc * 0.72;
-                let lw = d.width("?", ls);
-                ringed_text(d, "?", cx + (dw - lw) / 2.0, cy + (disc - ls) / 2.0, ls, hex(0xc8ccd0));
-            }
-        }
-    }
+    let (px, py) = (8.0 * PX, 5.0 * PY);
+    let rows = [x + px, y + py, w - 2.0 * px, h - 2.0 * py];
+    // rows as tall as the card allows, centred in it
+    let rh = (rows[3] / 5.0).min(STATS_ROW * PY);
+    meters(d, grades, [rows[0], rows[1] + (rows[3] - 5.0 * rh) / 2.0, rows[2], 5.0 * rh], true);
 }
+
+/// The stats card's most row height (menu px).
+const STATS_ROW: f32 = 26.0;
 
 #[cfg(test)]
 mod tests {

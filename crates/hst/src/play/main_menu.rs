@@ -2237,6 +2237,8 @@ enum Tex {
     Logo,
     /// B541: seat `p`'s name as a tag (`names::NameArt`), whole.
     Name(usize),
+    /// Our own grade letters (`roster::GradeArt`): 64-px cells F E D C B A S, then S's sparkle star.
+    Grades,
 }
 
 /// B133: the select's face icons (B160: the disc grid's too), as `previews.rs` reads them.
@@ -2255,8 +2257,6 @@ const SHEETS: [(&str, &str); 3] = [
 const WALL: usize = 0;
 /// The disc grid's faces sheet (`SHEETS` index): drawn for a face icon not baked yet.
 const FACES: usize = 1;
-/// The △ attribute card: title box, play-style titles, stat labels and the A–F letters.
-const ATTRS: Tex = Tex::Sheet(2);
 /// After `SHEETS`: `Confirmation_00`/`02`: round umpire faces and balls; court tiles (the "?" one).
 const EXTRA: usize = SHEETS.len();
 const C00: Tex = Tex::Sheet(EXTRA);
@@ -3718,7 +3718,7 @@ fn draw(
     shelf: Res<mods_screen::Shelf>,
     mut hits: ResMut<pointer::Hits>,
     images: Res<Assets<Image>>,
-    (buttons, umpire_pics, court_pics, logo, name_art): (Option<Res<legend::Buttons>>, Option<Res<umpire_mods::Pics>>, Option<Res<court_mods::Pics>>, Option<Res<splash::Logo>>, Option<Res<names::NameArt>>),
+    (buttons, umpire_pics, court_pics, logo, name_art, grade_art): (Option<Res<legend::Buttons>>, Option<Res<umpire_mods::Pics>>, Option<Res<court_mods::Pics>>, Option<Res<splash::Logo>>, Option<Res<names::NameArt>>, Option<Res<roster::GradeArt>>),
     (mut commands, parents): (Commands, Query<&ChildOf, With<Slot>>),
 ) {
     let Some(art) = art else { return };
@@ -3770,6 +3770,13 @@ fn draw(
             Tex::Pill => art.0.last().expect("pill").clone(),
             Tex::Logo => match &logo {
                 Some(l) => l.0.clone(),
+                None => {
+                    *vis = Visibility::Hidden;
+                    continue;
+                }
+            },
+            Tex::Grades => match &grade_art {
+                Some(g) => g.0.clone(),
                 None => {
                     *vis = Visibility::Hidden;
                     continue;
@@ -3971,7 +3978,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<names::NameArt>()
         .init_resource::<slide::Slide>()
         .add_systems(Update, ((fit_grid, step.run_if(|| std::env::var_os("HST_STRESS").is_none()), flame::tick, splash::tick, draw, ticker_text).chain(), bgm, cursor::tick))
-        .add_systems(Startup, splash::load)
+        .add_systems(Startup, (splash::load, roster::load_grades))
         .add_systems(Last, cursor::show);
     // M14: the button legend
     legend::plugin(app);

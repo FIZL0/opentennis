@@ -1,4 +1,7 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Character select shows each grade as a meter with new letter tiles (and a sparkling S); the play style sits beside the name, and the hand and costume are shown only in their buttons, which no longer have the pointing hand.
+- The Mods page says whose serve, strokes, volleys or smash a character borrows, next to who they play like.
+- In online lobbies, each player's platform and controller icons sit beside their name instead of over their character.
 - Online: going back to the lobby after a match with a downloaded character no longer crashes the game.
 - A new version is now offered (or, with Updates set to Always, installed) right on the title screen, with its download progress shown there.
 - Online, a controller can take over as player 1 in the lobby even after you typed the join code on the keyboard.

@@ -2282,6 +2282,18 @@ pub(super) fn child_rects(c: &super::Child, [x, y, w, h]: [f32; 4]) -> Vec<[f32;
 }
 
 /// What the chosen mod's panel says of the tile under the cursor (None: the cursor isn't on one).
+/// "; serve like Lola, volleys like Will": the shots a character mod's `shots` takes from someone other than its donor,
+/// empty when none.
+fn shots_of(md: &Mod) -> String {
+    const WHAT: [&str; 4] = ["serve", "strokes", "volleys", "smash"];
+    let them = md.build.shots.iter().zip(WHAT).filter_map(|(c, what)| {
+        let c = usize::from((*c)?);
+        (c != md.donor).then(|| CHAR_NAMES.get(c).map(|n| format!("{what} like {n}"))).flatten()
+    });
+    let them = them.collect::<Vec<_>>();
+    if them.is_empty() { String::new() } else { format!("; {}", them.join(", ")) }
+}
+
 fn shown(m: &Menu) -> Option<Shown> {
     let v = &m.add;
     let plural = |n: usize, w: &str| format!("{n} {w}{}", if n == 1 { "" } else { "s" });
@@ -2292,7 +2304,7 @@ fn shown(m: &Menu) -> Option<Shown> {
         let stats = v.stats.get(&md.dir).map(|&(st, g)| (st, Some(g)));
         let mut facts = vec![if md.source.is_empty() { format!("Folder {}", md.folder()) } else { format!("From {}", md.source) }];
         if player && let Some(c) = CHAR_NAMES.get(md.donor) {
-            facts.push(format!("Plays like {c}"));
+            facts.push(format!("Plays like {c}{}", shots_of(md)));
         }
         // M5c: a pack's count and size (as Installed lists it; the rule's box says its cap)
         let pack = (v.kind == Kind::Textures).then(|| v.packs.iter().find(|r| super::bare(&r.dir) == super::bare(&md.dir))).flatten();
@@ -2358,6 +2370,14 @@ fn shown(m: &Menu) -> Option<Shown> {
         _ => format!("From {}", mt.source),
     };
     let mut facts = vec![from, line];
+    // an installed character: whose shots it hits, from its own copy (the store's entry doesn't say)
+    if let Some(md) = v.have.get(&e.key()).and_then(|(_, dir)| v.list.iter().find(|m| &m.dir == dir)) {
+        let shots = shots_of(md);
+        if !shots.is_empty() {
+            let shots = &shots[2..];
+            facts.push(format!("{}{}", shots[..1].to_uppercase(), &shots[1..]));
+        }
+    }
     if mt.kind == Kind::Textures && v.state(e).is_none() {
         facts.push("Installs at the top of your texture packs, switched on".into());
     }
