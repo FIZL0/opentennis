@@ -107,11 +107,14 @@ impl Menu {
         self.court_mod_of(self.court_pick()).map(|x| vec!["--court-mod".to_string(), x.dir.display().to_string()]).unwrap_or_default()
     }
 
-    /// M8f8: the court card's name for online room `r`: the host's own pick (Random's the court it drew), a guest's the room's mod when it's
+    /// M8f8: the court card's name for online room `r`: the host's own pick, a guest's the room's mod when it's
     /// installed here (its id), else the layout's disc court.
     pub(super) fn room_court_name(&self, text: &Text, r: &crate::net::Room, hosting: bool) -> String {
         if hosting {
-            return self.court_lines(text, self.court_pick())[0].clone();
+            return if self.court == COURTS { "Random".into() } else { self.court_lines(text, self.court)[0].clone() };
+        }
+        if r.random {
+            return "Random".into();
         }
         match r.court_mod.as_ref().filter(|_| self.room_court_dir(r).is_some()) {
             Some(c) => c.name.clone(),
@@ -122,6 +125,9 @@ impl Menu {
 
     /// A guest's court value for online room `r`: the room's mod when it's installed here, else its disc court.
     pub(super) fn room_court_value(&self, r: &crate::net::Room) -> usize {
+        if r.random {
+            return COURTS;
+        }
         let installed = r.court_mod.as_ref().filter(|_| !r.vanilla).and_then(|c| self.court_mods.iter().position(|x| x.id == c.id));
         installed.map_or(r.court, |i| COURTS + 1 + i)
     }
@@ -262,8 +268,8 @@ mod tests {
         assert_eq!(m.room_court_name(&t, &r, false), "msg294", "vanilla: the layout");
         m.court = COURTS + 1;
         assert_eq!(m.room_court_name(&t, &r, true), "Court 01", "the host's own pick");
-        (m.court, m.roll) = (COURTS, 2);
-        assert_eq!(m.room_court_name(&t, &r, true), "msg280", "Random: the court it drew");
+        r.random = true;
+        assert_eq!((m.room_court_name(&t, &r, false), m.room_court_value(&r)), ("Random".into(), COURTS), "a guest sees the host's Random");
     }
 
     /// B401: a mod's picture stands in for its value only (the disc courts and Random keep theirs), a guest's room

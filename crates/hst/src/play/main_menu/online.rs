@@ -556,6 +556,7 @@ impl Menu {
         let (court, umpire) = self.venue();
         out.extend([Effect::Sound(0), Effect::Online(Fx::Net(Cmd::Venue(court, self.sets, self.games, umpire))), self.umpire_mod_fx()]);
         out.push(Effect::Online(Fx::Net(Cmd::CourtMod(self.court_mod_wire()))));
+        out.push(Effect::Online(Fx::Net(Cmd::RandomCourt(self.court == super::COURTS))));
     }
 
     /// The lobby's Court or Umpire pill (`i` 0 / 1): their select (the confirm screen's picker), back to the lobby
@@ -1045,6 +1046,7 @@ impl Menu {
         let (court, umpire) = self.venue();
         out.extend([Effect::Online(Fx::Net(Cmd::Venue(court, self.sets, self.games, umpire))), self.umpire_mod_fx()]);
         out.push(Effect::Online(Fx::Net(Cmd::CourtMod(self.court_mod_wire()))));
+        out.push(Effect::Online(Fx::Net(Cmd::RandomCourt(self.court == super::COURTS))));
     }
 
     /// One device's presses on the Online screens.

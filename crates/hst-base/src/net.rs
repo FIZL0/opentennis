@@ -259,6 +259,9 @@ pub struct Room {
     /// its looks from the host as a pick's (or plays the plain disc court). None in a vanilla lobby (`netplay::flags`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub court_mod: Option<crate::mods_online::CourtWire>,
+    /// The host picked Random: `court` (and `court_mod`) is what it drew, but every lobby shows Random.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub random: bool,
     /// Set by the host at the start (M2g): the match's seed (the weather generator's, `main.rs`) and the input delay
     /// in ticks, from the slowest guest's measured round trip.
     #[serde(default)]
@@ -964,6 +967,8 @@ pub enum Cmd {
     UmpireMod(Option<(String, String)>),
     /// M8f8: the host's court mod alongside `Venue`'s court (its layout), or none.
     CourtMod(Option<crate::mods_online::CourtWire>),
+    /// The host's court is a Random pick (`Room::random`).
+    RandomCourt(bool),
     /// B201: this machine's players' places on the select; the host's computer player in a seat (`None` opens it);
     /// the host's singles (false) or doubles.
     Live(Vec<Live>),
@@ -2423,6 +2428,12 @@ impl Hosted {
             }
             Some(Cmd::CourtMod(c)) if self.starting.is_none() && c != self.room.court_mod => {
                 self.room.court_mod = c;
+                broadcast(&self.joined, &Msg::Room(self.room.clone()));
+                cx.say(Event::Room(self.room.clone()));
+                self.dirty = true;
+            }
+            Some(Cmd::RandomCourt(r)) if self.starting.is_none() && r != self.room.random => {
+                self.room.random = r;
                 broadcast(&self.joined, &Msg::Room(self.room.clone()));
                 cx.say(Event::Room(self.room.clone()));
                 self.dirty = true;

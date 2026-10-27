@@ -4,7 +4,7 @@
 - Online, a controller can take over as player 1 in the lobby even after you typed the join code on the keyboard.
 - Online, the controller that picked Join by Code stays player 1 when you type the code and press Enter on the keyboard.
 - Switching your monitor's display mode (or unplugging a monitor) no longer closes the game.
-- In an online lobby, the host now sees the court a Random pick will actually play on.
+- In an online lobby, a Random court now shows as Random to everyone, guests included, until the match starts.
 - On the website, turning the frame log on or off now takes effect at once: the Save log button appears (or goes away) straight away.
 - Clearer wording online when another player picks a mod you don't have: the character card, the download question, the lobby's Start line and the setting all say plainly what happens. A Random pick no longer gives away which mod it drew.
 - In the browser, Save log now tells you where the log file went (usually your Downloads folder) so you can send it with a bug report.
