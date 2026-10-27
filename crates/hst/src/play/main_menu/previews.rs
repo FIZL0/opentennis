@@ -1457,8 +1457,12 @@ fn buttons(
 #[derive(Resource, Default)]
 struct Voices {
     playing: [u64; 4],
-    /// The lock-in line's next bank: `MVC_CH0` / `MVC_CH1` by turns.
-    next_line: u8,
+    /// Each card's last lock-in line (an index into its [`pick_voice`] list), so the next one differs.
+    last_line: [usize; 4],
+    /// The lock-in line sounding, and whose character it is.
+    line: Option<(Who, u64)>,
+    /// Lock-in lines waiting for it to finish: (card, character, bank, take).
+    queue: VecDeque<(usize, Who, Arc<SoundBank>, sound::Play)>,
     banks: HashMap<String, Option<Arc<SoundBank>>>,
 }
 
@@ -1491,40 +1495,72 @@ fn voice(act: Act, who: Who, costume: usize, mods: &[Mod], banks: &mut HashMap<S
     Some((bank, play))
 }
 
-/// A player locking in a character (not Random) says its line: the menu's `MVC_CH0` / `MVC_CH1` bank, key = disc character
-/// (one take per character, 14 each), the two banks by turns. A mod: its own win take (program 9 key 0), else its
-/// costume pack's disc character, else silent (B181: never a donor's voice).
+/// The menu banks holding one line per disc character (key = character): the lock-in lines `MVC_CH0` / `MVC_CH1`,
+/// `MVC_CS0`, and the Characters / Costumes tabs' voice samples `MVC_IT0` / `MVC_IT1`.
+const LINES: [&str; 5] = ["CH0", "CH1", "CS0", "IT0", "IT1"];
+
+/// A player locking in a character (not Random) says one of its [`pick_voice`] lines at random, never the card's last
+/// one twice running (B181: a mod with none is silent, never a donor's voice). One line sounds at a time, the others wait their turn (dropped if their card
+/// un-readies); a pick of the character already talking cuts its own line off and starts the new one.
 fn picked(menu: Res<Menu>, mut was: Local<[bool; 4]>, (args, sound, mut voices): (Res<Args>, Option<Res<Sound>>, ResMut<Voices>)) {
     let ready = std::array::from_fn(|p| menu.players[p].ready);
+    let Some(s) = &sound else { return *was = ready };
     // not for the Random card: its pick stays a surprise
     // online, the last of this machine's players to lock in goes straight on to the lobby (`online_ready`) the same update
     let picking = |p: usize| menu.screen == Screen::Chars || (menu.screen == Screen::Lobby && menu.mine(p));
     for p in (0..4).filter(|&p| picking(p) && ready[p] && !was[p] && !menu.players[p].random) {
-        let Some(s) = &sound else { break };
-        if let Some((bank, play)) = pick_voice(menu.pick(p).0, voices.next_line, &menu.mods, &mut voices.banks, Path::new(&args.iso)) {
-            s.stop(voices.playing[p]);
-            voices.playing[p] = s.play_centre(&bank, play);
-            voices.next_line ^= 1;
+        let who = menu.pick(p).0;
+        // ponytail: a fresh hasher per pick is the dice; menu only, never the sim's RNG
+        let roll = std::hash::BuildHasher::hash_one(&std::hash::RandomState::new(), p) as usize;
+        let mut lines = pick_voice(who, &menu.mods, &mut voices.banks, Path::new(&args.iso));
+        if lines.is_empty() {
+            continue;
         }
+        let n = if lines.len() == 1 { 0 } else { (voices.last_line[p] + 1 + roll % (lines.len() - 1)) % lines.len() };
+        let (bank, play) = lines.swap_remove(n);
+        voices.last_line[p] = n;
+        s.stop(voices.playing[p]);
+        voices.queue.retain(|q| q.1 != who);
+        if let Some((_, id)) = voices.line.filter(|l| l.0 == who) {
+            s.stop(id);
+            voices.line = None;
+        }
+        voices.queue.push_back((p, who, bank, play));
+    }
+    voices.queue.retain(|q| ready[q.0]);
+    if !voices.line.is_some_and(|(_, id)| s.playing(id)) {
+        voices.line = voices.queue.pop_front().map(|(_, who, bank, play)| (who, s.play_centre(&bank, play)));
     }
     *was = ready;
 }
 
-fn pick_voice(who: Who, n: u8, mods: &[Mod], banks: &mut HashMap<String, Option<Arc<SoundBank>>>, iso: &Path) -> Option<(Arc<SoundBank>, sound::Play)> {
+/// Every line `who` can say on locking in: a disc character's take in each of [`LINES`]; a mod its own point / set
+/// won takes (programs 7 and 9, any key), else its costume pack's disc character's, else none.
+fn pick_voice(who: Who, mods: &[Mod], banks: &mut HashMap<String, Option<Arc<SoundBank>>>, iso: &Path) -> Vec<(Arc<SoundBank>, sound::Play)> {
     let c = match who {
         Who::Disc(c) => c,
         Who::Mod(i) => {
-            let m = mods.get(i).filter(|m| crate::modfs::ready(&m.dir))?;
+            let Some(m) = mods.get(i).filter(|m| crate::modfs::ready(&m.dir)) else { return Vec::new() };
             let own = banks.entry(format!("mod {}", m.dir.join(&m.voice).display())).or_insert_with(|| crate::mods::voice(m).map(Arc::new)).clone();
-            if let Some(own) = own.filter(|o| o.wav.contains_key(&9)) {
-                return Some((own, sound::Play { slot: 0x16, program: 9, key: 0, volume: 0x80, speed: 1.0 }));
+            let takes: Vec<_> = own
+                .iter()
+                .flat_map(|o| [7u8, 9].into_iter().flat_map(move |p| (0..o.wav.get(&(p as usize)).map_or(0, Vec::len)).map(move |k| (o.clone(), sound::Play { slot: 0x16, program: p, key: k as u8, volume: 0x80, speed: 1.0 }))))
+                .collect();
+            if !takes.is_empty() {
+                return takes;
             }
-            m.disc_voice()?
+            let Some(c) = m.disc_voice() else { return Vec::new() };
+            c
         }
     };
-    let (xb, hd) = (format!("SND/VOICE/MENU/MVC_CH{n}.XB0"), format!("data/sound/VOICE/MENU/mvc_ch{n}.hd"));
-    let bank = banks.entry(hd.clone()).or_insert_with(|| Iso::open(iso).ok().and_then(|mut iso| SoundBank::load(&mut iso, &xb, &hd)).map(Arc::new)).clone()?;
-    Some((bank, sound::Play { slot: 0x16, program: 0, key: c as u8, volume: 0x80, speed: 1.0 }))
+    LINES
+        .iter()
+        .filter_map(|line| {
+            let (xb, hd) = (format!("SND/VOICE/MENU/MVC_{line}.XB0"), format!("data/sound/VOICE/MENU/mvc_{}.hd", line.to_ascii_lowercase()));
+            let bank = banks.entry(hd.clone()).or_insert_with(|| Iso::open(iso).ok().and_then(|mut iso| SoundBank::load(&mut iso, &xb, &hd)).map(Arc::new)).clone()?;
+            Some((bank, sound::Play { slot: 0x16, program: 0, key: c as u8, volume: 0x80, speed: 1.0 }))
+        })
+        .collect()
 }
 
 /// Each player's R2/L2 pressed on a card not yet showing its live model.
@@ -1898,16 +1934,19 @@ mod tests {
         let mods = [Mod { costume_of: Some(3), ..m("none/") }];
         let (bank, play) = voice(Act::Loss, Who::Mod(0), 7, &mods, &mut banks, iso).unwrap();
         assert_eq!((Arc::as_ptr(&bank), play.program, play.key), (donor, 0, 1));
-        // locking a character in: its MVC_CH take; a mod its own win take, a costume pack its disc character's
+        // locking a character in: its take in each of LINES; a mod its own won takes, a costume pack its disc character's
         for c in 0..14 {
-            let (bank, play) = pick_voice(Who::Disc(c), (c & 1) as u8, &mods, &mut banks, iso).unwrap();
-            assert_eq!((play.slot, play.program, play.key), (0x16, 0, c as u8));
-            assert!(sound.playing(sound.play_centre(&bank, play)), "pick voice of {c}");
+            let lines = pick_voice(Who::Disc(c), &mods, &mut banks, iso);
+            assert_eq!(lines.len(), LINES.len());
+            for (bank, play) in lines {
+                assert_eq!((play.slot, play.program, play.key), (0x16, 0, c as u8));
+                assert!(sound.playing(sound.play_centre(&bank, play)), "pick voice of {c}");
+            }
         }
-        assert_eq!(pick_voice(Who::Mod(0), 0, &mods, &mut banks, iso).unwrap().1.key, 3);
+        assert!(pick_voice(Who::Mod(0), &mods, &mut banks, iso).iter().all(|l| l.1.key == 3));
         let own = [m("voice/"), m("none/")];
-        assert_eq!(pick_voice(Who::Mod(0), 0, &own, &mut banks, iso).unwrap().1.program, 9);
-        assert!(pick_voice(Who::Mod(1), 0, &own, &mut HashMap::new(), iso).is_none());
+        assert_eq!(pick_voice(Who::Mod(0), &own, &mut banks, iso).iter().map(|l| l.1.program).collect::<Vec<_>>(), [9]);
+        assert!(pick_voice(Who::Mod(1), &own, &mut HashMap::new(), iso).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
