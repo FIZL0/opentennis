@@ -1,4 +1,5 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
+- Online: going back to the lobby after a match with a downloaded character no longer crashes the game.
 - A new version is now offered (or, with Updates set to Always, installed) right on the title screen, with its download progress shown there.
 - Online, a controller can take over as player 1 in the lobby even after you typed the join code on the keyboard.
 - Online, the controller that picked Join by Code stays player 1 when you type the code and press Enter on the keyboard.

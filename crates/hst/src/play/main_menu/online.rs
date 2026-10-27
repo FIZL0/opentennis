@@ -837,7 +837,8 @@ impl Menu {
                 want.push((w.clone(), d.clone()));
             }
         }
-        if self.mods[own..].iter().map(|m| (&m.id, &m.dir)).eq(want.iter().map(|(w, d)| (&w.id, d))) {
+        // the menu after a match keeps them (`Kept`) but builds its text afresh from the roster
+        if text.mods.len() == self.mods.len() && self.mods[own..].iter().map(|m| (&m.id, &m.dir)).eq(want.iter().map(|(w, d)| (&w.id, d))) {
             return;
         }
         self.mods.truncate(own);
@@ -3851,6 +3852,10 @@ mod tests {
         b.borrow(&mut text);
         assert_eq!((b.mods.len(), text.mods.len(), b.own_mods(), b.mods[0].id.as_str()), (1, 1, 0, w.id.as_str()));
         assert!(!b.roster().contains(&Some(super::super::Who::Mod(0))));
+        // back in the lobby after the match: the menu's text is new, the borrowed mod's is put back
+        text.mods.clear();
+        b.borrow(&mut text);
+        assert_eq!(text.mods.len(), 1);
         b.seats[0] = Some(super::super::Dev::Keys);
         b.align();
         assert_eq!((b.pick(1), b.remote_mod_name(1)), ((super::super::Who::Mod(0), 0), None));
