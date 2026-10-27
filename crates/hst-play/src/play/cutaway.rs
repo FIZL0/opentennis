@@ -81,7 +81,7 @@ pub(super) fn bone(p: &Player, data: &CharacterData, id: usize, sets: u32, t: f3
     let mut m = player_matrix(p);
     m[3] = pos;
     // a mod's own reaction turned as drawn (`CharacterData::reaction_turn`): its root turned in the model's frame
-    if let Some(q) = data.reaction_turn(id, c, t) {
+    if let Some(q) = data.reaction_turn(id, c) {
         let r = [Vec3::X, Vec3::Y, Vec3::Z].map(|a| (q * a).to_array());
         let row = |i: usize| -> [f32; 4] { std::array::from_fn(|j| r[i][0] * m[0][j] + r[i][1] * m[1][j] + r[i][2] * m[2][j]) };
         (m[0], m[1], m[2]) = (row(0), row(1), row(2));
@@ -296,11 +296,11 @@ mod tests {
         };
         for (id, turns) in [(0x2c, true), (0x2d, false)] {
             assert!(data.own(data.drawn(id).unwrap()), "{id:#x}: no own clip");
-            assert_eq!(data.reaction_turn(id, data.drawn(id).unwrap(), 117.0).is_some_and(|q| q.angle_between(Quat::IDENTITY) > 1.0), turns, "{id:#x}");
+            assert_eq!(data.reaction_turn(id, data.drawn(id).unwrap()).is_some_and(|q| q.angle_between(Quat::IDENTITY) > 1.0), turns, "{id:#x}");
             let (own, don) = (facing(bone(&p, &data, id, 0, 117.0, pos, "Bip01Head").unwrap()), donor(id));
             assert!(own[0] * don[0] + own[1] * don[1] > 0.5, "{id:#x}: faces {own:?}, the donor {don:?}");
         }
         // the donor's own clip (online without the looks) never turns
-        assert!(data.reaction_turn(0x2c, &data.motions[&0x2c], 117.0).is_none());
+        assert!(data.reaction_turn(0x2c, &data.motions[&0x2c]).is_none());
     }
 }
