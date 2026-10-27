@@ -171,9 +171,9 @@ pub struct Build {
     pub swing: f32,
     /// It runs this many times as fast.
     pub run: f32,
-    /// Every grade (Serve, Stroke, Volley, Impact, Footwork) this one, 0 F … 5 A: its row's graded cells are the
-    /// stock characters' at that grade ([`crate::grades`]), 6 S the roster's best. None: the row's own.
-    pub stats: Option<u8>,
+    /// Its grades (Serve, Stroke, Volley, Impact, Footwork), 0 F … 5 A: each category's cells are the stock
+    /// characters' at that grade ([`crate::grades`]), 6 S the roster's best. None: the row's own.
+    pub stats: Option<[u8; 5]>,
     /// Its serves, and its other shots, fly this many ball steps a frame until their first bounce: the same path,
     /// sooner.
     pub serve_speed: u8,
@@ -285,9 +285,18 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
         serde_json::Value::Null => Ok(1.0),
         v => v.as_f64().filter(|x| (lo..=hi).contains(x)).map(|x| x as f32).ok_or_else(|| err(format!("`{k}` {v} must be a number {lo} to {hi}"))),
     };
+    // one letter for every category, or five (Serve, Stroke, Volley, Impact, Footwork)
     let stats = match &j["stats"] {
         serde_json::Value::Null => None,
-        v => Some(v.as_str().and_then(|g| ["F", "E", "D", "C", "B", "A", "S"].iter().position(|&l| l == g)).ok_or_else(|| err(format!("`stats` {v} must be a grade \"F\" to \"A\" or \"S\"")))? as u8),
+        v => {
+            let bad = || err(format!("`stats` {v} must be a grade \"F\" to \"A\" or \"S\", or five of them (Serve, Stroke, Volley, Impact, Footwork)"));
+            let g: Vec<u8> = v.as_str().ok_or_else(bad)?.chars().map(|l| "FEDCBAS".find(l).map(|g| g as u8)).collect::<Option<_>>().ok_or_else(bad)?;
+            Some(match g[..] {
+                [g] => [g; 5],
+                [a, b, c, d, e] => [a, b, c, d, e],
+                _ => return Err(bad()),
+            })
+        }
     };
     let steps = |k: &str| match &j[k] {
         serde_json::Value::Null => Ok(1),
@@ -578,22 +587,30 @@ pub fn override_ok(k: &str, v: &str) -> Result<(), String> {
 /// The mod's TParam.csv row as cells: row `base`, scaled, graded and with the overrides (`play.rs` reads rows the
 /// same way).
 pub fn tparam(iso: &mut Iso, m: &Mod) -> Result<Vec<String>, String> {
+    let csv = tparam_csv(iso)?;
+    let grades = m.build.stats.and_then(|_| crate::grades::disc_grades(iso));
+    tparam_row(&csv, grades.as_ref(), m)
+}
+
+/// The disc's TParam.csv.
+pub fn tparam_csv(iso: &mut Iso) -> Result<Vec<u8>, String> {
     let data = iso.read("PCDATA/PCDATA.XB").map_err(|e| e.to_string())?;
     let arc = Archive::parse(&data).map_err(|e| e.0)?;
     let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with("tparam.csv")).ok_or("no TParam.csv")?;
-    let csv = arc.read(e).map_err(|e| e.0)?;
-    let grades = m.build.stats.and_then(|_| crate::grades::disc_grades(iso));
-    tparam_row(&csv, grades.as_ref(), m)
+    arc.read(e).map_err(|e| e.0)
+}
+
+/// Character `n`'s TParam.csv row as cells.
+pub fn row_of(csv: &[u8], n: usize) -> Option<Vec<String>> {
+    let tag = format!("{n},");
+    let row = csv.split(|&b| b == b'\n').find(|l| l.starts_with(tag.as_bytes()))?;
+    Some(row.split(|&b| b == b',').map(|c| String::from_utf8_lossy(c).trim().to_string()).collect())
 }
 
 /// M113: [`tparam`] on the disc's TParam.csv already read (`csv`), with the select's `grades` for a §6 `stats`
 /// (None: the row ungraded).
 pub fn tparam_row(csv: &[u8], grades: Option<&[[u8; 5]; 14]>, m: &Mod) -> Result<Vec<String>, String> {
-    let row_of = |n: usize| -> Option<Vec<String>> {
-        let tag = format!("{n},");
-        let row = csv.split(|&b| b == b'\n').find(|l| l.starts_with(tag.as_bytes()))?;
-        Some(row.split(|&b| b == b',').map(|c| String::from_utf8_lossy(c).trim().to_string()).collect())
-    };
+    let row_of = |n: usize| row_of(csv, n);
     let mut cells = row_of(m.base).ok_or("no TParam.csv row")?;
     if m.build.scale != 1.0 {
         for &c in &SIZE_COLUMNS {
@@ -2873,7 +2890,9 @@ mod tests {
         };
         let m = try_(json).unwrap();
         assert_eq!(m.build, Build { disc: true, scale: 2.0, swing: 2.0, run: 0.25, stats: None, serve_speed: 1, shot_speed: 1, shots: [None; 4] });
-        assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"A\",\"version\"")).unwrap().build.stats, Some(5));
+        assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"A\",\"version\"")).unwrap().build.stats, Some([5; 5]));
+        assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"BACEB\",\"version\"")).unwrap().build.stats, Some([4, 5, 3, 1, 4]));
+        assert!(try_(&json.replace("\"version\"", "\"stats\":\"BAC\",\"version\"")).is_err());
         assert_eq!(try_(&json.replace("\"version\"", "\"stats\":\"S\",\"serve_speed\":3,\"version\"")).unwrap().build.serve_speed, 3);
         assert!(!m.joke() && try_(&json.replace("\"version\"", "\"joke\":true,\"version\"")).unwrap().joke());
         assert_eq!(try_(&json.replace("\"version\"", "\"shots\":{\"serve\":11,\"smash\":0},\"version\"")).unwrap().build.shots, [Some(11), None, None, Some(0)]);

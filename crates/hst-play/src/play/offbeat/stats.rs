@@ -19,7 +19,7 @@ pub(in crate::play) fn apply(g: &mut Game, iso: &mut Iso, mm: Option<&crate::mod
     let rows: Vec<Vec<String>> = (0..CHARACTERS).map(|c| tparam(iso, c)).collect();
     for i in 0..g.players.len() {
         let c = g.chars[i] as usize;
-        let row = graded_row(&mod_match::row(iso, mm, i, c), &rows, &grades, grade);
+        let row = graded_row(&mod_match::row(iso, mm, i, c), &rows, &grades, [grade; 5]);
         let p = &mut g.players[i];
         p.stats = stats_of(&row);
         p.body.stamina = p.stats.stamina;
@@ -51,14 +51,14 @@ mod tests {
             }
         }
         let rows: Vec<Vec<String>> = (0..CHARACTERS).map(|c| tparam(&mut iso, c)).collect();
-        let at = |g: u8, c: usize| -> f64 { graded_row(&rows[0], &rows, &grades, g)[c].split('/').next().unwrap().parse().unwrap() };
+        let at = |g: u8, c: usize| -> f64 { graded_row(&rows[0], &rows, &grades, [g; 5])[c].split('/').next().unwrap().parse().unwrap() };
         for (c, what) in [(12, "Serv POW"), (13, "Strk POW"), (14, "Voley POW"), (40, "SPE"), (28, "timing after")] {
             let v: Vec<f64> = (0..6).map(|g| at(g, c)).collect();
             assert!(v[0] < v[5], "{what} by grade: {v:?}");
         }
         // the graded row still reads as a TParam row
         for g in 0..6 {
-            let row = graded_row(&rows[3], &rows, &grades, g);
+            let row = graded_row(&rows[3], &rows, &grades, [g; 5]);
             let _ = (stats_of(&row), aim_of(&row), hst_sim::player::ReachStats::from_tparam(&row.join(",")));
         }
     }

@@ -2309,33 +2309,18 @@ struct Text {
     mods: Vec<(usize, [u8; 5])>,
 }
 
-/// The TParam.csv column each △ grade follows (Stroke, Volley, Footwork = speed). Serve has none: a serve flies on
-/// its donor's trajectory tables (Serv POW only picks the weak toss's), so [`mod_card`] takes that one's; Impact neither.
-const GRADE_COLS: [Option<usize>; 5] = [None, Some(13), Some(14), None, Some(40)];
-
-/// A mod's △ grades, so its card is the disc characters' card: its base character's, except where its row changes a
-/// `GRADE_COLS` cell: there the mean grade of the disc characters nearest in that column.
-/// ponytail: the disc's grades are hand-set (not a function of TParam), so nearest-neighbour is a stand-in.
-fn mod_grades(row: &[String], base: usize, csv: &[u8], grades: &[[u8; 5]; 14]) -> [u8; 5] {
-    let mut disc: [Vec<f32>; 14] = Default::default();
-    for line in String::from_utf8_lossy(csv).lines() {
-        let cells: Vec<&str> = line.split(',').map(str::trim).collect();
-        if let Some(c) = cells[0].parse::<usize>().ok().filter(|&c| c < 14) {
-            disc[c] = cells.iter().map(|v| v.parse().unwrap_or(f32::NAN)).collect();
-        }
-    }
-    let cell = |r: &[f32], c: usize| r.get(c).copied().unwrap_or(f32::NAN);
-    std::array::from_fn(|k| {
-        let Some(col) = GRADE_COLS[k] else { return grades[base][k] };
-        let Some(v) = row.get(col).and_then(|v| v.parse::<f32>().ok()) else { return grades[base][k] };
-        if v == cell(&disc[base], col) {
-            return grades[base][k];
-        }
-        let d = |c: usize| (cell(&disc[c], col) - v).abs();
-        let best = (0..14).map(d).filter(|d| !d.is_nan()).fold(f32::INFINITY, f32::min);
-        let near: Vec<u32> = (0..14).filter(|&c| d(c) == best).map(|c| grades[c][k] as u32).collect();
-        if near.is_empty() { grades[base][k] } else { ((near.iter().sum::<u32>() * 2 + near.len() as u32) / (2 * near.len() as u32)) as u8 }
-    })
+/// A mod's △ grades: its §6 `stats` (its cells are those grades'), else each category the grade of the disc
+/// character nearest its row over that category's cells ([`crate::grades::grades_of`]); except Serve: a serve flies on its donor's trajectory tables (Serv POW only picks
+/// the weak toss's), or §6 `shots.serve`'s, so it's that character's.
+fn mod_grades(m: &crate::mods::Mod, row: &[String], csv: &[u8], grades: &[[u8; 5]; 14]) -> [u8; 5] {
+    let rows: Vec<Vec<String>> = (0..14).filter_map(|c| crate::mods::row_of(csv, c)).collect();
+    let mut g = match m.build.stats {
+        Some(g) => g.map(|g| g.min(5)), // S is the roster's best cells: an A on the card
+        None if rows.len() == 14 => crate::grades::grades_of(row, &rows, grades, m.base),
+        None => grades[m.base],
+    };
+    g[0] = grades[m.build.shots[0].map_or(m.donor, usize::from)][0];
+    g
 }
 
 /// A mod's play style: its base row's, or its `タイプ` override's.
@@ -2429,10 +2414,7 @@ struct TParam(Vec<u8>);
 /// M113: mod `m`'s play style and △ grades as the select shows them (None: its TParam.csv row can't be read).
 fn mod_card(m: &crate::mods::Mod, csv: &[u8], t: &Text) -> Option<(usize, [u8; 5])> {
     let row = crate::mods::tparam_row(csv, Some(&t.grades), m).ok()?;
-    let mut g = mod_grades(&row, m.base, csv, &t.grades);
-    // its serve flies on its donor's tables, or §6 `shots.serve`'s
-    g[0] = t.grades[m.build.shots[0].map_or(m.donor, usize::from)][0];
-    Some((mod_style(m, &t.style), g))
+    Some((mod_style(m, &t.style), mod_grades(m, &row, csv, &t.grades)))
 }
 
 /// [`read_text`]'s mod roster and its folder, for [`setup`].
@@ -2503,7 +2485,7 @@ fn read_text(mut commands: Commands, args: Res<Args>, mut sheets: ResMut<Sheets>
     let roster: Vec<_> = crate::mods::list(&mods_dir)
         .into_iter()
         .filter_map(|m| match crate::mods::tparam(&mut iso, &m) {
-            Ok(row) => Some(((mod_style(&m, &style), mod_grades(&row, m.base, &csv, &grades)), m)),
+            Ok(row) => Some(((mod_style(&m, &style), mod_grades(&m, &row, &csv, &grades)), m)),
             Err(e) => {
                 warn!("{}: {e}", m.dir.display());
                 None
@@ -4068,7 +4050,7 @@ mod tests {
             let (dir, pr) = item.rsplit_once('@').unwrap();
             let m = crate::mods::read_any(std::path::Path::new(dir)).unwrap();
             let row = crate::mods::tparam(&mut iso, &m).unwrap();
-            let (st, g) = (mod_style(&m, &style), mod_grades(&row, m.base, &csv, &grades));
+            let (st, g) = (mod_style(&m, &style), mod_grades(&m, &row, &csv, &grades));
             let baked = std::env::var("HST_BAKED").ok().map(|b| {
                 let name = super::previews::dir_stamp(&m.dir);
                 std::fs::read(std::path::Path::new(&b).join(format!("m-{name}-0.png"))).unwrap_or_else(|e| panic!("{}: no bake: {e}", m.id))
@@ -4112,18 +4094,6 @@ mod tests {
             }
         }
         assert_eq!(failed, 0);
-    }
-
-    /// A mod's △ grades: its base's where its row matches the base, the nearest disc characters' where it doesn't.
-    #[test]
-    fn mod_grades_follow_nearest() {
-        let csv = b"#,x\n0,a,,,,,,,,,,,4,4,3\n1,b,,,,,,,,,,,7,7,8\n2,c,,,,,,,,,,,9,9,9\n3,d,,,,,,,,,,,9,9,9\n";
-        let mut g = [[0u8; 5]; 14];
-        (g[0], g[1], g[2], g[3]) = ([1, 1, 1, 5, 2], [2, 2, 3, 3, 3], [4, 4, 4, 1, 4], [3, 3, 3, 1, 3]);
-        let row = |s: &str| s.split(',').map(String::from).collect::<Vec<_>>();
-        assert_eq!(mod_grades(&row("0,a,,,,,,,,,,,4,4,3"), 0, csv, &g), g[0]);
-        // serve stays the base's; stroke 9 → mean of 4 and 3 rounds to 4; volley 3 is the base's; Impact, Footwork base
-        assert_eq!(mod_grades(&row("0,a,,,,,,,,,,,7,9,3"), 0, csv, &g), [1, 4, 1, 5, 2]);
     }
 
     /// B243: a locked row under the hand stays a dim grey pill, never the chosen row's gold; it can still be tapped.

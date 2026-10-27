@@ -16,3 +16,4 @@
 - A modded character's Serve grade on the select screen now matches how well it really serves.
 - Modded characters now turn after a point the way the original characters do, so the after-point camera shows them from the front instead of from behind.
 - A custom character can now hit its serve, groundstrokes, volleys and smash like different stock characters, and its Serve grade on the select screen follows whose serve it has.
+- Every grade on a modded character's select card now reflects how it really plays, in online lobbies too.

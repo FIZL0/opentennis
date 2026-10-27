@@ -24,11 +24,11 @@ pub const CHARACTERS: usize = 14;
 /// The grade above A ([`graded_row`]): every cell the roster's best.
 pub const S: u8 = 6;
 
-/// `own` with every category's cells at `grade` (0 F … 5 A): the mean of the cells of the characters in `rows` whose
+/// `own` with each category's cells at its `grade` (0 F … 5 A): the mean of the cells of the characters in `rows` whose
 /// grade in that category (`grades`) is `grade`, or the nearest grade any of them has. At [`S`] each cell part is the
 /// best any character in `rows` has, best being the way the A characters' mean lies from the F ones' (their mean
 /// where the two agree).
-pub fn graded_row(own: &[String], rows: &[Vec<String>], grades: &[[u8; 5]], grade: u8) -> Vec<String> {
+pub fn graded_row(own: &[String], rows: &[Vec<String>], grades: &[[u8; 5]], grade: [u8; 5]) -> Vec<String> {
     let donors = |k: usize, grade: u8| -> Vec<&Vec<String>> {
         let near = grades.iter().map(|g| g[k]).min_by_key(|&g| g.abs_diff(grade)).unwrap_or(grade);
         rows.iter().zip(grades).filter(|(_, g)| g[k] == near).map(|(r, _)| r).collect()
@@ -36,13 +36,43 @@ pub fn graded_row(own: &[String], rows: &[Vec<String>], grades: &[[u8; 5]], grad
     let cell = |rows: &[&Vec<String>], c: usize| mean(rows.iter().filter_map(|r| r.get(c).map(String::as_str)));
     let mut out = own.to_vec();
     for (k, cells) in CATEGORIES.iter().enumerate() {
-        let (a, f) = (donors(k, grade.min(5)), donors(k, 0));
+        let (a, f) = (donors(k, grade[k].min(5)), donors(k, 0));
         let all: Vec<&Vec<String>> = rows.iter().collect();
         for &c in cells.iter().filter(|&&c| c < own.len()) {
-            out[c] = if grade < S { cell(&a, c) } else { best(&cell(&a, c), &cell(&f, c), &all, c) };
+            out[c] = if grade[k] < S { cell(&a, c) } else { best(&cell(&a, c), &cell(&f, c), &all, c) };
         }
     }
     out
+}
+
+/// The grades `row` plays at, category by category: the grade of the character in `rows` nearest it over that
+/// category's cells (each part's distance over the roster's spread of it). A tie is `base`'s grade if it's among
+/// them (the disc's grades are hand-set: rows 3, 6, 7, 12, 13 share their Impact cells but not their grade), else
+/// the mean grade, rounded. A stock row gets its own grades.
+pub fn grades_of(row: &[String], rows: &[Vec<String>], grades: &[[u8; 5]], base: usize) -> [u8; 5] {
+    let parts = |r: &[String], c: usize| -> Vec<f64> { r.get(c).map_or(vec![], |s| s.split('/').map(|v| v.trim().parse().unwrap_or(f64::NAN)).collect()) };
+    std::array::from_fn(|k| {
+        let dist = |other: &[String]| -> f64 {
+            CATEGORIES[k]
+                .iter()
+                .flat_map(|&c| {
+                    let spread: Vec<Vec<f64>> = rows.iter().map(|r| parts(r, c)).collect();
+                    parts(row, c).into_iter().zip(parts(other, c)).enumerate().map(move |(i, (a, b))| {
+                        let col = spread.iter().filter_map(|p| p.get(i).copied()).filter(|v| !v.is_nan());
+                        let (lo, hi) = col.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| (lo.min(v), hi.max(v)));
+                        if hi > lo && !(a - b).is_nan() { (a - b).abs() / (hi - lo) } else { 0.0 }
+                    })
+                })
+                .sum()
+        };
+        let d: Vec<f64> = rows.iter().map(|r| dist(r)).collect();
+        let best = d.iter().copied().fold(f64::INFINITY, f64::min);
+        if d.get(base).is_some_and(|x| x - best < 1e-9) {
+            return grades[base][k];
+        }
+        let near: Vec<u32> = d.iter().zip(grades).filter(|(x, _)| **x - best < 1e-9).map(|(_, g)| g[k] as u32).collect();
+        ((near.iter().sum::<u32>() * 2 + near.len() as u32) / (2 * near.len().max(1) as u32)) as u8
+    })
 }
 
 /// Part by part ('/'): `a` where it equals `f`, else the largest (`a` above `f`) or smallest of cell `c` in `rows`.
@@ -114,18 +144,32 @@ mod tests {
         let rows = vec![num(1), num(3), num(9)];
         let grades = [[5, 0, 0, 0, 0], [5, 0, 1, 0, 0], [0, 5, 2, 3, 4]];
         let own = row("x");
-        let out = graded_row(&own, &rows, &grades, 5);
+        let out = graded_row(&own, &rows, &grades, [5; 5]);
         assert_eq!(out[12], "212", "Serve A: characters 0 and 1");
         assert_eq!(out[13], "913", "Stroke A: character 2");
         assert_eq!(out[14], "914", "Volley: nearest to A is character 2's 2");
         assert_eq!(out[28], "928");
         assert_eq!(out[40], "940");
-        let s = graded_row(&own, &rows, &grades, S);
+        let s = graded_row(&own, &rows, &grades, [S; 5]);
+        let mixed = graded_row(&own, &rows, &grades, [0, 5, 5, 5, 5]);
+        assert_eq!((mixed[12].as_str(), mixed[13].as_str()), ("912", "913"), "Serve F, Stroke A");
         assert_eq!(s[12], "112", "Serve S: A (1, 3) below F (9), so the roster's smallest");
         assert_eq!(s[13], "913", "Stroke S: A (9) above F (1, 3)");
         assert_eq!(s[23], own[23]);
         for c in [0, 11, 23, 55, 64] {
             assert_eq!(out[c], own[c], "cell {c} is the character's own");
+        }
+    }
+
+    /// Every stock row reads back as its own grades.
+    #[test]
+    fn rows_read_back_as_their_grades() {
+        let Ok(mut iso) = hst_data::fixture::iso() else { return hst_data::fixture::skip("no ISO") };
+        let grades = disc_grades(&mut iso).unwrap();
+        let csv = crate::mods::tparam_csv(&mut iso).unwrap();
+        let rows: Vec<Vec<String>> = (0..CHARACTERS).map(|c| crate::mods::row_of(&csv, c).unwrap()).collect();
+        for c in 0..CHARACTERS {
+            assert_eq!(grades_of(&rows[c], &rows, &grades, c), grades[c], "character {c}");
         }
     }
 }

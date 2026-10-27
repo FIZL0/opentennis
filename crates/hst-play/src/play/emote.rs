@@ -380,7 +380,7 @@ mod tests {
     }
 
     fn wire() -> crate::mods_online::Wire {
-        crate::mods_online::Wire { emotes: vec![], voices: vec![], shots: [None; 4], id: "x".into(), name: "X".into(), donor: 1, hand: 1.0, base: 1, overrides: vec![], ai_row: 1, names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 0, dir: None }
+        crate::mods_online::Wire { emotes: vec![], voices: vec![], shots: [None; 4], stats: None, id: "x".into(), name: "X".into(), donor: 1, hand: 1.0, base: 1, overrides: vec![], ai_row: 1, names: vec!["a".into()], parent: vec![None], rest: vec![[0; 16]], looks: 0, dir: None }
     }
 
     #[test]
