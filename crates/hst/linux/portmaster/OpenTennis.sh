@@ -39,16 +39,17 @@ export WGPU_BACKEND="${WGPU_BACKEND:-gl}"
 # First start: no file dialog on these systems, so the game imports the first ISO it finds here or in the PS2 roms
 # folder (it checks the disc is Hot Shots Tennis (USA), SCUS-97610, and keeps its own copy, disc.pack: the ISO can go
 # afterwards). disc.pack is the "installed" mark: once it is there, the game starts straight from it.
-set --
+# (any arguments are passed on to the game: a Ports start has none)
+iso=
 if [ ! -f "$GAMEDIR/disc.pack" ] && [ ! -f "$CONFDIR/hst/disc.pack" ]; then
   shopt -s nullglob
   for iso in "$GAMEDIR"/*.iso "$GAMEDIR"/*.ISO \
       /$directory/{ps2,PS2,roms/ps2,roms/PS2,ROMS/ps2,ROMS/PS2}/*[Hh]ot*[Ss]hots*[Tt]ennis*.{iso,ISO}; do
-    set -- --import "$iso"
+    set -- --import "$iso" "$@"
     break
   done
   shopt -u nullglob
-  if [ $# -eq 0 ]; then
+  if [ -z "$iso" ]; then
     pm_message "OpenTennis needs your own Hot Shots Tennis (USA) disc image: put the .iso (not a .chd) in ports/opentennis/ and start OpenTennis again."
     sleep 10
     pm_finish
@@ -64,7 +65,7 @@ $GPTOKEYB "opentennis.${DEVICE_ARCH}" &
 pm_platform_helper "$GAMEDIR/opentennis.${DEVICE_ARCH}"
 ./opentennis.${DEVICE_ARCH} "$@"
 
-if [ $# -gt 0 ] && [ ! -f "$GAMEDIR/disc.pack" ] && [ ! -f "$CONFDIR/hst/disc.pack" ]; then
+if [ -n "$iso" ] && [ ! -f "$GAMEDIR/disc.pack" ] && [ ! -f "$CONFDIR/hst/disc.pack" ]; then
   pm_message "Couldn't import $(basename "$iso"): it must be Hot Shots Tennis (USA), SCUS-97610, as an .iso. What went wrong is in ports/opentennis/log.txt."
   sleep 10
 fi

@@ -23,7 +23,8 @@ build)
         CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ \
         AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar \
         PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
-    cargo build --release -p hst --features ship --target $t
+    # HST_FEATURES= (empty) builds without `ship`, keeping the developer HST_* variables for a device session (M155b)
+    cargo build --release -p hst --features "${HST_FEATURES-ship}" --target $t
     out=dist/linux-aarch64/OpenTennis
     rm -rf dist/linux-aarch64 && mkdir -p $out  # the tarball is the whole folder: nothing stale in it
     aarch64-linux-gnu-strip -o $out/opentennis "${CARGO_TARGET_DIR:-target}/$t/release/hst"

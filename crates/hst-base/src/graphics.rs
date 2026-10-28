@@ -924,6 +924,11 @@ pub fn pick(d: &Device) -> Graphics {
     if d.steam_deck {
         return Graphics::STEAM_DECK;
     }
+    // M155b: a framebuffer handheld (muOS on a Mali G31) draws Default's menu at ~7 fps; Lowest is its floor
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    if crate::fbdev::wanted() {
+        return Graphics { auto: true, ..Graphics::LOWEST };
+    }
     let mut g = if d.touch { Graphics::PHONE } else { default() };
     for _ in 0..if d.touch { d.steps() } else { 0 } {
         g = cheaper(g).unwrap_or(g);

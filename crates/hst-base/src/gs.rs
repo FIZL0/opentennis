@@ -564,8 +564,9 @@ impl Material for GsMaterial {
         }
         if k.guard && !shadow {
             descriptor.vertex.shader_defs.push("GS_GUARD".into());
-            // B485: WebGL2 drops the guard band's triangles in the fragment stage, not by a NaN position
-            #[cfg(target_arch = "wasm32")]
+            // B485: WebGL2 drops the guard band's triangles in the fragment stage, not by a NaN position; so does ARM
+            // Linux (M155b: the Mali blob dropped the court's and sky's big triangles whole)
+            #[cfg(any(target_arch = "wasm32", all(target_os = "linux", target_arch = "aarch64")))]
             for defs in [Some(&mut descriptor.vertex.shader_defs), descriptor.fragment.as_mut().map(|f| &mut f.shader_defs)].into_iter().flatten() {
                 defs.push("GS_GUARD_DISCARD".into());
             }

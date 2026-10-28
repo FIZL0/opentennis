@@ -39,7 +39,7 @@ linux() {
     fi
     mkdir -p ~/.cache/hst-steamrt
     docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" -v ~/.cache/hst-steamrt:/cache -w /src \
-        -e HST_VERSION -e HST_COMMIT -e HOME=/cache -e CARGO_HOME=/cache/cargo -e RUSTUP_HOME=/cache/rustup -e CARGO_TARGET_DIR=/src/target/steamrt \
+        -e HST_VERSION -e HST_COMMIT -e HST_FEATURES -e HOME=/cache -e CARGO_HOME=/cache/cargo -e RUSTUP_HOME=/cache/rustup -e CARGO_TARGET_DIR=/src/target/steamrt \
         $sdk sh -ec '
             [ -x /cache/cargo/bin/cargo ] || curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --no-modify-path
             /cache/cargo/bin/cargo build --release -p hst --features ship'
@@ -74,7 +74,7 @@ linux_aarch64() {
     fi
     mkdir -p ~/.cache/hst-linux-aarch64
     docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" -v ~/.cache/hst-linux-aarch64:/cache -w /src \
-        -e HST_VERSION -e HST_COMMIT -e HOME=/cache -e CARGO_HOME=/cache/cargo -e RUSTUP_HOME=/cache/rustup -e CARGO_TARGET_DIR=/src/target/linux-aarch64 \
+        -e HST_VERSION -e HST_COMMIT -e HST_FEATURES -e HOME=/cache -e CARGO_HOME=/cache/cargo -e RUSTUP_HOME=/cache/rustup -e CARGO_TARGET_DIR=/src/target/linux-aarch64 \
         $img sh -ec '
             [ -x /cache/cargo/bin/rustup ] || curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain none --no-modify-path
             PATH=/cache/cargo/bin:$PATH sh tools/linux-aarch64.sh build'
