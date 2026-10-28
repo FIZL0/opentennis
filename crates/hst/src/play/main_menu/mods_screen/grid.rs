@@ -2144,8 +2144,9 @@ fn detail(d: &mut Draw, m: &Menu, a: [f32; 3], b @ [_, _, _, h]: [f32; 4]) {
     }
     if let (Some((_, grades)), Some(ch)) = (sh.stats, card_h) {
         let card = [tx, ty, tw, ch * PY];
-        roster::ringed(d, [card[0] - 2.0 * PX, card[1] - 2.0 * PY, card[2] + 4.0 * PX, card[3] + 4.0 * PY], 12.0, 2.0, look::c(look::INK), look::c(look::INK));
-        roster::stats(d, grades, card);
+        // B692: on the panel's paper inside an ink rim, as the character select shows them (an ink fill hid the labels)
+        roster::ringed(d, [card[0] - 2.0 * PX, card[1] - 2.0 * PY, card[2] + 4.0 * PX, card[3] + 4.0 * PY], 12.0, 2.0, look::c(look::INK), look::c(look::PAPER));
+        roster::stats(d, grades, [card[0] + 8.0 * PX, card[1], card[2] - 16.0 * PX, card[3]]);
     }
 }
 
