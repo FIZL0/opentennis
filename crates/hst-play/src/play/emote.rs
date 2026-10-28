@@ -122,6 +122,19 @@ pub(super) fn hide_ball(g: Res<Game>, mut q: Query<&mut Visibility, Or<(With<sup
     }
 }
 
+/// An emote reuses the post-point reaction motions, but a mod's own clip of one keeps its facing while emoted: the
+/// reaction's turn (`CharacterData::reaction_turn`) is for the post-point shots only. Draw-side only.
+pub(super) fn own_facing(g: Res<Game>, q: Query<(Entity, &super::Figure, Has<crate::character::OwnFacing>)>, mut commands: Commands) {
+    for (e, f, has) in &q {
+        let emoting = g.players.get(f.0).is_some_and(|p| p.emote > 0);
+        match (emoting, has) {
+            (true, false) => _ = commands.entity(e).insert(crate::character::OwnFacing),
+            (false, true) => _ = commands.entity(e).remove::<crate::character::OwnFacing>(),
+            _ => {}
+        }
+    }
+}
+
 /// Nothing under way: no stroke, dive, whiff, serve follow-through, reaction or body hit.
 fn idle(g: &Game, i: usize) -> bool {
     let p = &g.players[i];

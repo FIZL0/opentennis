@@ -12,3 +12,4 @@
 - iPhone browsers tick again on each press of the on-screen buttons (Settings → Mobile → Vibration).
 - Online: a player on the Random card now shows their face in the match's score panel instead of a blank circle.
 - Random on the character select now picks a character nobody else has, so several players on Random no longer end up as the same character in different outfits.
+- Custom characters emoting in a match keep facing the way they stand, instead of spinning around as they do for the after-point close-ups.
