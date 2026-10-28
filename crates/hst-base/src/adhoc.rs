@@ -13,6 +13,8 @@
 //!   first, so a guest downloads ~170 MB, not the whole image; the guest page reads it into memory)
 //! - `/adhoc/mods/<folder>/<file>`: a listed mod's files (characters, courts and umpires, and the texture packs that
 //!   are switched on)
+//! - `POST /adhoc/log`: a guest page's console errors and load steps (B689), printed in this game's log with the
+//!   guest's address, so a phone's failed load can be read without a desktop browser's inspector
 //! - `POST /rtc`: M152b's signalling (a guest's WebRTC offer in, the answer out) for the lobby hosting now, so the
 //!   guest page (M152c) joins on the same address and port it was served from
 //!
@@ -530,7 +532,15 @@ fn serve(mut c: TcpStream, sh: &Shared) -> io::Result<()> {
                 }
             }
             let body: Vec<u8> = buf.drain(..req.len).collect();
-            post(&mut c, &req, &String::from_utf8_lossy(&body))?;
+            if req.path == "/adhoc/log" {
+                let from = c.peer_addr().map_or_else(|_| "?".into(), |a| a.ip().to_string());
+                for l in guest_lines(&String::from_utf8_lossy(&body)) {
+                    bevy::log::info!("adhoc guest {from}: {l}");
+                }
+                reply(&mut c, "204 No Content", "text/plain", b"", req.close, false)?;
+            } else {
+                post(&mut c, &req, &String::from_utf8_lossy(&body))?;
+            }
         } else {
             route(&mut c, sh, &req)?;
         }
@@ -617,6 +627,12 @@ fn under(dir: &Path, rel: &str) -> Option<PathBuf> {
         return None;
     }
     Some(dir.join(rel)).filter(|p| p.is_file())
+}
+
+/// B689: a guest's log batch (`POST /adhoc/log`, a line each) as lines to print: control characters out (a guest
+/// can't move the host's terminal about), empty ones dropped, each cut at 400 characters.
+fn guest_lines(body: &str) -> impl Iterator<Item = String> + '_ {
+    body.lines().map(|l| l.chars().filter(|c| !c.is_control()).take(400).collect::<String>()).filter(|l| !l.trim().is_empty())
 }
 
 /// Answers a POST: `/rtc` takes a guest's offer code for the hosting lobby (M152b's `signal`, on the game's runtime: the
@@ -784,6 +800,15 @@ mod tests {
         assert!(p.post && p.len == 12);
         assert_eq!(decode("%2"), "%2");
         assert_eq!(encode("hst-mods/Ann é"), "hst-mods/Ann%20%C3%A9");
+    }
+
+    #[test]
+    fn guest_log_lines() {
+        let body = format!("12ms say: Loading…\r\n\n\u{1b}[2Jbad\t{}", "x".repeat(500));
+        let got: Vec<String> = guest_lines(&body).collect();
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0], "12ms say: Loading…");
+        assert!(got[1].starts_with("[2Jbadx") && got[1].chars().count() == 400);
     }
 
     #[test]

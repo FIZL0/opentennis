@@ -428,7 +428,7 @@ if (!('game' in document.documentElement.dataset))
 </div>
 <!-- what the page is doing until the game draws (web.rs `shown`), or why it stopped -->
 <div id="boot"><div id="step">Loading…</div><div id="help" hidden>
-  <a href="">Reload</a><span> · </span><a id="gl" href="?webgl2">Try WebGL2</a><span> · </span><a href="?site#settings">Settings &amp; files</a><span> · </span><a href="?forget">Pick the ISO again</a><span> · </span><a id="copy" href="" hidden>Copy the error</a></div></div>
+  <a href="">Reload</a><span> · </span><a id="gl" href="?webgl2">Try WebGL2</a><span> · </span><a id="sitelink" href="?site#settings">Settings &amp; files</a><span> · </span><a id="isolink" href="?forget">Pick the ISO again</a><span> · </span><a id="copy" href="" hidden>Copy the error</a></div></div>
 <script>
 // B453: `?fps` — the game's frame log (web.rs: frame rate, stalls, pipelines; stall.rs) plus the page's own view of the
 // main thread: `raf gap N ms` (two animation frames that far apart) and `blocked N ms` (a 50 ms timer that late: the
@@ -810,6 +810,45 @@ awake();
 document.addEventListener('visibilitychange', awake);
 for (const e of ['pointerdown', 'keydown', 'gamepadconnected']) addEventListener(e, awake);
 </script>
+<script>
+// B689: a guest's load steps (every change of the boot text: say, the 30 s stall, an error) and its console's
+// warnings, errors, exceptions and the game's own `hst:`/`online:` lines, sent to the host (adhoc.rs `/adhoc/log`,
+// printed in the host's log), so a phone's failed load can be read without a desktop browser's inspector. Kept from
+// the start, sent once the page knows it's a guest (`hstGuestLog(true)`), 6 KB a post at most once a second and the
+// rest on leaving the page; at most 3000 lines a load.
+{
+  const t0 = performance.now(), buf = [];
+  let on = false, kept = 0, sending = false;
+  const add = (kind, text) => {
+    if (kept++ >= 3000) return;
+    buf.push(`${Math.round(performance.now() - t0)}ms ${kind}: ${String(text).replace(/%c/g, '').replace(/\s*\n\s*/g, ' | ').slice(0, 400)}`);
+  };
+  const take = () => { let n = 0, i = 0; while (i < buf.length && (n += buf[i].length + 1) <= 6000) i++; return buf.splice(0, Math.max(i, 1)).join('\n'); };
+  const send = () => {
+    if (!on || sending || !buf.length) return;
+    sending = true;
+    fetch('/adhoc/log', { method: 'POST', body: take(), keepalive: true }).catch(() => {}).finally(() => { sending = false; });
+  };
+  window.hstGuestLog = go => { on = go; if (!go) buf.length = 0; };
+  for (const k of ['info', 'warn', 'error']) {
+    const f = console[k];
+    console[k] = (...a) => { add(k, a.map(x => x instanceof Error ? x.stack || x.message : typeof x === 'string' ? x : (() => { try { return JSON.stringify(x); } catch { return String(x); } })()).join(' ')); f.apply(console, a); };
+  }
+  const log = console.log;
+  console.log = (...a) => {
+    const text = a.filter(x => typeof x === 'string' && !/^(color|font-[a-z]+):/.test(x)).join(' ');
+    if (/ERROR|WARN|panicked|hst:|online:/.test(text)) add('log', text);
+    log.apply(console, a);
+  };
+  addEventListener('error', e => add('exception', `${e.error?.stack || e.message} ${e.filename ?? ''}:${e.lineno ?? ''}`));
+  addEventListener('unhandledrejection', e => add('rejection', e.reason?.stack || e.reason));
+  let said = '';
+  new MutationObserver(() => { const t = step.textContent; if (t !== said) add('step', said = t); }).observe(step, { childList: true, characterData: true, subtree: true });
+  add('page', `${navigator.userAgent} ${screen.width}x${screen.height}@${devicePixelRatio} WebRTC: ${typeof RTCPeerConnection !== 'undefined'} wasm: ${typeof WebAssembly !== 'undefined'}`);
+  setInterval(send, 1000);
+  addEventListener('pagehide', () => { if (on) while (buf.length) navigator.sendBeacon('/adhoc/log', take()); });
+}
+</script>
 <script type="module" src="touch.js"></script>
 <script type="module">
 if (answer) await new Promise(() => {});
@@ -817,9 +856,51 @@ if (answer) await new Promise(() => {});
 // the disc and mods come from that host into memory only (B457's in-memory folder: no OPFS, no service worker, nothing
 // of the game left on the device), the site page is skipped and the game opens straight into the host's lobby
 // (`rtch<host:port>`, M152b's signalling at `/rtc` on the same address). `?site` opens the site page as usual.
-const adhoc = location.protocol === 'http:' && !new URLSearchParams(location.search).has('site')
-  ? await fetch('/adhoc/info.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => j?.game === 'opentennis' ? j : null).catch(() => null)
-  : null;
+// B689: a host that doesn't answer (busy, the Wi-Fi waking up) is asked again rather than taken for a plain site: a
+// tab that was a guest already (sessionStorage `hst-guest`, kept across WebKit's reload after it killed the tab) keeps
+// asking with what went wrong on screen, never the site's ISO picker; a first visit asks three times. A plain http
+// server (`tools/web.sh`) answers 404, which is no host at once.
+const hostInfo = async () => {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), 8000);
+  try {
+    const r = await fetch('/adhoc/info.json', { cache: 'no-store', signal: c.signal });
+    if (!r.ok) return r.status >= 500 ? Promise.reject(new Error(`HTTP ${r.status}`)) : null;
+    const j = await r.json().catch(() => null);
+    return j?.game === 'opentennis' ? j : null;
+  } catch (e) {
+    throw c.signal.aborted ? new Error('no answer in 8 s') : e;
+  } finally { clearTimeout(t); }
+};
+const guestTab = (() => { try { return sessionStorage.getItem('hst-guest') === location.host; } catch { return false; } })();
+let adhoc = null;
+if (location.protocol === 'http:' && !new URLSearchParams(location.search).has('site')) {
+  for (let tries = 1; ; tries++) {
+    try { adhoc = await hostInfo(); break; } catch (e) {
+      console.warn(`hst: the host at ${location.host} didn't answer (${e?.message ?? e}), try ${tries}`);
+      if (!guestTab && tries >= 3) break;
+      say(`Can't reach the host at ${location.host} (${e?.message ?? e}). Make sure it's still hosting and on the same Wi-Fi; trying again…`);
+      await new Promise(f => setTimeout(f, 2000));
+    }
+  }
+}
+try { if (adhoc) sessionStorage.setItem('hst-guest', location.host); } catch {}
+window.hstGuestLog(!!adhoc);
+// B689: the game joins its host over WebRTC, which a browser can have switched off (an iPhone in Lockdown Mode, a
+// privacy setting or extension; WebKitGTK builds without it): said before anything is downloaded, not as the lobby's
+// "Can't find variable: RTCPeerConnection" once the game is up. `hstNoRtcCheck` loads on anyway (tools/web_webkit.mjs:
+// a guest's load in WebKitGTK, which has no WebRTC)
+if (adhoc && typeof RTCPeerConnection === 'undefined') {
+  console.warn('hst: no RTCPeerConnection: this browser has WebRTC off');
+  const why = 'This browser has WebRTC switched off, and joining the host needs it, so the game can\'t start here.\n'
+    + 'iPhone or iPad: Lockdown Mode turns it off. Turn Lockdown Mode off for this page (Safari: tap the page menu '
+    + 'left of the address → Website Settings → Lockdown Mode off), or in Settings → Privacy & Security → Lockdown '
+    + 'Mode, then reload. Elsewhere: check the browser\'s privacy settings and extensions for WebRTC.';
+  fail(why);
+  step.textContent = why;
+  if (!window.hstNoRtcCheck) await new Promise(() => {});
+}
+// a guest has no ISO of its own and no site to go back to: the error screen's links are Reload and WebGL2 only
+if (adhoc) for (const id of ['sitelink', 'isolink']) document.getElementById(id).hidden = true;
 // read by the game (web.rs adhoc_guest): a controller picked up takes the touch pad's seat over
 window.hstAdhoc = !!adhoc;
 // installable and playable offline (sw.js)
@@ -1091,49 +1172,85 @@ const writeFile = async (path, data) => {
 window.hstWriteFile = writeFile;
 
 // M152c: the host's disc pack (adhoc.rs `/adhoc/disc`) straight into the game's memory as it arrives, never stored;
-// while the host is still packing its ISO, asked again every 2 s
+// while the host is still packing its ISO, asked again every 2 s. B689: a download cut off (the Wi-Fi dropped, the
+// host stalled) goes on from where it stopped (a byte range) after 2 s, saying why, instead of failing the page
 async function hostDisc() {
+  let size = -1, got = 0, shown = 0;
   for (;;) {
-    const r = await fetch('/adhoc/disc', { cache: 'no-store' });
-    if (r.status === 503) { say('The host is getting its disc ready…'); await new Promise(f => setTimeout(f, 2000)); continue; }
-    if (!r.ok) throw new Error(`the host's disc: HTTP ${r.status}`);
-    const size = Number(r.headers.get('Content-Length'));
-    pack_begin(size);
-    const reader = r.body.getReader();
-    let got = 0, shown = 0;
-    for (let c; !(c = await reader.read()).done;) {
-      pack_part(c.value);
-      got += c.value.length;
-      if (got - shown > 4e6 || got === size) { shown = got; say(`Getting the disc from the host… ${(got / 1e6).toFixed(0)} of ${(size / 1e6).toFixed(0)} MB`); }
+    let why;
+    try {
+      const r = await fetch('/adhoc/disc', { cache: 'no-store', headers: got ? { Range: `bytes=${got}-` } : {} });
+      if (r.status === 503) { say('The host is getting its disc ready…'); await new Promise(f => setTimeout(f, 2000)); continue; }
+      if (got ? r.status !== 206 : !r.ok) throw new Error(`HTTP ${r.status}`);
+      if (size < 0) { size = Number(r.headers.get('Content-Length')); pack_begin(size); }
+      const reader = r.body.getReader();
+      for (let c; !(c = await reader.read()).done;) {
+        pack_part(c.value);
+        got += c.value.length;
+        if (got - shown > 4e6 || got === size) { shown = got; say(`Getting the disc from the host… ${(got / 1e6).toFixed(0)} of ${(size / 1e6).toFixed(0)} MB`); }
+      }
+      if (got === size) return;
+      why = `it stopped at ${(got / 1e6).toFixed(0)} of ${(size / 1e6).toFixed(0)} MB`;
+    } catch (e) {
+      // the game refused a part (past the pack's end): no point asking again
+      if (typeof e === 'string') throw new Error(`the host's disc: ${e}`);
+      why = e?.message ?? String(e);
     }
-    if (got !== size) throw new Error(`the host's disc stopped at ${got} of ${size} bytes`);
-    return;
+    console.warn(`hst: the host's disc: ${why}, going on from byte ${got}`);
+    say(`Lost the host while getting its disc (${why}). Trying again…`);
+    await new Promise(f => setTimeout(f, 2000));
   }
 }
 
+// B689: a guest holds the host's texture packs in memory whole (the OPFS ones are read in whole too), and a host with
+// a big one on (an HD pack is ~1.5 GB) took an iPhone's tab past what WebKit allows: it killed the tab, reloaded it,
+// and killed it again. A guest takes the host's texture packs while they come to at most this much, smallest first,
+// and none at all after its last load was cut off (`hst-guest-loading`); the rest are left out, said on screen and in
+// the console. Mods' upscaled sets (modfs.rs `upscaled`) are never read in the browser, so never fetched either.
+const GUEST_TEXTURES = 64 << 20;
+
 // M152c: the host's mods (info.json `mods`) into the game as the OPFS ones are: manifests and select pictures now,
 // a texture pack whole, the rest when the game wants the mod (`hstModLoad`, fetched from the host then)
-async function hostMods(pool) {
+// Resolves to the bytes read in now.
+async function hostMods(pool, lean) {
   const url = (m, p) => m.url + p.split('/').map(encodeURIComponent).join('/');
   const get = async u => { const r = await fetch(u); if (!r.ok) throw new Error(`${u}: HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()); };
-  const byDir = new Map(adhoc.mods.map(m => [`mods/${m.folder}`, m]));
-  let listed = 0;
-  if (adhoc.mods.length) say(`Getting mods from the host… 0 of ${adhoc.mods.length}`);
-  await pool(adhoc.mods, 4, async m => {
-    await pool(m.files, 8, async ({ path, size }) => {
+  const files = m => m.files.filter(f => !f.path.startsWith('textures/upscaled/'));
+  const bytes = m => files(m).reduce((n, f) => n + f.size, 0);
+  let room = lean ? 0 : GUEST_TEXTURES;
+  const left = [];
+  const mods = adhoc.mods.filter(m => m.kind !== 'textures')
+    .concat(adhoc.mods.filter(m => m.kind === 'textures').sort((a, b) => bytes(a) - bytes(b)).filter(m => bytes(m) <= room ? (room -= bytes(m), true) : (left.push(m), false)));
+  if (left.length) {
+    const what = left.map(m => `${m.name} (${(bytes(m) / 1048576).toFixed(0)} MB)`).join(', ');
+    console.warn(`hst: the host's texture packs left out (${lean ? 'the last load was cut off' : `over ${GUEST_TEXTURES >> 20} MB`}): ${what}`);
+    say(`Leaving out the host's texture packs (${what}): too big for this browser's memory. You'll see the game's own textures.`);
+    await new Promise(f => setTimeout(f, 2500));
+  }
+  const byDir = new Map(mods.map(m => [`mods/${m.folder}`, m]));
+  let listed = 0, n = 0, later = 0, lazy = 0;
+  if (mods.length) say(`Getting mods from the host… 0 of ${mods.length}`);
+  await pool(mods, 4, async m => {
+    await pool(files(m), 8, async ({ path, size }) => {
       const p = `mods/${m.folder}/${path}`;
-      if (m.kind !== 'textures' && !path.endsWith('.json') && !path.includes('previews/')) return add_mod_lazy(p, size);
-      try { add_mod_file(p, await get(url(m, path))); } catch (e) { console.warn(`hst: ${p}: ${e}`); }
+      if (m.kind !== 'textures' && !path.endsWith('.json') && !path.includes('previews/')) { later += size; lazy++; return add_mod_lazy(p, size); }
+      try { const b = await get(url(m, path)); n += b.length; add_mod_file(p, b); } catch (e) { console.warn(`hst: ${p}: ${e}`); }
     });
-    say(`Getting mods from the host… ${++listed} of ${adhoc.mods.length}`);
+    say(`Getting mods from the host… ${++listed} of ${mods.length}`);
   });
+  // the manifests and pictures are all a character's or court's mod reads now: its models, motions and voices come
+  // when the game wants it
+  console.info(`hst: ${mods.length} mods from the host: ${(n / 1048576).toFixed(1)} MB now, ${lazy} files (${(later / 1048576).toFixed(1)} MB) when the game wants them`);
   window.hstModLoad = async d => {
-    const m = byDir.get(d);
-    await pool((m?.files ?? []).filter(f => !f.path.endsWith('.json') && !f.path.includes('previews/')), 8, async ({ path }) => {
-      try { add_mod_file(`${d}/${path}`, await get(url(m, path))); } catch (e) { console.warn(`hst: ${d}/${path}: ${e}`); }
+    const m = byDir.get(d), from = performance.now();
+    let got = 0;
+    await pool(m ? files(m).filter(f => !f.path.endsWith('.json') && !f.path.includes('previews/')) : [], 8, async ({ path }) => {
+      try { const b = await get(url(m, path)); got += b.length; add_mod_file(`${d}/${path}`, b); } catch (e) { console.warn(`hst: ${d}/${path}: ${e}`); }
     });
+    console.info(`hst: ${d} read from the host (${(got / 1048576).toFixed(1)} MB) in ${Math.round(performance.now() - from)} ms`);
     mod_loaded(d);
   };
+  return n;
 }
 
 // M152c: held on the boot screen until the host has a lobby open (Online → Host), then into it as the URL's `?code=`
@@ -1152,6 +1269,19 @@ async function start() {
   const pack = adhoc ? null : await (await dir.getFileHandle('disc.pack')).getFile();
   boot.hidden = false;
   say(adhoc ? 'Loading the game from the host…' : 'Reading the disc pack…');
+  // B689: a guest's load that never reached the game's first frame was cut off: WebKit kills a tab over its memory
+  // limit and reloads it, with sessionStorage kept. Said once, and this load leaves the host's texture packs out
+  let lean = false;
+  if (adhoc) {
+    try { lean = !!sessionStorage.getItem('hst-guest-loading'); sessionStorage.setItem('hst-guest-loading', '1'); } catch {}
+    if (lean) {
+      console.warn('hst: the last load from the host was cut off before the game started (the browser likely ran out of memory)');
+      say('The last try was cut off before the game started (likely out of memory). Trying again with less…');
+      await new Promise(f => setTimeout(f, 2500));
+    }
+    const shownBefore = window.hstShown;
+    window.hstShown = () => { try { sessionStorage.removeItem('hst-guest-loading'); } catch {} shownBefore(); };
+  }
   // (a phone's first run picks its graphics preset in the game: main_menu.rs `first`, graphics.rs PHONE)
   await init({ module_or_path: wasm() });
   if (adhoc) await hostDisc(); else {
@@ -1227,7 +1357,7 @@ async function start() {
     console.info(`hst: ${dir} read in (${(n / 1048576).toFixed(1)} MB) in ${Math.round(performance.now() - from)} ms`);
     mod_loaded(dir);
   };
-  if (adhoc) await hostMods(pool);
+  if (adhoc) modBytes += await hostMods(pool, lean);
   console.info(`hst: mods read from ${adhoc ? 'the host' : 'OPFS'} (${(modBytes / 1048576).toFixed(1)} MB) in ${Math.round(performance.now() - modsFrom)} ms`);
   // the Mods screen's picker (web.rs): over the Add mod row while it's up, or opened by a key or pad
   const pick = document.getElementById('modzip');

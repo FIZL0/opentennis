@@ -190,6 +190,8 @@ thread_local! {
 /// the browser's garbage collector got to it, on a phone that's what a tab kill needs).
 #[wasm_bindgen]
 pub fn pack_begin(len: usize) {
+    // a pack begun before is let go first: never two of them in memory at once (B689)
+    FILLING.with(|f| *f.borrow_mut() = None);
     FILLING.with(|f| *f.borrow_mut() = Some((Arc::new_uninit_slice(len), 0)));
 }
 
