@@ -403,8 +403,14 @@ pub fn unseated_styles(seated: &[Entity]) -> Vec<Style> {
     v.into_iter().filter(|(e, _)| !seated.contains(e)).map(|(_, s)| forced.unwrap_or(s)).collect()
 }
 
-/// A phone build (iOS / Android): no keyboard shortcuts anywhere in the menus.
-pub const MOBILE: bool = cfg!(any(target_os = "ios", target_os = "android"));
+/// A phone (the iOS / Android app, or a browser played by touch): no keyboard shortcuts anywhere in the menus.
+pub fn mobile() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    if crate::web::touched() {
+        return true;
+    }
+    cfg!(any(target_os = "ios", target_os = "android"))
+}
 
 fn note_pads(pads: Query<(Entity, &Gamepad)>, all: Query<&Gamepad>) {
     let mut ps: Vec<_> = pads.iter().filter(|(_, g)| controls::readable(g)).map(|(e, _)| e).collect();
@@ -471,7 +477,7 @@ fn track(keys: Res<ButtonInput<KeyCode>>, pads: Query<(Entity, &Gamepad)>, touch
     let deck = || std::env::var("SteamDeck").as_deref() == Ok("1");
     let now = if touches.any_just_pressed() {
         Some(Last::Touch)
-    } else if !MOBILE && keys.get_just_pressed().next().is_some() {
+    } else if !mobile() && keys.get_just_pressed().next().is_some() {
         Some(Last::Keys)
     } else {
         pads.iter()
@@ -837,8 +843,8 @@ pub fn draw(
 ) {
     let mut groups = std::mem::take(&mut legend.0);
     drawn.0.clone_from(&groups);
-    if MOBILE {
-        // a phone build shows no keyboard shortcuts: only the pads' groups
+    if mobile() {
+        // a phone shows no keyboard shortcuts: only the pads' groups
         groups.iter_mut().for_each(|g| g.devs.retain(Option::is_some));
         groups.retain(|g| !g.devs.is_empty());
     }

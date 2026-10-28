@@ -219,6 +219,7 @@ fn vibration_about() -> &'static str {
     match can {
         "haptic" => "A light haptic tick on each press of the on-screen controls.",
         "vibrate" => "Buzz briefly on each press of the on-screen controls. Android: not while the phone's ringer is on Silent.",
+        "ios" => "iPhone: Safari has no vibration, so each press gives the light haptic tick of iOS 18 and later instead (nothing on older iOS).",
         "firefox" => "Firefox for Android doesn't let web pages vibrate, so this does nothing here. Chrome on Android buzzes.",
         _ => "This browser can't vibrate, so this does nothing here.",
     }
@@ -633,7 +634,7 @@ impl Menu {
         self.sel = 0;
         self.rows_top = 0;
         // B291: Controls opens on the column of the device last used (a phone has no keyboard)
-        self.keys_tab = !super::legend::MOBILE && super::legend::last_style() == super::legend::Style::Keys;
+        self.keys_tab = !super::legend::mobile() && super::legend::last_style() == super::legend::Style::Keys;
         out.push(Effect::Sound(0));
     }
 }

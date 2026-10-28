@@ -25,11 +25,15 @@
 //! PC's firewall (ufw) is on and has no rule letting the port in, and after a while with no guest otherwise; never
 //! once a request has come from another machine.
 //!
+//! M152f: the same port takes HTTPS too (`tls`: a self-signed certificate kept between runs), and the card's address is
+//! the https one, so a guest's page is a secure context: WebGPU, the disc kept in OPFS between visits, Add to Home Screen.
+//!
 //! A plain thread per connection (a handful of guests), HTTP/1.1 keep-alive, GET and HEAD, byte ranges (a big disc can
 //! be read in parts or resumed).
 
 pub mod guest;
 pub mod page;
+pub(crate) mod tls;
 
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -82,6 +86,33 @@ struct Shared {
     stop: AtomicBool,
     /// A request has come from another machine.
     reached: AtomicBool,
+    /// M152f: HTTPS's setup (None: plain http only, the certificate couldn't be made).
+    tls: Option<Arc<rustls::ServerConfig>>,
+}
+
+/// A guest's connection, plain or TLS.
+trait Conn: Read + Write {
+    fn tcp(&self) -> &TcpStream;
+    /// Takes the connection over as M156's WebSocket after an upgrade's head.
+    fn websocket(self, up: (String, String)) -> io::Result<()>;
+}
+
+impl Conn for TcpStream {
+    fn tcp(&self) -> &TcpStream {
+        self
+    }
+    fn websocket(self, up: (String, String)) -> io::Result<()> {
+        crate::net::ws::accept(self, up)
+    }
+}
+
+impl Conn for tls::Tls {
+    fn tcp(&self) -> &TcpStream {
+        &self.sock
+    }
+    fn websocket(self, up: (String, String)) -> io::Result<()> {
+        tls::websocket(self, up)
+    }
 }
 
 struct Server {
@@ -125,7 +156,9 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
             TcpListener::bind((Ipv4Addr::UNSPECIFIED, p)).ok()
         }).map_or_else(|| TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)), Ok).map_err(|e| format!("Couldn't open a port: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let shared = Arc::new(Shared { disc: served_disc(disc), web: Mutex::new(Web::Looking), mods: Mutex::new(mods()), stop: AtomicBool::new(false), reached: AtomicBool::new(false) });
+    let ips: Vec<std::net::IpAddr> = lan_ips().into_iter().map(Into::into).collect();
+    let tls = tls::config(&crate::disc::data_dir().join("adhoc-tls"), &ips).inspect_err(|e| bevy::log::warn!("adhoc: no https ({e}): plain http only")).ok();
+    let shared = Arc::new(Shared { disc: served_disc(disc), web: Mutex::new(Web::Looking), mods: Mutex::new(mods()), stop: AtomicBool::new(false), reached: AtomicBool::new(false), tls });
     let own = own_addrs();
     let sh = shared.clone();
     std::thread::Builder::new().name("adhoc-web".into()).spawn(move || find_web(&sh)).map_err(|e| e.to_string())?;
@@ -143,7 +176,7 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
                 }
                 let sh = sh.clone();
                 let _ = std::thread::Builder::new().name("adhoc-conn".into()).spawn(move || {
-                    let _ = serve(c, &sh);
+                    let _ = take(c, &sh);
                 });
             }
         })
@@ -153,7 +186,7 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
     std::thread::Builder::new().name("adhoc-answer".into()).spawn(move || guest::answer_finds(port, sh)).map_err(|e| e.to_string())?;
     crate::net::rtc::pin(Some(port));
     let fw = firewall(port);
-    bevy::log::info!("adhoc: serving on port {port}: {:?}, firewall: {fw:?}", urls(port));
+    bevy::log::info!("adhoc: serving on port {port}: {:?}, firewall: {fw:?}", urls(port, shared.tls.is_some()));
     let now = Instant::now();
     *s = Some(Server { port, shared, since: now, firewall: Mutex::new((now, fw)) });
     Ok(())
@@ -201,7 +234,7 @@ pub fn status() -> Option<Status> {
         }
         fw.1.hint(s.port, s.since.elapsed() > NO_GUEST)
     };
-    Some(Status { urls: urls(s.port), note, hint })
+    Some(Status { urls: urls(s.port, s.shared.tls.is_some()), note, hint })
 }
 
 /// This machine's own addresses (a request from one of them is the host itself, not a guest).
@@ -292,9 +325,18 @@ fn ufw_lets_in(rules: &str, port: u16, want: &str, policy: &str) -> bool {
     policy == "ACCEPT"
 }
 
-/// `http://<ip>[:port]` for each private IPv4 address of this machine's interfaces that are up (no loopback, no
-/// container or VPN bridges), Wi-Fi and Ethernet first.
-fn urls(port: u16) -> Vec<String> {
+/// `http[s]://<ip>[:port]` for each of [`lan_ips`] (`secure`: https, M152f).
+fn urls(port: u16, secure: bool) -> Vec<String> {
+    lan_ips().into_iter().map(|a| if secure { secure_url(a, port) } else { url(a, port) }).collect()
+}
+
+fn secure_url(a: Ipv4Addr, port: u16) -> String {
+    if port == 443 { format!("https://{a}") } else { format!("https://{a}:{port}") }
+}
+
+/// Each private IPv4 address of this machine's interfaces that are up (no loopback, no container or VPN bridges),
+/// Wi-Fi and Ethernet first.
+fn lan_ips() -> Vec<Ipv4Addr> {
     let skip = ["docker", "br-", "veth", "virbr", "vmnet", "vboxnet", "tailscale", "zt", "tun", "utun", "wg", "lo"];
     let mut found: Vec<(u8, Ipv4Addr)> = netdev::get_interfaces()
         .into_iter()
@@ -312,7 +354,7 @@ fn urls(port: u16) -> Vec<String> {
     // link-local last: a hotspot hands out private ones
     found.sort_by_key(|&(r, a)| (a.is_link_local(), r, a));
     found.dedup_by_key(|(_, a)| *a);
-    found.into_iter().map(|(_, a)| url(a, port)).collect()
+    found.into_iter().map(|(_, a)| a).collect()
 }
 
 fn url(a: Ipv4Addr, port: u16) -> String {
@@ -383,11 +425,17 @@ fn info(sh: &Shared) -> Vec<u8> {
     };
     let name = sh.disc.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
     let size = std::fs::metadata(&sh.disc).map_or(0, |m| m.len());
+    // M152f: the pack's content hash (from its header), so a guest that kept it from a visit before knows it's the same
+    let hash = std::fs::File::open(&sh.disc).and_then(|mut f| {
+        let mut head = [0u8; 16];
+        f.read_exact(&mut head).map(|_| head)
+    });
+    let hash = hash.ok().filter(|h| &h[..4] == b"HSTP").map_or(String::new(), |h| format!("{:016x}", u64::from_le_bytes(h[8..].try_into().unwrap())));
     let j = serde_json::json!({
         "game": "opentennis",
         "version": VERSION.unwrap_or("dev"),
         "web": web,
-        "disc": { "url": "/adhoc/disc", "name": name, "size": size, "ready": sh.disc.is_file() },
+        "disc": { "url": "/adhoc/disc", "name": name, "size": size, "ready": sh.disc.is_file(), "hash": hash },
         "lobby": crate::net::rtc::lobby_open(),
         "mods": list,
     });
@@ -506,9 +554,22 @@ struct Request {
     close: bool,
 }
 
-/// Answers `c`'s requests until it closes, idles 30 s or the server stops.
-fn serve(mut c: TcpStream, sh: &Shared) -> io::Result<()> {
+/// M152f: answers `c` over TLS when it opens with a handshake (and the server has a certificate), else as plain http.
+fn take(c: TcpStream, sh: &Shared) -> io::Result<()> {
     c.set_read_timeout(Some(Duration::from_secs(30)))?;
+    let mut first = [0u8];
+    if c.peek(&mut first)? == 0 {
+        return Ok(());
+    }
+    match &sh.tls {
+        Some(cfg) if first[0] == tls::HANDSHAKE => serve(tls::accept(c, cfg.clone())?, sh),
+        _ => serve(c, sh),
+    }
+}
+
+/// Answers `c`'s requests until it closes, idles 30 s or the server stops.
+fn serve<C: Conn>(mut c: C, sh: &Shared) -> io::Result<()> {
+    c.tcp().set_read_timeout(Some(Duration::from_secs(30)))?;
     let mut buf = Vec::new();
     while !sh.stop.load(Relaxed) {
         let Some(end) = read_head(&mut c, &mut buf)? else { return Ok(()) };
@@ -516,7 +577,7 @@ fn serve(mut c: TcpStream, sh: &Shared) -> io::Result<()> {
         buf.drain(..end + 4);
         // M156: a browser guest with no WebRTC joins the lobby over a WebSocket here (`net::ws`)
         if let Some(up) = crate::net::ws::upgrade(&text) {
-            return crate::net::ws::accept(c, up);
+            return c.websocket(up);
         }
         let Some(req) = parse(&text) else {
             reply(&mut c, "405 Method Not Allowed", "text/plain", b"GET only\n", true, false)?;
@@ -536,7 +597,7 @@ fn serve(mut c: TcpStream, sh: &Shared) -> io::Result<()> {
             }
             let body: Vec<u8> = buf.drain(..req.len).collect();
             if req.path == "/adhoc/log" {
-                let from = c.peer_addr().map_or_else(|_| "?".into(), |a| a.ip().to_string());
+                let from = c.tcp().peer_addr().map_or_else(|_| "?".into(), |a| a.ip().to_string());
                 for l in guest_lines(&String::from_utf8_lossy(&body)) {
                     bevy::log::info!("adhoc guest {from}: {l}");
                 }
@@ -547,6 +608,7 @@ fn serve(mut c: TcpStream, sh: &Shared) -> io::Result<()> {
         } else {
             route(&mut c, sh, &req)?;
         }
+        c.flush()?;
         if req.close {
             return Ok(());
         }
@@ -555,7 +617,7 @@ fn serve(mut c: TcpStream, sh: &Shared) -> io::Result<()> {
 }
 
 /// Reads until `buf` holds a whole request head; its length (up to the blank line), or None at the end.
-fn read_head(c: &mut TcpStream, buf: &mut Vec<u8>) -> io::Result<Option<usize>> {
+fn read_head(c: &mut impl Read, buf: &mut Vec<u8>) -> io::Result<Option<usize>> {
     loop {
         if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
             return Ok(Some(i));
@@ -640,7 +702,7 @@ fn guest_lines(body: &str) -> impl Iterator<Item = String> + '_ {
 
 /// Answers a POST: `/rtc` takes a guest's offer code for the hosting lobby (M152b's `signal`, on the game's runtime: the
 /// connection it opens carries on there) and answers with the answer code, else why not.
-fn post(c: &mut TcpStream, req: &Request, body: &str) -> io::Result<()> {
+fn post(c: &mut impl Write, req: &Request, body: &str) -> io::Result<()> {
     if req.path != "/rtc" {
         return reply(c, "404 Not Found", "text/plain", b"not found\n", req.close, false);
     }
@@ -654,7 +716,7 @@ fn post(c: &mut TcpStream, req: &Request, body: &str) -> io::Result<()> {
 }
 
 /// Answers `req`.
-fn route(c: &mut TcpStream, sh: &Shared, req: &Request) -> io::Result<()> {
+fn route(c: &mut impl Write, sh: &Shared, req: &Request) -> io::Result<()> {
     let p = req.path.as_str();
     if p == "/adhoc/info.json" {
         let body = info(sh);
@@ -730,7 +792,7 @@ fn span(range: &str, len: u64) -> Option<Result<(u64, u64), ()>> {
 }
 
 /// Sends file `f` (the part `req` asks for), stopping if the server does.
-fn file(c: &mut TcpStream, f: &Path, mime: &str, req: &Request, sh: &Shared) -> io::Result<()> {
+fn file(c: &mut impl Write, f: &Path, mime: &str, req: &Request, sh: &Shared) -> io::Result<()> {
     let Ok(mut fh) = std::fs::File::open(f) else {
         return reply(c, "404 Not Found", "text/plain", b"not found\n", req.close, req.head);
     };
@@ -743,7 +805,10 @@ fn file(c: &mut TcpStream, f: &Path, mime: &str, req: &Request, sh: &Shared) -> 
             return c.write_all(head.as_bytes());
         }
     };
-    let head = format!("HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {n}\r\nAccept-Ranges: bytes\r\nCache-Control: no-cache\r\n{extra}{}\r\n", connection(req.close));
+    // the disc and the mods never go into the guest browser's disk cache (it keeps them in memory, or in OPFS over
+    // https); the page and the wasm may, checked against the host on every load
+    let cache = if req.path.starts_with("/adhoc/") { "no-store" } else { "no-cache" };
+    let head = format!("HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {n}\r\nAccept-Ranges: bytes\r\nCache-Control: {cache}\r\n{extra}{}\r\n", connection(req.close));
     c.write_all(head.as_bytes())?;
     if req.head {
         return Ok(());
@@ -770,7 +835,7 @@ fn connection(close: bool) -> &'static str {
     if close { "Connection: close\r\n" } else { "Connection: keep-alive\r\n" }
 }
 
-fn reply(c: &mut TcpStream, status: &str, mime: &str, body: &[u8], close: bool, head: bool) -> io::Result<()> {
+fn reply(c: &mut impl Write, status: &str, mime: &str, body: &[u8], close: bool, head: bool) -> io::Result<()> {
     let h = format!("HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-store\r\n{}\r\n", body.len(), connection(close));
     c.write_all(h.as_bytes())?;
     if !head {
@@ -866,14 +931,15 @@ mod tests {
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join("index.html"), "<p>hi").unwrap();
         std::fs::write(d.join("disc.pack"), (0..=255u8).collect::<Vec<_>>()).unwrap();
-        let sh = Arc::new(Shared { disc: d.join("disc.pack"), web: Mutex::new(Web::Ready(d.clone())), mods: Mutex::new(Vec::new()), stop: AtomicBool::new(false), reached: AtomicBool::new(false) });
+        let tls = tls::config(&d.join("tls"), &[]).unwrap();
+        let sh = Arc::new(Shared { disc: d.join("disc.pack"), web: Mutex::new(Web::Ready(d.clone())), mods: Mutex::new(Vec::new()), stop: AtomicBool::new(false), reached: AtomicBool::new(false), tls: Some(tls) });
         let l = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = l.local_addr().unwrap().port();
         let s2 = sh.clone();
         std::thread::spawn(move || {
             for c in l.incoming().flatten() {
                 let s = s2.clone();
-                std::thread::spawn(move || serve(c, &s));
+                std::thread::spawn(move || take(c, &s));
             }
         });
         let mut c = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
@@ -885,12 +951,29 @@ mod tests {
         assert!(text.starts_with("HTTP/1.1 200 OK\r\nContent-Type: text/html"), "{text}");
         assert!(text.contains("<p>hi") && text.contains("206 Partial Content") && text.contains("Content-Range: bytes 16-19/256"));
         assert!(out.ends_with(&[16, 17, 18, 19]));
+        let (page, disc) = text.split_once("206 Partial Content").unwrap();
+        assert!(page.contains("Cache-Control: no-cache") && disc.contains("Cache-Control: no-store"), "{text}");
         // M152c: signalling on the same port; no lobby is hosting in this test
         let mut c = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         c.write_all(b"POST /rtc HTTP/1.1\r\nContent-Length: 5\r\nConnection: close\r\n\r\nrtco1").unwrap();
         let mut out = String::new();
         c.read_to_string(&mut out).unwrap();
         assert!(out.starts_with("HTTP/1.1 503") && out.ends_with("No lobby is open on this machine."), "{out}");
+        // M152f: https on the same port, trusting the server's own certificate (it names localhost)
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(rustls::pki_types::CertificateDer::from(std::fs::read(d.join("tls/cert.der")).unwrap())).unwrap();
+        let client = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider())).with_safe_default_protocol_versions().unwrap().with_root_certificates(roots).with_no_client_auth();
+        for name in ["localhost", "127.0.0.1"] {
+            let conn = rustls::ClientConnection::new(Arc::new(client.clone()), name.try_into().unwrap()).unwrap();
+            let mut c = rustls::StreamOwned::new(conn, TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap());
+            c.write_all(b"GET /adhoc/disc HTTP/1.1\r\nRange: bytes=250-\r\nConnection: close\r\n\r\n").unwrap();
+            let mut out = Vec::new();
+            // (no close notice from the server: the reply's length says where it ends)
+            let _ = c.read_to_end(&mut out);
+            let text = String::from_utf8_lossy(&out);
+            assert!(text.starts_with("HTTP/1.1 206 Partial Content") && text.contains("Content-Range: bytes 250-255/256"), "{text}");
+            assert!(out.ends_with(&[250, 251, 252, 253, 254, 255]));
+        }
         sh.stop.store(true, Relaxed);
         let _ = std::fs::remove_dir_all(&d);
     }

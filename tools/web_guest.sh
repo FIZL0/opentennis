@@ -4,6 +4,9 @@
 # that opens only http://<host ip>:<port>/ (tools/web_adhoc.mjs, GUEST_URL): it loads the disc and mods from the host
 # into memory and joins the lobby by itself. Every seat a bot on both ends. Needs target/release/hst and web/pkg
 # (tools/web.sh). Usage: tools/web_guest.sh DISC OUT [seconds of match]. Host log: OUT/host.txt.
+# M152f: the guest opens the https address (Chromium's --ignore-certificate-errors stands in for tapping past the
+# warning), so the pack goes into the profile's OPFS; SCHEME=http for the plain page. KEEP=1 keeps OUT/profile from a
+# run before (a second visit: the pack kept in OPFS is read with no download).
 set -e
 cd "$(dirname "$0")/.."
 out=$2 secs=${3:-60}
@@ -22,13 +25,16 @@ host=$!
 trap 'kill $host 2>/dev/null' EXIT
 port=
 for _ in $(seq 60); do
-  port=$(sed -n 's/.*adhoc: serving at .*http:[^"]*:\([0-9]*\)".*/\1/p' "$out/host.txt" | head -n 1)
+  port=$(sed -n 's/.*adhoc: serving at .*https\{0,1\}:[^"]*:\([0-9]*\)".*/\1/p' "$out/host.txt" | head -n 1)
   [ -n "$port" ] && break
   sleep 1
 done
 [ -n "$port" ] || { echo "no adhoc server"; tail "$out/host.txt"; exit 1; }
-echo "host: http://$ip:$port/"
-rm -rf "$out/profile"
+scheme=${SCHEME:-https}
+echo "host: $scheme://$ip:$port/"
+[ -n "$KEEP" ] || rm -rf "$out/profile"
+cert=
+[ "$scheme" = https ] && cert=--ignore-certificate-errors
 # the GPU through ANGLE/Vulkan: on SwiftShader the guest is still loading the court a minute in
-GUEST_URL="http://$ip:$port/?webgl2&autoplay" CHROME_FLAGS="${CHROME_FLAGS:---use-angle=vulkan --enable-features=Vulkan}" node tools/web_adhoc.mjs - "$out" "$ip:$port" "$secs"
+GUEST_URL="$scheme://$ip:$port/?webgl2&autoplay" CHROME_FLAGS="${CHROME_FLAGS:---use-angle=vulkan --enable-features=Vulkan} $cert" node tools/web_adhoc.mjs - "$out" "$ip:$port" "$secs"
 grep -E "hash|Joined|Start|LAN|adhoc|panicked" "$out/host.txt" | tail -20

@@ -137,11 +137,7 @@ fn save(args: Option<&crate::Args>, on: bool) {
 
 /// Played by touch: a phone, the touch pad, or a browser on a touch screen.
 fn touch() -> bool {
-    #[cfg(target_arch = "wasm32")]
-    if crate::web::touched() {
-        return true;
-    }
-    super::legend::MOBILE || super::touch_pad::on()
+    super::legend::mobile() || super::touch_pad::on()
 }
 
 /// B622: the players can move (the serve or the rally, no cut-away or replay on screen), the only time Select
