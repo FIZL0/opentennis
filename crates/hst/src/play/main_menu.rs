@@ -964,6 +964,10 @@ impl Menu {
         let whos = (0..CHARS).map(Who::Disc).chain((0..mods).filter(|&i| self.mods[i].costume_of.is_none() && !self.mods[i].joke()).map(Who::Mod));
         let n = |w: Who| if vanilla { COSTUMES } else { self.costumes(w) };
         let open: Vec<(Who, Vec<usize>)> = whos.map(|w| (w, (0..n(w)).filter(|&c| self.free(p, w, c)).collect::<Vec<_>>())).filter(|(_, c)| !c.is_empty()).collect();
+        // a character nobody else is ready on first; another costume of a taken one only once every character is
+        let taken = |w: &Who| (0..self.players()).any(|q| q != p && self.players[q].ready && self.who(q) == *w);
+        let fresh: Vec<_> = open.iter().filter(|(w, _)| !taken(w)).cloned().collect();
+        let open = if fresh.is_empty() { open } else { fresh };
         let n = open.len() as u64;
         let (w, cs) = open.get((seed % n.max(1)) as usize)?;
         Some((*w, cs[(seed / n % cs.len() as u64) as usize]))
@@ -4503,6 +4507,21 @@ mod tests {
         assert_eq!(go(&mut m, |p| &mut p.up), None, "the Random card");
     }
 
+    /// Random draws a character nobody else is ready on, so four Randoms are four different characters.
+    #[test]
+    fn random_skips_characters_already_picked() {
+        let ok = press(|p| &mut p.ok);
+        for _ in 0..20 {
+            let mut m = Menu { screen: Screen::Chars, doubles: true, seats: [Some(Dev::Keys), None, None, None], bots: [false, true, true, true], ..default() };
+            m.step(Dev::Keys, press(|p| &mut p.left));
+            for _ in 0..4 {
+                m.step(Dev::Keys, ok);
+            }
+            let whos: Vec<_> = (0..4).map(|q| m.who(q)).collect();
+            assert!((0..4).all(|a| (0..a).all(|b| whos[a] != whos[b])), "{whos:?}");
+        }
+    }
+
     /// B269: with 3 computer players added in doubles, 1P picking Random leaves each next COM's cursor on Random, so
     /// ✕ ✕ ✕ gives them all Random; a character carries over too (on its next free costume).
     #[test]
@@ -4644,8 +4663,9 @@ mod tests {
         }
         assert!(seen.iter().any(|&(w, c)| matches!(w, Who::Disc(_)) && c > 0), "disc costumes beyond the first");
         assert!(seen.contains(&(Who::Mod(2), 1)), "the costume pack's");
-        assert!(seen.contains(&(Who::Mod(1), 2)) && seen.contains(&(Who::Mod(0), 2)), "custom characters' costumes");
-        assert_eq!(seen.len(), 14 * 10 + 2 + 3 + 3 - taken.len(), "every open pick comes up");
+        assert!(seen.contains(&(Who::Mod(1), 2)), "custom characters' costumes");
+        assert!(!seen.iter().any(|&(w, _)| w == Who::Disc(2) || w == Who::Mod(0)), "never a character someone's ready on");
+        assert_eq!(seen.len(), 13 * 10 + 2 + 3, "every pick of an untaken character comes up");
         // the computer's 4P on Random, driven by 1P once the humans are ready
         m.step(Dev::Keys, press(|p| &mut p.ok));
         m.players[3].random = true;
