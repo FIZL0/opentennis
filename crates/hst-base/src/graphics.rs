@@ -48,6 +48,10 @@ pub struct Graphics {
     /// Character Shading: soft contact shade baked into the characters' vertex colours (`occlusion.rs`); off in
     /// Original Mode. Applies to models loaded after a change. Set by a preset.
     pub shading: bool,
+    /// M157: Court Life: the crowd, the other figures (not the umpire), the small props that cast no shadow on the
+    /// court (`shadow::Minor`) and the costume sway (`noise.rs`, from the next match); off only draws them out, they
+    /// still move as before. Set by a preset (Potato turns it off).
+    pub scenery: bool,
     /// P53: the Auto preset: picked from the device (`pick`) and, while on, the first seconds of each match's play
     /// timed and the scale and shadows stepped down (`cheaper`) until 60 fps holds (`auto_tune`). Any change to a
     /// graphics row turns it off. Not part of a preset, like the window.
@@ -76,14 +80,14 @@ const FEWER_SHADOWS: bool = true;
 
 impl Default for Graphics {
     fn default() -> Self {
-        Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, auto: false }
+        Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, scenery: true, auto: false }
     }
 }
 
 impl Graphics {
     /// The Steam Deck's (picked on a Deck's first run): its native 1280×800 at High's quality (P63: the Deck holds it),
     /// with vsync and the speed-ups (Fewer Shadows, Skip Off-Screen) on.
-    pub const STEAM_DECK: Graphics = Graphics { fps: 0, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, auto: false };
+    pub const STEAM_DECK: Graphics = Graphics { fps: 0, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, scenery: true, auto: false };
     /// The Steam Deck preset before P63 (Low shadows): a settings.txt still on it moves up to [`Self::STEAM_DECK`].
     const STEAM_DECK_OLD: Graphics = Graphics { shadows: Shadows::Low, ..Self::STEAM_DECK };
     /// A phone's or tablet's (B351, picked on the browser build's first run on a touch screen and the iOS app's first
@@ -92,16 +96,19 @@ impl Graphics {
     /// hides the lower scale. B413: with Fewer Shadows and Skip Off-Screen on (the speed-ups that measurably help);
     /// Mesh stays 100%: 75% and 50% showed no gain native (dGPU, iGPU) or in a 4x-throttled phone browser, as the
     /// characters' few thousand triangles aren't what a phone's frame waits on.
-    pub const PHONE: Graphics = Graphics { fps: 60, vsync: false, scale: 67, shadows: Shadows::Low, msaa: 2, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: false, auto: false };
+    pub const PHONE: Graphics = Graphics { fps: 60, vsync: false, scale: 67, shadows: Shadows::Low, msaa: 2, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: false, scenery: true, auto: false };
     /// The cheapest that still looks like the game: for weak GPUs.
-    pub const LOW: Graphics = Graphics { fps: 60, vsync: false, scale: 67, shadows: Shadows::Low, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: false, auto: false };
+    pub const LOW: Graphics = Graphics { fps: 60, vsync: false, scale: 67, shadows: Shadows::Low, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: false, scenery: true, auto: false };
     /// B414: below Low, for the weakest devices: half scale, no shadows or MSAA, the characters at a quarter of their
     /// triangles, every speed-up on. 60, like every preset: 30 is unplayable (user 2026-10-15), never a default.
-    pub const LOWEST: Graphics = Graphics { fps: 60, vsync: false, scale: 50, shadows: Shadows::Off, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: true, cull: true, mesh: 25, shading: false, auto: false };
+    pub const LOWEST: Graphics = Graphics { fps: 60, vsync: false, scale: 50, shadows: Shadows::Off, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: true, cull: true, mesh: 25, shading: false, scenery: true, auto: false };
     /// B412: the best look, with every speed-up off (Fewer Shadows, Skip Off-Screen; full meshes). Default is the
     /// balanced one: the same picture with the speed-ups on.
-    pub const HIGH: Graphics = Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: false, cull: false, mesh: 100, shading: true, auto: false };
-    pub const PRESETS: [(&str, Graphics); 6] = [("High", Self::HIGH), ("Default", Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, auto: false }), ("Steam Deck", Self::STEAM_DECK), ("Low", Self::LOW), ("Lowest", Self::LOWEST), ("Phone", Self::PHONE)];
+    pub const HIGH: Graphics = Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: false, cull: false, mesh: 100, shading: true, scenery: true, auto: false };
+    /// M157: below Lowest, for framebuffer handhelds (a Mali G31 CPU-bound at ~27 fps on Lowest): Lowest without Court
+    /// Life (a lower scale gained nothing there: the CPU, not the GPU, sets its frame rate).
+    pub const POTATO: Graphics = Graphics { scenery: false, ..Self::LOWEST };
+    pub const PRESETS: [(&str, Graphics); 7] = [("High", Self::HIGH), ("Default", Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, scenery: true, auto: false }), ("Steam Deck", Self::STEAM_DECK), ("Low", Self::LOW), ("Lowest", Self::LOWEST), ("Potato", Self::POTATO), ("Phone", Self::PHONE)];
 
     /// Read one `key = value` (settings.txt or a flag's name and value); false if the key isn't one of these.
     pub fn set(&mut self, key: &str, v: &str) -> bool {
@@ -119,6 +126,7 @@ impl Graphics {
             "mesh" => self.mesh = v.trim_end_matches('%').trim().parse::<u32>().map_or(self.mesh, |m| m.clamp(10, 100)),
             "shadows" => self.shadows = SHADOWS.into_iter().find(|s| s.name() == v).unwrap_or(self.shadows),
             "fewer_shadows" | "fewer-shadows" => self.fewer_shadows = v != "off",
+            "court_life" | "court-life" => self.scenery = v != "off",
             "auto_graphics" => self.auto = v == "on",
             _ => return false,
         }
@@ -130,7 +138,7 @@ impl Graphics {
         let fps = if self.fps == 0 { "uncapped".to_string() } else { self.fps.to_string() };
         let on = |b: bool| if b { "on" } else { "off" };
         format!(
-            "frame_limit = {fps}\nvsync = {}\nrender_scale = {}\nshadows = {}\nanti_aliasing = {}\noriginal = {}\nwindowed = {}\nshow_fps = {}\nfewer_shadows = {}\ncull = {}\nmesh = {}\ncharacter_shading = {}\nauto_graphics = {}\n",
+            "frame_limit = {fps}\nvsync = {}\nrender_scale = {}\nshadows = {}\nanti_aliasing = {}\noriginal = {}\nwindowed = {}\nshow_fps = {}\nfewer_shadows = {}\ncull = {}\nmesh = {}\ncharacter_shading = {}\ncourt_life = {}\nauto_graphics = {}\n",
             on(self.vsync),
             self.scale,
             self.shadows.name(),
@@ -142,6 +150,7 @@ impl Graphics {
             on(self.cull),
             self.mesh,
             on(self.shading),
+            on(self.scenery),
             on(self.auto)
         )
     }
@@ -175,6 +184,9 @@ impl Graphics {
         }
         if !self.shading {
             f.extend(["--shading".into(), "off".into()]);
+        }
+        if !self.scenery {
+            f.extend(["--court-life".into(), "off".into()]);
         }
         f
     }
@@ -281,7 +293,9 @@ pub fn plugin<Match: Resource>(app: &mut App) {
         .add_systems(Last, limit)
         .add_systems(Last, auto_tune.run_if(resource_exists::<Match>))
         .add_systems(PreStartup, cpu_clusters)
-        .add_systems(PostUpdate, unclustered.before(bevy::light::SimulationLightSystems::AssignLightsToClusters));
+        .add_systems(PostUpdate, unclustered.before(bevy::light::SimulationLightSystems::AssignLightsToClusters))
+        .configure_sets(PostUpdate, bevy::light::SimulationLightSystems::CheckLightVisibility.run_if(casting))
+        .add_systems(PostUpdate, court_life.after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate).before(bevy::camera::visibility::VisibilitySystems::CheckVisibility));
     // P55: the pipelines a match asks for recorded, and compiled ahead of the next run's match
     app.add_plugins(crate::pipelines::plugin::<Match>);
     // Show FPS → Detailed: where the frame's time goes (`frame_start`)
@@ -631,6 +645,37 @@ fn unclustered(
     }
 }
 
+/// M157: whether Bevy's shadow-caster visibility passes have anything to do: a sun casting shadows (or one that just
+/// changed, so a switch to Shadows Off still clears its list once) or a point/spot light (never spawned, P42). With
+/// shadows off they otherwise walked every mesh each frame and rebuilt their queries (~2 % of a handheld's frame).
+fn casting(sun: Query<Ref<DirectionalLight>>, lit: Query<(), Or<(With<PointLight>, With<SpotLight>)>>) -> bool {
+    sun.iter().any(|l| l.shadow_maps_enabled || l.is_changed()) || !lit.is_empty()
+}
+
+/// M157: Court Life off: the crowd's and small props' meshes drawn hidden. Their `InheritedVisibility` is overridden
+/// after Bevy propagates it (their own systems keep setting `Visibility` as before); back on, a touch of each root's
+/// `Visibility` has Bevy propagate it again.
+fn court_life(g: Res<Graphics>, mut roots: Query<(Entity, &mut Visibility), With<crate::shadow::Minor>>, kids: Query<&Children>, mut inherited: Query<&mut InheritedVisibility>, mut was: Local<bool>) {
+    if g.scenery {
+        if std::mem::take(&mut *was) {
+            roots.iter_mut().for_each(|(_, mut v)| v.set_changed());
+        }
+        return;
+    }
+    *was = true;
+    for (root, _) in &roots {
+        // a root still hidden was done before: nothing under it was propagated since
+        if inherited.get(root).is_ok_and(|v| !v.get()) {
+            continue;
+        }
+        for e in std::iter::once(root).chain(kids.iter_descendants(root)) {
+            if let Ok(mut v) = inherited.get_mut(e) {
+                *v = InheritedVisibility::HIDDEN;
+            }
+        }
+    }
+}
+
 /// Shadow quality: off, or the shadow map's size and cascades (High and Original: 2048, two cascades).
 fn lights(mut commands: Commands, g: Res<Graphics>, mut map: ResMut<DirectionalLightShadowMap>, mut lights: Query<(Entity, Mut<DirectionalLight>)>) {
     if !g.is_changed() && !lights.iter().any(|(_, l)| l.is_added()) {
@@ -928,10 +973,10 @@ pub fn pick(d: &Device) -> Graphics {
     if d.steam_deck {
         return Graphics::STEAM_DECK;
     }
-    // M155b: a framebuffer handheld (muOS on a Mali G31) draws Default's menu at ~7 fps; Lowest is its floor
+    // M155b: a framebuffer handheld (muOS on a Mali G31) draws Default's menu at ~7 fps; M157: Potato, below Lowest
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     if crate::fbdev::wanted() {
-        return Graphics { auto: true, ..Graphics::LOWEST };
+        return Graphics { auto: true, ..Graphics::POTATO };
     }
     let mut g = if d.touch { Graphics::PHONE } else { default() };
     for _ in 0..if d.touch { d.steps() } else { 0 } {
@@ -962,6 +1007,8 @@ pub fn cheaper(g: Graphics) -> Option<Graphics> {
         c.shadows = Shadows::Off;
     } else if g.mesh > 25 {
         c.mesh = 25;
+    } else if g.scenery {
+        c.scenery = false;
     } else if g.scale > SCALES[0] && !g.original {
         // a 4K screen's 50 % is still 1080p
         c.scale = SCALES.into_iter().rev().find(|&s| s < g.scale)?;
@@ -1125,7 +1172,7 @@ mod tests {
     #[test]
     fn text_and_flags_round_trip() {
         for (_, p) in Graphics::PRESETS {
-            let mut g = Graphics { fps: 7, vsync: !p.vsync, scale: 30, shadows: Shadows::Off, msaa: 3, original: !p.original, windowed: true, show_fps: 1, fewer_shadows: !FEWER_SHADOWS, cull: !p.cull, mesh: 50, shading: !p.shading, auto: !p.auto };
+            let mut g = Graphics { fps: 7, vsync: !p.vsync, scale: 30, shadows: Shadows::Off, msaa: 3, original: !p.original, windowed: true, show_fps: 1, fewer_shadows: !FEWER_SHADOWS, cull: !p.cull, mesh: 50, shading: !p.shading, scenery: !p.scenery, auto: !p.auto };
             for (k, v) in p.text().lines().filter_map(|l| l.split_once('=')) {
                 assert!(g.set(k, v), "{k}");
             }
@@ -1172,7 +1219,7 @@ mod tests {
         assert_eq!((Graphics::LOWEST.preset(), w.keep(Graphics::LOWEST).preset()), ("Lowest", "Lowest"));
         assert!(Graphics::LOWEST.fewer_shadows && Graphics::LOWEST.cull && Graphics::LOWEST.mesh == MESHES[0] && Graphics::LOWEST.scale == 50);
         let names: Vec<_> = Graphics::PRESETS.iter().map(|(n, _)| *n).collect();
-        assert_eq!(names, ["High", "Default", "Steam Deck", "Low", "Lowest", "Phone"]);
+        assert_eq!(names, ["High", "Default", "Steam Deck", "Low", "Lowest", "Potato", "Phone"]);
         // P63: the Deck at High's look with vsync and the speed-ups; an old Deck settings.txt moves up to it
         assert_eq!(Graphics::STEAM_DECK, Graphics { vsync: true, ..default() });
         assert_eq!(Graphics::STEAM_DECK.preset(), "Steam Deck");
@@ -1225,12 +1272,14 @@ mod tests {
         }
         let look = |g: &Graphics| (g.scale, g.shadows, g.msaa, g.mesh);
         let scales: Vec<_> = rungs.iter().map(|g| g.scale).collect();
-        assert_eq!(scales, [100, 85, 75, 67, 67, 67, 67, 50, 50, 50, 33, 25]);
+        assert_eq!(scales, [100, 85, 75, 67, 67, 67, 67, 50, 50, 50, 50, 33, 25]);
         for p in [Graphics::PHONE, Graphics::LOW, Graphics::LOWEST] {
             assert!(rungs.iter().any(|r| look(r) == look(&p)), "{p:?}");
         }
+        // M157: below Lowest, Court Life off: Potato
+        assert_eq!(cheaper(Graphics::LOWEST), Some(Graphics::POTATO));
         assert_eq!(cheaper(Graphics::PHONE), Some(Graphics::LOW));
-        assert_eq!((cheaper(Graphics::LOW).unwrap().scale, cheaper(Graphics::LOWEST).map(|c| c.scale)), (50, Some(33)));
+        assert_eq!((cheaper(Graphics::LOW).unwrap().scale, cheaper(Graphics::LOWEST).map(|c| c.scale)), (50, Some(50)));
         assert_eq!(cheaper(Graphics::HIGH), Some(Graphics::default()));
         assert_eq!(cheaper(Graphics { scale: 200, ..default() }).unwrap().scale, 150);
         assert_eq!(cheaper(Graphics { fps: 30, ..Graphics::LOW }).unwrap().fps, 60);
@@ -1290,8 +1339,8 @@ mod tests {
         assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, AUTO_SKIP - 0.1), 0);
         assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, 2.2), 1);
         assert_eq!(g, Graphics { auto: true, ..Graphics::LOW });
-        assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, 30.0), 5);
-        assert_eq!((g, t.done), (Graphics { auto: true, scale: 25, ..Graphics::LOWEST }, true));
+        assert_eq!(run(&mut t, &mut g, 1.0 / 40.0, 30.0), 6);
+        assert_eq!((g, t.done), (Graphics { auto: true, scale: 25, ..Graphics::POTATO }, true));
         // 60 fps with a hitch: no step, through after two windows
         let (mut t, mut g) = (Tune::default(), Graphics { auto: true, ..Graphics::PHONE });
         let mut steps = run(&mut t, &mut g, 1.0 / 60.0, 4.0);

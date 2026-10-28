@@ -61,6 +61,8 @@ pub(super) enum Opt {
     Mesh,
     /// Soft contact shade on the characters (`Graphics::shading`, `occlusion.rs`).
     Shading,
+    /// M157: the crowd, small props and costume sway drawn (`Graphics::scenery`).
+    CourtLife,
     /// B374: look for a newer release at start (`crate::update`), desktop only.
     UpdateCheck,
     /// B411: Graphics' last row, ✕ opens the Advanced sub-page (`Screen::Advanced`).
@@ -93,7 +95,7 @@ const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, Me
 /// What a preset sets, then the textures, then the way into Advanced.
 const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Shading, Upscaled, Advanced];
 /// B411: Graphics → Advanced, the speed-up switches for a slow device.
-const ADVANCED: &[Opt] = &[Mesh, FewerShadows, Cull];
+const ADVANCED: &[Opt] = &[Mesh, FewerShadows, Cull, CourtLife];
 const SOUND: &[Opt] = &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices];
 const MODS: &[Opt] = if cfg!(target_arch = "wasm32") { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat] } else { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat, UpdateCheck] };
 /// B118: phone-only options (later: control size and opacity).
@@ -154,6 +156,7 @@ fn label(o: Opt) -> &'static str {
         FewerShadows => "Fewer Shadows",
         Mesh => "Mesh",
         Shading => "Character Shading",
+        CourtLife => "Court Life",
         Advanced => "Advanced",
     }
 }
@@ -168,7 +171,7 @@ fn about(o: Opt) -> &'static str {
         KeyHints => "Show the keyboard's keys at the bottom during a match while you play on the keyboard.",
         SplitScreen => "How split screen divides the window when players on both teams share this device: Vertical puts the halves side by side, Horizontal stacks them. A tall window always stacks them.",
         ButtonIcons => "The controller buttons the hints show. Auto: each controller's own (PlayStation, Switch, Steam Deck, else Xbox); or the same set for every controller.",
-        Preset => "High draws at full quality with every speed-up off; Default looks the same with Fewer Shadows and Skip Off-Screen on; Steam Deck looks like High with vsync and the speed-ups on; Low and Phone trade detail for frame rate; Lowest is the cheapest (half resolution, no shadows, simpler characters) for the weakest devices. Auto picks one for this device, then times the first seconds of each match and lowers the resolution and shadows until it holds 60 fps.",
+        Preset => "High draws at full quality with every speed-up off; Default looks the same with Fewer Shadows and Skip Off-Screen on; Steam Deck looks like High with vsync and the speed-ups on; Low and Phone trade detail for frame rate; Lowest is the cheapest that keeps everything (half resolution, no shadows, simpler characters) for the weakest devices; Potato is Lowest without Court Life (no crowd, small props or costume sway) for handhelds. Auto picks one for this device, then times the first seconds of each match and lowers the resolution and shadows until it holds 60 fps.",
         Scale => "Draw the 3D scene (court, players, ball) at this share of the window's resolution, scaled up to fill it; menus and the HUD stay sharp. Lower runs faster. Above 100 % draws it larger and scales it down: smoother edges, more work for the graphics card.",
         Shadows => "Off, or the shadow map's detail (Low: one cascade, and only what shades the court casts). Original: the trees' and buildings' shadows soft as on the PS2 (Original Mode always draws them so).",
         Msaa if locked(o) => "Off on WebGL2: anti-aliasing makes the browser build every drawing setup a second time, which stalls the first match for seconds. WebGPU (Display → Renderer) or the desktop app has it.",
@@ -181,6 +184,7 @@ fn about(o: Opt) -> &'static str {
         Downloads if locked(o) => "Upscaled textures aren't available in the browser.",
         Upscaled if cfg!(target_arch = "wasm32") => "Draw the installed texture packs' textures in place of the disc's (from the next match).",
         Upscaled => "Draw the installed texture packs' textures and the ones in mods/texture-replacements in place of the disc's (from the next match), and mods' upscaled textures.",
+        CourtLife => "Draw the crowd, the other figures around the court, the small props and the costumes' sway. Off runs faster on a weak device; the match plays the same. The sway comes back from the next match.",
         Cull => "Don't draw players, figures and effects that are out of view (or their shadows out of the light's). Looks the same; turn it off if it makes this device slower.",
         Volume(0) => "The volume of everything.",
         Volume(1) => "The menu and match music and the jingles.",
@@ -282,6 +286,7 @@ fn hint(o: Opt, c: &str) -> &'static str {
         (Preset, "Steam Deck") => "High's look, vsync, speed-ups",
         (Preset, "Low") => "less detail, more fps",
         (Preset, "Lowest") => "half res, no shadows",
+        (Preset, "Potato") => "Lowest, no crowd",
         (Preset, "Phone") => "for phones and tablets",
         (Preset, AUTO) => "picks and tunes itself",
         (Preset, "Custom") => "your own mix",
@@ -321,7 +326,7 @@ impl Settings {
     pub(super) fn step(&mut self, o: Opt, d: isize) {
         let g = &mut self.graphics;
         // P53: setting the graphics by hand ends Auto's timing
-        g.auto &= !matches!(o, Scale | Shadows | Msaa | Fps | Vsync | Original | Cull | FewerShadows | Mesh | Shading);
+        g.auto &= !matches!(o, Scale | Shadows | Msaa | Fps | Vsync | Original | Cull | FewerShadows | Mesh | Shading | CourtLife);
         match o {
             Display => g.windowed = !g.windowed,
             Aspect => self.aspect = (self.aspect as isize + d).rem_euclid(aspect_choices() as isize) as u8,
@@ -344,6 +349,7 @@ impl Settings {
             Vsync => g.vsync = !g.vsync,
             Original => g.original = !g.original,
             Cull => g.cull = !g.cull,
+            CourtLife => g.scenery = !g.scenery,
             Shading => g.shading = !g.shading,
             // Upscaled Downloads follows Texture Replacements (B227)
             Upscaled => {
@@ -436,6 +442,7 @@ impl Settings {
             Vsync => on_off(g.vsync),
             Original => on_off(g.original),
             Cull => on_off(g.cull),
+            CourtLife => on_off(g.scenery),
             Mesh => format!("{} %", g.mesh),
             Shading => on_off(g.shading),
             Upscaled => on_off(self.upscaled_textures),
@@ -943,6 +950,10 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
             d.hit(r, pointer::Act::Row(i, pointer::OK));
         }
         let mut value = m.settings.value(o);
+        // M157: Auto beside the preset it's on for this device ("Auto (Phone)"; just Auto once tuned off every preset)
+        if o == Preset && value == AUTO && m.settings.graphics.preset() != "Custom" {
+            value = format!("{AUTO} ({})", m.settings.graphics.preset());
+        }
         // the renderer actually running beside the setting (Auto's pick, or WebGL2 where the browser lacked WebGPU),
         // and whether a graphics card draws it or the CPU (software: much slower)
         if o == Renderer {
@@ -985,7 +996,7 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         }
     }
     if let Some(&o) = opts.get(m.sel) {
-        let preset = matches!(o, Scale | Shadows | Msaa | Fps | Vsync | Original | Mesh | FewerShadows | Cull | Shading);
+        let preset = matches!(o, Scale | Shadows | Msaa | Fps | Vsync | Original | Mesh | FewerShadows | Cull | Shading | CourtLife);
         let note = if preset {
             "Set by Preset. Changing it switches Preset to Custom."
         } else if o == MenuSize {
@@ -1944,6 +1955,9 @@ mod tests {
         let mut l = Settings { graphics: Graphics::LOW, ..Settings::default() };
         l.step(Preset, 1);
         assert_eq!((l.graphics, l.value(Preset).as_str()), (Graphics::LOWEST, "Lowest"));
+        // M157: Potato below it
+        l.step(Preset, 1);
+        assert_eq!((l.graphics, l.value(Preset).as_str()), (Graphics::POTATO, "Potato"));
         l.step(Preset, 1);
         assert_eq!(l.graphics, Graphics::PHONE);
         // P53: Auto after Phone (this device's pick, saved), then round to High; a graphics row by hand ends it

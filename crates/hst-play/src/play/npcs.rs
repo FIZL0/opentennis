@@ -283,7 +283,7 @@ fn setup(
 fn face(turn: &mut Query<&mut Transform, With<character::Rig>>, e: Entity, home: [f32; 4], z: f32) {
     if let Ok(mut t) = turn.get_mut(e) {
         let scale = t.scale;
-        *t = Transform::from_matrix(Mat4::from_cols_array_2d(&npc::walker_facing(home, z))).with_scale(scale);
+        t.set_if_neq(Transform::from_matrix(Mat4::from_cols_array_2d(&npc::walker_facing(home, z))).with_scale(scale));
     }
 }
 
@@ -609,7 +609,7 @@ fn walk(
             w.step_around(players, cheer[k], npcs.tick, &mut roll, &mut around);
             if let Ok(mut t) = turn.get_mut(*e) {
                 let scale = t.scale;
-                *t = Transform::from_matrix(Mat4::from_cols_array_2d(&w.wander.world)).with_scale(scale);
+                t.set_if_neq(Transform::from_matrix(Mat4::from_cols_array_2d(&w.wander.world)).with_scale(scale));
             }
         }
         // a walker breaking into its cheer leaves a mark at its neck (as last drawn), and the mark's base follows the
@@ -679,7 +679,7 @@ fn figures(
         // every creature stands where its tick put it (a startled one runs along its path)
         if let Ok(mut tf) = turn.get_mut(*e) {
             let scale = tf.scale;
-            *tf = Transform::from_matrix(Mat4::from_cols_array_2d(&t.world)).with_scale(scale);
+            tf.set_if_neq(Transform::from_matrix(Mat4::from_cols_array_2d(&t.world)).with_scale(scale));
         }
         // drawn while active and on with its `speed` not 0; its draw's countdown (`stage`) is in its tick
         // ponytail: the draw's own off switch (cleared by a new match's messages) is never set here: not found

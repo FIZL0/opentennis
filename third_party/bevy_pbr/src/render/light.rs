@@ -2983,6 +2983,12 @@ pub fn extract_shadow_lod_origin(
     mut lights_query: Extract<Query<Entity, Or<(With<PointLight>, With<SpotLight>)>>>,
     mut render_shadow_lod_origin: ResMut<RenderShadowLodOrigin>,
 ) {
+    // hst (M157): only point and spot light shadows use the origin, and the lenses below build three query states
+    // over every archetype each frame; the game spawns no such light
+    if lights_query.is_empty() {
+        render_shadow_lod_origin.0 = Default::default();
+        return;
+    }
     match bevy_light::get_shadow_lod_origin(
         camera_query.transmute_lens_filtered(),
         shadow_lod_origin_query.transmute_lens_filtered(),

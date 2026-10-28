@@ -18,3 +18,4 @@
 - OpenTennis runs on muOS handhelds such as the Anbernic RG34XX SP: start it from Ports, with the handheld's own buttons
 - In the browser, the behind-the-player camera no longer freezes the match for a moment the first time your player turns see-through: that's now prepared while the match loads.
 - On iPhone and iPad the game now plays its sound even with the silent switch on.
+- Handhelds run matches a little faster, and a new Potato graphics preset (or the new Court Life switch in the advanced graphics options) leaves out the crowd, the small props and the costumes' sway for the weakest devices. While Auto is on, the Preset row shows which preset it picked, such as "Auto (Phone)".

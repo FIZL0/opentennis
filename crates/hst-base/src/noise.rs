@@ -126,7 +126,11 @@ pub fn plugin(app: &mut App) {
 }
 
 /// A new rig with a costume deformer swaps its swaying parts for copies of its own.
-pub fn attach(mut commands: Commands, rigs: Query<(Entity, &Rig, &Children), Added<Rig>>, mut parts: Query<&mut Mesh3d>, mut meshes: ResMut<Assets<Mesh>>) {
+pub fn attach(mut commands: Commands, g: Option<Res<crate::graphics::Graphics>>, rigs: Query<(Entity, &Rig, &Children), Added<Rig>>, mut parts: Query<&mut Mesh3d>, mut meshes: ResMut<Assets<Mesh>>) {
+    // M157: Court Life off sways nothing
+    if g.is_some_and(|g| !g.scenery) {
+        return;
+    }
     for (root, rig, children) in &rigs {
         let Some(c) = &rig.data.noise else { continue };
         let mut own = Vec::new();
