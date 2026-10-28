@@ -4007,6 +4007,15 @@ fn react(g: &mut Game, event: Event) {
     }
 }
 
+/// A bot took over a seat mid-point (online, `recover`): the point is played again, as after a let (a seat that
+/// was a human's has no AI that knows the point under way, so it would stand still until the next one).
+fn replay_point(g: &mut Game) {
+    if matches!(g.phase, Phase::Serve | Phase::Rally) {
+        (g.score.let_, g.rally.let_) = (true, true);
+        next_point(g, true);
+    }
+}
+
 /// Leave the point: next server, receiver and side, and set up the serve. `fresh`: not after a change of ends.
 fn next_point(g: &mut Game, fresh: bool) {
     g.umpire.serve(fresh, false, g.flight.ball.pos);
