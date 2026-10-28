@@ -32,8 +32,8 @@ pub fn small(n: &str) -> bool {
     n.ends_with(".json") || n.contains("/previews/")
 }
 
-/// A browser mod file the page left in OPFS (`size` bytes): it reads as missing data until [`ready`] has it in.
-#[cfg(any(test, feature = "testing", target_arch = "wasm32"))]
+/// A browser mod file the page left in OPFS (or an adhoc host's, M152g; `size` bytes): it reads as missing data until
+/// [`ready`] has it in.
 pub fn add_lazy(path: &Path, size: u64) {
     LAZY.lock().unwrap().insert(key(path), size);
 }
@@ -47,7 +47,7 @@ fn under<'a, V>(m: &'a BTreeMap<String, V>, pre: &'a str) -> impl Iterator<Item 
 /// [`RESIDENT`] unloads the oldest. Always true outside the browser (nothing's ever lazy there but a test's
 /// [`add_lazy`] files, which it reports without asking anyone).
 pub fn ready(dir: &Path) -> bool {
-    if cfg!(target_arch = "wasm32") {
+    if cfg!(target_arch = "wasm32") || FETCH.get().is_some() {
         return want(dir);
     }
     under(&LAZY.lock().unwrap(), &format!("{}/", key(dir))).next().is_none()
@@ -71,8 +71,24 @@ fn want(dir: &Path) -> bool {
     if ASKED.lock().unwrap().insert(d.clone()) {
         #[cfg(target_arch = "wasm32")]
         crate::web::mod_load(&d);
+        if let Some(fetch) = FETCH.get() {
+            fetch(&d);
+        }
     }
     false
+}
+
+/// M152g: who reads a lazy mod folder in outside the browser (an adhoc guest's host); it calls [`loaded`] when done.
+static FETCH: std::sync::OnceLock<fn(&str)> = std::sync::OnceLock::new();
+
+/// From now on [`ready`] hands a folder with lazy files to `fetch` (see [`FETCH`]).
+pub fn fetch_with(fetch: fn(&str)) {
+    let _ = FETCH.set(fetch);
+}
+
+/// The lazy files under folder `dir` (key, size).
+pub fn lazy_under(dir: &Path) -> Vec<(String, u64)> {
+    under(&LAZY.lock().unwrap(), &format!("{}/", key(dir))).map(|(k, &n)| (k.clone(), n)).collect()
 }
 
 /// The page is done reading folder `dir` in: a file it couldn't read is dropped (it then reads as missing, and the
