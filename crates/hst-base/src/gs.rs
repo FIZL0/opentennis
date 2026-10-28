@@ -570,8 +570,8 @@ impl Material for GsMaterial {
                 defs.push("GS_GUARD_DISCARD".into());
             }
         }
-        // the browser build is WebGL2's (no noperspective)
-        #[cfg(target_arch = "wasm32")]
+        // the browser build is WebGL2's (no noperspective), ARM Linux's GL ES too (M155b: the Mali blob refused it)
+        #[cfg(any(target_arch = "wasm32", all(target_os = "linux", target_arch = "aarch64")))]
         for defs in [Some(&mut descriptor.vertex.shader_defs), descriptor.fragment.as_mut().map(|f| &mut f.shader_defs)].into_iter().flatten() {
             defs.push("GS_NO_LINEAR".into());
         }

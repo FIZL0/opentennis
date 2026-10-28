@@ -24,6 +24,7 @@ members = ["."]
 gilrs-core = { path = "../third_party/gilrs-core" }
 ggrs = { path = "../third_party/ggrs" }
 wgpu = { path = "../third_party/wgpu" }
+wgpu-hal = { path = "../third_party/wgpu-hal" }
 bevy_render = { path = "../third_party/bevy_render" }
 bevy_pbr = { path = "../third_party/bevy_pbr" }
 winit = { path = "../third_party/winit" }

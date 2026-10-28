@@ -1454,9 +1454,11 @@ pub fn prepare_lights(
                     .min(render_device.limits().max_texture_dimension_2d),
                 height: (directional_light_shadow_map.size as u32)
                     .min(render_device.limits().max_texture_dimension_2d),
+                // HST (M155b): GL ES makes a one-layer texture a plain 2D one, which the D2Array view below can't
+                // bind (wgpu-hal: "assumed that the view dimension will be equal to D2"); two layers keep it an array
                 depth_or_array_layers: (num_directional_cascades_enabled
                     + spot_light_shadow_maps_count)
-                    .max(1) as u32,
+                    .max(if cfg!(all(target_os = "linux", target_arch = "aarch64")) { 2 } else { 1 }) as u32,
             },
             mip_level_count: 1,
             sample_count: 1,
