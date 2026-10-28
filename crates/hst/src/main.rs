@@ -297,10 +297,10 @@ pub fn run() -> Result<(), wasm_bindgen::JsValue> {
 /// B492: a shipped build (`ship`) ignores the developers' `HST_*` variables (fixtures, stress runs, net traces, dumps, net
 /// lag/desync, key scripts…): dropped before anything reads them, so a stray one on a player's machine changes nothing.
 /// Kept: the ones for a player's own machine: the frame log, the menu input trace (`HST_TRACE`) and
-/// `docs/DEVELOPING.md`'s texture reload.
+/// `docs/DEVELOPING.md`'s texture reload, and M155's `HST_FBDEV` (framebuffer or winit on ARM Linux, `fbdev.rs`).
 #[cfg(not(target_arch = "wasm32"))]
 fn dev_env() {
-    const KEEP: [&str; 3] = ["HST_FPS", "HST_TRACE", "HST_TEXTURE_RELOAD"];
+    const KEEP: [&str; 4] = ["HST_FPS", "HST_TRACE", "HST_TEXTURE_RELOAD", "HST_FBDEV"];
     if !cfg!(feature = "ship") {
         return;
     }
@@ -460,7 +460,16 @@ fn start(argv: Vec<String>) {
     let quiet = args.shot.is_some() || std::env::var_os("HST_MENU").is_some();
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     let plugins = if quiet { plugins.disable::<bevy::gilrs::GilrsPlugin>() } else { plugins };
+    // M155: no display server (muOS, Knulli): the framebuffer's EGL instead of a winit window
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    let fbdev = fbdev::wanted();
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    let plugins = if fbdev { plugins.disable::<bevy::winit::WinitPlugin>() } else { plugins };
     app.add_plugins(plugins);
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    if fbdev {
+        app.add_plugins(fbdev::plugin);
+    }
     // every Text (chat, the description bar, the FPS counter) is set in the menus' own font, not Bevy's Fira Mono
     let _ = app.world_mut().resource_mut::<Assets<Font>>().insert(AssetId::default(), Font::from_bytes(play::menu_art::BOLD.to_vec()));
     if quiet {

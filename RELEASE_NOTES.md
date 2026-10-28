@@ -4,3 +4,4 @@
 - A browser joining a game nearby never asks for an ISO any more: when it can't reach the host it says so and keeps trying, and a download cut off part-way picks up where it stopped.
 - A browser with WebRTC switched off (an iPhone in Lockdown Mode, for one) is told so, and how to turn it back on, before it downloads anything, instead of failing in the lobby.
 - The host's log now shows what a browser joining it did while it loaded, and why it stopped, so a phone's failed join can be worked out.
+- The ARM Linux build now draws straight to the screen on handhelds without a desktop (muOS, or Knulli on the Mali driver, such as the RG34XX SP) instead of quitting at start, and its launcher also works from PortMaster's Ports folder.
