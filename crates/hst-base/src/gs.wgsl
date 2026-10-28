@@ -159,8 +159,9 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     let j0 = skinning::skin_model(vertex.joint_indices, vec4(1.0, 0.0, 0.0, 0.0), instance);
     var n = mat3x3(j0[0].xyz, j0[1].xyz, j0[2].xyz) * vertex.normal;
 #ifdef VERTEX_TANGENTS
+    // B693: no 0/0 even in the branch `select` drops (Metal compiles with fast math, which assumes no NaN)
     let rest = vertex.joint_weights.y + vertex.joint_weights.z + vertex.joint_weights.w;
-    let j1 = skinning::skin_model(vertex.joint_indices, select(vec4(0.0, 1.0, 0.0, 0.0), vec4(0.0, vertex.joint_weights.yzw / rest), rest > 0.0), instance);
+    let j1 = skinning::skin_model(vertex.joint_indices, select(vec4(0.0, 1.0, 0.0, 0.0), vec4(0.0, vertex.joint_weights.yzw / max(rest, 1e-6)), rest > 0.0), instance);
     n += mat3x3(j1[0].xyz, j1[1].xyz, j1[2].xyz) * vertex.tangent.xyz;
 #endif
 #else

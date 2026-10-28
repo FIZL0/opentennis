@@ -11,12 +11,15 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-/// Whether mod faces morph here: on Apple platforms, or as `HST_CPU_MORPH` (1/0) says.
+/// Whether mod faces morph here: as `debug.txt`'s `mod_morph` says (B693, `mod_debug`), else `HST_CPU_MORPH` (1/0),
+/// else on Apple platforms.
 pub fn on() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| match std::env::var("HST_CPU_MORPH").ok().as_deref() {
-        Some("1") => true,
-        Some("0") => false,
+    *ON.get_or_init(|| match (crate::mod_debug::switches().morph, std::env::var("HST_CPU_MORPH").ok().as_deref()) {
+        (Some(crate::mod_debug::Morph::Cpu), _) => true,
+        (Some(crate::mod_debug::Morph::Gpu), _) => false,
+        (_, Some("1")) => true,
+        (_, Some("0")) => false,
         _ => cfg!(target_vendor = "apple"),
     })
 }
@@ -118,6 +121,9 @@ fn draw(mut faces: Query<&mut Face>, weights: Query<&MorphWeights>, children: Qu
             r.copies.retain(|id, _| meshes.contains(*id));
             r.copies.insert(h.id(), f.shared);
             drop(r);
+            if crate::mod_debug::logging() {
+                info!("cpu morph: rig {} draws its own face copy, {} of its vertices morphed", f.root, f.targets.moving.len());
+            }
             f.copy = Some((h.clone(), base, patched.of(h.id())));
         }
         let f = &mut *f;
@@ -140,6 +146,12 @@ fn draw(mut faces: Query<&mut Face>, weights: Query<&MorphWeights>, children: Qu
             if patched.set(v, p.to_array()) {
                 changed.push(v);
             }
+        }
+        // B693: the first few writes in the log, to see the CPU path running on the device
+        static WRITES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        if crate::mod_debug::logging() && WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 3 {
+            let moved = f.targets.morph(base, w.weights()).map(|(v, p)| (p - base.get(v).copied().unwrap_or(p)).length()).fold(0.0f32, f32::max);
+            info!("cpu morph: rig {} face written, {} vertices changed, furthest {moved} from rest", f.root, changed.len());
         }
         vertex_patch::send(patched, &changed, &mut queued);
     }
