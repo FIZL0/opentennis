@@ -397,6 +397,15 @@ pub(super) fn restarted(w: &mut World) {
             w.resource_mut::<Netplay>().recover.ready = Some((0, u32::MAX, room, last, data));
             return;
         };
+        // a seat a person played goes to a bot: the point starts over in the state everyone takes on
+        let old = &w.resource::<Netplay>().room.seats;
+        let botted = room.seats.iter().zip(old).any(|(new, was)| was.as_ref().is_some_and(Seat::human) && !new.as_ref().is_some_and(Seat::human));
+        let (tick, data) = if botted && snapshot::decode(w, &data).is_ok() {
+            super::replay_point(&mut w.resource_mut::<Game>());
+            (tick, snapshot::encode(w))
+        } else {
+            (tick, data)
+        };
         let np = w.resource::<Netplay>();
         let last = tick.checked_sub(1).and_then(|t| np.lock.log.get(t as usize)).map_or([IDLE; 4], |p| *p).map(super::netplay::wire);
         let mut np = w.resource_mut::<Netplay>();
