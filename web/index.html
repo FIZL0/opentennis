@@ -852,14 +852,18 @@ for (const e of ['pointerdown', 'keydown', 'gamepadconnected']) addEventListener
 <script type="module" src="touch.js"></script>
 <script type="module">
 if (answer) await new Promise(() => {});
-// M152c: guest page mode. A page served by a host's Adhoc (adhoc.rs, plain http on the LAN) finds its info.json:
-// the disc and mods come from that host into memory only (B457's in-memory folder: no OPFS, no service worker, nothing
-// of the game left on the device), the site page is skipped and the game opens straight into the host's lobby
+// M152c: guest page mode. A page served by a host's Adhoc (adhoc.rs, on the LAN) finds its info.json: the disc and
+// mods come from that host, the site page is skipped and the game opens straight into the host's lobby
 // (`rtch<host:port>`, M152b's signalling at `/rtc` on the same address, or M156's WebSocket at `/adhoc/ws`). `?site` opens the site page as usual.
 // B689: a host that doesn't answer (busy, the Wi-Fi waking up) is asked again rather than taken for a plain site: a
 // tab that was a guest already (sessionStorage `hst-guest`, kept across WebKit's reload after it killed the tab) keeps
 // asking with what went wrong on screen, never the site's ISO picker; a first visit asks three times. A plain http
 // server (`tools/web.sh`) answers 404, which is no host at once.
+// M152f: the host's address is https (a self-signed certificate the guest taps past once), so the page is a secure
+// context: WebGPU, OPFS and the service worker as on the site. There the disc pack is kept in OPFS between visits
+// (`hostPack`) and the page can be added to the home screen; an origin that was a host's guest before (localStorage
+// `hst-guest`: the installed app opened with its host off) keeps asking too. Over plain http (a typed `http://`
+// address) everything stays in memory as before (B457's in-memory folder: nothing of the game left on the device).
 const hostInfo = async () => {
   const c = new AbortController(), t = setTimeout(() => c.abort(), 8000);
   try {
@@ -871,9 +875,10 @@ const hostInfo = async () => {
     throw c.signal.aborted ? new Error('no answer in 8 s') : e;
   } finally { clearTimeout(t); }
 };
-const guestTab = (() => { try { return sessionStorage.getItem('hst-guest') === location.host; } catch { return false; } })();
+const guestTab = (() => { try { return sessionStorage.getItem('hst-guest') === location.host || localStorage.getItem('hst-guest') === location.host; } catch { return false; } })();
 let adhoc = null;
-if (location.protocol === 'http:' && !new URLSearchParams(location.search).has('site')) {
+const lanHost = /^\d{1,3}(\.\d{1,3}){3}$/.test(location.hostname) || location.hostname === 'localhost';
+if ((location.protocol === 'http:' || lanHost || guestTab) && !new URLSearchParams(location.search).has('site')) {
   for (let tries = 1; ; tries++) {
     try { adhoc = await hostInfo(); break; } catch (e) {
       console.warn(`hst: the host at ${location.host} didn't answer (${e?.message ?? e}), try ${tries}`);
@@ -883,7 +888,9 @@ if (location.protocol === 'http:' && !new URLSearchParams(location.search).has('
     }
   }
 }
-try { if (adhoc) sessionStorage.setItem('hst-guest', location.host); } catch {}
+try { if (adhoc) sessionStorage.setItem('hst-guest', location.host); if (adhoc && isSecureContext) localStorage.setItem('hst-guest', location.host); } catch {}
+// M152f: what a guest keeps on the device: everything the site does on a secure page, nothing over plain http
+const keeps = !adhoc || isSecureContext;
 window.hstGuestLog(!!adhoc);
 // B689/M156: a browser with WebRTC off (an iPhone in Lockdown Mode, a privacy setting or extension; WebKitGTK builds
 // without it) joins the host over a WebSocket on the host's own server instead (`net/ws.rs`): noted in the host's log
@@ -893,7 +900,7 @@ if (adhoc) for (const id of ['sitelink', 'isolink']) document.getElementById(id)
 // read by the game (web.rs adhoc_guest): a controller picked up takes the touch pad's seat over
 window.hstAdhoc = !!adhoc;
 // installable and playable offline (sw.js)
-if (!adhoc) navigator.serviceWorker?.register('sw.js').catch(() => {});
+if (keeps) navigator.serviceWorker?.register('sw.js').catch(() => {});
 // B317: a new build pushed while the page is open never reloads it: `version.txt` (the commit, tools/web.sh) as the
 // page loads, read again every minute and on coming back to the tab; once it differs, `hstLatest` holds the new
 // one and the game's main menu shows a New version card whose Refresh reloads into it (`update.rs`). B470: with the
@@ -984,7 +991,7 @@ const memoryDir = (name = '') => {
 };
 let dir;
 try {
-  if (adhoc) throw new Error('a guest of an adhoc host');
+  if (!keeps) throw new Error('a guest of an adhoc host over plain http');
   dir = await navigator.storage.getDirectory();
 } catch (e) {
   console.warn(`hst: no OPFS (${e?.message ?? e}), keeping files in memory`);
@@ -1136,6 +1143,10 @@ const writeFile = async (path, data) => {
     await w.close();
     return;
   }
+  return post(path, data);
+};
+// the OPFS writer worker (opfs.js) writes `data` into `path` from byte `at` on (the file cut there first)
+const post = (path, data, at = 0) => {
   if (!writer) {
     writer = new Worker('./opfs.js');
     writer.onmessage = ({ data: { id, error } }) => {
@@ -1154,7 +1165,7 @@ const writeFile = async (path, data) => {
   const id = writeId++;
   return new Promise((resolve, reject) => {
     writes.set(id, { resolve, reject });
-    writer.postMessage({ id, path, bytes }, [bytes.buffer]);
+    writer.postMessage({ id, path, bytes, at }, [bytes.buffer]);
   });
 };
 // B453's Save log (its own script) keeps a copy in reports/ too
@@ -1189,6 +1200,73 @@ async function hostDisc() {
     say(`Lost the host while getting its disc (${why}). Trying again…`);
     await new Promise(f => setTimeout(f, 2000));
   }
+}
+
+// M152f: on a secure page the host's disc pack goes into OPFS `disc.pack`, 8 MB at a time through opfs.js (never whole
+// in memory), and is then read in as the site's own is. It's kept between visits: the same host's same pack
+// (info.json's hash and size, localStorage `hst-guest-pack`) is read with no download, and a download cut off goes
+// on from where it stopped, on this visit or the next. Resolves to the pack's File, or null when this browser won't
+// store it (full, refused): then it comes into memory as over http (`hostDisc`).
+async function hostPack() {
+  let info = adhoc;
+  while (!info?.disc?.ready) {
+    say('The host is getting its disc ready…');
+    await new Promise(f => setTimeout(f, 2000));
+    info = await hostInfo().catch(() => null) ?? info;
+  }
+  const size = info.disc.size, want = `${info.disc.hash}:${size}`;
+  navigator.storage.persist?.().catch(() => {});
+  let h, at;
+  try {
+    h = await dir.getFileHandle('disc.pack', { create: true });
+    at = (await h.getFile()).size;
+  } catch (e) { console.warn(`hst: no OPFS for the host's disc (${e?.message ?? e}): keeping it in memory`); return null; }
+  let kept = null;
+  try { kept = localStorage.getItem('hst-guest-pack'); } catch {}
+  if (kept === `${want}:done` && at === size) {
+    console.info('hst: the host\'s disc, kept from a visit before');
+    return h.getFile();
+  }
+  if (kept !== want || at > size) at = 0;
+  if (at) console.info(`hst: the host's disc: going on from ${(at / 1e6).toFixed(0)} MB, kept from before`);
+  try { localStorage.setItem('hst-guest-pack', want); } catch {}
+  let parts = [], held = 0, shown = 0, stored = true;
+  const flush = async () => {
+    if (!held) return;
+    const b = new Uint8Array(held);
+    let o = 0;
+    for (const p of parts) { b.set(p, o); o += p.length; }
+    parts = []; held = 0;
+    try { await post('disc.pack', b, at); } catch (e) { stored = false; throw e; }
+    at += b.length;
+  };
+  while (at < size) {
+    let why;
+    try {
+      const r = await fetch('/adhoc/disc', { cache: 'no-store', headers: at ? { Range: `bytes=${at}-` } : {} });
+      if (r.status === 503) { say('The host is getting its disc ready…'); await new Promise(f => setTimeout(f, 2000)); continue; }
+      if (at ? r.status !== 206 : !r.ok) throw new Error(`HTTP ${r.status}`);
+      const reader = r.body.getReader();
+      for (let c; !(c = await reader.read()).done;) {
+        parts.push(c.value);
+        held += c.value.length;
+        if (held >= 8 << 20) await flush();
+        if (at + held - shown > 4e6) { shown = at + held; say(`Getting the disc from the host… ${(shown / 1e6).toFixed(0)} of ${(size / 1e6).toFixed(0)} MB`); }
+      }
+      await flush();
+      if (at >= size) break;
+      why = `it stopped at ${(at / 1e6).toFixed(0)} of ${(size / 1e6).toFixed(0)} MB`;
+    } catch (e) {
+      if (!stored) { console.warn(`hst: couldn't keep the host's disc in OPFS (${e?.message ?? e}): keeping it in memory`); return null; }
+      why = e?.message ?? String(e);
+    }
+    parts = []; held = 0;
+    console.warn(`hst: the host's disc: ${why}, going on from byte ${at}`);
+    say(`Lost the host while getting its disc (${why}). Trying again…`);
+    await new Promise(f => setTimeout(f, 2000));
+  }
+  try { localStorage.setItem('hst-guest-pack', `${want}:done`); } catch {}
+  return h.getFile();
 }
 
 // B689: a guest holds the host's texture packs in memory whole (the OPFS ones are read in whole too), and a host with
@@ -1255,7 +1333,7 @@ async function hostLobby() {
 }
 
 async function start() {
-  const pack = adhoc ? null : await (await dir.getFileHandle('disc.pack')).getFile();
+  let pack = adhoc ? null : await (await dir.getFileHandle('disc.pack')).getFile();
   boot.hidden = false;
   say(adhoc ? 'Loading the game from the host…' : 'Reading the disc pack…');
   // B689: a guest's load that never reached the game's first frame was cut off: WebKit kills a tab over its memory
@@ -1273,7 +1351,8 @@ async function start() {
   }
   // (a phone's first run picks its graphics preset in the game: main_menu.rs `first`, graphics.rs PHONE)
   await init({ module_or_path: wasm() });
-  if (adhoc) await hostDisc(); else {
+  if (adhoc && !dir.memory) pack = await hostPack();
+  if (!pack) await hostDisc(); else {
     // B468: 8 MB at a time straight into the game's memory (web.rs pack_begin), never the whole pack in JS as well
     pack_begin(pack.size);
     for (let at = 0; at < pack.size; at += 8 << 20) pack_part(new Uint8Array(await pack.slice(at, at + (8 << 20)).arrayBuffer()));

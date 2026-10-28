@@ -6,3 +6,4 @@
 - The host's log now shows what a browser joining it did while it loaded, and why it stopped, so a phone's failed join can be worked out.
 - The ARM Linux build now draws straight to the screen on handhelds without a desktop (muOS, or Knulli on the Mali driver, such as the RG34XX SP) instead of quitting at start, and its launcher also works from PortMaster's Ports folder.
 - New download for handhelds with PortMaster (muOS, ROCKNIX, Knulli and others): opentennis.zip installs OpenTennis as a port; put your Hot Shots Tennis (USA) ISO in ports/opentennis/ and the first start imports it, keeping settings and saves in that folder.
+- Hosting a game nearby now gives a secure (https) address: the phone's browser shows a warning once (tap past it), then keeps the host's disc between visits instead of holding it all in memory, and the page can be added to the home screen.

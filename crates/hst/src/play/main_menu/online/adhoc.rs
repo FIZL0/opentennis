@@ -61,6 +61,10 @@ pub(super) fn words() -> String {
             } else {
                 format!("Open {} on the same Wi-Fi or hotspot.", s.urls.join(" or "))
             };
+            // M152f: the address is https with a certificate of this device's own, which every browser warns about once
+            if s.urls[0].starts_with("https:") {
+                w += " Tap past the browser's warning once.";
+            }
             for more in [&s.note, &s.hint] {
                 if !more.is_empty() {
                     w += &format!(" {more}");

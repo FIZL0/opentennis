@@ -143,13 +143,18 @@ fn answer(b: &[u8], from: SocketAddr) -> Option<Host> {
     Some(Host { addr: format!("{}:{port}", from.ip()), name })
 }
 
-/// A typed address (`192.168.1.5`, `192.168.1.5:8080`, `http://host/`…) as `host:port`; None if it isn't one.
+/// A typed address (`192.168.1.5`, `192.168.1.5:8080`, `http://host/`, `https://host:8080`…) as `host:port`; None if it isn't one.
 pub fn address(typed: &str) -> Option<String> {
     let t = typed.trim();
-    let t = t.strip_prefix("http://").unwrap_or(t).trim_end_matches('/');
+    // M152f: the card's https address too (the server takes plain http on the same port)
+    let (t, port) = match t.strip_prefix("https://") {
+        Some(t) => (t, 443),
+        None => (t.strip_prefix("http://").unwrap_or(t), 80),
+    };
+    let t = t.trim_end_matches('/');
     let (host, port) = match t.rsplit_once(':') {
         Some((h, p)) => (h, p.parse::<u16>().ok().filter(|&p| p > 0)?),
-        None => (t, 80),
+        None => (t, port),
     };
     let ok = !host.is_empty() && host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
     ok.then(|| format!("{host}:{port}"))
@@ -511,6 +516,8 @@ mod tests {
     fn typed_addresses() {
         assert_eq!(address("192.168.1.5").as_deref(), Some("192.168.1.5:80"));
         assert_eq!(address(" http://192.168.1.5:8080/ ").as_deref(), Some("192.168.1.5:8080"));
+        assert_eq!(address("https://192.168.1.5:8080").as_deref(), Some("192.168.1.5:8080"));
+        assert_eq!(address("https://192.168.1.5/").as_deref(), Some("192.168.1.5:443"));
         assert_eq!(address("host.local:8888").as_deref(), Some("host.local:8888"));
         assert_eq!(address("192.168.1.5:0"), None);
         assert_eq!(address("192.168.1.5/x"), None);
@@ -544,7 +551,7 @@ mod tests {
         // a pack to serve (the host packs an ISO the same way), on a server of its own (`set`'s is one per process)
         let pack = t.join("host.pack");
         iso.write_pack(&pack, |_, _| {}).unwrap();
-        let sh = Arc::new(Shared { disc: pack.clone(), web: Mutex::new(Web::Looking), mods: Mutex::new(Vec::new()), stop: AtomicBool::new(false), reached: AtomicBool::new(false) });
+        let sh = Arc::new(Shared { disc: pack.clone(), web: Mutex::new(Web::Looking), mods: Mutex::new(Vec::new()), stop: AtomicBool::new(false), reached: AtomicBool::new(false), tls: None });
         let l = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = l.local_addr().unwrap().port();
         let s2 = sh.clone();
