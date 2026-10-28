@@ -190,8 +190,7 @@ pub fn log_layer(_: &mut App) -> Option<BoxedLayer> {
 /// No disc yet: a page that says where the ISO goes, instead of a launch that closes on a black screen.
 pub fn no_disc() -> ! {
     eprintln!("no disc image in Documents");
-    let mut app = App::new();
-    app
+    App::new()
         // fullscreen like the game: a default (1280×720) window lays out bigger than the phone's screen
         .add_plugins(DefaultPlugins.set(bevy::log::LogPlugin { custom_layer: log_layer, ..default() }).set(WindowPlugin {
             primary_window: Some(Window { mode: bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Primary), ..default() }),
@@ -201,33 +200,19 @@ pub fn no_disc() -> ! {
         .add_systems(Startup, |mut commands: Commands| {
             commands.spawn(Camera2d);
             commands
-                .spawn(Node {
-                    width: percent(100),
-                    height: percent(100),
-                    flex_direction: FlexDirection::Column,
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    row_gap: vmin(4),
-                    ..default()
-                })
-                .with_children(|p| {
-                    p.spawn((
-                        Node { max_width: percent(85), ..default() },
-                        Text::new(
-                            "Hot Shots Tennis needs your disc image.\n\n\
-                             In the Files app, open On My iPhone > OpenTennis\n\
-                             (the folder with this app's icon), put your\n\
-                             Hot Shots Tennis (USA) ISO in it, then close and reopen this app.\n\n\
-                             No disc? Join a game nearby that has one: it plays from the host's.",
-                        ),
-                        TextFont { font_size: FontSize::VMin(3.5), ..default() },
-                    ));
-                    crate::adhoc::page::button(p, 4.0);
-                });
-        });
-    // M152g: or join a game nearby and play from its host's disc (an app can't restart itself here: reopened, it joins)
-    crate::adhoc::page::plugin(&mut app, crate::disc::data_dir(), || "Got the disc: close this app and reopen it to join the game.".into());
-    app.run();
+                .spawn(Node { width: percent(100), height: percent(100), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() })
+                .with_child((
+                    Node { max_width: percent(85), ..default() },
+                    Text::new(
+                        "Hot Shots Tennis needs your disc image.\n\n\
+                         In the Files app, open On My iPhone > OpenTennis\n\
+                         (the folder with this app's icon), put your\n\
+                         Hot Shots Tennis (USA) ISO in it, then close and reopen this app.",
+                    ),
+                    TextFont { font_size: FontSize::VMin(3.5), ..default() },
+                ));
+        })
+        .run();
     std::process::exit(0)
 }
 

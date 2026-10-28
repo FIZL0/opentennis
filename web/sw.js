@@ -103,8 +103,6 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== location.origin || !url.href.startsWith(scope.href)) return;
   const path = url.pathname.slice(scope.pathname.length);
-  // M152f: an adhoc host's own answers (its info, disc, mods, signalling) are the page talking to it, never kept here
-  if (path.startsWith('adhoc/') || path === 'rtc') return;
   e.respondWith((async () => {
     if (req.mode === 'navigate' && (path === '' || path === 'index.html')) await promote();
     const active = await get('active');

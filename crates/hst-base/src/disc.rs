@@ -2,8 +2,7 @@
 //! (`hst_data::iso::Iso::write_pack`); from then on the game runs from the pack and the ISO can go. settings.txt,
 //! mods/ and cache/ live beside the pack too (`crate::store`, M143), whatever disc a run starts from.
 //!
-//! `hst [flags]` runs from the pack (with none yet, a page asks for the ISO in a file dialog, or joins a game nearby and
-//! plays from its host's disc, `adhoc::page`, M152g);
+//! `hst [flags]` runs from the pack (importing first if there is none: a file dialog asks for the ISO);
 //! `hst --import <iso> [flags]` (re)imports; `hst <iso or pack> [flags]` runs straight from that file, as before.
 
 use hst_data::iso::Iso;
@@ -76,13 +75,6 @@ pub fn pack_path() -> PathBuf {
 
 /// Puts the disc to run from in front of `argv` (see the module doc).
 pub fn resolve(argv: &mut Vec<String>) {
-    // M152g: an adhoc host's disc this app just got (no disc of its own), in memory from here on
-    if argv.first().is_none_or(|a| a != "--import")
-        && let Some(at) = crate::adhoc::guest::resume(&data_dir())
-    {
-        argv.insert(0, at.to_string_lossy().into_owned());
-        return;
-    }
     // iOS (M91): no dialogs, and a launch that takes too long gets killed, so no import before the window: the pack if
     // there is one, else straight from the first ISO in the app's folder
     #[cfg(target_os = "ios")]
@@ -106,10 +98,6 @@ pub fn resolve(argv: &mut Vec<String>) {
         eprintln!("Couldn't open the disc image {}: using the imported disc", argv.remove(0));
     }
     let mut pack = pack_path();
-    // M152g: no disc yet: the page that imports one or joins a game nearby
-    if !import && !pack.exists() {
-        crate::adhoc::page::no_disc(data_dir());
-    }
     if import || !pack.exists() {
         let iso = iso.or_else(pick).unwrap_or_else(|| fail("No disc image picked. Run: hst --import <your Hot Shots Tennis (USA) ISO>"));
         let was = std::mem::replace(&mut pack, data_dir().join("disc.pack"));
@@ -150,7 +138,7 @@ fn import_iso(iso: &Path, pack: &Path) -> std::io::Result<()> {
 }
 
 /// The ISO from a file dialog (zenity or kdialog), if one is installed and the user picked a file.
-pub(crate) fn pick() -> Option<String> {
+fn pick() -> Option<String> {
     let title = "Hot Shots Tennis: pick your disc image (SCUS-97610)";
     let tries: [(&str, &[&str]); 2] = [
         ("zenity", &["--file-selection", "--title", title, "--file-filter", "Disc image | *.iso *.ISO", "--file-filter", "All files | *"]),

@@ -52,12 +52,8 @@ pub fn readable(g: &Gamepad) -> bool {
 
 /// B656: the on-screen pad (`touch_pad.rs`, `web/touch.js`) holds a seat: it pressed Start on the splash or sits in
 /// one of the menus' seats. It then stays beside a real controller, which joins as the next player, instead of
-/// giving the real one its place (B247). The menus set it; it carries through the match they start. Never on an
-/// adhoc guest's page (M152c): there the controller takes the touch pad's seat, as before B656.
+/// giving the real one its place (B247). The menus set it; it carries through the match they start.
 pub fn hold_touch(on: bool) {
-    // M152c: on an adhoc guest's page (a phone joining a host) a controller always takes the touch pad's seat over
-    #[cfg(target_arch = "wasm32")]
-    let on = on && !crate::web::adhoc_guest();
     if TOUCH_HELD.swap(on, std::sync::atomic::Ordering::Relaxed) != on {
         #[cfg(target_arch = "wasm32")]
         crate::web::touch_held(on);
