@@ -11,7 +11,6 @@
 - Playing in a phone's browser no longer shows keyboard key hints in the menus, only the touch buttons', as the phone apps do.
 - iPhone browsers tick again on each press of the on-screen buttons (Settings → Mobile → Vibration).
 - Online: a player on the Random card now shows their face in the match's score panel instead of a blank circle.
-- Random on the character select now picks a character nobody else has, so several players on Random no longer end up as the same character in different outfits.
 - Custom characters emoting in a match keep facing the way they stand, instead of spinning around as they do for the after-point close-ups.
 - In the browser, the Save log button for bug reports is bigger, sits below the touch pad's Select and Start instead of between them, lights up and buzzes when pressed, and says Saved when done.
 - Hosting a game nearby now gives a secure (https) address: the phone's browser shows a warning once (tap past it), then keeps the host's disc between visits instead of holding it all in memory, and the page can be added to the home screen.
