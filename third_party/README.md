@@ -26,6 +26,7 @@ Upstream status: none of these has been sent upstream yet (2026-10-21).
 | `bevy_pbr` | 0.19.1 | `src/render/gpu_preprocess.rs` | P37: the mesh-preprocess bind groups kept while their buffers stay the same (bin-unpacking metadata at a dynamic offset), not rebuilt per view and phase each frame |
 | | | `src/render/light.rs`, `src/render/mesh_view_bindings.rs` | M154: ARM Linux's point-light shadow map is a Cube view, not a CubeArray (GL ES can't bind one; the iOS simulator's path) |
 | | | `src/render/light.rs` (`directional_light_shadow_map_texture`) | M155b: on ARM Linux the directional/spot shadow map has at least two layers, so GL ES makes it a texture array its D2Array view can bind |
+| | | `src/render/light.rs` (`extract_shadow_lod_origin`) | M157: no shadow LOD origin looked up while no point or spot light exists (its query lenses walked every archetype each frame) |
 | | | `src/ssao/mod.rs` | M154: SSAO isn't set up on the GL backend (naga's GLSL for its depth gather doesn't compile, and the failed pipeline quit the app); the game uses no SSAO |
 | | | `src/cluster/mod.rs` | B468: CPU clustering reuses each view's cluster buffers instead of new ones every frame (WebGPU frees them only at GC) |
 | `wgpu` | 29.0.4 | `src/backend/webgpu.rs` | B328: WebGPU device features/limits read once, not from the browser on every draw. 30.0.1 still reads them each time |

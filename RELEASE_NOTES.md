@@ -17,3 +17,4 @@
 - Hosting a game nearby now gives a secure (https) address: the phone's browser shows a warning once (tap past it), then keeps the host's disc between visits instead of holding it all in memory, and the page can be added to the home screen.
 - A browser joining a game nearby no longer leaves the host's custom characters in its download cache afterwards: they stay in memory and are gone when the page closes.
 - OpenTennis runs on muOS handhelds such as the Anbernic RG34XX SP: start it from Ports, with the handheld's own buttons
+- Handhelds run matches a little faster, and a new Potato graphics preset (or the new Court Life switch in the advanced graphics options) leaves out the crowd, the small props and the costumes' sway for the weakest devices. While Auto is on, the Preset row shows which preset it picked, such as "Auto (Phone)".

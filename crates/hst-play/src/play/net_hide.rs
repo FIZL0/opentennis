@@ -137,9 +137,17 @@ fn hide(g: Res<Game>, own: Option<Res<super::own_camera::OwnCam>>, d: Option<Res
 /// nothing while `cull::Off` holds (the intro's flyover).
 /// B634: while the split view is on, a prop that buries either half's eye is hidden (from both).
 #[allow(clippy::type_complexity)]
-fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, second: Option<Res<crate::twin_view::SecondEye>>, mut q: Query<(Option<&mut HideAroundEye>, Option<&NearBox>, &mut EyeHidden), Or<(With<HideAroundEye>, With<NearBox>)>>) {
+/// M157: skipped while the drawn view, the split view and `cull::Off` stay as they were and no prop was added (the
+/// props don't move): each prop's test sweeps its mesh three times per view.
+fn hide_around_eye(g: Option<Res<Game>>, off: Option<Res<crate::cull::Off>>, camera: Query<(&Transform, &Projection), With<crate::Orbit>>, window: Query<&Window>, second: Option<Res<crate::twin_view::SecondEye>>, mut last: Local<Option<(View, bool, bool)>>, mut q: Query<(Option<&mut HideAroundEye>, Option<Ref<NearBox>>, &mut EyeHidden), Or<(With<HideAroundEye>, With<NearBox>)>>) {
     let (Some(g), Ok((t, proj))) = (g, camera.single()) else { return };
     let Some(view) = drawn_view(t, proj, &window) else { return };
+    let key = (view, off.is_some(), second.is_some());
+    let added = q.iter_mut().any(|(h, n, _)| h.is_some_and(|h| h.is_added()) || n.is_some_and(|n| n.is_added()));
+    if !added && !second.as_ref().is_some_and(|s| s.is_changed()) && last.as_ref() == Some(&key) {
+        return;
+    }
+    *last = Some(key);
     let views: Vec<(View, f32)> = std::iter::once(view).chain(second_view(second.as_deref())).map(|v| { let r = reach(&v); (v, r) }).collect();
     let world = &g.world.0;
     for (h, near, mut v) in &mut q {
