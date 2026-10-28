@@ -98,6 +98,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"
 # already builds; EGL is loaded at run time, nothing more to link)
 [target.'cfg(all(target_os = "linux", target_arch = "aarch64"))'.dependencies]
 wgpu = { version = "29", features = ["gles"] }
+# M155: the framebuffer's size (`fbdev.rs`)
+libc = "0.2"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))'.dependencies]
 # Add mod's file picker on desktop (the xdg portal on Linux; the browser build uses the page's input, iOS the Files app; none on Android)

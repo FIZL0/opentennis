@@ -2,7 +2,9 @@
 # tools/build.sh [linux|linux-aarch64|windows|ios|android|all] — optimised (release) builds of the game into dist/:
 #   dist/linux/opentennis        run: ./opentennis "Hot Shots Tennis (USA).iso"
 #   dist/linux-aarch64/OpenTennis/  ARM Linux (M154, tools/linux-aarch64.sh): opentennis + OpenTennis.sh, the launcher a
-#                         handheld's Ports menu runs (the folder goes in ROCKNIX's roms/ports/)
+#                         handheld's Ports menu runs (the folder goes in ROCKNIX's roms/ports/; on muOS, PortMaster's
+#                         layout: the folder in ports/, OpenTennis.sh in ROMS/Ports/; no display server there, so it
+#                         draws to the framebuffer, M155)
 #   dist/windows/opentennis.exe  run: drop the ISO on opentennis.exe, or `opentennis.exe "Hot Shots Tennis (USA).iso"`
 #   dist/ios/opentennis-ios.ipa  unsigned (M91): the player signs it (AltStore, Sideloadly…); the ISO goes in its Files folder.
 #                         Needs the iOS SDK once: tools/ios-sdk.py Xcode_*.xip (see tools/ios-build.sh)

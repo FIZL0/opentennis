@@ -18,6 +18,9 @@ pub mod ios;
 #[cfg(target_os = "android")]
 pub mod android;
 pub mod effects;
+// M155: muOS/Knulli handhelds with no display server: the framebuffer instead of winit
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+pub mod fbdev;
 pub mod graphics;
 pub mod device;
 pub mod handshake;
