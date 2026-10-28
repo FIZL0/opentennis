@@ -319,11 +319,10 @@ fn url(a: Ipv4Addr, port: u16) -> String {
     if port == 80 { format!("http://{a}") } else { format!("http://{a}:{port}") }
 }
 
-/// What the mods folder holds to serve: every mod (`mods::dirs`) but the texture packs switched off, the kinds this
-/// build doesn't play and the characters the roster leaves out.
+/// What the mods folder holds to serve: every mod (`mods::dirs`) but texture packs (upscales: looks only, and far too big
+/// for a phone guest to hold in memory), the kinds this build doesn't play and the characters the roster leaves out.
 fn mods() -> Vec<Served> {
     let root = crate::modfs::root();
-    let on: Vec<PathBuf> = crate::mods_textures::active(root).into_iter().map(|p| p.dir).collect();
     crate::mods::dirs(root)
         .into_iter()
         .filter_map(|dir| {
@@ -332,7 +331,6 @@ fn mods() -> Vec<Served> {
                 Kind::Character => "character",
                 Kind::Court => "court",
                 Kind::Umpire => "umpire",
-                Kind::Textures if on.contains(&dir) => "textures",
                 _ => return None,
             };
             let m = crate::mods::read_any(&dir).ok()?;
