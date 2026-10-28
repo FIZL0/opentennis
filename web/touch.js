@@ -79,6 +79,8 @@ const buzzOnce = () => {
   if (vibrates) navigator.vibrate(15);
   else tickLabel?.click();
 };
+// the same press buzz for the page's own buttons (index.html's Save log), off with the Vibration setting
+window.hstBuzz = () => buzz && buzzOnce();
 // what the Vibration setting's text says: 'vibrate', 'ios' (the haptic tick), 'firefox' or 'none'
 window.hstVibration = () => (vibrates ? 'vibrate' : ios ? 'ios' : firefox ? 'firefox' : 'none');
 // B165: the game's polls, counted in animation frames. A tap shorter than a frame (or one that lands while the page is
