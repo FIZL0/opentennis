@@ -137,7 +137,6 @@ html[data-game] #disc { display: none !important; }
 #disc .card .meta { font-size: 14px; color: var(--muted); }
 /* B459: icon | name over note | download (play) glyph; the icons are currentColor, so they follow the tile's ink */
 #disc .tiles { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); margin-top: clamp(14px, 2.4vw, 24px); }
-#disc .tiles.mine { grid-template-columns: minmax(0, 320px); margin: 0 0 clamp(14px, 2.4vw, 24px); }
 #disc .tile { display: grid; grid-template-columns: 30px minmax(0, 1fr) 20px; grid-template-rows: auto auto; column-gap: .65em; row-gap: .1em;
   align-items: center; padding: .7em .9em; border: 3px solid var(--ink); border-radius: 16px; background: #fff; color: var(--ink);
   box-shadow: 0 4px 0 var(--ink); text-decoration: none; }
