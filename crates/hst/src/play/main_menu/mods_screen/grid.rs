@@ -2084,24 +2084,16 @@ fn detail(d: &mut Draw, m: &Menu, a: [f32; 3], b @ [_, _, _, h]: [f32; 4]) {
     // under the grey line, the strip giving up height before the card shrinks from its comfortable size, then the
     // card's rows thinning (letters scaled) to `CARD[0]`, then it hides
     let want = (h / PY * 0.42).clamp(96.0, 230.0);
-    let (strip_h, card_h) = card_room(b[1], want, fy, lined, sh.stats.is_some());
+    // B696: a character's picture sits beside its stats card, as the select's cards have it; the strip just names it
+    let aside = sh.stats.and_then(|_| aside_room(b[1], fy, lined));
+    let (strip_h, card_h) = match aside {
+        Some((s, row)) => (s, Some(row)),
+        None => card_room(b[1], want, fy, lined, sh.stats.is_some()),
+    };
     let [sx, sy, sw, shh] = look::panel(d, b, strip_h, a);
     d.out.extend(foot_q);
-    let inner = [sx + 8.0 * PX, sy + 6.0 * PY, sw - 16.0 * PX, shh - 12.0 * PY];
-    if v.shot {
-        // the bake's 4:5 (M8f9: a court's or umpire's own shape), as big as the box allows
-        let aspect = v.shot_aspect.map_or(super::super::previews::CARD_W, |a| a * PX / PY);
-        let (pw, phh) = if aspect > inner[2] / inner[3] { (inner[2], inner[2] / aspect) } else { (inner[3] * aspect, inner[3]) };
-        d.q(Tex::Shelf, [0.0, 0.0, 1.0, 1.0], [inner[0] + (inner[2] - pw) / 2.0, inner[1] + (inner[3] - phh) / 2.0, pw, phh], WHITE, 128.0);
-    } else {
-        if sh.loading {
-            rounded(d, inner, 8.0, WHITE, 40.0);
-        }
-        match sh.face {
-            // M5d: a texture pack's before / after, the divider to drag
-            Face::Thumb(slot, aspect) if sh.split => before_after(d, slot, aspect, inner, wipe_at(v)),
-            _ => draw_face(d, m, &sh.face, inner, WHITE),
-        }
+    if aside.is_none() {
+        picture(d, m, &sh, [sx + 8.0 * PX, sy + 6.0 * PY, sw - 16.0 * PX, shh - 12.0 * PY], WHITE);
     }
     if let Some((s, rgb)) = sh.badge {
         let bw = d.width(s, 10.5 * PY) + 12.0 * PX;
@@ -2143,11 +2135,62 @@ fn detail(d: &mut Draw, m: &Menu, a: [f32; 3], b @ [_, _, _, h]: [f32; 4]) {
         }
     }
     if let (Some((_, grades)), Some(ch)) = (sh.stats, card_h) {
-        let card = [tx, ty, tw, ch * PY];
+        let mut card = [tx, ty, tw, ch * PY];
+        if aside.is_some() {
+            // B696: the picture the row's height on the left in a light tile (the bake's 4:5, at most `ASIDE_W` of the
+            // row), the card beside it at its height, centred on the picture
+            let pw = (card[3] * picture_aspect(v)).min(tw * ASIDE_W);
+            let tile = [tx, ty, pw, card[3]];
+            rounded(d, tile, 10.0, look::c(look::TILE), 128.0);
+            picture(d, m, &sh, [tx + 3.0 * PX, ty + 3.0 * PY, pw - 6.0 * PX, card[3] - 6.0 * PY], look::c(look::TILE_RIM));
+            let gap = 12.0 * PX;
+            let h = card[3].min(CARD[2] * PY);
+            card = [tx + pw + gap, ty + (card[3] - h) / 2.0, tw - pw - gap, h];
+        }
         // B692: on the panel's paper inside an ink rim, as the character select shows them (an ink fill hid the labels)
         roster::ringed(d, [card[0] - 2.0 * PX, card[1] - 2.0 * PY, card[2] + 4.0 * PX, card[3] + 4.0 * PY], 12.0, 2.0, look::c(look::INK), look::c(look::PAPER));
         roster::stats(d, grades, [card[0] + 8.0 * PX, card[1], card[2] - 16.0 * PX, card[3]]);
     }
+}
+
+/// The chosen mod's picture fitted in `inner`: the hovered one's (`Tex::Shelf`) as big as the box allows, else its
+/// face (a loading one over a faint box, `wash`).
+fn picture(d: &mut Draw, m: &Menu, sh: &Shown, inner: [f32; 4], wash: [f32; 3]) {
+    let v = &m.add;
+    if v.shot {
+        let aspect = picture_aspect(v);
+        let (pw, phh) = if aspect > inner[2] / inner[3] { (inner[2], inner[2] / aspect) } else { (inner[3] * aspect, inner[3]) };
+        d.q(Tex::Shelf, [0.0, 0.0, 1.0, 1.0], [inner[0] + (inner[2] - pw) / 2.0, inner[1] + (inner[3] - phh) / 2.0, pw, phh], WHITE, 128.0);
+    } else {
+        if sh.loading {
+            rounded(d, inner, 8.0, wash, 40.0);
+        }
+        match sh.face {
+            // M5d: a texture pack's before / after, the divider to drag
+            Face::Thumb(slot, aspect) if sh.split => before_after(d, slot, aspect, inner, wipe_at(v)),
+            _ => draw_face(d, m, &sh.face, inner, WHITE),
+        }
+    }
+}
+
+/// The hovered picture's width over height in screen units: the bake's 4:5, M8f9: a court's or umpire's own shape.
+fn picture_aspect(v: &super::View) -> f32 {
+    v.shot_aspect.map_or(super::super::previews::CARD_W, |a| a * PX / PY)
+}
+
+/// B696: the most of the panel's width a picture beside the stats card takes.
+const ASIDE_W: f32 = 0.46;
+/// B696: with the picture beside the card: the picture row's most height and the name strip's (mockup px).
+const ASIDE_ROW: f32 = 240.0;
+const ASIDE_STRIP: f32 = 84.0;
+
+/// B696: a character's panel at `top` (screen units) with its picture beside the stats card: the name strip's height and
+/// the picture row's (mockup px; the row first, up to `ASIDE_ROW`, the strip what's left up to `ASIDE_STRIP`), the facts
+/// starting at `fy`, a grey line under the strip if `lined`; None: no room for the card's least under the least strip.
+fn aside_room(top: f32, fy: f32, lined: bool) -> Option<(f32, f32)> {
+    let room = (fy - top) / PY - RIM - STRIP_MIN - 2.5 - 10.0 - if lined { 22.0 } else { 0.0 } - 8.0;
+    let row = room.min(ASIDE_ROW);
+    (row >= CARD[0] - 0.5).then(|| ((STRIP_MIN + room - row).min(ASIDE_STRIP), row))
 }
 
 /// M113: the stats card's height (mockup px): at least, comfortable, at most.
@@ -2695,6 +2738,22 @@ mod tests {
         // a portrait panel of its least height fits the least card
         let r = DETAIL_MIN - 3.0 * 18.0 - 10.0 - 74.0 - PAD - RIM;
         assert!(card_room(0.0, 200.0, r * PY, true, true).1.is_some());
+    }
+
+    /// B696: a character's picture beside its card: the row takes the room first (up to `ASIDE_ROW`), the name strip
+    /// what's left (between `STRIP_MIN` and `ASIDE_STRIP`); under the card's least, the old strip layout instead.
+    #[test]
+    fn the_picture_row_comes_before_the_strip() {
+        let fixed = RIM + 12.5 + 22.0 + 8.0;
+        let fy = |strip: f32, row: f32| (fixed + strip + row) * PY;
+        let near = |a: Option<(f32, f32)>, b: (f32, f32)| a.is_some_and(|a| (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3);
+        assert!(near(aside_room(0.0, fy(300.0, 300.0), true), (ASIDE_STRIP, ASIDE_ROW)));
+        assert!(near(aside_room(0.0, fy(STRIP_MIN, ASIDE_ROW + 10.0), true), (STRIP_MIN + 10.0, ASIDE_ROW)));
+        assert!(near(aside_room(0.0, fy(STRIP_MIN, CARD[0] + 5.0), true), (STRIP_MIN, CARD[0] + 5.0)));
+        assert_eq!(aside_room(0.0, fy(STRIP_MIN, CARD[0] - 5.0), true), None);
+        // a portrait panel of its least height still sets the picture beside the least card
+        let r = DETAIL_MIN - 3.0 * 18.0 - 10.0 - 74.0 - PAD - RIM;
+        assert!(aside_room(0.0, r * PY, true).is_some());
     }
 
     /// M113: a store character's card: the listing's style and grades, else the installed copy's, else "?".
