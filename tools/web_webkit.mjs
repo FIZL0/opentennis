@@ -15,8 +15,8 @@
 // Every run samples the browser's processes' memory (RSS, all of WebKit's children) once a second: OUT/memory.txt has
 // the peak of each and of their sum, the sum's timeline beside the console's ms. FLAKY=N (with GUEST): the first N
 // info.json asks answer 503 and the first disc download is cut off after 20 MB, for the page's retries. What the page
-// sends the host (`POST /adhoc/log`) goes to OUT/guest-log.txt. WebKitGTK has no WebRTC, which a guest page stops on
-// (`hstNoRtcCheck` loads on; NORTC=stop keeps the stop).
+// sends the host (`POST /adhoc/log`) goes to OUT/guest-log.txt. WebKitGTK has no WebRTC: a guest page joins a real
+// host over its WebSocket then (M156; this server has none, so the lobby isn't joined here).
 import { spawn } from 'node:child_process';
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -44,7 +44,6 @@ const probe = `<script>
   setInterval(send, 500);
   addEventListener('pagehide', send);
   try { localStorage.setItem('hst-autoplay', '1'); } catch {}
-  window.hstNoRtcCheck = ${process.env.NORTC !== 'stop'};
   let last = performance.now();
   const raf = t => { if (t - last > 100) add('probe', [\`raf gap \${Math.round(t - last)} ms\`]); last = t; requestAnimationFrame(raf); };
   requestAnimationFrame(raf);

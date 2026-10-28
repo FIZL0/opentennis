@@ -855,7 +855,7 @@ if (answer) await new Promise(() => {});
 // M152c: guest page mode. A page served by a host's Adhoc (adhoc.rs, plain http on the LAN) finds its info.json:
 // the disc and mods come from that host into memory only (B457's in-memory folder: no OPFS, no service worker, nothing
 // of the game left on the device), the site page is skipped and the game opens straight into the host's lobby
-// (`rtch<host:port>`, M152b's signalling at `/rtc` on the same address). `?site` opens the site page as usual.
+// (`rtch<host:port>`, M152b's signalling at `/rtc` on the same address, or M156's WebSocket at `/adhoc/ws`). `?site` opens the site page as usual.
 // B689: a host that doesn't answer (busy, the Wi-Fi waking up) is asked again rather than taken for a plain site: a
 // tab that was a guest already (sessionStorage `hst-guest`, kept across WebKit's reload after it killed the tab) keeps
 // asking with what went wrong on screen, never the site's ISO picker; a first visit asks three times. A plain http
@@ -885,20 +885,9 @@ if (location.protocol === 'http:' && !new URLSearchParams(location.search).has('
 }
 try { if (adhoc) sessionStorage.setItem('hst-guest', location.host); } catch {}
 window.hstGuestLog(!!adhoc);
-// B689: the game joins its host over WebRTC, which a browser can have switched off (an iPhone in Lockdown Mode, a
-// privacy setting or extension; WebKitGTK builds without it): said before anything is downloaded, not as the lobby's
-// "Can't find variable: RTCPeerConnection" once the game is up. `hstNoRtcCheck` loads on anyway (tools/web_webkit.mjs:
-// a guest's load in WebKitGTK, which has no WebRTC)
-if (adhoc && typeof RTCPeerConnection === 'undefined') {
-  console.warn('hst: no RTCPeerConnection: this browser has WebRTC off');
-  const why = 'This browser has WebRTC switched off, and joining the host needs it, so the game can\'t start here.\n'
-    + 'iPhone or iPad: Lockdown Mode turns it off. Turn Lockdown Mode off for this page (Safari: tap the page menu '
-    + 'left of the address → Website Settings → Lockdown Mode off), or in Settings → Privacy & Security → Lockdown '
-    + 'Mode, then reload. Elsewhere: check the browser\'s privacy settings and extensions for WebRTC.';
-  fail(why);
-  step.textContent = why;
-  if (!window.hstNoRtcCheck) await new Promise(() => {});
-}
+// B689/M156: a browser with WebRTC off (an iPhone in Lockdown Mode, a privacy setting or extension; WebKitGTK builds
+// without it) joins the host over a WebSocket on the host's own server instead (`net/ws.rs`): noted in the host's log
+if (adhoc && typeof RTCPeerConnection === 'undefined') console.info('hst: no RTCPeerConnection: joining the host over a WebSocket');
 // a guest has no ISO of its own and no site to go back to: the error screen's links are Reload and WebGL2 only
 if (adhoc) for (const id of ['sitelink', 'isolink']) document.getElementById(id).hidden = true;
 // read by the game (web.rs adhoc_guest): a controller picked up takes the touch pad's seat over
