@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gameList>
+  <game>
+    <path>./OpenTennis.sh</path>
+    <name>OpenTennis</name>
+    <desc>A fan remaster of Hot Shots Tennis (PS2, 2007): the original's AI, physics, shots and timing, on today's screens, with online play and character mods. Plays from your own Hot Shots Tennis (USA) disc image.</desc>
+    <developer>FIZL0</developer>
+    <publisher>Open Source</publisher>
+    <genre>Sports</genre>
+    <image>./opentennis/screenshot.png</image>
+  </game>
+</gameList>

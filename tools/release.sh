@@ -5,6 +5,8 @@
 # keep that file, a phone only takes an update signed with the same key; M154: ARM Linux too), sign SHA256SUMS with the minisign key (~/.config/hst/release.key, asks its password) and upload to GitHub:
 #   opentennis-windows-x86_64.zip  opentennis-linux-x86_64.tar.gz  opentennis-ios.ipa  opentennis-android.apk   what players download
 #   opentennis-linux-aarch64.tar.gz                                    (an OpenTennis/ folder with its Ports launcher, M154)
+#   opentennis.zip                                                     M155a: the same as a PortMaster port (tools/portmaster.sh;
+#                                                                      PortMaster wants the zip named after the port)
 #   opentennis-windows-x86_64.exe  opentennis-linux-x86_64  opentennis-linux-aarch64   the bare binaries the updater fetches (plan/B374.md;
 #                                                                      M140: the phones' updater fetches the .apk / hands on the .ipa)
 #   SHA256SUMS  SHA256SUMS.sig
@@ -75,6 +77,7 @@ rm -rf "$out" && mkdir -p "$out"
 tar -czf "$out/opentennis-linux-x86_64.tar.gz" -C dist/linux .
 tar -czf "$out/opentennis-linux-aarch64.tar.gz" -C dist/linux-aarch64 OpenTennis
 (cd dist/windows && zip -q "../release/opentennis-windows-x86_64.zip" opentennis.exe)
+cp dist/linux-aarch64/opentennis.zip "$out/opentennis.zip"
 cp dist/linux/opentennis "$out/opentennis-linux-x86_64"
 cp dist/linux-aarch64/OpenTennis/opentennis "$out/opentennis-linux-aarch64"
 cp dist/windows/opentennis.exe "$out/opentennis-windows-x86_64.exe"
@@ -84,7 +87,7 @@ cp dist/opentennis.apk "$out/opentennis-android.apk"
 # no HST_SITE: its links are the main site's)
 env -u HST_SITE HST_COMMIT=$HST_COMMIT tools/web.sh
 tar -czf "$out/web.tar.gz" -C web .
-(cd "$out" && sha256sum opentennis-* > SHA256SUMS)
+(cd "$out" && sha256sum opentennis-* opentennis.zip > SHA256SUMS)
 # M140: the AltStore / SideStore source (their v2 format): the latest release's .ipa, at a URL that always serves the
 # latest release's copy of this file
 src=https://github.com/$repo/releases/latest/download/altstore-source.json
@@ -114,6 +117,7 @@ body=$out/notes.md
     echo "| **Windows** 10/11 | [\`opentennis-windows-x86_64.zip\`](https://github.com/$repo/releases/download/$tag/opentennis-windows-x86_64.zip) | Unzip, then drop your ISO on \`opentennis.exe\` |"
     echo "| **Linux** / **Steam Deck** | [\`opentennis-linux-x86_64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-x86_64.tar.gz) | Unpack and open \`opentennis\`, then pick your ISO |"
     echo "| **Linux ARM64** (aarch64) | [\`opentennis-linux-aarch64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-aarch64.tar.gz) | Unpack and run \`OpenTennis/OpenTennis.sh\`, with your ISO in the \`OpenTennis\` folder |"
+    echo "| **Handhelds** with [PortMaster](https://portmaster.games/) (muOS, ROCKNIX, Knulli…) | [\`opentennis.zip\`](https://github.com/$repo/releases/download/$tag/opentennis.zip) | Put the zip in PortMaster's \`autoinstall\` folder, then your ISO in \`ports/opentennis/\`, and start OpenTennis from Ports |"
     echo "| **iPhone** / **iPad** (iOS 15+) | [\`opentennis-ios.ipa\`](https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa) | Unsigned: sign and install it yourself (AltStore, SideStore, Sideloadly…), then put your ISO in Files → On My iPhone → OpenTennis. Touch controls or a controller. AltStore / SideStore: add the source \`https://github.com/$repo/releases/latest/download/altstore-source.json\` to get updates |"
     echo "| **Android** 8+ | [\`opentennis-android.apk\`](https://github.com/$repo/releases/download/$tag/opentennis-android.apk) | Install it (allow unknown apps), then pick your ISO on first start |"
     echo "| **Browser** | [opentennis.dev](https://opentennis.dev/) | Nothing to install |"
@@ -139,7 +143,7 @@ body=$out/notes.md
 } > "$body"
 git push -q origin HEAD
 gh release create "$tag" --target "$(git rev-parse HEAD)" --title "OpenTennis $version" \
-    --notes-file "$body" $pre $publish "$out"/opentennis-* "$out"/web.tar.gz "$out"/SHA256SUMS "$out"/SHA256SUMS.sig "$out"/altstore-source.json
+    --notes-file "$body" $pre $publish "$out"/opentennis-* "$out"/opentennis.zip "$out"/web.tar.gz "$out"/SHA256SUMS "$out"/SHA256SUMS.sig "$out"/altstore-source.json
 if [ "$notes" = RELEASE_NOTES.md ]; then
     sed -i '/^<!--/!d' RELEASE_NOTES.md
     git commit -qm "Release notes: emptied after v$version" -- RELEASE_NOTES.md && git push -q origin HEAD
