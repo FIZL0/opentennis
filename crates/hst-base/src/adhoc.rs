@@ -16,12 +16,17 @@
 //! - `POST /rtc`: M152b's signalling (a guest's WebRTC offer in, the answer out) for the lobby hosting now, so the
 //!   guest page (M152c) joins on the same address and port it was served from
 //!
+//! M152g: a native app with no disc finds the server by a UDP broadcast and plays from its disc too (`guest`, `page`).
+//!
 //! M152e: the host can't see a guest that never gets through, so the card says how to let them in: at once when this
 //! PC's firewall (ufw) is on and has no rule letting the port in, and after a while with no guest otherwise; never
 //! once a request has come from another machine.
 //!
 //! A plain thread per connection (a handful of guests), HTTP/1.1 keep-alive, GET and HEAD, byte ranges (a big disc can
 //! be read in parts or resumed).
+
+pub mod guest;
+pub mod page;
 
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -140,6 +145,9 @@ pub fn set(on: bool, disc: &Path) -> Result<(), String> {
             }
         })
         .map_err(|e| e.to_string())?;
+    // M152g: native guests with no disc find this host by broadcast
+    let sh = shared.clone();
+    std::thread::Builder::new().name("adhoc-answer".into()).spawn(move || guest::answer_finds(port, sh)).map_err(|e| e.to_string())?;
     crate::net::rtc::pin(Some(port));
     let fw = firewall(port);
     bevy::log::info!("adhoc: serving on port {port}: {:?}, firewall: {fw:?}", urls(port));

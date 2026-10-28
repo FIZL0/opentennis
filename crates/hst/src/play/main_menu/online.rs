@@ -2656,14 +2656,15 @@ pub(super) fn pill_step(rects: &[[f32; 4]], from: usize, k: Press) -> usize {
     rects.iter().enumerate().filter_map(|e| cost(&e)).min_by(|a, b| a.0.total_cmp(&b.0)).map_or(from, |c| c.1)
 }
 
-/// Started from a lobby link (the browser's `?code=`, or `HST_CODE`): straight to joining that lobby as one player
+/// Started from a lobby link (the browser's `?code=`, or `HST_CODE`; M152g: an adhoc guest's host): straight to joining that lobby as one player
 /// (the first device to press anything is it, `Menu::step`), then its character select.
 /// M126: or the match a browser refresh or crash left (`net::rejoin`), its old seat asked for.
 pub(super) fn linked(m: &mut Menu, args: &crate::Args) {
     #[cfg(target_arch = "wasm32")]
     let text = crate::web::pasted();
     #[cfg(not(target_arch = "wasm32"))]
-    let text = std::env::var("HST_CODE").ok();
+    // M152g: or the adhoc host whose disc this run plays from
+    let text = std::env::var("HST_CODE").ok().or_else(crate::adhoc::guest::code);
     let back = if args.shot.is_none() { crate::net::rejoin::take(&args.iso) } else { None };
     let linked = text.as_deref().and_then(crate::net::code_in);
     let Some(code) = linked.clone().or_else(|| back.as_ref().map(|b| b.code.clone())) else { return };
