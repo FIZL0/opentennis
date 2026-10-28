@@ -98,7 +98,8 @@ async function visit(n, pick) {
   t0 = process.env.THROTTLE ? Date.now() : 0;
   await send('Page.navigate', { url: `http://localhost:${web}/?${query}` });
   if (pick) {
-    for (let i = 0; i < 100 && !(await evaluate("!document.getElementById('disc')?.hidden")); i++) await sleep(200);
+    // the site's text shows from the first paint (M107): wait for site.js's importer, not just a visible #disc
+    for (let i = 0; i < 300 && !(await evaluate("!document.getElementById('disc')?.hidden && !!document.getElementById('iso')?.onchange")); i++) await sleep(200);
     // the page can replace its document while it starts (a reload): ask again until the node holds
     let node;
     for (let i = 0; i < 50 && !node?.result?.nodeId; i++) {
