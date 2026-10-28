@@ -134,7 +134,26 @@ pub struct GsUniform {
     /// Not 0: the texture has mip levels the GS never had (main.rs `cutout_mips`), picked by the on-screen texel size,
     /// this many levels up (1; the net's shadow decal more, `net_decal`).
     pub screen_lod: f32,
+    /// What the key switches in the shaders, filled from it at upload (`From<&GsMaterial>`): `FLAG_*` bits.
+    pub flags: u32,
+    /// The alpha test on the 8-bit A: a pixel passes with `alpha_min` ≤ A < `alpha_max`.
+    pub alpha_min: f32,
+    pub alpha_max: f32,
 }
+
+/// [`GsUniform::flags`]. These were shader defs, one compiled program per combination; WebGL2 compiles each on
+/// the main thread (0.5–1 s apiece on an iPhone), so a key's switches are uniform branches and court, character and
+/// effect draws share a handful of programs.
+pub const FLAG_TEXTURED: u32 = 1;
+pub const FLAG_MODULATE: u32 = 2;
+pub const FLAG_FOG: u32 = 4;
+/// `@add`/`@sub`: Cs·As premultiplied in the shader.
+pub const FLAG_PREMUL: u32 = 8;
+pub const FLAG_SUB: u32 = 16;
+/// Writes no Z: the shadow pass drops every pixel.
+pub const FLAG_NO_Z: u32 = 32;
+/// TEST A < 0x80: alpha 0 is left out too, before the blend (P32).
+pub const FLAG_CLEAR_ZERO: u32 = 64;
 
 /// The light VU1 has outside a match camera (direction, colour, ambient): white, from (1, 2, 1)/√6.
 pub const DEFAULT_LIGHT: (Vec4, Vec4, Vec4) =
@@ -332,8 +351,8 @@ pub fn court_clear(envir: &[u8], sky: [f32; 3], w: &Look) -> Option<[u8; 3]> {
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 #[bind_group_data(GsKey)]
+#[uniform(0, GsUniform)]
 pub struct GsMaterial {
-    #[uniform(0)]
     pub uniform: GsUniform,
     /// Raw (non-sRGB) texels: the GS works on the stored values.
     #[texture(1)]
@@ -343,6 +362,31 @@ pub struct GsMaterial {
     /// Added to the view depth the blended draws are sorted by (farthest first): the court hole's parts go first, in
     /// its material order, as the game draws them.
     pub order: f32,
+}
+
+impl From<&GsMaterial> for GsUniform {
+    fn from(m: &GsMaterial) -> Self {
+        let k = m.key;
+        let bit = |on: bool, f: u32| if on { f } else { 0 };
+        let flags = bit(k.textured, FLAG_TEXTURED)
+            | bit(k.modulate, FLAG_MODULATE)
+            | bit(k.fog, FLAG_FOG)
+            | bit(matches!(k.blend, Some(mtl::Blend::Add | mtl::Blend::Sub)), FLAG_PREMUL)
+            | bit(k.blend == Some(mtl::Blend::Sub), FLAG_SUB)
+            | bit(matches!(k.test, Test::Lt60 | Test::Lt70 | Test::Lt80 | Test::Never), FLAG_NO_Z)
+            | bit(k.test == Test::Lt80, FLAG_CLEAR_ZERO);
+        let (alpha_min, alpha_max) = match k.test {
+            Test::Always | Test::Never => (0.0, 256.0),
+            Test::Ge40 => (64.0, 256.0),
+            Test::Ge60 => (96.0, 256.0),
+            Test::Lt60 => (0.0, 96.0),
+            Test::Ge70 => (112.0, 256.0),
+            Test::Lt70 => (0.0, 112.0),
+            Test::Ge80 => (128.0, 256.0),
+            Test::Lt80 => (0.0, 128.0),
+        };
+        GsUniform { flags, alpha_min, alpha_max, ..m.uniform }
+    }
 }
 
 impl From<&GsMaterial> for GsKey {
@@ -370,7 +414,7 @@ impl GsMaterial {
             }
         };
         let f = |o: usize| f32::from_le_bytes(m.header[o..o + 4].try_into().unwrap());
-        let uniform = GsUniform { color: Vec4::from(m.color), shininess: (128.0 * f(0x10).powf(1.65)).max(1.0), highlight: f(0x14), shadow: 0.0, uv_offset: Vec2::ZERO, fog: NO_FOG, fog_color: Vec4::ONE, lod_k: 0.0, light_dir: DEFAULT_LIGHT.0, light_color: DEFAULT_LIGHT.1, ambient: DEFAULT_LIGHT.2, light2_dir: Vec4::ZERO, light2_color: Vec4::ZERO, glare: 0.0, unlit: 0.0, screen_lod: 0.0 };
+        let uniform = GsUniform { color: Vec4::from(m.color), shininess: (128.0 * f(0x10).powf(1.65)).max(1.0), highlight: f(0x14), shadow: 0.0, uv_offset: Vec2::ZERO, fog: NO_FOG, fog_color: Vec4::ONE, lod_k: 0.0, light_dir: DEFAULT_LIGHT.0, light_color: DEFAULT_LIGHT.1, ambient: DEFAULT_LIGHT.2, light2_dir: Vec4::ZERO, light2_color: Vec4::ZERO, glare: 0.0, unlit: 0.0, screen_lod: 0.0, flags: 0, alpha_min: 0.0, alpha_max: 0.0 };
         tests
             .into_iter()
             .map(|test| GsMaterial {
@@ -583,40 +627,12 @@ impl Material for GsMaterial {
         if k.clear && *CLEAR {
             defs.push("GS_CLEAR".into());
         }
-        if k.textured {
-            defs.push("GS_TEXTURED".into());
-        }
-        if k.modulate {
-            defs.push("GS_MODULATE".into());
-        }
-        match k.test {
-            Test::Ge40 => defs.push("GS_GE40".into()),
-            Test::Ge60 => defs.push("GS_GE60".into()),
-            Test::Lt60 => defs.push("GS_LT60".into()),
-            Test::Ge70 => defs.push("GS_GE70".into()),
-            Test::Lt70 => defs.push("GS_LT70".into()),
-            Test::Ge80 => defs.push("GS_GE80".into()),
-            Test::Lt80 => defs.push("GS_LT80".into()),
-            Test::Always | Test::Never => {}
-        }
-        if k.fog {
-            defs.push("GS_FOG".into());
-        }
-        if matches!(k.test, Test::Lt60 | Test::Lt70 | Test::Lt80 | Test::Never) {
-            defs.push("GS_NO_Z".into());
-        }
         // only the previews read the target's alpha (inspect.wgsl): a blended draw over their −1 clear leaves 2a − 1,
         // so a part drawn only blended (a mod's BLEND cloth, M1k) still shows; over an opaque draw it stays ≥ 0
         let keep_alpha = BlendComponent { src_factor: BlendFactor::One, dst_factor: BlendFactor::OneMinusSrcAlpha, operation: BlendOperation::Add };
         let color = |dst_factor, operation| BlendComponent { src_factor: BlendFactor::SrcAlpha, dst_factor, operation };
         // `@add`/`@sub` premultiply Cs·As in the shader, truncated as the GS does
         let premul = |operation| BlendComponent { src_factor: BlendFactor::One, dst_factor: BlendFactor::One, operation };
-        if matches!(k.blend, Some(mtl::Blend::Add | mtl::Blend::Sub)) {
-            defs.push("GS_PREMUL".into());
-        }
-        if k.blend == Some(mtl::Blend::Sub) {
-            defs.push("GS_SUB".into());
-        }
         let blend = k.blend.map(|b| BlendState {
             color: match b {
                 mtl::Blend::Normal => color(BlendFactor::OneMinusSrcAlpha, BlendOperation::Add),

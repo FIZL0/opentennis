@@ -9,3 +9,4 @@
 - Phones joining an Adhoc game no longer download the host's texture packs, so they load faster and use less memory.
 - Hosting online while the relay isn't up yet (or at all), the lobby's Copy long code button copies the full join code, so players on the same network or who can reach you directly can join by it in Join by Code.
 - Playing in a phone's browser no longer shows keyboard key hints in the menus, only the touch buttons', as the phone apps do.
+- In the browser (iPhones especially) a match loads much faster and freezes far less often: the game now has about a third as many shaders to prepare.

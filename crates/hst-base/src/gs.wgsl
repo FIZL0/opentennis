@@ -21,6 +21,21 @@ struct Gs {
     glare: f32,
     unlit: f32,
     screen_lod: f32,
+    // gs.rs `FLAG_*`, and the alpha test's bounds on the 8-bit A
+    flags: u32,
+    alpha_min: f32,
+    alpha_max: f32,
+}
+
+const TEXTURED: u32 = 1u;
+const MODULATE: u32 = 2u;
+const FOG: u32 = 4u;
+const PREMUL: u32 = 8u;
+const SUB: u32 = 16u;
+const CLEAR_ZERO: u32 = 64u;
+
+fn on(f: u32) -> bool {
+    return (gs.flags & f) != 0u;
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> gs: Gs;
@@ -250,7 +265,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var rgb = in.color.rgb;
     var a = in.color.a;
     let spec = in.spec;
-#ifdef GS_TEXTURED
+    if on(TEXTURED) {
     // TEX1 as the game sets it: LCM 0, L 0, K per model material, MMIN linear-mipmap-nearest, MXL = the levels
     // uploaded. Q = 1/w (VU1), w the view depth (m), so LOD = log2(w) + K, rounded off to a level; the sampler
     // clamps it to the last level (MXL; textureNumLevels doesn't exist on WebGL2)
@@ -268,46 +283,27 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     let t = textureSampleLevel(gs_texture, gs_sampler, in.uv + gs.uv_offset, level);
     rgb = t.rgb * rgb;
-#ifdef GS_MODULATE
+    if on(MODULATE) {
     // Av = (At·Af) >> 7 on the GS's integers: At 0..0x80 (stored ·255/0x80), Af the interpolated vertex alpha,
     // truncated (+1/64 takes up float error, so a constant 0x80 stays 0x80 and passes A ≥ 0x80)
     a = round(t.a * 128.0) * floor(a * 128.0 + 1.0 / 64.0) / 16384.0;
-#else
+    } else {
     // HIGHLIGHT2: + vertex alpha (0..0xff), which carries the highlight
     a = t.a;
     rgb += min(spec, 1.0);
-#endif
-#else
+    }
+    } else {
     // untextured: the GS draws VU1's 8-bit colour as it is (0x80 is 128 of 255, not 1.0 as MODULATE makes it)
     rgb = min(rgb + spec * 255.0 / 128.0, vec3(255.0 / 128.0)) * 128.0 / 255.0;
-#endif
+    }
     // alpha test on the 8-bit value
     let a8 = floor(a * 128.0);
-#ifdef GS_GE40
-    if a8 < 64.0 { discard; }
-#endif
-#ifdef GS_GE60
-    if a8 < 96.0 { discard; }
-#endif
-#ifdef GS_LT60
-    if a8 >= 96.0 { discard; }
-#endif
-#ifdef GS_GE70
-    if a8 < 112.0 { discard; }
-#endif
-#ifdef GS_LT70
-    if a8 >= 112.0 { discard; }
-#endif
-#ifdef GS_GE80
-    if a8 < 128.0 { discard; }
-#endif
-#ifdef GS_LT80
-    // P32: alpha 0 blends to the frame buffer as it was (SrcAlpha·Cs + (1 − SrcAlpha)·Cd, or + 0 for `@add`), so the
-    // hole's see-through texels are left out before the blend
-    if a8 >= 128.0 || a <= 0.0 { discard; }
-#endif
+    if a8 < gs.alpha_min || a8 >= gs.alpha_max { discard; }
+    // P32: TEST A < 0x80: alpha 0 blends to the frame buffer as it was (SrcAlpha·Cs + (1 − SrcAlpha)·Cd, or + 0 for
+    // `@add`), so the hole's see-through texels are left out before the blend
+    if on(CLEAR_ZERO) && a <= 0.0 { discard; }
     rgb = clamp(rgb, vec3(0.0), vec3(1.0));
-#ifdef GS_FOG
+    if on(FOG) {
     // GS: the interpolated F truncated to 8 bits, (F·C + (255 − F)·FOGCOL) >> 8 on 8-bit values
 #ifdef GS_NO_LINEAR
     let fog = floor(in.fog.x / in.fog.y);
@@ -315,21 +311,21 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let fog = floor(in.fog);
 #endif
     rgb = (floor(fog * floor(rgb * 255.0) / 256.0) + floor((255.0 - fog) * floor(gs.fog_color.rgb * 255.0 + 0.5) / 256.0)) / 255.0;
-#endif
+    }
     // shadow: (0 − Cd)·A + Cd on the frame buffer, the same as darkening every layer drawn there
     if gs.shadow > 0.0 {
         rgb *= 1.0 - gs.shadow * (1.0 - sun_visibility(in));
     }
-#ifdef GS_PREMUL
+    if on(PREMUL) {
     // `@add`/`@sub`: the GS adds Cs·As >> 7 on its integers, Cs (texel × vertex >> 7, clamped) and As truncated, so
     // the blend is One/One on this already-floored 8-bit term (the scene is Rgba8Unorm: k/255 lands on k exactly)
-#ifdef GS_SUB
+    if on(SUB) {
     // (0 − Cs)·As >> 7 shifts a negative: the GS takes off the term rounded up
     rgb = ceil(floor(rgb * 255.0 + 1e-4) * a8 / 128.0) / 255.0;
-#else
+    } else {
     rgb = floor(floor(rgb * 255.0 + 1e-4) * a8 / 128.0) / 255.0;
-#endif
-#endif
+    }
+    }
     // the scene holds gamma-encoded values, as the GS's frame buffer (hud_gamma.rs)
     return vec4(rgb, clamp(a, 0.0, 1.0));
 }
