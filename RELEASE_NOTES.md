@@ -10,3 +10,4 @@
 - Hosting online while the relay isn't up yet (or at all), the lobby's Copy long code button copies the full join code, so players on the same network or who can reach you directly can join by it in Join by Code.
 - Playing in a phone's browser no longer shows keyboard key hints in the menus, only the touch buttons', as the phone apps do.
 - iPhone browsers tick again on each press of the on-screen buttons (Settings → Mobile → Vibration).
+- Online: a player on the Random card now shows their face in the match's score panel instead of a blank circle.
