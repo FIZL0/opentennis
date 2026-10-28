@@ -190,7 +190,7 @@ pub fn lobby_open() -> bool {
 
 /// A connected guest to the hosting lobby (closed if it's gone meanwhile).
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-fn arrived(name: String, conn: super::Conn, link: super::Link, inbox: super::Inbox) {
+pub(in crate::net) fn arrived(name: String, conn: super::Conn, link: super::Link, inbox: super::Inbox) {
     let lobby = LOBBY.lock().unwrap().clone();
     let gone = conn.clone();
     if lobby.is_none_or(|l| l.send((name, conn, link, inbox)).is_err()) {
@@ -518,7 +518,7 @@ pub async fn answer(_: &str) -> Result<(Pending, String), String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::net) mod tests {
     use super::*;
 
     /// A Chromium data-channel offer (made up addresses and keys, real shape).
@@ -601,7 +601,7 @@ mod tests {
 
     /// The signalling tests share the listener, the hosting lobby and the pinned port: one at a time.
     #[cfg(not(target_arch = "wasm32"))]
-    static SIGNALLING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    pub(in crate::net) static SIGNALLING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     /// M152c1: with the port pinned, two guests at once both connect through the host's one UDP socket.
     #[cfg(not(target_arch = "wasm32"))]

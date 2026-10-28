@@ -3,6 +3,7 @@
 // Usage: tools/web_adhoc.sh OUT [seconds of match] (starts the native host and web/ on :8766; this script is the browser
 // half): node tools/web_adhoc.mjs ISO|- OUT HOST:PORT [seconds]. ISO `-`: OUT/profile already holds the pack.
 // Every seat is a bot on both ends (`?autoplay`, the host's HST_AUTOPLAY). Console and screenshots into OUT.
+// NORTC=1: the guest has no RTCPeerConnection (M156: it joins over the adhoc server's WebSocket; tools/web_guest.sh).
 import { spawn } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -60,6 +61,8 @@ async function tab(name, url) {
     const P = RTCPeerConnection; window.__pcs = [];
     window.RTCPeerConnection = function (...a) { const pc = new P(...a); __pcs.push(pc); return pc; };
     window.RTCPeerConnection.prototype = P.prototype;
+    // M156: NORTC=1, a browser with WebRTC off (Lockdown Mode): the game joins over the host's WebSocket
+    if (${!!process.env.NORTC}) delete window.RTCPeerConnection;
     // other agents' virtual pads would steer the menus
     Navigator.prototype.getGamepads = () => [];
     addEventListener('gamepadconnected', e => e.stopImmediatePropagation(), true);

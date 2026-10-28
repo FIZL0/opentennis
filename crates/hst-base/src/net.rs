@@ -54,6 +54,7 @@ use tokio::sync::mpsc as amp;
 use crate::handshake::Handshake;
 
 pub mod rtc;
+pub mod ws;
 pub mod keeper;
 pub mod rejoin;
 
@@ -830,6 +831,8 @@ enum Conn {
     Quic(Connection),
     /// The browser on the LAN (M2k), or a native host's browser guest (M152b).
     Rtc(rtc::Peer),
+    /// M156: a browser guest with no WebRTC, over the adhoc server's WebSocket.
+    Ws(ws::Peer),
 }
 
 impl Conn {
@@ -837,6 +840,7 @@ impl Conn {
         match self {
             Conn::Quic(c) => drop(c.send_datagram(d.into())),
             Conn::Rtc(p) => p.send_datagram(&d),
+            Conn::Ws(p) => p.send_datagram(&d),
         }
     }
 
@@ -844,6 +848,7 @@ impl Conn {
         match self {
             Conn::Quic(c) => c.close(0u32.into(), why),
             Conn::Rtc(p) => p.close(),
+            Conn::Ws(p) => p.close(),
         }
     }
 }
@@ -2772,7 +2777,8 @@ async fn connect(cx: &Ctx, code: &str, cmds: &mut amp::UnboundedReceiver<Cmd>) -
     // M152b: a host that takes our offer by signalling (a native host's address)
     if let Some(addr) = rtc::host_addr(code) {
         cx.say(Event::Status(format!("Joining {addr}...")));
-        let dial = rtc::dial(addr);
+        // M156: or over its WebSocket, in a browser with no WebRTC
+        let dial = ws::join(addr);
         n0_future::pin!(dial);
         return tokio::select! {
             r = &mut dial => match r {

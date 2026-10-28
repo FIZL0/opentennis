@@ -17,6 +17,7 @@
 //!   guest's address, so a phone's failed load can be read without a desktop browser's inspector
 //! - `POST /rtc`: M152b's signalling (a guest's WebRTC offer in, the answer out) for the lobby hosting now, so the
 //!   guest page (M152c) joins on the same address and port it was served from
+//! - `GET /adhoc/ws?name=<peer>`: M156's WebSocket into the lobby hosting now, for a guest browser with no WebRTC
 //!
 //! M152g: a native app with no disc finds the server by a UDP broadcast and plays from its disc too (`guest`, `page`).
 //!
@@ -515,6 +516,10 @@ fn serve(mut c: TcpStream, sh: &Shared) -> io::Result<()> {
         let Some(end) = read_head(&mut c, &mut buf)? else { return Ok(()) };
         let text = String::from_utf8_lossy(&buf[..end]).into_owned();
         buf.drain(..end + 4);
+        // M156: a browser guest with no WebRTC joins the lobby over a WebSocket here (`net::ws`)
+        if let Some(up) = crate::net::ws::upgrade(&text) {
+            return crate::net::ws::accept(c, up);
+        }
         let Some(req) = parse(&text) else {
             reply(&mut c, "405 Method Not Allowed", "text/plain", b"GET only\n", true, false)?;
             return Ok(());
