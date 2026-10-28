@@ -412,7 +412,7 @@ pub(super) fn tick(c: &mut Ceremony, players: u32, court: u8, sound: Option<&Sou
         };
     }
     let roll = &mut || c.court_rng.next();
-    for (p, angle) in c.gallery.step(court, players, false, roll) {
+    for (p, angle) in c.gallery.step(court, players, false, &sound::Watch::default(), roll) {
         if let (Some(s), Some(b)) = (sound, gallery) {
             s.play_toward(b, p, angle);
         }

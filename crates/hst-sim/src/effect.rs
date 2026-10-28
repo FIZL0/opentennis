@@ -154,15 +154,18 @@ pub struct PathEntry {
 /// The smash-point marker's search: for each human on the receiving team (up to two), the point where the
 /// predicted ball, having risen to that player's smash top, comes back down below the middle of the smash window
 /// moving away from the net at least 1.5 m from it. Searched a frame's worth of new path entries at a time; two
-/// players' points are drawn at their midpoint.
+/// players' points are drawn at their midpoint. Each candidate may name the player it is searched for: the
+/// gallery's "This is it!" line (`sound::Gallery`) reads which player each point was placed for.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SmashSearch {
-    /// Per candidate: smash top, middle height, state ([`search`]).
-    cands: Vec<(f32, f32, i32)>,
+    /// Per candidate: smash top, middle height, state ([`search`]) and the player it is searched for.
+    cands: Vec<(f32, f32, i32, Option<usize>)>,
     pending: usize,
     next: usize,
     /// The points placed (x, z), in order.
     pub marks: Vec<[f32; 2]>,
+    /// The player each of `marks` was searched for (`None`: a candidate that names none).
+    pub whose: Vec<Option<usize>>,
 }
 
 /// A smash-point candidate's state.
@@ -178,9 +181,15 @@ pub mod search {
 const SMASH_NET_GAP: f32 = 1.5;
 
 impl SmashSearch {
-    /// Candidates' smash `[top, middle]` heights.
+    /// Candidates' smash `[top, middle]` heights, for no player in particular.
     pub fn new(heights: &[[f32; 2]]) -> SmashSearch {
-        SmashSearch { cands: heights.iter().map(|&[t, m]| (t, m, search::RISING)).collect(), pending: heights.len(), next: 0, marks: vec![] }
+        Self::of(&heights.iter().map(|&h| (h, None)).collect::<Vec<_>>())
+    }
+
+    /// Candidates' smash `[top, middle]` heights, each with the player it is searched for (if any).
+    pub fn of(cands: &[([f32; 2], Option<usize>)]) -> SmashSearch {
+        let cands: Vec<_> = cands.iter().map(|&([t, m], who)| (t, m, search::RISING, who)).collect();
+        SmashSearch { pending: cands.len(), cands, next: 0, marks: vec![], whose: vec![] }
     }
 
     /// Search `path` from where the last call stopped; true when this call placed the first point (the marker's
@@ -203,6 +212,7 @@ impl SmashSearch {
                         let sign = |v: f32| if v < 0.0 { -1 } else { 1 };
                         if sign(e.vel[2]) == sign(p[2]) && p[2].abs() >= SMASH_NET_GAP {
                             self.marks.push([p[0], p[2]]);
+                            self.whose.push(c.3);
                             c.2 = PLACED;
                         } else {
                             c.2 = GAVE_UP;
@@ -260,6 +270,15 @@ mod tests {
         path.push(PathEntry { bounces: 1, ..path[119] });
         assert!(!s.search(&path));
         assert_eq!((s.marks.len(), s.pending), (1, 0));
+    }
+
+    /// B678: each point remembers the player its candidate was searched for, in the order they are placed.
+    #[test]
+    fn points_remember_their_player() {
+        let mut s = SmashSearch::of(&[([9.0, 2.0], Some(3)), ([3.0, 2.0], None), ([3.0, 2.5], Some(1))]);
+        s.search(&lob(120));
+        assert_eq!(s.marks.len(), 2);
+        assert_eq!(s.whose, [Some(1), None]);
     }
 
     #[test]

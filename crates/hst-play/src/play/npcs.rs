@@ -338,13 +338,14 @@ fn step(
     let Some(mut npcs) = npcs else {
         // no court figures: the gallery and the emitters still step
         let g = &mut *g;
+        let watch = super::smash_marker::watch(g);
         let rng = &mut g.rng.court;
         let mut roll = || rng.next();
         applaud(&mut g.gallery, &mut g.applause, &mut roll);
         if matches!(crate::weather::now(), 2 | 3) {
             g.gallery.idle();
         } else {
-            g.cheers.extend(g.gallery.step(g.stage, g.players.len() as u32, g.gallery_game, &mut roll));
+            g.cheers.extend(g.gallery.step(g.stage, g.players.len() as u32, g.gallery_game, &watch, &mut roll));
         }
         for k in 0..g.emitters.len() {
             emit(&mut g.emitters[k], &mut g.sounds, &mut roll);
@@ -590,6 +591,8 @@ fn walk(
     cheer: [bool; 6],
     side: f32,
 ) {
+    // what the gallery's "This is it!" sees (nothing below moves the players or the ball)
+    let watch = super::smash_marker::watch(g);
     let rng = &mut g.rng.court;
     let mut roll = || rng.next();
     npcs.crowd.iter_mut().for_each(|(c, _)| c.step());
@@ -633,7 +636,7 @@ fn walk(
     if npcs.near.paused || matches!(crate::weather::now(), 2 | 3) {
         g.gallery.idle();
     } else {
-        g.cheers.extend(g.gallery.step(g.stage, g.players.len() as u32, g.gallery_game, &mut roll));
+        g.cheers.extend(g.gallery.step(g.stage, g.players.len() as u32, g.gallery_game, &watch, &mut roll));
         npcs.cheers.step(&mut roll);
         npcs.tick += 1;
     }

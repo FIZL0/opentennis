@@ -805,9 +805,12 @@ pub fn favoured(human: &[bool]) -> [bool; 2] {
 /// 5) at a random pitch, and the applause or groan (programs 0 and 1 from three stands), perhaps followed by a
 /// shout (5 or 6 from a random stand). `roll` is the game's random number generator.
 /// At the match's end (`event` 3/4) the ovation or groan (program 3 or 4 from three stands) and its follow-ups.
-/// ponytail: the match-start cheer, the shout when a player runs
-/// near the stands on courts 1, 4 and 6 (program 9) are left out; a shout's end is not waited on. The manager that
-/// skips `step` while paused or raining is `play::npcs`.
+/// On courts 1, 4 and 6 a spectator calls "This is it!" (program 9, keys 1, 0, 1, … over the match, from a random
+/// stand) at most once a shot, when a receiving human has run within 3 m of the yellow smash marker's point
+/// ([`Watch`]). While that line or the match end's ovation/groan still sounds (its take's length in ticks,
+/// [`Gallery::lengths`]) a pending reaction is dropped at once, but for the after-match cheers and sigh, which wait
+/// for it. ponytail: the match-start cheer is left out; a shout's end is not waited on. The manager that skips
+/// `step` while paused or raining is `play::npcs`.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Gallery {
     cheering: bool,
@@ -821,11 +824,53 @@ pub struct Gallery {
     chain: bool,
     /// The last key of each program, for the ones that take turns.
     last: [i32; 7],
+    /// The ticks the last "This is it!" or match-end play still sounds for (0: none remembered).
+    sounding: u32,
+    /// This shot's "This is it!" check has been made.
+    checked: bool,
+    /// The last "This is it!" key (the first line takes 1).
+    line: u8,
+    /// The match's hit count as last seen (a change is a new hit).
+    hits: i32,
+    /// The takes' lengths in ticks: "This is it!" keys 0 and 1, the match's end won and lost.
+    takes: [u32; 4],
 }
 
 impl Default for Gallery {
     fn default() -> Self {
-        Gallery { cheering: false, pending: false, start: 0, next: 0, stand: 0, count: 0, event: None, wait: 0, chain: false, last: [-1; 7] }
+        Gallery { cheering: false, pending: false, start: 0, next: 0, stand: 0, count: 0, event: None, wait: 0, chain: false, last: [-1; 7], sounding: 0, checked: false, line: 0, hits: 0, takes: [0; 4] }
+    }
+}
+
+/// The gallery's "This is it!" program, and the courts that say it.
+pub const THIS_IS_IT: u8 = 9;
+const LINE_COURTS: [u8; 3] = [1, 4, 6];
+/// How close a player must be to the smash point it was searched for: 3 m on the floor, squared.
+const LINE_REACH_SQUARED: f32 = 9.0;
+
+/// What the gallery's manager sees of the rally on a tick: the match's hit count and whether a player has hit
+/// the ball, and whether the yellow smash marker has placed a point the original places ([`Watch::near`]).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Watch {
+    pub hits: i32,
+    pub hitter: bool,
+    /// None while no such point is placed; else whether a point's player is within 3 m of it.
+    pub near: Option<bool>,
+}
+
+impl Watch {
+    /// `near` from the placed points (x, z) with the player each was searched for, and the players' positions:
+    /// tested in the order they were placed, on the floor (x and z).
+    pub fn near(points: impl IntoIterator<Item = ([f32; 2], usize)>, players: &[[f32; 3]]) -> Option<bool> {
+        let mut seen = None;
+        for ([x, z], i) in points {
+            let (dx, dz) = (F(players[i][0]) - x, F(players[i][2]) - z);
+            if (dx * dx + dz * dz).0 <= LINE_REACH_SQUARED {
+                return Some(true);
+            }
+            seen = Some(false);
+        }
+        seen
     }
 }
 
@@ -846,9 +891,16 @@ impl Gallery {
         }
     }
 
-    /// A tick the manager does not run (paused, or raining): its pending reaction is dropped.
+    /// The takes' lengths in ticks, from the court's gallery bank: "This is it!" keys 0 and 1, and the match end's
+    /// ovation and groan (programs 3 and 4 key 0). A length of 0 is never remembered as sounding.
+    pub fn lengths(&mut self, line: [u32; 2], end: [u32; 2]) {
+        self.takes = [line[0], line[1], end[0], end[1]];
+    }
+
+    /// A tick the manager does not run (paused, or raining): it forgets the sounding line and drops its pending
+    /// reaction.
     pub fn idle(&mut self) {
-        self.event = None;
+        (self.sounding, self.event) = (0, None);
     }
 
     /// The next serve: the gallery falls quiet until the next point.
@@ -856,11 +908,13 @@ impl Gallery {
         (self.cheering, self.pending, self.event) = (false, false, None);
     }
 
-    /// One tick (the first is the tick of `point`) on `court` with `players`; `game` when the point won a game.
-    /// The plays due now, each at its bearing (whole degrees, not placed: full volume
-    /// at that bearing).
-    pub fn step(&mut self, court: u8, players: u32, game: bool, roll: &mut impl FnMut() -> u32) -> Vec<(Play, i32)> {
+    /// One tick (the first is the tick of `point`) on `court` with `players`; `game` when the point won a game;
+    /// `watch` the rally as the "This is it!" line sees it. The plays due now, each at its bearing (whole degrees,
+    /// not placed: full volume at that bearing). The order: the sounding line forgotten once over, the cheer, the
+    /// "This is it!" check, the reactions; last, a new hit clears the check for the next shot.
+    pub fn step(&mut self, court: u8, players: u32, game: bool, watch: &Watch, roll: &mut impl FnMut() -> u32) -> Vec<(Play, i32)> {
         let mut out = Vec::new();
+        self.sounding = self.sounding.saturating_sub(1);
         if !self.cheering {
             if self.pending && self.start != 0 {
                 self.start -= 1;
@@ -887,13 +941,49 @@ impl Gallery {
                 self.next = (F(every) * (1.0 - 0.7 * F(roll() as f32) * 2.3283064e-10)).0 as i32;
             }
         }
-        if players < 2 || self.wait < 1 {
-            return out;
+        if players >= 2 {
+            self.this_is_it(court, watch.near, &mut out, roll);
+            self.react(game, &mut out, roll);
         }
-        let Some(e) = self.event else { return out };
+        // a new hit: the next shot gets its own check (after this tick's, so the hit's own tick sees the old flag)
+        if watch.hits != self.hits {
+            self.hits = watch.hits;
+            self.checked &= !watch.hitter;
+        }
+        out
+    }
+
+    /// The "This is it!" check: on court 1, 4 or 6, with nothing sounding or pending, once a shot as soon as a
+    /// point is placed (`near`), the line when the point's player is near it. Its one draw picks the stand.
+    fn this_is_it(&mut self, court: u8, near: Option<bool>, out: &mut Vec<(Play, i32)>, roll: &mut impl FnMut() -> u32) {
+        if self.sounding != 0 || self.event.is_some() || !LINE_COURTS.contains(&court) || self.checked {
+            return;
+        }
+        let Some(near) = near else { return };
+        self.checked = true;
+        if near {
+            self.line ^= 1;
+            out.push((play(slot::GALLERY, THIS_IS_IT, self.line, CROWD), STANDS[(roll() >> 16 & 7) as usize]));
+            self.sounding = self.takes[self.line as usize];
+        }
+    }
+
+    /// The pending reaction's turn: counted down, played when due, then its follow-up set. While a line sounds it is
+    /// dropped instead (the after-match cheers and sigh wait).
+    fn react(&mut self, game: bool, out: &mut Vec<(Play, i32)>, roll: &mut impl FnMut() -> u32) {
+        if self.wait < 1 {
+            return;
+        }
+        let Some(e) = self.event else { return };
+        if self.sounding != 0 {
+            if !matches!(e, event::CHEER..=event::SIGH) {
+                self.event = None;
+            }
+            return;
+        }
         self.wait -= 1;
         if self.wait != 0 {
-            return out;
+            return;
         }
         let mut turn = |p: usize, n: i32| {
             self.last[p] = (self.last[p] + 1) % n;
@@ -910,7 +1000,11 @@ impl Gallery {
                 out.push((play(slot::GALLERY, e, key, SHOUT), STANDS[(roll() >> 16 & 7) as usize]));
             }
             // the game picks WON when the shown side is the winner, else LOST: the ceremony's event says the same
-            WON | LOST => out.extend([0, 3, 6].map(|s| (play(slot::GALLERY, e, 0, CROWD), STANDS[s]))),
+            WON | LOST => {
+                out.extend([0, 3, 6].map(|s| (play(slot::GALLERY, e, 0, CROWD), STANDS[s])));
+                // the last of the three is remembered as sounding
+                self.sounding = self.takes[2 + (e == LOST) as usize];
+            }
             CHEER..=SIGH => {
                 let program = if e == SIGH { self::SIGH } else { CHEERS };
                 out.push((play(slot::GALLERY, program, (e == CHEER_AGAIN) as u8, SHOUT), STANDS[(roll() >> 16 & 7) as usize]));
@@ -936,6 +1030,5 @@ impl Gallery {
         } else {
             self.event = None;
         }
-        out
     }
 }
