@@ -12,7 +12,10 @@ for controlfolder in /opt/system/Tools/PortMaster /opt/tools/PortMaster "$XDG_DA
         # shellcheck disable=SC1090
         [ -f "$controlfolder/mod_${CFW_NAME}.txt" ] && . "$controlfolder/mod_${CFW_NAME}.txt"
         type get_controls >/dev/null 2>&1 && get_controls
-        [ -n "$sdl_controllerconfig" ] && export SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig"
+        # less the volume keys muOS lists: gilrs knows no such buttons and rejected the whole mapping
+        [ -n "$sdl_controllerconfig" ] && export SDL_GAMECONTROLLERCONFIG="$(printf '%s' "$sdl_controllerconfig" | sed -E 's/(volumedown|volumeup):[^,]*,//g')"
+        # muOS numbers its pad's buttons in key-code order (the volume keys first); so does the game's pad reader there
+        [ "$CFW_NAME" = "muOS" ] && export GILRS_SDL_ASCENDING=1
         break
     fi
 done

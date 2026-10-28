@@ -734,6 +734,18 @@ impl Gamepad {
     fn find_buttons(key_bits: &[u8], only_gamepad_btns: bool) -> Vec<EvCode> {
         let mut buttons = Vec::with_capacity(16);
 
+        // HST (M155b): `GILRS_SDL_ASCENDING=1` numbers the buttons in plain key-code order, as muOS's SDL (and its
+        // gamecontrollerdb) does: its virtual pad's volume keys (114/115) are b0/b1 there, so with them last here
+        // every face button landed two mappings off (X read as A, Start as R2). OpenTennis.sh sets it on muOS.
+        if !only_gamepad_btns && std::env::var_os("GILRS_SDL_ASCENDING").is_some_and(|v| v == "1") {
+            for bit in 0..(key_bits.len() as u16 * 8) {
+                if utils::test_bit(bit, key_bits) {
+                    buttons.push(EvCode::new(EV_KEY, bit));
+                }
+            }
+            return buttons;
+        }
+
         for bit in BTN_MISC..BTN_MOUSE {
             if utils::test_bit(bit, key_bits) {
                 buttons.push(EvCode::new(EV_KEY, bit));

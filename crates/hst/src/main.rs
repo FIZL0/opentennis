@@ -434,14 +434,10 @@ fn start(argv: Vec<String>) {
     }
     // HST_WEBGL2=1: the web WebGL2 build's limits on the desktop (no storage buffers, CPU batching, uniform skins), with
     // the browser's usual 8k/2k (3D) textures, to reproduce WebGL2-only renderer bugs natively (B385)
-    // M155b: so does the Mali blob on a framebuffer (muOS): GL ES 3.2, but no storage buffers in vertex shaders and
-    // 128-invocation compute groups, under what Bevy's storage/compute paths need
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    let webgl2 = std::env::var_os("HST_WEBGL2").is_some() || fbdev::wanted();
-    #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
-    let webgl2 = std::env::var_os("HST_WEBGL2").is_some();
+    // M155b: so does the Mali blob on a framebuffer (muOS, `graphics::webgl2`): GL ES 3.2, but no storage buffers in
+    // vertex shaders and 128-invocation compute groups, under what Bevy's storage/compute paths need
     let mut render = bevy::render::settings::WgpuSettings::default();
-    if webgl2 {
+    if graphics::webgl2() {
         render.priority = bevy::render::settings::WgpuSettingsPriority::WebGL2;
         render.limits = bevy::render::settings::WgpuLimits { max_texture_dimension_2d: 8192, max_texture_dimension_3d: 2048, ..bevy::render::settings::WgpuLimits::downlevel_webgl2_defaults() };
     }

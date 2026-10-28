@@ -32,7 +32,20 @@ cd "$GAMEDIR" || exit 1
 export XDG_DATA_HOME="$CONFDIR"
 export LD_LIBRARY_PATH="$GAMEDIR/libs.${DEVICE_ARCH}:$LD_LIBRARY_PATH"
 # the game reads SDL controller mappings (its pads are gilrs, which takes this variable)
-export SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig"
+# the pad mapping for the built-in controls, less the volume keys muOS lists (gilrs knows no such buttons and rejected
+# the whole mapping, leaving the pad unmapped)
+export SDL_GAMECONTROLLERCONFIG="$(printf '%s' "$sdl_controllerconfig" | sed -E 's/(volumedown|volumeup):[^,]*,//g')"
+# muOS numbers its pad's buttons in key-code order (the volume keys first); the game's pad reader does the same on it
+if [ "$CFW_NAME" = "muOS" ]; then
+  export GILRS_SDL_ASCENDING=1
+  # muOS's "retro" layout (its default for apps) maps by position, A on the right reading as B; the game wants the
+  # pad's labels, which muOS's "modern" mapping gives (A confirms, B goes back)
+  modern=/opt/muos/share/info/gamecontrollerdb/modern.txt
+  if [ -f "$modern" ] && [ -n "$SDL_CTRL_NAME" ]; then
+    line=$(grep -F ",$SDL_CTRL_NAME," "$modern" | head -n 1)
+    [ -n "$line" ] && export SDL_GAMECONTROLLERCONFIG="$(printf '%s' "$line" | sed -E 's/(volumedown|volumeup):[^,]*,//g')"
+  fi
+fi
 # Mali GPUs: wgpu's GL ES backend (WGPU_BACKEND=vulkan tries Vulkan where the device has it)
 export WGPU_BACKEND="${WGPU_BACKEND:-gl}"
 

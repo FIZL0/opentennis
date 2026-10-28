@@ -35,6 +35,7 @@ Upstream status: none of these has been sent upstream yet (2026-10-21).
 | | | `src/platform/android.rs` (`lifecycle`), `src/platform_impl/android/mod.rs` | M108: an activity lifecycle hook (start/resume/pause/stop/destroy) for `crates/hst-base/src/android.rs` |
 | `ggrs` | 0.13.0 | `src/clock.rs` (new), `src/lib.rs`, `src/network/protocol.rs`, `Cargo.toml` | B494: ggrs' clock can be driven by the calling thread, so netplay's round-based tests get the same pings, resends and time sync however long a round takes. `Cargo.toml` drops the examples/tests/dev-dependencies the vendored copy doesn't ship |
 | `gilrs-core` | 0.6.8 | `src/platform/ios/` (new), `src/platform/mod.rs`, `Cargo.toml` | M91: an iOS backend over Apple's GameController framework (`objc2`) |
+| | | `src/platform/linux/gamepad.rs` (`find_buttons`) | M155b: `GILRS_SDL_ASCENDING=1` numbers a pad's buttons in key-code order, as muOS's SDL and its gamecontrollerdb do (its virtual pad's volume keys come first there), so PortMaster's mapping lines up |
 | | | `src/platform/linux/gamepad.rs` | Doubles play (2026-10-06, no task id): a pad whose `/dev/input` node is read-only still works for input, without force feedback |
 | | | `src/lib.rs`, `src/platform/default/ff.rs` | B618: no unused-import / unused-variable warnings in the Android and iOS builds |
 

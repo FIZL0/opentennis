@@ -234,6 +234,10 @@ pub fn webgl2() -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        // M155b: a framebuffer handheld (the Mali blob) runs on WebGL2's limits too, and MSAA turned its screen black
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        return *ON.get_or_init(|| std::env::var_os("HST_WEBGL2").is_some() || crate::fbdev::wanted());
+        #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
         *ON.get_or_init(|| std::env::var_os("HST_WEBGL2").is_some())
     }
 }
