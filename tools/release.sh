@@ -110,7 +110,7 @@ body=$out/notes.md
     echo "| **Linux** / **Steam Deck** | [\`opentennis-linux-x86_64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-x86_64.tar.gz) | Unpack and open \`opentennis\`, then pick your ISO |"
     echo "| **Linux ARM64** (aarch64) | [\`opentennis-linux-aarch64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-aarch64.tar.gz) | Unpack and run \`OpenTennis/OpenTennis.sh\`, with your ISO in the \`OpenTennis\` folder |"
     echo "| **Handhelds** with [PortMaster](https://portmaster.games/) (muOS, ROCKNIX, Knulli…) | [\`opentennis.zip\`](https://github.com/$repo/releases/download/$tag/opentennis.zip) | Put the zip in PortMaster's \`autoinstall\` folder, then your ISO in \`ports/opentennis/\`, and start OpenTennis from Ports |"
-    echo "| **iPhone** / **iPad** (iOS 15+) | [\`opentennis-ios.ipa\`](https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa) | Unsigned: sign and install it yourself (AltStore, SideStore, Sideloadly…), then put your ISO in Files → On My iPhone → OpenTennis. Touch controls or a controller. Easiest: [add the source in one tap](https://opentennis.dev/ios.html) (Feather, AltStore, SideStore) to install and get updates, or add \`https://github.com/$repo/releases/latest/download/altstore-source.json\` by hand |"
+    echo "| **iPhone** / **iPad** (iOS 15+) | [\`opentennis-ios.ipa\`](https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa) | Unsigned: sign and install it yourself (AltStore, SideStore, Sideloadly…), then put your ISO in Files → On My iPhone → OpenTennis. Touch controls or a controller. Easiest: [add the source in one tap](https://opentennis.dev/ios.html) (Feather, AltStore, SideStore) to install and get updates, or add \`https://fizl0.github.io/apps/source.json\` by hand |"
     echo "| **Android** 8+ | [\`opentennis-android.apk\`](https://github.com/$repo/releases/download/$tag/opentennis-android.apk) | Install it (allow unknown apps), then pick your ISO on first start |"
     echo "| **Browser** | [opentennis.dev](https://opentennis.dev/) | Nothing to install |"
     echo
@@ -136,6 +136,8 @@ body=$out/notes.md
 git push -q origin HEAD
 gh release create "$tag" --target "$(git rev-parse HEAD)" --title "OpenTennis $version" \
     --notes-file "$body" $pre $publish "$out"/opentennis-* "$out"/opentennis.zip "$out"/web.tar.gz "$out"/SHA256SUMS "$out"/SHA256SUMS.sig "$out"/altstore-source.json
+# the shared FIZL0 source (github.com/FIZL0/apps) picks up this release now, not at its next hourly poll
+[ "$publish" = --latest ] && { gh workflow run source -R FIZL0/apps || echo "FIZL0/apps did not rebuild; it will within the hour" >&2; }
 if [ "$notes" = RELEASE_NOTES.md ]; then
     sed -i '/^<!--/!d' RELEASE_NOTES.md
     git commit -qm "Release notes: emptied after v$version" -- RELEASE_NOTES.md && git push -q origin HEAD

@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- M160: one-tap "add source" for the iOS app (tools/ios-source.sh's altstore-source.json). GitHub's Markdown drops
+<!-- M160: one-tap "add source" for the iOS app (the shared FIZL0 source, github.com/FIZL0/apps, which merges tools/ios-source.sh's altstore-source.json). GitHub's Markdown drops
      altstore:// / sidestore:// / feather:// links, so the README and release notes link here instead. -->
 <html lang="en">
 <head>
@@ -58,7 +58,7 @@
     and sign it yourself. <a href="./">Back to opentennis.dev</a></p>
 </main>
 <script>
-  const src = 'https://github.com/FIZL0/opentennis/releases/latest/download/altstore-source.json';
+  const src = 'https://fizl0.github.io/apps/source.json';
   const q = encodeURIComponent(src);
   document.getElementById('url').textContent = src;
   document.getElementById('feather').href = 'feather://source/' + src;

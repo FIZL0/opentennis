@@ -12,7 +12,7 @@ Newest unreleased build (every change to main, less tested): <https://beta.opent
 **Download** for Windows, Linux, Android or iOS: [latest release](https://github.com/FIZL0/opentennis/releases/latest).
 
 **iPhone / iPad:** [add the source in one tap](https://opentennis.dev/ios.html) to Feather, AltStore or SideStore, or add
-`https://github.com/FIZL0/opentennis/releases/latest/download/altstore-source.json` under Sources. You sign it
+`https://fizl0.github.io/apps/source.json` under Sources. You sign it
 with your own certificate, and updates arrive through the app.
 
 Work in progress. Building from source, modding by hand and development: [docs/DEVELOPING.md](docs/DEVELOPING.md).
