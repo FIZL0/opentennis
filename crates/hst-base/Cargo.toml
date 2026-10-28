@@ -89,6 +89,10 @@ flate2 = "1"
 qrcode = { version = "0.14", default-features = false }
 # the crypto reqwest uses for the pkarr relay (`net.rs` relay_get, `modstore.rs`): iroh's own ring
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# M152f: adhoc over HTTPS (`adhoc/tls.rs`): a self-signed certificate for this machine's LAN addresses (the version
+# str0m's DTLS already builds; ring as rustls), and its dates
+rcgen = { version = "0.14", default-features = false, features = ["ring"] }
+time = { version = "0.3", default-features = false, features = ["std"] }
 iroh-mdns-address-lookup = "0.6"
 # (`net`, `io-util`: M152b's UDP sockets and signalling listener, `net/rtc/native.rs`)
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util"] }

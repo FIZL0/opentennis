@@ -412,7 +412,7 @@ mod web {
         let (peer, inbox) = Peer::new()?;
         let o = peer.local(peer.pc.create_offer(), RtcSdpType::Offer).await?;
         let reply = crate::modstore::client()
-            .post(format!("http://{host}/rtc"))
+            .post(format!("{}://{host}/rtc", if crate::web::secure_page() { "https" } else { "http" }))
             .body(o.code(OFFER))
             .send()
             .await

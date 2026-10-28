@@ -9,7 +9,7 @@
 //! blocked by the host's firewall while TCP is let in, M152c1).
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{Peer, accept, upgrade};
+pub use native::{Peer, accept, answer, arrive, upgrade};
 #[cfg(target_arch = "wasm32")]
 pub use web::Peer;
 
@@ -50,7 +50,7 @@ mod native {
     use super::super::{Conn, Inbox, Link, Msg, rtc};
     use super::good_name;
     use std::io::{self, Write};
-    use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
     use tokio::sync::mpsc as amp;
 
     /// RFC 6455's key suffix.
@@ -108,33 +108,43 @@ mod native {
 
     /// Takes over `c` after an upgrade's head ([`upgrade`]): switched to a WebSocket and handed to the hosting lobby
     /// as `name`, or refused (no lobby open, a bad name).
-    pub fn accept(mut c: std::net::TcpStream, (key, name): (String, String)) -> io::Result<()> {
-        let no = |c: &mut std::net::TcpStream, status: &str, why: &str| {
-            let r = format!("HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{why}", why.len());
-            c.write_all(r.as_bytes())
-        };
-        if !good_name(&name) {
-            return no(&mut c, "400 Bad Request", "A guest's name is 1 to 32 letters or digits.\n");
-        }
-        if !rtc::lobby_open() {
-            return no(&mut c, "503 Service Unavailable", "No lobby is open on this machine.\n");
-        }
-        let r = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n", accept_key(&key));
-        c.write_all(r.as_bytes())?;
+    pub fn accept(mut c: std::net::TcpStream, up: (String, String)) -> io::Result<()> {
+        let Some(name) = answer(&mut c, up)? else { return Ok(()) };
         c.set_read_timeout(None)?;
         c.set_nodelay(true)?;
         c.set_nonblocking(true)?;
         crate::runtime().spawn(async move {
             match tokio::net::TcpStream::from_std(c) {
-                Ok(s) => {
-                    bevy::log::info!("online: guest {name} joined over a WebSocket");
-                    let (conn, link, inbox) = open(s, false);
-                    rtc::arrived(name, conn, link, inbox);
-                }
+                Ok(s) => arrive(s, name),
                 Err(e) => bevy::log::warn!("online: a guest's WebSocket: {e}"),
             }
         });
         Ok(())
+    }
+
+    /// Answers an upgrade's head on `c`: switching to a WebSocket for the guest's name (returned), else why not.
+    pub fn answer(c: &mut impl Write, (key, name): (String, String)) -> io::Result<Option<String>> {
+        let no = |c: &mut dyn Write, status: &str, why: &str| {
+            let r = format!("HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{why}", why.len());
+            c.write_all(r.as_bytes()).map(|_| None)
+        };
+        if !good_name(&name) {
+            return no(c, "400 Bad Request", "A guest's name is 1 to 32 letters or digits.\n");
+        }
+        if !rtc::lobby_open() {
+            return no(c, "503 Service Unavailable", "No lobby is open on this machine.\n");
+        }
+        let r = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n", accept_key(&key));
+        c.write_all(r.as_bytes())?;
+        Ok(Some(name))
+    }
+
+    /// Hands the WebSocket `s` (switched already, [`answer`]) to the hosting lobby as guest `name` (on the game's
+    /// runtime). M152f: `s` is a TCP stream, or the plaintext end of an https connection's.
+    pub fn arrive(s: impl AsyncRead + AsyncWrite + Send + 'static, name: String) {
+        bevy::log::info!("online: guest {name} joined over a WebSocket");
+        let (conn, link, inbox) = open(s, false);
+        rtc::arrived(name, conn, link, inbox);
     }
 
     /// A test's guest: a WebSocket to `host`'s adhoc server as `name`.
@@ -159,8 +169,8 @@ mod native {
     }
 
     /// A WebSocket's connection, link and arrivals; `client`: our frames are masked (the guest's end).
-    fn open(s: tokio::net::TcpStream, client: bool) -> (Conn, Link, Inbox) {
-        let (mut rd, mut wr) = s.into_split();
+    fn open(s: impl AsyncRead + AsyncWrite + Send + 'static, client: bool) -> (Conn, Link, Inbox) {
+        let (mut rd, mut wr) = tokio::io::split(s);
         let (out, mut outs) = amp::unbounded_channel::<Out>();
         n0_future::task::spawn(async move {
             while let Some(o) = outs.recv().await {
@@ -368,7 +378,7 @@ mod web {
     /// peer name (made up here, sent in the request).
     pub(in crate::net) async fn dial(host: &str) -> Result<(Conn, Link, Inbox, String), String> {
         let me: String = (0..12).map(|_| char::from_digit((js_sys::Math::random() * 16.0) as u32 % 16, 16).unwrap()).collect();
-        let ws = WebSocket::new(&format!("ws://{host}{}?name=ws{me}", super::PATH)).map_err(js)?;
+        let ws = WebSocket::new(&format!("{}://{host}{}?name=ws{me}", if crate::web::secure_page() { "wss" } else { "ws" }, super::PATH)).map_err(js)?;
         ws.set_binary_type(BinaryType::Arraybuffer);
         let (mt, msgs) = amp::unbounded_channel();
         let (dt, dgrams) = amp::unbounded_channel();
@@ -477,6 +487,66 @@ mod tests {
         gconn.close(b"bye");
         assert!(matches!(tokio::time::timeout(within, hinbox.msgs.recv()).await.unwrap(), Some(Err(_))));
         assert!(matches!(tokio::time::timeout(within, ginbox.msgs.recv()).await.unwrap(), Some(Err(_))));
+    }
+
+    /// M152f: the same over the adhoc server's https: a guest's WebSocket through TLS reaches the lobby, both ways.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_guest_joins_over_a_secure_websocket() {
+        use std::io::{Read, Write};
+        let dir = std::env::temp_dir().join(format!("hst-wss-{}", std::process::id()));
+        let cfg = crate::adhoc::tls::config(&dir, &[]).unwrap();
+        let cert = rustls::pki_types::CertificateDer::from(std::fs::read(dir.join("cert.der")).unwrap());
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for c in l.incoming().flatten() {
+                let mut c = crate::adhoc::tls::accept(c, cfg.clone()).unwrap();
+                let mut head = Vec::new();
+                let mut b = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") && c.read(&mut b).unwrap_or(0) == 1 {
+                    head.push(b[0]);
+                }
+                let _ = crate::adhoc::tls::websocket(c, upgrade(&String::from_utf8_lossy(&head)).unwrap());
+            }
+        });
+        let _one = rtc::tests::SIGNALLING.lock().await;
+        let mut lobby = rtc::hosting();
+        // the guest: blocking rustls trusting the host's certificate, on a thread of its own
+        let guest = std::thread::spawn(move || {
+            let mut roots = rustls::RootCertStore::empty();
+            roots.add(cert).unwrap();
+            let client = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(rustls::crypto::ring::default_provider())).with_safe_default_protocol_versions().unwrap().with_root_certificates(roots).with_no_client_auth();
+            let conn = rustls::ClientConnection::new(std::sync::Arc::new(client), "localhost".try_into().unwrap()).unwrap();
+            let mut c = rustls::StreamOwned::new(conn, std::net::TcpStream::connect(addr).unwrap());
+            c.write_all(format!("GET {}?name=g2 HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: abc==\r\n\r\n", super::PATH).as_bytes()).unwrap();
+            let mut head = Vec::new();
+            let mut b = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                c.read_exact(&mut b).unwrap();
+                head.push(b[0]);
+            }
+            assert!(head.starts_with(b"HTTP/1.1 101"), "{}", String::from_utf8_lossy(&head));
+            c.write_all(&frame(1, serde_json::to_string(&Msg::Ping(7)).unwrap().as_bytes(), true)).unwrap();
+            // the host's answer: a 100 kB message in one frame
+            let mut got = Vec::new();
+            let mut buf = [0u8; 16384];
+            let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+            loop {
+                let n = c.read(&mut buf).unwrap();
+                assert!(n > 0, "closed after {} bytes", got.len());
+                got.extend_from_slice(&buf[..n]);
+                if let Ok((_, 1, body)) = rt.block_on(super::native::next_frame(&mut got.as_slice())) {
+                    return serde_json::from_slice::<Msg>(&body).unwrap();
+                }
+            }
+        });
+        let within = Duration::from_secs(5);
+        let (name, _hconn, hlink, mut hinbox) = tokio::time::timeout(within, lobby.recv()).await.unwrap().unwrap();
+        assert_eq!(name, "g2");
+        assert_eq!(tokio::time::timeout(within, hinbox.msgs.recv()).await.unwrap(), Some(Ok(Msg::Ping(7))));
+        hlink.send(&Msg::Bye("y".repeat(100_000)));
+        assert_eq!(tokio::task::spawn_blocking(move || guest.join().unwrap()).await.unwrap(), Msg::Bye("y".repeat(100_000)));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
