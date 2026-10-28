@@ -822,6 +822,23 @@ awake();
 document.addEventListener('visibilitychange', awake);
 for (const e of ['pointerdown', 'keydown', 'gamepadconnected']) addEventListener(e, awake);
 </script>
+<script>
+  // the visitor's own download (their OS's tile): a pill in the banner, and the tile again above About
+  {
+    const ua = navigator.userAgent, ios = /iPhone|iPad/.test(ua) || ua.includes('Mac') && navigator.maxTouchPoints > 1;
+    const want = ios ? 'ios.html' : /Android/.test(ua) ? 'android.apk' : /Windows/.test(ua) ? 'windows-x86_64'
+      : /Linux/.test(ua) && !/CrOS|aarch64|arm/.test(ua) ? 'linux-x86_64' : null;
+    const tile = want && [...document.querySelectorAll('#about .tile')].find(a => a.href.includes(want));
+    if (tile) {
+      const pill = Object.assign(document.createElement('a'), { className: 'pill', href: tile.href, textContent: 'Download for ' + tile.querySelector('b').textContent });
+      if (tile.hasAttribute('download')) pill.setAttribute('download', '');
+      document.querySelector('header.band .row').append(pill);
+      const mine = Object.assign(document.createElement('div'), { className: 'tiles mine' });
+      mine.append(tile.cloneNode(true));
+      document.querySelector('#about h2').before(mine);
+    }
+  }
+</script>
 <script type="module" src="touch.js"></script>
 <script type="module">
 if (answer) await new Promise(() => {});
