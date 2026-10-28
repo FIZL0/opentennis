@@ -830,7 +830,9 @@ for (const e of ['pointerdown', 'keydown', 'gamepadconnected']) addEventListener
       : /Linux/.test(ua) && !/CrOS|aarch64|arm/.test(ua) ? 'linux-x86_64' : null;
     const tile = want && [...document.querySelectorAll('#about .tile')].find(a => a.href.includes(want));
     if (tile) {
-      const pill = Object.assign(document.createElement('a'), { className: 'pill', href: tile.href, textContent: 'Download for ' + tile.querySelector('b').textContent });
+      const pill = Object.assign(document.createElement('a'), { className: 'pill', href: tile.href });
+      pill.append(tile.querySelector('.ico').cloneNode(true), 'Download for ' + tile.querySelector('b').textContent,
+        tile.querySelector('.glyph').cloneNode(true));
       if (tile.hasAttribute('download')) pill.setAttribute('download', '');
       document.querySelector('header.band .row').append(pill);
       const mine = Object.assign(document.createElement('div'), { className: 'tiles mine' });
