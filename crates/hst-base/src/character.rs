@@ -1647,21 +1647,22 @@ pub fn seats(mut commands: Commands, rigs: Query<(Entity, &Rig, &Motion)>, mut s
 /// P43: the pose at each end of the tick (the last two ticks' sampled times) is sampled once (in host arithmetic,
 /// `Clip::sample_drawn`) and kept, and a frame between ticks blends the two poses (slerp, lerp) instead of sampling
 /// the clip at the blended time; joints and face weights are written only when they change.
-/// A rig drawn off court (a menu preview): a mod's own post-point reaction keeps its root there, as made, instead of
-/// turning where the donor's does for the match's post-point shots (`CharacterData::reaction_turn`).
+/// A rig drawn off court (a menu preview) or emoting in the match: a mod's own post-point reaction clip keeps its
+/// root there, as made, instead of turning where the donor's does for the match's post-point shots
+/// (`CharacterData::reaction_turn`).
 #[derive(Component)]
-pub struct OffCourt;
+pub struct OwnFacing;
 
 pub fn animate(
     time: Res<Time<Fixed>>,
     now: Res<Time>,
-    mut rigs: Query<(Entity, &Rig, &Motion, &mut bevy::mesh::morph::MorphWeights, Has<crate::shadow::Minor>, Option<&Visibility>, Option<&Talk>, Has<OffCourt>, Option<&HeadTurn>)>,
+    mut rigs: Query<(Entity, &Rig, &Motion, &mut bevy::mesh::morph::MorphWeights, Has<crate::shadow::Minor>, Option<&Visibility>, Option<&Talk>, Has<OwnFacing>, Option<&HeadTurn>)>,
     mut joints: Query<&mut Transform>,
     mut cache: Local<bevy::platform::collections::HashMap<Entity, Posing>>,
     mut frame: Local<u32>,
 ) {
     *frame = frame.wrapping_add(1);
-    for (root, rig, motion, mut weights, minor, shown, talk, off_court, head) in &mut rigs {
+    for (root, rig, motion, mut weights, minor, shown, talk, own_facing, head) in &mut rigs {
         if put_away(minor, shown) {
             continue;
         }
@@ -1795,7 +1796,7 @@ pub fn animate(
             }
         }
         // a mod's own post-point reaction turns as far as the donor's does, at once
-        if !off_court
+        if !own_facing
             && let (Some(turn), Some(r)) = (rig.data.reaction_turn(motion.id, new), rig.data.joint("Bip01"))
             && let Some(d) = drawn.get_mut(r)
         {

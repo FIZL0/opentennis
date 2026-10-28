@@ -478,8 +478,19 @@ if (fpsLog) {
   }, 50);
   document.addEventListener('visibilitychange', () => console.info(`hst: page ${document.visibilityState}`));
   const save = Object.assign(document.createElement('button'), { textContent: 'Save log' });
-  save.style.cssText = 'position:fixed;top:2px;left:50%;transform:translateX(-50%);z-index:2147483647;font:12px system-ui;padding:2px 10px;opacity:.7';
+  // styled like the touch pad's small buttons (touch.js), just under its Select/Start so a tap can't hit those;
+  // lit while pressed, a buzz on the press, and its label says when it saved
+  const u = 'min(7vw, 12.5vh)';
+  save.style.cssText = `position:fixed;top:calc(env(safe-area-inset-top) + ${u} * 1.2);left:50%;transform:translateX(-50%);z-index:2147483647;`
+    + `font:600 max(15px, calc(${u} * .32)) system-ui,sans-serif;color:#fff;min-height:44px;padding:0 calc(${u} * .5);border:2px solid #fff5;`
+    + `border-radius:calc(${u} * .3);background:#0006;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent`;
+  const lit = on => save.style.background = on ? '#fff6' : '#0006';
+  save.onpointerdown = () => { lit(true); window.hstBuzz?.(); };
+  save.onpointerup = save.onpointercancel = save.onpointerleave = () => lit(false);
   save.onclick = () => {
+    save.textContent = 'Saved ✓';
+    clearTimeout(save.timer);
+    save.timer = setTimeout(() => save.textContent = 'Save log', 2000);
     const text = lines.join('\n') + '\n', name = `hst-log-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.txt`;
     // also kept with the desync reports (the module's writeFile, once the game has started), for the site's Storage list
     window.hstWriteFile?.(`reports/${name}`, text).catch(e => console.warn(`hst: ${name}: ${e}`));
@@ -497,7 +508,7 @@ if (fpsLog) {
     note.timer = setTimeout(() => note.hidden = true, 15000);
   };
   const note = Object.assign(document.createElement('div'), { hidden: true, onclick: () => note.hidden = true });
-  note.style.cssText = 'position:fixed;top:30px;left:50%;transform:translateX(-50%);z-index:2147483647;max-width:min(90vw,420px);font:14px system-ui;padding:10px 14px;border-radius:8px;background:#1d1b26;color:#fff;box-shadow:0 4px 16px #0008;text-align:center';
+  note.style.cssText = 'position:fixed;top:calc(env(safe-area-inset-top) + min(7vw, 12.5vh) * 1.2 + 52px);left:50%;transform:translateX(-50%);z-index:2147483647;max-width:min(90vw,420px);font:14px system-ui;padding:10px 14px;border-radius:8px;background:#1d1b26;color:#fff;box-shadow:0 4px 16px #0008;text-align:center';
   addEventListener('DOMContentLoaded', () => document.body.append(save, note));
 }
 </script>

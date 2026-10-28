@@ -64,7 +64,7 @@ pub struct View {
     /// B484: the prompt's cursor when it's asked over the select or the confirm (the lobby's is `sel`).
     pub ask_row: usize,
     pub ready: Option<u32>,
-    /// The other side's mod faces still being drawn here (`previews::lent_drawn`): Ready holds for them, `poll` caps it.
+    /// The lobby's picks' faces still being drawn here (`previews::lent_drawn`): Ready holds for them, `poll` caps it.
     pub faces: bool,
     /// B530: the line-up (`Room.ver`) this machine last tried to send its custom characters' picks again for.
     pub rewired: Option<u32>,
@@ -2558,7 +2558,7 @@ pub(super) fn poll(
     art: Option<ResMut<super::Art>>,
     (mut loader, baker, mut since): (Option<ResMut<super::previews::Loader>>, Option<Res<super::previews::Baker>>, Local<Option<f32>>),
 ) {
-    // the other side's mods' faces drawn before this machine says Ready, as a local launch waits (`picks_drawn`);
+    // the lobby's picks' faces drawn (a Random draw's too) before this machine says Ready, as a local launch waits (`picks_drawn`);
     // ponytail: capped at a mod launch's wait, so a bake that never lands can't hold the match
     let drawn = match (loader.as_deref_mut(), baker.as_deref()) {
         (Some(l), Some(b)) if menu.online() && !menu.net.started => super::previews::lent_drawn(&menu, l, b),

@@ -331,13 +331,12 @@ pub(super) fn picks_drawn(menu: &Menu, loader: &mut Loader, baker: &Baker) -> bo
     })
 }
 
-/// Online: the other side's mod picks (borrowed looks, past this machine's own mods) have their face close-up drawn, or
-/// can't be: this machine's Ready waits on it, so a mod downloaded just before the start has its face in the match HUD.
+/// Online: every pick in the lobby has its face close-up drawn, or can't be: this machine's Ready waits on it, so a mod
+/// downloaded just before the start, or a character Random drew (its card shows ?, so the roster never drew it), has
+/// its face in the match HUD.
 pub(super) fn lent_drawn(menu: &Menu, loader: &mut Loader, baker: &Baker) -> bool {
-    let own = menu.own_mods();
     (0..menu.players())
         .map(|p| menu.pick(p))
-        .filter(|&(w, _)| matches!(w, Who::Mod(i) if i >= own))
         .all(|key| baker.failed.contains(&key) || loader.path(key, menu).is_none_or(|p| cached(&face_path(&p))))
 }
 
@@ -1069,13 +1068,10 @@ fn bake(
     .into_iter()
     .map(|w| (w, 0))
     .collect();
-    // B484: in the lobby and on the confirm, the other side's mods whose looks came here: their picked costume's
-    // drawing (its face close-up is the match HUD's), drawn before the match needs it
+    // B484: in the lobby and on the confirm, every pick (the other side's mods whose looks came here, a Random draw
+    // hidden under its ? card): its costume's drawing (its face close-up is the match HUD's), before the match needs it
     let lent: Vec<Key> = match menu.screen {
-        Screen::Lobby | Screen::Confirm if menu.online() => {
-            let own = menu.own_mods();
-            (0..menu.players()).map(|p| menu.pick(p)).filter(|&(w, _)| matches!(w, Who::Mod(i) if i >= own)).collect()
-        }
+        Screen::Lobby | Screen::Confirm if menu.online() => (0..menu.players()).map(|p| menu.pick(p)).collect(),
         _ => Vec::new(),
     };
     // B571: the roster's tiles on view (their face icons), so a mod's face is drawn the first time the roster shows it,
