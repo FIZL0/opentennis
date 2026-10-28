@@ -5,6 +5,7 @@
 #                         handheld's Ports menu runs (the folder goes in ROCKNIX's roms/ports/; on muOS, PortMaster's
 #                         layout: the folder in ports/, OpenTennis.sh in ROMS/Ports/; no display server there, so it
 #                         draws to the framebuffer, M155)
+#   dist/linux-aarch64/opentennis.zip  the same as a PortMaster port (M155a, tools/portmaster.sh): muOS, ROCKNIX, Knulli…
 #   dist/windows/opentennis.exe  run: drop the ISO on opentennis.exe, or `opentennis.exe "Hot Shots Tennis (USA).iso"`
 #   dist/ios/opentennis-ios.ipa  unsigned (M91): the player signs it (AltStore, Sideloadly…); the ISO goes in its Files folder.
 #                         Needs the iOS SDK once: tools/ios-sdk.py Xcode_*.xip (see tools/ios-build.sh)
@@ -77,6 +78,7 @@ linux_aarch64() {
         $img sh -ec '
             [ -x /cache/cargo/bin/rustup ] || curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain none --no-modify-path
             PATH=/cache/cargo/bin:$PATH sh tools/linux-aarch64.sh build'
+    tools/portmaster.sh  # M155a: the same game as a PortMaster port
 }
 
 windows() {

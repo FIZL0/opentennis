@@ -1,0 +1,38 @@
+{
+  "version": 4,
+  "name": "opentennis.zip",
+  "items": [
+    "OpenTennis.sh",
+    "opentennis/"
+  ],
+  "items_opt": [],
+  "attr": {
+    "title": "OpenTennis",
+    "porter": [
+      "FIZL0"
+    ],
+    "desc": "A fan remaster of Hot Shots Tennis (PS2, 2007): the original's AI, physics, shots and timing, on today's screens, with online play and character mods. Plays from your own disc image.",
+    "desc_md": null,
+    "inst": "Put your Hot Shots Tennis (USA) ISO (SCUS-97610, an .iso, not a .chd) in ports/opentennis/. The first start imports it (once); the ISO can go afterwards.",
+    "inst_md": null,
+    "genres": [
+      "sports"
+    ],
+    "image": {
+      "screenshot": "screenshot.png",
+      "covers": [],
+      "thumbnail": null,
+      "video": null
+    },
+    "rtr": false,
+    "exp": false,
+    "runtime": [],
+    "store": [],
+    "availability": "full",
+    "reqs": [],
+    "arch": [
+      "aarch64"
+    ],
+    "min_glibc": "@MIN_GLIBC@"
+  }
+}
