@@ -2,8 +2,6 @@
 //! (characters, the GS material, shadows, effects, weather), sound, mods and the mod store, the online lobby
 //! transport, the platform glue (browser, iOS, Android) and the few app-wide types the rest share (P60).
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod adhoc;
 #[cfg(any(target_os = "android", test))]
 pub mod android_pad;
 pub mod asset_use;

@@ -19,7 +19,6 @@ use super::osk::{self, Did};
 use super::pointer::{Act, OK};
 use super::{Draw, Effect, Menu, Press, Screen, Tex, WHITE, step_rows};
 
-mod adhoc;
 mod arrange;
 mod lobby;
 use crate::mods_online::{self as mo, Ask, Wire};
@@ -149,8 +148,6 @@ pub enum Fx {
     SaveCfg,
     /// Read `online.txt` (opening the Online screen).
     Load,
-    /// M152a: Adhoc's server on or off (`adhoc.rs`).
-    Adhoc(bool),
 }
 
 /// Join by Code's symbol keys (then its four buttons).
@@ -160,8 +157,7 @@ const NAME_MAX: usize = 16;
 /// B323: a relay URL's keys (the rest typed or pasted), and its longest.
 const URL_KEYS: &[u8; 40] = b"abcdefghijklmnopqrstuvwxyz0123456789.-:/";
 const URL_MAX: usize = 120;
-/// M152a: Adhoc after Back (`adhoc::ROW`), drawn under Join by Code (native builds only).
-const ROWS: [&str; 8] = ["Quickplay", "Host", "Find", "Join by Code", "Name", "Relay", "Back", "Adhoc"];
+const ROWS: [&str; 7] = ["Quickplay", "Host", "Find", "Join by Code", "Name", "Relay", "Back"];
 /// The Online screen as the home screen (`home::columns`): Quickplay, Host, Find and Join by Code as its list's
 /// pills, Name and Relay small under them; the preview card right of them (no store column: the card centred).
 fn online_cols(extra: f32) -> (f32, f32, f32) {
@@ -174,13 +170,7 @@ fn online_cols(extra: f32) -> (f32, f32, f32) {
 fn row_rects(extra: f32) -> Vec<[f32; 4]> {
     let (x, ..) = online_cols(extra);
     let mut v: Vec<[f32; 4]> = (0..4).map(|i| [x, 50.0 + 46.0 * i as f32, 200.0, 38.0]).collect();
-    // M152a: Adhoc's pill under Join by Code, Name and Relay below it; Back (none) in Relay's place, so ↑↓←→ never
-    // land on it (a tie goes to Relay, the first)
-    let small = if adhoc::SHOWN { 300.0 } else { 254.0 };
-    v.extend((0..2).map(|i| [x, small + 30.0 * i as f32, 200.0, 26.0]));
-    if adhoc::SHOWN {
-        v.extend([v[5], [x, 50.0 + 46.0 * 4.0, 200.0, 38.0]]);
-    }
+    v.extend((0..2).map(|i| [x, 254.0 + 30.0 * i as f32, 200.0, 26.0]));
     v
 }
 
@@ -1103,7 +1093,7 @@ impl Menu {
     /// The Online menu: Quickplay, Host, Find, Join by code, Name, Relay, Back.
     fn online_menu_step(&mut self, k: Press, out: &mut Vec<Effect>) {
         use Effect::Sound;
-        let to = pill_step(&row_rects(self.grid.extra), adhoc::row(self.sel), k);
+        let to = pill_step(&row_rects(self.grid.extra), self.sel.min(5), k);
         if to != self.sel {
             self.sel = to;
             out.push(Sound(0));
@@ -1111,9 +1101,7 @@ impl Menu {
         // B323: off the Relay row, Custom... is the relay it's on again
         self.net.custom &= self.sel == 5 && !k.back;
         let cfg = self.net.cfg.get_or_insert_with(Online::default);
-        if k.ok && self.sel == adhoc::ROW {
-            out.extend([Sound(2), Effect::Online(Fx::Adhoc(!adhoc::on()))]);
-        } else if self.sel == 5 && k.ok && self.net.custom {
+        if self.sel == 5 && k.ok && self.net.custom {
             // B323: type a relay URL (the last one to start from)
             (self.net.naming, self.net.url) = (true, true);
             self.net.entry = if cfg.relay_url.is_empty() { "https://".into() } else { cfg.relay_url.clone() };
@@ -1148,7 +1136,7 @@ impl Menu {
             self.net.go = None;
             self.sel = self.main_at(super::home::Row::Online);
             self.screen = Screen::Main;
-            out.extend([Sound(1), Effect::Online(Fx::Off), Effect::Online(Fx::Adhoc(false))]);
+            out.extend([Sound(1), Effect::Online(Fx::Off)]);
         }
     }
 
@@ -2147,20 +2135,14 @@ fn online_screen(d: &mut Draw, m: &Menu, hand_x: f32) {
     let relay = if m.net.custom { "Custom...".into() } else { relay_name(&cfg) };
     // B441: the name's popup up over it: its row on, the hand the popup's
     let popup = m.screen == Screen::Code;
-    let sel = if popup { 4 } else { adhoc::row(m.sel) };
+    let sel = if popup { 4 } else { m.sel.min(5) };
     let rects = row_rects(m.grid.extra);
     for (i, &r) in rects.iter().enumerate() {
         let on = i == sel;
         let [x, y, w, h] = r;
-        if i == 6 {
-            continue;
-        }
-        if i < 4 || i == adhoc::ROW {
+        if i < 4 {
             d.pill_at(r, [INK, WHITE, if on { ON } else { OFF }], 128.0);
             d.text(ROWS[i], x + 20.0, y + 7.0, 24.0, if on { INK } else { [100.0; 3] });
-            if i == adhoc::ROW && adhoc::on() {
-                d.text("On", x + w - 28.0 - d.width("On", 18.0) - if on { 22.0 } else { 0.0 }, y + 11.0, 18.0, if on { INK } else { [100.0; 3] });
-            }
             if on {
                 d.text(">", x + w - 28.0, y + 7.0, 24.0, INK);
             }
@@ -2223,7 +2205,6 @@ fn online_screen(d: &mut Draw, m: &Menu, hand_x: f32) {
             }
         }
         3 => big(d, "_  _  _  _"),
-        adhoc::ROW => adhoc::picture(d, [x, y, w, pic_h]),
         4 => big(d, &cfg.name),
         _ => big(d, &relay),
     }
@@ -2234,7 +2215,6 @@ fn online_screen(d: &mut Draw, m: &Menu, hand_x: f32) {
         0 => "Join the fullest open lobby that has room for your players, or host one and wait.".into(),
         3 => "Type the host's 4-character code, or paste their link or code.".into(),
         4 => format!("Your name on your lobby seats (now {}).", cfg.name),
-        adhoc::ROW => adhoc::words(),
         _ if m.net.custom => "Advanced, for self-hosted relays: OK types your own iroh-relay's URL (kept in online.txt). Every player needs the same one.".into(),
         _ if cfg!(target_arch = "wasm32") => "Relay: n0's public relays or your own (Custom...) for the internet; Off for this network only (no internet needed): codes go by copied link both ways.".into(),
         _ => "The relay carries the match when players can't connect directly: n0's public relays, none, or your own (Custom...).".into(),
@@ -2663,15 +2643,14 @@ pub(super) fn pill_step(rects: &[[f32; 4]], from: usize, k: Press) -> usize {
     rects.iter().enumerate().filter_map(|e| cost(&e)).min_by(|a, b| a.0.total_cmp(&b.0)).map_or(from, |c| c.1)
 }
 
-/// Started from a lobby link (the browser's `?code=`, or `HST_CODE`; M152g: an adhoc guest's host): straight to joining that lobby as one player
+/// Started from a lobby link (the browser's `?code=`, or `HST_CODE`): straight to joining that lobby as one player
 /// (the first device to press anything is it, `Menu::step`), then its character select.
 /// M126: or the match a browser refresh or crash left (`net::rejoin`), its old seat asked for.
 pub(super) fn linked(m: &mut Menu, args: &crate::Args) {
     #[cfg(target_arch = "wasm32")]
     let text = crate::web::pasted();
     #[cfg(not(target_arch = "wasm32"))]
-    // M152g: or the adhoc host whose disc this run plays from
-    let text = std::env::var("HST_CODE").ok().or_else(crate::adhoc::guest::code);
+    let text = std::env::var("HST_CODE").ok();
     let back = if args.shot.is_none() { crate::net::rejoin::take(&args.iso) } else { None };
     let linked = text.as_deref().and_then(crate::net::code_in);
     let Some(code) = linked.clone().or_else(|| back.as_ref().map(|b| b.code.clone())) else { return };
@@ -2900,7 +2879,7 @@ pub(super) fn sample(m: &mut Menu) {
     // B236: the loading, empty and failed states
     match menu.as_str() {
         "lobbies-searching" | "lobbies-none" | "lobbies-failed" => m.net.list.clear(),
-        "online" | "online-custom" | "online-adhoc" => m.net.room = None,
+        "online" | "online-custom" => m.net.room = None,
         // B467: the Online card when the lobby list couldn't be read (the pkarr relay refusing this network)
         "online-unread" => {
             (m.net.room, m.net.finding) = (None, 1);
@@ -2919,11 +2898,6 @@ pub(super) fn sample(m: &mut Menu) {
             m.heard(Event::Failed("Couldn't reach the host (timed out).".into()));
         }
         "lobbies-none" => m.heard(Event::Found(vec![])),
-        // M152e: Adhoc serving, with this PC's firewall hint if it has one
-        "online-adhoc" => {
-            m.sel = adhoc::ROW;
-            adhoc::set(true, "");
-        }
         // B450: the host's court picker over the lobby; ACE-42 lacks every third court mod (left off its row)
         "lobby-courts" => {
             let ids = m.court_mod_ids();
@@ -3097,7 +3071,6 @@ pub(super) fn apply(fx: Fx, menu: &mut Menu, commands: &mut Commands, net: Optio
             }
         },
         Fx::Off => commands.remove_resource::<Net>(),
-        Fx::Adhoc(on) => adhoc::set(on, iso),
         // desktop clipboards answer at once
         #[cfg(not(target_arch = "wasm32"))]
         Fx::Paste => menu.pasted(clipboard.fetch_text().poll_result().and_then(Result::ok), &mut out),
@@ -4346,9 +4319,9 @@ mod tests {
                 assert_eq!(m.sel, *to, "step {n} on {:?}", m.screen);
             }
         };
-        // Quickplay, Host, Find, Join by Code, (M152a: Adhoc, natively,) then Name and Relay: one column
+        // Quickplay, Host, Find, Join by Code, then Name and Relay: one column
         let mut m = Menu { screen: Screen::Online, sel: 0, net: View { cfg: Some(Online::default()), ..default() }, ..default() };
-        walk(&mut m, &[(l, 0), (d, 1), (r, 1), (d, 2), (d, 3), (d, adhoc::ROW), (d, 4), (d, 5), (d, 5), (u, 4), (u, adhoc::ROW), (u, 3), (u, 2), (u, 1), (u, 0), (u, 0)]);
+        walk(&mut m, &[(l, 0), (d, 1), (r, 1), (d, 2), (d, 3), (d, 4), (d, 5), (d, 5), (u, 4), (u, 3), (u, 2), (u, 1), (u, 0), (u, 0)]);
         let relay = m.net.cfg.clone();
         m.sel = 5;
         m.step(dev, r);

@@ -190,8 +190,6 @@ thread_local! {
 /// the browser's garbage collector got to it, on a phone that's what a tab kill needs).
 #[wasm_bindgen]
 pub fn pack_begin(len: usize) {
-    // a pack begun before is let go first: never two of them in memory at once (B689)
-    FILLING.with(|f| *f.borrow_mut() = None);
     FILLING.with(|f| *f.borrow_mut() = Some((Arc::new_uninit_slice(len), 0)));
 }
 
@@ -586,18 +584,6 @@ pub fn touch_held(on: bool) {
     if let Some(f) = page_fn("hstTouchHeld") {
         let _ = f.call1(&JsValue::NULL, &on.into());
     }
-}
-
-/// M152c: this page is a guest of an adhoc host (`index.html` `hstAdhoc`: served by its Adhoc, disc and mods from it).
-pub fn adhoc_guest() -> bool {
-    static GUEST: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *GUEST.get_or_init(|| js_sys::Reflect::get(&web_sys::window().unwrap(), &"hstAdhoc".into()).is_ok_and(|v| v.is_truthy()))
-}
-
-/// M152f: this page came over https (an adhoc host's secure page): its signalling and WebSocket to the host go over
-/// https and wss too (a secure page may not reach plain http).
-pub fn secure_page() -> bool {
-    web_sys::window().and_then(|w| w.location().protocol().ok()).as_deref() == Some("https:")
 }
 
 /// B329: what the Vibration setting can do in this browser (`web/touch.js`): `vibrate` (Android), `firefox`

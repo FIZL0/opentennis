@@ -2,8 +2,7 @@
 //! settings.txt and mods/. With no disc there yet, a start page says which disc the game needs and opens the system's
 //! file picker (`HstActivity.pick`, the Storage Access Framework: Downloads, SD cards, cloud drives); the picked ISO is
 //! imported into `disc.pack` as on the desktop (`disc.rs`, M13) and the app restarts into the main menu
-//! (`HstActivity.restart`: the native window can only be made once per process). M152g: or it joins a game nearby
-//! and plays from its host's disc (`adhoc::page`), restarting the same way.
+//! (`HstActivity.restart`: the native window can only be made once per process).
 //!
 //! M102: also what the Android app (`tools/apk.sh`, NativeActivity) asks the Java side for, through JNI: the window's safe
 //! area (system bars and the camera cutout, which an edge-to-edge window draws under) and the on-screen pad's haptic
@@ -282,18 +281,13 @@ const INTRO: &str = "This remaster plays from your own copy of the original game
 /// No disc in `dir` yet: the start page, until the import restarts the app (see the module doc).
 pub fn no_disc(dir: PathBuf) -> ! {
     info!("no disc in {}", dir.display());
-    let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(bevy::log::LogPlugin { fmt_layer: log_layer, ..default() }))
+    App::new()
+        .add_plugins(DefaultPlugins.set(bevy::log::LogPlugin { fmt_layer: log_layer, ..default() }))
         .insert_resource(ClearColor(Color::srgb(0.05, 0.12, 0.2)))
         .insert_resource(Start { pack: dir.join("disc.pack"), stage: Stage::Idle(None) })
         .add_systems(Startup, page)
-        .add_systems(Update, (tap, poll, show).chain());
-    // M152g: or join a game nearby and play from its host's disc
-    crate::adhoc::page::plugin(&mut app, dir, || {
-        call("restart", "()V");
-        "Starting the game... (if it doesn't, close and reopen the app)".into()
-    });
-    app.run();
+        .add_systems(Update, (tap, poll, show).chain())
+        .run();
     std::process::exit(0)
 }
 
@@ -320,26 +314,13 @@ fn page(mut commands: Commands) {
                 BackgroundColor(Color::srgb(0.95, 0.55, 0.1)),
             ))
             .with_child((Text::new("Choose disc image"), font(4.5), TextColor(Color::BLACK)));
-            crate::adhoc::page::button(p, 4.5);
             p.spawn((Status, Node { max_width: vmin(140), ..default() }, Text::new(""), font(3.2), TextLayout::justify(Justify::Center), TextColor(Color::srgb(0.75, 0.85, 1.0))));
         });
 }
 
 /// A tap anywhere, a click or any button (a pad's arrive as key presses) opens the picker.
-#[allow(clippy::too_many_arguments)]
-fn tap(
-    mut start: ResMut<Start>,
-    touches: Res<Touches>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    mut keys: MessageReader<KeyboardInput>,
-    join: Res<crate::adhoc::page::Join>,
-    join_button: Query<&Interaction, With<crate::adhoc::page::JoinButton>>,
-) {
+fn tap(mut start: ResMut<Start>, touches: Res<Touches>, mouse: Res<ButtonInput<MouseButton>>, mut keys: MessageReader<KeyboardInput>) {
     let key = keys.read().any(|k| k.state.is_pressed() && !k.repeat && k.key_code != KeyCode::BrowserBack);
-    // M152g: the join page's taps and keys are its own
-    if join.open || join_button.iter().any(|i| *i != Interaction::None) {
-        return;
-    }
     if !matches!(start.stage, Stage::Idle(_)) || !(touches.any_just_released() || mouse.any_just_released([MouseButton::Left]) || key) {
         return;
     }

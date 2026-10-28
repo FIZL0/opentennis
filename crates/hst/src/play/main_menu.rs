@@ -2580,7 +2580,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         "assign" | "assign-moved" | "assign-drag" => Screen::Assign,
         "chars" | "chars2" | "chars4" | "chars4-pads" | "roster1" | "roster2" | "roster3" | "roster4" | "roster4-names" | "roster2-favs" | "roster4-favs" | "roster2-deep" | "mods" | "attrs" | "mods-attrs" | "coms" | "coms-random" | "chars-online" | "chars-hosting" | "chars-joining" | "chars-relay" | "chars-random" | "names" | "names-type" | "names-card" => Screen::Chars,
         "confirm" | "confirm-random" | "confirm-court" | "confirm-handicap" | "confirm-offbeat" | "courts" | "umpires" | "umpires-mod" | "confirm-umpire-mod" | "courts-mod" | "confirm-court-mod" | "sets" | "games" => Screen::Confirm,
-        "online" | "online-custom" | "online-unread" | "online-adhoc" => Screen::Online,
+        "online" | "online-custom" | "online-unread" => Screen::Online,
         "lobbies" | "lobbies-searching" | "lobbies-more" | "lobbies-none" | "lobbies-failed" => Screen::Lobbies,
         "lobby" | "lobby-ios" | "lobby-bot" | "lobby-move" | "lobby-kick" | "lobby-singles" | "lobby-courts" | "lobby-ask" | "lobby-wait" | "lobby-fetching" | "lobby-guest" | "lobby-hosting" | "lobby-joining" | "lobby-failed" | "lobby-relay" => Screen::Lobby,
         "code" | "name" | "relay-url" => Screen::Code,
