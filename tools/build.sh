@@ -97,6 +97,7 @@ case $what in
     windows) windows ;;
     ios) mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa ;;
     android) tools/apk.sh ;;
-    all) linux; linux_aarch64; windows; mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa; tools/apk.sh ;;
+    all) linux; windows;  # ARM Linux (linux-aarch64) left out of releases until it runs on a device (user 2026-10-27)
+         mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa; tools/apk.sh ;;
     *) echo "usage: tools/build.sh [linux|linux-aarch64|windows|ios|android|all]" >&2; exit 2 ;;
 esac

@@ -2,11 +2,9 @@
 # tools/release.sh VERSION [notes.md] [publish] — a full release (v1.0.0, "OpenTennis 1.0.0"): set
 # crates/hst's version to VERSION (a "Release vVERSION" commit if it changes), build Linux + Windows + the unsigned
 # iOS IPA + the Android APK (tools/build.sh all; the APK via tools/apk.sh, signed with this machine's ~/.android/debug.keystore:
-# keep that file, a phone only takes an update signed with the same key; M154: ARM Linux too), sign SHA256SUMS with the minisign key (~/.config/hst/release.key, asks its password) and upload to GitHub:
+# keep that file, a phone only takes an update signed with the same key; M154 ARM Linux left out for now), sign SHA256SUMS with the minisign key (~/.config/hst/release.key, asks its password) and upload to GitHub:
 #   opentennis-windows-x86_64.zip  opentennis-linux-x86_64.tar.gz  opentennis-ios.ipa  opentennis-android.apk   what players download
-#   opentennis-linux-aarch64.tar.gz                                    (an OpenTennis/ folder with its Ports launcher, M154)
-#   opentennis-windows-x86_64.exe  opentennis-linux-x86_64  opentennis-linux-aarch64   the bare binaries the updater fetches (plan/B374.md;
-#                                                                      M140: the phones' updater fetches the .apk / hands on the .ipa)
+#   opentennis-windows-x86_64.exe  opentennis-linux-x86_64   the bare binaries the updater fetches (plan/B374.md; M140: the phones' updater fetches the .apk / hands on the .ipa)
 #   SHA256SUMS  SHA256SUMS.sig
 #   altstore-source.json                                               M140: the iOS app as an AltStore / SideStore source, so they update it
 #   web.tar.gz                                                         the website, which pages.yml deploys as built here
@@ -73,10 +71,8 @@ HST_COMMIT=$HST_COMMIT HST_VERSION=$tag tools/build.sh all  # B374: update.rs co
 out=dist/release
 rm -rf "$out" && mkdir -p "$out"
 tar -czf "$out/opentennis-linux-x86_64.tar.gz" -C dist/linux .
-tar -czf "$out/opentennis-linux-aarch64.tar.gz" -C dist/linux-aarch64 OpenTennis
 (cd dist/windows && zip -q "../release/opentennis-windows-x86_64.zip" opentennis.exe)
 cp dist/linux/opentennis "$out/opentennis-linux-x86_64"
-cp dist/linux-aarch64/OpenTennis/opentennis "$out/opentennis-linux-aarch64"
 cp dist/windows/opentennis.exe "$out/opentennis-windows-x86_64.exe"
 cp dist/ios/opentennis-ios.ipa "$out/opentennis-ios.ipa"
 cp dist/opentennis.apk "$out/opentennis-android.apk"
@@ -113,7 +109,6 @@ body=$out/notes.md
     echo "|---|---|---|"
     echo "| **Windows** 10/11 | [\`opentennis-windows-x86_64.zip\`](https://github.com/$repo/releases/download/$tag/opentennis-windows-x86_64.zip) | Unzip, then drop your ISO on \`opentennis.exe\` |"
     echo "| **Linux** / **Steam Deck** | [\`opentennis-linux-x86_64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-x86_64.tar.gz) | Unpack and open \`opentennis\`, then pick your ISO |"
-    echo "| **ARM Linux** / handhelds (ROCKNIX) | [\`opentennis-linux-aarch64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-aarch64.tar.gz) | Unpack the \`OpenTennis\` folder into \`roms/ports/\` and put your ISO in it (or in \`roms/ps2/\`), then start OpenTennis from Ports. Elsewhere: run \`OpenTennis.sh\` |"
     echo "| **iPhone** / **iPad** (iOS 15+) | [\`opentennis-ios.ipa\`](https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa) | Unsigned: sign and install it yourself (AltStore, SideStore, Sideloadly…), then put your ISO in Files → On My iPhone → OpenTennis. Touch controls or a controller. AltStore / SideStore: add the source \`https://github.com/$repo/releases/latest/download/altstore-source.json\` to get updates |"
     echo "| **Android** 8+ | [\`opentennis-android.apk\`](https://github.com/$repo/releases/download/$tag/opentennis-android.apk) | Install it (allow unknown apps), then pick your ISO on first start |"
     echo "| **Browser** | [opentennis.dev](https://opentennis.dev/) | Nothing to install |"
