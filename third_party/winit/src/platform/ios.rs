@@ -390,6 +390,9 @@ pub enum ValidOrientations {
 
     /// Excludes `PortraitUpsideDown` on iphone
     Portrait,
+
+    /// HST (B694): landscape with the device's top (camera) on the left only, what the game holds under rotation lock
+    LandscapeRight,
 }
 
 /// The device [idiom].

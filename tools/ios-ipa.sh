@@ -45,7 +45,7 @@ cat > "$app/Info.plist" <<EOF
 	<key>UILaunchScreen</key><dict/>
 	<key>UIRequiresFullScreen</key><true/>
 	<key>UIStatusBarHidden</key><true/>
-	<!-- M144: portrait too; with rotation lock on the game holds its last orientation (ios.rs orientation) -->
+	<!-- M144: portrait too; with rotation lock on the game holds landscape, island on the left (B694, ios.rs orientation) -->
 	<key>UISupportedInterfaceOrientations</key><array>
 		<string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string>
 		<string>UIInterfaceOrientationPortrait</string>

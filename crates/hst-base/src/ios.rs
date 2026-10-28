@@ -368,23 +368,38 @@ struct Acceleration {
     _z: f64,
 }
 
-/// `orientation`'s state: the orientation the game is held to (landscape or not), the device's last reported
-/// orientation and since when, and the accelerometer.
+/// What `orientation` holds the window's view controller to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Hold {
+    Landscape,
+    Portrait,
+    /// B694: rotation lock on: landscape with the camera / Dynamic Island on the left only
+    Locked,
+}
+
+/// `orientation`'s state: the orientation the game is held to, the device's last reported orientation and since
+/// when, since when the device has said portrait while the accelerometer says landscape, and the accelerometer.
 #[derive(Default)]
 pub struct Orientation {
-    held: Option<bool>,
+    held: Option<Hold>,
     device: isize,
     since: f32,
+    across: Option<f32>,
     motion: usize,
 }
 
-/// M144: the game turns into portrait and back with the device, and holds its orientation while rotation lock is on.
+/// M144: the game turns into portrait and back with the device, and holds landscape while rotation lock is on (B694).
 /// Info.plist allows both; the window's view controller is kept to the orientation the game is in (landscape or
 /// portrait, `ValidOrientations`), and moves to the other only when the device turns there. An iPhone's rotation lock
 /// makes UIDevice report portrait however the phone is held, so a turn to portrait the accelerometer doesn't agree
 /// with is the lock going on, not a turn: ignored, the game stays as it is, landscape included. Under the lock the
 /// device's orientation doesn't change again, so the game stays put until it's off. An iPad's lock holds the
 /// current orientation itself. Main thread (UIKit, winit's windows).
+///
+/// B694: once the device has said portrait for a second while the accelerometer says the phone is held sideways,
+/// that's rotation lock, and the game turns to landscape with the camera / Dynamic Island on the left
+/// (`ValidOrientations::LandscapeRight`) and stays there, held upright included, until the device reports a turn
+/// the accelerometer agrees with (the lock off).
 pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_thread: bevy::ecs::system::NonSendMarker) {
     use winit::platform::ios::{ValidOrientations, WindowExtIOS};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -421,15 +436,28 @@ pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_t
         }
         // portrait, upside down, landscape left/right; face up/down and unknown say nothing
         let turned = (1..=4).contains(&device).then_some(device >= 3);
+        let hold = |landscape: bool| if landscape { Hold::Landscape } else { Hold::Portrait };
+        // rotation lock: portrait from the device with the phone held sideways, for longer than a turn takes to report
+        if turned == Some(false) && gravity == Some(true) {
+            state.across.get_or_insert(now);
+        } else {
+            state.across = None;
+        }
+        let locked = state.across.is_some_and(|t| now - t >= 1.0);
         // the accelerometer has a moment to agree with a new orientation (turning the phone past 45° fires it)
         let want = match (state.held, turned) {
-            (None, _) => Some(window),
-            (Some(held), Some(to)) if to != held && now - state.since < 0.5 && gravity.is_none_or(|g| g == to) => Some(to),
+            (held, _) if locked => (held != Some(Hold::Locked)).then_some(Hold::Locked),
+            (None, _) => Some(hold(window)),
+            (Some(held), Some(to)) if hold(to) != held && now - state.since < 0.5 && gravity.is_none_or(|g| g == to) => Some(hold(to)),
             _ => None,
         };
-        let Some(landscape) = want else { return };
-        state.held = Some(landscape);
-        win.set_valid_orientations(if landscape { ValidOrientations::Landscape } else { ValidOrientations::Portrait });
+        let Some(held) = want else { return };
+        state.held = Some(held);
+        win.set_valid_orientations(match held {
+            Hold::Landscape => ValidOrientations::Landscape,
+            Hold::Portrait => ValidOrientations::Portrait,
+            Hold::Locked => ValidOrientations::LandscapeRight,
+        });
         // iOS 16 rotates on this rather than winit's attemptRotationToDeviceOrientation
         if let Ok(h) = win.window_handle()
             && let RawWindowHandle::UiKit(h) = h.as_raw()
@@ -445,6 +473,6 @@ pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_t
                 }
             }
         }
-        eprintln!("orientation: held {}", if landscape { "landscape" } else { "portrait" });
+        eprintln!("orientation: held {held:?}");
     });
 }

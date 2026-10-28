@@ -120,6 +120,8 @@ impl WinitViewController {
             },
             (ValidOrientations::LandscapeAndPortrait, _) => UIInterfaceOrientationMask::All,
             (ValidOrientations::Landscape, _) => UIInterfaceOrientationMask::Landscape,
+            // HST (B694): one landscape side, for the game's rotation-lock hold
+            (ValidOrientations::LandscapeRight, _) => UIInterfaceOrientationMask::LandscapeRight,
             (ValidOrientations::Portrait, UIUserInterfaceIdiom::Phone) => {
                 UIInterfaceOrientationMask::Portrait
             },
