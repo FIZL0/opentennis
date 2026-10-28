@@ -113,7 +113,7 @@ struct Base {
 #[derive(Component, Default)]
 pub struct Loading {
     up: u32,
-    built: bool,
+    pub(crate) built: bool,
     after: u32,
     idle: u32,
 }

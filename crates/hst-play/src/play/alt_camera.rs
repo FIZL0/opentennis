@@ -324,10 +324,15 @@ fn fade(
     children: Query<&Children>,
     mats: Query<&MeshMaterial3d<crate::gs::GsMaterial>>,
     mut materials: ResMut<Assets<crate::gs::GsMaterial>>,
+    loading: Query<&crate::mode::Loading>,
     mut kept: Local<Vec<(Handle<crate::gs::GsMaterial>, f32, crate::gs::GsKey)>>,
 ) {
+    // while the loading screen draws everything (`mode.rs` `warm`) the human is drawn faded at full alpha, so the
+    // blended draw's pipelines (and its shadow's) compile behind the cover, not at the first fade mid-rally: in the
+    // browser each one froze the match for ~0.25–0.5 s
+    let warming = loading.iter().any(|l| l.built);
     let a = alt.as_ref().map_or(1.0, |a| a.alpha());
-    if a == 1.0 {
+    if a == 1.0 && !warming {
         for (h, alpha, key) in kept.drain(..) {
             if let Some(mut m) = materials.get_mut(&h) {
                 (m.uniform.color.w, m.key) = (alpha, key);
