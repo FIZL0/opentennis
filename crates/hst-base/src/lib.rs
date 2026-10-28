@@ -27,6 +27,7 @@ pub mod grades;
 pub mod gs;
 pub mod modfs;
 pub mod modstore;
+pub mod mod_debug;
 pub mod mods;
 pub mod mods_online;
 pub mod mods_umpire;

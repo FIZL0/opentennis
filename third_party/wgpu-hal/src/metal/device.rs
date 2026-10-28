@@ -226,6 +226,11 @@ impl super::Device {
 
                 let options = MTLCompileOptions::new();
                 options.setLanguageVersion(self.shared.private_caps.msl_version);
+                // HST (B693): fast math off on request (`super::PRECISE_MATH`)
+                if super::PRECISE_MATH.load(atomic::Ordering::Relaxed) {
+                    #[allow(deprecated)] // `setMathMode` is iOS 18 / macOS 15 only; this one is every version's
+                    options.setFastMathEnabled(false);
+                }
 
                 // https://developer.apple.com/documentation/metal/mtlcompileoptions/preserveinvariance
                 if available!(macos = 11.0, ios = 13.0, tvos = 14.0, visionos = 1.0) {

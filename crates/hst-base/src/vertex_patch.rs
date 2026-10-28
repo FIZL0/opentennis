@@ -157,14 +157,23 @@ fn write(mut queued: ResMut<Queued>, mut waiting: Local<(Vec<u8>, Queued)>, mut 
             if age < 60 {
                 kept_ages.push(age + 1);
                 keep.push(w.mesh, w.stride, w.first, bytes);
+            } else {
+                dropped("its mesh was never allocated (expected for a rig removed mid-write)");
             }
             continue;
         };
         if (w.first as usize * w.stride as usize + bytes.len()) > slice.range.len() * w.stride as usize {
+            dropped("past its mesh's end");
             continue;
         }
         queue.write_buffer(slice.buffer, (slice.range.start + w.first) as u64 * w.stride as u64, bytes);
     }
     std::mem::swap(&mut *waiting, &mut *kept);
     queued.clear();
+}
+
+/// B693: the first write `write` drops, in the log (a face or sway copy that never moves on the GPU).
+fn dropped(why: &str) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| warn!("vertex patch: a write dropped, {why}"));
 }

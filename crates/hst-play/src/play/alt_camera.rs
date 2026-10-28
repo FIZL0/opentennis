@@ -335,7 +335,8 @@ fn fade(
     if a == 1.0 && !warming {
         for (h, alpha, key) in kept.drain(..) {
             if let Some(mut m) = materials.get_mut(&h) {
-                (m.uniform.color.w, m.key) = (alpha, key);
+                m.uniform.color.w = alpha;
+                m.key = unfaded(m.key, key);
             }
         }
         return;
@@ -351,12 +352,24 @@ fn fade(
             .collect();
     }
     for (h, alpha, key) in kept.iter() {
-        let key = crate::gs::GsKey { modulate: true, blend: key.blend.or(Some(hst_data::mtl::Blend::Normal)), ..*key };
+        let Some(key) = materials.get(h).map(|m| faded(m.key, key)) else { continue };
         if materials.get(h).is_some_and(|m| m.uniform.color.w != alpha * a || m.key != key) {
             let mut m = materials.get_mut(h).expect("checked");
             (m.uniform.color.w, m.key) = (alpha * a, key);
         }
     }
+}
+
+/// A faded draw's key: blended in TFX MODULATE (its own blend if it has one). Only those two change: the rest stays
+/// as other systems keep it now (B693: the rig's mirror, set by `shade::light` once a left-hander's flip shows, which
+/// a whole key kept from before the flip turned back, so the human's one-sided parts dropped their front faces).
+fn faded(now: crate::gs::GsKey, kept: &crate::gs::GsKey) -> crate::gs::GsKey {
+    crate::gs::GsKey { modulate: true, blend: kept.blend.or(Some(hst_data::mtl::Blend::Normal)), ..now }
+}
+
+/// The key back unfaded: what the fade changed as it was, the rest as it is now.
+fn unfaded(now: crate::gs::GsKey, kept: crate::gs::GsKey) -> crate::gs::GsKey {
+    crate::gs::GsKey { modulate: kept.modulate, blend: kept.blend, ..now }
 }
 
 #[cfg(test)]
@@ -625,5 +638,16 @@ mod tests {
             }
         }
         assert_eq!(back, 2, "{shots} cut-aways, {back} back behind the human");
+    }
+
+    /// B693: a left-hander's mirror set while they are faded (the loading screen's warm-up draws the human faded
+    /// before `shade::light` sees their flip) survives the fade and its end; only modulate and blend come back.
+    #[test]
+    fn the_fade_keeps_a_mirror_set_meanwhile() {
+        let kept = crate::gs::GsKey { textured: true, modulate: false, test: crate::gs::Test::Always, blend: None, fog: true, cull: true, mirror: false, guard: false, clear: false };
+        let flipped = crate::gs::GsKey { mirror: true, ..super::faded(kept, &kept) };
+        let faded = super::faded(flipped, &kept);
+        assert!(faded.mirror && faded.modulate && faded.blend == Some(hst_data::mtl::Blend::Normal));
+        assert_eq!(super::unfaded(faded, kept), crate::gs::GsKey { mirror: true, ..kept });
     }
 }

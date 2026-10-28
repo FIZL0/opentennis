@@ -1066,7 +1066,7 @@ fn materials_of(
         header[0x10..0x14].copy_from_slice(&word("shininess"));
         header[0x14..0x18].copy_from_slice(&word("highlight"));
         header[0x1e..0x20].copy_from_slice(&(if mask { 10i16 } else if blend { 25 } else { 0 }).to_le_bytes());
-        let mtl = mtl::Material { texture: t, color: color.map(|c| c.min(1.0)), attributes: None, two_sided: m.double_sided(), name: m.name().unwrap_or("").to_string(), header };
+        let mtl = mtl::Material { texture: t, color: color.map(|c| c.min(1.0)), attributes: None, two_sided: m.double_sided() || crate::mod_debug::switches().two_sided, name: m.name().unwrap_or("").to_string(), header };
         let prim = 0x20 | if t.is_some() { 0x10 } else { 0 } | if blend { 0x40 } else { 0 };
         gs.insert(h.id(), crate::gs::GsMaterial::for_batch(&mtl, prim, pair.map(|t| t.1)));
         out.push(h);
@@ -1524,6 +1524,7 @@ pub fn load_with(
     let file = m.dir.join(m.costumes.get(costume).ok_or_else(|| format!("{}: no costume {costume}", m.id))?);
     let ctx = |e: String| format!("{}: {e}", file.display());
     let (doc, blob) = open(&file)?;
+    crate::mod_debug::costume(&m.id, &file, &blob);
     for w in conform(&doc, &blob, !m.texture_face && !m.no_face).map_err(|e| ctx(format!("does not conform to the HST character standard:\n{e}")))? {
         warn!("{}: {w}", file.display());
     }
@@ -1578,6 +1579,8 @@ pub fn load_with(
         let first = deformers.len();
         deformers.extend(noise_deformers(&mesh));
         for p in mesh.primitives() {
+            // B693: the part by name for `mod_debug` (its log, `mod_hide`)
+            let part_name = format!("{}/{}/{}", n.name().unwrap_or("?"), mesh.name().unwrap_or("?"), p.material().name().unwrap_or("?"));
             let mut v = prim(&p, &blob, &tn).map_err(ctx)?;
             for (t, o) in lips_parted(&v.pos, &v.morph) {
                 let e = opens.entry(t).or_insert(0.0f32);
@@ -1608,7 +1611,8 @@ pub fn load_with(
             // tangent slot, which gs.wgsl turns by the other joints' weight blend
             // a swaying part stays readable: each rig sways its own copy (`noise`)
             // B691: so does a face morphed on the CPU (`cpu_morph`)
-            let morphed = v.morph.iter().any(|t| t.1.iter().any(|d| *d != [0.0; 3]));
+            // B693: or none at all (`mod_debug`'s `mod_morph = off`)
+            let morphed = !crate::mod_debug::no_morph() && v.morph.iter().any(|t| t.1.iter().any(|d| *d != [0.0; 3]));
             let cpu_face = morphed && crate::cpu_morph::on();
             let usage = if moved.is_empty() && !cpu_face { crate::cull::usage(RenderAssetUsages::RENDER_WORLD) } else { RenderAssetUsages::default() };
             let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, usage)
@@ -1645,6 +1649,7 @@ pub fn load_with(
             nodes.dedup();
             part_nodes.push((nodes, false));
             let mesh = meshes.add(mesh);
+            crate::mod_debug::part(mesh.id(), part_name, count, if cpu_face { "cpu" } else if morphed { "gpu" } else { "none" });
             if let Some(t) = cpu_targets {
                 crate::cpu_morph::keep(mesh.id(), t);
             }

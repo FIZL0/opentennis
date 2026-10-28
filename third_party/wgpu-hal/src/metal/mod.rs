@@ -53,6 +53,11 @@ use objc2_metal::{
     MTLTriangleFillMode, MTLWinding,
 };
 use objc2_quartz_core::CAMetalLayer;
+
+/// HST (B693): while set, shaders compile without Metal's fast math (`MTLCompileOptions::setFastMathEnabled(false)`;
+/// Metal's default is on, which lets the compiler assume no NaN or infinity and reassociate). Read as each shader
+/// module is compiled, so set it before the first pipeline: the game's `debug.txt` `metal_precise_math = on`.
+pub static PRECISE_MATH: atomic::AtomicBool = atomic::AtomicBool::new(false);
 use parking_lot::{Mutex, RwLock};
 
 #[derive(Clone, Debug)]
