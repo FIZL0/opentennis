@@ -15,3 +15,4 @@
 - Custom characters emoting in a match keep facing the way they stand, instead of spinning around as they do for the after-point close-ups.
 - In the browser, the Save log button for bug reports is bigger, sits below the touch pad's Select and Start instead of between them, lights up and buzzes when pressed, and says Saved when done.
 - Hosting a game nearby now gives a secure (https) address: the phone's browser shows a warning once (tap past it), then keeps the host's disc between visits instead of holding it all in memory, and the page can be added to the home screen.
+- A browser joining a game nearby no longer leaves the host's custom characters in its download cache afterwards: they stay in memory and are gone when the page closes.

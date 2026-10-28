@@ -805,7 +805,10 @@ fn file(c: &mut impl Write, f: &Path, mime: &str, req: &Request, sh: &Shared) ->
             return c.write_all(head.as_bytes());
         }
     };
-    let head = format!("HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {n}\r\nAccept-Ranges: bytes\r\nCache-Control: no-cache\r\n{extra}{}\r\n", connection(req.close));
+    // the disc and the mods never go into the guest browser's disk cache (it keeps them in memory, or in OPFS over
+    // https); the page and the wasm may, checked against the host on every load
+    let cache = if req.path.starts_with("/adhoc/") { "no-store" } else { "no-cache" };
+    let head = format!("HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {n}\r\nAccept-Ranges: bytes\r\nCache-Control: {cache}\r\n{extra}{}\r\n", connection(req.close));
     c.write_all(head.as_bytes())?;
     if req.head {
         return Ok(());
@@ -948,6 +951,8 @@ mod tests {
         assert!(text.starts_with("HTTP/1.1 200 OK\r\nContent-Type: text/html"), "{text}");
         assert!(text.contains("<p>hi") && text.contains("206 Partial Content") && text.contains("Content-Range: bytes 16-19/256"));
         assert!(out.ends_with(&[16, 17, 18, 19]));
+        let (page, disc) = text.split_once("206 Partial Content").unwrap();
+        assert!(page.contains("Cache-Control: no-cache") && disc.contains("Cache-Control: no-store"), "{text}");
         // M152c: signalling on the same port; no lobby is hosting in this test
         let mut c = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         c.write_all(b"POST /rtc HTTP/1.1\r\nContent-Length: 5\r\nConnection: close\r\n\r\nrtco1").unwrap();
