@@ -667,15 +667,19 @@ pub(super) fn boxes(g: &Grid, n: usize) -> ([f32; 4], [f32; 4]) {
     }
 }
 
-/// B608: whether page `s`'s rows keep their full pitch on the view `g` (a bigger Menu Size on a short view would
-/// squeeze them, `slot`).
+/// B608: whether page `s`'s list still works on the view `g` at a bigger Menu Size: all its rows at full pitch, or a
+/// scrolling list that keeps at least `MIN_SHOWN` of them on view (a long page like Graphics or Controls scrolls
+/// rather than never growing past 100%).
 pub(super) fn rows_fit(g: &Grid, s: Screen) -> bool {
     let n = if s == Screen::Controls { controls::action_names().count() + 1 } else { page(s).len() };
     let (list, _) = boxes(g, n);
     let more = if pinned(s) { 1.0 } else { 0.0 };
     let (shown, pitch) = rows_shown(list, n, more);
-    shown >= n as f32 + more && pitch >= PITCH * PY - 1e-3
+    if shown >= n as f32 + more { pitch >= PITCH * PY - 1e-3 } else { shown >= MIN_SHOWN }
 }
+
+/// The fewest rows a scrolling Settings list keeps on view at a bigger Menu Size (`rows_fit`).
+const MIN_SHOWN: f32 = 5.0;
 
 /// B448: a list's foot (the footnote) and a row's pitch, mockup px.
 const FOOT: f32 = 30.0;
@@ -1078,8 +1082,15 @@ pub(super) fn drop_box(d: &mut Draw, all: &[String], [x, y, w, h]: [f32; 4], j: 
     let sep_all = sep * seps;
     let (below, above) = (bottom - (y + h + 2.0 * PY) - 6.0 * PY, y - 2.0 * PY - top - 6.0 * PY);
     let room = below.max(above);
-    let ip = ((room - 2.0 * pad - sep_all) / n).min(28.0 * PY);
-    let bh = ip * n + 2.0 * pad + sep_all;
+    let ip = ((room - 2.0 * pad - sep_all) / n).clamp(DROP_MIN * PY, 28.0 * PY);
+    // too many to show at `DROP_MIN` apart (a big Menu Size): a page of them at a time, the one holding `j`. Pages
+    // rather than a window that follows `j`, so hovering a row (which moves `j`) never scrolls the list under it.
+    // ponytail: no wheel; ↑ ↓ (or hovering the last row and ↓) turn the page.
+    let shown = (((room - 2.0 * pad - sep_all) / ip).floor() as usize).clamp(1, all.len());
+    let first = j / shown * shown;
+    let on_view = first..(first + shown).min(all.len());
+    let seps = rules.iter().filter(|&&r| r > on_view.start && r < on_view.end).count() as f32;
+    let bh = ip * on_view.len() as f32 + 2.0 * pad + sep * seps;
     let by = if below >= bh || below >= above { y + h + 2.0 * PY } else { y - 2.0 * PY - bh };
     let bw = bw.min(w - 8.0 * PX);
     let bx = x + w - bw - 2.0 * PX;
@@ -1088,9 +1099,20 @@ pub(super) fn drop_box(d: &mut Draw, all: &[String], [x, y, w, h]: [f32; 4], j: 
     roster::ringed(d, [bx, by, bw, bh], 14.0, 3.0, look::c(look::INK), WHITE);
     let size = (ip * 0.55).min(15.0 * PY);
     let hs = size * 0.78;
+    let lane = if on_view.len() < all.len() {
+        // a scroll bar's thumb at the page's place in the list
+        let (ty, th) = (by + pad, bh - 2.0 * pad);
+        let (t0, t1) = (on_view.start as f32 / n, on_view.end as f32 / n);
+        rounded(d, [bx + bw - 12.0 * PX, ty, 5.0 * PX, th], 2.5, look::c(look::RULE), 128.0);
+        rounded(d, [bx + bw - 12.0 * PX, ty + th * t0, 5.0 * PX, th * (t1 - t0)], 2.5, look::c(look::BLUE), 128.0);
+        10.0 * PX
+    } else {
+        0.0
+    };
+    let bw = bw - lane;
     let mut iy = by + pad;
-    for (k, c) in all.iter().enumerate() {
-        if k > 0 && rules.contains(&k) {
+    for (k, c) in all.iter().enumerate().filter(|(k, _)| on_view.contains(k)) {
+        if k > on_view.start && rules.contains(&k) {
             d.q(Tex::Solid, [0.0; 4], [bx + 12.0 * PX, iy + sep / 2.0 - 1.0 * PY, bw - 24.0 * PX, 2.0 * PY], look::c(look::RULE), 128.0);
             iy += sep;
         }
@@ -1116,6 +1138,9 @@ pub(super) fn drop_box(d: &mut Draw, all: &[String], [x, y, w, h]: [f32; 4], j: 
         iy += ip;
     }
 }
+
+/// The least pitch (mockup px) a dropdown's choices close up to before it shows them a page at a time (`drop_box`).
+const DROP_MIN: f32 = 24.0;
 
 /// The Renderer switch's popup's pills (640×448): their tops, 40 px apart as the mods' Reload / Later popup's.
 const SWITCH_TOP: f32 = 226.0;
@@ -1706,6 +1731,19 @@ mod tests {
                 assert!(m.listing.is_none() && m.editing.is_none());
             }
         }
+        // a big Menu Size on a short view: Menu Size's 12 choices a page at a time, never squeezed; ↑ from the first
+        // wraps to the last page
+        let sel = page(Screen::Display).iter().position(|&o| o == MenuSize).unwrap();
+        let mut m = Menu { screen: Screen::Display, sel, grid: Grid::fit_at(4.0, 1.5), ..default() };
+        m.step(Dev::Keys, press(|k| &mut k.ok));
+        let rows = |m: &Menu| {
+            let d = super::super::drawn(m, &t, &controls::Bindings::default(), &[], 0, 0.0);
+            d.hits.iter().filter_map(|h| match h.act { pointer::Act::Row(k, _) => Some((k, h.rect[3])), _ => None }).collect::<Vec<_>>()
+        };
+        let first = rows(&m);
+        assert!(first.len() < choices(MenuSize).len() && first.iter().all(|&(_, h)| h >= DROP_MIN * PY * 0.9), "{first:?}");
+        m.step(Dev::Keys, press(|k| &mut k.up));
+        assert!(rows(&m).iter().any(|&(k, _)| k == choices(MenuSize).len() - 1));
     }
 
     /// B411: Display keeps only display rows; the speed-up switches and Mesh are on Advanced, under Graphics, whose

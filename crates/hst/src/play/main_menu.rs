@@ -4226,8 +4226,10 @@ mod tests {
             assert_eq!(fit_scale(screen, wide, 1.0), 1.0);
         }
         assert_eq!(fit_scale(Screen::Assign, wide, 1.5), 1.5);
-        let k = fit_scale(Screen::Display, wide, 1.5);
-        assert!(k >= whole && k <= 1.5 && options::rows_fit(&Grid::fit_at(wide, k), Screen::Display));
+        // a long Settings page scrolls rather than staying at 100%
+        for screen in [Screen::Display, Screen::Graphics, Screen::Controls] {
+            assert_eq!(fit_scale(screen, wide, 1.5), 1.5, "{screen:?}");
+        }
         let auto = Settings::default();
         assert!((auto.menu_scale_on(393.0, true) - 440.0 / 393.0).abs() < 1e-6 && auto.menu_scale_on(320.0, true) == 1.3);
         assert_eq!((auto.menu_scale_on(1024.0, true), auto.menu_scale_on(393.0, false)), (1.0, 1.0));
