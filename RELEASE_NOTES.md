@@ -7,3 +7,4 @@
 - The ARM Linux build now draws straight to the screen on handhelds without a desktop (muOS, or Knulli on the Mali driver, such as the RG34XX SP) instead of quitting at start, and its launcher also works from PortMaster's Ports folder.
 - New download for handhelds with PortMaster (muOS, ROCKNIX, Knulli and others): opentennis.zip installs OpenTennis as a port; put your Hot Shots Tennis (USA) ISO in ports/opentennis/ and the first start imports it, keeping settings and saves in that folder.
 - Phones joining an Adhoc game no longer download the host's texture packs, so they load faster and use less memory.
+- OpenTennis runs on muOS handhelds such as the Anbernic RG34XX SP: start it from Ports, with the handheld's own buttons
