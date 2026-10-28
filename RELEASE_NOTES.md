@@ -1,14 +1,12 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- The ARM Linux build now draws straight to the screen on handhelds without a desktop (muOS, or Knulli on the Mali driver, such as the RG34XX SP) instead of quitting at start, and its launcher also works from PortMaster's Ports folder.
-- New download for handhelds with PortMaster (muOS, ROCKNIX, Knulli and others): opentennis.zip installs OpenTennis as a port; put your Hot Shots Tennis (USA) ISO in ports/opentennis/ and the first start imports it, keeping settings and saves in that folder.
-- Hosting online while the relay isn't up yet (or at all), the lobby's Copy long code button copies the full join code, so players on the same network or who can reach you directly can join by it in Join by Code.
-- Playing in a phone's browser no longer shows keyboard key hints in the menus, only the touch buttons', as the phone apps do.
-- In the browser (iPhones especially) a match loads much faster and freezes far less often: the game now has about a third as many shaders to prepare.
-- Online: a player on the Random card now shows their face in the match's score panel instead of a blank circle.
-- Custom characters emoting in a match keep facing the way they stand, instead of spinning around as they do for the after-point close-ups.
-- In the browser, the Save log button for bug reports is bigger, sits below the touch pad's Select and Start instead of between them, lights up and buzzes when pressed, and says Saved when done.
-- OpenTennis runs on muOS handhelds such as the Anbernic RG34XX SP: start it from Ports, with the handheld's own buttons
-- In the browser, the behind-the-player camera no longer freezes the match for a moment the first time your player turns see-through: that's now prepared while the match loads.
-- On iPhone and iPad the game now plays its sound even with the silent switch on.
+- New download for handhelds with PortMaster (muOS, ROCKNIX, Knulli and others): opentennis.zip installs OpenTennis as a port. Put your Hot Shots Tennis (USA) ISO in ports/opentennis/ and the first start imports it; settings and saves stay in that folder.
+- The ARM Linux build now runs on handhelds without a desktop, such as the Anbernic RG34XX SP on muOS or Knulli, instead of quitting at start: start it from Ports and play with the handheld's own buttons.
 - Handhelds run matches a little faster, and a new Potato graphics preset (or the new Court Life switch in the advanced graphics options) leaves out the crowd, the small props and the costumes' sway for the weakest devices. While Auto is on, the Preset row shows which preset it picked, such as "Auto (Phone)".
+- In the browser (iPhones especially) a match loads much faster and freezes far less often, and the behind-the-player camera no longer stalls the first time your player turns see-through.
+- Playing in a phone's browser shows only the touch buttons' hints in the menus, not keyboard keys, as the phone apps do.
+- In the browser, the Save log button for bug reports is bigger, sits below the touch pad's Select and Start, lights up and buzzes when pressed, and says Saved when done.
+- On iPhone and iPad the game now plays its sound even with the silent switch on.
+- Online: while the relay isn't reachable, the lobby's Copy long code button copies the full join code, so players on the same network or who can reach you directly can still join with Join by Code.
+- Online: a player on the Random card now shows their face in the score panel instead of a blank circle.
 - On three of the courts a spectator now shouts "This is it!" when you run under a lob to smash it, as in the original; while they shout, the applause after the point is skipped.
+- Custom characters emoting in a match keep facing the way they stand instead of spinning around.
