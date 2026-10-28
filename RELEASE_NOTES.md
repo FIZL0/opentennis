@@ -11,3 +11,4 @@
 - Playing in a phone's browser no longer shows keyboard key hints in the menus, only the touch buttons', as the phone apps do.
 - iPhone browsers tick again on each press of the on-screen buttons (Settings → Mobile → Vibration).
 - Online: a player on the Random card now shows their face in the match's score panel instead of a blank circle.
+- Random on the character select now picks a character nobody else has, so several players on Random no longer end up as the same character in different outfits.
