@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- M160: one-tap "add source" for the iOS app (tools/ios-source.sh's altstore-source.json). GitHub's Markdown drops
+     altstore:// / sidestore:// / feather:// links, so the README and release notes link here instead. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OpenTennis for iPhone</title>
+<meta name="description" content="Add the OpenTennis source to AltStore, SideStore or Feather to install and update the iPhone / iPad app.">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  :root { --ink: #1b1d22; --paper: #f6f3ea; --panel: #fff; --muted: #4c5260; --green: #2fae4a; --gold: #f5b81c; color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --ink: #ecebe6; --paper: #15171b; --panel: #22252b; --muted: #a7acb6; color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --ink: #ecebe6; --paper: #15171b; --panel: #22252b; --muted: #a7acb6; color-scheme: dark; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+         font: 500 16px/1.5 "M PLUS Rounded 1c", ui-rounded, "Arial Rounded MT Bold", Nunito, system-ui, sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: max(24px, env(safe-area-inset-top)) 16px 32px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+  header img { width: 64px; height: 64px; border-radius: 14px; border: 3px solid var(--ink); }
+  h1 { margin: 0; font-size: 1.5em; line-height: 1.15; }
+  p { margin: .6em 0; }
+  .muted { color: var(--muted); font-size: .92em; }
+  .btn { display: block; box-sizing: border-box; width: 100%; margin: 10px 0; padding: .8em 1em; border-radius: 999px;
+         border: 3px solid var(--ink); background: var(--panel); color: var(--ink); font: inherit; font-weight: 800;
+         text-align: center; text-decoration: none; cursor: pointer; }
+  .btn.main { background: var(--green); color: #fff; }
+  code { display: block; overflow-wrap: anywhere; padding: .6em .8em; border-radius: 10px; background: var(--panel);
+         border: 2px solid var(--muted); font-size: .85em; }
+  ol { padding-left: 1.3em; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="icon-180.png" alt=""><h1>OpenTennis for iPhone&nbsp;/&nbsp;iPad</h1></header>
+  <p>Add the OpenTennis source to your sideloading app once, then install it and get every update from there.
+    It's signed with your own certificate, so it installs only on your devices.</p>
+
+  <a class="btn main" id="feather">Add to Feather</a>
+  <a class="btn" id="altstore">Add to AltStore</a>
+  <a class="btn" id="sidestore">Add to SideStore</a>
+  <button class="btn" id="copy" type="button">Copy source URL</button>
+  <code id="url"></code>
+
+  <p class="muted">Nothing happens when you tap? Open this page in Safari on the iPhone with the app installed, or copy
+    the URL and add it under Sources in the app.</p>
+
+  <h2>After installing</h2>
+  <ol>
+    <li>Open the <b>Files</b> app → <b>On My iPhone</b> → <b>OpenTennis</b> (it appears after the first start).</li>
+    <li>Put your own <i>Hot Shots Tennis</i> (USA, SCUS-97610) ISO there. No game data is included.</li>
+    <li>Start OpenTennis. Touch controls or a controller.</li>
+  </ol>
+  <p class="muted">Or just download the <a href="https://github.com/FIZL0/opentennis/releases/latest/download/opentennis-ios.ipa">unsigned .ipa</a>
+    and sign it yourself. <a href="./">Back to opentennis.dev</a></p>
+</main>
+<script>
+  const src = 'https://github.com/FIZL0/opentennis/releases/latest/download/altstore-source.json';
+  const q = encodeURIComponent(src);
+  document.getElementById('url').textContent = src;
+  document.getElementById('feather').href = 'feather://source/' + src;
+  document.getElementById('altstore').href = 'altstore://source?url=' + q;
+  document.getElementById('sidestore').href = 'sidestore://source?url=' + q;
+  const copy = document.getElementById('copy');
+  copy.onclick = () => navigator.clipboard.writeText(src).then(() => { copy.textContent = 'Copied'; },
+    () => { getSelection().selectAllChildren(document.getElementById('url')); copy.textContent = 'Select and copy the URL below'; });
+</script>
+</body>
+</html>

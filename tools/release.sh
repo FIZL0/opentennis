@@ -10,7 +10,8 @@
 #   opentennis-windows-x86_64.exe  opentennis-linux-x86_64  opentennis-linux-aarch64   the bare binaries the updater fetches (plan/B374.md;
 #                                                                      M140: the phones' updater fetches the .apk / hands on the .ipa)
 #   SHA256SUMS  SHA256SUMS.sig
-#   altstore-source.json                                               M140: the iOS app as an AltStore / SideStore source, so they update it
+#   altstore-source.json                                               M140: the iOS app as an AltStore / SideStore / Feather source
+#                                                                      (tools/ios-source.sh), so they update it
 #   web.tar.gz                                                         the website, which pages.yml deploys as built here
 # VERSION with a suffix (1.1.0-rc.1) is a pre-release, never Latest. notes.md is the "New in …" list (Markdown
 # bullets); without it, RELEASE_NOTES.md (kept up to date as changes land; emptied and committed after the release),
@@ -88,17 +89,8 @@ cp dist/opentennis.apk "$out/opentennis-android.apk"
 env -u HST_SITE HST_COMMIT=$HST_COMMIT tools/web.sh
 tar -czf "$out/web.tar.gz" -C web .
 (cd "$out" && sha256sum opentennis-* opentennis.zip > SHA256SUMS)
-# M140: the AltStore / SideStore source (their v2 format): the latest release's .ipa, at a URL that always serves the
-# latest release's copy of this file
-src=https://github.com/$repo/releases/latest/download/altstore-source.json
-jq -n --arg v "$version" --arg date "$(date -u +%Y-%m-%d)" --arg ipa "https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa" \
-    --argjson size "$(stat -c %s "$out/opentennis-ios.ipa")" --arg src "$src" '{
-    name: "OpenTennis", identifier: "io.github.fizl0.hst", sourceURL: $src, website: "https://opentennis.dev/",
-    apps: [{ name: "OpenTennis", bundleIdentifier: "io.github.fizl0.hst", developerName: "FIZL0",
-             localizedDescription: "A remaster of Hot Shots Tennis (PS2). Plays from your own disc image (SCUS-97610).",
-             iconURL: "https://opentennis.dev/icon-180.png",
-             versions: [{ version: $v, date: $date, downloadURL: $ipa, size: $size, minOSVersion: "15.0" }] }],
-    news: [] }' >"$out/altstore-source.json"
+# M140: the AltStore / SideStore / Feather source, at a URL that always serves the latest release's copy (web/ios.html)
+tools/ios-source.sh "$version" "$out/opentennis-ios.ipa" >/dev/null
 printf %s "$pw" | minisign -S -s "$key" -m "$out/SHA256SUMS" -x "$out/SHA256SUMS.sig" -t "OpenTennis $tag"
 # the game checks against the key built into it (update.rs): refuse a release it would turn down
 minisign -V -P "$(sed -n 's/^pub const PUBLIC_KEY: &str = "\(.*\)";/\1/p' crates/hst/src/update.rs)" -m "$out/SHA256SUMS" -x "$out/SHA256SUMS.sig" -q \
@@ -118,7 +110,7 @@ body=$out/notes.md
     echo "| **Linux** / **Steam Deck** | [\`opentennis-linux-x86_64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-x86_64.tar.gz) | Unpack and open \`opentennis\`, then pick your ISO |"
     echo "| **Linux ARM64** (aarch64) | [\`opentennis-linux-aarch64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-aarch64.tar.gz) | Unpack and run \`OpenTennis/OpenTennis.sh\`, with your ISO in the \`OpenTennis\` folder |"
     echo "| **Handhelds** with [PortMaster](https://portmaster.games/) (muOS, ROCKNIX, Knulli…) | [\`opentennis.zip\`](https://github.com/$repo/releases/download/$tag/opentennis.zip) | Put the zip in PortMaster's \`autoinstall\` folder, then your ISO in \`ports/opentennis/\`, and start OpenTennis from Ports |"
-    echo "| **iPhone** / **iPad** (iOS 15+) | [\`opentennis-ios.ipa\`](https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa) | Unsigned: sign and install it yourself (AltStore, SideStore, Sideloadly…), then put your ISO in Files → On My iPhone → OpenTennis. Touch controls or a controller. AltStore / SideStore: add the source \`https://github.com/$repo/releases/latest/download/altstore-source.json\` to get updates |"
+    echo "| **iPhone** / **iPad** (iOS 15+) | [\`opentennis-ios.ipa\`](https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa) | Unsigned: sign and install it yourself (AltStore, SideStore, Sideloadly…), then put your ISO in Files → On My iPhone → OpenTennis. Touch controls or a controller. Easiest: [add the source in one tap](https://opentennis.dev/ios.html) (Feather, AltStore, SideStore) to install and get updates, or add \`https://github.com/$repo/releases/latest/download/altstore-source.json\` by hand |"
     echo "| **Android** 8+ | [\`opentennis-android.apk\`](https://github.com/$repo/releases/download/$tag/opentennis-android.apk) | Install it (allow unknown apps), then pick your ISO on first start |"
     echo "| **Browser** | [opentennis.dev](https://opentennis.dev/) | Nothing to install |"
     echo
