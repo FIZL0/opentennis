@@ -633,7 +633,7 @@ impl Menu {
         self.sel = 0;
         self.rows_top = 0;
         // B291: Controls opens on the column of the device last used (a phone has no keyboard)
-        self.keys_tab = !super::legend::MOBILE && super::legend::last_style() == super::legend::Style::Keys;
+        self.keys_tab = !super::legend::mobile() && super::legend::last_style() == super::legend::Style::Keys;
         out.push(Effect::Sound(0));
     }
 }
