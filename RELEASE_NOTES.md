@@ -10,7 +10,6 @@
 - Hosting online while the relay isn't up yet (or at all), the lobby's Copy long code button copies the full join code, so players on the same network or who can reach you directly can join by it in Join by Code.
 - Playing in a phone's browser no longer shows keyboard key hints in the menus, only the touch buttons', as the phone apps do.
 - In the browser (iPhones especially) a match loads much faster and freezes far less often: the game now has about a third as many shaders to prepare.
-- iPhone browsers tick again on each press of the on-screen buttons (Settings → Mobile → Vibration).
 - Online: a player on the Random card now shows their face in the match's score panel instead of a blank circle.
 - Custom characters emoting in a match keep facing the way they stand, instead of spinning around as they do for the after-point close-ups.
 - In the browser, the Save log button for bug reports is bigger, sits below the touch pad's Select and Start instead of between them, lights up and buzzes when pressed, and says Saved when done.

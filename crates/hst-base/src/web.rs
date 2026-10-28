@@ -600,9 +600,8 @@ pub fn secure_page() -> bool {
     web_sys::window().and_then(|w| w.location().protocol().ok()).as_deref() == Some("https:")
 }
 
-/// B329: what the Vibration setting can do in this browser (`web/touch.js`): `vibrate` (Android), `ios` (iOS 18's
-/// haptic tick, iOS Safari having no vibration API), `firefox`
-/// (Firefox for Android: the API is there but never vibrates, B525) or `none`.
+/// B329: what the Vibration setting can do in this browser (`web/touch.js`): `vibrate` (Android), `firefox`
+/// (Firefox for Android: the API is there but never vibrates, B525) or `none` (iOS Safari: no vibration API).
 pub fn vibration() -> String {
     page_fn("hstVibration").and_then(|f| f.call0(&JsValue::NULL).ok()).and_then(|v| v.as_string()).unwrap_or_else(|| "none".into())
 }
