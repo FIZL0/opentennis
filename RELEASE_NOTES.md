@@ -1,51 +1,27 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- Character previews and loading with Character Shading on are much faster.
+- Online → Adhoc: phones and computers on the same Wi-Fi or hotspot can play in a browser, no install, from the address and QR code shown on screen. The page loads your disc and characters straight from your computer, keeps nothing on their device and joins your lobby by itself; a controller they pick up takes over from the touch controls. If your PC's firewall is in the way, the Adhoc card says so and how to let guests in (on Linux, the exact command).
+- New download for ARM Linux handhelds running ROCKNIX (such as the Anbernic RG34XX SP): unpack the OpenTennis folder into roms/ports/, add your ISO, and start it from Ports.
+- Players now turn their heads to follow the ball during rallies, as in the original, resting after the point and in celebrations and emotes; a ball can now hit a player's head where it's turned.
+- New Graphics setting, Character Shading (on by default on computers; off in the browser, on phones, on the Low presets and in Original Mode): soft, smooth shade in the players' creases, under the chin, the skirt and the arms. Character previews and loading with it on are fast.
+- Graphics → Resolution is now Render Scale (it only changes the 3D scene: menus and the HUD stay sharp) and goes down to 33% and 25%. When a match runs far too slowly, Auto graphics drops the render scale straight away and turns off anti-aliasing, halves character detail and turns on the other speed-ups in the same step.
+- In the browser, anti-aliasing is now off by default, and players who never changed their graphics are switched to Auto.
+- Character select: each grade is a meter with new letter tiles (a sparkling S, and a "?" for a hidden pick); the play style sits beside the name, and the hand and costume show only in their buttons, which lose the pointing hand. Once a player locks in, their card swaps the roster for a clean summary with roomier stats, the same in local games as online.
+- A new version is now offered (or, with Updates set to Always, installed) right on the title screen, with its download progress shown there.
+- Custom characters can hit their serves, strokes, volleys or smashes harder (up to about 268 mph), higher or flatter (with more or less topspin) while landing in the same place, or with a ready-made style: cannon, laser, heavy, moonball or soft. They can also hit each shot like a different stock character, and the Mods page says whose serve, strokes, volleys or smash they borrow.
+- Every grade on a custom character's select card now reflects how it really plays (shot speed, whose serve it has), up to S when it beats the whole roster, in online lobbies too.
+- Custom characters with their own shot power or arc, a bigger body, or a faster swing or run can now be picked in online matches.
+- Custom characters now turn after a point like the original characters, so post-point shots show them from the front, already facing their opponent; they no longer spin around when they emote on the character select screen.
+- A custom character's mouth eases back into its animation when a spoken emote line ends, instead of snapping.
+- Reload on the Mods page now brings installed, updated and removed mods in without restarting the game (phones and the browser included); characters you'd picked stay picked.
+- Online, keeping a character you downloaded from another player installs it as the store's mod when that's where it came from, so it gets updates; downloads you don't keep are cleared the next time you start the game. A downloaded character is no longer downloaded again when its owner brings a newer version to another lobby, it shows its face in the score panel, and going back to the lobby after a match with it no longer crashes the game.
+- Clearer wording online when another player picks a mod you don't have: the character card, the download question, the lobby's Start line and the setting all say plainly what happens. A Random pick no longer gives away which mod it drew.
+- Online lobbies show each player's platform and controller icons beside their name instead of over their character, and a Random court shows as Random to everyone until the match starts.
+- Online, a controller can take over as player 1 in the lobby even after you typed the join code on the keyboard, and the controller that picked Join by Code stays player 1 when you press Enter on the keyboard.
+- Court props the ball or a player knocks over stay down until the next point, and in Miyabi Grove an umbrella you walk under stays lowered while you stand there.
 - On the indoor court, the net's shadow is a soft shade instead of a strip of fine stripes along its foot.
 - With the alternate camera, shadows of fences, walls and stands no longer pop in and out as the camera moves behind the baseline.
-- In post-point shots, custom characters already face their opponent when the camera cuts to them, instead of turning around on screen.
-- Character Shading is softer and smoother: no more dirty-looking smudges on faces, under caps or down the neck.
-- Custom characters no longer spin around when they emote on the character select screen.
-- Once a player locks in their character, their card swaps the roster for a clean summary with roomier stats (no pink box), the same in local games as online.
-- Character select shows each grade as a meter with new letter tiles (and a sparkling S); the play style sits beside the name, and the hand and costume are shown only in their buttons, which no longer have the pointing hand.
-- The Mods page says whose serve, strokes, volleys or smash a character borrows, next to who they play like.
-- In online lobbies, each player's platform and controller icons sit beside their name instead of over their character.
-- Online: going back to the lobby after a match with a downloaded character no longer crashes the game.
-- A new version is now offered (or, with Updates set to Always, installed) right on the title screen, with its download progress shown there.
-- Online, a controller can take over as player 1 in the lobby even after you typed the join code on the keyboard.
-- Online, the controller that picked Join by Code stays player 1 when you type the code and press Enter on the keyboard.
+- On custom courts with a distant city or landscape around them, the ball's dark outline no longer disappears in front of it at the far end.
+- With a Safe Area margin set, the score panel's strips past the margin vanish with the rest of the panel when a rally starts, instead of lingering a frame.
 - Switching your monitor's display mode (or unplugging a monitor) no longer closes the game.
-- In an online lobby, a Random court now shows as Random to everyone, guests included, until the match starts.
-- On the website, turning the frame log on or off now takes effect at once: the Save log button appears (or goes away) straight away.
-- Clearer wording online when another player picks a mod you don't have: the character card, the download question, the lobby's Start line and the setting all say plainly what happens. A Random pick no longer gives away which mod it drew.
-- In the browser, Save log now tells you where the log file went (usually your Downloads folder) so you can send it with a bug report.
-- In the browser, saved logs are also kept on the site's page under Storage, next to any desync reports, each with a Download button.
-- Online, a character you downloaded from another player is no longer downloaded again when they bring a newer version of it to another lobby while the game is still open.
-- A character's mouth now eases back into its animation when a spoken emote line ends, instead of snapping.
-- Online, a modded character you download from another player now shows its face in the match's score panel instead of a blank one.
-- A modded character's Serve grade on the select screen now matches how well it really serves.
-- Modded characters now turn after a point the way the original characters do, so the after-point camera shows them from the front instead of from behind.
-- A custom character can now hit its serve, groundstrokes, volleys and smash like different stock characters, and its Serve grade on the select screen follows whose serve it has.
-- Every grade on a modded character's select card now reflects how it really plays, in online lobbies too.
-- A modded character that beats everyone on the roster at something now shows an S grade for it on the select screen.
-- In the browser, the game no longer uses anti-aliasing by default, and Auto graphics now drops the render resolution straight away when a match runs far too slowly (on a big screen, for example). Browser players who never changed their graphics are switched to Auto.
-- Online, keeping a character you downloaded from another player now installs it as the store's mod when that's where it came from, so it gets updates like any other store mod. Downloads you don't keep are cleared the next time you start the game.
-- Graphics → Resolution is now called Render Scale (it only changes the 3D scene: menus and the HUD stay sharp) and goes down to 33% and 25%, and Auto uses them when even half resolution is too slow (a 4K screen's 50% is still 1080p).
-- When a match runs far too slowly, Auto graphics now also turns off anti-aliasing, halves the characters' detail and turns on the other speed-ups in the same step as lowering the render scale, instead of one at a time.
-- New Graphics setting, Character Shading (on by default on computers; off in the browser, on phones, on the Low presets and in Original Mode): soft shade in the players' creases, under the chin, the skirt and the arms.
-- Players now turn their heads to follow the ball during rallies, as in the original, moving smoothly and resting after the point and in celebrations and emotes; a ball can now hit a player's head where it's turned.
-- On custom courts with a distant city or landscape around them, the ball's dark outline no longer disappears when the ball is in front of it at the far end.
-- Custom characters can hit their serves, strokes, volleys or smashes harder (up to about 268 mph), still landing where the normal shot would.
-- Custom characters can also hit higher or flatter shots that still land in the same place (with more or less topspin), or pick a ready-made shot style: cannon, laser, heavy, moonball or soft.
-- A custom character with harder-hit shots now shows it on the select screen: its Serve, Stroke and Volley grades follow how fast its shots really fly, up to S.
-- Custom characters with their own shot power or arc, a bigger body, or a faster swing or run can now be picked in online matches.
-- Reload on the Mods page now brings installed, updated and removed mods in without restarting the game (phones and the browser included); characters you'd picked stay picked, and new pictures draw in the background.
-- Online → Adhoc: phones and computers on the same Wi-Fi or hotspot can open the game in a browser, no install, from the address and QR code shown on screen.
-- With a Safe Area margin set, the score panel's strips past the margin now vanish together with the rest of the panel when a rally starts, instead of lingering a frame.
-- On the website, a controller can now move between the buttons (d-pad or stick), press them (A), and start the game (Start).
-- In Miyabi Grove, an umbrella you walk under now stays lowered while you stand there instead of snapping back up.
-- Court props the ball or a player knocks over now stay down until the next point instead of popping straight back up.
-- A hidden pick's stats show a "?" tile in the same style as the grade letters.
-- Online → Adhoc: the page a friend opens now loads your disc and characters straight from your computer, keeps nothing on their device, and joins your lobby by itself once you host one; a controller they pick up takes over from the touch controls. The Adhoc card also says what to do if a firewall keeps the page from loading.
-- When you share the game over your network with Adhoc and your PC's firewall is in the way, its card now says so and how to let other devices in.
-- Adhoc play now uses one network port for both the page and the game, and on Linux with a firewall on, the Adhoc card shows the exact command that lets guests in.
-- New download for ARM Linux handhelds running ROCKNIX (such as the Anbernic RG34XX SP): unpack the OpenTennis folder into roms/ports/, add your ISO, and start it from Ports.
+- On the website, a controller can move between the buttons (d-pad or stick), press them (A) and start the game (Start); turning the frame log on or off takes effect at once.
+- In the browser, Save log tells you where the log file went (usually your Downloads folder), and saved logs are also kept on the site's page under Storage, next to any desync reports, each with a Download button.
