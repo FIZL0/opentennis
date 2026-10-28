@@ -1,5 +1,5 @@
 #!/bin/sh
-# OpenTennis from a handheld's Ports menu (ROCKNIX: the OpenTennis folder goes in roms/ports/), or any ARM Linux.
+# OpenTennis on ARM Linux (also from a handheld's Ports menu: the OpenTennis folder goes in roms/ports/).
 # tools/build.sh linux-aarch64 puts it beside the game.
 cd "$(dirname "$(readlink -f "$0")")" || exit 1
 # a Ports start has no terminal: what went wrong is in OpenTennis.log beside it
