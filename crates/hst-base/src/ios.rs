@@ -18,6 +18,7 @@ pub fn log_to_documents(docs: &std::path::Path) {
     eprintln!("Hot Shots Tennis {} (build {})", env!("CARGO_PKG_VERSION"), option_env!("HST_BUILD").unwrap_or("?"));
     eprintln!("start: {}", memory());
     watch_memory_warnings();
+    play_on_silent();
     // a close with no log line and no crash report says nothing: these say which kind of end it was
     // SAFETY: the handlers are `extern "C"` functions that live for the process; on_signal makes only
     // async-signal-safe calls
@@ -163,6 +164,21 @@ fn watch_memory_warnings() {
         let observer: *mut AnyObject = objc2::msg_send![center, addObserverForName: &*name, object: std::ptr::null_mut::<AnyObject>(), queue: std::ptr::null_mut::<AnyObject>(), usingBlock: &*block];
         // kept for the process: the center holds the observer, the observer the block
         let _: *mut AnyObject = objc2::msg_send![observer, retain];
+    });
+}
+
+/// Sound even with the ring/silent switch on: the Playback audio category (the default, SoloAmbient, mutes with it).
+/// Set before cpal starts its stream; AVFAudio is linked by cpal.
+fn play_on_silent() {
+    use objc2::runtime::AnyObject;
+    // SAFETY: the messages as AVAudioSession declares them; the category constant's value is its own name
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let category = objc2_foundation::NSString::from_str("AVAudioSessionCategoryPlayback");
+        let session: *mut AnyObject = objc2::msg_send![objc2::class!(AVAudioSession), sharedInstance];
+        let ok: bool = objc2::msg_send![session, setCategory: &*category, error: std::ptr::null_mut::<*mut AnyObject>()];
+        if !ok {
+            eprintln!("audio: couldn't set the Playback category");
+        }
     });
 }
 

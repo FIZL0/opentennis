@@ -18,3 +18,4 @@
 - A browser joining a game nearby no longer leaves the host's custom characters in its download cache afterwards: they stay in memory and are gone when the page closes.
 - OpenTennis runs on muOS handhelds such as the Anbernic RG34XX SP: start it from Ports, with the handheld's own buttons
 - In the browser, the behind-the-player camera no longer freezes the match for a moment the first time your player turns see-through: that's now prepared while the match loads.
+- On iPhone and iPad the game now plays its sound even with the silent switch on.
