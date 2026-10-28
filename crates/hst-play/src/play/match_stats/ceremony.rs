@@ -569,7 +569,7 @@ pub(super) fn pose(
             face.weights(hst_sim::ps2::mul(t.min(face.length), 80.0), w);
             let offset = crate::inspect::face_uv(&rig.data, face, t.min(face.uv_length));
             for (mesh, mat) in parts.iter_many(kids.iter_descendants(root)) {
-                let o = rig.data.parts.iter().position(|p| p.0.id() == mesh.0.id()).map_or(Vec2::ZERO, |k| offset[k]);
+                let o = rig.data.parts.iter().position(|p| p.0.id() == crate::cpu_morph::shared(mesh.0.id())).map_or(Vec2::ZERO, |k| offset[k]);
                 if gs.get(&mat.0).is_some_and(|g| g.uniform.uv_offset != o) {
                     gs.get_mut(&mat.0).unwrap().uniform.uv_offset = o;
                 }

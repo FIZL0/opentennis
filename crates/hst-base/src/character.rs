@@ -1540,7 +1540,9 @@ pub fn spawn(commands: &mut Commands, data: &Arc<CharacterData>, parent: Entity)
     for ((mesh, material, morphed), b) in data.parts.iter().zip(&data.binds) {
         let skin = SkinnedMesh { inverse_bindposes: b.binds.clone(), joints: b.joints.iter().map(|&j| joints[j]).collect() };
         let part = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), skin, Transform::default(), crate::cull::Cullable)).id();
-        if *morphed {
+        if let Some(t) = morphed.then(|| crate::cpu_morph::targets(mesh.id())).flatten() {
+            commands.entity(part).insert(crate::cpu_morph::Face::new(root, mesh.id(), t));
+        } else if *morphed {
             commands.entity(part).insert(bevy::mesh::morph::MeshMorphWeights::Reference(root));
         }
         commands.entity(root).add_child(part);
@@ -2085,7 +2087,7 @@ pub fn uv_offsets(
         }
         let offset = crate::inspect::part_uv(d, m.face, m.uv_clock.sampled);
         for (mesh, mat) in parts.iter_many(children.iter_descendants(root)) {
-            let o = d.parts.iter().position(|p| p.0.id() == mesh.0.id()).map_or(Vec2::ZERO, |k| offset[k]);
+            let o = d.parts.iter().position(|p| p.0.id() == crate::cpu_morph::shared(mesh.0.id())).map_or(Vec2::ZERO, |k| offset[k]);
             if gs.get(&mat.0).is_some_and(|g| g.uniform.uv_offset != o) {
                 gs.get_mut(&mat.0).unwrap().uniform.uv_offset = o;
             }

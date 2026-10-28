@@ -62,7 +62,7 @@ pub fn bake<'a>(meshes: &mut impl Store<Mesh>, parts: impl IntoIterator<Item = &
         };
         let base = verts.len();
         edges.extend(idx.as_chunks::<3>().0.iter().flat_map(|t| [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])]).map(|(a, b)| (base + a, base + b)));
-        let face = m.has_morph_targets();
+        let face = m.has_morph_targets() || crate::cpu_morph::targets(h.id()).is_some();
         tris.extend(idx.as_chunks::<3>().0.iter().map(|t| {
             let (a, b, c) = (p[t[0]], p[t[1]], p[t[2]]);
             Tri { a, e1: b - a, e2: c - a, n: n[t[0]] + n[t[1]] + n[t[2]], lo: a.min(b).min(c), hi: a.max(b).max(c), face }

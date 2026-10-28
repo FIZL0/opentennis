@@ -1607,7 +1607,10 @@ pub fn load_with(
             // VU1's per-bone normals from one glTF normal: the first joint's share in the normal slot, the rest in the
             // tangent slot, which gs.wgsl turns by the other joints' weight blend
             // a swaying part stays readable: each rig sways its own copy (`noise`)
-            let usage = if moved.is_empty() { crate::cull::usage(RenderAssetUsages::RENDER_WORLD) } else { RenderAssetUsages::default() };
+            // B691: so does a face morphed on the CPU (`cpu_morph`)
+            let morphed = v.morph.iter().any(|t| t.1.iter().any(|d| *d != [0.0; 3]));
+            let cpu_face = morphed && crate::cpu_morph::on();
+            let usage = if moved.is_empty() && !cpu_face { crate::cull::usage(RenderAssetUsages::RENDER_WORLD) } else { RenderAssetUsages::default() };
             let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, usage)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, v.pos)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, v.nrm.iter().zip(&v.weights).map(|(n, w)| Vec3::from(*n) * w[0]).map(<[f32; 3]>::from).collect::<Vec<_>>())
@@ -1620,8 +1623,12 @@ pub fn load_with(
             // B364: fewer triangles at Graphics → Mesh below 100 %, the morphing (face) vertices kept
             let moving: Vec<bool> = (0..count).map(|i| v.morph.iter().any(|t| t.1.get(i).is_some_and(|d| *d != [0.0; 3]))).collect();
             crate::lod::detail(&mut mesh, &moving);
-            let morphed = v.morph.iter().any(|t| t.1.iter().any(|d| *d != [0.0; 3]));
-            if morphed {
+            let mut cpu_targets = None;
+            if cpu_face {
+                let zero = vec![[0.0; 3]; count];
+                let t: Vec<Vec<Vec3>> = names.iter().map(|t| v.morph.iter().find(|m| m.0 == *t).map_or(&zero, |m| &m.1).iter().map(|d| Vec3::from(*d)).collect()).collect();
+                cpu_targets = Some(crate::cpu_morph::Targets::new(&t));
+            } else if morphed {
                 let zero = vec![[0.0; 3]; count];
                 let attrs = names.iter().flat_map(|t| v.morph.iter().find(|m| m.0 == *t).map_or(&zero, |m| &m.1).iter().map(|d| bevy::mesh::morph::MorphAttributes::new(Vec3::from(*d), Vec3::ZERO, Vec3::ZERO)).collect::<Vec<_>>());
                 mesh.set_morph_targets(attrs.collect());
@@ -1637,7 +1644,11 @@ pub fn load_with(
             nodes.sort();
             nodes.dedup();
             part_nodes.push((nodes, false));
-            parts.push((meshes.add(mesh), mat, morphed));
+            let mesh = meshes.add(mesh);
+            if let Some(t) = cpu_targets {
+                crate::cpu_morph::keep(mesh.id(), t);
+            }
+            parts.push((mesh, mat, morphed));
         }
     }
 

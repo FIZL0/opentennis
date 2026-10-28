@@ -507,6 +507,7 @@ fn start(argv: Vec<String>) {
     // the umpire's calls' (P33)
     app.add_plugins(MaterialPlugin::<effects::OnTop>::default());
     app.add_systems(PostUpdate, effects::morph_on_cpu);
+    app.add_plugins(cpu_morph::plugin);
     graphics::MESH.store(gfx.mesh, std::sync::atomic::Ordering::Relaxed);
     graphics::SHADING.store(gfx.shading && !gfx.original, std::sync::atomic::Ordering::Relaxed);
     let _ = graphics::SAVE.set(play::main_menu::save_graphics);
