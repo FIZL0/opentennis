@@ -14,7 +14,7 @@ use super::super::frame::{self, Cell, Thumb};
 use super::super::Press;
 use super::super::roster::{self, PX, PY};
 use super::super::{Draw, Menu, Screen, WHITE};
-use super::{Act, Item, OK, SETTINGS, shared};
+use super::{Act, Item, OK, SETTINGS, long_code, shared};
 use crate::net::Room;
 use bevy::prelude::default;
 
@@ -197,9 +197,10 @@ fn top_bar(d: &mut Draw, m: &Menu, r: &Room, g: &frame::Geo, on: &dyn Fn(Item) -
         frame::focus(d, [left, cy, cx + cw - left, ch], ch / 2.0, 3.0 * PX, 3.0 * PX);
     }
     hit(d, Item::Button("Code"), [left, cy, cx + cw - left, ch], OK);
-    let dim = shared(&m.net).is_none();
+    let dim = shared(&m.net).is_none() && !long_code(&m.net);
+    let copy = if long_code(&m.net) { "Copy long code" } else { "Copy link" };
     let side = if m.lan_host() { (Item::Button("Paste"), "Paste", frame::BUTTON) } else { (Item::Button("Public"), if r.private { "Private" } else { "Public" }, if r.private { frame::BUTTON } else { frame::GREEN }) };
-    for (it, rect, words, fill) in [(Item::Button("Copy Link"), g.copy, "Copy link", frame::BUTTON), (side.0, g.public, side.1, side.2)] {
+    for (it, rect, words, fill) in [(Item::Button("Copy Link"), g.copy, copy, frame::BUTTON), (side.0, g.public, side.1, side.2)] {
         let [bx, by, bw, bh] = rect;
         if bw <= 0.0 || !at(it) && !(it == Item::Button("Copy Link") && m.online()) {
             continue;

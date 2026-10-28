@@ -1872,6 +1872,7 @@ fn roll_code(cx: &Ctx, ep: &Endpoint, ctx_: amp::UnboundedSender<Option<String>>
     cx.say(Event::Short(first.clone()));
     cx.say(Event::Status("Putting the code online...".into()));
     let mut addrs = iroh::Watcher::stream(ep.watch_addr());
+    let (ep2, ev2) = (ep.clone(), cx.ev.clone());
     let (dht, ep, relays, ev) = (cx.dht.clone(), ep.clone(), cx.relays, cx.ev.clone());
     n0_future::task::spawn(async move {
         let t = n0_future::time::Instant::now();
@@ -1947,6 +1948,8 @@ fn roll_code(cx: &Ctx, ep: &Endpoint, ctx_: amp::UnboundedSender<Option<String>>
     n0_future::task::spawn(async move {
         let mut last = None;
         while let Some(a) = addrs.next().await {
+            // the long code (the lobby's Copy long code while the relay's down) carries the addresses found since
+            let _ = ev2.send(Event::Code(code_ticket(&ep2, None)));
             let r = a.relay_urls().next().cloned();
             if let Some(url) = &r
                 && r != last

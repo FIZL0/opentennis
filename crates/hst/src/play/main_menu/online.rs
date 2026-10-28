@@ -649,6 +649,7 @@ impl Menu {
             Item::Set(0 | 1) => "Choose",
             Item::Button("Chat") => "Chat",
             Item::Set(_) => "Change",
+            Item::Button("Copy Link" | "Code") if long_code(&self.net) => "Copy Long Code",
             Item::Button("Copy Link") => return shared(&self.net).map(|_| "Copy Link"),
             Item::Button("Code") => return shared(&self.net).map(|_| "Copy Link"),
             Item::Button("Start" | "Ready") if self.counting() > 0 => "Cancel",
@@ -1359,7 +1360,7 @@ impl Menu {
             let p = !r.private;
             self.net.cfg.get_or_insert_with(Online::default).private = p;
             out.extend([Sound(2), Effect::Online(Fx::Net(Cmd::Private(p))), Effect::Online(Fx::SaveCfg)]);
-        } else if matches!(item, Item::Button("Code" | "Copy Link")) && shared(&self.net).is_some() {
+        } else if matches!(item, Item::Button("Code" | "Copy Link")) && (shared(&self.net).is_some() || long_code(&self.net)) {
             out.extend([Sound(2), Effect::Online(Fx::Copy)]);
         } else if item == Item::Button("Paste") {
             // B526: a guest's link back to this LAN lobby, off the clipboard
@@ -2296,7 +2297,7 @@ pub(super) fn reach_line(v: &View) -> Option<(&'static str, String)> {
         Reach::Offline => Some(("Relay off: only players on this network can join", "Turn the relay on in Options → Online for friends elsewhere. Pick your player meanwhile.".into())),
         Reach::Connecting if v.hosting => Some((
             "Connecting to the relay: friends can't join yet",
-            if v.status.starts_with("Waiting") { v.status.clone() } else { "Copy the link now: it works once the relay's up, usually in a few seconds. Pick your player meanwhile.".into() },
+            if v.status.starts_with("Waiting") { v.status.clone() } else { "Copy long code meanwhile: players on this network (or reaching this machine directly) join by it now. Pick your player meanwhile.".into() },
         )),
         Reach::Connecting => Some((if v.go == Some(Go::Quick) { "Finding a lobby..." } else { "Joining the lobby..." }, why("Pick your player meanwhile: your picks go in as you get there."))),
     }
@@ -2481,6 +2482,12 @@ fn shared(v: &View) -> Option<String> {
 /// B526: how a browser's LAN lobby is joined: the host's open seats say it, a waiting guest's help line.
 pub(super) const HOST_LAN: &str = "Copy Link to players; they open it or Paste it. Then Paste the link they send back.";
 const GUEST_LAN: &str = "Copy Link and send it back to the host: they Paste it in their lobby.";
+
+/// Hosting, the relay not up yet: Copy Link copies the whole ticket (the long code; Join by Code takes it), which
+/// reaches this machine without the relay (the same network, or a direct connection).
+pub(super) fn long_code(v: &View) -> bool {
+    v.hosting && !v.joinable && crate::net::is_ticket(&v.code)
+}
 
 /// B321: hosting, and the short code's put failed (it's retried): the code is the whole ticket, shared as a link.
 fn ticket_only(v: &View) -> bool {
@@ -3122,6 +3129,14 @@ pub(super) fn apply(fx: Fx, menu: &mut Menu, commands: &mut Commands, net: Optio
                 .into();
                 out.push(Effect::Sound(if answer { 2 } else { 1 }));
             }
+        }
+        Fx::Copy if long_code(&menu.net) => {
+            let code = menu.net.code.clone();
+            menu.net.status = match copy(clipboard, &code) {
+                Copied::Done => "Long code copied: players paste it in Join by Code. It works without the relay on the same network or a direct connection.".into(),
+                Copied::Sheet => "Tap Copy or Share on the code's card: players paste it in Join by Code.".into(),
+                Copied::Failed => code,
+            };
         }
         Fx::Copy if shared(&menu.net).is_none() => {}
         Fx::Copy if !menu.net.short.is_empty() || ticket_only(&menu.net) => {
@@ -4144,6 +4159,22 @@ mod tests {
         let fx = h.step(dev, page);
         assert!(fx.contains(&Effect::Online(Fx::Net(Cmd::Doubles(false)))) && !fx.iter().any(|e| matches!(e, Effect::Online(Fx::Net(Cmd::Team(_))))), "{fx:?}");
         assert!(h.lobby_team().is_none());
+    }
+
+    /// Hosting with the relay down: Copy Link (and the code pill) copy the long code, which works without it.
+    #[test]
+    fn copy_long_code_while_the_relay_is_down() {
+        let dev = super::super::Dev::Keys;
+        let mut m = Menu { screen: Screen::Lobby, ..default() };
+        sample(&mut m);
+        (m.net.me, m.net.go, m.seats[0], m.net.hosting, m.net.joinable) = ("host".into(), Some(Go::Host), Some(dev), true, false);
+        m.net.code = "endpointacxfr74igmsbvsbnn73wcecg5vt3kbzncqwfrdiampuufwnhkublmaa".into();
+        assert!(crate::net::is_ticket(&m.net.code));
+        m.sel = m.items().iter().position(|&i| i == Item::Button("Copy Link")).unwrap();
+        assert_eq!(m.lobby_ok(), Some("Copy Long Code"));
+        assert!(m.clone().step(dev, Press { ok: true, ..default() }).contains(&Effect::Online(Fx::Copy)));
+        m.net.joinable = true;
+        assert_eq!(m.lobby_ok(), Some("Copy Link"), "the short code's link once the relay's up");
     }
 
     /// B370: ←→ go along the seat cards (a computer's card onto its ✕ and back), ↓ from a card to the bottom row, ↑ to
