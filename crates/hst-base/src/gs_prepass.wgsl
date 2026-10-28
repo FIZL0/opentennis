@@ -15,6 +15,18 @@ struct Gs {
     fog: vec4<f32>,
     fog_color: vec4<f32>,
     lod_k: f32,
+    // the rest of gs.wgsl's, up to its flags (gs.rs `FLAG_*`) and alpha test bounds
+    light_dir: vec4<f32>,
+    light_color: vec4<f32>,
+    ambient: vec4<f32>,
+    light2_dir: vec4<f32>,
+    light2_color: vec4<f32>,
+    glare: f32,
+    unlit: f32,
+    screen_lod: f32,
+    flags: u32,
+    alpha_min: f32,
+    alpha_max: f32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> gs: Gs;
@@ -78,35 +90,23 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
 }
 
 fn alpha_test(in: VertexOutput) {
-#ifdef GS_NO_Z
-    discard;
-#endif
+    // no Z written: casts no shadow
+    if (gs.flags & 32u) != 0u {
+        discard;
+    }
 #ifdef VERTEX_COLORS
     var a = min(in.color.a * gs.color.a, 255.0 / 128.0);
 #else
     var a = min(gs.color.a, 255.0 / 128.0);
 #endif
-#ifdef GS_TEXTURED
 #ifdef VERTEX_UVS_A
-    // the sun sees the top level (the GS picks levels from the camera's depth, gs.wgsl)
-    let t = textureSampleLevel(gs_texture, gs_sampler, in.uv + gs.uv_offset, 0.0).a;
-#ifdef GS_MODULATE
-    a = t * a;
-#else
-    a = t;
+    if (gs.flags & 1u) != 0u {
+        // the sun sees the top level (the GS picks levels from the camera's depth, gs.wgsl)
+        let t = textureSampleLevel(gs_texture, gs_sampler, in.uv + gs.uv_offset, 0.0).a;
+        a = select(t, t * a, (gs.flags & 2u) != 0u);
+    }
 #endif
-#endif
-#endif
-    let a8 = floor(a * 128.0);
-#ifdef GS_GE40
-    if a8 < 64.0 { discard; }
-#endif
-#ifdef GS_GE60
-    if a8 < 96.0 { discard; }
-#endif
-#ifdef GS_GE70
-    if a8 < 112.0 { discard; }
-#endif
+    if floor(a * 128.0) < gs.alpha_min { discard; }
 }
 
 #ifdef PREPASS_FRAGMENT

@@ -265,7 +265,7 @@ fn setup(mut commands: Commands, args: Res<Args>, mut meshes: ResMut<Assets<Mesh
         }
         // the effect textures' GS state (read from the game's texture objects): ALPHA (Cs − Cd)·As + Cd, TEST
         // A ≥ 0x80 writes colour and Z, the rest colour only (Z GEQUAL), so each set is drawn twice, one per half
-        let uniform = GsUniform { color: Vec4::ONE, shininess: 1.0, highlight: 0.0, shadow: 0.0, uv_offset: Vec2::ZERO, fog: NO_FOG, fog_color: Vec4::ONE, lod_k: 0.0, light_dir: Vec4::ZERO, light_color: Vec4::ZERO, ambient: Vec4::ONE, light2_dir: Vec4::ZERO, light2_color: Vec4::ZERO, glare: 0.0, unlit: 0.0, screen_lod: 0.0 };
+        let uniform = GsUniform { color: Vec4::ONE, shininess: 1.0, highlight: 0.0, shadow: 0.0, uv_offset: Vec2::ZERO, fog: NO_FOG, fog_color: Vec4::ONE, lod_k: 0.0, light_dir: Vec4::ZERO, light_color: Vec4::ZERO, ambient: Vec4::ONE, light2_dir: Vec4::ZERO, light2_color: Vec4::ZERO, glare: 0.0, unlit: 0.0, screen_lod: 0.0, flags: 0, alpha_min: 0.0, alpha_max: 0.0 };
         let mesh = meshes.add(Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default()));
         // the streaks' alpha stays under 0x80: they only need the colour-only half
         let tests: &[Test] = if name == "rain" { &[Test::Lt80] } else { &[Test::Ge80, Test::Lt80] };
