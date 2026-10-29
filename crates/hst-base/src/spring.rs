@@ -110,6 +110,9 @@ pub struct Spring {
     /// The colliders' world matrices at the last call.
     shapes: Vec<Mat4>,
     clock: f32,
+    /// The motion set last seen, and whether the next call follows a new one.
+    sets: u32,
+    cut: bool,
 }
 
 pub fn plugin(app: &mut App) {
@@ -136,11 +139,18 @@ fn attach(mut commands: Commands, rigs: Query<(Entity, &Rig), Added<Rig>>) {
     }
 }
 
-pub fn swing(time: Res<Time>, mut rigs: Query<(&Rig, &GlobalTransform, &mut Spring, Has<crate::shadow::Minor>, Option<&Visibility>)>, mut joints: Query<&mut Transform>, mut locals: Local<Vec<Transform>>) {
-    for (rig, global, mut s, minor, shown) in &mut rigs {
+pub fn swing(time: Res<Time>, mut rigs: Query<(&Rig, &GlobalTransform, &mut Spring, Has<crate::shadow::Minor>, Option<&Visibility>, Option<&crate::character::Motion>)>, mut joints: Query<&mut Transform>, mut locals: Local<Vec<Transform>>) {
+    for (rig, global, mut s, minor, shown, motion) in &mut rigs {
         // not posed while put away (`character::animate`), so not swung on top of the last pose either
         if crate::character::put_away(minor, shown) {
             continue;
+        }
+        // the game cuts between most motions: the head jumps in a frame, and dragged by only a share of that the hair
+        // flew up as one began or ended. The step after a new one carries the hair whole, as a placement would.
+        if let Some(m) = motion
+            && m.sets != s.sets
+        {
+            (s.sets, s.cut) = (m.sets, true);
         }
         s.clock += time.delta_secs() * 60.0;
         let steps = (s.clock.floor() as usize).min(4);
@@ -150,7 +160,8 @@ pub fn swing(time: Res<Time>, mut rigs: Query<(&Rig, &GlobalTransform, &mut Spri
         let rest: Vec<Transform> = rig.data.joints.iter().map(|j| j.rest).collect();
         let parents: Vec<Option<usize>> = rig.data.joints.iter().map(|j| j.parent).collect();
         let s = &mut *s;
-        solve(springs(rig), ellipsoids(rig), &parents, &rest, global.to_matrix(), &mut locals, (&mut s.runs, &mut s.shapes), steps);
+        solve(springs(rig), ellipsoids(rig), &parents, &rest, global.to_matrix(), &mut locals, (&mut s.runs, &mut s.shapes), steps, s.cut);
+        s.cut &= steps == 0;
         for c in springs(rig) {
             for &j in &c.joints {
                 if let Ok(mut tf) = joints.get_mut(rig.joints[j]) {
@@ -163,9 +174,10 @@ pub fn swing(time: Res<Time>, mut rigs: Query<(&Rig, &GlobalTransform, &mut Spri
 
 /// One drawn frame of `chains` and `colliders` on a skeleton (`parents`, bind `rest`, posed `locals`) under `root`:
 /// `steps` 60 Hz steps (none: the bones keep their last turn), then each chain joint's local in `locals` set to its
-/// solved bone. `shapes` holds the colliders' world matrices from the last call.
+/// solved bone. `shapes` holds the colliders' world matrices from the last call; after a `cut` the chains move
+/// whole with their frames.
 #[allow(clippy::too_many_arguments)]
-fn solve(chains: &[Chain], colliders: &[(usize, Mat4)], parents: &[Option<usize>], rest: &[Transform], root: Mat4, locals: &mut [Transform], (runs, shapes): (&mut Vec<Option<Run>>, &mut Vec<Mat4>), steps: usize) {
+fn solve(chains: &[Chain], colliders: &[(usize, Mat4)], parents: &[Option<usize>], rest: &[Transform], root: Mat4, locals: &mut [Transform], (runs, shapes): (&mut Vec<Option<Run>>, &mut Vec<Mat4>), steps: usize, cut: bool) {
     runs.resize(chains.len(), None);
     let world = |mut j: Option<usize>, locals: &[Transform]| {
         let mut m = Mat4::IDENTITY;
@@ -191,13 +203,13 @@ fn solve(chains: &[Chain], colliders: &[(usize, Mat4)], parents: &[Option<usize>
             None => {
                 let u = run.insert(reset(c, &bind, r));
                 for _ in 0..SETTLE {
-                    call(c, &bind, u, r, (&now, &now), 2);
+                    call(c, &bind, u, r, (&now, &now), 2, false);
                 }
                 u
             }
         };
         if steps > 0 {
-            call(c, &bind, run, r, sweep, steps);
+            call(c, &bind, run, r, sweep, steps, cut);
         }
         for (j, &k) in c.joints.iter().enumerate() {
             locals[k] = Transform { rotation: run.rot[j], ..bind(j) };
@@ -222,16 +234,20 @@ fn reset(c: &Chain, bind: &dyn Fn(usize) -> Transform, r: Mat4) -> Run {
 }
 
 /// One call of the game's chain step: `steps` 60 Hz steps, the root frame moving to `r` and the colliders from
-/// `(was, now)` across them.
-fn call(c: &Chain, bind: &dyn Fn(usize) -> Transform, u: &mut Run, r: Mat4, (was, now): (&[Mat4], &[Mat4]), steps: usize) {
+/// `(was, now)` across them; `whole`: every mass carried all the way.
+fn call(c: &Chain, bind: &dyn Fn(usize) -> Transform, u: &mut Run, r: Mat4, (was, now): (&[Mat4], &[Mat4]), steps: usize, whole: bool) {
     let n = c.joints.len();
     let w = |j: usize| &c.words[j.min(n - 1)];
     let moved = r * u.last.inverse();
     u.last = r;
     let (start, target) = (u.p[0], r.transform_point3(bind(0).translation));
     let share = steps as f32;
-    // each mass is dragged along by a share of its frame's motion
-    let carry: Vec<Vec3> = u.p.iter().enumerate().map(|(j, &p)| (moved.transform_point3(p) - p) * w(j)[CARRY] / share).collect();
+    // each mass is dragged along by a share of its frame's motion; all of it at once when whole (carried mass by mass
+    // through the step, each was pulled at by its neighbour's old place)
+    if whole {
+        u.p[1..].iter_mut().for_each(|p| *p = moved.transform_point3(*p));
+    }
+    let carry: Vec<Vec3> = u.p.iter().enumerate().map(|(j, &p)| if whole { Vec3::ZERO } else { (moved.transform_point3(p) - p) * w(j)[CARRY] / share }).collect();
     let mut force = vec![Vec3::ZERO; n + 1];
     for i in 1..=steps {
         u.p[0] = start.lerp(target, i as f32 / share);
@@ -322,8 +338,8 @@ mod tests {
     ];
 
     /// The pigtail hung off a head at `head(frame)` (joint 0 the head, 1.. the chain, 4 cm links posed out sideways),
-    /// one step a frame; returns each frame's bone rotations.
-    fn pigtail(frames: usize, head: impl Fn(usize) -> Mat4) -> Vec<Vec<Quat>> {
+    /// one step a frame, frame `cut` after a cut; returns each frame's bone rotations.
+    fn pigtail(frames: usize, cut: usize, head: impl Fn(usize) -> Mat4) -> Vec<Vec<Quat>> {
         let words = KAMI.map(|(limit, carry, mass, keep, feedback)| {
             let mut w = DEFAULT;
             (w[LIMIT], w[CARRY], w[MASS], w[KEEP], w[FEEDBACK]) = (limit, carry, mass, keep, feedback);
@@ -336,7 +352,7 @@ mod tests {
         (0..frames)
             .map(|f| {
                 let mut locals = rest.clone();
-                solve(std::slice::from_ref(&chain), &[], &parents, &rest, head(f), &mut locals, (&mut runs, &mut Vec::new()), 1);
+                solve(std::slice::from_ref(&chain), &[], &parents, &rest, head(f), &mut locals, (&mut runs, &mut Vec::new()), 1, f == cut);
                 locals.iter().map(|t| t.rotation).collect()
             })
             .collect()
@@ -350,25 +366,36 @@ mod tests {
     #[test]
     fn hangs_within_its_limits_and_settles() {
         // posed straight out sideways, the pigtail droops under gravity no further than its cones allow
-        let off = apart(&pigtail(300, |_| Mat4::IDENTITY), &vec![vec![Quat::IDENTITY; KAMI.len() + 1]; 300]);
+        let off = apart(&pigtail(300, usize::MAX, |_| Mat4::IDENTITY), &vec![vec![Quat::IDENTITY; KAMI.len() + 1]; 300]);
         assert!(off[0] > 1f32.to_radians() && off.iter().all(|&o| o <= 30.001f32.to_radians()), "{:?}", off[0].to_degrees());
         assert!((off[299] - off[200]).abs() < 1e-4, "{} {}", off[200].to_degrees(), off[299].to_degrees());
     }
 
     #[test]
     fn a_jump_swings_then_settles_back() {
-        let still = pigtail(300, |_| Mat4::IDENTITY);
-        let jump = pigtail(300, |f| Mat4::from_translation(Vec3::Z * 0.03 * f.min(10) as f32));
+        let still = pigtail(300, usize::MAX, |_| Mat4::IDENTITY);
+        let jump = pigtail(300, usize::MAX, |f| Mat4::from_translation(Vec3::Z * 0.03 * f.min(10) as f32));
         let apart = apart(&still, &jump);
         assert!(apart[..20].iter().any(|&d| d > 2f32.to_radians()), "{:?}", &apart[..20]);
         assert!(apart[299] < 0.1f32.to_radians(), "{}", apart[299].to_degrees());
     }
 
     #[test]
+    fn a_cut_carries_the_hair_whole() {
+        // the head jumps 30 cm in a frame: after a cut the hair hangs as before, else it whips
+        let still = pigtail(300, usize::MAX, |_| Mat4::IDENTITY);
+        let head = |f: usize| Mat4::from_translation(Vec3::Z * 0.3 * (f >= 200) as u8 as f32);
+        let whip = apart(&still, &pigtail(300, usize::MAX, head));
+        let cut = apart(&still, &pigtail(300, 200, head));
+        assert!(whip[200..].iter().any(|&d| d > 10f32.to_radians()), "{:?}", &whip[200..220]);
+        assert!(cut.iter().all(|&d| d < 0.5f32.to_radians()), "{:?}", &cut[200..220]);
+    }
+
+    #[test]
     fn a_mirrored_head_mirrors_the_hair() {
         // a left-hander's root has scale x −1: the solved hair must be the mirror image of the right-hander's
         let place = |hand: f32, f: usize| Mat4::from_scale(Vec3::new(hand, 1.0, 1.0)) * Mat4::from_translation(Vec3::Z * 0.03 * f.min(10) as f32);
-        let off = apart(&pigtail(60, |f| place(1.0, f)), &pigtail(60, |f| place(-1.0, f)));
+        let off = apart(&pigtail(60, usize::MAX, |f| place(1.0, f)), &pigtail(60, usize::MAX, |f| place(-1.0, f)));
         assert!(off.iter().all(|&o| o < 1e-3), "{off:?}");
     }
 }
