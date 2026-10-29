@@ -1686,6 +1686,9 @@ pub fn animate(
                 Some(EASE_IN)
             } else if after_serve {
                 Some(SERVE_EASE)
+            } else if motion.clock.looping && rig.data.noise.as_ref().is_some_and(|n| !n.springs.is_empty()) {
+                // back to standing or running: the game's 8-frame crossfade jerked the head, and spring hair flew up
+                Some(SETTLE_EASE)
             } else {
                 (!c.from.is_empty()).then_some(c.ease)
             };
@@ -1890,6 +1893,10 @@ pub struct Posing {
 /// cuts straight between them.
 // ponytail: picked by eye, not the source game's blend
 const EASE_IN: f32 = 10.0;
+
+/// Frames a rig with spring hair takes to ease back into a looping motion (standing, running) after another.
+// ponytail: picked by eye
+const SETTLE_EASE: f32 = 20.0;
 
 /// Frames the off hand takes to go onto the racket or off it ([`hold_head`]), where a clip changes or the donor's
 /// hand leaves the head in a frame or two: at once, the arm jumped up to 90° in a frame.
