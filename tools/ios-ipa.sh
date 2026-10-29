@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Unsigned IPA of the game for the user to sign (M91): release build (tools/ios-build.sh), stripped, in a
 # Payload/OpenTennis.app with Info.plist + icon, zipped. Usage: tools/ios-ipa.sh [OUT.ipa]  (default target/opentennis-ios.ipa)
+# HST_BETA=1: a beta beside the normal app (its own bundle id and name "OpenTennis Beta", so its own folder too).
 # On the phone: the app's folder in the Files app ("On My iPhone → OpenTennis") takes the ISO, settings.txt and mods/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -12,6 +13,8 @@ rm -rf target/aarch64-apple-ios/ipa
 mkdir -p "$app"
 llvm-strip -o "$app/opentennis" target/aarch64-apple-ios/release/hst
 cp web/icon-180.png "$app/AppIcon60x60@3x.png"
+id=io.github.fizl0.hst name=OpenTennis
+[ -z "${HST_BETA:-}" ] || { id=$id.beta name="OpenTennis Beta"; }
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)  # [workspace.package]
 cat > "$app/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -19,9 +22,9 @@ cat > "$app/Info.plist" <<EOF
 <plist version="1.0">
 <dict>
 	<key>CFBundleExecutable</key><string>opentennis</string>
-	<key>CFBundleIdentifier</key><string>io.github.fizl0.hst</string>
-	<key>CFBundleName</key><string>OpenTennis</string>
-	<key>CFBundleDisplayName</key><string>OpenTennis</string>
+	<key>CFBundleIdentifier</key><string>$id</string>
+	<key>CFBundleName</key><string>$name</string>
+	<key>CFBundleDisplayName</key><string>$name</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>$version</string>
 	<key>CFBundleVersion</key><string>$(git rev-list --count HEAD)</string>
