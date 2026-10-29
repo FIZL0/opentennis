@@ -160,10 +160,9 @@ impl Grid {
 /// B608: logical px a touch screen's Auto Menu Size gives the 448-unit screen at least (`Settings::menu_scale`).
 const PHONE_SCREEN: f32 = 440.0;
 
-/// B608: the largest Menu Size up to `k` that `screen` lays out whole at on a view `aspect` wide. The screens drawn
-/// on the fixed 640×448 screen (the title, the main menu, Online, the lobby list, the code and name keyboard, Extras)
-/// grow until it fills the view and no further; a Settings page until its rows would squeeze (`options::rows_fit`);
-/// the rest re-lay out on the view (`Grid`) and take any size.
+/// B608: the largest Menu Size up to `k` that `screen` lays out whole at on a view `aspect` wide. A Settings page
+/// grows until its rows would squeeze (`options::rows_fit`); the rest re-lay out on the view (`Grid`; B695: the title,
+/// the main menu, Online, the lobby list, the code keyboard and Extras too) and take any size.
 fn fit_scale(screen: Screen, aspect: f32, k: f32) -> f32 {
     let (s, v) = super::widescreen::menu_shares(aspect, 1.0);
     let whole = 1.0 / s.max(v);
@@ -171,7 +170,6 @@ fn fit_scale(screen: Screen, aspect: f32, k: f32) -> f32 {
         return k;
     }
     match screen {
-        Screen::Press | Screen::Main | Screen::Online | Screen::Lobbies | Screen::Code | Screen::Extras => whole,
         s if s == Screen::Controls || !options::page(s).is_empty() => {
             let mut t = k;
             while t > whole && !options::rows_fit(&Grid::fit_at(aspect, t), s) {
@@ -3038,6 +3036,23 @@ impl Draw<'_> {
         self.anchor = Anchor::Centre;
         self.said = s.into();
     }
+
+    /// B695: how much has been drawn so far, for `scale_since`.
+    fn mark(&self) -> (usize, usize) {
+        (self.out.len(), self.hits.len())
+    }
+
+    /// B695: everything drawn since `mark` (quads and hit rects) scaled by `s` about `o`: a block laid out at its own
+    /// size made to fit the smaller room a big Menu Size leaves it.
+    fn scale_since(&mut self, (quads, hits): (usize, usize), o: [f32; 2], s: f32) {
+        let at = |r: &mut [f32; 4]| *r = [o[0] + (r[0] - o[0]) * s, o[1] + (r[1] - o[1]) * s, r[2] * s, r[3] * s];
+        for q in &mut self.out[quads..] {
+            at(&mut q.dst);
+            q.round = q.round.map(|r| r * s);
+            q.rim *= s;
+        }
+        self.hits[hits..].iter_mut().for_each(|h| at(&mut h.rect));
+    }
 }
 
 /// B405: the controllers among the readable pads' names (gilrs' `Name`): the on-screen pad (web/touch.js,
@@ -4216,7 +4231,7 @@ mod tests {
         let (s, v) = super::super::widescreen::menu_shares(wide, 1.0);
         let whole = 1.0 / s.max(v);
         for screen in [Screen::Press, Screen::Main, Screen::Online, Screen::Lobbies, Screen::Code, Screen::Extras] {
-            assert_eq!(fit_scale(screen, wide, 1.5), whole);
+            assert_eq!(fit_scale(screen, wide, 1.5), 1.5);
             assert_eq!(fit_scale(screen, wide, 0.8), 0.8);
         }
         // B616: the select and confirm screens until their cards keep a whole tile row over the strip
@@ -4233,6 +4248,50 @@ mod tests {
         let auto = Settings::default();
         assert!((auto.menu_scale_on(393.0, true) - 440.0 / 393.0).abs() < 1e-6 && auto.menu_scale_on(320.0, true) == 1.3);
         assert_eq!((auto.menu_scale_on(1024.0, true), auto.menu_scale_on(393.0, false)), (1.0, 1.0));
+    }
+
+    /// B695: the screens drawn on the fixed 640×448 screen re-lay out on the view: at 16:9, 21:9, 4:3 and a phone
+    /// (either way up) each step of Menu Size from 100% to 150% draws their words bigger on the window, and nothing
+    /// pinned to the screen's middle leaves the view (the corners' small print, pinned to the window, may shrink to
+    /// stay clear of the title tab).
+    #[test]
+    fn every_menu_grows_with_menu_size() {
+        let t = pointer::tests::text_with_mods(3);
+        let screens = [Screen::Press, Screen::Main, Screen::Online, Screen::Lobbies, Screen::Code, Screen::Extras];
+        // the relay URL's keyboard (a row more) too
+        for (screen, url) in screens.into_iter().map(|s| (s, false)).chain([(Screen::Code, true)]) {
+            for aspect in [16.0 / 9.0, 21.0 / 9.0, 4.0 / 3.0, 19.5 / 9.0, 9.0 / 19.5] {
+                let mut last = 0.0;
+                for k in [1.0, 1.1, 1.2, 1.3, 1.4, 1.5] {
+                    let grid = Grid::fit_at(aspect, k);
+                    let mut m = Menu { screen, grid, ..Default::default() };
+                    m.net.url = url;
+                    let d = drawn(&m, &t, &controls::Bindings::default(), &[], 0, 0.0);
+                    let [l, top, r, b] = grid.view;
+                    let slack = 4.0;
+                    for q in d.out.iter().filter(|q| q.anchor == Anchor::Centre && q.alpha > 0.0) {
+                        let [x, y, w, h] = q.dst;
+                        assert!(x >= l - slack && x + w <= r + slack && y >= top - slack && y + h <= b + 16.0 + slack, "{screen:?} {aspect} {k}: {:?} {:?} out of {:?}", q.tex, q.dst, grid.view);
+                    }
+                    // the words on the buttons, their middle size on the window (the title, which has none: its biggest)
+                    let on = |q: &&Quad| {
+                        let (cx, cy) = (q.dst[0] + q.dst[2] / 2.0, q.dst[1] + q.dst[3] / 2.0);
+                        d.hits.iter().any(|h| h.anchor == Anchor::Centre && (h.rect[0]..h.rect[0] + h.rect[2]).contains(&cx) && (h.rect[1]..h.rect[1] + h.rect[3]).contains(&cy))
+                    };
+                    let font = || d.out.iter().filter(|q| q.tex == Tex::Font && q.anchor == Anchor::Centre);
+                    let mut hs: Vec<f32> = font().filter(on).map(|q| q.dst[3]).collect();
+                    if hs.is_empty() {
+                        hs = font().map(|q| q.dst[3]).collect();
+                        hs.sort_by(|a, b| b.total_cmp(a));
+                        hs.truncate(1);
+                    }
+                    hs.sort_by(f32::total_cmp);
+                    let size = k * hs[hs.len() / 2];
+                    assert!(size > last * 1.02, "{screen:?} {aspect} {k}: words {size} after {last}");
+                    last = size;
+                }
+            }
+        }
     }
 
     #[test]
