@@ -264,7 +264,7 @@ fn look(
     }
 }
 
-/// A pill tapped or clicked, or the keys: up/down choose, any other key presses the chosen one.
+/// A pill tapped or clicked, or the keys: up/down choose, back returns to Choose disc, any other key presses the chosen one.
 fn tap(mut start: ResMut<Start>, pills: Query<(&Pill, &Interaction), Changed<Interaction>>, mut keys: MessageReader<KeyboardInput>) {
     let mut press = None;
     for (pill, i) in &pills {
@@ -276,6 +276,8 @@ fn tap(mut start: ResMut<Start>, pills: Query<(&Pill, &Interaction), Changed<Int
         match k.key_code {
             KeyCode::ArrowUp | KeyCode::KeyW => start.row = 0,
             KeyCode::ArrowDown | KeyCode::KeyS => start.row = 1,
+            // back (the menus' Escape / Backspace / K): off Help, never a press
+            KeyCode::Escape | KeyCode::Backspace | KeyCode::KeyK => start.row = 0,
             _ => press = Some(start.row),
         }
     }
