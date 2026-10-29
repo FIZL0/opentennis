@@ -105,7 +105,7 @@ pub fn run(plugins: impl PluginGroup, pack: PathBuf, intro: &'static str, help: 
         .insert_resource(Start { pack, stage: Stage::Idle(None), row: 0 })
         .insert_resource(Words { intro, help })
         .add_systems(Startup, page)
-        .add_systems(Update, (tap, poll, show, look).chain())
+        .add_systems(Update, (tap, poll, show, look, pace).chain())
         .run();
     std::process::exit(0)
 }
@@ -292,6 +292,19 @@ fn tap(mut start: ResMut<Start>, pills: Query<(&Pill, &Interaction), Changed<Int
 }
 
 /// The picker's answer → the import on its own thread → the restart.
+/// While the system file picker is up the page stops redrawing: it only checks for the pick a few times a second,
+/// so the main thread is free for the picker (its taps go through the app's main thread).
+fn pace(start: Res<Start>, mut winit: ResMut<bevy::winit::WinitSettings>) {
+    let mode = if matches!(start.stage, Stage::Picking) {
+        bevy::winit::UpdateMode::reactive(std::time::Duration::from_millis(250))
+    } else {
+        bevy::winit::UpdateMode::Continuous
+    };
+    if winit.focused_mode != mode {
+        *winit = bevy::winit::WinitSettings { focused_mode: mode, unfocused_mode: mode };
+    }
+}
+
 fn poll(mut start: ResMut<Start>) {
     match &start.stage {
         Stage::Picking => match platform::taken() {
