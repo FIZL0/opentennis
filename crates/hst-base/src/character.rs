@@ -1692,6 +1692,7 @@ pub fn animate(
             c.from.clear();
             if let Some(n) = ease {
                 c.from.extend_from_slice(&c.drawn);
+                c.from_offset = false;
                 (c.eased, c.ease) = (time.elapsed_secs_f64(), n);
             }
             c.own = own;
@@ -1703,23 +1704,51 @@ pub fn animate(
         let b = if b < a && motion.clock.looping { b + new.length } else { b };
         // the base pose, and the pose mixed over its first 23 tracks (the player's blend count) by the fade; a held
         // fade's pose doesn't move within the tick
-        let (clip, ends, over) = match (motion.mix, fading) {
-            (Some((w, true)), Some(old)) => (old, [motion.fade.sampled; 2], Some((new, 0.0, w))),
-            (Some((w, false)), Some(old)) => (new, [new.wrap(a, motion.clock.looping), new.wrap(b, motion.clock.looping)], Some((old, motion.fade.sampled, w))),
-            _ => (new, [new.wrap(a, motion.clock.looping), new.wrap(b, motion.clock.looping)], None),
+        // the fade's weight and outgoing time as the tick before this one left them, so the mix moves between ticks
+        // too (drawn at both ends' alike, it stepped at 60 Hz and stood still between on a faster screen); a new fade
+        // starts from the outgoing pose all in (the held fade's new pose not at all)
+        let mix = motion.mix.map(|(w, held)| (w, motion.fade.sampled, held));
+        if c.mix_at != time.elapsed_secs_f64() || c.mix_sets != motion.sets {
+            c.mix_then = match (c.mix_now, mix) {
+                (_, None) => None,
+                (Some(now), Some(m)) if c.mix_sets == motion.sets && now.2 == m.2 => Some(now),
+                (_, Some((_, t, held))) => Some((if held { 0.0 } else { 1.0 }, t, held)),
+            };
+            (c.mix_now, c.mix_at, c.mix_sets) = (mix, time.elapsed_secs_f64(), motion.sets);
+        }
+        let then = c.mix_then.map_or((0.0, 0.0), |m| (m.0, m.1));
+        let (clip, ends, overs) = match (motion.mix, fading) {
+            (Some((w, true)), Some(old)) => (old, [motion.fade.sampled; 2], [Some((new, 0.0, then.0)), Some((new, 0.0, w))]),
+            (Some((w, false)), Some(old)) => (new, [new.wrap(a, motion.clock.looping), new.wrap(b, motion.clock.looping)], [Some((old, then.1, then.0)), Some((old, motion.fade.sampled, w))]),
+            _ => (new, [new.wrap(a, motion.clock.looping), new.wrap(b, motion.clock.looping)], [None; 2]),
         };
-        let keys = ends.map(|t| PoseKey::new(&rig.data, clip, t, over));
-        let k = c.ends(&rig.data, keys, clip, over);
+        let keys = [0, 1].map(|e| PoseKey::new(&rig.data, clip, ends[e], overs[e]));
+        let k = c.ends(&rig.data, keys, clip, overs);
         let f = if keys[0] == keys[1] { 0.0 } else { time.overstep_fraction() };
-        c.arm(rig, motion.arm);
-        let arm = c.arm.as_ref().filter(|_| motion.arm.is_some()).map_or(&[][..], |a| &a.1);
+        let over = overs[1].map(|(o, t, w)| (o, t, overs[0].map_or(w, |p| p.2 + (w - p.2) * f)));
+        // the arm IK's turns drawn between the last tick's and this one's, as the pose is (at this tick's alone, the
+        // racket arm stepped at 60 Hz as the serve's IK let go)
+        if c.arm_at != time.elapsed_secs_f64() {
+            c.arm(rig, motion.arm);
+            let now = c.arm.as_ref().filter(|_| motion.arm.is_some()).map_or(Vec::new(), |a| a.1.clone());
+            c.arm_then = std::mem::replace(&mut c.arm_now, now);
+            c.arm_at = time.elapsed_secs_f64();
+        }
+        let g = time.overstep_fraction();
+        let turn = |j: usize| {
+            let at = |v: &[(usize, Quat)]| v.iter().find(|a| a.0 == j).map(|a| a.1);
+            match (at(&c.arm_then), at(&c.arm_now)) {
+                (None, None) => None,
+                (a, b) => Some(a.unwrap_or(Quat::IDENTITY).slerp(b.unwrap_or(Quat::IDENTITY), g)),
+            }
+        };
         let (pa, pb) = (&c.poses[k[0]].1, &c.poses[k[1]].1);
         let mut drawn = std::mem::take(&mut c.drawn);
         drawn.clear();
         for (j, (&(qa, va), &(qb, vb))) in pa.iter().zip(pb).enumerate().take(rig.data.joints.len()) {
             let mut rotation = if f == 0.0 { qa } else { qa.slerp(qb, f) };
             // the contact IK turns the arm joints in their parents' frames (the game's local·Q, rows; translation kept)
-            if let Some(q) = arm.iter().find(|a| a.0 == j).map(|a| a.1) {
+            if let Some(q) = turn(j) {
                 rotation = (q * rotation).normalize();
             }
             drawn.push((rotation, if f == 0.0 { va } else { va.lerp(vb, f) }));
@@ -1788,14 +1817,22 @@ pub fn animate(
                 Some((other, _, w)) => own(clip) + (own(other) - own(clip)) * w,
                 None => own(clip),
             };
-            hold_head(&rig.data, grip, &mut drawn, 1.0 - mine, &mut c.held, time.delta_secs() * 60.0 / GRIP_EASE);
+            hold_head(&rig.data, grip, &mut drawn, 1.0 - mine, &mut c.held, now.delta_secs() * 60.0 / GRIP_EASE);
         }
         if !c.from.is_empty() {
             let w = (((time.elapsed_secs_f64() - c.eased) * 60.0) as f32 + time.overstep_fraction()) / c.ease;
             let w = w.min(1.0);
             let w = w * w * (3.0 - 2.0 * w);
+            // eased out as the gap from the new motion's first pose drawn, so that motion moves from the start (from
+            // the old pose held still, the body stopped dead for a few frames at each hand-off)
+            if !c.from_offset {
+                for (o, d) in c.from.iter_mut().zip(&drawn) {
+                    *o = ((o.0 * d.0.inverse()).normalize(), o.1 - d.1);
+                }
+                c.from_offset = true;
+            }
             for (d, &(q, v)) in drawn.iter_mut().zip(&c.from) {
-                *d = (q.slerp(d.0, w), v.lerp(d.1, w));
+                *d = ((Quat::IDENTITY.slerp(q, 1.0 - w) * d.0).normalize(), d.1 + v * (1.0 - w));
             }
             if w >= 1.0 {
                 c.from.clear();
@@ -1857,6 +1894,16 @@ fn untwist_thighs(data: &CharacterData, drawn: &[(Quat, Vec3)]) -> Vec<(usize, (
 #[derive(Default)]
 pub struct Posing {
     poses: [(Option<PoseKey>, Vec<(Quat, Vec3)>); 2],
+    /// The crossfade's weight, outgoing time and hold this tick and the one before (when the fixed clock, and the
+    /// set, saw it), for drawing between them.
+    mix_now: Option<(f32, f32, bool)>,
+    /// The arm IK's turns the tick before this one and this one's, and when the fixed clock saw them.
+    arm_then: Vec<(usize, Quat)>,
+    arm_now: Vec<(usize, Quat)>,
+    arm_at: f64,
+    mix_then: Option<(f32, f32, bool)>,
+    mix_at: f64,
+    mix_sets: u32,
     arm: Option<(([[f32; 4]; 4], u32, usize), Vec<(usize, Quat)>)>,
     face: Option<(usize, u32, Option<(usize, u32)>, u32)>,
     /// A line's mouth (its mouth targets, vowel, openness) last made, how much of it is over the clip's mouth now
@@ -1874,6 +1921,8 @@ pub struct Posing {
     sets: u32,
     own: bool,
     from: Vec<(Quat, Vec3)>,
+    /// `from` turned into its gap from the first pose drawn after the set (see `animate`).
+    from_offset: bool,
     eased: f64,
     /// The ease's length in frames.
     ease: f32,
@@ -1949,7 +1998,7 @@ impl PoseKey {
 impl Posing {
     /// The slots holding the poses for the two ends' keys, sampling any missing one into a slot the other end
     /// isn't using.
-    fn ends(&mut self, data: &CharacterData, keys: [PoseKey; 2], clip: &Clip, over: Option<(&Clip, f32, f32)>) -> [usize; 2] {
+    fn ends(&mut self, data: &CharacterData, keys: [PoseKey; 2], clip: &Clip, over: [Option<(&Clip, f32, f32)>; 2]) -> [usize; 2] {
         let mut at = keys.map(|k| self.poses.iter().position(|p| p.0 == Some(k)));
         for e in 0..2 {
             if at[e].is_none() {
@@ -1958,7 +2007,7 @@ impl Posing {
                     Some(o) => 1 - o,
                     None => e,
                 };
-                self.sample(s, data, keys[e], clip, over);
+                self.sample(s, data, keys[e], clip, over[e]);
                 at[e] = Some(s);
                 if keys[0] == keys[1] {
                     at[1 - e] = Some(s);
