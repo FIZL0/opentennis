@@ -252,17 +252,19 @@ fn invoke<T>(name: &str, sig: &str, value: impl FnOnce(jni::objects::JValueOwned
     value(r.ok()?)
 }
 
-const INTRO: &str = "This remaster plays from your own copy of the original game:\n\
-                     Hot Shots Tennis (USA), SCUS-97610, version 1.00.\n\n\
-                     Choose its disc image (.iso) on this device: Downloads, an SD card or a cloud drive. \
-                     The game copies the part it needs (about 170 MB); after that you can delete the ISO.";
+const INTRO: &str = "This remaster plays from your own copy of the original game. Choose its disc image (.iso) on \
+                     this device: Downloads, an SD card or a cloud drive. The game copies the part it needs, then you \
+                     can delete the ISO.";
+
+const HELP: &str = "The picker shows this device's files and any cloud drive apps you have. Copy the ISO onto the phone \
+                    first if it isn't listed, then choose it again.";
 
 pub(crate) const DONE: &str = "Done. Starting the game… (if it doesn't, close and reopen the app)";
 
 /// No disc in `dir` yet: the start page (`start_page.rs`), until the import restarts the app (see the module doc).
 pub fn no_disc(dir: PathBuf) -> ! {
     info!("no disc in {}", dir.display());
-    crate::start_page::run(DefaultPlugins.set(bevy::log::LogPlugin { fmt_layer: log_layer, ..default() }), dir.join("disc.pack"), INTRO)
+    crate::start_page::run(DefaultPlugins.set(bevy::log::LogPlugin { fmt_layer: log_layer, ..default() }), dir.join("disc.pack"), INTRO, HELP)
 }
 
 /// Opens the system's file picker (`HstActivity.pick`); false if it didn't open.

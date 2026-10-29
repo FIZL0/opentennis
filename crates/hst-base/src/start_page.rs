@@ -2,6 +2,10 @@
 //! system's file picker; the picked ISO is imported into `disc.pack` as on the desktop (`disc.rs`, M13), then the app
 //! starts again into the main menu (the native window can only be made once per process). The picker and the restart
 //! are the platform's (`android.rs`, `ios.rs`: `pick`, `taken`, `restart`).
+//!
+//! It wears the main menu's look (`hst`'s `main_menu/look.rs`) from what's in git, the disc's art isn't there yet: the
+//! tiled lilac wall, the gold band with the hanging title tab, the outlined pills (the chosen one yellow), an off-white
+//! panel with a green header and a dark rule, the legend strip at the foot. Sizes are the menu mockup's px at 720 lines.
 
 #[cfg(target_os = "android")]
 use crate::android as platform;
@@ -9,15 +13,57 @@ use crate::android as platform;
 use crate::ios as platform;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
-use bevy::ui::{ColorStop, LinearGradient};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+
+/// A desktop stand-in, so the page can be looked at (`cargo run -p hst-base --example start_page`): the picker opens
+/// and closes at once.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod platform {
+    pub const DONE: &str = "Done.";
+    pub fn pick() -> bool {
+        true
+    }
+    pub fn taken() -> Option<Option<std::fs::File>> {
+        Some(None)
+    }
+    pub fn restart() {}
+}
+
+static HEAVY: &[u8] = include_bytes!("../../hst/assets/fonts/MPLUSRounded1c-ExtraBold.ttf");
+static BOLD: &[u8] = include_bytes!("../../hst/assets/fonts/MPLUSRounded1c-Bold.ttf");
+static LOGO: &[u8] = include_bytes!("../../hst/assets/logo.png");
+
+/// The main menu's colours (sampled from it).
+const WALL: Color = Color::srgb_u8(0xe0, 0xc3, 0xef);
+const WALL_LINE: Color = Color::srgb_u8(0xd0, 0xae, 0xe3);
+const GOLD: Color = Color::srgb_u8(0xcc, 0xa9, 0x33);
+const INK: Color = Color::srgb_u8(0x2b, 0x28, 0x38);
+const YELLOW: Color = Color::srgb_u8(0xfe, 0xd7, 0x4c);
+const GREY: Color = Color::srgb_u8(0x70, 0x71, 0x86);
+const GREY_WORD: Color = Color::srgb_u8(0xc9, 0xc8, 0xd8);
+const GREEN: Color = Color::srgb_u8(0xc7, 0xe7, 0xbe);
+const PANEL: Color = Color::srgb_u8(0xfd, 0xfb, 0xfe);
+const VIOLET: Color = Color::srgb_u8(0x6b, 0x5f, 0x86);
+const LEGEND: Color = Color::srgba(0.45, 0.36, 0.52, 0.85);
+
+/// The mockup's px at 720 lines, in the screen's height: the page scales uniformly with the height, the width takes
+/// the rest (the panel grows), so it holds at any aspect ratio.
+fn u(px: f32) -> Val {
+    Val::Vh(px / 7.2)
+}
+
+fn size(px: f32) -> FontSize {
+    FontSize::Vh(px / 7.2)
+}
 
 #[derive(Resource)]
 struct Start {
     pack: PathBuf,
     stage: Stage,
+    /// The chosen pill (0 Choose disc, 1 Help).
+    row: usize,
 }
 
 enum Stage {
@@ -31,94 +77,212 @@ enum Stage {
     Done,
 }
 
+#[derive(Resource)]
+struct Words {
+    intro: &'static str,
+    help: &'static str,
+}
+
 #[derive(Component)]
 struct Status;
 #[derive(Component)]
-struct Ball;
+struct Body;
 #[derive(Component)]
-struct Shadow;
+struct Heading;
 #[derive(Component)]
-struct Pulse;
+struct Pill(usize);
+#[derive(Component)]
+struct Bar;
+#[derive(Component)]
+struct Logo;
 
-/// The start page until the import restarts the app; `intro` says where the ISO can come from on this platform.
-pub fn run(plugins: impl PluginGroup, pack: PathBuf, intro: &'static str) -> ! {
+/// The start page until the import restarts the app; `intro` says where the ISO can come from on this platform,
+/// `help` how else it gets there.
+pub fn run(plugins: impl PluginGroup, pack: PathBuf, intro: &'static str, help: &'static str) -> ! {
     App::new()
         .add_plugins(plugins)
-        .insert_resource(ClearColor(Color::srgb(0.03, 0.08, 0.14)))
-        .insert_resource(Start { pack, stage: Stage::Idle(None) })
-        .add_systems(Startup, move |commands: Commands| page(commands, intro))
-        .add_systems(Update, (tap, poll, show, bounce).chain())
+        .insert_resource(ClearColor(WALL))
+        .insert_resource(Start { pack, stage: Stage::Idle(None), row: 0 })
+        .insert_resource(Words { intro, help })
+        .add_systems(Startup, page)
+        .add_systems(Update, (tap, poll, show, look).chain())
         .run();
     std::process::exit(0)
 }
 
-/// Sizes in `vmin` so the page lays out the same at any aspect ratio and resolution.
-fn page(mut commands: Commands, intro: &str) {
+fn page(mut commands: Commands, words: Res<Words>, mut fonts: ResMut<Assets<Font>>, mut images: ResMut<Assets<Image>>) {
     commands.spawn(Camera2d);
-    let font = |size: f32| TextFont { font_size: FontSize::VMin(size), ..default() };
+    let heavy = fonts.add(Font::from_bytes(HEAVY.to_vec()));
+    let bold = fonts.add(Font::from_bytes(BOLD.to_vec()));
+    let font = |f: &Handle<Font>, px: f32| TextFont { font: f.clone().into(), font_size: size(px), ..default() };
+    // the menu's words outlined dark (a drop shadow is the closest Bevy UI has)
+    let outline = TextShadow { offset: Vec2::splat(3.0), color: INK };
+    let logo = images.add(Image::from_buffer(LOGO, bevy::image::ImageType::Extension("png"), default(), true, default(), default()).expect("logo.png"));
+
     commands
-        .spawn((
-            Node {
-                width: percent(100),
-                height: percent(100),
-                flex_direction: FlexDirection::Column,
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                row_gap: vmin(3),
-                ..default()
-            },
-            // court blue at the top into the night at the bottom
-            BackgroundGradient::from(LinearGradient {
-                angle: LinearGradient::TO_BOTTOM,
-                stops: vec![ColorStop::auto(Color::srgb(0.1, 0.3, 0.5)), ColorStop::auto(Color::srgb(0.03, 0.08, 0.14))],
-                ..default()
-            }),
-        ))
-        .with_children(|p| {
-            // a ball bouncing over its shadow, above the title
-            p.spawn(Node { width: vmin(12), height: vmin(16), justify_content: JustifyContent::Center, ..default() }).with_children(|b| {
-                b.spawn((Shadow, Node { position_type: PositionType::Absolute, bottom: vmin(0), width: vmin(8), height: vmin(1.6), border_radius: BorderRadius::MAX, ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)), UiTransform::default()));
-                b.spawn((Ball, Node { position_type: PositionType::Absolute, bottom: vmin(1), width: vmin(6), height: vmin(6), border_radius: BorderRadius::MAX, ..default() }, BackgroundColor(Color::srgb(0.85, 0.95, 0.2))));
+        .spawn((Node { width: percent(100), height: percent(100), flex_direction: FlexDirection::Column, ..default() }, BackgroundColor(WALL)))
+        .with_children(|root| {
+            // the wall's tiles
+            root.spawn(Node { position_type: PositionType::Absolute, width: percent(100), height: percent(100), overflow: Overflow::clip(), ..default() }).with_children(|w| {
+                for i in 0..120 {
+                    w.spawn((Node { position_type: PositionType::Absolute, left: u(i as f32 * 18.0), width: u(1.5), height: percent(100), ..default() }, BackgroundColor(WALL_LINE)));
+                }
+                for i in 0..42 {
+                    w.spawn((Node { position_type: PositionType::Absolute, top: u(i as f32 * 18.0), height: u(1.5), width: percent(100), ..default() }, BackgroundColor(WALL_LINE)));
+                }
             });
-            p.spawn((Text::new("OpenTennis"), font(8.0), TextColor(Color::srgb(1.0, 0.85, 0.3))));
-            p.spawn((Node { max_width: vmin(140), ..default() }, Text::new(intro), font(3.6), TextLayout::justify(Justify::Center)));
-            p.spawn((
-                Button,
-                Pulse,
-                Node { padding: UiRect::axes(vmin(5), vmin(2)), margin: UiRect::top(vmin(2)), border_radius: BorderRadius::all(vmin(2)), ..default() },
-                BackgroundColor(Color::srgb(0.95, 0.55, 0.1)),
-                UiTransform::default(),
+            // the gold band and the title tab hanging from it
+            root.spawn((Node { position_type: PositionType::Absolute, width: percent(100), height: u(18.0), border: UiRect::bottom(u(3.0)), ..default() }, BackgroundColor(GOLD), BorderColor::all(INK)));
+            root.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: u(-4.0),
+                    top: u(-4.0),
+                    padding: UiRect::new(u(30.0), u(36.0), u(8.0), u(6.0)),
+                    border: UiRect::all(u(3.0)),
+                    border_radius: BorderRadius::bottom_right(u(22.0)),
+                    ..default()
+                },
+                BackgroundColor(GOLD),
+                BorderColor::all(INK),
             ))
-            .with_child((Text::new("Choose disc image"), font(4.5), TextColor(Color::BLACK)));
-            p.spawn((Status, Node { max_width: vmin(140), ..default() }, Text::new(""), font(3.2), TextLayout::justify(Justify::Center), TextColor(Color::srgb(0.75, 0.85, 1.0))));
+            .with_child((Text::new("Get started"), font(&heavy, 40.0), TextColor(Color::WHITE), outline));
+            root.spawn((Node { position_type: PositionType::Absolute, right: u(24.0), top: u(20.0), ..default() }, Text::new("No disc yet"), font(&heavy, 24.0), TextColor(Color::WHITE), outline));
+
+            // the pills and the panel
+            root.spawn(Node { flex_grow: 1.0, padding: UiRect::new(u(36.0), u(24.0), u(82.0), u(12.0)), column_gap: u(24.0), ..default() }).with_children(|row| {
+                row.spawn(Node { width: u(290.0), flex_shrink: 0.0, flex_direction: FlexDirection::Column, row_gap: u(16.0), ..default() }).with_children(|col| {
+                    for (i, name) in ["Choose disc", "Help"].into_iter().enumerate() {
+                        col.spawn((
+                            Button,
+                            Pill(i),
+                            Node { height: u(58.0), padding: UiRect::horizontal(u(26.0)), align_items: AlignItems::Center, justify_content: JustifyContent::SpaceBetween, border: UiRect::all(u(4.0)), border_radius: BorderRadius::MAX, ..default() },
+                            BackgroundColor(GREY),
+                            BorderColor::all(INK),
+                            UiTransform::default(),
+                        ))
+                        .with_children(|p| {
+                            p.spawn((Text::new(name), font(&heavy, 32.0), TextColor(GREY_WORD)));
+                            p.spawn((Text::new(">"), font(&heavy, 32.0), TextColor(INK)));
+                        });
+                    }
+                });
+                row.spawn((
+                    Node { flex_grow: 1.0, flex_direction: FlexDirection::Column, border: UiRect::all(u(4.0)), border_radius: BorderRadius::all(u(20.0)), overflow: Overflow::clip(), ..default() },
+                    BackgroundColor(PANEL),
+                    BorderColor::all(INK),
+                ))
+                .with_children(|panel| {
+                    // the green header: the logo, the big outlined word
+                    panel
+                        .spawn((Node { height: u(250.0), flex_shrink: 0.0, margin: UiRect::all(u(6.0)), padding: UiRect::all(u(14.0)), border_radius: BorderRadius::all(u(14.0)), justify_content: JustifyContent::SpaceBetween, align_items: AlignItems::FlexEnd, ..default() }, BackgroundColor(GREEN)))
+                        .with_children(|h| {
+                            h.spawn((Heading, Text::new("Your disc"), font(&heavy, 64.0), TextColor(Color::WHITE), TextShadow { offset: Vec2::splat(4.0), color: INK }));
+                            h.spawn((Logo, Node { height: u(210.0), align_self: AlignSelf::Center, ..default() }, ImageNode::new(logo.clone()), UiTransform::default()));
+                        });
+                    panel.spawn((Node { height: u(3.0), flex_shrink: 0.0, ..default() }, BackgroundColor(INK)));
+                    panel.spawn(Node { flex_grow: 1.0, flex_direction: FlexDirection::Column, justify_content: JustifyContent::SpaceBetween, padding: UiRect::new(u(22.0), u(22.0), u(16.0), u(16.0)), ..default() }).with_children(|body| {
+                        body.spawn(Node { flex_direction: FlexDirection::Column, row_gap: u(10.0), ..default() }).with_children(|t| {
+                            t.spawn((Body, Text::new(words.intro), font(&bold, 22.0), TextColor(INK)));
+                            t.spawn((Status, Text::new(""), font(&bold, 18.0), TextColor(VIOLET)));
+                            // the copy's progress
+                            t.spawn((Node { height: u(14.0), border: UiRect::all(u(2.0)), border_radius: BorderRadius::MAX, overflow: Overflow::clip(), display: Display::None, ..default() }, BorderColor::all(INK), BackgroundColor(Color::WHITE)))
+                                .with_child((Bar, Node { width: percent(0), height: percent(100), ..default() }, BackgroundColor(YELLOW)));
+                        });
+                        body.spawn(Node { column_gap: u(16.0), ..default() }).with_children(|cards| {
+                            for (label, value) in [("NEEDS", "Hot Shots Tennis (USA)\nSCUS-97610, v1.00"), ("COPIES", "About 170 MB, once.\nThen the ISO can go.")] {
+                                cards
+                                    .spawn((Node { flex_grow: 1.0, flex_basis: percent(0), flex_direction: FlexDirection::Column, padding: UiRect::axes(u(12.0), u(8.0)), border: UiRect::all(u(2.0)), border_radius: BorderRadius::all(u(10.0)), ..default() }, BorderColor::all(INK), BackgroundColor(Color::WHITE)))
+                                    .with_children(|c| {
+                                        c.spawn((Text::new(label), font(&heavy, 16.0), TextColor(VIOLET)));
+                                        c.spawn((Text::new(value), font(&heavy, 20.0), TextColor(INK)));
+                                    });
+                            }
+                        });
+                    });
+                });
+            });
+            // the legend strip
+            root.spawn((Node { height: u(24.0), flex_shrink: 0.0, justify_content: JustifyContent::Center, align_items: AlignItems::Center, column_gap: u(6.0), ..default() }, BackgroundColor(LEGEND))).with_children(|l| {
+                l.spawn((Node { padding: UiRect::horizontal(u(5.0)), border_radius: BorderRadius::all(u(3.0)), ..default() }, BackgroundColor(Color::WHITE))).with_child((Text::new("Tap"), font(&bold, 13.0), TextColor(INK)));
+                l.spawn((Text::new("Choose"), font(&bold, 15.0), TextColor(Color::WHITE)));
+            });
         });
 }
 
-/// The ball's hop (|sin|, a bounce's arc), its shadow shrinking as it rises, and the button breathing while it waits.
-fn bounce(time: Res<Time<Real>>, start: Res<Start>, mut ball: Query<&mut Node, With<Ball>>, mut shadow: Query<&mut UiTransform, (With<Shadow>, Without<Pulse>)>, mut pulse: Query<&mut UiTransform, (With<Pulse>, Without<Shadow>)>) {
+/// The chosen pill yellow (breathing while it waits), the others grey; the logo's slow bob; the copy's bar.
+fn look(
+    time: Res<Time<Real>>,
+    start: Res<Start>,
+    words: Res<Words>,
+    mut pills: Query<(&Pill, &mut BackgroundColor, &mut UiTransform, &Children), Without<Logo>>,
+    mut texts: Query<&mut TextColor>,
+    mut logo: Query<&mut UiTransform, With<Logo>>,
+    mut body: Query<&mut Text, (With<Body>, Without<Heading>)>,
+    mut heading: Query<&mut Text, (With<Heading>, Without<Body>)>,
+    mut bar: Query<(&mut Node, &ChildOf), With<Bar>>,
+    mut track: Query<&mut Node, Without<Bar>>,
+) {
     let t = time.elapsed_secs();
-    // faster while importing, so the page shows it's busy
-    let speed = if matches!(start.stage, Stage::Importing(..)) { 2.0 } else { 1.0 };
-    let h = (t * std::f32::consts::PI * 0.9 * speed).sin().abs();
-    for mut n in &mut ball {
-        n.bottom = vmin(1.0 + 9.0 * h);
-    }
-    for mut s in &mut shadow {
-        s.scale = Vec2::splat(1.0 - 0.5 * h);
-    }
     let idle = matches!(start.stage, Stage::Idle(_));
-    for mut s in &mut pulse {
-        s.scale = Vec2::splat(if idle { 1.0 + 0.04 * (t * 3.0).sin() } else { 1.0 });
+    for (pill, mut bg, mut tf, children) in &mut pills {
+        let on = pill.0 == start.row;
+        bg.0 = if on { YELLOW } else { GREY };
+        tf.scale = Vec2::splat(if on && idle { 1.0 + 0.025 * (t * 3.0).sin() } else { 1.0 });
+        if let Some(mut c) = children.first().and_then(|&c| texts.get_mut(c).ok()) {
+            c.0 = if on { INK } else { GREY_WORD };
+        }
+        if let Some(mut c) = children.get(1).and_then(|&c| texts.get_mut(c).ok()) {
+            c.0 = if on { INK } else { Color::NONE };
+        }
+    }
+    for mut tf in &mut logo {
+        tf.translation = Val2::new(Val::ZERO, u(4.0 * (t * 1.6).sin()));
+        tf.rotation = Rot2::degrees(1.5 * (t * 0.8).sin());
+    }
+    let (text, title) = if start.row == 1 && idle { (words.help, "Help") } else { (words.intro, "Your disc") };
+    for mut b in &mut body {
+        if b.0 != text {
+            b.0 = text.to_string();
+        }
+    }
+    for mut h in &mut heading {
+        if h.0 != title {
+            h.0 = title.to_string();
+        }
+    }
+    for (mut n, parent) in &mut bar {
+        let done = match &start.stage {
+            Stage::Importing(d, _) => Some(d.load(Ordering::Relaxed) as f32 / 10.0),
+            Stage::Done => Some(100.0),
+            _ => None,
+        };
+        n.width = percent(done.unwrap_or(0.0));
+        if let Ok(mut track) = track.get_mut(parent.parent()) {
+            track.display = if done.is_some() { Display::Flex } else { Display::None };
+        }
     }
 }
 
-/// A tap anywhere, a click or any button (a pad's arrive as key presses) opens the picker.
-fn tap(mut start: ResMut<Start>, touches: Res<Touches>, mouse: Res<ButtonInput<MouseButton>>, mut keys: MessageReader<KeyboardInput>) {
-    let key = keys.read().any(|k| k.state.is_pressed() && !k.repeat && k.key_code != KeyCode::BrowserBack);
-    if !(touches.any_just_released() || mouse.any_just_released([MouseButton::Left]) || key) {
-        return;
+/// A pill tapped or clicked, or the keys: up/down choose, any other key presses the chosen one.
+fn tap(mut start: ResMut<Start>, pills: Query<(&Pill, &Interaction), Changed<Interaction>>, mut keys: MessageReader<KeyboardInput>) {
+    let mut press = None;
+    for (pill, i) in &pills {
+        if *i == Interaction::Pressed {
+            press = Some(pill.0);
+        }
     }
+    for k in keys.read().filter(|k| k.state.is_pressed() && !k.repeat && k.key_code != KeyCode::BrowserBack) {
+        match k.key_code {
+            KeyCode::ArrowUp | KeyCode::KeyW => start.row = 0,
+            KeyCode::ArrowDown | KeyCode::KeyS => start.row = 1,
+            _ => press = Some(start.row),
+        }
+    }
+    let Some(row) = press else { return };
+    start.row = row;
     match start.stage {
+        Stage::Idle(_) if row == 1 => {}
         Stage::Idle(_) if platform::pick() => start.stage = Stage::Picking,
         Stage::Idle(_) => start.stage = Stage::Idle(Some("The file picker didn't open.".into())),
         // the restart didn't happen (iOS can't): closing is the way back in
@@ -176,8 +340,9 @@ fn import(file: std::fs::File, pack: &Path, done: &AtomicU32) -> Result<(), Stri
 
 fn show(start: Res<Start>, mut status: Query<&mut Text, With<Status>>) {
     let text = match &start.stage {
-        Stage::Idle(None) => "Tap anywhere or press a button to choose.".to_string(),
-        Stage::Idle(Some(e)) => format!("{e}\n\nTap to choose again."),
+        Stage::Idle(None) if start.row == 0 => "Tap Choose disc to pick it.".to_string(),
+        Stage::Idle(None) => String::new(),
+        Stage::Idle(Some(e)) => format!("{e} Tap Choose disc to try again."),
         Stage::Picking => "Waiting for the file picker…".to_string(),
         Stage::Importing(done, _) => format!("Copying the disc: {}%", done.load(Ordering::Relaxed) / 10),
         Stage::Done => platform::DONE.to_string(),

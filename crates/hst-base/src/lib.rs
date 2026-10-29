@@ -16,8 +16,8 @@ pub mod disc;
 pub mod ios;
 #[cfg(target_os = "android")]
 pub mod android;
-#[cfg(any(target_os = "android", target_os = "ios"))]
-mod start_page;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod start_page;
 pub mod effects;
 // M155: muOS/Knulli handhelds with no display server: the framebuffer instead of winit
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]

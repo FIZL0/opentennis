@@ -196,14 +196,15 @@ pub fn no_disc() -> ! {
         primary_window: Some(Window { mode: bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Primary), ..default() }),
         ..default()
     });
-    crate::start_page::run(plugins, crate::disc::data_dir().join("disc.pack"), INTRO)
+    crate::start_page::run(plugins, crate::disc::data_dir().join("disc.pack"), INTRO, HELP)
 }
 
-const INTRO: &str = "This remaster plays from your own copy of the original game:\n\
-                     Hot Shots Tennis (USA), SCUS-97610, version 1.00.\n\n\
-                     Choose its disc image (.iso) in Files: iCloud Drive, On My iPhone or a USB drive. \
-                     The game copies the part it needs (about 170 MB); after that you can delete the ISO.\n\
-                     (Or put the ISO in On My iPhone > OpenTennis and reopen the app.)";
+const INTRO: &str = "This remaster plays from your own copy of the original game. Choose its disc image (.iso) in \
+                     Files: iCloud Drive, On My iPhone or a USB drive. The game copies the part it needs, then you can \
+                     delete the ISO.";
+
+const HELP: &str = "No file picker? Put the ISO in the Files app under On My iPhone > OpenTennis (the folder with this \
+                    app's icon), then close and reopen the app: it finds it there.";
 
 /// iOS can't start an app again from inside: the player closes it.
 pub(crate) const DONE: &str = "Done! Tap to close, then open OpenTennis again to play.";
