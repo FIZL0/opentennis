@@ -768,7 +768,7 @@ fn load(
         (Vec3::ZERO, 10.0)
     };
     info!("bounds {bounds:?}");
-    // HST_VIEW_Y: with `--radius`, look at this height (a head, for hair clips)
+    // HST_VIEW_Y: with `--radius`, look at this height (a head, for hair clips); HST_VIEW_YAW/HST_VIEW_PITCH the angles
     let lift = std::env::var("HST_VIEW_Y").ok().and_then(|y| y.parse().ok()).unwrap_or(0.0);
     let (focus, radius) = args.radius.map_or((focus, radius), |r| (Vec3::Y * lift, r));
     commands.spawn((
@@ -778,7 +778,7 @@ fn load(
         Projection::Perspective(PerspectiveProjection { far: 20_000.0, ..default() }),
         Transform::default(),
         // play mode: broadcast view from behind the near (your) baseline
-        if args.play { Orbit { focus: Vec3::new(0.0, 0.0, 2.0), radius: 24.0, yaw: std::f32::consts::PI, pitch: -0.38 } } else { Orbit { focus, radius, yaw: std::env::var("HST_VIEW_YAW").ok().and_then(|y| y.parse().ok()).unwrap_or(0.6), pitch: -0.4 } },
+        if args.play { Orbit { focus: Vec3::new(0.0, 0.0, 2.0), radius: 24.0, yaw: std::f32::consts::PI, pitch: -0.38 } } else { Orbit { focus, radius, yaw: std::env::var("HST_VIEW_YAW").ok().and_then(|y| y.parse().ok()).unwrap_or(0.6), pitch: std::env::var("HST_VIEW_PITCH").ok().and_then(|y| y.parse().ok()).unwrap_or(-0.4) } },
     ));
 }
 
