@@ -1686,9 +1686,9 @@ pub fn animate(
                 Some(EASE_IN)
             } else if after_serve {
                 Some(SERVE_EASE)
-            } else if !c.looped && motion.clock.looping && rig.data.noise.as_ref().is_some_and(|n| !n.springs.is_empty()) {
-                // from a move back to standing or running: the game's 8-frame crossfade jerked the head, and spring hair
-                // flew up
+            } else if c.last >= hst_sim::motion::id::HIT_BY_BALL as usize && motion.clock.looping && rig.data.noise.as_ref().is_some_and(|n| !n.springs.is_empty()) {
+                // from a reaction or an emote back to standing or running: the game's 8-frame crossfade jerked the head,
+                // and spring hair flew up (only there: eased, strokes and runs looked slow)
                 Some(SETTLE_EASE)
             } else {
                 (!c.from.is_empty()).then_some(c.ease)
@@ -1699,7 +1699,7 @@ pub fn animate(
                 (c.eased, c.ease) = (time.elapsed_secs_f64(), n);
             }
             c.own = own;
-            c.looped = motion.clock.looping;
+            c.last = motion.id;
         }
         // placed somewhere new (a point's set-up) the pose cuts, as the game's does: no ease from where it was
         let at = joints.get(root).map(|t| t.translation).ok();
@@ -1869,8 +1869,8 @@ fn untwist_thighs(data: &CharacterData, drawn: &[(Quat, Vec3)]) -> Vec<(usize, (
 /// IK's turns for this tick, and the face it last wrote.
 #[derive(Default)]
 pub struct Posing {
-    /// Whether the last motion set loops, and where the rig stood last frame.
-    looped: bool,
+    /// The last motion set, and where the rig stood last frame.
+    last: usize,
     at: Option<Vec3>,
     poses: [(Option<PoseKey>, Vec<(Quat, Vec3)>); 2],
     arm: Option<(([[f32; 4]; 4], u32, usize), Vec<(usize, Quat)>)>,
@@ -1907,7 +1907,7 @@ pub struct Posing {
 // ponytail: picked by eye, not the source game's blend
 const EASE_IN: f32 = 10.0;
 
-/// Frames a rig with spring hair takes to ease back into a looping motion (standing, running) after another.
+/// Frames a rig with spring hair takes to ease back into standing or running after a reaction or an emote.
 // ponytail: picked by eye
 const SETTLE_EASE: f32 = 20.0;
 
