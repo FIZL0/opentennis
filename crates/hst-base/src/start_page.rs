@@ -1,4 +1,4 @@
-//! The phones' start page (M99 on Android, then iOS): no disc yet, so it says which disc the game needs and opens the
+//! Android's start page (M99; iOS's picker is on concept/ios-file-picker): no disc yet, so it says which disc the game needs and opens the
 //! system's file picker; the picked ISO is imported into `disc.pack` as on the desktop (`disc.rs`, M13), then the app
 //! starts again into the main menu (the native window can only be made once per process). The picker and the restart
 //! are the platform's (`android.rs`, `ios.rs`: `pick`, `taken`, `restart`).
@@ -9,8 +9,6 @@
 
 #[cfg(target_os = "android")]
 use crate::android as platform;
-#[cfg(target_os = "ios")]
-use crate::ios as platform;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use std::path::{Path, PathBuf};
@@ -19,7 +17,7 @@ use std::sync::{Arc, Mutex};
 
 /// A desktop stand-in, so the page can be looked at (`cargo run -p hst-base --example start_page`): the picker opens
 /// and closes at once.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(target_os = "android"))]
 mod platform {
     pub const DONE: &str = "Done.";
     pub fn pick() -> bool {
