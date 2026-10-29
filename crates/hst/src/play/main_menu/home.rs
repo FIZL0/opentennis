@@ -95,12 +95,92 @@ const UPDATE_H: f32 = 48.0;
 /// The preview's picture height and the facts' tiles.
 pub(super) const PIC_H: f32 = 170.0;
 pub(super) const FACT_H: f32 = 44.0;
+/// B695: the least a preview's picture comes down to on a short view (`panel_fit`), and the narrowest preview panel
+/// beside the list (narrower, the list goes alone, centred: `columns`).
+const PIC_MIN: f32 = 90.0;
+pub(super) const PANEL_MIN: f32 = 230.0;
+
+/// B695: the content's top and foot on the view `g`: `TOP` and `FOOT` while the 448-unit screen fits it down, closer
+/// in by what a big Menu Size cuts off its top and bottom (the title tab and the legend keep to the window's edges).
+pub(super) fn span(g: &super::Grid) -> (f32, f32) {
+    (TOP + g.view[1].max(0.0), FOOT + (g.view[3] - 432.0).min(0.0))
+}
+
+/// B695: a list's rows `hs` tall (each with the gap under it) down from `top`, in `room`: each row's top, `None` for
+/// one scrolled out of it. All fit: as they come; else scrolled down a whole row at a time just far enough to show
+/// row `sel`, with a thumb at x `bar` for where the shown part is in the list.
+pub(super) fn scrolled(d: &mut Draw, hs: &[f32], sel: usize, top: f32, room: f32, bar: f32) -> Vec<Option<f32>> {
+    let total: f32 = hs.iter().sum();
+    let starts: Vec<f32> = hs
+        .iter()
+        .scan(0.0, |y, h| {
+            *y += h;
+            Some(*y - h)
+        })
+        .collect();
+    if total <= room + 0.5 || hs.is_empty() {
+        return starts.iter().map(|s| Some(top + s)).collect();
+    }
+    let sel = sel.min(hs.len() - 1);
+    let want = (starts[sel] + hs[sel] - room).max(0.0);
+    let shift = starts.iter().copied().find(|&s| s >= want - 0.5).unwrap_or(0.0);
+    let track = [bar, top, 5.0, room - 8.0];
+    super::roster::rounded(d, track, 2.5, super::look::c(super::look::RULE), 128.0);
+    let t = [bar, top + track[3] * shift / total, 5.0, track[3] * room / total];
+    super::roster::rounded(d, t, 2.5, super::look::c(super::look::BLUE), 128.0);
+    starts.iter().zip(hs).map(|(&s, &h)| (s >= shift - 0.5 && s + h - shift <= room + 0.5).then_some(top + s - shift)).collect()
+}
+
+/// B695: a preview panel `h` tall's parts: its picture's height (`pic` at most), how many of the words' `lines` lines
+/// (`lh` apart) show and whether the facts' tiles (if it has any) fit under them. On a short view the picture gives
+/// way first (down to `PIC_MIN`), then the facts, then the words' last lines.
+pub(super) fn panel_fit(h: f32, lines: usize, lh: f32, facts: bool, pic: f32) -> (f32, usize, bool) {
+    let fit = |lines: usize, facts: bool| (h - 16.0 - lines as f32 * lh - if facts { FACT_H + 20.0 } else { 12.0 }).min(pic);
+    if fit(lines, facts) >= PIC_MIN {
+        return (fit(lines, facts), lines, facts);
+    }
+    if facts && fit(lines, false) >= PIC_MIN {
+        return (fit(lines, false), lines, false);
+    }
+    let lines = (((h - PIC_MIN - 28.0) / lh).floor().max(0.0) as usize).min(lines);
+    (PIC_MIN.min(h - 6.0), lines, false)
+}
+
+/// B695: how many lines `para` wraps `s` to in `w` at `size`.
+pub(super) fn lines_in(d: &Draw, s: &str, w: f32, size: f32) -> usize {
+    let mut n = 0;
+    let mut line = String::new();
+    for word in s.split_whitespace() {
+        if !line.is_empty() && d.width(&format!("{line} {word}"), size) <= w {
+            line.push(' ');
+            line.push_str(word);
+        } else {
+            n += 1;
+            line = word.into();
+        }
+    }
+    n
+}
+
+/// B695: `picture`-style art laid out by `draw` in a design rect `PIC_H`-high (`design` tall) drawn into the picture
+/// `pic` (`[x, y, w, h]`), shrunk as one to its height.
+pub(super) fn picture_in(d: &mut Draw, pic: [f32; 4], design: f32, draw: impl FnOnce(&mut Draw, [f32; 4])) {
+    let s = pic[3] / design;
+    let mark = d.mark();
+    draw(d, [pic[0], pic[1], pic[2] / s, design]);
+    d.scale_since(mark, [pic[0], pic[1]], s);
+}
 
 /// Where the panels go on a view `extra` wider than 640 each side: the list's x, the panel's x and width, and the
 /// store column's x if it fits.
 pub(super) fn columns(extra: f32) -> (f32, f32, f32, Option<f32>) {
     let room = 640.0 + 2.0 * extra - LEFT - RIGHT;
     let rest = room - LIST_W - GAP;
+    if rest < PANEL_MIN {
+        // B695: too narrow for the panel (a big Menu Size on a 4:3 or tall view): the list alone, centred
+        let x = -extra + LEFT + (room - LIST_W) / 2.0;
+        return (x, x + LIST_W + GAP, 0.0, None);
+    }
     let store = rest - PANEL_MAX >= GAP + STORE_W;
     let panel = rest.min(PANEL_MAX);
     let used = LIST_W + GAP + panel + if store { GAP + STORE_W } else { 0.0 };
@@ -142,22 +222,46 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
     // edge, so neither line may reach the middle
     d.anchor = super::Anchor::Sides;
     let head = format!("{pads} pad{}  -  Disc: SCUS-97610", if pads == 1 { "" } else { "s" });
-    let w = d.width(&head, 16.0);
-    d.outlined(|d| d.text(&head, 624.0 - w, 18.0, 16.0, WHITE));
+    // B695: shrunk to stay clear of the title tab on a narrow view at a big Menu Size
+    let room = 640.0 + 2.0 * m.grid.extra - 16.0 - (d.width(super::TITLES[0].0, 30.0) + 92.0);
+    let size = |d: &Draw, s: &str, size: f32| size * (room / d.width(s, size).max(1.0)).min(1.0);
+    let hs = size(d, &head, 16.0);
+    let w = d.width(&head, hs);
+    d.outlined(|d| d.text(&head, 624.0 - w, 18.0 + (16.0 - hs) / 2.0, hs, WHITE));
     // B374: a release build's own tag
     let version = version();
-    let w = d.width(&version, 10.0);
-    d.outlined(|d| d.text(&version, 624.0 - w, 37.0, 10.0, WHITE));
+    let vs = size(d, &version, 10.0);
+    let w = d.width(&version, vs);
+    d.outlined(|d| d.text(&version, 624.0 - w, 37.0, vs, WHITE));
     d.anchor = super::Anchor::Centre;
 
     let rows = m.main_rows();
     let sel = m.sel.min(rows.len() - 1);
     let (x, px, pw, store) = columns(m.grid.extra);
-    let mut y = TOP;
+    let (top, foot) = span(&m.grid);
     let mut hand = [0.0; 2];
-    let (pitch, ph) = pitch(&rows);
+    // B695: a short view (Menu Size past what fills it) closes the pills' gaps up to `MIN_PITCH` (no further than the
+    // whole screen does) and then scrolls them over Quit, at its foot, rather than shrink their words
+    let whole = pitch(&rows, FOOT - 32.0 - TOP);
+    let (pitch, ph) = pitch(&rows, foot - 32.0 - top);
+    let (pitch, ph) = if pitch < MIN_PITCH.min(whole.0) { (MIN_PITCH.min(whole.0), whole.1.min(MIN_PITCH - 4.0)) } else { (pitch, ph) };
+    let hs: Vec<f32> = rows
+        .iter()
+        .filter(|r| **r != Row::Quit)
+        .map(|r| match r {
+            Row::Rematch => CARD_H + 12.0,
+            Row::Update | Row::ModUpdates => UPDATE_H + 4.0,
+            _ => pitch,
+        })
+        .collect();
+    let at = scrolled(d, &hs, sel, top, foot - 36.0 - top + 4.0, x + LIST_W + 5.0);
     for (i, &r) in rows.iter().enumerate() {
         let on = i == sel;
+        let y = match at.get(i) {
+            Some(Some(y)) => *y,
+            Some(None) => continue,
+            None => 0.0,
+        };
         let rect = match r {
             Row::Rematch => {
                 let rect = [x, y, LIST_W, CARD_H];
@@ -166,7 +270,6 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
                 d.text("REMATCH", x + 14.0, y + 6.0, 13.0, [90.0, 60.0, 0.0]);
                 fit_text(d, &a, x + 14.0, y + 21.0, 18.0, LIST_W - 26.0, INK);
                 fit_text(d, &b, x + 14.0, y + 41.0, 14.0, LIST_W - 26.0, MUTED);
-                y += CARD_H + 12.0;
                 rect
             }
             Row::Update => {
@@ -178,7 +281,6 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
                 if on {
                     d.text(">", x + LIST_W - 28.0, rect[1] + 21.0, 22.0, WHITE);
                 }
-                y += UPDATE_H + 4.0;
                 rect
             }
             Row::ModUpdates => {
@@ -192,11 +294,10 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
                 if on {
                     d.text(">", x + LIST_W - 28.0, rect[1] + 21.0, 22.0, WHITE);
                 }
-                y += UPDATE_H + 4.0;
                 rect
             }
             Row::Quit => {
-                let rect = [x, FOOT - 32.0, if cfg!(target_arch = "wasm32") { 180.0 } else { 100.0 }, 30.0];
+                let rect = [x, foot - 32.0, if cfg!(target_arch = "wasm32") { 180.0 } else { 100.0 }, 30.0];
                 d.pill_at(rect, [INK, if on { ON } else { [80.0, 70.0, 90.0] }, if on { ON } else { [96.0, 84.0, 108.0] }], if on { 128.0 } else { 100.0 });
                 d.text(name(r), x + 18.0, rect[1] + 6.0, 18.0, if on { WHITE } else { INK });
                 rect
@@ -214,7 +315,6 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
                 if r == Row::Mods && mods_screen::reload_due(m) {
                     d.outlined(|d| d.text("Reload", x + LIST_W - 84.0, y + 10.0, 18.0, GOLD));
                 }
-                y += pitch;
                 rect
             }
         };
@@ -224,9 +324,11 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
         }
     }
     d.q(Tex::Cursor, [0.0, 0.0, 64.0, 32.0], [hand[0] + hand_x, hand[1], 64.0, 32.0], WHITE, 128.0);
-    preview(d, m, text, rows[sel], pads, [px, TOP, pw, FOOT - TOP]);
+    if pw > 0.0 {
+        preview(d, m, text, rows[sel], pads, [px, top, pw, foot - top]);
+    }
     if let Some(sx) = store {
-        mods_screen::news(d, m, [sx, TOP, STORE_W, FOOT - TOP]);
+        mods_screen::news(d, m, [sx, top, STORE_W, foot - top]);
     }
     stale_layout(d, m, hand_x);
     super::update_ask::layout(d, m, hand_x);
@@ -234,12 +336,17 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
 
 const STALE_TOP: f32 = 226.0;
 
+/// B695: the closest a short view closes the pills up to (their full height, a 4 gap) before the list scrolls instead;
+/// with every card up the whole screen closes them up further (`cards_clear_quit`), and a short view no more.
+const MIN_PITCH: f32 = PILL_H + 4.0;
+
 /// The Mod updates card's fill (the Mods row's backdrop, deeper).
 const MODS_UP: [f32; 3] = [70.0, 104.0, 80.0];
 
 /// The five pills' pitch and height: M97: with the cards (Rematch, Update; M135: Mod updates) they close up so the last
 /// card clears Quit, and (all three up) get shorter too.
-fn pitch(rows: &[Row]) -> (f32, f32) {
+/// `room` is from the list's top to over Quit.
+fn pitch(rows: &[Row], room: f32) -> (f32, f32) {
     let cards: f32 = rows
         .iter()
         .map(|r| match r {
@@ -249,7 +356,7 @@ fn pitch(rows: &[Row]) -> (f32, f32) {
         })
         .sum();
     let pills = rows.iter().filter(|r| !matches!(r, Row::Rematch | Row::Update | Row::ModUpdates | Row::Quit)).count().max(1);
-    let pitch = PITCH.min(((FOOT - 32.0 - TOP - cards) / pills as f32).floor());
+    let pitch = PITCH.min(((room - cards) / pills as f32).floor());
     (pitch, PILL_H.min(pitch - 4.0))
 }
 
@@ -339,7 +446,7 @@ pub(super) fn fit_text(d: &mut Draw, s: &str, x: f32, y: f32, size: f32, max: f3
     super::mods_screen::grid::marquee(d, s, [x, y], size, max, rgb, Some(t));
 }
 
-/// `s` word-wrapped to `w` at `size` from (x, y), at most `lines` lines; the y under it.
+/// `s` word-wrapped to `w` at `size` from (x, y), at most `lines` lines ("..." if that cuts it); the y under it.
 pub(super) fn para(d: &mut Draw, s: &str, x: f32, y: f32, w: f32, size: f32, lines: usize, rgb: [f32; 3]) -> f32 {
     let mut out: Vec<String> = Vec::new();
     for word in s.split_whitespace() {
@@ -350,6 +457,14 @@ pub(super) fn para(d: &mut Draw, s: &str, x: f32, y: f32, w: f32, size: f32, lin
             }
             _ => out.push(word.into()),
         }
+    }
+    // B695: words cut short (a short view at a big Menu Size) end in "..." on the last line shown
+    if lines > 0 && out.len() > lines {
+        let last = &mut out[lines - 1];
+        while d.width(&format!("{last}..."), size) > w && last.contains(' ') {
+            last.truncate(last.rfind(' ').unwrap_or(0));
+        }
+        last.push_str("...");
     }
     let mut y = y;
     for l in out.iter().take(lines) {
@@ -362,15 +477,6 @@ pub(super) fn para(d: &mut Draw, s: &str, x: f32, y: f32, w: f32, size: f32, lin
 /// The highlighted row's panel in `[x, y, w, h]`: its picture with its name over the foot, its words, three facts.
 fn preview(d: &mut Draw, m: &Menu, text: &Text, r: Row, pads: usize, [x, y, w, h]: [f32; 4]) {
     d.box3([x, y, w, h], 16.0, [Some(INK), Some(WHITE), Some(PAPER)], 118.0);
-    let pic = [x + 3.0, y + 3.0, w - 6.0, PIC_H];
-    if r != Row::Quit {
-        d.box3(pic, 13.0, [None, None, Some(backdrop(r))], 128.0);
-        d.q(Tex::Solid, [0.0; 4], [x, y + 3.0 + PIC_H, w, 2.5], INK, 128.0);
-        picture(d, m, r, pads, pic);
-        d.outlined(|d| d.text(name(r), x + 18.0, y + PIC_H - 34.0, 34.0, WHITE));
-    } else {
-        d.outlined(|d| d.text(name(r), x + 18.0, y + 14.0, 34.0, WHITE));
-    }
     let words = match r {
         Row::Rematch => "Play the last match again: same players, characters, costumes, court, umpire and length. A random court or umpire is drawn again.".to_string(),
         Row::Local => text.msg(188).to_string(),
@@ -388,8 +494,6 @@ fn preview(d: &mut Draw, m: &Menu, text: &Text, r: Row, pads: usize, [x, y, w, h
         Row::Quit => "Close the game.".into(),
         Row::ModUpdates => "The mod store has newer versions of mods you installed. Update all downloads and installs every one; Reload afterwards to play them.".into(),
     };
-    let top = if r == Row::Quit { y + 60.0 } else { y + PIC_H + 16.0 };
-    para(d, &words, x + 18.0, top, w - 36.0, 17.0, 4, INK);
     let on = |b: bool| if b { "On" } else { "Off" }.to_string();
     let facts: Vec<(&str, String)> = match r {
         Row::Rematch => {
@@ -436,6 +540,20 @@ fn preview(d: &mut Draw, m: &Menu, text: &Text, r: Row, pads: usize, [x, y, w, h
         },
         Row::Quit => vec![],
     };
+    // B695: on a short view the picture gives way, then the facts, then the words' last lines
+    let lines = lines_in(d, &words, w - 36.0, 17.0).min(4);
+    let (pic_h, lines, facts_shown) = if r == Row::Quit { (44.0, lines, false) } else { panel_fit(h, lines, 17.0 * 1.35, !facts.is_empty(), PIC_H) };
+    let pic = [x + 3.0, y + 3.0, w - 6.0, pic_h];
+    if r != Row::Quit {
+        d.box3(pic, 13.0, [None, None, Some(backdrop(r))], 128.0);
+        d.q(Tex::Solid, [0.0; 4], [x, y + 3.0 + pic_h, w, 2.5], INK, 128.0);
+        picture_in(d, pic, PIC_H, |d, pic| picture(d, m, r, pads, pic));
+        d.outlined(|d| d.text(name(r), x + 18.0, y + pic_h - 34.0, 34.0, WHITE));
+    } else {
+        d.outlined(|d| d.text(name(r), x + 18.0, y + 14.0, 34.0, WHITE));
+    }
+    para(d, &words, x + 18.0, y + pic_h + 16.0, w - 36.0, 17.0, lines, INK);
+    let facts = if facts_shown { facts } else { vec![] };
     let n = facts.len().max(1) as f32;
     let tw = (w - 36.0 - 10.0 * (n - 1.0)) / n;
     for (i, (k, v)) in facts.iter().enumerate() {
@@ -784,7 +902,7 @@ mod tests {
         for (cards, want) in [(vec![], 46.0), (vec![Rematch], 46.0), (vec![Update], 46.0), (vec![Rematch, Update], 42.0), (vec![ModUpdates], 46.0), (vec![Rematch, ModUpdates, Update], 0.0)] {
             let mut rows: Vec<Row> = cards.iter().filter(|r| **r == Rematch).copied().chain(base).chain(cards.iter().filter(|r| **r != Rematch).copied()).collect();
             rows.push(Quit);
-            let (pitch, ph) = pitch(&rows);
+            let (pitch, ph) = pitch(&rows, FOOT - 32.0 - TOP);
             if want > 0.0 {
                 assert_eq!(pitch, want, "{cards:?}");
             }

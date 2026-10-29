@@ -4,7 +4,7 @@
 //! file the site's Donate section reads) and opens the Ko-fi page. Laid out in home's columns, so it scales uniformly
 //! at any aspect ratio.
 
-use super::home::{self, FACT_H, FOOT, LIST_W, MUTED, OFF, ON, PAPER, PIC_H, PILL_H, PITCH, TOP, fit_text, para};
+use super::home::{self, FACT_H, LIST_W, MUTED, OFF, ON, PAPER, PIC_H, PILL_H, PITCH, fit_text, para};
 use super::{Draw, Effect, GOLD, INK, Menu, Press, Screen, Tex, WHITE, pointer};
 
 /// The donate link (user 2026-10-15, plan/HUMAN.md; also `.github/FUNDING.yml` and the site's Donate section).
@@ -81,11 +81,12 @@ impl Menu {
 pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
     d.frame(10, super::WALL);
     let (x, px, pw, _) = home::columns(m.grid.extra);
+    let (top, foot) = home::span(&m.grid);
     let sel = m.sel.min(ROWS.len() - 1);
     let mut hand = [0.0; 2];
     for (i, name) in ROWS.iter().enumerate() {
         let on = i == sel;
-        let rect = [x, TOP + PITCH * i as f32, LIST_W, PILL_H];
+        let rect = [x, top + PITCH * i as f32, LIST_W, PILL_H];
         d.pill_at(rect, [INK, WHITE, if on { ON } else { OFF }], 128.0);
         fit_text(d, name, x + 20.0, rect[1] + 7.0, 24.0, LIST_W - 56.0, if on { INK } else { [100.0; 3] });
         if on {
@@ -95,16 +96,49 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         d.hit(rect, pointer::Act::Row(i, pointer::OK));
     }
     d.q(Tex::Cursor, [0.0, 0.0, 64.0, 32.0], [hand[0] + hand_x, hand[1], 64.0, 32.0], WHITE, 128.0);
-    donate(d, [px, TOP, pw, FOOT - TOP]);
+    if pw > 0.0 {
+        donate(d, [px, top, pw, foot - top]);
+    } else {
+        // B695: no room beside the row (a narrow view at a big Menu Size): the panel under it
+        let (y, w) = (top + PITCH * ROWS.len() as f32 + 6.0, (640.0 + 2.0 * m.grid.extra - 32.0).min(home::PANEL_MIN * 1.6));
+        donate(d, [320.0 - w / 2.0, y, w, foot - y]);
+    }
 }
 
 /// Donate's panel in `[x, y, w, h]`: the counts as big tiles over a gold picture, the words, three facts.
 fn donate(d: &mut Draw, [x, y, w, h]: [f32; 4]) {
     d.box3([x, y, w, h], 16.0, [Some(INK), Some(WHITE), Some(PAPER)], 118.0);
-    let pic = [x + 3.0, y + 3.0, w - 6.0, PIC_H];
-    d.box3(pic, 13.0, [None, None, Some([118.0, 104.0, 70.0])], 128.0);
-    d.q(Tex::Solid, [0.0; 4], [x, y + 3.0 + PIC_H, w, 2.5], INK, 128.0);
+    let words = "OpenTennis is free, and always will be: no paid builds, no locked features, no early access. If you'd like to support my work, you can chip in on Ko-fi. Above: what building it has taken so far.";
     let stats = stats().as_ref();
+    // B695: on a short view the picture gives way, then the facts, then the words' last lines
+    let lines = home::lines_in(d, words, w - 36.0, 15.0).min(5);
+    let (pic_h, lines, facts_shown) = home::panel_fit(h, lines, 15.0 * 1.35, true, PIC_H);
+    let pic = [x + 3.0, y + 3.0, w - 6.0, pic_h];
+    d.box3(pic, 13.0, [None, None, Some([118.0, 104.0, 70.0])], 128.0);
+    d.q(Tex::Solid, [0.0; 4], [x, y + 3.0 + pic_h, w, 2.5], INK, 128.0);
+    home::picture_in(d, pic, PIC_H, |d, pic| tiles(d, stats, pic));
+    d.outlined(|d| d.text("Donate", x + 18.0, y + pic_h - 34.0, 34.0, WHITE));
+    para(d, words, x + 18.0, y + pic_h + 16.0, w - 36.0, 15.0, lines, INK);
+    let mut facts = vec![("Ko-fi", "ko-fi.com/fizlo".to_string())];
+    if let Some(s) = stats {
+        facts.extend([("Since", s.since.clone()), ("Counted", s.updated.clone())]);
+    }
+    if !facts_shown {
+        facts.clear();
+    }
+    let n = facts.len() as f32;
+    let tw = (w - 36.0 - 10.0 * (n - 1.0)) / n;
+    for (i, (k, v)) in facts.iter().enumerate() {
+        let tx = x + 18.0 + (tw + 10.0) * i as f32;
+        let ty = y + h - 16.0 - FACT_H;
+        d.box3([tx, ty, tw, FACT_H], 10.0, [Some(INK), Some(PAPER), Some(PAPER)], 128.0);
+        fit_text(d, &k.to_uppercase(), tx + 10.0, ty + 6.0, 12.0, tw - 20.0, MUTED);
+        fit_text(d, v, tx + 10.0, ty + 21.0, 17.0, tw - 20.0, INK);
+    }
+}
+
+/// The counts as big tiles across the picture `pic`.
+fn tiles(d: &mut Draw, stats: Option<&Stats>, pic: [f32; 4]) {
     if let Some(s) = stats {
         let tiles = [(s.prompts, "PROMPTS"), (s.tokens, "TOKENS"), (s.commits, "COMMITS"), (s.sessions, "SESSIONS")];
         let (gap, th) = (8.0, 92.0);
@@ -120,22 +154,6 @@ fn donate(d: &mut Draw, [x, y, w, h]: [f32; 4]) {
             }
             d.label(label, r[0] + tw / 2.0, r[1] + th - 22.0, 12.0, tw - 14.0, GOLD);
         }
-    }
-    d.outlined(|d| d.text("Donate", x + 18.0, y + PIC_H - 34.0, 34.0, WHITE));
-    let words = "OpenTennis is free, and always will be: no paid builds, no locked features, no early access. If you'd like to support my work, you can chip in on Ko-fi. Above: what building it has taken so far.";
-    para(d, words, x + 18.0, y + PIC_H + 16.0, w - 36.0, 15.0, 5, INK);
-    let mut facts = vec![("Ko-fi", "ko-fi.com/fizlo".to_string())];
-    if let Some(s) = stats {
-        facts.extend([("Since", s.since.clone()), ("Counted", s.updated.clone())]);
-    }
-    let n = facts.len() as f32;
-    let tw = (w - 36.0 - 10.0 * (n - 1.0)) / n;
-    for (i, (k, v)) in facts.iter().enumerate() {
-        let tx = x + 18.0 + (tw + 10.0) * i as f32;
-        let ty = y + h - 16.0 - FACT_H;
-        d.box3([tx, ty, tw, FACT_H], 10.0, [Some(INK), Some(PAPER), Some(PAPER)], 128.0);
-        fit_text(d, &k.to_uppercase(), tx + 10.0, ty + 6.0, 12.0, tw - 20.0, MUTED);
-        fit_text(d, v, tx + 10.0, ty + 21.0, 17.0, tw - 20.0, INK);
     }
 }
 

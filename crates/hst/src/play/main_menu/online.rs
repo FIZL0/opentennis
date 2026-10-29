@@ -166,12 +166,90 @@ fn online_cols(extra: f32) -> (f32, f32, f32) {
     (x + shift, px + shift, pw)
 }
 
-/// Where `ROWS` are drawn (Back has none: the title tab and ○ are Back).
-fn row_rects(extra: f32) -> Vec<[f32; 4]> {
-    let (x, ..) = online_cols(extra);
-    let mut v: Vec<[f32; 4]> = (0..4).map(|i| [x, 50.0 + 46.0 * i as f32, 200.0, 38.0]).collect();
-    v.extend((0..2).map(|i| [x, 254.0 + 30.0 * i as f32, 200.0, 26.0]));
+/// Where `ROWS` are drawn (Back has none: the title tab and ○ are Back), before `online_screen` scrolls them. B695: on
+/// a short view (a big Menu Size) the big pills close up to fit over the help line, then stop at 36 apart (the list
+/// scrolls).
+fn row_rects(g: &super::Grid) -> Vec<[f32; 4]> {
+    let (x, ..) = online_cols(g.extra);
+    let (top, foot) = card_span(g);
+    // B695: a short view closes the gaps (to 4) and then scrolls (`online_screen`); the pills keep their height
+    let p = PITCH.min(((foot - top - 76.0) / 4.0).floor()).max(PITCH - 4.0);
+    let mut v: Vec<[f32; 4]> = (0..4).map(|i| [x, top + p * i as f32, 200.0, PITCH - 8.0]).collect();
+    v.extend((0..2).map(|i| [x, top + 4.0 * p + 20.0 + 30.0 * i as f32, 200.0, 26.0]));
     v
+}
+
+/// B695: the lobby list's place on the view: its left and width (480, narrower on a narrow view), the first row's
+/// top, how many rows show (6 while the screen fits the view), the note's top and whether the court column fits.
+struct LobbiesGeo {
+    x: f32,
+    w: f32,
+    top: f32,
+    rows: usize,
+    note: f32,
+    court: bool,
+}
+
+fn lobbies_geo(g: &super::Grid) -> LobbiesGeo {
+    let cut = g.view[1].max(0.0);
+    // a short view closes the gap under the title tab first (by up to 20)
+    let top = 76.0 + cut - cut.min(20.0);
+    let note = 346.0 + (g.view[3] - 432.0).min(0.0);
+    let rows = (((note - top + 6.0) / 44.0 + 0.01).floor() as usize).clamp(1, 6);
+    let w = 480.0f32.min(640.0 + 2.0 * g.extra - 140.0);
+    LobbiesGeo { x: 320.0 - w / 2.0, w, top, rows, note, court: w >= 400.0 }
+}
+
+/// B695: where Join by Code's (and the relay URL's) block goes on the view (`code_fit`).
+struct CodeFit {
+    /// How far the entry row moves (from 72).
+    dy: f32,
+    /// The keys' first row and the rows' pitch.
+    top: f32,
+    pitch: f32,
+    /// The buttons' row's gap under the keys, and the keys' and buttons' height (the letters keep their size).
+    gap: f32,
+    kh: f32,
+    /// The keys' left and pitch across (a button is two keys wide).
+    left: f32,
+    across: f32,
+    /// The scale the block is drawn at, about its top's middle.
+    s: f32,
+}
+
+/// B695: Join by Code's block on the view `g`, its keys' first row at `top` (`rows` of them, none on a touch screen).
+/// While the screen fits the view, as it is (72 down, keys 58 across and 44 apart); a short view closes the gap under
+/// the title tab (by up to 28) and over the info bar (to 4), the gap over the keys (to 2) and flattens the keys (to 26 high, 2 apart), and a
+/// narrow one narrows them (to 48 across), before the block shrinks as one; the letters stay their size.
+fn code_fit(g: &super::Grid, top: f32, rows: usize) -> CodeFit {
+    let cut = g.view[1].max(0.0);
+    let (from, foot) = (72.0 + cut - cut.min(28.0), 396.0 + (g.view[3] - 432.0).min(0.0));
+    // a short view's block comes as close as 4 to the info bar
+    let room = foot - from + if cut > 0.0 { 4.0 } else { 0.0 };
+    let across = ((640.0 + 2.0 * g.extra - 24.0) / 8.0).floor().clamp(48.0, 58.0);
+    let rows = rows as f32;
+    let (lead, pitch, gap, kh) = if top - 72.0 + 44.0 * rows + 46.0 <= room {
+        (top - 72.0, 44.0, 8.0, 38.0)
+    } else {
+        // the entry pills (38; the code's 4 lower than the URL's), then the rows and the buttons' row, each 2 under
+        // the last
+        let lead = if top > 124.0 { 44.0 } else { 40.0 };
+        let pitch = ((room - lead) / (rows + 1.0)).floor().clamp(28.0, 40.0);
+        (lead, pitch, 2.0, pitch - 2.0)
+    };
+    let high = lead + pitch * rows + gap + kh;
+    let s = (room / high).min((640.0 + 2.0 * g.extra - 16.0) / (8.0 * across)).min(1.0);
+    CodeFit { dy: from - 72.0, top: from + lead, pitch, gap, kh, left: 320.0 - 4.0 * across, across, s }
+}
+
+/// The big pills' pitch (`row_rects`).
+const PITCH: f32 = 46.0;
+
+/// B695: the Online card's (and its list's) top and foot on the view `g`: over the help line (`Draw::info`, from 404),
+/// closer in by what a big Menu Size cuts off the screen.
+fn card_span(g: &super::Grid) -> (f32, f32) {
+    let (top, foot) = super::home::span(g);
+    (top, foot - 30.0)
 }
 
 /// The lobby's buttons: the host's, a seated guest's (Ready shows "Not Ready" once ready), and with no lobby. B214:
@@ -596,7 +674,7 @@ impl Menu {
     /// M14: the chosen lobby item is a computer player's seat (←→ and L1 / R1 change its pick).
     /// M14: on Online or the lobby, whether ↑↓ and ←→ reach another pill from the chosen one.
     pub(super) fn pill_axes(&self) -> (bool, bool) {
-        let rects = if self.screen == Screen::Lobby { self.lobby_rects() } else { row_rects(self.grid.extra) };
+        let rects = if self.screen == Screen::Lobby { self.lobby_rects() } else { row_rects(&self.grid) };
         let to = |f: fn(&mut Press) -> &mut bool| {
             let mut k = Press::default();
             *f(&mut k) = true;
@@ -1093,7 +1171,7 @@ impl Menu {
     /// The Online menu: Quickplay, Host, Find, Join by code, Name, Relay, Back.
     fn online_menu_step(&mut self, k: Press, out: &mut Vec<Effect>) {
         use Effect::Sound;
-        let to = pill_step(&row_rects(self.grid.extra), self.sel.min(5), k);
+        let to = pill_step(&row_rects(&self.grid), self.sel.min(5), k);
         if to != self.sel {
             self.sel = to;
             out.push(Sound(0));
@@ -1918,10 +1996,15 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
             // B195: every open lobby, singles and doubles together, a row each: host, kind, court, open seats
             let n = m.net.list.len();
             // ponytail: one page of 6 rows (B496: the note under them); scroll when lobbies get that many
-            let first = m.sel.saturating_sub(5);
-            let (x, w) = (80.0, 480.0);
-            for (row, i) in (first..n + 3).take(6).enumerate() {
-                let (y, on) = (76.0 + 44.0 * row as f32, i == m.sel);
+            // B695: fewer on a short view, and narrower on a narrow one (`lobbies_geo`)
+            let geo = lobbies_geo(&m.grid);
+            let (x, w, top, note) = (geo.x, geo.w, geo.top, geo.note);
+            // none listed: room under the rows for the searching / none found panel (at least 80)
+            let shown = if n == 0 { geo.rows.min((((note - top - 80.0) / 44.0).floor() as usize).max(1)) } else { geo.rows };
+            let col = |c: f32| x + c * w / 480.0;
+            let first = m.sel.saturating_sub(shown - 1);
+            for (row, i) in (first..n + 3).take(shown).enumerate() {
+                let (y, on) = (top + 44.0 * row as f32, i == m.sel);
                 d.pill(x, y, w, if on { [128.0, 110.0, 40.0] } else { [70.0, 70.0, 80.0] });
                 d.hit([x, y, w, 38.0], Act::Row(i, OK));
                 let rgb = if on { WHITE } else { [100.0; 3] };
@@ -1934,34 +2017,66 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
                     d.pill(x, y, w, if on { [84.0, 80.0, 70.0] } else { [52.0, 52.0, 58.0] });
                     d.hit([x, y, w, 38.0], Act::Row(i, OK));
                     let grey = [72.0; 3];
-                    d.centred(&l.name, x + 70.0, y + 9.0, 20.0 * (120.0 / d.width(&l.name, 20.0).max(120.0)), grey);
-                    d.centred(if l.doubles { "Doubles" } else { "Singles" }, x + 180.0, y + 9.0, 20.0, grey);
-                    d.centred("Other version: update", x + 360.0, y + 9.0, 20.0, grey);
+                    if !geo.court {
+                        // B695: too narrow for the kind as well: the host and why
+                        let nw = w * 0.32;
+                        d.centred(&l.name, x + w * 0.2, y + 9.0, 20.0 * (nw / d.width(&l.name, 20.0).max(nw)), grey);
+                        d.label("Other version: update", x + w * 0.67, y + 9.0, 20.0, w * 0.54, grey);
+                        continue;
+                    }
+                    let nw = 120.0 * w / 480.0;
+                    d.centred(&l.name, col(70.0), y + 9.0, 20.0 * (nw / d.width(&l.name, 20.0).max(nw)), grey);
+                    d.label(if l.doubles { "Doubles" } else { "Singles" }, col(180.0), y + 9.0, 20.0, 90.0 * w / 480.0, grey);
+                    d.label("Other version: update", col(360.0), y + 9.0, 20.0, 230.0 * w / 480.0, grey);
                     continue;
                 }
-                d.fitted(&l.name, x + 70.0, y + 9.0, 20.0, 120.0);
-                d.centred(if l.doubles { "Doubles" } else { "Singles" }, x + 180.0, y + 9.0, 20.0, rgb);
-                d.fitted(&court_name(text, l.court), x + 315.0, y + 9.0, 20.0, 170.0);
-                d.centred(&format!("{} open", l.open()), x + 440.0, y + 9.0, 20.0, rgb);
+                if geo.court {
+                    d.fitted(&l.name, col(70.0), y + 9.0, 20.0, 120.0);
+                    d.centred(if l.doubles { "Doubles" } else { "Singles" }, col(180.0), y + 9.0, 20.0, rgb);
+                    d.fitted(&court_name(text, l.court), col(315.0), y + 9.0, 20.0, 170.0);
+                    d.centred(&format!("{} open", l.open()), col(440.0), y + 9.0, 20.0, rgb);
+                } else {
+                    // B695: too narrow for the court's column: the host, the kind, the seats
+                    let c = |k: f32| x + w * k;
+                    d.fitted(&l.name, c(0.2), y + 9.0, 20.0, w * 0.34);
+                    d.centred(if l.doubles { "Doubles" } else { "Singles" }, c(0.56), y + 9.0, 20.0, rgb);
+                    d.centred(&format!("{} open", l.open()), c(0.84), y + 9.0, 20.0, rgb);
+                }
             }
-            d.q(Tex::Cursor, [0.0, 0.0, 64.0, 32.0], [x - 60.0 + hand_x, 76.0 + 44.0 * (m.sel - first) as f32 + 3.0, 64.0, 32.0], WHITE, 128.0);
+            d.q(Tex::Cursor, [0.0, 0.0, 64.0, 32.0], [x - 60.0 + hand_x, top + 44.0 * (m.sel - first) as f32 + 3.0, 64.0, 32.0], WHITE, 128.0);
             // B236: searching, nothing found or failed, under Refresh / Back; still searching with some listed, a
             // spinner up by the title
+            // B695: the panel's box between the rows and the note (`lobbies_geo`), shrunk as one if it has less room
+            let (rows_end, mark) = (top + 44.0 * (n + 3).min(shown) as f32 - 6.0, d.mark());
             match (n, m.net.finding > 0, m.net.fail) {
                 (0, true, _) => busy(d, m.net.spin, 276.0, "Searching for lobbies...", "This network first, then the internet."),
                 (0, false, Some(t)) => failed(d, 276.0, t, "Refresh to try again (the reason is below)."),
                 (0, false, None) => notice(d, 276.0, "No open lobbies found", "Refresh to look again, or Host one from Online."),
                 (_, true, _) => {
+                    // up by the title, kept to the window's top right
+                    d.anchor = super::Anchor::Sides;
                     spinner(d, m.net.spin, 596.0, 44.0, 12.0);
                     d.outlined(|d| d.text("Searching...", 452.0, 34.0, 20.0, WHITE));
+                    d.anchor = super::Anchor::Centre;
                 }
                 _ => {}
             }
+            if n == 0 && (rows_end + 8.0 > if m.net.finding > 0 { 220.0 } else { 240.0 } || note - 8.0 < 332.0) {
+                // as drawn: 220..332 with the spinner's room (the others from 240); fit between the rows and the note
+                let (from, to) = (if m.net.finding > 0 { 220.0 } else { 240.0 }, 332.0);
+                let (lo, hi) = (rows_end + 8.0, note - 8.0);
+                let s = ((hi - lo) / (to - from)).min(1.0);
+                let y0 = lo + ((hi - lo) - (to - from) * s) / 2.0;
+                d.scale_since(mark, [320.0, from], s);
+                let dy = y0 - from;
+                d.out[mark.0..].iter_mut().for_each(|q| q.dst[1] += dy);
+                d.hits[mark.1..].iter_mut().for_each(|h| h.rect[1] += dy);
+            }
             // B496: the list comes from discovery, so it can lag, linger or differ between players: always say so
-            d.box3([x, 346.0, w, 48.0], 12.0, [Some(super::INK), Some(WHITE), Some([40.0, 40.0, 50.0])], 120.0);
-            d.label("Lobbies can take a while to show up, or may be missing.", 320.0, 352.0, 16.0, w - 24.0, WHITE);
-            d.label("Join by Code is more reliable.", 320.0, 372.0, 16.0, w - 24.0, super::GOLD);
-            d.hit([x, 346.0, w, 48.0], Act::Row(n + 1, OK));
+            d.box3([x, note, w, 48.0], 12.0, [Some(super::INK), Some(WHITE), Some([40.0, 40.0, 50.0])], 120.0);
+            d.label("Lobbies can take a while to show up, or may be missing.", 320.0, note + 6.0, 16.0, w - 24.0, WHITE);
+            d.label("Join by Code is more reliable.", 320.0, note + 26.0, 16.0, w - 24.0, super::GOLD);
+            d.hit([x, note, w, 48.0], Act::Row(n + 1, OK));
             let info = match m.net.list.get(m.sel) {
                 Some(l) if !l.same_build() => format!("{}'s lobby: {}", l.name, crate::net::version_differs(&other_build(l), crate::handshake::build())),
                 Some(l) => format!("{}'s {} lobby on {}: {} of {} seats open. OK joins, then you pick your characters.", l.name, if l.doubles { "doubles" } else { "singles" }, court_name(text, l.court), l.open(), l.seats),
@@ -1983,31 +2098,34 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
             const OFF: [f32; 3] = [70.0, 70.0, 80.0];
             let keys = m.keys();
             let (top, rows) = if m.net.url { (124.0, keys.len() / 8) } else { (132.0, 4) };
+            let grid = !touch_typing();
+            // B695: on a short or narrow view the keys close up (`code_fit`), then the whole block shrinks to fit
+            let CodeFit { dy, top, pitch, gap, kh, left, across, s } = code_fit(&m.grid, top, if grid { rows } else { 0 });
+            let mark = d.mark();
             if m.net.url {
                 // B323: the URL so far in the long pill, shrunk to fit, the cursor after it
-                d.pill(320.0 - 232.0 + 3.0, 72.0, 458.0, [40.0, 40.0, 50.0]);
+                d.pill(left + 3.0, 72.0 + dy, 8.0 * across - 6.0, [40.0, 40.0, 50.0]);
                 let cursor = if m.net.entry.len() < URL_MAX { "_" } else { "" };
-                d.fitted(&format!("{}{cursor}", m.net.entry), 320.0, 78.0, 26.0, 420.0);
+                d.fitted(&format!("{}{cursor}", m.net.entry), 320.0, 78.0 + dy, 26.0, 8.0 * across - 44.0);
             } else {
                 // the code so far, a pill a symbol
                 for i in 0..SHORT {
                     let x = 320.0 - 128.0 + 64.0 * i as f32 + 4.0;
-                    d.pill(x, 76.0, 56.0, if i == m.net.entry.len() { ON } else { [40.0, 40.0, 50.0] });
+                    d.pill(x, 76.0 + dy, 56.0, if i == m.net.entry.len() { ON } else { [40.0, 40.0, 50.0] });
                     if let Some(c) = m.net.entry.get(i..i + 1) {
-                        d.centred(c, x + 28.0, 80.0, 30.0, WHITE);
+                        d.centred(c, x + 28.0, 80.0 + dy, 30.0, WHITE);
                     }
                 }
             }
-            let grid = !touch_typing();
             for (i, c) in keys.iter().enumerate().filter(|_| grid) {
-                let (x, y) = (320.0 - 232.0 + 58.0 * (i % 8) as f32 + 3.0, top + 44.0 * (i / 8) as f32);
-                d.pill(x, y, 52.0, if m.sel == i { ON } else { OFF });
-                d.hit([x, y, 52.0, 38.0], Act::Row(i, OK));
+                let (x, y, w) = (left + across * (i % 8) as f32 + 3.0, top + pitch * (i / 8) as f32, across - 6.0);
+                d.pill_at([x, y, w, kh], [[30.0; 3], WHITE, if m.sel == i { ON } else { OFF }], 128.0);
+                d.hit([x, y, w, kh], Act::Row(i, OK));
                 let rgb = if m.sel == i { WHITE } else { [100.0; 3] };
                 if *c == b' ' {
-                    d.centred("Spc", x + 26.0, y + 11.0, 16.0, rgb);
+                    d.centred("Spc", x + w / 2.0, y + (kh - 16.0) / 2.0, 16.0, rgb);
                 } else {
-                    d.centred(&(*c as char).to_string(), x + 26.0, y + 7.0, 24.0, rgb);
+                    d.centred(&(*c as char).to_string(), x + w / 2.0, y + (kh - 24.0) / 2.0, 24.0, rgb);
                 }
             }
             let buttons = if m.net.url {
@@ -2016,12 +2134,13 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
                 ["Delete", "Paste", "Join", "Back"]
             };
             for (i, l) in buttons.iter().enumerate().filter(|_| grid) {
-                let (x, y, on) = (320.0 - 232.0 + 116.0 * i as f32 + 2.0, top + 44.0 * rows as f32 + 8.0, m.sel == keys.len() + i);
+                let (x, y, w, on) = (left + 2.0 * across * i as f32 + 2.0, top + pitch * rows as f32 + gap, 2.0 * across - 4.0, m.sel == keys.len() + i);
                 let dim = i == 2 && if m.net.url { crate::net::relay_url(&m.net.entry).is_err() } else { !is_short(&m.net.entry) };
-                d.pill(x, y, 112.0, if on { ON } else { OFF });
-                d.hit([x, y, 112.0, 38.0], Act::Row(keys.len() + i, OK));
-                d.centred(l, x + 56.0, y + 7.0, 24.0, if on && !dim { WHITE } else if dim { [60.0; 3] } else { [100.0; 3] });
+                d.pill_at([x, y, w, kh], [[30.0; 3], WHITE, if on { ON } else { OFF }], 128.0);
+                d.hit([x, y, w, kh], Act::Row(keys.len() + i, OK));
+                d.centred(l, x + w / 2.0, y + (kh - 24.0) / 2.0, 24.0, if on && !dim { WHITE } else if dim { [60.0; 3] } else { [100.0; 3] });
             }
+            d.scale_since(mark, [320.0, 72.0 + dy], s);
             let info = match () {
                 _ if !m.net.status.is_empty() => m.net.status.clone(),
                 _ if !grid && m.net.url => "Tap to type your own relay's URL (https://...). Return saves it; Back switches to n0's public relays.".into(),
@@ -2136,17 +2255,28 @@ fn online_screen(d: &mut Draw, m: &Menu, hand_x: f32) {
     // B441: the name's popup up over it: its row on, the hand the popup's
     let popup = m.screen == Screen::Code;
     let sel = if popup { 4 } else { m.sel.min(5) };
-    let rects = row_rects(m.grid.extra);
+    let rects = row_rects(&m.grid);
+    // B695: scrolled on a short view to keep the chosen row on it
+    let (top, foot) = card_span(&m.grid);
+    let hs: Vec<f32> = (0..rects.len()).map(|i| rects.get(i + 1).map_or(rects[i][3] + 4.0, |n| n[1] - rects[i][1])).collect();
+    let at = super::home::scrolled(d, &hs, sel, top, foot - top + 4.0, rects[0][0] + 205.0);
+    let mut you = None;
     for (i, &r) in rects.iter().enumerate() {
         let on = i == sel;
+        let Some(y) = at[i] else { continue };
+        let r = [r[0], y, r[2], r[3]];
         let [x, y, w, h] = r;
         if i < 4 {
             d.pill_at(r, [INK, WHITE, if on { ON } else { OFF }], 128.0);
-            d.text(ROWS[i], x + 20.0, y + 7.0, 24.0, if on { INK } else { [100.0; 3] });
+            let (ty, ts) = (y + 7.0 * h / 38.0, 24.0 * h / 38.0);
+            d.text(ROWS[i], x + 20.0, ty, ts, if on { INK } else { [100.0; 3] });
             if on {
-                d.text(">", x + w - 28.0, y + 7.0, 24.0, INK);
+                d.text(">", x + w - 28.0, ty, ts, INK);
             }
         } else {
+            if i == 4 {
+                you = Some([x, y]);
+            }
             d.pill_at(r, [INK, WHITE, if on { ON } else { SMALL }], 128.0);
             let value = if i == 4 { cfg.name.clone() } else { relay.clone() };
             d.text(ROWS[i], x + 12.0, y + 5.0, 15.0, INK);
@@ -2158,16 +2288,73 @@ fn online_screen(d: &mut Draw, m: &Menu, hand_x: f32) {
             d.q(Tex::Cursor, [0.0, 0.0, 64.0, 32.0], [x - 60.0 + hand_x, y + h / 2.0 - 16.0, 64.0, 32.0], WHITE, 128.0);
         }
     }
-    d.outlined(|d| d.text("YOU", rects[4][0] + 6.0, rects[4][1] - 17.0, 13.0, WHITE));
+    if let Some([x, y]) = you {
+        d.outlined(|d| d.text("YOU", x + 6.0, y - 17.0, 13.0, WHITE));
+    }
 
     // the card
     let (_, x, w) = online_cols(m.grid.extra);
+    if w <= 0.0 {
+        // B695: no room beside the list (`home::columns`)
+        let words = online_words(m, sel);
+        d.info(if m.net.status.is_empty() { &words } else { &m.net.status });
+        return;
+    }
     // over the help line (`Draw::info`, from 404)
-    let (y, h, pic_h) = (50.0, 346.0, 160.0);
+    let (y, h) = (top, foot - top);
     d.box3([x, y, w, h], 16.0, [Some(INK), Some(WHITE), Some(PAPER)], 118.0);
+    let words = online_words(m, sel);
+    let lines = super::home::lines_in(d, &words, w - 36.0, 17.0).min(4);
+    let (pic_h, lines, facts_shown) = super::home::panel_fit(h, lines, 17.0 * 1.35, true, PIC_H);
     let pic = [x + 3.0, y + 3.0, w - 6.0, pic_h];
     d.box3(pic, 13.0, [None, None, Some([92.0, 108.0, 122.0])], 128.0);
     d.q(Tex::Solid, [0.0; 4], [x, y + 3.0 + pic_h, w, 2.5], INK, 128.0);
+    // the picture's art laid out at its full height, then shrunk into it (`home::picture_in`)
+    super::home::picture_in(d, pic, PIC_H, |d, p| card_art(d, m, sel, &cfg, &relay, [p[0] - 3.0, p[1] - 3.0, p[2] + 6.0]));
+    d.outlined(|d| d.text(ROWS[sel], x + 18.0, y + pic_h - 34.0, 34.0, WHITE));
+    para(d, &words, x + 18.0, y + pic_h + 16.0, w - 36.0, 17.0, lines, INK);
+    let open = match m.net.list.len() {
+        0 if m.net.finding > 0 => "Searching...".to_string(),
+        0 if !m.net.why.is_empty() => "Couldn't check".into(),
+        0 => "None open".into(),
+        n => format!("{n} open"),
+    };
+    let players = m.seats.iter().filter(|s| s.is_some()).count().max(1);
+    let facts = [("Lobbies", open), ("Your players", players.to_string()), ("Relay", relay.clone())];
+    let tw = (w - 36.0 - 20.0) / 3.0;
+    for (i, (k, v)) in facts.iter().enumerate().filter(|_| facts_shown) {
+        let (tx, ty) = (x + 18.0 + (tw + 10.0) * i as f32, y + h - 16.0 - 44.0);
+        d.box3([tx, ty, tw, 44.0], 10.0, [Some(INK), Some(PAPER), Some(PAPER)], 128.0);
+        fit(d, &k.to_uppercase(), tx + 10.0, ty + 6.0, 12.0, tw - 20.0, MUTED);
+        fit(d, v, tx + 10.0, ty + 21.0, 17.0, tw - 20.0, INK);
+    }
+    d.info(if m.net.status.is_empty() { &words } else { &m.net.status });
+}
+
+/// The Online card's picture's height at its full size.
+const PIC_H: f32 = 160.0;
+
+/// The Online card's words for row `sel`.
+fn online_words(m: &Menu, sel: usize) -> String {
+    let cfg = m.net.cfg.clone().unwrap_or_default();
+    match sel {
+        1 => "Open a lobby for players over the internet or on this network; start when you like: open seats are played by the computer.".to_string(),
+        2 => "List the open lobbies: on this network first (no internet needed), then over the internet.".into(),
+        0 => "Join the fullest open lobby that has room for your players, or host one and wait.".into(),
+        3 => "Type the host's 4-character code, or paste their link or code.".into(),
+        4 => format!("Your name on your lobby seats (now {}).", cfg.name),
+        _ if m.net.custom => "Advanced, for self-hosted relays: OK types your own iroh-relay's URL (kept in online.txt). Every player needs the same one.".into(),
+        _ if cfg!(target_arch = "wasm32") => "Relay: n0's public relays or your own (Custom...) for the internet; Off for this network only (no internet needed): codes go by copied link both ways.".into(),
+        _ => "The relay carries the match when players can't connect directly: n0's public relays, none, or your own (Custom...).".into(),
+    }
+}
+
+/// The Online card's picture for row `sel` on the card `[x, y, w]` (its picture `PIC_H` high under its top).
+fn card_art(d: &mut Draw, m: &Menu, sel: usize, cfg: &Online, relay: &str, [x, y, w]: [f32; 3]) {
+    use super::INK;
+    const PAPER: [f32; 3] = [128.0; 3];
+    const MUTED: [f32; 3] = [45.0, 40.0, 52.0];
+    let fit = super::home::fit_text;
     let lobbies = |d: &mut Draw| {
         d.outlined(|d| d.text("OPEN LOBBIES NOW", x + 18.0, y + 12.0, 13.0, WHITE));
         if m.net.list.is_empty() && m.net.finding == 0 && !m.net.why.is_empty() {
@@ -2206,36 +2393,8 @@ fn online_screen(d: &mut Draw, m: &Menu, hand_x: f32) {
         }
         3 => big(d, "_  _  _  _"),
         4 => big(d, &cfg.name),
-        _ => big(d, &relay),
+        _ => big(d, relay),
     }
-    d.outlined(|d| d.text(ROWS[sel], x + 18.0, y + pic_h - 34.0, 34.0, WHITE));
-    let words = match sel {
-        1 => "Open a lobby for players over the internet or on this network; start when you like: open seats are played by the computer.".to_string(),
-        2 => "List the open lobbies: on this network first (no internet needed), then over the internet.".into(),
-        0 => "Join the fullest open lobby that has room for your players, or host one and wait.".into(),
-        3 => "Type the host's 4-character code, or paste their link or code.".into(),
-        4 => format!("Your name on your lobby seats (now {}).", cfg.name),
-        _ if m.net.custom => "Advanced, for self-hosted relays: OK types your own iroh-relay's URL (kept in online.txt). Every player needs the same one.".into(),
-        _ if cfg!(target_arch = "wasm32") => "Relay: n0's public relays or your own (Custom...) for the internet; Off for this network only (no internet needed): codes go by copied link both ways.".into(),
-        _ => "The relay carries the match when players can't connect directly: n0's public relays, none, or your own (Custom...).".into(),
-    };
-    para(d, &words, x + 18.0, y + pic_h + 16.0, w - 36.0, 17.0, 4, INK);
-    let open = match m.net.list.len() {
-        0 if m.net.finding > 0 => "Searching...".to_string(),
-        0 if !m.net.why.is_empty() => "Couldn't check".into(),
-        0 => "None open".into(),
-        n => format!("{n} open"),
-    };
-    let players = m.seats.iter().filter(|s| s.is_some()).count().max(1);
-    let facts = [("Lobbies", open), ("Your players", players.to_string()), ("Relay", relay.clone())];
-    let tw = (w - 36.0 - 20.0) / 3.0;
-    for (i, (k, v)) in facts.iter().enumerate() {
-        let (tx, ty) = (x + 18.0 + (tw + 10.0) * i as f32, y + h - 16.0 - 44.0);
-        d.box3([tx, ty, tw, 44.0], 10.0, [Some(INK), Some(PAPER), Some(PAPER)], 128.0);
-        fit(d, &k.to_uppercase(), tx + 10.0, ty + 6.0, 12.0, tw - 20.0, MUTED);
-        fit(d, v, tx + 10.0, ty + 21.0, 17.0, tw - 20.0, INK);
-    }
-    d.info(if m.net.status.is_empty() { &words } else { &m.net.status });
 }
 
 /// B519 (M120): whether friends can reach this lobby yet.

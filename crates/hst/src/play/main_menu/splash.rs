@@ -193,7 +193,8 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, pads: &[Entity], controllers: usize
         court(d, m, at(k + 1), w * w * (3.0 - 2.0 * w));
     }
     d.anchor = Anchor::Centre;
-    d.q(Tex::Logo, [0.0, 0.0, LOGO[0], LOGO[1]], [180.0, 34.0, 280.0, 280.0 * LOGO[1] / LOGO[0]], [128.0; 3], 128.0);
+    let (logo, y) = fit(&m.grid);
+    d.q(Tex::Logo, [0.0, 0.0, LOGO[0], LOGO[1]], logo, [128.0; 3], 128.0);
     // an empty line: Press (the pad's ✕ / A) or (Enter), in key art (`press`)
     let (line, sub) = match m.p1 {
         Some(Dev::Keys) if super::touch_page() => ("Player 1: Touch screen".to_string(), "Other players join on the character select".to_string()),
@@ -206,11 +207,11 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, pads: &[Entity], controllers: usize
     let a = if m.p1.is_some() { 128.0 } else { 128.0 * (0.7 + 0.3 * (s.t * 2.6).cos().abs()) };
     let start = d.out.len();
     if line.is_empty() {
-        press(d, controllers > 0, 334.0, 30.0);
+        press(d, controllers > 0, y, 30.0);
     }
-    d.outlined(|d| d.centred(&line, 320.0, 334.0, 30.0, if m.p1.is_some() { [128.0, 112.0, 30.0] } else { WHITE }));
+    d.outlined(|d| d.centred(&line, 320.0, y, 30.0, if m.p1.is_some() { [128.0, 112.0, 30.0] } else { WHITE }));
     d.out[start..].iter_mut().for_each(|q| q.alpha = q.alpha.min(a));
-    d.outlined(|d| d.centred(&sub, 320.0, 374.0, 17.0, [100.0; 3]));
+    d.outlined(|d| d.centred(&sub, 320.0, y + 40.0, 17.0, [100.0; 3]));
     // a click or tap anywhere is the keyboard's press (`pointer::device`: 1P has no device yet)
     d.popup(Some(pointer::press(|k| k.ok = true)));
     build(d);
@@ -219,6 +220,19 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, pads: &[Entity], controllers: usize
     }
     quit_layout(d, m);
     super::update_ask::layout(d, m, 0.0);
+}
+
+/// B695: the logo's rect and the prompt's line on the view `g`. While the screen fits, as it is (the logo from 34,
+/// the prompt at 334); a short view (Menu Size past what fills it) lifts the prompt to stay clear of the bottom and
+/// brings the logo's top down no further than 8 under the view's, then shrinks the logo (to 120 high at least) into
+/// what's left over the prompt, so the words keep growing with Menu Size.
+fn fit(g: &super::Grid) -> ([f32; 4], f32) {
+    let h = 280.0 * LOGO[1] / LOGO[0];
+    let top = 34.0f32.max(g.view[1] + 8.0);
+    let y = 334.0f32.min(g.view[3] + 16.0 - 14.0 - 57.0);
+    let h = h.min(y - 24.0 - top).max(120.0);
+    let w = h * LOGO[0] / LOGO[1];
+    ([320.0 - w / 2.0, top.min(y - 24.0 - h), w, h], y)
 }
 
 /// "Press (✕) or (Enter)" centred on x 320 from `y` (text `size`): the shown pad's ✕ / A art (`pad`: one is plugged
