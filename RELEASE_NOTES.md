@@ -7,3 +7,4 @@
 - Custom characters no longer dip and pop back up as the serve's follow-through settles into the ready stance.
 - Custom characters' alternate celebrations and reactions (clapping, hands framing the face) no longer have their free hand dragged toward the racket, so their hands meet where they should.
 - Custom characters' long hair no longer flies up when they start or finish an emote or celebration, or cut straight from one move into the next.
+- The sweat drop, "..." and swirl over a player who lost the point now clear once the celebration ends, instead of hanging on through the change of ends.

@@ -134,7 +134,7 @@ fn tick(mut g: ResMut<Game>, mut pops: ResMut<Pops>) {
         }
     }
     // in doubles a point lost on an error: sweat over the player who made it, "..." over the partner, until the
-    // next point is set up
+    // next point is set up or the players change ends
     let over = g.phase == Phase::Post;
     if over && !*was_over {
         let r = &g.rally;
@@ -157,7 +157,8 @@ fn tick(mut g: ResMut<Game>, mut pops: ResMut<Pops>) {
         }
     }
     *was_over = over;
-    if g.phase == Phase::Serve {
+    // the next point's set-up, or a change of ends once the celebration is over
+    if matches!(g.phase, Phase::Serve | Phase::ChangeEnds(_)) {
         list.retain(|p| matches!(p.popup, Popup::Bang | Popup::Skull));
     }
     list.retain_mut(|p| p.tick());
