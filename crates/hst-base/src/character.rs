@@ -1783,7 +1783,8 @@ pub fn animate(
                 let turned = drawn[r].0 * o;
                 drawn[r].1 += rest.rotation * o - turned;
             }
-            let own = |c: &Clip| rig.data.visual.values().any(|v| std::ptr::eq(v, c)) as u8 as f32;
+            // every take of a mod's clip is its own (`re_gu.4` as `re_gu`): the hold left its hands where they meet
+            let own = |c: &Clip| rig.data.own(c) as u8 as f32;
             let mine = match over {
                 Some((other, _, w)) => own(clip) + (own(other) - own(clip)) * w,
                 None => own(clip),
@@ -2223,6 +2224,11 @@ fn spawn_viewer(
     let c = spawn(&mut commands, &data, root);
     // `set`, so the motion's face plays too
     let mut m = Motion::default();
+    // `HST_TAKE=K`: a mod's K-th further take of the motion (`re_gu.K`), 0 its first
+    if let Some(k) = std::env::var("HST_TAKE").ok().and_then(|k| k.parse::<usize>().ok()) {
+        let n = data.takes.get(&motion).map_or(0, |t| t.len()) + 1;
+        m.sets = (1..u32::MAX).find(|&s| take(s, n) == k.min(n - 1)).unwrap_or(1) - 1;
+    }
     m.set(motion, 1.0, true, None, 0);
     commands.entity(c).insert(m);
 }

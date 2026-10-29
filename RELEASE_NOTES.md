@@ -4,3 +4,4 @@
 - Menu Size above 100% now makes the title screen, main menu, Online, the lobby list, the code keyboard and Extras bigger too: on a smaller or narrower window their lists scroll and side panels make room instead of everything staying at 100%.
 - On some added courts, the ground's painted patches and shadows no longer show through a racket's strings when the player stands at the far end.
 - Custom characters no longer dip and pop back up as the serve's follow-through settles into the ready stance.
+- Custom characters' alternate celebrations and reactions (clapping, hands framing the face) no longer have their free hand dragged toward the racket, so their hands meet where they should.
