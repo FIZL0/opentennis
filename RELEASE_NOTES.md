@@ -1,7 +1,1 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- Menu Size above 100% now makes every menu bigger, not just some: the title screen, main menu, Online, the lobby list, the code keyboard, Extras and all the Settings pages. On a smaller or narrower window, lists scroll and side panels make room, and long dropdowns show a page at a time instead of squeezing their text.
-- On the Mods page, a character's picture now sits beside its stats card, like on character select, instead of inside the name banner.
-- Players move smoothly on high-refresh screens: the blend between moves, the racket arm after a serve and the free hand going onto the racket no longer step or snap, and the body no longer stops for a moment as the serve hands over to the next move.
-- Custom characters move more naturally: they no longer dip after a serve's follow-through, their free hand is no longer dragged toward the racket during clapping and other celebrations, and long hair no longer flies up at the start or end of an emote or when cutting from one move to the next.
-- On some added courts, the ground's painted patches and shadows no longer show through a racket's strings when the player stands at the far end.
-- The sweat drop, "..." and swirl over a player who lost the point now clear once the celebration ends, instead of hanging on through the change of ends.
