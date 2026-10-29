@@ -278,9 +278,10 @@ fn scene_off(commands: &mut Commands, s: &mut Store, doc: &gltf::Document, blob:
                 }
             }
             let wide = !sky && bounds(&m, &rest).is_some_and(surrounds_play);
+            let flat = !sky && !wide && bounds(&m, &rest).is_some_and(on_ground);
             let m = s.meshes.add(m);
             for mat in &mats[p.material().index().unwrap_or(mats.len() - 1)] {
-                let mat = if wide { panorama(s, mat) } else { mat.clone() };
+                let mat = if wide { panorama(s, mat, PANORAMA) } else if flat { panorama(s, mat, GROUND) } else { mat.clone() };
                 let mut e = commands.spawn((Mesh3d(m.clone()), MeshMaterial3d(mat), Transform::default(), ChildOf(nodes[&n.index()])));
                 if let Some(sk) = &skinned {
                     e.insert((sk.clone(), crate::cull::Cullable));
@@ -423,10 +424,21 @@ fn surrounds_play((lo, hi): (Vec3, Vec3)) -> bool {
     lo.x < -OUT && hi.x > OUT && lo.z < -OUT && hi.z > OUT
 }
 
-/// A panorama's copy of `mat`, blended first like the disc courts' backdrops, lit and scrolled as `mat` is.
-fn panorama(s: &mut Store, mat: &Handle<GsMaterial>) -> Handle<GsMaterial> {
+/// Sort offset of a court mod's blended ground pieces ([`on_ground`]: decals, dirt, painted lines): after the
+/// panorama, before the projected shadows and everything standing on the court, as the disc courts' hole model. Sorted
+/// by the court's middle they went after a player beyond it and covered the racket's strings (they write no Z).
+const GROUND: f32 = -9.0e5;
+
+/// A box (game space, up is −y) lying flat on the ground.
+fn on_ground((lo, hi): (Vec3, Vec3)) -> bool {
+    hi.y - lo.y < 0.2 && -lo.y < 0.3 && -hi.y > -0.3
+}
+
+/// A copy of `mat` sorted at `order` (blended only), lit and scrolled as `mat` is: a panorama first like the disc
+/// courts' backdrops, a ground piece before what stands on it.
+fn panorama(s: &mut Store, mat: &Handle<GsMaterial>, order: f32) -> Handle<GsMaterial> {
     let Some(g) = s.materials.get(mat).filter(|g| g.alpha_mode() == AlphaMode::Blend) else { return mat.clone() };
-    let h = s.materials.add(GsMaterial { order: PANORAMA, ..g.clone() });
+    let h = s.materials.add(GsMaterial { order, ..g.clone() });
     let k = &mut *s.kept;
     let roles: Vec<_> = k.materials.iter().filter(|(id, _)| *id == mat.id()).map(|&(_, r)| (h.id(), r)).collect();
     let speeds: Vec<_> = k.scroll.iter().filter(|(id, _)| *id == mat.id()).map(|&(_, v)| (h.id(), v)).collect();
@@ -937,7 +949,7 @@ mod tests {
     fn court_mod_panoramas() {
         let Ok(root) = std::env::var("HST_MODS") else { return eprintln!("no HST_MODS, skipped") };
         let courts = crate::mods_court::list(std::path::Path::new(&root));
-        let mut found = Vec::new();
+        let (mut found, mut ground) = (Vec::new(), Vec::new());
         for c in &courts {
             for file in ["court.glb", "gimmick.glb"] {
                 let Ok((doc, blob)) = crate::mods::open(&c.dir.join(file)) else { continue };
@@ -947,8 +959,11 @@ mod tests {
                     let rest = [to_game * worlds[n.index()]];
                     for p in n.mesh().iter().flat_map(|m| m.primitives()) {
                         let blend = p.material().alpha_mode() == gltf::material::AlphaMode::Blend;
-                        if blend && primitive(&p, &blob, None, &rest, false).and_then(|m| bounds(&m, &rest)).is_some_and(surrounds_play) {
+                        let b = primitive(&p, &blob, None, &rest, false).and_then(|m| bounds(&m, &rest));
+                        if blend && b.is_some_and(surrounds_play) {
                             found.push(format!("{}: {}", c.id, p.material().name().unwrap_or("")));
+                        } else if blend && b.is_some_and(on_ground) {
+                            ground.push(format!("{}: {} {:?}", c.id, p.material().name().unwrap_or(""), b.unwrap()));
                         }
                     }
                 }
@@ -957,6 +972,9 @@ mod tests {
         assert!(found.iter().any(|f| f.starts_with("gag_c20_city: c20_bg_Enkei")), "{found:?}");
         assert!(!found.iter().any(|f| ["net", "fence", "fance", "roof", "water"].iter().any(|k| f.to_lowercase().contains(k))), "{found:?}");
         eprintln!("{found:#?}");
+        // and the ground pieces that draw before the players (decals, shadows, lines; flat by `on_ground`)
+        assert!(ground.iter().any(|f| f.starts_with("gag_c01_yamate: c01_yamate_ground07")), "{ground:?}");
+        eprintln!("{ground:#?}");
     }
 
     /// B506: every court mod under `$HST_MODS`: the creatures left out for standing in the players' room are whole (a
