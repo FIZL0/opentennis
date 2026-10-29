@@ -187,33 +187,108 @@ pub fn log_layer(_: &mut App) -> Option<BoxedLayer> {
     Some(Box::new(tracing_subscriber::fmt::Layer::default().with_ansi(false).with_writer(std::io::stderr)))
 }
 
-/// No disc yet: a page that says where the ISO goes, instead of a launch that closes on a black screen.
+/// No disc yet: the start page (`start_page.rs`) with the Files app's picker, instead of a launch that closes on a black
+/// screen. An ISO dropped in the app's folder still works too (`disc::resolve` finds it on the next launch).
 pub fn no_disc() -> ! {
     eprintln!("no disc image in Documents");
-    App::new()
+    let plugins = DefaultPlugins.set(bevy::log::LogPlugin { custom_layer: log_layer, ..default() }).set(WindowPlugin {
         // fullscreen like the game: a default (1280×720) window lays out bigger than the phone's screen
-        .add_plugins(DefaultPlugins.set(bevy::log::LogPlugin { custom_layer: log_layer, ..default() }).set(WindowPlugin {
-            primary_window: Some(Window { mode: bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Primary), ..default() }),
-            ..default()
-        }))
-        .insert_resource(ClearColor(Color::srgb(0.05, 0.12, 0.2)))
-        .add_systems(Startup, |mut commands: Commands| {
-            commands.spawn(Camera2d);
-            commands
-                .spawn(Node { width: percent(100), height: percent(100), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() })
-                .with_child((
-                    Node { max_width: percent(85), ..default() },
-                    Text::new(
-                        "Hot Shots Tennis needs your disc image.\n\n\
-                         In the Files app, open On My iPhone > OpenTennis\n\
-                         (the folder with this app's icon), put your\n\
-                         Hot Shots Tennis (USA) ISO in it, then close and reopen this app.",
-                    ),
-                    TextFont { font_size: FontSize::VMin(3.5), ..default() },
-                ));
-        })
-        .run();
-    std::process::exit(0)
+        primary_window: Some(Window { mode: bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Primary), ..default() }),
+        ..default()
+    });
+    crate::start_page::run(plugins, crate::disc::data_dir().join("disc.pack"), INTRO)
+}
+
+const INTRO: &str = "This remaster plays from your own copy of the original game:\n\
+                     Hot Shots Tennis (USA), SCUS-97610, version 1.00.\n\n\
+                     Choose its disc image (.iso) in Files: iCloud Drive, On My iPhone or a USB drive. \
+                     The game copies the part it needs (about 170 MB); after that you can delete the ISO.\n\
+                     (Or put the ISO in On My iPhone > OpenTennis and reopen the app.)";
+
+/// iOS can't start an app again from inside: the player closes it.
+pub(crate) const DONE: &str = "Done! Tap to close, then open OpenTennis again to play.";
+
+pub(crate) fn restart() {}
+
+/// The picker's answer for [`taken`]: `Some(None)` closed without a file.
+static PICKED: std::sync::Mutex<Option<Option<std::fs::File>>> = std::sync::Mutex::new(None);
+
+pub(crate) fn taken() -> Option<Option<std::fs::File>> {
+    PICKED.lock().unwrap().take()
+}
+
+/// Opens the Files app's picker over the window (on the main thread); its answer arrives through [`taken`].
+pub(crate) fn pick() -> bool {
+    // SAFETY: the main queue lives for the process; `present_picker` takes no context
+    unsafe { dispatch_async_f(&raw const _dispatch_main_q, std::ptr::null_mut(), present_picker) };
+    true
+}
+
+objc2::define_class!(
+    /// The document picker's delegate: the picked file, opened in place (a security-scoped URL, kept open for the
+    /// run: the import reads it on its own thread), or the cancel.
+    #[unsafe(super(objc2::runtime::NSObject))]
+    #[name = "HstDiscPicker"]
+    struct DiscPicker;
+
+    impl DiscPicker {
+        #[unsafe(method(documentPicker:didPickDocumentsAtURLs:))]
+        fn picked(&self, _picker: &objc2::runtime::AnyObject, urls: &objc2::runtime::AnyObject) {
+            use objc2::runtime::AnyObject;
+            // SAFETY: `urls` is the NSArray<NSURL> UIKit hands the delegate; NSURL.path's UTF8String lives as long as it
+            let file = unsafe {
+                let url: *mut AnyObject = objc2::msg_send![urls, firstObject];
+                let url = url.as_ref();
+                url.and_then(|url| {
+                    let _: bool = objc2::msg_send![url, startAccessingSecurityScopedResource];
+                    let path: *mut AnyObject = objc2::msg_send![url, path];
+                    let c: *const std::ffi::c_char = objc2::msg_send![path, UTF8String];
+                    let path = std::ffi::CStr::from_ptr(c).to_string_lossy().into_owned();
+                    std::fs::File::open(&path).inspect_err(|e| eprintln!("opening the picked {path}: {e}")).ok()
+                })
+            };
+            *PICKED.lock().unwrap() = Some(file);
+        }
+
+        #[unsafe(method(documentPickerWasCancelled:))]
+        fn cancelled(&self, _picker: &objc2::runtime::AnyObject) {
+            *PICKED.lock().unwrap() = Some(None);
+        }
+    }
+);
+
+extern "C" fn present_picker(_: *mut std::ffi::c_void) {
+    use objc2::ClassType;
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    thread_local! {
+        // the picker holds its delegate weakly: main thread only, made on first use, kept
+        static DELEGATE: std::cell::OnceCell<objc2::rc::Retained<DiscPicker>> = const { std::cell::OnceCell::new() };
+    }
+    // SAFETY: on the main thread (dispatched there); the messages' signatures as UIKit/Foundation declare them
+    unsafe {
+        let delegate = DELEGATE.with(|d| objc2::rc::Retained::as_ptr(d.get_or_init(|| msg_send![DiscPicker::class(), new])) as *const AnyObject);
+        let app: *mut AnyObject = msg_send![class!(UIApplication), sharedApplication];
+        let mut window: *mut AnyObject = msg_send![&*app, keyWindow];
+        if window.is_null() {
+            let windows: *mut AnyObject = msg_send![&*app, windows];
+            window = msg_send![&*windows, firstObject];
+        }
+        let root: *mut AnyObject = if window.is_null() { std::ptr::null_mut() } else { msg_send![&*window, rootViewController] };
+        if root.is_null() {
+            eprintln!("disc picker: no view controller to show it over");
+            *PICKED.lock().unwrap() = Some(None);
+            return;
+        }
+        // any file: an ISO from a cloud drive often has no type; the import checks it's the disc
+        let any = objc2_foundation::NSString::from_str("public.item");
+        let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: &*any];
+        let picker: *mut AnyObject = msg_send![class!(UIDocumentPickerViewController), alloc];
+        // UIDocumentPickerModeOpen: the file in place, not a 4 GB copy into the app
+        let picker: *mut AnyObject = msg_send![picker, initWithDocumentTypes: types, inMode: 1isize];
+        let _: () = msg_send![&*picker, setDelegate: delegate];
+        let _: () = msg_send![&*root, presentViewController: picker, animated: true, completion: std::ptr::null_mut::<AnyObject>()];
+    }
 }
 
 // UIKit only on the main thread: the on-screen pad's calls go through its dispatch queue

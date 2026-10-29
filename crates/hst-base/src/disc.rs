@@ -7,7 +7,6 @@
 
 use hst_data::iso::Iso;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// The game's files (`crate::store`, M143): on Windows and Linux beside the game ([`beside_game`], B668), else (and
 /// where that folder won't take files) [`app_data_dir`].
@@ -137,24 +136,24 @@ fn import_iso(iso: &Path, pack: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The ISO from a file dialog (zenity or kdialog), if one is installed and the user picked a file.
+/// The ISO from the system's file dialog (the xdg portal on Linux, as the mod picker), if the user picked a file.
+#[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
 fn pick() -> Option<String> {
-    let title = "Hot Shots Tennis: pick your disc image (SCUS-97610)";
-    let tries: [(&str, &[&str]); 2] = [
-        ("zenity", &["--file-selection", "--title", title, "--file-filter", "Disc image | *.iso *.ISO", "--file-filter", "All files | *"]),
-        ("kdialog", &["--title", title, "--getopenfilename", ".", "*.iso *.ISO"]),
-    ];
-    tries.iter().find_map(|(cmd, args)| {
-        let out = Command::new(cmd).args(*args).output().ok().filter(|o| o.status.success())?;
-        Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|s| !s.is_empty())
-    })
+    let f = rfd::FileDialog::new().set_title("Hot Shots Tennis: pick your disc image (SCUS-97610)").add_filter("Disc image", &["iso", "ISO"]).pick_file()?;
+    Some(f.to_string_lossy().into_owned())
+}
+
+#[cfg(any(target_arch = "wasm32", target_os = "ios", target_os = "android"))]
+fn pick() -> Option<String> {
+    None
 }
 
 /// A message on stderr, and in a dialog when there is one (a launcher start has no terminal).
 fn tell(msg: &str) {
     eprintln!("{msg}");
+    #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
     if std::env::var_os("HST_BG").is_none() {
-        let _ = Command::new("zenity").args(["--info", "--no-wrap", "--text", msg]).status();
+        rfd::MessageDialog::new().set_title("Hot Shots Tennis").set_description(msg).show();
     }
 }
 
