@@ -1686,6 +1686,10 @@ pub fn animate(
                 Some(EASE_IN)
             } else if after_serve {
                 Some(SERVE_EASE)
+            } else if c.last >= hst_sim::motion::id::HIT_BY_BALL as usize && motion.clock.looping && rig.data.noise.as_ref().is_some_and(|n| !n.springs.is_empty()) {
+                // from a reaction or an emote back to standing or running: the game's 8-frame crossfade jerked the head,
+                // and spring hair flew up (only there: eased, strokes and runs looked slow)
+                Some(SETTLE_EASE)
             } else {
                 (!c.from.is_empty()).then_some(c.ease)
             };
@@ -1696,7 +1700,16 @@ pub fn animate(
                 (c.eased, c.ease) = (time.elapsed_secs_f64(), n);
             }
             c.own = own;
+            c.last = motion.id;
         }
+        // placed somewhere new (a point's set-up) the pose cuts, as the game's does: no ease from where it was
+        let at = joints.get(root).map(|t| t.translation).ok();
+        if let (Some(a), Some(b)) = (c.at, at)
+            && a.distance(b) > 0.5
+        {
+            c.from.clear();
+        }
+        c.at = at;
         // the outgoing motion was the set before this one
         let fading = rig.data.drawn_take(motion.fade.id as usize, motion.sets.wrapping_sub(1)).filter(|_| motion.fade.clip && !after_serve);
         // between the last two ticks' sampled times (across a loop's wrap); a mod's own clip on its own clock
@@ -1894,6 +1907,9 @@ fn untwist_thighs(data: &CharacterData, drawn: &[(Quat, Vec3)]) -> Vec<(usize, (
 /// IK's turns for this tick, and the face it last wrote.
 #[derive(Default)]
 pub struct Posing {
+    /// The last motion set, and where the rig stood last frame.
+    last: usize,
+    at: Option<Vec3>,
     poses: [(Option<PoseKey>, Vec<(Quat, Vec3)>); 2],
     /// The crossfade's weight, outgoing time and hold this tick and the one before (when the fixed clock, and the
     /// set, saw it), for drawing between them.
@@ -1940,6 +1956,10 @@ pub struct Posing {
 /// cuts straight between them.
 // ponytail: picked by eye, not the source game's blend
 const EASE_IN: f32 = 10.0;
+
+/// Frames a rig with spring hair takes to ease back into standing or running after a reaction or an emote.
+// ponytail: picked by eye
+const SETTLE_EASE: f32 = 20.0;
 
 /// Frames the off hand takes to go onto the racket or off it ([`hold_head`]), where a clip changes or the donor's
 /// hand leaves the head in a frame or two: at once, the arm jumped up to 90° in a frame.

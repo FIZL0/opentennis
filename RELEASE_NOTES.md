@@ -6,3 +6,4 @@
 - Players move smoothly on high-refresh screens: the blend between moves, the racket arm after a serve and the free hand going onto the racket no longer step or snap, and the body no longer stops for a moment as the serve hands over to the next move.
 - Custom characters no longer dip and pop back up as the serve's follow-through settles into the ready stance.
 - Custom characters' alternate celebrations and reactions (clapping, hands framing the face) no longer have their free hand dragged toward the racket, so their hands meet where they should.
+- Custom characters' long hair no longer flies up when they start or finish an emote or celebration, or cut straight from one move into the next.
