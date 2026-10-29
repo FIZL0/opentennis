@@ -1731,6 +1731,25 @@ pub fn animate(
         if let Some(d) = rig.data.joint("Bip01Head").and_then(|j| drawn.get_mut(j)) {
             d.0 = (d.0 * c.head).normalize();
         }
+        // the serve's follow-through turns into the ready stance (standing, bobbing from its start) as the racket comes
+        // round, instead of holding it behind the back until the next motion flips it to the front (looks only); before
+        // the feet, so the stance is planted as its own clip will be when it takes over (after them, the hips dipped and
+        // came back up at the hand-off)
+        let stand = rig.data.drawn(hst_sim::motion::id::STAND as usize).filter(|_| over.is_none() && serve(motion.id as i32));
+        let mut ready = 0.0;
+        if let Some(stand) = stand {
+            let t = ends[0] + (ends[1] - ends[0]) * f;
+            let w = ((t - SERVE_READY.0) / (SERVE_READY.1 - SERVE_READY.0)).clamp(0.0, 1.0);
+            if w > 0.0 {
+                ready = w * w * (3.0 - 2.0 * w);
+                // on its own clock: the serve's holds its end
+                let since = ((time.elapsed_secs_f64() - c.set_at) * 60.0) as f32 + time.overstep_fraction();
+                pose_at(&rig.data.joints, stand, stand.wrap((since - SERVE_READY.0).max(0.0), true), &mut c.ready);
+                for (d, &(q, v)) in drawn.iter_mut().zip(&c.ready) {
+                    *d = (d.0.slerp(q, ready), d.1.lerp(v, ready));
+                }
+            }
+        }
         // a mod's feet on the ground where the donor's are (B543)
         if let Some(feet) = &rig.data.feet
             && drawn.len() == rig.data.joints.len()
@@ -1740,6 +1759,9 @@ pub fn animate(
             if let Some((other, _, w)) = over {
                 lift += (c.lift(&rig.data, feet, other) - lift) * w;
             }
+            if let Some(stand) = stand.filter(|_| ready > 0.0) {
+                lift += (c.lift(&rig.data, feet, stand) - lift) * ready;
+            }
             feet.plant(&rig.data.joints, clip, &mut drawn, lift);
             // a mod's own clip keys the foot in the costume's own frame: its binds' turn undone (B563)
             let own = |c: &Clip| rig.data.own(c) as u8 as f32;
@@ -1748,24 +1770,6 @@ pub fn animate(
                 None => own(clip),
             };
             feet.unturn(&rig.data.joints, &mut drawn, u);
-        }
-        // the serve's follow-through turns into the ready stance (standing, bobbing from its start) as the racket comes
-        // round, instead of holding it behind the back until the next motion flips it to the front (looks only)
-        if over.is_none()
-            && serve(motion.id as i32)
-            && let Some(stand) = rig.data.drawn(hst_sim::motion::id::STAND as usize)
-        {
-            let t = ends[0] + (ends[1] - ends[0]) * f;
-            let w = ((t - SERVE_READY.0) / (SERVE_READY.1 - SERVE_READY.0)).clamp(0.0, 1.0);
-            if w > 0.0 {
-                let w = w * w * (3.0 - 2.0 * w);
-                // on its own clock: the serve's holds its end
-                let since = ((time.elapsed_secs_f64() - c.set_at) * 60.0) as f32 + time.overstep_fraction();
-                pose_at(&rig.data.joints, stand, stand.wrap((since - SERVE_READY.0).max(0.0), true), &mut c.ready);
-                for (d, &(q, v)) in drawn.iter_mut().zip(&c.ready) {
-                    *d = (d.0.slerp(q, w), d.1.lerp(v, w));
-                }
-            }
         }
         // a mod's off hand holds the racket's head where its donor's does (looks only), after the serve has turned into
         // the stance, which it holds too: before, the stance came in with the off arm as animated and snapped onto
