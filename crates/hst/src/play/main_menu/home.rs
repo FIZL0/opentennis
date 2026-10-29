@@ -262,6 +262,7 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
             Some(None) => continue,
             None => 0.0,
         };
+        let drawn = d.mark();
         let rect = match r {
             Row::Rematch => {
                 let rect = [x, y, LIST_W, CARD_H];
@@ -318,6 +319,10 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
                 rect
             }
         };
+        // the chosen row breathes in and out, as the disc start page's chosen pill (`hst_base::start_page`)
+        if on {
+            d.scale_since(drawn, [rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0], 1.0 + 0.025 * (d.clock * 3.0).sin());
+        }
         d.hit(rect, pointer::Act::Row(i, pointer::OK));
         if on {
             hand = [rect[0] - 60.0, rect[1] + rect[3] / 2.0 - 16.0];
