@@ -282,15 +282,22 @@ extern "C" fn present_picker(_: *mut std::ffi::c_void) {
             return;
         }
         // any file: an ISO from a cloud drive often has no type; the import checks it's the disc
+        // (the older initWithDocumentTypes:inMode: greys files out in open mode)
         let any = objc2_foundation::NSString::from_str("public.item");
-        let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: &*any];
+        let item: *mut AnyObject = msg_send![class!(UTType), typeWithIdentifier: &*any];
+        let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: item];
         let picker: *mut AnyObject = msg_send![class!(UIDocumentPickerViewController), alloc];
-        // UIDocumentPickerModeOpen: the file in place, not a 4 GB copy into the app
-        let picker: *mut AnyObject = msg_send![picker, initWithDocumentTypes: types, inMode: 1isize];
+        // asCopy NO: the file in place, not a 4 GB copy into the app
+        let picker: *mut AnyObject = msg_send![picker, initForOpeningContentTypes: types, asCopy: false];
+        let _: () = msg_send![&*picker, setShouldShowFileExtensions: true];
         let _: () = msg_send![&*picker, setDelegate: delegate];
         let _: () = msg_send![&*root, presentViewController: picker, animated: true, completion: std::ptr::null_mut::<AnyObject>()];
     }
 }
+
+// UTType lives here; nothing else links it
+#[link(name = "UniformTypeIdentifiers", kind = "framework")]
+unsafe extern "C" {}
 
 // UIKit only on the main thread: the on-screen pad's calls go through its dispatch queue
 unsafe extern "C" {
