@@ -14,6 +14,8 @@ pub mod cull;
 pub mod disc;
 #[cfg(target_os = "ios")]
 pub mod ios;
+/// iOS: "Tap screen to resume controller" after a screenshot; its rules tested anywhere.
+pub mod needs_tap;
 /// M159: Settings' Install info line (iOS); the wording and profile reading, tested anywhere.
 pub mod install_info;
 #[cfg(target_os = "android")]

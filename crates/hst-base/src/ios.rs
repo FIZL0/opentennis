@@ -18,6 +18,7 @@ pub fn log_to_documents(docs: &std::path::Path) {
     eprintln!("Hot Shots Tennis {} (build {})", env!("CARGO_PKG_VERSION"), option_env!("HST_BUILD").unwrap_or("?"));
     eprintln!("start: {}", memory());
     watch_memory_warnings();
+    watch_focus();
     play_on_silent();
     // a close with no log line and no crash report says nothing: these say which kind of end it was
     // SAFETY: the handlers are `extern "C"` functions that live for the process; on_signal makes only
@@ -165,6 +166,31 @@ fn watch_memory_warnings() {
         // kept for the process: the center holds the observer, the observer the block
         let _: *mut AnyObject = objc2::msg_send![observer, retain];
     });
+}
+
+/// A screenshot, or a trip out of the app and back, can leave the controllers silent until a touch
+/// (`needs_tap.rs`): each such notice is logged (which ones a screenshot sends) and passed on with the controllers in.
+fn watch_focus() {
+    use objc2::runtime::{AnyClass, AnyObject};
+    for name in ["UIApplicationUserDidTakeScreenshotNotification", "UIApplicationWillResignActiveNotification", "UIApplicationDidBecomeActiveNotification"] {
+        // SAFETY: the messages as NSNotificationCenter and GCController declare them, on the main queue; the block and
+        // observer are retained for the process
+        objc2::rc::autoreleasepool(|_| unsafe {
+            let ns = objc2_foundation::NSString::from_str(name);
+            let block = block2::RcBlock::new(move |_: std::ptr::NonNull<AnyObject>| {
+                let pads = AnyClass::get(c"GCController").map_or(0, |c| {
+                    let list: *mut AnyObject = objc2::msg_send![c, controllers];
+                    if list.is_null() { 0 } else { objc2::msg_send![list, count] }
+                });
+                eprintln!("iOS {name} ({pads} controllers)");
+                crate::needs_tap::notice(pads);
+            });
+            let center: *mut AnyObject = objc2::msg_send![objc2::class!(NSNotificationCenter), defaultCenter];
+            let main: *mut AnyObject = objc2::msg_send![objc2::class!(NSOperationQueue), mainQueue];
+            let observer: *mut AnyObject = objc2::msg_send![center, addObserverForName: &*ns, object: std::ptr::null_mut::<AnyObject>(), queue: main, usingBlock: &*block];
+            let _: *mut AnyObject = objc2::msg_send![observer, retain];
+        });
+    }
 }
 
 /// M159a: what a sideload installer left in our own bundle, for Update to hand the new release back to it: every URL
