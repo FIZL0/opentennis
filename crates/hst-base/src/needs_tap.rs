@@ -38,6 +38,9 @@ impl NeedsTap {
 #[derive(Component)]
 struct Overlay;
 
+/// The dimmer reaches the window's edges past a safe area (its copy only outside the view), over the match's fade.
+const BLEED: crate::widescreen::Bleed = crate::widescreen::Bleed { order: (1 << 20) + 0x2000, on: true };
+
 pub fn plugin(app: &mut App) {
     app.init_resource::<NeedsTap>().add_systems(PreUpdate, watch.after(bevy::input::InputSystems)).add_systems(Update, show);
 }
@@ -63,9 +66,9 @@ fn show(mut commands: Commands, tap: Res<NeedsTap>, mut overlay: Query<&mut Visi
         v.set_if_neq(vis);
     } else if tap.0 {
         // the menus' dark dimmer and outlined white words (the default font is the menus', `main.rs`)
-        let dim = Node { position_type: PositionType::Absolute, width: percent(100), height: percent(100), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
+        let dim = Node { position_type: PositionType::Absolute, left: percent(0), top: percent(0), width: percent(100), height: percent(100), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
         let words = (Text::new("Tap screen to resume controller"), TextFont { font_size: FontSize::VMin(5.0), ..default() }, TextColor(Color::WHITE), TextShadow { offset: Vec2::splat(3.0), color: Color::srgb_u8(0x2b, 0x28, 0x38) });
-        commands.spawn((Overlay, dim, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)), GlobalZIndex(i32::MAX - 2), Pickable::IGNORE, vis)).with_child((words, Pickable::IGNORE));
+        commands.spawn((Overlay, dim, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)), GlobalZIndex(i32::MAX - 2), Pickable::IGNORE, vis, BLEED, crate::widescreen::BleedOutside)).with_child((words, Pickable::IGNORE));
     }
 }
 
