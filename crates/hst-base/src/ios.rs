@@ -167,6 +167,55 @@ fn watch_memory_warnings() {
     });
 }
 
+/// M159a: what a sideload installer left in our own bundle, for Update to hand the new release back to it: every URL
+/// scheme Info.plist declares (AltStore adds `altstore-<bundle id>`, SideStore `sidestore-<bundle id>` to each app
+/// it signs) and whether TrollStore's `_TrollStore` marker file sits beside the .app. Nothing asks iOS which apps
+/// are installed (B652: `canOpenURL` says yes to schemes stock apps own).
+pub fn install_marks() -> (Vec<String>, bool) {
+    use objc2::runtime::AnyObject;
+    // the elements of an NSArray (none for nil or anything else)
+    unsafe fn items(a: *mut AnyObject) -> Vec<*mut AnyObject> {
+        // SAFETY: `a` is nil or an object; it's read as an NSArray only once it says it is one
+        unsafe {
+            let Some(a) = a.as_ref() else { return vec![] };
+            let array: bool = objc2::msg_send![a, isKindOfClass: objc2::class!(NSArray)];
+            if !array {
+                return vec![];
+            }
+            let n: usize = objc2::msg_send![a, count];
+            (0..n).map(|i| objc2::msg_send![a, objectAtIndex: i]).collect()
+        }
+    }
+    let mut schemes = vec![];
+    // SAFETY: the messages as NSBundle/NSArray/NSDictionary/NSString declare them; the info dictionary is immutable,
+    // and each object's class is checked before it's read as one
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let types_key = objc2_foundation::NSString::from_str("CFBundleURLTypes");
+        let schemes_key = objc2_foundation::NSString::from_str("CFBundleURLSchemes");
+        let bundle: *mut AnyObject = objc2::msg_send![objc2::class!(NSBundle), mainBundle];
+        let Some(bundle) = bundle.as_ref() else { return };
+        let types: *mut AnyObject = objc2::msg_send![bundle, objectForInfoDictionaryKey: &*types_key];
+        for t in items(types) {
+            let dict: bool = objc2::msg_send![&*t, isKindOfClass: objc2::class!(NSDictionary)];
+            if !dict {
+                continue;
+            }
+            let list: *mut AnyObject = objc2::msg_send![&*t, objectForKey: &*schemes_key];
+            for s in items(list) {
+                let string: bool = objc2::msg_send![&*s, isKindOfClass: objc2::class!(NSString)];
+                let c: *const std::ffi::c_char = if string { objc2::msg_send![&*s, UTF8String] } else { std::ptr::null() };
+                if !c.is_null() {
+                    schemes.push(std::ffi::CStr::from_ptr(c).to_string_lossy().into_owned());
+                }
+            }
+        }
+    });
+    // the executable is <container>/OpenTennis.app/OpenTennis; TrollStore marks the container
+    let container = std::env::current_exe().ok().and_then(|e| Some(e.parent()?.parent()?.to_path_buf()));
+    let troll = container.is_some_and(|c| c.join("_TrollStore").exists());
+    (schemes, troll)
+}
+
 /// Sound even with the ring/silent switch on: the Playback audio category (the default, SoloAmbient, mutes with it).
 /// Set before cpal starts its stream; AVFAudio is linked by cpal.
 fn play_on_silent() {
