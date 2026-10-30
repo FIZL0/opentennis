@@ -1600,23 +1600,25 @@ const SEAT_POP: f32 = 6.0;
 
 /// Draw a mod character's seat while it plays a clip of its own that sits on one (`CharacterData::seats`): it pops
 /// up from the floor as the clip starts and back down once the motion moves on (a clip ending seated holds its last
-/// frame on it). Looks only.
-pub fn seats(mut commands: Commands, rigs: Query<(Entity, &Rig, &Motion)>, mut shown: Local<HashMap<Entity, (Entity, (usize, u32), f32)>>) {
+/// frame on it). Looks only. A post-point reaction's turn (`CharacterData::reaction_turn`) turns the seat with the
+/// body, so it stays under it; it keeps that turn while it pops out.
+pub fn seats(mut commands: Commands, rigs: Query<(Entity, &Rig, &Motion, Has<OwnFacing>)>, mut shown: Local<HashMap<Entity, (Entity, (usize, u32), f32, Quat)>>) {
     // ease-out-back: a quick overshoot reads as a pop
     let pop = |x: f32| {
         let x = x.clamp(0.0, 1.0) - 1.0;
         1.0 + 2.7 * x * x * x + 1.7 * x * x
     };
-    for (root, rig, motion) in &rigs {
+    for (root, rig, motion, own_facing) in &rigs {
         let key = (motion.id, motion.sets);
         let seat = rig.data.drawn_seat(motion.id, motion.sets);
         let s = match shown.get_mut(&root) {
-            Some((_, k, s)) if *k == key => {
+            Some((_, k, s, turn)) if *k == key => {
                 *s = pop(motion.drawn.time / SEAT_POP);
+                *turn = seat_turn(rig, motion, own_facing);
                 *s
             }
             // the motion moved on: shrink what's left, then go
-            Some((e, _, s)) => {
+            Some((e, _, s, _)) => {
                 *s -= 1.0 / SEAT_POP;
                 if *s > 0.0 {
                     *s
@@ -1632,16 +1634,25 @@ pub fn seats(mut commands: Commands, rigs: Query<(Entity, &Rig, &Motion)>, mut s
                 for (mesh, material) in parts {
                     commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone()), Transform::default(), ChildOf(e)));
                 }
-                shown.insert(root, (e, key, 0.0));
+                shown.insert(root, (e, key, 0.0, seat_turn(rig, motion, own_facing)));
                 continue;
             }
         };
-        if let Some((e, ..)) = shown.get(&root) {
-            commands.entity(*e).insert(Transform::from_scale(Vec3::splat(s.max(0.0))));
+        if let Some((e, _, _, turn)) = shown.get(&root) {
+            commands.entity(*e).insert(Transform::from_scale(Vec3::splat(s.max(0.0))).with_rotation(*turn));
         }
     }
     // a rig gone (the match or the card torn down) takes its seat with it as its child
     shown.retain(|r, _| rigs.contains(*r));
+}
+
+/// The turn `animate` draws the root of `motion`'s clip with (a mod's own post-point reaction outside its own
+/// facing), none for every other clip.
+fn seat_turn(rig: &Rig, motion: &Motion, own_facing: bool) -> Quat {
+    (!own_facing)
+        .then(|| rig.data.drawn_take(motion.id, motion.sets).and_then(|c| rig.data.reaction_turn(motion.id, c)))
+        .flatten()
+        .unwrap_or(Quat::IDENTITY)
 }
 
 /// Sample every character's motion into its joints (unkeyed joints at rest, as the game binds a motion).
@@ -2305,6 +2316,48 @@ fn spawn_viewer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B697: a seat sits under the body it's drawn with: turned with a mod's own post-point reaction (the root's
+    /// `reaction_turn`), not while the rig keeps its own facing (an emote, a menu card).
+    #[test]
+    fn seat_turns_with_the_reaction() {
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mods/hst-mods/oob_pc12_anya");
+        let Ok(m) = crate::mods::read(&dir) else { return eprintln!("no mods/hst-mods/oob_pc12_anya, skipped") };
+        let (mut a, mut b, mut c, mut d) = (Assets::default(), Assets::default(), Assets::default(), Assets::default());
+        let data = Arc::new(crate::mods::load(&mut iso, &m, 0, &mut a, &mut b, &mut c, &mut d).unwrap());
+        // a won-the-game take that sits (`re_gu_set.2`)
+        let id = hst_sim::motion::id::WON_GAME as usize;
+        let sets = (0..1000).find(|&s| data.drawn_seat(id, s + 1).is_some()).expect("no seated take");
+        let turn = data.reaction_turn(id, data.drawn_take(id, sets + 1).unwrap()).unwrap();
+        assert!(turn.angle_between(Quat::IDENTITY) > 0.3, "{turn}");
+        for own_facing in [false, true] {
+            let mut app = App::new();
+            app.add_systems(Update, seats);
+            let mut motion = Motion { sets, ..default() };
+            motion.set(id, 1.0, true, None, 0);
+            let root = app.world_mut().spawn_empty().id();
+            let rig = {
+                let mut q = bevy::ecs::world::CommandQueue::default();
+                let mut commands = Commands::new(&mut q, app.world());
+                let rig = spawn(&mut commands, &data, root);
+                commands.entity(rig).insert(motion);
+                if own_facing {
+                    commands.entity(rig).insert(OwnFacing);
+                }
+                q.apply(app.world_mut());
+                rig
+            };
+            app.update();
+            app.update();
+            let w = app.world_mut();
+            let mut q = w.query::<(&ChildOf, &Transform, &Children)>();
+            let meshes: Vec<_> = q.iter(w).filter(|(p, ..)| p.parent() == rig).filter(|(.., ch)| ch.iter().any(|c| w.get::<Mesh3d>(c).is_some())).map(|(_, t, _)| t.rotation).collect();
+            let [r] = meshes[..] else { panic!("{} seats", meshes.len()) };
+            let want = if own_facing { Quat::IDENTITY } else { turn };
+            assert!(r.abs_diff_eq(want, 1e-5), "own facing {own_facing}: {r} vs {want}");
+        }
+    }
 
     /// B676: a mod's off hand holds wherever its donor's is on the racket. The stock off hands (wrist, in the racket
     /// joint's frame, from the disc clips the game samples alike): Carol's square stance at the head's bottom rim, her

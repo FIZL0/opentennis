@@ -4,3 +4,4 @@
 - The highlighted button on the main menu now gently pulses in and out.
 - On the disc start screen, Escape, Backspace and K now go back from Help instead of opening the file picker.
 - iPhone and iPad: if you installed OpenTennis with AltStore, SideStore or TrollStore, Update now opens that app to install the new version; otherwise it opens the release page as before.
+- Custom characters that sit down on a seat after a game or in an emote line up with their seat again, instead of sitting turned off it.
