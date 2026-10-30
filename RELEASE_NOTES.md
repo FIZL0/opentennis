@@ -3,3 +3,4 @@
 - Desktop: the first-start disc picker is now your system's own file dialog (it also works on Windows and macOS now).
 - The highlighted button on the main menu now gently pulses in and out.
 - On the disc start screen, Escape, Backspace and K now go back from Help instead of opening the file picker.
+- Online lobbies: your player's name tag now shows your online name until you pick a name (a default "Player" keeps 1P–4P).
