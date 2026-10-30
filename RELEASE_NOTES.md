@@ -7,3 +7,4 @@
 - Custom characters that sit down on a seat after a game or in an emote line up with their seat again, instead of sitting turned off it.
 - Online lobbies: your player's name tag now shows your online name until you pick a name (a default "Player" keeps 1P–4P).
 - Online lobbies: while someone is still downloading, Start says Downloading… and the countdown only begins once everyone has finished; the wait (and the countdown) can be cancelled.
+- Computer players' second serves now use their usual strong toss as often as in the original, instead of always a soft one.

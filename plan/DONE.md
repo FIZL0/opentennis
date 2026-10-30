@@ -1052,6 +1052,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B697** Sit-down emote on mod characters broken by the new rotation (user 2026-10-29): Anya's and Kratos's bench/seat sit no longer lines up with the seat since the rotation change; find which rotation commit did it, fix for mod characters without moving stock ones (crates/hst-play/src/play/, crates/hst-base/src/mods.rs). Release note line.
 - [x] **M160** Online lobbies: a player's roster name defaults to their online name; if it's still the default online name, keep the usual P1–P4 label (crates/hst/src/play/main_menu/, crates/hst-base/src/net/)
 - [x] **M161** Online Start button (user 2026-10-29): while any player is still downloading (disc/mods), the Start button says Downloading… instead of starting the countdown; the countdown starts only once every player has finished; the countdown (and the wait) can be cancelled (crates/hst/src/play/main_menu/, crates/hst-base/src/net/, crates/hst-base/src/mods_online.rs). Release note line.
+- [x] **B699** CPU second serves never toss strong: reset_positions (play.rs ~1764) rebuilds players with ..Player::default() and drops ai_second (set once at load, play.rs:1546); carry it with ai/ai_hit. Will, 7, 9, 10 should always strong-toss a second serve, 6 30%. Evidence: research/journal/2026-10-29-will-curve-serve (branch will-curve) (crates/hst-play/src/play.rs)
 
 
 ### Shots
