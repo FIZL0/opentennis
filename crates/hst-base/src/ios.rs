@@ -511,8 +511,8 @@ pub struct Orientation {
 ///
 /// B694: once the device has said portrait for a second while the accelerometer says the phone is held sideways,
 /// that's rotation lock, and the game turns to landscape with the camera / Dynamic Island on the left
-/// (`ValidOrientations::LandscapeRight`) and stays there, held upright included, until the device reports a turn
-/// the accelerometer agrees with (the lock off).
+/// (`ValidOrientations::LandscapeRight`) and stays there, held upright or put down and picked up included, until
+/// the device reports a landscape turn the accelerometer agrees with (the lock off).
 pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_thread: bevy::ecs::system::NonSendMarker) {
     use winit::platform::ios::{ValidOrientations, WindowExtIOS};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -557,10 +557,13 @@ pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_t
             state.across = None;
         }
         let locked = state.across.is_some_and(|t| now - t >= 1.0);
-        // the accelerometer has a moment to agree with a new orientation (turning the phone past 45° fires it)
+        // the accelerometer has a moment to agree with a new orientation (turning the phone past 45° fires it).
+        // Under the lock the device only ever says portrait (or face up/down: put down and picked up again), so
+        // only a landscape report, the lock off, lets go of `Locked`
         let want = match (state.held, turned) {
             (held, _) if locked => (held != Some(Hold::Locked)).then_some(Hold::Locked),
             (None, _) => Some(hold(window)),
+            (Some(Hold::Locked), Some(false)) => None,
             (Some(held), Some(to)) if hold(to) != held && now - state.since < 0.5 && gravity.is_none_or(|g| g == to) => Some(hold(to)),
             _ => None,
         };
