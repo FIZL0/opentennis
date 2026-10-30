@@ -168,8 +168,8 @@ fn watch_memory_warnings() {
     });
 }
 
-/// A screenshot, or a trip out of the app and back, can leave the controllers silent until a touch
-/// (`needs_tap.rs`): each such notice is logged (which ones a screenshot sends) and passed on with the controllers in.
+/// A screenshot leaves the controllers silent until a touch (`needs_tap.rs`): it's passed on with the controllers in.
+/// Leaving the app and coming back is only logged: the controllers keep working through that.
 fn watch_focus() {
     use objc2::runtime::{AnyClass, AnyObject};
     for name in ["UIApplicationUserDidTakeScreenshotNotification", "UIApplicationWillResignActiveNotification", "UIApplicationDidBecomeActiveNotification"] {
@@ -183,7 +183,10 @@ fn watch_focus() {
                     if list.is_null() { 0 } else { objc2::msg_send![list, count] }
                 });
                 eprintln!("iOS {name} ({pads} controllers)");
-                crate::needs_tap::notice(pads);
+                // only a screenshot's preview keeps the pad's input; the app switcher and Control Center hand it back
+                if name == "UIApplicationUserDidTakeScreenshotNotification" {
+                    crate::needs_tap::notice(pads);
+                }
             });
             let center: *mut AnyObject = objc2::msg_send![objc2::class!(NSNotificationCenter), defaultCenter];
             let main: *mut AnyObject = objc2::msg_send![objc2::class!(NSOperationQueue), mainQueue];

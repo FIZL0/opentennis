@@ -1,4 +1,4 @@
-//! iOS: after a screenshot (or a trip out of the app) the system keeps event focus, and GameController reports every
+//! iOS: after a screenshot the system keeps event focus, and GameController reports every
 //! button up and the sticks centred until a touch gives it back; the app can't take it back itself. With a controller
 //! in, "Tap screen to resume controller" shows over everything until the first touch, or the first pad press that
 //! comes through (iOS gave focus back by itself). Draw only: no input or game state changes. The notices come from
@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// A notice not yet seen by `watch`: the controllers connected then, plus one (0: none).
 static NOTICE: AtomicUsize = AtomicUsize::new(0);
 
-/// A screenshot or a resign/become-active notice, with `controllers` GCControllers connected (any thread).
+/// A screenshot, with `controllers` GCControllers connected (any thread).
 pub fn notice(controllers: usize) {
     NOTICE.fetch_max(controllers + 1, Ordering::Relaxed);
 }
