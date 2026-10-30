@@ -8,6 +8,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 
 ### Next (user priorities, in order)
 
+- [ ] **B697** Sit-down emote on mod characters broken by the new rotation (user 2026-10-29): Anya's and Kratos's bench/seat sit no longer lines up with the seat since the rotation change; find which rotation commit did it, fix for mod characters without moving stock ones (crates/hst-play/src/play/, crates/hst-base/src/mods.rs). Release note line.
 - [ ] **M161** Online Start button (user 2026-10-29): while any player is still downloading (disc/mods), the Start button says Downloading… instead of starting the countdown; the countdown starts only once every player has finished; the countdown (and the wait) can be cancelled (crates/hst/src/play/main_menu/, crates/hst-base/src/net/, crates/hst-base/src/mods_online.rs). Release note line.
 - [ ] **M160** Online lobbies: a player's roster name defaults to their online name; if it's still the default online name, keep the usual P1–P4 label (crates/hst/src/play/main_menu/, crates/hst-base/src/net/)
 - [ ] **M159a** iOS Update opens the installer that installed the app (files: crates/hst/src/update.rs, crates/hst-base/src/ios.rs, tools/ios-ipa.sh): from M159's markers, detect AltStore/SideStore/TrollStore/Feather from our own bundle only (never canOpenURL guessing, B652), open its scheme (altstore:// / sidestore:// to our source, TrollStore install?url=, Feather if it has an install-from-URL scheme), else Safari as now. Release note line.
