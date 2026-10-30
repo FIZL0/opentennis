@@ -398,3 +398,38 @@ fn draw_words(
 impl super::snapshot::Wire for Hits {}
 
 impl super::snapshot::Wire for Posed {}
+
+#[cfg(test)]
+mod tests {
+    use super::super::instant_replay::tests::app;
+    use super::*;
+
+    /// B698: a hit player turns to face the ball as the hit-by-the-ball motion starts, so its fall (the clip only
+    /// falls backwards) carries the head on along the ball's way, away from where the ball came from, whichever way
+    /// it comes; the drawn facing follows.
+    #[test]
+    fn a_hit_player_falls_away_from_the_ball() {
+        if hst_data::fixture::iso().is_err() {
+            return hst_data::fixture::skip("no disc");
+        }
+        let mut app = app(false);
+        let mut g = app.world_mut().resource_mut::<Game>();
+        for deg in [0.0f32, 70.0, 135.0, 180.0, 250.0, 315.0] {
+            let (s, c) = deg.to_radians().sin_cos();
+            let way = [-0.2 * s, 0.01, -0.2 * c];
+            let p = g.players[0].pos;
+            g.flight.ball.pos = [p[0] + 0.1 * s, p[1] - 1.1, p[2] + 0.1 * c];
+            let last = std::array::from_fn(|k| g.flight.ball.pos[k] - way[k]);
+            struck(&mut g, 0, last);
+            let p = &g.players[0];
+            assert_eq!(p.facing, super::super::yaw(p.body.face.dir), "{deg}°: drawn facing");
+            let (sk, clip) = (&g.data[0].skeleton, &g.data[0].motions[&(hst_sim::motion::id::HIT_BY_BALL as usize)]);
+            let head = sk.names.iter().position(|n| n == "Bip01Head").unwrap();
+            let at = |t: f32| hst_sim::pose::node_world(sk, &clip.locals(sk, t), head, &super::super::player_matrix(p))[3];
+            let (from, to) = (at(0.0), at(clip.length));
+            let fell = [to[0] - from[0], to[2] - from[2]];
+            let along = (fell[0] * way[0] + fell[1] * way[2]) / (fell[0].hypot(fell[1]) * way[0].hypot(way[2]));
+            assert!(along > 0.9, "{deg}°: the head falls {fell:?}, the ball came along {way:?}");
+        }
+    }
+}
