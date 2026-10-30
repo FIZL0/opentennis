@@ -124,8 +124,28 @@ impl Menu {
                 self.remote(p).filter(|s| s.human())?;
                 r.live_of(p).map(|l| clean(&l.player)).filter(|n| !n.is_empty())
             }
-            Some(d) => self.names.of(d).map(str::to_string),
+            Some(d) => self.own_name(d, self.net.room.is_some()),
         }
+    }
+
+    /// Device `d`'s name: the one picked for it, else (M160, `online`) in an online lobby this machine's first player goes by
+    /// the machine's online name, unless that's still the default one (then the usual "1P".."4P").
+    fn own_name(&self, d: Dev, online: bool) -> Option<String> {
+        if let Some(n) = self.names.of(d) {
+            return Some(n.to_string());
+        }
+        if !online {
+            return None;
+        }
+        let first = self.seats.iter().flatten().find(|x| **x != Dev::Open);
+        (first == Some(&d)).then(|| self.online_tag()).flatten()
+    }
+
+    /// M160: the online name as a seat tag, `None` while it's the default one (or nothing the tag can show).
+    fn online_tag(&self) -> Option<String> {
+        let name = self.net.cfg.as_ref().map_or_else(|| crate::net::Online::default().name, |c| c.name.clone());
+        let n = clean(&name);
+        (!n.is_empty() && !name.trim().eq_ignore_ascii_case(&crate::net::Online::default().name)).then_some(n)
     }
 
     /// The tag above seat `p`'s player: its name, else "1P".."4P".
@@ -146,7 +166,7 @@ impl Menu {
     /// The online match's `--names`: this machine's players' own (its k-th seat in the room is its k-th device's,
     /// as `netplay::flags` seats them), the others' as their machines sent them with their picks.
     pub(super) fn online_name_flags(&self, room: &crate::net::Room, me: &str) -> Vec<String> {
-        let mut mine = (0..self.players()).filter_map(|p| self.seats[p]).map(|d| self.names.of(d).map(str::to_string));
+        let mut mine = (0..self.players()).filter_map(|p| self.seats[p]).map(|d| self.own_name(d, true));
         let seats: Vec<String> = (0..room.seats.len())
             .map(|s| match &room.seats[s] {
                 Some(x) if x.peer == me => mine.next().flatten().unwrap_or_default(),
@@ -592,6 +612,27 @@ mod tests {
         room.live.insert("them".into(), vec![live("ZED")]);
         // match order 1P 3P 2P 4P: ZED, the computer, this machine's keyboard (no name), its pad
         assert_eq!(m.online_name_flags(&room, "me"), ["--names", "ZED,,,Bo"]);
+    }
+
+    /// M160: online, this machine's first player goes by its online name until they pick one; a default online name
+    /// (or an offline menu, or the machine's second player) keeps "1P".."4P".
+    #[test]
+    fn online_the_first_player_takes_the_online_name() {
+        use crate::net::{Online, Room};
+        let mut m = menu();
+        m.net.cfg = Some(Online { name: "ROBINSON".into(), ..Default::default() });
+        assert_eq!(m.seat_tag(0), "1P", "offline: no online name");
+        m.net.room = Some(Room::default());
+        assert_eq!((m.seat_tag(0), m.seat_tag(1)), ("ROBINS".to_string(), "2P".to_string()));
+        m.names.set(m.seats[0].unwrap(), Some("Bo".into()));
+        assert_eq!(m.seat_tag(0), "Bo", "a picked name wins");
+        m.names.set(m.seats[0].unwrap(), None);
+        for name in ["Player", "PLAYER"] {
+            m.net.cfg = Some(Online { name: name.into(), ..Default::default() });
+            assert_eq!(m.seat_tag(0), "1P", "the default online name");
+        }
+        m.net.cfg = None;
+        assert_eq!(m.seat_tag(0), "1P");
     }
 
     #[test]

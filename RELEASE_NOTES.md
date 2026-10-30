@@ -5,3 +5,4 @@
 - On the disc start screen, Escape, Backspace and K now go back from Help instead of opening the file picker.
 - iPhone and iPad: if you installed OpenTennis with AltStore, SideStore or TrollStore, Update now opens that app to install the new version; otherwise it opens the release page as before.
 - Custom characters that sit down on a seat after a game or in an emote line up with their seat again, instead of sitting turned off it.
+- Online lobbies: your player's name tag now shows your online name until you pick a name (a default "Player" keeps 1P–4P).
