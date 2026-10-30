@@ -866,7 +866,8 @@ fn footnote(d: &mut Draw, m: &Menu, list: [f32; 4], foot: &str) {
 /// footnote.
 #[allow(clippy::too_many_arguments)]
 fn side_panel(d: &mut Draw, side: [f32; 4], strip: f32, name: &str, about: &str, heading: &str, chips: &[String], now: Option<&str>, note: &str) {
-    let [x, y, w, _] = side;
+    let [x, y, w, h] = side;
+    let bottom = y + h - (look::RIM + look::PAD) * PY;
     let (x, w) = (x + (look::RIM + look::PAD) * PX, w - 2.0 * (look::RIM + look::PAD) * PX);
     let sh = strip * PY;
     let ns = (20.0 * PY * (w / d.width(name, 20.0 * PY).max(1.0)).min(1.0)).max(14.0 * PY);
@@ -898,7 +899,8 @@ fn side_panel(d: &mut Draw, side: [f32; 4], strip: f32, name: &str, about: &str,
         }
         y += ph + 14.0 * PY;
     }
-    look::para(d, note, [x, y], w, 12.5 * PY, 17.0 * PY, 5, soft);
+    // (M159: as many lines as the panel has room for, never fewer than 5: iOS's Install info is long)
+    look::para(d, note, [x, y], w, 12.5 * PY, 17.0 * PY, (((bottom - y) / (17.0 * PY)) as usize).max(5), soft);
 }
 
 /// B471: a list row: the main menu's grey pill (the chosen one yellow), its `label` on the left (white, dark on
@@ -1014,6 +1016,9 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         #[cfg(not(target_arch = "wasm32"))]
         let reach: Option<String> = None;
         let note = reach.as_deref().unwrap_or(note);
+        // M159: iOS shows under Updates what installed the app, for the player to screenshot (`update::install_info`)
+        let info = if o == UpdateCheck { crate::update::install_info() } else { None };
+        let note = info.as_deref().unwrap_or(note);
         let now = m.settings.value(o);
         side_panel(d, side, strip(list, opts.len()), label(o), about(o), "Choices", &choices(o), Some(&now), note);
     }
