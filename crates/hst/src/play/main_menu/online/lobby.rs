@@ -297,6 +297,10 @@ fn start_button(d: &mut Draw, m: &Menu, r: Option<&Room>, g: &frame::Geo, items:
     };
     let (big, small, play) = match items[k] {
         _ if m.counting() > 0 => (format!("Cancel ({})", m.counting()), "The match is starting".to_string(), false),
+        // M161: the start waits for the downloads (then counts down by itself), or for a choice about a mod
+        _ if m.held() && let Some(f) = &fetching => ("Downloading...".into(), format!("Starts once everyone has it: {f}"), false),
+        _ if m.held() => ("Cancel".into(), "The match is starting".to_string(), false),
+        Item::Button("Start") if fetching.is_some() => ("Downloading...".into(), ready, false),
         Item::Button("Start") => ("Start".into(), ready, true),
         _ if m.net.prepared && fetching.is_some() => ("Not ready".into(), ready, false),
         _ if m.net.prepared => ("Not ready".into(), format!("{n} of {of} ready · waiting for the host"), false),

@@ -326,6 +326,10 @@ pub struct Room {
     /// why one isn't ready yet.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub fetching: std::collections::BTreeMap<String, u8>,
+    /// M161: the start (the host's Start, or everyone ready) waits for `fetching` to empty: no countdown until every
+    /// player has their downloads; a download that begins during the countdown stops it and waits again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub held: bool,
 }
 
 /// B281: how long the host's Start waits for a player still choosing whether to download a mod (ms; tests shorten it).
@@ -616,6 +620,7 @@ impl Room {
         self.deciding.remove(peer);
         self.fetching.remove(peer);
         self.live.remove(peer);
+        self.held = false;
         for s in &mut self.seats {
             if s.as_ref().is_some_and(|s| s.peer == peer) {
                 *s = None;
@@ -2025,8 +2030,14 @@ impl Hosted {
     fn settle(&mut self, cx: &Ctx) {
         if self.starting.is_none() && self.count.is_none() && !self.go && self.auto && self.room.all_set() {
             self.auto = false;
-            self.count = Some(n0_future::time::Instant::now() + Duration::from_millis(COUNTDOWN_MS.load(std::sync::atomic::Ordering::Relaxed)));
-            self.room.count = left(self.count);
+            self.count_or_hold();
+            broadcast(&self.joined, &Msg::Room(self.room.clone()));
+            cx.say(Event::Room(self.room.clone()));
+        }
+        // M161: the downloads done, the held start counts down; one begun during the countdown holds it again
+        let downloading = !self.room.fetching.is_empty();
+        if (self.room.held && !downloading) || (self.count.is_some() && downloading) {
+            self.count_or_hold();
             broadcast(&self.joined, &Msg::Room(self.room.clone()));
             cx.say(Event::Room(self.room.clone()));
         }
@@ -2238,8 +2249,7 @@ impl Hosted {
                     cx.say(Event::Room(self.room.clone()));
                 }
             }
-            Guest::Said(_, Msg::Cancel) if self.count.take().is_some() => {
-                self.room.count = 0;
+            Guest::Said(_, Msg::Cancel) if self.cancel() => {
                 broadcast(&self.joined, &Msg::Room(self.room.clone()));
                 cx.say(Event::Room(self.room.clone()));
             }
@@ -2321,6 +2331,24 @@ impl Hosted {
         cx.say(Event::Room(self.room.clone()));
     }
 
+    /// M161: the start's countdown, or with anyone still downloading the hold until they're done (no countdown).
+    fn count_or_hold(&mut self) {
+        self.room.held = !self.room.fetching.is_empty();
+        self.count = (!self.room.held).then(|| n0_future::time::Instant::now() + Duration::from_millis(COUNTDOWN_MS.load(std::sync::atomic::Ordering::Relaxed)));
+        self.room.count = left(self.count);
+    }
+
+    /// B215 / M161: the start's countdown, its hold for the downloads, or (the countdown over) B281's wait for the
+    /// players still choosing about a mod, stopped; false with none running. Too late once the start's probe is out.
+    fn cancel(&mut self) -> bool {
+        let go = self.starting.is_none() && std::mem::take(&mut self.go);
+        let was = self.count.take().is_some() | std::mem::take(&mut self.room.held) | go;
+        if was {
+            (self.wait, self.room.count, self.room.wait, self.room.stand_in) = (None, 0, 0, false);
+        }
+        was
+    }
+
     fn wait_down(&mut self, cx: &Ctx) {
         self.room.wait = left(self.wait);
         if self.room.wait == 0 {
@@ -2358,15 +2386,13 @@ impl Hosted {
             Some(Cmd::Ready(v)) if v == self.room.ver => drop(self.ready.insert("host".into())),
             Some(Cmd::Deciding(d)) => deciding(cx, &self.joined, &mut self.room, "host".into(), d),
             Some(Cmd::Fetching(f)) => fetching(cx, &self.joined, &mut self.room, "host".into(), f),
-            Some(Cmd::Start) if self.count.is_none() && !self.go && self.starting.is_none() => {
+            Some(Cmd::Start) if self.count.is_none() && !self.room.held && !self.go && self.starting.is_none() => {
                 self.auto = false;
-                self.count = Some(n0_future::time::Instant::now() + Duration::from_millis(COUNTDOWN_MS.load(std::sync::atomic::Ordering::Relaxed)));
-                self.room.count = left(self.count);
+                self.count_or_hold();
                 broadcast(&self.joined, &Msg::Room(self.room.clone()));
                 cx.say(Event::Room(self.room.clone()));
             }
-            Some(Cmd::Cancel) if self.count.take().is_some() => {
-                self.room.count = 0;
+            Some(Cmd::Cancel) if self.cancel() => {
                 broadcast(&self.joined, &Msg::Room(self.room.clone()));
                 cx.say(Event::Room(self.room.clone()));
             }
@@ -3958,6 +3984,68 @@ mod tests {
             let Event::Start(r, _) = next(&gev, |e| matches!(e, Event::Start(..))).await else { unreachable!() };
             assert!(matches!(next(&hev, |e| matches!(e, Event::Start(..))).await, Event::Start(h, _) if h == r));
             assert_eq!((r.count, r.ready.len()), (0, 1));
+        });
+    }
+
+    /// M161 over a local connection: with the guest still downloading, the host's Start holds (no countdown) until the
+    /// download is done, and the hold can be cancelled; a download begun during the countdown holds it again (~3 s).
+    #[test]
+    fn downloads_hold_the_start() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let testnet = n0_mainline::Testnet::new(3).await.unwrap();
+            let cx = || async {
+                let (ep, _) = endpoint(&Relay::Off).await.unwrap();
+                let (tx, rx) = mpsc::channel();
+                (Ctx { ep: Some(ep), dht: Dht::builder().bootstrap(&testnet.bootstrap).build().unwrap(), lan: Lan::default(), ev: tx, name: "g".into(), courts: Vec::new(), device: Default::default(), seat: None, relays: false }, rx)
+            };
+            async fn next(ev: &mpsc::Receiver<Event>, want: impl Fn(&Event) -> bool) -> Event {
+                for _ in 0..1500 {
+                    while let Ok(e) = ev.try_recv() {
+                        if want(&e) {
+                            return e;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                panic!("timed out")
+            }
+            let counted = |ev: &mpsc::Receiver<Event>| ev.try_iter().any(|e| matches!(e, Event::Start(..)) || matches!(e, Event::Room(r) if r.count > 0));
+            let ((hcx, hev), (gcx, gev)) = (cx().await, cx().await);
+            let (hcmd, mut hrx) = amp::unbounded_channel();
+            let (gcmd, mut grx) = amp::unbounded_channel();
+            let mut r = room(false);
+            r.take("host", &[Pick::disc(0, 0)]);
+            r.picking.clear();
+            tokio::spawn(async move { host(&hcx, r, &mut hrx).await });
+            let Event::Code(code) = next(&hev, |e| matches!(e, Event::Code(_))).await else { unreachable!() };
+            tokio::spawn(async move { join(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx).await });
+            next(&gev, |e| matches!(e, Event::Room(r) if r.open() == 0)).await;
+            gcmd.send(Cmd::Picks(vec![Pick::disc(1, 0)])).unwrap();
+            next(&hev, |e| matches!(e, Event::Room(r) if r.picking.is_empty())).await;
+            // the guest downloading: Start holds on both, no countdown; the guest's Cancel drops the hold
+            gcmd.send(Cmd::Fetching(Some(40))).unwrap();
+            next(&hev, |e| matches!(e, Event::Room(r) if !r.fetching.is_empty())).await;
+            hcmd.send(Cmd::Start).unwrap();
+            next(&gev, |e| matches!(e, Event::Room(r) if r.held && r.count == 0)).await;
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+            assert!(!counted(&gev) && !counted(&hev), "counted down while the guest was downloading");
+            gcmd.send(Cmd::Cancel).unwrap();
+            next(&hev, |e| matches!(e, Event::Room(r) if !r.held)).await;
+            gcmd.send(Cmd::Fetching(Some(80))).unwrap();
+            next(&hev, |e| matches!(e, Event::Room(r) if r.fetching.values().eq([&80]))).await;
+            assert!(!counted(&hev), "the cancelled hold counted down");
+            // Start again, then the download done: the countdown begins on its own
+            hcmd.send(Cmd::Start).unwrap();
+            next(&hev, |e| matches!(e, Event::Room(r) if r.held)).await;
+            gcmd.send(Cmd::Fetching(None)).unwrap();
+            next(&gev, |e| matches!(e, Event::Room(r) if !r.held && r.count > 0)).await;
+            // a download begun during the countdown stops it and holds again
+            gcmd.send(Cmd::Fetching(Some(0))).unwrap();
+            next(&gev, |e| matches!(e, Event::Room(r) if r.held && r.count == 0)).await;
+            gcmd.send(Cmd::Fetching(None)).unwrap();
+            let Event::Start(r, _) = next(&gev, |e| matches!(e, Event::Start(..))).await else { unreachable!() };
+            assert!(!r.held && r.fetching.is_empty());
         });
     }
 
