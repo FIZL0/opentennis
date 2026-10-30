@@ -3,3 +3,4 @@
 - Desktop: the first-start disc picker is now your system's own file dialog (it also works on Windows and macOS now).
 - The highlighted button on the main menu now gently pulses in and out.
 - On the disc start screen, Escape, Backspace and K now go back from Help instead of opening the file picker.
+- Custom characters that sit down on a seat after a game or in an emote line up with their seat again, instead of sitting turned off it.
