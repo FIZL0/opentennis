@@ -40,7 +40,7 @@ two details of the draw order (below).
 
 ## Evidence
 
-- **Intervention** (`research/b700a_err_poke.py`): CPU Will (row 11) against a mashing human Ashley, save slot 8
+- **Intervention** (`research/journal/2026-10-29-b700a-serve-flat-share/scripts/b700a_err_poke.py`): CPU Will (row 11) against a mashing human Ashley, save slot 8
   of PCSX2 copy 1. At each CPU toss the state was saved, then the same serve was replayed with only the serve
   timing error forced (−4, 0, 1, 2, 3, 4, or −4, 0, 4). 15 serves in two matches, 8 or 5 replays each. In every
   serve all replays gave the same swing kind, contact stick, button after contact, aim point and ball kind.
@@ -48,10 +48,10 @@ two details of the draw order (below).
   flat. One was a late press (err 4, offset −4) and stayed flat when re-timed to offset 0. The other was clean
   and stayed flat at offset −4. A plain replay with the error untouched gave the same result twice (the replay is
   deterministic).
-- **Per-frame trace** (`research/b700a_serve_stick.py`, 10 serves): the stick word is centred on every swing
+- **Per-frame trace** (`research/journal/2026-10-29-b700a-serve-flat-share/scripts/b700a_serve_stick.py`, 10 serves): the stick word is centred on every swing
   frame except the contact frame. The swing countdown and the AI countdown run together from the press. The
   button turns ✕ → flat on the contact frame exactly when the stick points within 60° of the net.
-- **Observational share** (`research/b700a_flat_share.py` over six `b700_serve_press.py` runs, 52 topspin
+- **Observational share** (`research/journal/2026-10-29-b700a-serve-flat-share/scripts/b700a_flat_share.py` over six `b700_serve_press.py` runs, 52 topspin
   swings, 4 of them repeated across runs): flat 3/31 at offset 0, 9/21 at offsets −1..−4 (Fisher p ≈ 0.02).
   The intervention shows the press frame doesn't cause this. It is chance, or a side effect of where the timing
   error and the aim fall in the AI generator's sequence. An exact port of the draw order gets that for free,

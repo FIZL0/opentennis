@@ -6,7 +6,7 @@ Loads the save state, mashes Cross for P1 and, for every CPU serve, prints one l
 (+0x3ec4) and branch, the pad stick word the AI wrote this frame (+0x17d4), the aim target (+0x3e90 x, z) and the
 ball kind. Each frame's player block +0x3e80..+0x4000 goes to out.bin (vsync u32 + 0x180 bytes) for diffing."""
 import os, struct, subprocess, sys, time
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tools"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../../tools"))
 from pine import Pine, VSYNC
 
 p = Pine()
@@ -20,7 +20,7 @@ masher = subprocess.Popen([sys.executable, "-c", f"""
 import subprocess, time
 while True:
     subprocess.run(['tools/vpad.py', 'send', 'press cross 80'], capture_output=True); time.sleep({period})
-"""], cwd=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+"""], cwd=os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../.."))
 out = open(sys.argv[3], "wb")
 f = lambda a: struct.unpack("<f", struct.pack("<I", p.read32(a)))[0]
 s32 = lambda a: struct.unpack("<i", struct.pack("<I", p.read32(a)))[0]

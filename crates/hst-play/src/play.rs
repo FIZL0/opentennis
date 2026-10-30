@@ -111,6 +111,7 @@ pub mod no_hud;
 mod phase_code;
 mod court_load;
 mod carts;
+mod serve_retime;
 pub use hst_base::widescreen;
 
 /// The original's default exhibition: one set to 4 games, deuce on.

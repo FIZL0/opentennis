@@ -8,7 +8,7 @@ the AI wrote on the contact frame (+0x17d4), the pressed button after contact (+
 aim target and the ball kind. The first replay is run twice with the logged error to show the replay is
 deterministic. Then goes back to the scratch state's serve, plays it out with the masher and waits for the next."""
 import os, struct, subprocess, sys, time
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tools"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../../tools"))
 from pine import Pine, VSYNC
 
 p = Pine()
@@ -18,7 +18,7 @@ u32 = lambda v: v & 0xffffffff
 slot, want, scratch = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
 errs = [int(x) for x in (sys.argv[4] if len(sys.argv) > 4 else "-4,0,1,2,3,4").split(",")]
 period = sys.argv[5] if len(sys.argv) > 5 else "0.5"
-ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../..")
 
 
 def masher():
