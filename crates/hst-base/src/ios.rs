@@ -512,7 +512,8 @@ pub struct Orientation {
 /// B694: once the device has said portrait for a second while the accelerometer says the phone is held sideways,
 /// that's rotation lock, and the game turns to landscape with the camera / Dynamic Island on the left
 /// (`ValidOrientations::LandscapeRight`) and stays there, held upright or put down and picked up included, until
-/// the device reports a landscape turn the accelerometer agrees with (the lock off).
+/// the device reports a landscape turn the accelerometer agrees with (the lock off). The next launch starts that
+/// way too (a `rotation-lock` marker file); with the lock off since, until the phone is turned sideways once.
 pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_thread: bevy::ecs::system::NonSendMarker) {
     use winit::platform::ios::{ValidOrientations, WindowExtIOS};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -562,6 +563,8 @@ pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_t
         // only a landscape report, the lock off, lets go of `Locked`
         let want = match (state.held, turned) {
             (held, _) if locked => (held != Some(Hold::Locked)).then_some(Hold::Locked),
+            // the lock was on last time: iOS can't say whether it still is, so start as it was
+            (None, _) if std::fs::exists(crate::store::file("rotation-lock")).unwrap_or(false) => Some(Hold::Locked),
             (None, _) => Some(hold(window)),
             (Some(Hold::Locked), Some(false)) => None,
             (Some(held), Some(to)) if hold(to) != held && now - state.since < 0.5 && gravity.is_none_or(|g| g == to) => Some(hold(to)),
@@ -569,6 +572,8 @@ pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_t
         };
         let Some(held) = want else { return };
         state.held = Some(held);
+        let mark = crate::store::file("rotation-lock");
+        let _ = if held == Hold::Locked { std::fs::write(mark, "") } else { std::fs::remove_file(mark) };
         win.set_valid_orientations(match held {
             Hold::Landscape => ValidOrientations::Landscape,
             Hold::Portrait => ValidOrientations::Portrait,

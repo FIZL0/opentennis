@@ -10,4 +10,4 @@
 - iPhone and iPad: Settings → Online & Mods → Updates now shows what installed the game and how it was signed, to help us support more installers. It stays on your device.
 - Computer players' second serves now use their usual strong toss as often as in the original, instead of always a soft one.
 - Computer players no longer swing early on their serves: a well-timed computer serve now hits the sweet spot as often as in the original, so their topspin and slice serves come out more often.
-- iPhone: with rotation lock on, the game now stays in landscape after you put the phone down and pick it up again, instead of sometimes turning to portrait.
+- iPhone: with rotation lock on, the game now stays in landscape after you put the phone down and pick it up again, and starts in landscape next time too, instead of sometimes turning to portrait.
