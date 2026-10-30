@@ -24,7 +24,8 @@
 //! Flatpak to follow). Android downloads the release's .apk, checks it the same way and gives it to the system's
 //! installer (the player confirms; same signing key, so it installs over the app and keeps its files). iOS can't run
 //! new code it downloads, and an installer's URL scheme can't be trusted to be that installer (B652: stock iOS opens
-//! `apple-magnifier` itself): Download opens the release page in Safari. Settings → Updates (Ask,
+//! `apple-magnifier` itself): Download opens the release page in Safari, unless the installer left its mark in our own
+//! bundle (M159a, [`Installer`]: AltStore, SideStore, TrollStore), and then Update opens that installer. Settings → Updates (Ask,
 //! Always, Never; `updates` in settings.txt, Never being the older Check for Updates off) and the main menu's Update?
 //! popup the first time a release is found ([`offer`]).
 
@@ -345,6 +346,9 @@ enum Way {
     /// Android: the .apk, checked, to the system's installer.
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     Apk,
+    /// iOS: the sideload installer that put this app here, opened at this link (M159a, [`Installer`]).
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    Installer(String),
     /// The release page.
     Page,
 }
@@ -360,10 +364,13 @@ fn way(f: &Found) -> Way {
     }
     // B652: an app can't replace itself on iOS, and the sideload installers' schemes aren't safe to guess (stock iOS
     // answers TrollStore's `apple-magnifier` itself and offers to restore Magnifier): the release page, in Safari
+    // M159a: unless what installed it left its mark in our own bundle ([`installer`]): then that installer
     #[cfg(target_os = "ios")]
     {
-        let _ = files;
-        return Way::Page;
+        return match ios_installer() {
+            Some(i) => Way::Installer(i.link(&files[0])),
+            None => Way::Page,
+        };
     }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
@@ -375,6 +382,97 @@ fn way(f: &Found) -> Way {
         }
         Way::Copy(copies().join(&f.tag).join(format!("opentennis{}", std::env::consts::EXE_SUFFIX)))
     }
+}
+
+/// M159a: a sideload installer for iOS, told only by what it leaves in our own bundle ([`installer`]). Feather adds
+/// nothing of its own to the apps it signs, so a Feather install (or Sideloadly, a developer build) gets the release
+/// page; its source updates the app anyway.
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(clippy::enum_variant_names)] // the apps' own names
+pub enum Installer {
+    AltStore,
+    SideStore,
+    TrollStore,
+}
+
+/// The source `web/ios.html` adds to AltStore and SideStore, which lists this app.
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+const SOURCE: &str = "https://fizl0.github.io/apps/source.json";
+
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+impl Installer {
+    pub fn name(self) -> &'static str {
+        match self {
+            Installer::AltStore => "AltStore",
+            Installer::SideStore => "SideStore",
+            Installer::TrollStore => "TrollStore",
+        }
+    }
+
+    /// The link that opens it on the new release: AltStore and SideStore at our source (it shows the update),
+    /// TrollStore installing the release's .ipa (`ipa`) over this app.
+    fn link(self, ipa: &str) -> String {
+        match self {
+            Installer::AltStore => format!("altstore://source?url={}", escape(SOURCE)),
+            Installer::SideStore => format!("sidestore://source?url={}", escape(SOURCE)),
+            // TrollStore's own scheme; only asked for once its marker is in our bundle (B652: stock iOS answers it
+            // with Magnifier on a phone without TrollStore)
+            Installer::TrollStore => format!("apple-magnifier://install?url={}", escape(ipa)),
+        }
+    }
+}
+
+/// M159a: which installer put this app here, from our bundle's URL schemes and whether TrollStore's marker file sits
+/// beside it (`hst_base::ios::install_marks`): TrollStore marks the app's container; AltStore and SideStore each add a
+/// scheme of their own name and the app's bundle id (`altstore-…`, `sidestore-…`) so they can open it. SideStore
+/// first: it drops an earlier `sidestore-` scheme when it re-signs but leaves AltStore's.
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn installer(schemes: &[String], troll: bool) -> Option<Installer> {
+    let has = |prefix: &str| schemes.iter().any(|s| s.len() > prefix.len() && s.to_ascii_lowercase().starts_with(prefix));
+    if troll {
+        Some(Installer::TrollStore)
+    } else if has("sidestore-") {
+        Some(Installer::SideStore)
+    } else if has("altstore-") {
+        Some(Installer::AltStore)
+    } else {
+        None
+    }
+}
+
+/// [`installer`] on this phone (looked at once a run: [`button`] asks every frame).
+#[cfg(target_os = "ios")]
+fn ios_installer() -> Option<Installer> {
+    static ONE: std::sync::OnceLock<Option<Installer>> = std::sync::OnceLock::new();
+    *ONE.get_or_init(|| {
+        let (schemes, troll) = crate::ios::install_marks();
+        installer(&schemes, troll)
+    })
+}
+
+/// M159a: the installer the notice's Update opens with the new release, if any (iOS).
+pub fn through() -> Option<&'static str> {
+    #[cfg(target_os = "ios")]
+    return STATE.lock().unwrap().found.as_ref().and_then(|f| f.files.as_ref()).and(ios_installer()).map(Installer::name);
+    #[cfg(not(target_os = "ios"))]
+    None
+}
+
+/// `s` as one query value (`encodeURIComponent`).
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn escape(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// Whether the game's folder takes new files (looked at once a run: [`button`] asks every frame).
@@ -503,6 +601,10 @@ pub fn act() {
                 drop(s);
                 return crate::modstore::open(&f.page);
             }
+            (Way::Installer(link), _) => {
+                drop(s);
+                return crate::modstore::open(link);
+            }
             (_, Some(files)) => files,
         };
         (s.busy, s.job) = (true, Some((format!("Downloading {}...", f.tag), Some(0.0))));
@@ -530,7 +632,7 @@ pub fn act() {
                     }
                 }
                 Way::Apk => apk(rt, &files, &f.tag, &shown, &job),
-                Way::Page => unreachable!(),
+                Way::Page | Way::Installer(_) => unreachable!(),
             };
             match done {
                 Ok(says) => job(says),
@@ -601,7 +703,7 @@ pub fn button() -> &'static str {
     #[cfg(target_arch = "wasm32")]
     return "Refresh";
     #[cfg(not(target_arch = "wasm32"))]
-    if installs() { "Update" } else { "Download" }
+    if installs() || through().is_some() { "Update" } else { "Download" }
 }
 
 /// Whether the button installs in place (M140; never on iOS, B652), else it opens the release page.
@@ -609,7 +711,7 @@ pub fn installs() -> bool {
     #[cfg(target_arch = "wasm32")]
     return false;
     #[cfg(not(target_arch = "wasm32"))]
-    STATE.lock().unwrap().found.as_ref().is_some_and(|f| way(f) != Way::Page)
+    STATE.lock().unwrap().found.as_ref().is_some_and(|f| !matches!(way(f), Way::Page | Way::Installer(_)))
 }
 
 /// M140: whether an install runs to its end here with no one at the controls but the system's own confirm (Always
@@ -977,6 +1079,25 @@ PGdwmy/sa9Kqh1f1dYqI+JP0Iweg2dLM/mEgnRNTVfsQ9pI1u5aeusKILuRdn61QcyAsnzeOSfS5RRAE
     #[test]
     fn the_updates_word() {
         assert_eq!([settings_line(true, false), settings_line(true, true), settings_line(false, true)], ["updates = ask\n", "updates = always\n", "updates = never\n"]);
+    }
+
+    /// M159a: the installer is told by its own marks only, and each link opens it on the new release.
+    #[test]
+    fn the_installer_from_its_marks() {
+        let v = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(installer(&v(&[]), false), None);
+        // our own schemes, or a bare prefix, say nothing
+        assert_eq!(installer(&v(&["opentennis", "altstore-", "altstore"]), false), None);
+        assert_eq!(installer(&v(&["altstore-dev.opentennis.app"]), false), Some(Installer::AltStore));
+        assert_eq!(installer(&v(&["altstore-dev.opentennis.app", "sidestore-dev.opentennis.app"]), false), Some(Installer::SideStore));
+        assert_eq!(installer(&v(&["sidestore-dev.opentennis.app"]), true), Some(Installer::TrollStore));
+        let ipa = "https://github.com/FIZL0/opentennis/releases/download/v1.0.0/opentennis-ios.ipa";
+        assert_eq!(Installer::AltStore.link(ipa), "altstore://source?url=https%3A%2F%2Ffizl0.github.io%2Fapps%2Fsource.json");
+        assert_eq!(Installer::SideStore.link(ipa), "sidestore://source?url=https%3A%2F%2Ffizl0.github.io%2Fapps%2Fsource.json");
+        assert_eq!(
+            Installer::TrollStore.link(ipa),
+            "apple-magnifier://install?url=https%3A%2F%2Fgithub.com%2FFIZL0%2Fopentennis%2Freleases%2Fdownload%2Fv1.0.0%2Fopentennis-ios.ipa"
+        );
     }
 
     #[test]
