@@ -1,5 +1,13 @@
 # OpenTennis — a remaster of Hot Shots Tennis (PS2)
 
+<p align="center">
+  <a href="https://github.com/FIZL0/opentennis/releases/latest"><img alt="Download the latest release" src="https://img.shields.io/github/v/release/FIZL0/opentennis?label=download&color=2ea44f"></a>
+  <a href="https://github.com/FIZL0/opentennis/actions/workflows/pages.yml"><img alt="Checks" src="https://img.shields.io/github/actions/workflow/status/FIZL0/opentennis/pages.yml?branch=main&label=checks"></a>
+  <a href="https://opentennis.dev"><img alt="opentennis.dev" src="https://img.shields.io/badge/play-opentennis.dev-2ea44f"></a>
+  <a href="https://ko-fi.com/fizlo"><img alt="Support my work on Ko-fi" src="https://img.shields.io/badge/Ko--fi-support%20my%20work-FF5E5B?logo=kofi&logoColor=white"></a>
+  <a href="https://discord.gg/kCkz5hFNXG"><img alt="Join us on Discord" src="https://img.shields.io/badge/Discord-join%20us-5865F2?logo=discord&logoColor=white"></a>
+</p>
+
 A from-scratch rewrite of the PlayStation 2 game **Hot Shots Tennis** (US, 2007), known as **Everybody's Tennis**
 in Europe and **Minna no Tennis** (みんなのテニス) in Japan, in Rust with the [Bevy](https://bevyengine.org) engine.
 The goal is the same game: the same ball physics, rules, timing and AI, ported from the original and checked
