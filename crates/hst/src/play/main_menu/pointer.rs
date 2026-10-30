@@ -186,9 +186,10 @@ impl Menu {
                 if self.choose(i) {
                     out.push(Effect::Sound(0));
                 }
-                // the assignment: the mouse is the keyboard's even while a pad drives, so a click takes the seat for it
+                // the assignment: the mouse is the keyboard's even while a pad drives, so a click takes the seat for it;
+                // not a finger on a touch screen, which has no keyboard to seat
                 let keys = self.seats[..self.players()].iter().position(|s| *s == Some(Dev::Keys));
-                if tap && self.screen == Screen::Assign && dev != Dev::Keys && self.keep.is_none() && self.keys_target(keys) == Some(i) {
+                if tap && self.screen == Screen::Assign && dev != Dev::Keys && !super::touch_page() && self.keep.is_none() && self.keys_target(keys) == Some(i) {
                     out.extend(self.step(Dev::Keys, OK));
                 } else if tap {
                     out.extend(self.step(dev, k));

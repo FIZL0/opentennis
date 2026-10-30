@@ -1189,6 +1189,12 @@ impl Menu {
         }
     }
 
+    /// A real pad's press takes 1P from the seated on-screen pad when that is the only human, except on the
+    /// controller screen while a seat is open for it to join.
+    fn pad_replaces_touch(&self) -> bool {
+        self.humans() <= 1 && !(self.screen == Screen::Assign && (0..self.players()).any(|p| self.open(p)))
+    }
+
     /// B516: the splash's 1P a pad that's gone (unplugged or flat): the next device to press anything has it.
     fn takes_lost_p1(&mut self, dev: Dev, pads: &[Entity]) {
         if matches!(self.p1, Some(Dev::Pad(e)) if !pads.contains(&e)) && dev != Dev::Open {
@@ -3570,8 +3576,9 @@ fn step(
             dirs[i] = repeat.entry((id, i)).or_default().step(h, dt);
         }
         [k.up, k.down, k.left, k.right] = dirs;
-        // B656: unless the on-screen pad holds a seat: then it keeps it, and the controller joins as the next player
-        if k != Press::default() && touch_page() && !hst_base::seats::touch_held() {
+        // B656: unless the on-screen pad holds a seat beside another human (or the controller screen has a seat open
+        // to join): then it keeps it, and the controller joins as the next player
+        if k != Press::default() && touch_page() && (!hst_base::seats::touch_held() || menu.pad_replaces_touch()) {
             menu.pad_takes_touch_seat(dev, &pads);
         }
         // a click or tap is the keyboard's while 1P's pad is out (`pointer::device`)
@@ -5559,6 +5566,21 @@ mod tests {
         assert_eq!([g.players[0].hand, g.players[1].hand], [-1.0, 1.0], "Ashley left-handed, Will right-handed");
         assert_eq!([g.reaches[0].hand, g.reaches[1].hand], [-1.0, 1.0], "the contact search's forehand side follows");
         assert_eq!(g.strong_hand[..2], [1.0, -1.0], "the AI's strong side is TParam's");
+    }
+
+    #[test]
+    fn real_pad_replaces_a_lone_touch_pad() {
+        let [t, a] = [4, 5].map(|n| Entity::from_raw_u32(n).unwrap());
+        let mut m = Menu { seats: [Some(Dev::Pad(t)), None, None, None], ..default() };
+        assert!(m.pad_replaces_touch());
+        // beside another human it stays
+        m.seats[1] = Some(Dev::Pad(a));
+        assert!(!m.pad_replaces_touch());
+        // the controller screen with a seat open: the pad joins it instead
+        (m.seats[1], m.screen) = (None, Screen::Assign);
+        assert!(!m.pad_replaces_touch());
+        m.bots[1] = true;
+        assert!(m.pad_replaces_touch());
     }
 
     #[test]
