@@ -1,6 +1,6 @@
 //! B372 / B441: the on-screen keyboard popup over the dimmed page, one for every short text the menus type: the Mods
-//! page's search and the Online menu's name. Its field shows the text so far; four rows of ten keys, then Space,
-//! Delete, Clear and Done (the name's: Save). A pad's arrows move round it, ✕ presses the key, □ deletes, ○ closes.
+//! page's search, the Online menu's name and Join by code. Its field shows the text so far; four rows of ten keys,
+//! then Space (Join by code's: Paste), Delete, Clear and Done (the name's: Save; the code's: Join). A pad's arrows move round it, ✕ presses the key, □ deletes, ○ closes.
 //!
 //! Mobile keyboard mode (a phone or tablet played by touch, no controller): the popup sits at the top of the screen
 //! with only its field and the wide keys, and the device's own keyboard comes up under it (the page's input in the
@@ -18,7 +18,7 @@ use super::{Draw, Effect, GOLD, INK, Menu, Press, Screen, Tex, WHITE};
 pub(super) const KEYS: [&str; 4] = ["1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm-.&"];
 /// Where the cursor starts: q.
 pub(super) const START: usize = 10;
-const WIDE: [&str; 3] = ["Space", "Delete", "Clear"];
+const WIDE: [&str; 2] = ["Delete", "Clear"];
 pub(super) const SPACE: usize = 40;
 pub(super) const DONE: usize = 43;
 /// The field (a tap there brings the system keyboard back in mobile keyboard mode).
@@ -126,6 +126,8 @@ pub(super) fn mobile() -> bool {
 pub(super) struct Look<'a> {
     /// Over the field (none: the field alone).
     pub title: Option<&'a str>,
+    /// The first wide key's word (Space, Paste).
+    pub space: &'a str,
     /// The last wide key's word (Done, Save).
     pub done: &'a str,
     /// The text is as long as it may be: no cursor after it.
@@ -176,7 +178,7 @@ pub(super) fn draw(d: &mut Draw, text: &str, at: usize, hand_x: f32, look: Look)
     }
     let ww = (10.0 * kw + 9.0 * g - 3.0 * g) / 4.0;
     let wy = ky + (rows - 1.0) * (kh + g);
-    for (i, word) in WIDE.iter().chain([&look.done]).enumerate() {
+    for (i, word) in [&look.space].into_iter().chain(&WIDE).chain([&look.done]).enumerate() {
         let k = SPACE + i;
         let rect = [x + 12.0 + i as f32 * (ww + g), wy, ww, kh];
         d.box3(rect, 6.0, [Some(INK), Some(if k == at { WHITE } else { LIGHT }), Some(if k == at { GOLD } else { [70.0, 66.0, 76.0] })], 128.0);
@@ -199,9 +201,9 @@ pub(super) fn legend(at: usize, done: Option<&'static str>) -> Vec<(super::legen
     [(L::Move, "Move")].into_iter().chain(ok.map(|w| (L::Ok, w))).chain([(L::Page, "Delete"), (L::Back, "Close")]).collect()
 }
 
-/// A popup is up: the Mods page's keyboard or the Online menu's name.
+/// A popup is up: the Mods page's keyboard or the Online menu's name or code.
 fn up(m: &Menu) -> bool {
-    m.screen == Screen::Mods && m.add.osk_up() || m.screen == Screen::Code && m.net.naming && !m.net.url
+    m.screen == Screen::Mods && m.add.osk_up() || m.screen == Screen::Code && !m.net.url
 }
 
 /// The native apps' system keyboard: up while a popup is in mobile keyboard mode (iOS and Android show it for an

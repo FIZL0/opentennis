@@ -2549,7 +2549,7 @@ pub(super) fn info(m: &Menu) -> String {
 
 /// The on-screen keyboard over the dimmed page (B441: `osk`, the Online menu's name's too).
 fn keyboard(d: &mut Draw, v: &View) {
-    osk::draw(d, &v.b.search, v.b.osk.unwrap_or(0), 0.0, osk::Look { title: None, done: "Done", full: false });
+    osk::draw(d, &v.b.search, v.b.osk.unwrap_or(0), 0.0, osk::Look { title: None, space: "Space", done: "Done", full: false });
 }
 
 /// The legend's words on Browse.

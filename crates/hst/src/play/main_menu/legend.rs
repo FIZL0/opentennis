@@ -238,18 +238,17 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
             // B496: □ Join by Code from anywhere on the list
             v.extend([(Act::UpDown, "Move"), (Act::Ok, if s < n { "Join" } else if s == n { "Refresh" } else if s == n + 1 { "Join by Code" } else { "Back" }), (Act::Page, "Join by Code"), (Act::Back, "Back")]);
         }
-        // B441: the name's popup (the Mods page's keyboard)
+        // B441: the name's and the code's popup (the Mods page's keyboard)
         Screen::Code if m.net.naming && !m.net.url => v.extend(super::osk::legend(s, (!m.net.entry.trim().is_empty()).then_some("Save"))),
+        Screen::Code if !m.net.url => v.extend(super::osk::legend(s, crate::net::is_short(&m.net.entry).then_some("Join"))),
         Screen::Code => {
             let keys = m.keys().len();
             let ok = match s.checked_sub(keys) {
                 None => Some("Type"),
                 Some(0) => Some("Delete"),
                 Some(1) => Some("Paste"),
-                // Join a whole short code
                 // B323: Save a relay URL that parses
-                Some(2) if m.net.url => crate::net::relay_url(&m.net.entry).is_ok().then_some("Save"),
-                Some(2) => crate::net::is_short(&m.net.entry).then_some("Join"),
+                Some(2) => crate::net::relay_url(&m.net.entry).is_ok().then_some("Save"),
                 _ => Some("Back"),
             };
             // B207: typing on the phone's keyboard: no grid to move on or type from

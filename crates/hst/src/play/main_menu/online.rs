@@ -150,8 +150,6 @@ pub enum Fx {
     Load,
 }
 
-/// Join by Code's symbol keys (then its four buttons).
-const KEYS: usize = SYMBOLS.len();
 /// The name's keys on the same grid, and its longest.
 const NAME_MAX: usize = 16;
 /// B323: a relay URL's keys (the rest typed or pasted), and its longest.
@@ -438,13 +436,9 @@ impl Menu {
         Room { name: cfg.name, doubles: self.doubles, court, sets: self.sets, games: self.games, umpire, seats, names, picking, private: cfg.private, court_mod, no_marks: self.no_marks, ..Default::default() }
     }
 
-    /// The code screen's keys: the short code's symbols, or the name's.
+    /// B323: the relay URL screen's keys (the name and the code type in `osk`).
     pub(super) fn keys(&self) -> &'static [u8] {
-        if self.net.url {
-            URL_KEYS
-        } else {
-            SYMBOLS
-        }
+        URL_KEYS
     }
 
     /// The lobby's selectable things (B396): the seats' cards (the host's: every seat; a guest's: its own), the side
@@ -1143,8 +1137,8 @@ impl Menu {
         match self.screen {
             Screen::Online => self.online_menu_step(k, out),
             Screen::Lobbies => self.lobbies_step(k, out),
-            // B441: the name types in the Mods page's keyboard popup (`osk`) over the Online menu
-            Screen::Code if self.net.naming && !self.net.url => self.online_name_step(k, out),
+            // B441: the name and the code type in the Mods page's keyboard popup (`osk`) over the Online menu
+            Screen::Code if !self.net.url => self.online_name_step(k, out),
             Screen::Code => self.code_step(k, out),
             Screen::Lobby if let Some(h) = self.net.ask.filter(|_| !k.back) => {
                 // the prompt may have come up on another screen (the select's cursor, say 15): its first row
@@ -1257,8 +1251,7 @@ impl Menu {
     /// The on-screen keyboard: a join code or a relay URL.
     fn code_step(&mut self, k: Press, out: &mut Vec<Effect>) {
         use Effect::Sound;
-        // 8 columns of symbols, 4 rows (the name's: 5), then Delete, Paste (Clear), Join (Save), Back (two
-        // columns each)
+        // B323: the relay URL's 8 columns of keys, 5 rows, then Delete, Paste, Save, Back (two columns each)
         let (s, keys) = (self.sel, self.keys().len());
         let rows = keys / 8;
         if k.left || k.right {
@@ -1293,10 +1286,6 @@ impl Menu {
                         out.push(Sound(1));
                     }
                 },
-                Some(2) if !self.net.naming && is_short(&self.net.entry) => {
-                    self.net.paste = self.net.entry.clone();
-                    self.join_code(out);
-                }
                 Some(2) => out.push(Sound(1)),
                 _ => self.code_back(out),
             }
@@ -1504,9 +1493,18 @@ impl Menu {
         match did {
             Did::Nothing => {}
             Did::Type(c) => self.type_char(c.to_ascii_uppercase()),
-            Did::Space => self.type_char(' '),
+            Did::Space if self.net.naming => self.type_char(' '),
+            Did::Space => out.push(Effect::Online(Fx::Paste)),
             Did::Delete => _ = self.net.entry.pop(),
             Did::Clear => self.net.entry.clear(),
+            Did::Done if !self.net.naming && is_short(&self.net.entry) => {
+                self.net.paste = self.net.entry.clone();
+                self.join_code(out);
+            }
+            Did::Done if !self.net.naming => {
+                out.pop();
+                out.push(Effect::Sound(1));
+            }
             Did::Done if self.net.entry.trim().is_empty() => {
                 out.pop();
                 out.push(Effect::Sound(1));
@@ -1556,7 +1554,7 @@ impl Menu {
         if self.net.entry.len() < SHORT && SYMBOLS.contains(&(c as u8)) {
             self.net.entry.push(c);
             if self.net.entry.len() == SHORT {
-                self.sel = KEYS + 2;
+                self.sel = osk::DONE;
             }
         }
     }
@@ -2096,33 +2094,28 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
             // B441: the Mods page's keyboard popup over the Online menu
             online_screen(d, m, hand_x);
             let full = m.net.entry.chars().count() >= NAME_MAX;
-            osk::draw(d, &m.net.entry, m.sel, hand_x, osk::Look { title: Some("Your name (the other players see it)"), done: "Save", full });
+            osk::draw(d, &m.net.entry, m.sel, hand_x, osk::Look { title: Some("Your name (the other players see it)"), space: "Space", done: "Save", full });
+        }
+        Screen::Code if !m.net.url => {
+            // the code types in the name's popup too; a failed join or paste says why over the field
+            online_screen(d, m, hand_x);
+            let title = if m.net.status.is_empty() { "The host's 4-character code (or Paste their link)" } else { &m.net.status };
+            osk::draw(d, &m.net.entry, m.sel, hand_x, osk::Look { title: Some(title), space: "Paste", done: "Join", full: is_short(&m.net.entry) });
         }
         Screen::Code => {
             d.frame(8, super::WALL);
             const ON: [f32; 3] = [128.0, 110.0, 40.0];
             const OFF: [f32; 3] = [70.0, 70.0, 80.0];
             let keys = m.keys();
-            let (top, rows) = if m.net.url { (124.0, keys.len() / 8) } else { (132.0, 4) };
+            let (top, rows) = (124.0, keys.len() / 8);
             let grid = !touch_typing();
             // B695: on a short or narrow view the keys close up (`code_fit`), then the whole block shrinks to fit
             let CodeFit { dy, top, pitch, gap, kh, left, across, s } = code_fit(&m.grid, top, if grid { rows } else { 0 });
             let mark = d.mark();
-            if m.net.url {
-                // B323: the URL so far in the long pill, shrunk to fit, the cursor after it
-                d.pill(left + 3.0, 72.0 + dy, 8.0 * across - 6.0, [40.0, 40.0, 50.0]);
-                let cursor = if m.net.entry.len() < URL_MAX { "_" } else { "" };
-                d.fitted(&format!("{}{cursor}", m.net.entry), 320.0, 78.0 + dy, 26.0, 8.0 * across - 44.0);
-            } else {
-                // the code so far, a pill a symbol
-                for i in 0..SHORT {
-                    let x = 320.0 - 128.0 + 64.0 * i as f32 + 4.0;
-                    d.pill(x, 76.0 + dy, 56.0, if i == m.net.entry.len() { ON } else { [40.0, 40.0, 50.0] });
-                    if let Some(c) = m.net.entry.get(i..i + 1) {
-                        d.centred(c, x + 28.0, 80.0 + dy, 30.0, WHITE);
-                    }
-                }
-            }
+            // B323: the URL so far in the long pill, shrunk to fit, the cursor after it
+            d.pill(left + 3.0, 72.0 + dy, 8.0 * across - 6.0, [40.0, 40.0, 50.0]);
+            let cursor = if m.net.entry.len() < URL_MAX { "_" } else { "" };
+            d.fitted(&format!("{}{cursor}", m.net.entry), 320.0, 78.0 + dy, 26.0, 8.0 * across - 44.0);
             for (i, c) in keys.iter().enumerate().filter(|_| grid) {
                 let (x, y, w) = (left + across * (i % 8) as f32 + 3.0, top + pitch * (i / 8) as f32, across - 6.0);
                 d.pill_at([x, y, w, kh], [[30.0; 3], WHITE, if m.sel == i { ON } else { OFF }], 128.0);
@@ -2134,14 +2127,10 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
                     d.centred(&(*c as char).to_string(), x + w / 2.0, y + (kh - 24.0) / 2.0, 24.0, rgb);
                 }
             }
-            let buttons = if m.net.url {
-                ["Delete", "Paste", "Save", "Back"]
-            } else {
-                ["Delete", "Paste", "Join", "Back"]
-            };
+            let buttons = ["Delete", "Paste", "Save", "Back"];
             for (i, l) in buttons.iter().enumerate().filter(|_| grid) {
                 let (x, y, w, on) = (left + 2.0 * across * i as f32 + 2.0, top + pitch * rows as f32 + gap, 2.0 * across - 4.0, m.sel == keys.len() + i);
-                let dim = i == 2 && if m.net.url { crate::net::relay_url(&m.net.entry).is_err() } else { !is_short(&m.net.entry) };
+                let dim = i == 2 && crate::net::relay_url(&m.net.entry).is_err();
                 d.pill_at([x, y, w, kh], [[30.0; 3], WHITE, if on { ON } else { OFF }], 128.0);
                 d.hit([x, y, w, kh], Act::Row(keys.len() + i, OK));
                 d.centred(l, x + w / 2.0, y + (kh - 24.0) / 2.0, 24.0, if on && !dim { WHITE } else if dim { [60.0; 3] } else { [100.0; 3] });
@@ -2149,10 +2138,8 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
             d.scale_since(mark, [320.0, 72.0 + dy], s);
             let info = match () {
                 _ if !m.net.status.is_empty() => m.net.status.clone(),
-                _ if !grid && m.net.url => "Tap to type your own relay's URL (https://...). Return saves it; Back switches to n0's public relays.".into(),
-                _ if m.net.url => "Type or Paste your own iroh-relay's URL (https://...). Save uses it; Back switches to n0's public relays.".into(),
-                _ if !grid => "Tap to type the host's code (or paste their link or code); Return joins.".into(),
-                _ => "Type the host's code (or pick each symbol), or Paste their link or code.".into(),
+                _ if !grid => "Tap to type your own relay's URL (https://...). Return saves it; Back switches to n0's public relays.".into(),
+                _ => "Type or Paste your own iroh-relay's URL (https://...). Save uses it; Back switches to n0's public relays.".into(),
             };
             d.info(&info);
         }
@@ -2260,7 +2247,7 @@ fn online_screen(d: &mut Draw, m: &Menu, hand_x: f32) {
     let relay = if m.net.custom { "Custom...".into() } else { relay_name(&cfg) };
     // B441: the name's popup up over it: its row on, the hand the popup's
     let popup = m.screen == Screen::Code;
-    let sel = if popup { 4 } else { m.sel.min(5) };
+    let sel = if !popup { m.sel.min(5) } else if m.net.naming { 4 } else { 3 };
     let rects = row_rects(&m.grid);
     // B695: scrolled on a short view to keep the chosen row on it
     let (top, foot) = card_span(&m.grid);
@@ -2850,7 +2837,7 @@ pub(super) fn typing(
         return;
     }
     // B441: the name's popup: Enter (Return) is its Save
-    let popup = menu.net.naming && !menu.net.url;
+    let popup = !menu.net.url;
     let save = if popup { osk::DONE } else { menu.keys().len() + 2 };
     for e in typed.read().filter(|e| e.state.is_pressed()) {
         match &e.logical_key {
@@ -3514,21 +3501,17 @@ mod tests {
         let ok = Press { ok: true, ..default() };
         m.step(dev, ok);
         assert_eq!(m.screen, Screen::Code);
-        // "k" from the keyboard, the rest picked on the grid: 7 (row 0, column 5), Q, X
+        // "k" from the keyboard ("0" isn't a code's), the rest on the popup's QWERTY keys: 7, Q, X
         m.type_char('k');
         m.type_char('0');
-        for c in ['7', 'Q', 'X'] {
-            let i = SYMBOLS.iter().position(|&s| s as char == c).unwrap();
-            m.sel = 0;
-            for _ in 0..i / 8 {
-                m.step(dev, Press { down: true, ..default() });
-            }
-            for _ in 0..i % 8 {
-                m.step(dev, Press { right: true, ..default() });
-            }
+        // a Join with the code short sounds no and stays
+        m.sel = osk::DONE;
+        assert_eq!((m.step(dev, ok), m.screen), (vec![Effect::Sound(1)], Screen::Code));
+        for i in [6, 10, 31] {
+            m.sel = i;
             m.step(dev, ok);
         }
-        assert_eq!((m.net.entry.as_str(), m.sel), ("K7QX", KEYS + 2), "full: on Join");
+        assert_eq!((m.net.entry.as_str(), m.sel), ("K7QX", osk::DONE), "full: on Join");
         // B225 / B392: no singles/doubles or controllers; M120: straight onto the lobby's select
         let fx = m.step(dev, ok);
         assert_eq!((m.screen, m.net.go), (Screen::Chars, Some(Go::Code)));
@@ -3547,6 +3530,9 @@ mod tests {
         assert_eq!((m.screen, m.net.entry.as_str()), (Screen::Code, "A"));
         m.step(dev, Press { back: true, ..default() });
         assert_eq!((m.screen, m.sel), (Screen::Online, 3));
+        // the popup's Paste key reads the clipboard
+        let mut m = Menu { screen: Screen::Code, sel: osk::SPACE, ..default() };
+        assert!(m.step(dev, ok).contains(&Effect::Online(Fx::Paste)));
         // a pasted link joins its code
         let mut out = Vec::new();
         m.pasted(Some(crate::net::link("K7QX")), &mut out);
@@ -3590,7 +3576,7 @@ mod tests {
         // the pad opened Join by Code: the keyboard types the code and its Enter joins, the pad stays 1P
         let mut m = Menu { screen: Screen::Code, p1: Some(pad), seats: [Some(pad), None, None, None], ..default() };
         "AB23".chars().for_each(|c| m.type_char(c));
-        m.sel = m.keys().len() + 2;
+        m.sel = osk::DONE;
         m.step(Dev::Keys, Press { ok: true, ..default() });
         assert_eq!((m.seats[0], m.p1, m.net.go), (Some(pad), Some(pad), Some(Go::Code)));
     }
