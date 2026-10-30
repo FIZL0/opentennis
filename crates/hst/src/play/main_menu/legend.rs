@@ -35,7 +35,7 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
         }
         Screen::Press => {}
         // M127: the pad takeover prompt: the asked pad or the keyboard answers
-        _ if m.takeover_asking() && (m.takeover_asked(dev) || dev == Dev::Keys) => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Keep keyboard")]),
+        _ if m.takeover_asking() && (m.takeover_asked(dev) || m.on_keys(Some(dev))) => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, if super::touch_page() { "Keep touch" } else { "Keep keyboard" })]),
         _ if m.takeover_asking() => {}
         _ if m.add.ask.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose")]),
         Screen::Main if m.stale.0.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Back")]),

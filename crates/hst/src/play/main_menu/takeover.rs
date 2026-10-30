@@ -5,7 +5,8 @@
 //! another player, with a short toast saying so; No or Esc keep the keyboard and that pad isn't asked again until
 //! it's unplugged or 1P's device changes; [`WAIT`] seconds untouched just close it (the pad's next button asks again). Not on the splash (its first press takes 1P), the screens a press
 //! joins a player on (the online lobby and select only when the pad has no open seat to join; the online menus before them do ask), over a paused match (its
-//! controller assignment does it there), nor on a touch page (a pad's press takes the screen's 1P there, B247).
+//! controller assignment does it there). On a touch page 1P is the screen's taps or the on-screen pad: the prompt
+//! asks the same while that is the only human (B247), and Yes hides the on-screen pad (it no longer holds a seat).
 
 use bevy::prelude::*;
 
@@ -34,6 +35,8 @@ pub(super) struct Takeover {
     held: bool,
     /// 1P's device last frame: any change of it forgets the pads that said No.
     p1: Option<Dev>,
+    /// The on-screen pad (`touch_pad.rs`), while connected: on a touch page it stands for the keyboard.
+    touch: Option<Entity>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -46,16 +49,18 @@ struct Ask {
 
 impl Menu {
     /// Whether a pad's button may ask for 1P here: 1P on the keyboard, a local menu with nothing else popped up.
-    fn takeover_here(&self) -> bool {
+    pub(super) fn takeover_here(&self) -> bool {
         let screens = matches!(
             self.screen,
             Screen::Main | Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::Controls | Screen::ModSettings | Screen::Mobile | Screen::Mode | Screen::Mods | Screen::Extras | Screen::Online | Screen::Lobbies | Screen::Code
         );
         // online, the code typed on the keyboard seats it as 1P: a pad with no open seat to join may still take it over
         let online = matches!(self.screen, Screen::Lobby | Screen::Chars) && self.online() && self.lobby_join_seat().is_none();
+        let touch = !super::touch_page() || self.pad_replaces_touch();
         (screens || online)
-            && self.p1 == Some(Dev::Keys)
-            && matches!(self.seats[0], None | Some(Dev::Keys))
+            && touch
+            && self.on_keys(self.p1)
+            && (self.seats[0].is_none() || self.on_keys(self.seats[0]))
             && !self.paused
             && self.net_pause.is_none()
             && self.rebinding.is_none()
@@ -76,6 +81,16 @@ impl Menu {
         true
     }
 
+    /// Whether `s` is the keyboard (and mouse), or the on-screen pad that stands for it.
+    pub(super) fn on_keys(&self, s: Option<Dev>) -> bool {
+        s == Some(Dev::Keys) || matches!((s, self.takeover.touch), (Some(Dev::Pad(e)), Some(t)) if e == t)
+    }
+
+    /// The on-screen pad, while connected.
+    pub(super) fn takeover_touch(&self) -> Option<Entity> {
+        self.takeover.touch
+    }
+
     /// Whether the prompt is up.
     pub(super) fn takeover_asking(&self) -> bool {
         self.takeover.ask.is_some()
@@ -94,7 +109,7 @@ impl Menu {
         if a.age == 0.0 {
             return Some(out);
         }
-        if self.takeover_asked(dev) || dev == Dev::Keys {
+        if self.takeover_asked(dev) || self.on_keys(Some(dev)) {
             let a = self.takeover.ask.as_mut().unwrap();
             if k.up || k.down || k.left || k.right {
                 a.row = 1 - a.row;
@@ -135,10 +150,11 @@ impl Menu {
         if yes {
             let pad = Dev::Pad(a.pad);
             self.p1 = Some(pad);
-            if self.seats[0] == Some(Dev::Keys) {
+            if self.on_keys(self.seats[0]) {
                 self.seats[0] = Some(pad);
             }
-            self.takeover.toast = Some((format!("1P: {} · keyboard is free", a.name), TOAST));
+            let free = if super::touch_page() { "" } else { " · keyboard is free" };
+            self.takeover.toast = Some((format!("1P: {}{free}", a.name), TOAST));
             out.push(Effect::Sound(2));
         } else {
             self.takeover.declined.push(a.pad);
@@ -195,7 +211,12 @@ pub(super) fn sample(m: &mut Menu, toast: bool) {
 /// Runs before the menu's `step`: the clock, then a button (any, d-pad included; not the sticks, which drift) on an
 /// unseated pad opens the prompt. The press is then swallowed by [`Menu::takeover_step`] (the prompt's first frame).
 pub(super) fn watch(mut menu: ResMut<Menu>, gamepads: Query<(Entity, &Gamepad, Option<&Name>)>, time: Res<Time>) {
-    let mut pads: Vec<_> = gamepads.iter().filter(|(_, g, _)| super::controls::readable(g)).map(|(e, _, _)| e).collect();
+    let touch = |n: Option<&Name>| n.is_some_and(|n| crate::play::emote::is_touch(n));
+    let found = gamepads.iter().find(|(_, _, n)| touch(*n)).map(|(e, ..)| e);
+    if menu.takeover.touch != found {
+        menu.takeover.touch = found;
+    }
+    let mut pads: Vec<_> = gamepads.iter().filter(|(_, g, n)| super::controls::readable(g) && !touch(*n)).map(|(e, _, _)| e).collect();
     pads.sort();
     if menu.takeover.p1 != menu.p1 {
         menu.takeover_follow_p1();
@@ -204,7 +225,7 @@ pub(super) fn watch(mut menu: ResMut<Menu>, gamepads: Query<(Entity, &Gamepad, O
     if t.ask.is_some() || t.toast.is_some() || !t.declined.is_empty() {
         menu.takeover_tick(time.delta_secs(), &pads);
     }
-    if menu.takeover.ask.is_some() || super::touch_page() {
+    if menu.takeover.ask.is_some() {
         return;
     }
     for (i, &e) in pads.iter().enumerate() {
@@ -251,7 +272,8 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
     d.box3([160.0, top, 320.0, 158.0], 16.0, [Some(INK), Some(WHITE), Some(PANEL)], 128.0);
     d.outlined(|d| d.label("Controller detected", 320.0, top + 14.0, 22.0, 288.0, WHITE));
     d.outlined(|d| d.label(&format!("Use {} for 1P?", a.name), 320.0, top + 38.0, 18.0, 288.0, WHITE));
-    for (k, word) in ["Yes", "No, keep the keyboard"].into_iter().enumerate() {
+    let no = if super::touch_page() { "No, keep touch controls" } else { "No, keep the keyboard" };
+    for (k, word) in ["Yes", no].into_iter().enumerate() {
         let y = top + 70.0 + 40.0 * k as f32;
         let on = k == a.row;
         d.pill_at([176.0, y, 288.0, 32.0], [INK, WHITE, if on { CHOSEN } else { UNCHOSEN }], 128.0);
@@ -301,6 +323,25 @@ mod tests {
         let mut k = Press::default();
         f(&mut k);
         k
+    }
+
+    /// B247: the on-screen pad on 1P stands for the keyboard: a real pad asks, the on-screen pad's ✕ answers, and Yes
+    /// takes its seat (so it no longer holds one and hides, `touch_seat`)
+    #[test]
+    fn a_pad_takes_1p_from_the_on_screen_pad() {
+        let (t, p) = (pad(4), pad(5));
+        let mut m = Menu { screen: Screen::Main, p1: Some(Dev::Pad(t)), seats: [Some(Dev::Pad(t)), None, None, None], ..default() };
+        assert!(!m.takeover_here(), "unknown as the on-screen pad: a pad's own seat");
+        m.takeover.touch = Some(t);
+        assert!(m.takeover_open(p, "Pad".into()));
+        m.takeover_tick(0.016, &[t, p]);
+        assert_eq!(m.takeover_step(Dev::Pad(t), press(|k| k.ok = true)), Some(vec![Effect::Sound(2)]));
+        assert_eq!((m.p1, m.seats[0]), (Some(Dev::Pad(p)), Some(Dev::Pad(p))));
+        // the instant switch's rule (screens the prompt doesn't ask on) knows it too, connected and in `pads`
+        let mut m = Menu { p1: Some(Dev::Pad(t)), seats: [Some(Dev::Pad(t)), None, None, None], ..default() };
+        m.takeover.touch = Some(t);
+        m.pad_takes_touch_seat(Dev::Pad(p), &[t, p]);
+        assert_eq!((m.p1, m.seats[0]), (Some(Dev::Pad(p)), Some(Dev::Pad(p))));
     }
 
     #[test]

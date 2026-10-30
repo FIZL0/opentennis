@@ -1179,7 +1179,9 @@ impl Menu {
     /// a real pad's first press takes 1P over (on any screen, in the match too) instead of only joining as another
     /// player from the controller screen.
     fn pad_takes_touch_seat(&mut self, dev: Dev, pads: &[Entity]) {
-        let touch = |s: Option<Dev>| matches!(s, Some(Dev::Keys)) || matches!(s, Some(Dev::Pad(e)) if !pads.contains(&e));
+        // the on-screen pad too: connected, it is in `pads`
+        let on = self.takeover_touch();
+        let touch = |s: Option<Dev>| matches!(s, Some(Dev::Keys)) || matches!(s, Some(Dev::Pad(e)) if !pads.contains(&e) || on == Some(e));
         if matches!(dev, Dev::Pad(_)) && !self.seats.contains(&Some(dev)) && touch(self.seats[0]) {
             self.seats[0] = Some(dev);
         }
@@ -3588,7 +3590,8 @@ fn step(
         [k.up, k.down, k.left, k.right] = dirs;
         // B656: unless the on-screen pad holds a seat beside another human (or the controller screen has a seat open
         // to join): then it keeps it, and the controller joins as the next player
-        if k != Press::default() && touch_page() && (!hst_base::seats::touch_held() || menu.pad_replaces_touch()) {
+        // M127: where the takeover prompt may ask, it asks instead (and its Yes does the same)
+        if k != Press::default() && touch_page() && (!hst_base::seats::touch_held() || menu.pad_replaces_touch()) && !menu.takeover_asking() && !menu.takeover_here() {
             menu.pad_takes_touch_seat(dev, &pads);
         }
         // a click or tap is the keyboard's while 1P's pad is out (`pointer::device`)
