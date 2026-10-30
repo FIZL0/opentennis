@@ -216,6 +216,70 @@ pub fn install_marks() -> (Vec<String>, bool) {
     (schemes, troll)
 }
 
+/// M159: Settings' Install info line (`install_info::line`), looked at once a run and written to the log too: our
+/// bundle id, the Info.plist keys an installer added (names only, never their values: ALTDeviceID's is the phone's
+/// id), the URL schemes, what sits beside the .app and the signing profile. Read from our own bundle and container;
+/// nothing is asked of iOS about other apps, and nothing is sent.
+pub fn install_info() -> &'static str {
+    static ONE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ONE.get_or_init(|| {
+        use objc2::runtime::AnyObject;
+        let mut f = crate::install_info::Found::default();
+        // an NSString's text (None for nil or anything else)
+        unsafe fn text(s: *mut AnyObject) -> Option<String> {
+            // SAFETY: `s` is nil or an object; it's read as an NSString only once it says it is one
+            unsafe {
+                let s = s.as_ref()?;
+                let string: bool = objc2::msg_send![s, isKindOfClass: objc2::class!(NSString)];
+                let c: *const std::ffi::c_char = if string { objc2::msg_send![s, UTF8String] } else { std::ptr::null() };
+                (!c.is_null()).then(|| std::ffi::CStr::from_ptr(c).to_string_lossy().into_owned())
+            }
+        }
+        // SAFETY: the messages as NSBundle/NSDictionary/NSArray declare them; the info dictionary is immutable
+        objc2::rc::autoreleasepool(|_| unsafe {
+            let bundle: *mut AnyObject = objc2::msg_send![objc2::class!(NSBundle), mainBundle];
+            let Some(bundle) = bundle.as_ref() else { return };
+            f.bundle_id = text(objc2::msg_send![bundle, bundleIdentifier]);
+            let info: *mut AnyObject = objc2::msg_send![bundle, infoDictionary];
+            let Some(info) = info.as_ref() else { return };
+            let keys: *mut AnyObject = objc2::msg_send![info, allKeys];
+            let Some(keys) = keys.as_ref() else { return };
+            let n: usize = objc2::msg_send![keys, count];
+            for i in 0..n {
+                if let Some(k) = text(objc2::msg_send![keys, objectAtIndex: i]) {
+                    if !crate::install_info::OURS.contains(&k.as_str()) {
+                        f.keys.push(k);
+                    }
+                }
+            }
+            f.keys.sort();
+        });
+        let (schemes, _) = install_marks();
+        f.schemes = schemes;
+        // the executable is <container>/OpenTennis.app/opentennis
+        let app = std::env::current_exe().ok().and_then(|e| Some(e.parent()?.to_path_buf()));
+        let container = app.as_ref().and_then(|a| Some(a.parent()?.to_path_buf()));
+        let app_name = app.as_ref().and_then(|a| a.file_name()).map(|n| n.to_string_lossy().into_owned());
+        f.beside = match container.as_ref().map(std::fs::read_dir) {
+            Some(Ok(dir)) => {
+                let mut v: Vec<String> = dir.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| Some(n) != app_name.as_ref()).collect();
+                v.sort();
+                Ok(v)
+            }
+            // a sandbox that won't list it may still let the known markers be looked at
+            _ => Err(["_TrollStore", "_TrollStoreLite", "iTunesMetadata.plist", "BundleMetadata.plist"]
+                .into_iter()
+                .filter(|m| container.as_ref().is_some_and(|c| c.join(m).exists()))
+                .map(String::from)
+                .collect()),
+        };
+        f.profile = app.and_then(|a| std::fs::read(a.join("embedded.mobileprovision")).ok()).map(|b| crate::install_info::profile(&b));
+        let line = crate::install_info::line(&f);
+        info!("{line}");
+        line
+    })
+}
+
 /// Sound even with the ring/silent switch on: the Playback audio category (the default, SoloAmbient, mutes with it).
 /// Set before cpal starts its stream; AVFAudio is linked by cpal.
 fn play_on_silent() {

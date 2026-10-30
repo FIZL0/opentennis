@@ -455,6 +455,15 @@ fn ios_installer() -> Option<Installer> {
     })
 }
 
+/// M159: Settings' Install info line on iOS (`hst_base::ios::install_info`), ending with which installer Update
+/// takes it for ([`installer`]), so a screenshot checks both; None elsewhere.
+pub fn install_info() -> Option<String> {
+    #[cfg(target_os = "ios")]
+    return Some(format!("{} Update opens: {}.", crate::ios::install_info(), ios_installer().map_or("the release page", Installer::name)));
+    #[cfg(not(target_os = "ios"))]
+    None
+}
+
 /// M159a: the installer the notice's Update opens with the new release, if any (iOS).
 pub fn through() -> Option<&'static str> {
     #[cfg(target_os = "ios")]
