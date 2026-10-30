@@ -720,7 +720,7 @@ impl Menu {
             Item::Button("Copy Link" | "Code") if long_code(&self.net) => "Copy Long Code",
             Item::Button("Copy Link") => return shared(&self.net).map(|_| "Copy Link"),
             Item::Button("Code") => return shared(&self.net).map(|_| "Copy Link"),
-            Item::Button("Start" | "Ready") if self.counting() > 0 => "Cancel",
+            Item::Button("Start" | "Ready") if self.counting() > 0 || self.held() => "Cancel",
             Item::Button("Ready") if self.net.prepared => "Not Ready",
             Item::Button("Public") if self.net.room.as_ref().is_some_and(|r| r.private) => "Make Public",
             Item::Button("Public") => "Make Private",
@@ -733,6 +733,12 @@ impl Menu {
     /// B215: the start's countdown, seconds left (0: none).
     pub(super) fn counting(&self) -> u32 {
         self.net.room.as_ref().map_or(0, |r| r.count)
+    }
+
+    /// M161: the start waits on, cancellable from Start / Ready: held for the downloads, or (the countdown over) B281's
+    /// wait for the players still choosing about a mod.
+    pub(super) fn held(&self) -> bool {
+        self.net.room.as_ref().is_some_and(|r| r.held || r.wait > 0)
     }
 
     /// A guest's seat's peer and name.
@@ -1431,8 +1437,8 @@ impl Menu {
         } else if item == Item::Button("Paste") {
             // B526: a guest's link back to this LAN lobby, off the clipboard
             out.extend([Sound(2), Effect::Online(Fx::Paste)]);
-        } else if matches!(item, Item::Button("Start" | "Ready")) && self.counting() > 0 {
-            // B215: stop the countdown for everyone
+        } else if matches!(item, Item::Button("Start" | "Ready")) && (self.counting() > 0 || self.held()) {
+            // B215: stop the countdown for everyone (M161: or the wait for the downloads)
             self.net.status.clear();
             out.extend([Sound(1), Effect::Online(Fx::Net(Cmd::Cancel))]);
         } else if item == Item::Button("Start") {
@@ -3626,6 +3632,32 @@ mod tests {
         }
         let [x, y, ..] = m.lobby_geo().plates[0];
         assert_eq!(at(&m, x + 20.0, y + 60.0), None, "the host's seat, to a guest");
+    }
+
+    /// M161: Start with a player still downloading holds the start (sent as Start; the host waits); held, or in the
+    /// wait for a choice about a mod, Start and Ready are Cancel.
+    #[test]
+    fn a_held_start_is_cancelled_from_start_and_ready() {
+        let (dev, ok) = (super::super::Dev::Keys, Press { ok: true, ..default() });
+        let net = |fx: &[Effect]| fx.iter().rev().find_map(|e| if let Effect::Online(Fx::Net(c)) = e { Some(c.clone()) } else { None });
+        let mut m = Menu { screen: Screen::Lobby, ..default() };
+        sample(&mut m);
+        m.net.hosting = true;
+        m.sel = m.items().iter().position(|x| *x == Item::Button("Start")).unwrap();
+        m.net.room.as_mut().unwrap().fetching.insert("k51qzi5uqu5d".into(), 40);
+        assert_eq!((m.lobby_ok(), net(&m.step(dev, ok))), (Some("Start"), Some(Cmd::Start)));
+        m.net.room.as_mut().unwrap().held = true;
+        assert_eq!((m.lobby_ok(), net(&m.step(dev, ok))), (Some("Cancel"), Some(Cmd::Cancel)));
+        let r = m.net.room.as_mut().unwrap();
+        (r.held, r.wait) = (false, 7);
+        assert_eq!((m.lobby_ok(), net(&m.step(dev, ok))), (Some("Cancel"), Some(Cmd::Cancel)));
+        // a guest's Ready
+        m.net.room.as_mut().unwrap().wait = 0;
+        (m.net.hosting, m.net.me) = (false, "k51qzi5uqu5d".into());
+        m.sel = m.items().iter().position(|x| *x == Item::Button("Ready")).unwrap();
+        assert_eq!(net(&m.step(dev, ok)), Some(Cmd::Prepared(true)));
+        m.net.room.as_mut().unwrap().held = true;
+        assert_eq!((m.lobby_ok(), net(&m.step(dev, ok))), (Some("Cancel"), Some(Cmd::Cancel)));
     }
 
     #[test]
