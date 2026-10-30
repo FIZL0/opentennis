@@ -556,6 +556,8 @@ fn start(argv: Vec<String>) {
                 let mode = play::netplay::mode(match_mode(&args.iso, &flags, back), net, room.clone(), me);
                 cli_mods(mode, &args.iso, &flags, &room)
             }
+            #[cfg(target_os = "ios")]
+            None if disc::WAITING.load(std::sync::atomic::Ordering::Relaxed) => mode::Mode::new(no_disc_mode),
             None => mode::Mode::new(menu_mode),
         };
         app.add_plugins((mode::plugin, inspect::render)).insert_resource(mode::Next(Some(first)));
@@ -667,6 +669,29 @@ fn cli_mods(mode: mode::Mode, iso: &str, flags: &[String], room: &net::Room) -> 
 /// The main menu as a mode (`mode.rs`).
 pub fn menu_mode(app: &mut App) {
     app.add_systems(Startup, load).add_plugins(play::main_menu::plugin);
+}
+
+/// iOS, no disc at launch: the page saying where it goes, the folder looked at each second; once an ISO is there and
+/// has stopped growing (the Files app may still be copying it in), the menu runs from it, no restart.
+#[cfg(target_os = "ios")]
+fn no_disc_mode(app: &mut App) {
+    let look = |time: Res<Time>, mut last: Local<(f32, u64)>, mut args: ResMut<Args>, mut next: ResMut<mode::Next>| {
+        last.0 += time.delta_secs();
+        if last.0 < 1.0 {
+            return;
+        }
+        last.0 = 0.0;
+        let Some(iso) = disc::first_iso() else { return };
+        let size = std::fs::metadata(&iso).map_or(0, |m| m.len());
+        if size == 0 || std::mem::replace(&mut last.1, size) != size {
+            return;
+        }
+        eprintln!("disc image found: {}", iso.display());
+        args.iso = iso.to_string_lossy().into_owned();
+        handshake::set_pack(Iso::open(&args.iso).ok().and_then(|i| i.pack_hash));
+        next.0 = Some(mode::Mode::new(menu_mode));
+    };
+    app.add_systems(Startup, ios::no_disc).add_systems(Update, look);
 }
 
 /// The menu's match in this app: `flags` read as on the command line (the settings' `--no-upscale` and

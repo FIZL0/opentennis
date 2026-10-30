@@ -5,3 +5,4 @@
 - With a safe area (notch, island or Safe Area margin), the fade after Game, Set, Match and the black screen when leaving a match now cover the whole screen.
 - With a safe area, the menus' title tab now runs all the way to the screen's edge instead of stopping short.
 - iPhone/iPad: after a screenshot, a message now says to tap the screen when the controller needs a tap to start working again.
+- iPhone/iPad: after you put your disc image in the app's folder, the game now starts by itself; no need to close and reopen it.

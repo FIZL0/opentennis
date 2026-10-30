@@ -72,14 +72,25 @@ pub fn pack_path() -> PathBuf {
     if !new.exists() && old.exists() { old } else { new }
 }
 
+/// iOS: no disc in the app's folder at launch; the app shows where it goes until one is there.
+pub static WAITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// iOS: the first ISO in the app's folder (Files → On My iPhone → OpenTennis).
+pub fn first_iso() -> Option<PathBuf> {
+    std::fs::read_dir(data_dir()).into_iter().flatten().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("iso")))
+}
+
 /// Puts the disc to run from in front of `argv` (see the module doc).
 pub fn resolve(argv: &mut Vec<String>) {
     // iOS (M91): no dialogs, and a launch that takes too long gets killed, so no import before the window: the pack if
     // there is one, else straight from the first ISO in the app's folder
     #[cfg(target_os = "ios")]
     if argv.is_empty() {
-        let iso = std::fs::read_dir(data_dir()).into_iter().flatten().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("iso")));
-        let disc = Some(pack_path()).filter(|p| p.exists()).or(iso).unwrap_or_else(|| crate::ios::no_disc());
+        // none: the pack's path, which isn't there yet; the app waits for one (`WAITING`)
+        let disc = Some(pack_path()).filter(|p| p.exists()).or_else(first_iso).unwrap_or_else(|| {
+            WAITING.store(true, std::sync::atomic::Ordering::Relaxed);
+            pack_path()
+        });
         argv.push(disc.to_string_lossy().into_owned());
         return;
     }

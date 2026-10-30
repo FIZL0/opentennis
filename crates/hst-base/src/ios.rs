@@ -326,33 +326,22 @@ pub fn log_layer(_: &mut App) -> Option<BoxedLayer> {
     Some(Box::new(tracing_subscriber::fmt::Layer::default().with_ansi(false).with_writer(std::io::stderr)))
 }
 
-/// No disc yet: a page that says where the ISO goes, instead of a launch that closes on a black screen.
-pub fn no_disc() -> ! {
+/// No disc yet: the page that says where the ISO goes (`Startup` of the app's wait for one; the menu follows it).
+pub fn no_disc(mut commands: Commands) {
     eprintln!("no disc image in Documents");
-    App::new()
-        // fullscreen like the game: a default (1280×720) window lays out bigger than the phone's screen
-        .add_plugins(DefaultPlugins.set(bevy::log::LogPlugin { custom_layer: log_layer, ..default() }).set(WindowPlugin {
-            primary_window: Some(Window { mode: bevy::window::WindowMode::BorderlessFullscreen(MonitorSelection::Primary), ..default() }),
-            ..default()
-        }))
-        .insert_resource(ClearColor(Color::srgb(0.05, 0.12, 0.2)))
-        .add_systems(Startup, |mut commands: Commands| {
-            commands.spawn(Camera2d);
-            commands
-                .spawn(Node { width: percent(100), height: percent(100), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() })
-                .with_child((
-                    Node { max_width: percent(85), ..default() },
-                    Text::new(
-                        "Hot Shots Tennis needs your disc image.\n\n\
-                         In the Files app, open On My iPhone > OpenTennis\n\
-                         (the folder with this app's icon), put your\n\
-                         Hot Shots Tennis (USA) ISO in it, then close and reopen this app.",
-                    ),
-                    TextFont { font_size: FontSize::VMin(3.5), ..default() },
-                ));
-        })
-        .run();
-    std::process::exit(0)
+    commands.spawn((Camera2d, Camera { clear_color: ClearColorConfig::Custom(Color::srgb(0.05, 0.12, 0.2)), ..default() }));
+    commands
+        .spawn(Node { width: percent(100), height: percent(100), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() })
+        .with_child((
+            Node { max_width: percent(85), ..default() },
+            Text::new(
+                "Hot Shots Tennis needs your disc image.\n\n\
+                 In the Files app, open On My iPhone > OpenTennis\n\
+                 (the folder with this app's icon) and put your\n\
+                 Hot Shots Tennis (USA) ISO in it. The game starts once it's there.",
+            ),
+            TextFont { font_size: FontSize::VMin(3.5), ..default() },
+        ));
 }
 
 // UIKit only on the main thread: the on-screen pad's calls go through its dispatch queue
