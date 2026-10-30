@@ -174,14 +174,48 @@ pub fn search(d: &ServeData, toss: Toss, path: &[PathPoint]) -> Option<usize> {
     best.map(|(k, _)| k)
 }
 
-/// The AI's serve contact pick: over the path before the first bounce, the frame closest to the ideal height
-/// within the window while the ball falls, or while it still rises for a quick serve (never on an underhand toss);
-/// earliest on ties, no timing table. The AI presses once the frames to it, plus its serve error, are few enough.
+/// The frames ahead the AI's serve contact pick looks at: never the next two, at most 180 out.
+pub const AI_LOOK: std::ops::RangeInclusive<usize> = 2..=180;
+
+/// The AI's serve contact pick: over the path before the first bounce, `AI_LOOK` frames ahead, the frame closest to
+/// the ideal height within the window while the ball falls, or while it still rises for a quick serve (never on an
+/// underhand toss); earliest on ties, no timing table. `path` starts at this frame; the AI presses as `AiPress` says.
 pub fn ai_search(d: &ServeData, toss: Toss, quick: bool, path: &[PathPoint]) -> Option<usize> {
     let quick = quick && toss != Toss::Under;
     // heights are −y; ponytail: the vertical speed is the next frame's rise (the path carries no velocity)
     let path = path.windows(2).map(|w| ((-F(w[0].pos[1])).0, (F(w[0].pos[1]) - w[1].pos[1]).0, w[0].bounces));
-    ai_pick(d.window(toss), quick, path)
+    // a bounce before the look-ahead still ends the search
+    let first = *AI_LOOK.start();
+    if path.clone().take(first).any(|(_, _, b)| b > 0) {
+        return None;
+    }
+    ai_pick(d.window(toss), quick, path.skip(first).take(AI_LOOK.end() - first + 1)).map(|k| k + first)
+}
+
+/// A computer server's press, frame by frame once the ball is tossed: it takes its contact pick once that is
+/// `SWEET_FRAME` or fewer frames away (and never searches again for this serve), counts it down one a frame from the
+/// frame after, and presses as soon as the frames left plus its serve timing error are `SWEET_FRAME` or fewer. So it
+/// presses `min(8, 8 − err)` frames before its pick, never early.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AiPress {
+    /// Frames to the picked contact, once taken.
+    left: Option<i32>,
+}
+
+impl AiPress {
+    /// One frame: `pick` (frames to the AI's contact pick this frame) is asked only until a pick is taken. True on
+    /// the frame the AI presses; the caller stops stepping then.
+    pub fn step(&mut self, err: i32, pick: impl FnOnce() -> Option<usize>) -> bool {
+        let left = match self.left {
+            Some(n) => n - 1,
+            None => match pick() {
+                Some(k) if k as i32 <= SWEET_FRAME => k as i32,
+                _ => return false,
+            },
+        };
+        self.left = Some(left);
+        left + err <= SWEET_FRAME
+    }
 }
 
 /// The original's serve contact pick over the predicted path, as (height, vertical speed, bounces) per frame, up

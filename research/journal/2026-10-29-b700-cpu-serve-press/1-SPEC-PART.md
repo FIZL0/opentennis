@@ -7,7 +7,7 @@ The swing's own search then lands on the same ball frame, so the swing offset is
 ## Done
 - Read the singles and doubles AI serve states and the contact search they use (both run the same rule).
 - Live check on PCSX2 copy 1 (save slot 8 copied from the will-curve session's copy 7: Ashley human vs CPU Will),
-  `research/b700_serve_press.py 8 900`: 19 Will serves. The countdown always read 8 when the pick was taken, and the
+  `research/journal/2026-10-29-b700-cpu-serve-press/scripts/b700_serve_press.py 8 900`: 19 Will serves. The countdown always read 8 when the pick was taken, and the
   swing's real timing offset was exactly press countdown − 8 (0 at 8, −1 at 7, −4 at 4). The AI pick's look-ahead
   read live: from 2 frames ahead, 180 long.
 

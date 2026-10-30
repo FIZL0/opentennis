@@ -6,7 +6,7 @@ Loads the save state, mashes Cross for P1 and follows each CPU's serve state. On
 the launch prints the swing's own timing offset and grade (what the special-shot test reads), its depth/side
 errors, the toss, the ball kind and bend."""
 import os, struct, subprocess, sys, time
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tools"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../../tools"))
 from pine import Pine, VSYNC
 
 p = Pine()
@@ -20,7 +20,7 @@ masher = subprocess.Popen([sys.executable, "-c", f"""
 import subprocess, time
 while True:
     subprocess.run(['tools/vpad.py', 'send', 'press cross 80'], capture_output=True); time.sleep({period})
-"""], cwd=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+"""], cwd=os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../.."))
 f = lambda a: struct.unpack("<f", struct.pack("<I", p.read32(a)))[0]
 s32 = lambda a: struct.unpack("<i", struct.pack("<I", p.read32(a)))[0]
 last, was, end = p.read32(VSYNC), False, time.time() + float(sys.argv[2])

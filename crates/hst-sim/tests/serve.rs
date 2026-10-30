@@ -523,3 +523,27 @@ fn serve_timing_tables_ram() {
     }
     assert!(seen == 0 || seen >= 8);
 }
+
+/// A computer server's press (B700): with its contact pick walking 12, 11, … 0 frames away, it takes the pick at 8
+/// (never at 9 or more), counts it down and presses `min(8, 8 − err)` frames before the contact, whatever the error.
+#[test]
+fn cpu_serve_presses_at_most_eight_out() {
+    for err in -4..=4 {
+        let mut press = serve::AiPress::default();
+        let mut asked = Vec::new();
+        let at = (0..=12).rev().find(|&k| {
+            press.step(err, || {
+                asked.push(k);
+                Some(k)
+            })
+        });
+        assert_eq!(at, Some(8.min(8 - err) as usize), "err {err}");
+        // asked every frame until the pick is 8 out, never after
+        assert_eq!(asked, (8..=12).rev().collect::<Vec<_>>(), "err {err}");
+    }
+    // no pick yet: it waits
+    let mut press = serve::AiPress::default();
+    assert!(!press.step(-4, || None));
+    assert!(!press.step(-4, || Some(9)));
+    assert!(press.step(-4, || Some(8)));
+}

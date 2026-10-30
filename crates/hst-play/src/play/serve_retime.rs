@@ -61,7 +61,6 @@ mod tests {
     fn play(app: &mut App, i: usize, err: i32) -> Option<(Served, Timed)> {
         let mut g = app.world_mut().resource_mut::<Game>();
         g.players[i].ai_timing.serve = err;
-        g.serving.bot_due = Some((SWEET_FRAME - err).max(0) as usize);
         let (mut plan, mut press, mut aimed) = (None, None, None);
         let next_ai = |app: &App| app.world().resource::<Game>().rng.ai.clone().next();
         let mut drawn = Vec::new();
@@ -108,12 +107,10 @@ mod tests {
     }
 
     /// Every CPU serve of an all-CPU singles match, replayed from its toss with the server's serve timing error forced
-    /// to −4, 0, 2 and 4: the swing kind drawn at the press, the contact tick, the contact stick (and dash), the
-    /// struck kind (flat included) and the AI generator's state once the aim is drawn are the same in all four, until a
+    /// to −4, 0, 2 and 4, and with its own: the swing kind drawn at the press, the contact tick, the contact stick (and
+    /// dash), the struck kind (flat included) and the AI generator's state once the aim is drawn are the same in all, until a
     /// flat and a topspin serve have both been seen; the generator moves only at the press, the aim and the contact.
-    /// The offset follows the error: `−err` for a late press (err ≥ 0).
-    /// ponytail: the early side (err < 0 → offset 0, never early) is B700's press rule; with it in, assert
-    /// `offset == −max(err, 0)` for −4 too.
+    /// The offset follows the error: `−max(err, 0)`, a computer server never presses early (B700).
     #[test]
     fn retimed_cpu_serve_keeps_its_kind() {
         if !hst_data::fixture::has_iso() {
@@ -135,9 +132,10 @@ mod tests {
                 continue;
             }
             let i = g.score.server as usize;
+            let own = g.players[i].ai_timing.serve;
             let at = snapshot::save(app.world_mut());
             let mut runs = Vec::new();
-            for err in [-4, 0, 2, 4] {
+            for err in [-4, 0, 2, 4, own] {
                 snapshot::restore(app.world_mut(), &at);
                 runs.push((err, play(&mut app, i, err)));
             }
@@ -146,9 +144,7 @@ mod tests {
             for (err, run) in &runs {
                 let (served, timed) = run.as_ref().unwrap_or_else(|| panic!("serve {serves}: err {err} whiffed"));
                 assert_eq!(served, first, "serve {serves}: err {err} changed the serve");
-                if *err >= 0 {
-                    assert_eq!(timed.offset, -err, "serve {serves}: err {err}: {timed:?}");
-                }
+                assert_eq!(timed.offset, -err.max(&0), "serve {serves}: err {err}: {timed:?}");
                 // the AI generator draws the swing at the press, the aim the tick before the contact and the contact's
                 // own draws on it, nothing else: the original's aim (on the contact frame, ahead of the contact) comes
                 // in the same order

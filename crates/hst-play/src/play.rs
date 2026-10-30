@@ -520,8 +520,8 @@ struct Serving {
     whiffed: bool,
     /// `t` at the whiffed press: its swing reaches the contact pose `SWEET_FRAME` ticks on (`serve_whiff`).
     whiff_t: u32,
-    /// Stand-in AI: the contact frame it aims its press at, and its aim.
-    bot_due: Option<usize>,
+    /// Stand-in AI: its press countdown to its contact pick, and its aim.
+    bot_due: Option<serve::AiPress>,
     bot_aim: Vec2,
     /// The serve's error off its aim (mistimed swing, contact off the ideal height), set at contact.
     scatter: V3,
@@ -3528,7 +3528,7 @@ fn ai_wait_singles(g: &mut Game, i: usize) -> Option<V3> {
 /// its spot, waits there 60 to 119 frames and tosses; the swing is timed by its serve error (a badly timed strong
 /// toss then goes wide or long, as in the original).
 /// The serve level picks the spot, the toss and the aim; the swing kind and its stick are drawn as it presses
-/// (`hst_sim::aim`), the press waits for the AI's own contact pick (rising for a quick serve).
+/// (`hst_sim::aim`), the press counts down to the AI's own contact pick (rising for a quick serve; `serve::AiPress`).
 /// ponytail: the original aims the frame before the contact; the server stands still, so this aims at the press.
 fn bot_serve(g: &mut Game, i: usize) {
     if g.serving.bot_due.is_none() {
@@ -3540,7 +3540,7 @@ fn bot_serve(g: &mut Game, i: usize) {
         drop(roll);
         g.players[i].ai_serve = (spot, wait);
         g.players[i].ai_serve_swing = None;
-        g.serving.bot_due = Some((SWEET_FRAME - g.players[i].ai_timing.serve).max(0) as usize);
+        g.serving.bot_due = Some(serve::AiPress::default());
     }
     // the aim, the frame before the contact (`serve_turn` hits as `left` runs out)
     if g.players[i].ai_serve_swing.is_some() && g.serving.swing.is_some_and(|sw| sw.left <= 2) {
@@ -3561,14 +3561,13 @@ fn bot_serve(g: &mut Game, i: usize) {
             Some(ai_toss_kind(g, i))
         }
     } else if let (true, None, false, Some(toss)) = (s.tossed, s.swing, s.whiffed, s.toss) {
-        let horizon = g.serve_data[i].grades(toss).len();
-        let due = s.bot_due.unwrap_or(SWEET_FRAME as usize);
-        let quick = g.players[i].ai_picks.quick_serve;
-        // the aim waits for the frame before the contact: the swing's timing table never hits within 2 frames
-        // of the press, however late the AI's own pick makes it
-        serve::ai_search(&g.serve_data[i], toss, quick, &predicted_path(g, horizon))
-            .filter(|&k| k <= due)
-            .map(|_| ai_serve_kind(g, i, toss))
+        let (err, quick) = (g.players[i].ai_timing.serve, g.players[i].ai_picks.quick_serve);
+        let mut due = s.bot_due.unwrap_or_default();
+        // the path's frame 180 needs the one after it for its speed
+        let pick = || serve::ai_search(&g.serve_data[i], toss, quick, &predicted_path(g, serve::AI_LOOK.end() + 2));
+        let pressed = due.step(err, pick);
+        g.serving.bot_due = Some(due);
+        pressed.then(|| ai_serve_kind(g, i, toss))
     } else {
         None
     };

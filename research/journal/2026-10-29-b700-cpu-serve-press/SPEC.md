@@ -58,7 +58,7 @@ are unchanged.
 ## Evidence
 
 - Live, PCSX2 copy 1, CPU Will (row 11, serve error ±4) vs a mashing human Ashley, 19 Will serves
-  (`research/b700_serve_press.py`, log in `context/b700/run1/press.log`, not committed): the countdown read 8 on
+  (`research/journal/2026-10-29-b700-cpu-serve-press/scripts/b700_serve_press.py`, log in `context/b700/run1/press.log`, not committed): the countdown read 8 on
   the frame the pick was taken every time; presses at 8 (err −4..−1) gave offset 0 grade sweet; at 7 (err 1)
   offset −1 grade clean (3 serves, 2 topspins bent); at 4 (err 4) offset −4 grade slow. The pick's look-ahead
   start and length were read live (2 and 180).

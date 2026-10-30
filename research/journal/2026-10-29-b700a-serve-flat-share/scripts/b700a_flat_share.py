@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """B700a: flat share of the CPU's topspin serve swings against the swing's real timing offset, from
-research/b700_serve_press.py logs (args). Only CPU serves (a press tuple) with a topspin swing (+0xb2 == 3)."""
+research/journal/2026-10-29-b700-cpu-serve-press/scripts/b700_serve_press.py logs (args). Only CPU serves (a press tuple) with a topspin swing (+0xb2 == 3)."""
 import re, sys
 from collections import Counter
 rows = Counter()
