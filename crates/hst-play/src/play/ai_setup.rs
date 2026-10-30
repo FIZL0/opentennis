@@ -146,4 +146,20 @@ mod tests {
         let before = app.world().resource::<Game>().rng.ai.0 .1;
         assert_eq!(tick(&mut app), before + 4 * 17);
     }
+
+    /// Each player keeps its character's second-serve strong-toss chance through the point placements (setup's
+    /// and every later one's), not the default 0 that made a CPU's second serve always toss weak.
+    #[test]
+    fn second_toss_survives_the_placements() {
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let mut app = app(true, [false; 4]);
+        let mut iso = Iso::open(ISO).unwrap();
+        let want: Vec<i32> = [6, 1].map(|c| ai_second_toss(&mut iso, c)).into();
+        let have = |app: &App| app.world().resource::<Game>().players.iter().map(|p| p.ai_second).collect::<Vec<_>>();
+        assert_eq!(have(&app), want);
+        reset_positions(&mut app.world_mut().resource_mut::<Game>());
+        assert_eq!(have(&app), want);
+    }
 }

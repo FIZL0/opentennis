@@ -8,3 +8,4 @@
 - Online lobbies: your player's name tag now shows your online name until you pick a name (a default "Player" keeps 1P–4P).
 - Online lobbies: while someone is still downloading, Start says Downloading… and the countdown only begins once everyone has finished; the wait (and the countdown) can be cancelled.
 - iPhone and iPad: Settings → Online & Mods → Updates now shows what installed the game and how it was signed, to help us support more installers. It stays on your device.
+- Computer players' second serves now use their usual strong toss as often as in the original, instead of always a soft one.

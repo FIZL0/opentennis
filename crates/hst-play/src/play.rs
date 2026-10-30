@@ -1763,6 +1763,8 @@ fn reset_positions(g: &mut Game) {
         // the AI keeps its row and whether its team has hit yet across points
         let ai = (g.players[i].ai, g.players[i].ai_hit);
         let mind = g.players[i].ai_mind;
+        // and its character's strong-toss chance on a second serve
+        let second = g.players[i].ai_second;
         let formation = g.players[i].formation;
         // the placement ends an emote still playing from the point before, and cuts its line
         if g.players[i].emote > 0 {
@@ -1783,6 +1785,7 @@ fn reset_positions(g: &mut Game) {
         };
         (g.players[i].ai, g.players[i].ai_hit) = ai;
         g.players[i].ai_mind = mind;
+        g.players[i].ai_second = second;
         g.players[i].formation = formation;
     }
     // with more than one human the camera keeps its end through changes of ends; only solo games turn it

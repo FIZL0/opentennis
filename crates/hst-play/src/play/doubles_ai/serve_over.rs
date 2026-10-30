@@ -165,9 +165,13 @@ fn a_singles_receiver_enters_its_rally_in_the_same_frame() {
         };
         mind.net_left = 0;
         g.players[r].ai_mind = Some(mind);
-        let before = g.rng.ai.clone();
+        let (before, heard) = (g.rng.ai.clone(), g.players[r].ai_heard);
         let g = tick(&mut app);
         let Some(got) = g.players[r].ai_mind.filter(|m| m.phase == Ai::Rally) else { continue };
+        // a point over in the same tick (an ace) adds its point-over messages' draws: not a plain hand-over
+        if g.players[r].ai_heard != heard {
+            continue;
+        }
         let me = &g.doubles_ai.me[r];
         assert_eq!(me.phase, Some(Ai::Rally), "the step went over itself");
         assert_eq!(me.rally.sub, hst_sim::rally::step::WAIT);
