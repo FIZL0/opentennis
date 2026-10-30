@@ -19,9 +19,11 @@ use super::{COLOURS, Dev, Draw, GOLD, INK, Menu, Press, Screen, WHITE};
 pub(super) const MAX: usize = 6;
 /// The most names kept.
 const KEEP: usize = 40;
-/// The on-screen grid's letters, eight to a row.
-const KEYS: &[u8; 40] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -.!";
-const COLS: usize = 8;
+/// The on-screen grid's keys, QWERTY, ten to a row.
+const KEYS: &[u8; 40] = b"1234567890QWERTYUIOPASDFGHJKL-ZXCVBNM .!";
+const COLS: usize = 10;
+/// Where the cursor starts: Q.
+const START: usize = 10;
 /// The grid's Back, Caps and OK buttons, after the letters.
 const BACK: usize = KEYS.len();
 const CAPS: usize = KEYS.len() + 1;
@@ -111,7 +113,7 @@ impl Names {
     pub(super) fn demo(&mut self, p: usize, d: Dev, typing: bool) {
         self.saved = ["ANNA", "ROBIN", "SAM", "KIM-LI", "JO"].map(String::from).to_vec();
         self.chosen = vec![(d, "ANNA".into())];
-        self.open[p] = Some(if typing { Picker::Typing("ROB".into(), 17) } else { Picker::List(1) });
+        self.open[p] = Some(if typing { Picker::Typing("ROB".into(), 13) } else { Picker::List(1) });
     }
 }
 
@@ -225,7 +227,7 @@ impl Menu {
                     self.names.open[p] = Some(Picker::List((sel + if k.down { 1 } else { rows - 1 }) % rows));
                     out.push(Sound(0));
                 } else if k.ok && sel == saved {
-                    self.names.open[p] = Some(Picker::Typing(String::new(), 0));
+                    self.names.open[p] = Some(Picker::Typing(String::new(), START));
                     out.push(Sound(0));
                 } else if k.ok && sel > saved {
                     self.names.set(d, None);
@@ -643,32 +645,31 @@ mod tests {
         press(&mut m, 1, |k| k.up = true);
         assert_eq!(m.names.open[1], Some(Picker::List(2)), "New name");
         press(&mut m, 1, |k| k.ok = true);
-        // J (row 1, col 1), then Z (row 3, col 1)
+        // from Q: down to A, right six to J, then left six to Z
         press(&mut m, 1, |k| k.down = true);
-        press(&mut m, 1, |k| k.right = true);
+        (0..6).for_each(|_| _ = press(&mut m, 1, |k| k.right = true));
         press(&mut m, 1, |k| k.ok = true);
         press(&mut m, 1, |k| k.down = true);
-        press(&mut m, 1, |k| k.down = true);
+        (0..6).for_each(|_| _ = press(&mut m, 1, |k| k.left = true));
         press(&mut m, 1, |k| k.ok = true);
-        assert_eq!(m.names.open[1], Some(Picker::Typing("JZ".into(), 25)));
+        assert_eq!(m.names.open[1], Some(Picker::Typing("JZ".into(), 30)));
         // □ deletes
         press(&mut m, 1, |k| k.page = true);
-        // down twice to the buttons (col 1: Back), right: Caps off
-        press(&mut m, 1, |k| k.down = true);
+        // down to the buttons (col 0: Back), right: Caps off
         press(&mut m, 1, |k| k.down = true);
         press(&mut m, 1, |k| k.right = true);
         press(&mut m, 1, |k| k.ok = true);
         assert!(m.names.lower[1]);
-        // up four from Caps (col 3): L, typed lower case; down four back to Caps, right: OK
-        (0..4).for_each(|_| _ = press(&mut m, 1, |k| k.up = true));
+        // up two from Caps (col 4): G, typed lower case; down two back to Caps, right: OK
+        (0..2).for_each(|_| _ = press(&mut m, 1, |k| k.up = true));
         press(&mut m, 1, |k| k.ok = true);
-        (0..4).for_each(|_| _ = press(&mut m, 1, |k| k.down = true));
-        assert_eq!(m.names.open[1], Some(Picker::Typing("Jl".into(), CAPS)));
+        (0..2).for_each(|_| _ = press(&mut m, 1, |k| k.down = true));
+        assert_eq!(m.names.open[1], Some(Picker::Typing("Jg".into(), CAPS)));
         press(&mut m, 1, |k| k.right = true);
         press(&mut m, 1, |k| k.ok = true);
-        assert_eq!(m.seat_tag(1), "Jl");
-        assert_eq!(m.names.saved, ["Jl", "ANNA", "Bo"]);
-        assert_eq!(m.name_flags(&[0, 1]), ["--names", ",Jl"]);
+        assert_eq!(m.seat_tag(1), "Jg");
+        assert_eq!(m.names.saved, ["Jg", "ANNA", "Bo"]);
+        assert_eq!(m.name_flags(&[0, 1]), ["--names", ",Jg"]);
         // No name, last on the list
         press(&mut m, 1, |k| k.name = true);
         press(&mut m, 1, |k| k.up = true);
@@ -691,12 +692,12 @@ mod tests {
     #[test]
     fn the_keyboard_types_into_its_entry() {
         let mut m = menu();
-        m.names.open[0] = Some(Picker::Typing(String::new(), 0));
+        m.names.open[0] = Some(Picker::Typing(String::new(), START));
         // the comma is left out, the rest stops at six, then a Backspace
         for c in "Ann, Lee!xyz".chars() {
             m.type_name(0, Some(c));
         }
         m.type_name(0, None);
-        assert_eq!(m.names.open[0], Some(Picker::Typing("Ann L".into(), 0)));
+        assert_eq!(m.names.open[0], Some(Picker::Typing("Ann L".into(), START)));
     }
 }

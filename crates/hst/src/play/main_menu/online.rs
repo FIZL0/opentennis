@@ -3749,7 +3749,7 @@ mod tests {
         m.net.entry.clear();
         "Sunny Day~".chars().for_each(|c| m.type_char(c));
         // B441: the popup's keys type capitals: ✕ on its "a", Space; ○ leaves the name as it was
-        m.sel = 0;
+        m.sel = 20;
         m.step(dev, ok);
         m.sel = osk::SPACE;
         m.step(dev, ok);

@@ -1060,7 +1060,7 @@ impl Menu {
                 out.push(Sound(0));
             }
             Slot::Search if k.ok => {
-                self.add.b.osk = Some(0);
+                self.add.b.osk = Some(osk::START);
                 out.push(Sound(0));
             }
             Slot::Search if k.page => {

@@ -14,8 +14,10 @@ use bevy::prelude::*;
 use super::pointer::{Act, OK, press};
 use super::{Draw, Effect, GOLD, INK, Menu, Press, Screen, Tex, WHITE};
 
-/// The keys: four rows of ten, then the wide ones.
-pub(super) const KEYS: [&str; 4] = ["abcdefghij", "klmnopqrst", "uvwxyz0123", "456789-'.&"];
+/// The keys: four rows of ten (QWERTY), then the wide ones.
+pub(super) const KEYS: [&str; 4] = ["1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm-.&"];
+/// Where the cursor starts: q.
+pub(super) const START: usize = 10;
 const WIDE: [&str; 3] = ["Space", "Delete", "Clear"];
 pub(super) const SPACE: usize = 40;
 pub(super) const DONE: usize = 43;
@@ -250,7 +252,7 @@ mod tests {
         }
         assert_eq!(seen, (0..=DONE).collect());
         at = 12;
-        assert_eq!(step(&mut at, OK, &mut out), Did::Type('m'));
+        assert_eq!(step(&mut at, OK, &mut out), Did::Type('e'));
         at = 41;
         assert_eq!(step(&mut at, OK, &mut out), Did::Delete);
         assert_eq!(step(&mut at, p(|k| k.back = true), &mut out), Did::Close);

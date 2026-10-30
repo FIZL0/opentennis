@@ -3440,19 +3440,20 @@ mod tests {
         // a pad's ✕ opens the on-screen keyboard
         m.add.pad = true;
         m.mods_step(ok(), &mut out);
-        assert_eq!(m.add.b.osk, Some(0));
-        // K is the second row's first key; then I (row one, column nine)
+        assert_eq!(m.add.b.osk, Some(super::super::osk::START));
+        // from q: down, right seven to k; then up to i
         m.mods_step(p(|k| k.down = true), &mut out);
+        (0..7).for_each(|_| m.mods_step(p(|k| k.right = true), &mut out));
         m.mods_step(ok(), &mut out);
         m.mods_step(p(|k| k.up = true), &mut out);
-        m.mods_step(p(|k| k.left = true), &mut out);
-        m.mods_step(p(|k| k.left = true), &mut out);
         m.mods_step(ok(), &mut out);
         assert_eq!(m.add.b.search, "ki");
         assert_eq!(m.add.tiles().iter().map(|e| e.meta.name.as_str()).collect::<Vec<_>>(), ["Kim"]);
         m.mods_step(p(|k| k.page = true), &mut out);
         assert_eq!(m.add.tiles().len(), 2);
-        // ↑ from the top row: the wide keys (Done is the last)
+        // ↑ from the top row (column eight): the wide keys (Done is the last)
+        m.mods_step(p(|k| k.right = true), &mut out);
+        m.mods_step(p(|k| k.up = true), &mut out);
         m.mods_step(p(|k| k.up = true), &mut out);
         assert_eq!(m.add.b.osk, Some(43));
         assert_eq!(*m.mods_cursor(), 43);
