@@ -596,7 +596,8 @@ fn show_loading(world: &mut World) {
         t.pause();
     }
     // a plain black cover while the new mode loads (the old "Loading..." text was a placeholder: user 2026-10-11)
-    let node = Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+    // left/top in percent too: a `Bleed` copy needs all four
+    let node = Node { left: Val::Percent(0.0), top: Val::Percent(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
     // B623: black under the notch and the home indicator too, over the menus' walls there
     let bleed = hst_base::widescreen::Bleed { order: 1 << 21, on: true };
     let e = world.spawn((Loading::default(), node, BackgroundColor(Color::BLACK), GlobalZIndex(i32::MAX - 1), bleed)).id();

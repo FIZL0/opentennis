@@ -66,7 +66,7 @@ pub(super) fn top(d: &mut Draw, view: [f32; 4], title: &str, band: [f32; 3]) -> 
     d.q(Tex::Solid, [0.0; 4], [0.0, 16.5, 640.0, 1.5], [15.0; 3], 128.0);
     let size = 30.0;
     let w = d.width(title, size);
-    d.box3([-30.0, -30.0, w + 110.0, 70.0], 16.0, [Some([15.0; 3]), Some(WHITE), Some(band)], 128.0);
+    d.title_tab(w, band);
     let start = d.out.len();
     d.text(title, 42.0, 7.0, size, [0.0; 3]);
     d.out[start..].iter_mut().for_each(|q| q.alpha = 40.0);

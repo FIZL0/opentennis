@@ -490,7 +490,8 @@ fn setup(
     let bank = crate::audio::SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd");
     commands.insert_resource(Art(art, bank.map(std::sync::Arc::new)));
     commands
-        .spawn((Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::NONE), GlobalZIndex(31), Fade, Root, FADE_BLEED, hst_base::widescreen::BleedOutside));
+        // left/top in percent too: a `Bleed` copy needs all four
+        .spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(0.0), top: Val::Percent(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::NONE), GlobalZIndex(31), Fade, Root, FADE_BLEED, hst_base::widescreen::BleedOutside));
     commands
         .spawn((super::widescreen::screen_43(), GlobalZIndex(11), Root))
         .with_children(|p| {

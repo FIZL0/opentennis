@@ -2916,7 +2916,7 @@ impl Draw<'_> {
         self.q(Tex::Solid, [0.0; 4], [0.0, 16.5, 640.0, 1.5], [15.0; 3], 128.0);
         let size = 30.0;
         let w = self.width(words, size);
-        self.box3([-30.0, -30.0, w + 110.0, 70.0], 16.0, [Some([15.0; 3]), Some(WHITE), Some(band)], 128.0);
+        self.title_tab(w, band);
         let start = self.out.len();
         self.text(words, 42.0, 7.0, size, [0.0; 3]);
         self.out[start..].iter_mut().for_each(|q| q.alpha = 40.0);
@@ -2924,6 +2924,16 @@ impl Draw<'_> {
         // B221: the title's tab is Back for the pointer
         self.hit([-30.0, -30.0, w + 110.0, 70.0], pointer::press(|k| k.back = true));
         self.anchor = Anchor::Centre;
+    }
+
+    /// The title's tab (`w` its words' width) hanging from the band; its left end carried on past the safe area to the
+    /// window's edge by flat strips (walls: `Bleed`) in its fill and bottom rims, as the band is. Span-anchored.
+    fn title_tab(&mut self, w: f32, band: [f32; 3]) {
+        // the box's bottom rims as drawn: white 1.6 units over dark 1.7, ending at its foot (y 40)
+        self.q(Tex::Solid, [0.0; 4], [-30.0, -30.0, 46.0, 66.7], band, 128.0);
+        self.q(Tex::Solid, [0.0; 4], [-30.0, 36.7, 46.0, 1.6], WHITE, 128.0);
+        self.q(Tex::Solid, [0.0; 4], [-30.0, 38.3, 46.0, 1.7], [15.0; 3], 128.0);
+        self.box3([-30.0, -30.0, w + 110.0, 70.0], 16.0, [Some([15.0; 3]), Some(WHITE), Some(band)], 128.0);
     }
 
     fn width(&self, s: &str, size: f32) -> f32 {
