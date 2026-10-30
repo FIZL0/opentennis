@@ -75,7 +75,11 @@ are unchanged.
 - The app test: an all-CPU singles match where the CPU's serve offsets are never positive and offset 0 follows
   every err ≤ 0 (log err and offset per serve). The replay tests stay exact (human serves don't change).
 
+## Out of scope
+
+The flat-share question in the will-curve notes is a separate follow-up (B700a, done): it is not part of the press
+rule.
+
 ## Open questions
 
-none (the flat-share question in the will-curve notes is a separate follow-up, B700a: it is not part of the press
-rule).
+none
