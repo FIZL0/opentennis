@@ -49,6 +49,7 @@ linux() {
     # ~/.local/share/icons, opentennis on the PATH
     cp crates/hst/icon/hst.png dist/linux/opentennis.png
     printf '[Desktop Entry]\nType=Application\nName=OpenTennis\nExec=opentennis\nIcon=opentennis\nStartupWMClass=opentennis\nCategories=Game;\n' > dist/linux/opentennis.desktop
+    cp tools/steam/add-to-steam.sh dist/linux/ && mkdir -p dist/linux/steam && cp tools/steam/*.png dist/linux/steam/  # a Steam shortcut with its artwork
     local need glibc=2.31
     need=$(objdump -T dist/linux/opentennis | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
     echo "dist/linux/opentennis needs $need (sniper has GLIBC_$glibc)"

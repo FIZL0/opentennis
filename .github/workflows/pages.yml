@@ -132,6 +132,7 @@ jobs:
           strip -o dist/linux/opentennis target/release/hst
           cp crates/hst/icon/hst.png dist/linux/opentennis.png
           printf '[Desktop Entry]\nType=Application\nName=OpenTennis\nExec=opentennis\nIcon=opentennis\nStartupWMClass=opentennis\nCategories=Game;\n' > dist/linux/opentennis.desktop
+          cp tools/steam/add-to-steam.sh dist/linux/ && mkdir -p dist/linux/steam && cp tools/steam/*.png dist/linux/steam/  # a Steam shortcut with its artwork
           tar -czf opentennis-linux-x86_64.tar.gz -C dist/linux .
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
