@@ -116,8 +116,16 @@ fn open_default_sink(fallback: bool) -> Option<Opened> {
             }
         }
     };
+    // HST: a 512-frame period (~11 ms; ALSA keeps two) instead of rodio's 50 ms one, which cpal doubles: the
+    // effects came ~150 ms late. A device that won't take it opens at rodio's size.
+    // ponytail: fixed 512; make it a setting if a device crackles at this size
     let default = DeviceSinkBuilder::from_default_device()
-        .and_then(|b| b.with_error_callback(callback.clone()).open_stream());
+        .and_then(|b| {
+            b.with_buffer_size(rodio::cpal::BufferSize::Fixed(512))
+                .with_error_callback(callback.clone())
+                .open_stream()
+        })
+        .or_else(|_| DeviceSinkBuilder::from_default_device()?.with_error_callback(callback.clone()).open_stream());
     let stream = default.ok().or_else(|| {
         if !fallback {
             return None;

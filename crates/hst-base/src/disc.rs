@@ -109,6 +109,7 @@ pub fn resolve(argv: &mut Vec<String>) {
     }
     let mut pack = pack_path();
     if import || !pack.exists() {
+        let picked = iso.is_none();
         let iso = iso.or_else(pick).unwrap_or_else(|| fail("No disc image picked. Run: hst --import <your Hot Shots Tennis (USA) ISO>"));
         let was = std::mem::replace(&mut pack, data_dir().join("disc.pack"));
         if let Err(e) = import_iso(Path::new(&iso), &pack) {
@@ -117,6 +118,11 @@ pub fn resolve(argv: &mut Vec<String>) {
         // B668: a re-import into the new folder takes the old folder's pack's place
         if was != pack {
             let _ = std::fs::remove_file(was);
+        }
+        // the picker's window came and went before ours: on the Steam Deck's Gaming Mode (gamescope) the game's
+        // window then stays black, so start over as a fresh process, which finds the pack
+        if picked {
+            restart();
         }
     }
     argv.insert(0, pack.to_string_lossy().into_owned());
@@ -147,10 +153,34 @@ fn import_iso(iso: &Path, pack: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The ISO from the system's file dialog (the xdg portal on Linux, as the mod picker), if the user picked a file.
+/// Runs this game again in this process's place, with the same arguments but `--import` (it would ask again) (Unix);
+/// elsewhere carries on.
+fn restart() {
+    #[cfg(all(unix, not(target_os = "ios"), not(target_os = "android")))]
+    if let Ok(exe) = std::env::current_exe() {
+        use std::os::unix::process::CommandExt;
+        let err = std::process::Command::new(exe).args(std::env::args_os().skip(1).filter(|a| a != "--import")).exec();
+        eprintln!("Couldn't restart after the import: {err}");
+    }
+}
+
+/// The ISO from a file dialog, if the user picked a file: zenity or kdialog first on Linux (Gaming Mode on the Steam
+/// Deck has no portal file chooser; openmx's picker does the same), else the system's (the xdg portal, as the mod
+/// picker).
 #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
 fn pick() -> Option<String> {
-    let f = rfd::FileDialog::new().set_title("Hot Shots Tennis: pick your disc image (SCUS-97610)").add_filter("Disc image", &["iso", "ISO"]).pick_file()?;
+    const TITLE: &str = "Hot Shots Tennis: pick your disc image (SCUS-97610)";
+    #[cfg(target_os = "linux")]
+    for (cmd, args) in [
+        ("zenity", &["--file-selection", "--title", TITLE, "--file-filter", "Disc image | *.iso *.ISO", "--file-filter", "All files | *"][..]),
+        ("kdialog", &["--title", TITLE, "--getopenfilename", ".", "*.iso *.ISO"][..]),
+    ] {
+        let Ok(out) = std::process::Command::new(cmd).args(args).output() else { continue };
+        // shown: the player's answer, a cancel included
+        let picked = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        return (out.status.success() && !picked.is_empty()).then_some(picked);
+    }
+    let f = rfd::FileDialog::new().set_title(TITLE).add_filter("Disc image", &["iso", "ISO"]).pick_file()?;
     Some(f.to_string_lossy().into_owned())
 }
 
