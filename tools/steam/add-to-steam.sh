@@ -78,7 +78,8 @@ if os.environ.get('ADD_TO_STEAM_DEMO'): demo(); sys.exit()
 
 home = os.path.expanduser('~')
 roots = [os.path.join(home, p) for p in ('.steam/steam', '.local/share/Steam', '.var/app/com.valvesoftware.Steam/.local/share/Steam')]
-users = sorted({os.path.realpath(u) for r in roots for u in glob.glob(os.path.join(r, 'userdata', '[1-9]*')) if os.path.isdir(u)})
+# every account that has logged in here (userdata/<account id>; 0 is the anonymous one, and copies like "123 (Copy)" aren't accounts)
+users = sorted({os.path.realpath(u) for r in roots for u in glob.glob(os.path.join(r, 'userdata', '*')) if os.path.basename(u).isdigit() and os.path.basename(u) != '0' and os.path.isdir(u)})
 if not users: sys.exit('no Steam user found: start Steam and log in once, then run this again')
 if not os.path.exists(exe): sys.exit(f'{exe} not found: run this from the unpacked game folder')
 
