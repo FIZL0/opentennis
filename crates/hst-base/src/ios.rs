@@ -517,6 +517,29 @@ pub struct Orientation {
     since: f32,
     across: Option<f32>,
     motion: usize,
+    /// whether the window was landscape last frame (a turn re-asks UIKit to hide the home indicator)
+    landscape: Option<bool>,
+}
+
+/// Sends each of `sels` (no-argument UIViewController messages) to the window's view controller, those it answers.
+fn poke(win: &winit::window::Window, sels: &[&std::ffi::CStr]) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    type Id = *mut std::ffi::c_void;
+    let Ok(h) = win.window_handle() else { return };
+    let RawWindowHandle::UiKit(h) = h.as_raw() else { return };
+    let Some(vc) = h.ui_view_controller else { return };
+    // SAFETY: main thread (the callers'); the view controller lives as long as the window; objc_msgSend cast to the
+    // messages' signatures; respondsToSelector: guards older iOS
+    unsafe {
+        let obj: extern "C" fn(Id, Id) -> Id = std::mem::transmute(objc_msgSend as *const ());
+        let responds: extern "C" fn(Id, Id, Id) -> bool = std::mem::transmute(objc_msgSend as *const ());
+        for s in sels {
+            let sel = sel_registerName(s.as_ptr());
+            if responds(vc.as_ptr(), sel_registerName(c"respondsToSelector:".as_ptr()), sel) {
+                obj(vc.as_ptr(), sel);
+            }
+        }
+    }
 }
 
 /// M144: the game turns into portrait and back with the device, and holds landscape while rotation lock is on (B694).
@@ -534,7 +557,6 @@ pub struct Orientation {
 /// way too (a `rotation-lock` marker file); with the lock off since, until the phone is turned sideways once.
 pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_thread: bevy::ecs::system::NonSendMarker) {
     use winit::platform::ios::{ValidOrientations, WindowExtIOS};
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     type Id = *mut std::ffi::c_void;
     let now = time.elapsed_secs();
     // SAFETY: on the main thread (NonSendMarker); objc_msgSend cast to each message's signature as UIKit and
@@ -562,6 +584,10 @@ pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_t
         let Some(win) = w.windows.values().next() else { return };
         let size = win.inner_size();
         let window = size.width > size.height;
+        // a turn brings the home indicator back for good unless the view controller's asked again, once it's done
+        if state.landscape.replace(window).is_some_and(|was| was != window) {
+            poke(win, &[c"setNeedsUpdateOfHomeIndicatorAutoHidden", c"setNeedsUpdateOfScreenEdgesDeferringSystemGestures"]);
+        }
         if device != state.device {
             state.device = device;
             state.since = now;
@@ -598,20 +624,7 @@ pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_t
             Hold::Locked => ValidOrientations::LandscapeRight,
         });
         // iOS 16 rotates on this rather than winit's attemptRotationToDeviceOrientation
-        if let Ok(h) = win.window_handle()
-            && let RawWindowHandle::UiKit(h) = h.as_raw()
-            && let Some(vc) = h.ui_view_controller
-        {
-            // SAFETY: the view controller lives as long as the window; respondsToSelector: guards iOS 15
-            unsafe {
-                let obj: extern "C" fn(Id, Id) -> Id = std::mem::transmute(objc_msgSend as *const ());
-                let responds: extern "C" fn(Id, Id, Id) -> bool = std::mem::transmute(objc_msgSend as *const ());
-                let sel = sel_registerName(c"setNeedsUpdateOfSupportedInterfaceOrientations".as_ptr());
-                if responds(vc.as_ptr(), sel_registerName(c"respondsToSelector:".as_ptr()), sel) {
-                    obj(vc.as_ptr(), sel);
-                }
-            }
-        }
+        poke(win, &[c"setNeedsUpdateOfSupportedInterfaceOrientations"]);
         eprintln!("orientation: held {held:?}");
     });
 }
