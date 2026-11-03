@@ -268,6 +268,12 @@ pub fn init_shadow_samplers(mut commands: Commands, render_device: Res<RenderDev
     });
 }
 
+/// opentennis: a camera that draws no directional-light shadow pass of its own: it samples the shadow maps the camera
+/// drawn just before it left, so its owner must give both the same cascades (the split view's second half).
+#[derive(Component, Clone, Copy, Default, bevy_render::extract_component::ExtractComponent)]
+#[extract_component_filter(With<Camera>)]
+pub struct ReusesShadowMaps;
+
 // This is needed because of the orphan rule not allowing implementing
 // foreign trait ExtractComponent on foreign type ShadowFilteringMethod
 pub fn extract_shadow_filtering_method(
@@ -1019,6 +1025,7 @@ pub fn prepare_lights(
             Option<&RenderLayers>,
             Has<NoIndirectDrawing>,
             Option<&AmbientLight>,
+            Has<ReusesShadowMaps>,
         ),
         With<Camera3d>,
     >,
@@ -1362,6 +1369,7 @@ pub fn prepare_lights(
         maybe_layers,
         _no_indirect_drawing,
         _maybe_ambient_override,
+        _reuses_shadow_maps,
     ) in sorted_cameras
         .0
         .iter()
@@ -1643,6 +1651,7 @@ pub fn prepare_lights(
         maybe_layers,
         no_indirect_drawing,
         maybe_ambient_override,
+        reuses_shadow_maps,
     ) in sorted_cameras
         .0
         .iter()
@@ -1846,6 +1855,22 @@ pub fn prepare_lights(
             let iter = cascades
                 .zip(frusta)
                 .zip(&light.cascade_shadow_config.bounds);
+
+            // opentennis: the same cascades as the camera before it, whose shadow maps are still in the texture
+            if reuses_shadow_maps {
+                if let Some(entities) = light_view_entities.remove(&entity) {
+                    despawn_entities(&mut commands, entities);
+                }
+                for (cascade_index, ((cascade, _), bound)) in iter.enumerate() {
+                    gpu_lights.directional_lights[light_index].cascades[cascade_index] =
+                        GpuDirectionalCascade {
+                            clip_from_world: cascade.clip_from_world,
+                            texel_size: cascade.texel_size,
+                            far_bound: *bound,
+                        };
+                }
+                continue;
+            }
 
             let light_view_entities = light_view_entities.entry(entity).or_insert_with(|| {
                 (0..iter.len())

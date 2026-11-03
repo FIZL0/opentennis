@@ -1,2 +1,3 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
 - iPhone: the home bar hides again after turning the phone to portrait and back.
+- Split screen runs faster, especially on phones.
