@@ -140,12 +140,17 @@ fn show(w: &mut World, state: &mut Split, eyes: [(Transform, f32); 2], views: [(
                 order: 2,
                 clear_color: ClearColorConfig::None,
                 output_mode: bevy::camera::CameraOutputMode::Write { blend_state: Some(bevy::render::render_resource::BlendState::REPLACE), clear_color: ClearColorConfig::None },
+                // the multisampled texture still holds the main camera's samples (nothing runs between them), so no
+                // full-screen copy of its resolved picture back into it first: a phone's GPU pays most for such a pass
+                msaa_writeback: bevy::camera::MsaaWriteback::Off,
                 ..default()
             },
             bevy::core_pipeline::tonemapping::Tonemapping::None,
             Projection::Perspective(PerspectiveProjection { far: 20_000.0, ..default() }),
             Transform::default(),
             RenderLayers::from_layers(&[0, twin_view::BOTTOM]),
+            // the sun's shadow maps the main camera drew just before (`twin_view::shared_cascades`)
+            bevy::pbr::ReusesShadowMaps,
         ))
         .id()
     });

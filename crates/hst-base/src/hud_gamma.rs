@@ -216,8 +216,11 @@ fn follow_window(
     mut cams: Query<&mut Camera>,
     mut frame: ResMut<out::Frame>,
     device: Option<Res<bevy::render::renderer::RenderDevice>>,
+    eye: Option<Res<crate::twin_view::SecondEye>>,
+    dev: Option<Res<crate::device::Device>>,
 ) {
     let Ok(w) = window.single() else { return };
+    let scale = if crate::twin_view::phone_split(eye.as_deref(), dev.as_deref()) { g.scale.min(crate::twin_view::PHONE_SCALE) } else { g.scale };
     // B117: the scene image is the picture's size (B608: the safe area doesn't shrink it); B629: the composite covers
     // the window, the scene in the picture's rect (`picture`), the bars beside it a glow of its edges
     let phys = Vec2::new(w.physical_width() as f32, w.physical_height() as f32);
@@ -238,7 +241,7 @@ fn follow_window(
     } else {
         let cap = densest(w.scale_factor());
         let side = device.map_or(8192, |d| d.limits().max_texture_dimension_2d) as f32;
-        let k = scene_scale(g.scale, cap, pw.max(ph), side);
+        let k = scene_scale(scale, cap, pw.max(ph), side);
         ((size((pw * k).floor(), (ph * k).floor()), k), (size((ww * cap).floor(), (wh * cap).floor()), cap))
     };
     // B608: the HUD's camera draws in the view's part of its image (the whole image is still cleared each frame);
