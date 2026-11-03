@@ -10,6 +10,7 @@
 cd "$(dirname "$(realpath "$0")")/.." || exit 1
 dry=; hook=; for a; do [ "$a" = -n ] && dry=1; [ "$a" = --hook ] && hook=1; done
 main=$(git rev-parse --show-toplevel)
+slots=$(agent-runner home slots)  # the runner's worktrees: it manages those itself
 # transcripts of live Claude sessions; with --hook, not this script's own ancestors (the session closing)
 anc=" "; p=$$; [ "$hook" ] && while [ "${p:-1}" -gt 1 ]; do anc+="$p "; p=$(ps -o ppid= -p "$p" | tr -d ' '); done
 live=(); for f in ~/.claude/sessions/*.json; do
@@ -18,7 +19,7 @@ live=(); for f in ~/.claude/sessions/*.json; do
 done
 git worktree list --porcelain | awk '/^worktree /{w=$2} /^branch /{print w, $2} /^detached/{print w, "-"}' |
 while read -r w ref; do
-  [[ $w == "$main" || $w == *-slots/* || ! -d $w ]] && continue
+  [[ $w == "$main" || $w == "$slots"/* || ! -d $w ]] && continue
   busy=; for p in /proc/[0-9]*/cwd; do [[ $(readlink "$p" 2>/dev/null)/ == "$w"/* ]] && { busy=1; break; }; done
   [ "$busy" ] && continue
   for t in "${live[@]}"; do grep -qF "${w##*/}" "$t" && { busy=1; break; }; done

@@ -8,7 +8,7 @@ out=${1:?usage: screenshot.sh out.png [window pattern]}
 pat=${2:-pcsx2}
 if [ -n "${HST_PCSX2:-}" ]; then
     T=$(cd "$(dirname "$0")" && pwd)
-    d="$(dirname "$(git -C "$T" rev-parse --path-format=absolute --git-common-dir)")-slots/pcsx2/s$HST_PCSX2/PCSX2/snaps"
+    d="$(cd "$T" && agent-runner home slots)/pcsx2/s$HST_PCSX2/PCSX2/snaps"
     pid=$(cat "${XDG_RUNTIME_DIR:-/tmp}/hst-pcsx2$HST_PCSX2.pid")
     mkdir -p "$d"; before=$(ls "$d" | wc -l)
     # no Hyprland window (compositor without a monitor, stale signature): press the copy's pad-bound Screenshot

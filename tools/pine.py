@@ -16,12 +16,12 @@ SPEED = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), f"hst-pcsx2{INST
 
 def pcsx2_folder(key):
     """A folder of this agent's PCSX2 (`SaveStates`, `Snapshots`, …): the copy's own config when HST_PCSX2 is set
-    (../<repo>-slots/pcsx2/sN, as tools/pcsx2-hst.sh), else the user's; relative ini paths are from the PCSX2 dir."""
+    (`agent-runner home slots`/pcsx2/sN, as tools/pcsx2-hst.sh), else the user's; relative ini paths are from the PCSX2 dir."""
     import configparser, subprocess
     if INST:
-        common = subprocess.check_output(["git", "-C", os.path.dirname(os.path.abspath(__file__)), "rev-parse",
-                                          "--path-format=absolute", "--git-common-dir"], text=True).strip()
-        base = f"{os.path.dirname(common)}-slots/pcsx2/s{INST}/PCSX2"
+        slots = subprocess.check_output(["agent-runner", "home", "slots"], text=True,
+                                        cwd=os.path.dirname(os.path.abspath(__file__))).strip()
+        base = f"{slots}/pcsx2/s{INST}/PCSX2"
     else:
         base = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "PCSX2")
     ini = configparser.ConfigParser(interpolation=None, strict=False)
