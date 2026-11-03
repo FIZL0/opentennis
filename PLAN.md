@@ -10,7 +10,7 @@ other sessions change them.
 "continue" = take the first open task (`tools/ctx.py next`), read `tools/ctx.py brief <ID>` (its line, plan file,
 journal and files in one go; the runners paste it into your prompt already), carry it out completely, write the journal
 entry, then `tools/done.sh <ID> "<commit message>"` (tests → tick → commit in one call), stop and report. One task per
-iteration; don't merge or skip ahead. Too big → split it into sub-tasks (new `plan/<ID>.md` files + lines in `plan/TODO.md`) first.
+iteration; don't merge or skip ahead. Too big → split it into sub-tasks (new `plan/tasks/<ID>.md` files + lines in `plan/TODO.md`) first.
 
 - **Match the original exactly** — no approximations or placeholders. Find it in the decompile (`context/decomp/`,
   `research/fn.sh <addr>`), port it, prove it against the real game: a test compares the port to a PINE recording

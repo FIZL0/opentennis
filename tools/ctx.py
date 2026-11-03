@@ -3,10 +3,10 @@
 
     tools/ctx.py                 index of plan/TODO.md: every heading and task id, one line each
     tools/ctx.py next            the first open task, with its sub-items
-    tools/ctx.py <ID>            a task's full text: plan/<ID>.md, else its line in TODO.md or DONE.md
+    tools/ctx.py <ID>            a task's full text: plan/tasks/<ID>.md, else its line in TODO.md or DONE.md
     tools/ctx.py <name>          a heading's section (case-insensitive substring) in TODO.md, PLAN.md, plan/HUMAN.md or DONE.md
     tools/ctx.py -f FILE <name>  same, on another markdown file
-    tools/ctx.py tick <ID>       mark done: [x] here and in plan/<ID>.md, move the line to plan/DONE.md
+    tools/ctx.py tick <ID>       mark done: [x] here and in plan/tasks/<ID>.md, move the line to plan/DONE.md
     tools/ctx.py block <ID> WHY  mark [~] with "BLOCKED: WHY" appended
     tools/ctx.py unblock <ID> [NOTE]  reopen: [ ], drop "BLOCKED: …", append NOTE (what unblocked it)
     tools/ctx.py move <ID> WHERE      WHERE = top | before ID | after ID | in SECTION (its end); moves sub-items too
@@ -14,7 +14,7 @@
     tools/ctx.py note <ID> TEXT       append " — TEXT" to the task (user details, priority reasons)
     tools/ctx.py newid <PREFIX>       next free id, e.g. B -> B212
     tools/ctx.py archive         move every [x] line left in TODO.md to DONE.md (after merges, hand edits)
-    tools/ctx.py brief <ID>      everything a task starts from: its line, plan/<ID>.md, its journal (newest file in
+    tools/ctx.py brief <ID>      everything a task starts from: its line, plan/tasks/<ID>.md, its journal (newest file in
                                  full), where its files are and their last commits; the runners paste it in the prompt.
                                  A journal with a SPEC.md makes it a clean-room port (PLAN.md): the brief says so and,
                                  in a worktree, writes .cleanroom, which locks the decompile for the session
@@ -167,11 +167,18 @@ def archive(todo, done):
     return moved
 
 
+def long_form(plan_dir, tid):
+    """plan/tasks/<ID>.md (agent-runner 0.9 layout), else a not-yet-moved plan/<ID>.md."""
+    new = os.path.join(plan_dir, 'tasks', f'{tid}.md')
+    old = os.path.join(plan_dir, f'{tid}.md')
+    return old if os.path.exists(old) and not os.path.exists(new) else new
+
+
 def tick(todo, done, tid, plan_dir=None):
     ls = list(lines(todo))
     _mark(ls, _find(ls, tid), 'x')
     _write(todo, ls)
-    own = plan_dir and os.path.join(plan_dir, f'{tid}.md')
+    own = plan_dir and long_form(plan_dir, tid)
     if own and os.path.exists(own):
         _write(own, [re.sub(rf'^(\s*)- \[[ ~]\] \*\*{re.escape(tid)}\b', rf'\1- [x] **{tid}', l) for l in lines(own)])
     return archive(todo, done)
@@ -268,9 +275,9 @@ def brief(root, tid):
         raise SystemExit(f'ctx: no task {tid!r}')
     text = '\n'.join(line)
     out = [f'## Task {tid} (plan/TODO.md)', *line]
-    own = os.path.join(plan_dir, f'{tid}.md')
+    own = long_form(plan_dir, tid)
     if os.path.exists(own):
-        out += ['', f'## plan/{tid}.md', *lines(own)]
+        out += ['', f'## plan/{os.path.relpath(own, plan_dir)}', *lines(own)]
         text += '\n'.join(lines(own))
     jdir = os.path.join(root, 'research/journal')
     named = re.findall(r'\bj: ([\w.-]+)', text)
@@ -362,7 +369,7 @@ if __name__ == '__main__':
     paths = [todo, os.path.join(root, 'PLAN.md'), os.path.join(root, 'plan', 'HUMAN.md'), done]
     if args[:1] == ['-f']:
         paths, args = [args[1]], args[2:]
-    task = os.path.join(plan_dir, f'{args[0]}.md') if args else ''
+    task = long_form(plan_dir, args[0]) if args else ''
     if len(paths) > 1 and os.path.exists(task):
         out = lines(task)
     elif not args:
