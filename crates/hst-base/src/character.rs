@@ -1691,12 +1691,20 @@ pub fn animate(
         let serve = |id: i32| [hst_sim::motion::id::SERVE, hst_sim::motion::id::SERVE_UNDER].contains(&id);
         let after_serve = motion.fade.clip && serve(motion.fade.id);
         if c.sets != motion.sets {
+            let swung_at = c.set_at;
             (c.sets, c.set_at) = (motion.sets, time.elapsed_secs_f64());
+            // B701: standing after a serve carries on the ready stance its tail bobbed in (on its own clock, below)
+            // instead of starting the stance over: the tail's clock is frames since the swing's set less
+            // SERVE_READY.0, the motion's drawn time lags its set by a tick
+            c.stand_on = (after_serve && motion.id == hst_sim::motion::id::STAND as usize)
+                .then(|| (motion.sets, ((c.set_at - swung_at) * 60.0).round() as f32 - SERVE_READY.0 + 1.0));
+            let carried = c.stand_on.is_some() && c.ready_w >= 1.0;
             let own = rig.data.own(new);
             let ease = if motion.mix.is_none() && (own || c.own) {
                 Some(EASE_IN)
             } else if after_serve {
-                Some(SERVE_EASE)
+                // the stance already drawn whole carries straight on (an ease from it stalled the body a tick)
+                (!carried).then_some(SERVE_EASE)
             } else if c.last >= hst_sim::motion::id::HIT_BY_BALL as usize && motion.clock.looping && rig.data.noise.as_ref().is_some_and(|n| !n.springs.is_empty()) {
                 // from a reaction or an emote back to standing or running: the game's 8-frame crossfade jerked the head,
                 // and spring hair flew up (only there: eased, strokes and runs looked slow)
@@ -1726,6 +1734,17 @@ pub fn animate(
         // between the last two ticks' sampled times (across a loop's wrap); a mod's own clip on its own clock
         let (a, b) = if rig.data.visual.contains_key(&motion.id) { (motion.drawn_prev, motion.drawn.sampled) } else { (motion.prev, motion.clock.sampled) };
         let b = if b < a && motion.clock.looping { b + new.length } else { b };
+        // B701: the stand after a serve on the tail's clock; its first tick (the set's frame 0 sampled twice) moves
+        // on from the frame before it as the tail did
+        let (a, b) = match c.stand_on.filter(|s| s.0 == motion.sets) {
+            Some((_, on)) => (if a == 0.0 && b == 0.0 { -1.0 } else { a } + on, b + on),
+            None => (a, b),
+        };
+        // and that stand fading out into the next motion: its outgoing pose on the same clock
+        let fade_on = c
+            .stand_on
+            .filter(|s| s.0 == motion.sets.wrapping_sub(1) && motion.fade.id == hst_sim::motion::id::STAND)
+            .map_or(0.0, |s| s.1);
         // the base pose, and the pose mixed over its first 23 tracks (the player's blend count) by the fade; a held
         // fade's pose doesn't move within the tick
         // the fade's weight and outgoing time as the tick before this one left them, so the mix moves between ticks
@@ -1743,7 +1762,10 @@ pub fn animate(
         let then = c.mix_then.map_or((0.0, 0.0), |m| (m.0, m.1));
         let (clip, ends, overs) = match (motion.mix, fading) {
             (Some((w, true)), Some(old)) => (old, [motion.fade.sampled; 2], [Some((new, 0.0, then.0)), Some((new, 0.0, w))]),
-            (Some((w, false)), Some(old)) => (new, [new.wrap(a, motion.clock.looping), new.wrap(b, motion.clock.looping)], [Some((old, then.1, then.0)), Some((old, motion.fade.sampled, w))]),
+            (Some((w, false)), Some(old)) => {
+                let o = |t: f32| if fade_on == 0.0 { t } else { old.wrap(t + fade_on, motion.fade.looping) };
+                (new, [new.wrap(a, motion.clock.looping), new.wrap(b, motion.clock.looping)], [Some((old, o(then.1), then.0)), Some((old, o(motion.fade.sampled), w))])
+            }
             _ => (new, [new.wrap(a, motion.clock.looping), new.wrap(b, motion.clock.looping)], [None; 2]),
         };
         let keys = [0, 1].map(|e| PoseKey::new(&rig.data, clip, ends[e], overs[e]));
@@ -1759,7 +1781,14 @@ pub fn animate(
             c.arm_at = time.elapsed_secs_f64();
         }
         let g = time.overstep_fraction();
+        // B701: the serve's contact IK, held through its follow-through (which the ready stance covers) and let go
+        // over a few ticks once the server stands, isn't drawn on the stance carried on from it: it threw the racket
+        // arm back in a frame
+        let serve_arm = c.stand_on.is_some_and(|s| s.0 == motion.sets);
         let turn = |j: usize| {
+            if serve_arm {
+                return None;
+            }
             let at = |v: &[(usize, Quat)]| v.iter().find(|a| a.0 == j).map(|a| a.1);
             match (at(&c.arm_then), at(&c.arm_now)) {
                 (None, None) => None,
@@ -1803,6 +1832,7 @@ pub fn animate(
                 }
             }
         }
+        c.ready_w = ready;
         // a mod's feet on the ground where the donor's are (B543)
         if let Some(feet) = &rig.data.feet
             && drawn.len() == rig.data.joints.len()
@@ -1869,6 +1899,29 @@ pub fn animate(
             && let Some(d) = drawn.get_mut(r)
         {
             *d = (turn * d.0, turn * d.1);
+        }
+        // `HST_POSE_LOG=1`: each figure's drawn frame on stderr (B701's journal scripts read it)
+        if *POSE_LOG {
+            let mut w: Vec<Mat4> = Vec::with_capacity(drawn.len());
+            for (j, joint) in rig.data.joints.iter().enumerate() {
+                let (q, t) = drawn.get(j).copied().unwrap_or((joint.rest.rotation, joint.rest.translation));
+                let l = Mat4::from_scale_rotation_translation(joint.rest.scale, q, t);
+                let m = joint.parent.map_or(l, |p| w[p] * l);
+                w.push(m);
+            }
+            let pos = |n: &str| rig.data.joint(n).map_or(Vec3::ZERO, |j| w[j].w_axis.truncate());
+            let (h, r, p) = (pos("Bip01Head"), pos("Racket"), pos("Bip01Pelvis"));
+            let (wt, wr) = joints.get(root).map(|t| (t.translation, t.rotation.to_euler(EulerRot::YXZ).0)).unwrap_or_default();
+            let ew = if c.from.is_empty() { -1.0 } else { ((time.elapsed_secs_f64() - c.eased) * 60.0) as f32 + time.overstep_fraction() };
+            eprintln!(
+                "POSE {root:?} t={:.4} fx={:.4} id={:#x} sets={} a={a:.2} b={b:.2} f={f:.3} ready={ready:.3} ease={ew:.2} mix={:?} at=({:.4},{:.4},{:.4}) yaw={wr:.4} head=({:.4},{:.4},{:.4}) racket=({:.4},{:.4},{:.4}) pelvis=({:.4},{:.4},{:.4})",
+                now.elapsed_secs_f64(),
+                time.elapsed_secs_f64() + time.overstep_fraction() as f64 / 60.0,
+                motion.id,
+                motion.sets,
+                motion.mix,
+                wt.x, wt.y, wt.z, h.x, h.y, h.z, r.x, r.y, r.z, p.x, p.y, p.z
+            );
         }
         let untwisted = untwist_thighs(&rig.data, &drawn);
         for (j, joint) in rig.data.joints.iter().enumerate() {
@@ -1957,6 +2010,10 @@ pub struct Posing {
     /// When the fixed clock last saw a new set, and the standing pose a serve's follow-through turns into.
     set_at: f64,
     ready: Vec<(Quat, Vec3)>,
+    /// How far the serve's tail had turned into the stance last frame, and (B701) the stand set after a serve with
+    /// the frames its drawn time runs on from its own clock.
+    ready_w: f32,
+    stand_on: Option<(u32, f32)>,
     /// How far [`hold_head`] has the off hand on the racket, eased towards where it wants it.
     held: f32,
     /// The head look's turn as drawn, eased towards the match's (see [`HEAD_EASE`]).
@@ -1979,6 +2036,9 @@ const GRIP_EASE: f32 = 6.0;
 
 /// Seconds a line's mouth takes to take over from the clip's, and to give it back.
 const TALK_EASE: f64 = 0.15;
+
+/// `HST_POSE_LOG` set: `animate` logs each figure's motion, clock, blends and head/racket/pelvis per drawn frame (B701).
+static POSE_LOG: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var("HST_POSE_LOG").is_ok());
 
 /// Frames the serve's end pose takes to ease into standing or running (see `animate`).
 // ponytail: picked by eye; the original has only its 8-frame crossfade
