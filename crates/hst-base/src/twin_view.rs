@@ -44,6 +44,17 @@ pub fn plugin(app: &mut App) {
 #[derive(Resource, Default)]
 pub struct SecondEye(pub Option<(Entity, Transform, PerspectiveProjection)>);
 
+/// The split view is on, on a phone or tablet (the apps, or the browser played by touch): each half draws the whole
+/// scene again, so the scene image drops to [`PHONE_SCALE`] % and MSAA goes off while it lasts (`hud_gamma`,
+/// `graphics::msaa`); the settings themselves don't change.
+pub fn phone_split(eye: Option<&SecondEye>, dev: Option<&crate::device::Device>) -> bool {
+    use crate::device::{Input, Platform};
+    eye.is_some_and(|e| e.0.is_some()) && dev.is_some_and(|d| matches!(d.platform, Platform::Android | Platform::Ios) || d.input == Input::Touch)
+}
+
+/// The render scale cap while [`phone_split`] (a half of a phone's dense screen hides it).
+pub const PHONE_SCALE: u32 = 50;
+
 /// A camera-facing quad that the second view gets its own copy of; `own_mesh`: its vertices face the camera (built
 /// each frame), so the copy has a mesh of its own for its system to fill.
 #[derive(Component, Clone, Copy, Default)]
