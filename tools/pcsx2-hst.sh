@@ -5,7 +5,7 @@
 #   tools/pcsx2-hst.sh stop           close this instance only
 #   tools/pcsx2-hst.sh status         is this instance up (pid); the game's own state: tools/pine.py
 # HST_PCSX2=N (parallel runs, set by agent-runner, runner.toml slot_env): copy N of the user's PCSX2 config,
-# ../<repo>-slots/pcsx2/sN (own PINE slot 28011+N, save states, memory cards), seeing only virtual pad N.
+# $(agent-runner home slots)/pcsx2/sN (own PINE slot 28011+N, save states, memory cards), seeing only virtual pad N.
 # Unset: the user's own PCSX2 config, which never sees the parallel pads.
 set -e
 T=$(dirname "$(realpath "$0")")
@@ -20,7 +20,7 @@ if [ "$1" = status ]; then p=$(mine); echo "PCSX2 ${N:+copy $N }$([ -n "$p" ] &&
 case $1 in ''|-*) ;; *) echo "usage: pcsx2-hst.sh [stop | status | -pcsx2-qt-flags]" >&2; exit 2;; esac
 [ -n "$(mine)" ] && { echo "PCSX2 ${N:+copy $N }already running"; exit 0; }
 if [ -n "$N" ]; then
-    export XDG_CONFIG_HOME="$(dirname "$(git -C "$T" rev-parse --path-format=absolute --git-common-dir)")-slots/pcsx2/s$N"
+    export XDG_CONFIG_HOME="$(cd "$T" && agent-runner home slots)/pcsx2/s$N"
     [ -d "$XDG_CONFIG_HOME/PCSX2" ] || { echo "no PCSX2 copy at $XDG_CONFIG_HOME"; exit 1; }
     export SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT=$(printf '0x1209/0x%04x' $((0x5000 + N)))
     setsid "$T/vpad.py" serve >>"$XDG_CONFIG_HOME/PCSX2/logs/vpad.log" 2>&1 &  # exits by itself if pad N is up

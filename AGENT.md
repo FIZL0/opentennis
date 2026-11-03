@@ -122,7 +122,7 @@ than a quick edit while runners are going: work in your own worktree (`git workt
 merge it into main when done. `tools/done.sh` (`git add -A`) is for the runners' task worktrees, not this checkout.
 Interactive session (the user's) that moves from adding TODOs to code work: switch into a worktree first (EnterWorktree,
 or start it with `claude -w <slug>`), commit there, merge into main when done; a runner merge waits while uncommitted
-edits in main touch the files it changes. Never use a runner slot (`../opentennis-slots/sN`): the runner resets those.
+edits in main touch the files it changes. Never use a runner slot (`$(agent-runner home slots)/sN`): the runner resets those.
 
 ## If you get stuck, move on
 Never wait or loop on one obstacle. If a tool hangs, PCSX2 won't cooperate, the same fix fails twice, something
