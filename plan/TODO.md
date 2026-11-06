@@ -36,6 +36,7 @@ index out of bounds: the len is 0 but the index is 0"
 
 ### Presentation
 - [~] **B703** Odd zoom-out camera transition after the game-win celebration doesn't look right: compare with the original and fix BLOCKED: fix done + verified (journal); done.sh can't pass on main's pre-existing patches.py/split_view failures from b7da0da0 (B704): review the branch and tick it, or fix B704 and rerun done.sh
+- [ ] **B705** Odd zoom-out transition at the end of a match: after the winners' celebration animation, the cut/zoom into the Game Set Match screen doesn't look right (not the change of ends: B703 looked there by mistake). Compare with the original and fix
 
 
 ### Confirmations
