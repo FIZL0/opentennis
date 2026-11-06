@@ -34,6 +34,7 @@ index out of bounds: the len is 0 but the index is 0"
 ### Match
 
 ### Presentation
+- [ ] **B702** "This is it" NPC quote plays at the wrong pitch: match the original's pitch (compare against PCSX2)
 
 
 ### Confirmations
