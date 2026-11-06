@@ -1007,6 +1007,30 @@ mod tests {
         }
     }
 
+    /// B702: the gallery's "This is it!" keys on at the pitch the original sends. Recorded in PCSX2 (court 4, bank
+    /// `galsg04b`, `research/journal/2026-11-05-b702-this-is-it-pitch`): each line is one key-on with ADSR 80ff/9fe0,
+    /// pitch words 4630f940 (key 0) / 4731f940 (key 1) and scale 0x1000, never re-pitched while it sounds.
+    #[test]
+    fn gallery_this_is_it_pitch() {
+        let Ok(mut iso) = hst_data::fixture::iso() else {
+            return;
+        };
+        let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
+        let bank = Arc::new(gallery_bank(&mut iso, 4, 1).expect("galsg04b"));
+        let tones = Bank::parse(&bank.hd).unwrap();
+        for (key, word) in [(0u8, 0x4630_f940u32), (1, 0x4731_f940)] {
+            let p = sound::Play { slot: 6, program: sound::THIS_IS_IT, key, volume: 0x4c, speed: 1.0 };
+            let id = sound.play_toward(&bank, p, 45);
+            sound.render_frame();
+            let m = sound.0.lock().unwrap();
+            let (v, .., heard, _) = m.voices.iter().find(|v| v.2 == id).expect("a voice");
+            let e = tones.key_ons(9, key as usize).unwrap()[0];
+            let t = tones.tone(e.set as usize, e.note).unwrap();
+            assert_eq!((*heard, v.adsr, t.sample() as u32 / 2), (word, (0x80ff, 0x9fe0), v.loop_start), "key {key}");
+            assert_eq!(v.pitch, snd::pitch(&m.pitch, word, 0x0c00_1000), "key {key}");
+        }
+    }
+
     /// B594: a character's new emote line cuts its last one (silent within a frame or two of the release), while
     /// another character's emote line and a non-emote sound play on.
     #[test]

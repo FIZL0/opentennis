@@ -805,7 +805,7 @@ pub fn favoured(human: &[bool]) -> [bool; 2] {
 /// 5) at a random pitch, and the applause or groan (programs 0 and 1 from three stands), perhaps followed by a
 /// shout (5 or 6 from a random stand). `roll` is the game's random number generator.
 /// At the match's end (`event` 3/4) the ovation or groan (program 3 or 4 from three stands) and its follow-ups.
-/// On courts 1, 4 and 6 a spectator calls "This is it!" (program 9, keys 1, 0, 1, … over the match, from a random
+/// On courts 1, 4 and 6 a spectator calls "This is it!" (program 9, keys 0, 1, 0, … over the match, from a random
 /// stand) at most once a shot, when a receiving human has run within 3 m of the yellow smash marker's point
 /// ([`Watch`]). While that line or the match end's ovation/groan still sounds (its take's length in ticks,
 /// [`Gallery::lengths`]) a pending reaction is dropped at once, but for the after-match cheers and sigh, which wait
@@ -828,7 +828,7 @@ pub struct Gallery {
     sounding: u32,
     /// This shot's "This is it!" check has been made.
     checked: bool,
-    /// The last "This is it!" key (the first line takes 1).
+    /// The next "This is it!" key (the first line of a match takes 0).
     line: u8,
     /// The match's hit count as last seen (a change is a new hit).
     hits: i32,
@@ -962,9 +962,10 @@ impl Gallery {
         let Some(near) = near else { return };
         self.checked = true;
         if near {
+            let key = self.line;
+            out.push((play(slot::GALLERY, THIS_IS_IT, key, CROWD), STANDS[(roll() >> 16 & 7) as usize]));
+            self.sounding = self.takes[key as usize];
             self.line ^= 1;
-            out.push((play(slot::GALLERY, THIS_IS_IT, self.line, CROWD), STANDS[(roll() >> 16 & 7) as usize]));
-            self.sounding = self.takes[self.line as usize];
         }
     }
 

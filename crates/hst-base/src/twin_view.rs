@@ -233,8 +233,9 @@ fn top_halves(mut commands: Commands, eye: Option<Res<SecondEye>>, q: Query<(Ent
 /// same for both), so the one pass covers what either half sees. Its size goes up in whole steps so the texels don't
 /// swim as the halves' eyes move.
 // ponytail: the union of two views' boxes is coarser than either's; split screen only
-fn shared_cascades(eye: Option<Res<SecondEye>>, main: Query<Entity, With<crate::Orbit>>, map: Res<DirectionalLightShadowMap>, mut lights: Query<&mut Cascades>) {
-    let (Some((second, ..)), Ok(main)) = (eye.as_ref().and_then(|e| e.0.as_ref()), main.single()) else { return };
+// (no shadow map resource, as in the headless tests: no shadows to share)
+fn shared_cascades(eye: Option<Res<SecondEye>>, main: Query<Entity, With<crate::Orbit>>, map: Option<Res<DirectionalLightShadowMap>>, mut lights: Query<&mut Cascades>) {
+    let (Some((second, ..)), Ok(main), Some(map)) = (eye.as_ref().and_then(|e| e.0.as_ref()), main.single(), map) else { return };
     for mut c in &mut lights {
         let (Some(a), Some(b)) = (c.cascades.get(&main), c.cascades.get(second)) else { continue };
         if a.len() != b.len() {

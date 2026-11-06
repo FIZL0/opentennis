@@ -210,7 +210,7 @@ impl Plugin for PbrPlugin {
         // Setup dummy shaders for when MeshletPlugin is not used to prevent shader import errors.
         load_shader_library!(app, "meshlet/dummy_visibility_buffer_resolve.wgsl");
 
-        // opentennis: the split view's second camera (render/light.rs)
+        // opentennis patch: the split view's second camera (render/light.rs)
         app.add_plugins(bevy_render::extract_component::ExtractComponentPlugin::<ReusesShadowMaps>::default());
         app.register_asset_reflect::<StandardMaterial>()
             .init_resource::<DefaultOpaqueRendererMethod>()

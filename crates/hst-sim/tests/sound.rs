@@ -887,7 +887,7 @@ fn this_is_it_courts_and_stand() {
             assert_eq!(out.len(), says as usize, "court {court}, {players} players");
             assert_eq!(draws.get(), 5 + says as u32, "court {court}: one draw only when it plays");
             if let Some((p, angle)) = out.first() {
-                assert_eq!((p.slot, p.program, p.key, p.volume, p.speed), (6, sound::THIS_IS_IT, 1, 0x4c, 1.0));
+                assert_eq!((p.slot, p.program, p.key, p.volume, p.speed), (6, sound::THIS_IS_IT, 0, 0x4c, 1.0));
                 // draw 5: stand 5 of [0, 180, 45, 225, 90, 270, 135, 325]
                 assert_eq!(*angle, 270);
             }
@@ -902,7 +902,8 @@ fn this_is_it_courts_and_stand() {
 
 /// B678: the check is once a shot. The flag is set by the first tick a point is placed, before the distance test,
 /// so a player only getting near later is no line; a new hit clears it after that tick's check (the hit's own
-/// tick still sees the old flag); a change of the hit count with no hitter does not. The keys take turns 1, 0, 1.
+/// tick still sees the old flag); a change of the hit count with no hitter does not. The keys take turns 0, 1, 0
+/// (B702: the original's first line of a match is key 0, recorded in PCSX2).
 #[test]
 fn this_is_it_once_a_shot() {
     let draws = std::cell::Cell::new(0);
@@ -914,15 +915,15 @@ fn this_is_it_once_a_shot() {
     assert!(g.step(4, 2, false, &far, &mut roll).is_empty());
     assert!(g.step(4, 2, false, &NEAR, &mut roll).is_empty());
     assert_eq!(draws.get(), 0);
-    // shot 2 hit this tick: the old flag still holds; from the next tick, the line (key 1), then no more
+    // shot 2 hit this tick: the old flag still holds; from the next tick, the line (key 0), then no more
     let hit2 = sound::Watch { hits: 2, ..NEAR };
     assert!(g.step(4, 2, false, &hit2, &mut roll).is_empty());
-    assert_eq!(keys(g.step(4, 2, false, &hit2, &mut roll)), [1]);
+    assert_eq!(keys(g.step(4, 2, false, &hit2, &mut roll)), [0]);
     assert!(g.step(4, 2, false, &hit2, &mut roll).is_empty());
     // the count changing with no hitter (a new point's reset) clears nothing
     assert!(g.step(4, 2, false, &sound::Watch { hits: 0, hitter: false, near: Some(true) }, &mut roll).is_empty());
-    // shots 3 and 4: keys 0, then 1
-    for (hits, key) in [(3, 0), (4, 1)] {
+    // shots 3 and 4: keys 1, then 0
+    for (hits, key) in [(3, 1), (4, 0)] {
         let w = sound::Watch { hits, ..NEAR };
         assert!(g.step(4, 2, false, &w, &mut roll).is_empty());
         assert_eq!(keys(g.step(4, 2, false, &w, &mut roll)), [key]);
@@ -939,7 +940,7 @@ fn this_is_it_sounding() {
     let applause = sound::Reaction { cheer: false, event: Some(sound::event::APPLAUSE), chain: false };
     // the line sounds 10 ticks; an applause decided on its 5th tick is never heard
     let mut g = sound::Gallery::default();
-    g.lengths([20, 10], [0, 0]);
+    g.lengths([10, 20], [0, 0]);
     assert_eq!(g.step(4, 2, false, &NEAR, &mut roll).len(), 1);
     for _ in 0..3 {
         g.step(4, 2, false, &NEAR, &mut roll);
@@ -956,7 +957,7 @@ fn this_is_it_sounding() {
     assert_eq!(g.step(4, 2, false, &NEAR, &mut roll).iter().map(|(p, _)| p.program).collect::<Vec<_>>(), [sound::THIS_IS_IT]);
     // the line sounding for 30 ticks: the check waits too (a new shot on the line's 1st tick gets its line at 31)
     let mut g = sound::Gallery::default();
-    g.lengths([0, 30], [0, 0]);
+    g.lengths([30, 0], [0, 0]);
     let mut at = vec![];
     for t in 0..40 {
         let w = sound::Watch { hits: 1 + (t > 0) as i32, ..NEAR };
