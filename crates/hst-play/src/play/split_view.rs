@@ -349,7 +349,7 @@ fn step_teams(g: Option<Res<Game>>, p: Option<Res<Personal>>, pads: Option<Res<P
         // glides into the match camera's
         let h = &mut t.0[team];
         if let Phase::ChangeEnds(n) = g.phase {
-            let (from, pivot) = *h.move_in.get_or_insert_with(|| super::change_ends::start(&g, &h.now));
+            let (from, pivot) = *h.move_in.get_or_insert_with(|| super::change_ends::start(&g, &h.now, Some(&d), h.prev));
             h.now = super::change_ends::at(&from, &h.now, pivot, n);
         } else {
             h.move_in = None;

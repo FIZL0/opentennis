@@ -4245,10 +4245,16 @@ fn motions(mut g: ResMut<Game>, mut q: Query<(&Figure, &mut Motion)>) {
         if serving && p.emote == 0 {
             let s = g.serving;
             let under = s.toss == Some(Toss::Under);
+            let stance = if (motion::id::SERVE_STANCE as usize..=motion::id::SERVE_RIGHT as usize).contains(&p.cmd.id) { p.cmd.id } else { motion::id::SERVE_STANCE as usize };
+            // the change of ends' first tick: the server jumps to the new end, so the stance cuts in instead of
+            // crossfading from the last point's pose (a dive drawn lying at the new end), as the idle players do
+            if g.phase == Phase::ChangeEnds(CHANGE_ENDS) && s.toss.is_none() {
+                let serial = m.serial;
+                m.set(stance, 1.0, false, None, serial);
+            }
             match (s.toss, s.swing) {
                 // the baseline walk's motion (`serve_turn`), standing before it
-                (None, _) if (motion::id::SERVE_STANCE as usize..=motion::id::SERVE_RIGHT as usize).contains(&p.cmd.id) => m.play(p.cmd.id, 1.0, true),
-                (None, _) => m.play(motion::id::SERVE_STANCE as usize, 1.0, true),
+                (None, _) => m.play(stance, 1.0, true),
                 (Some(_), Some(sw)) => {
                     let (id, speed) = motion::serve_swing(under, sw.frames as i32);
                     // the speed is set once, at the swing's start

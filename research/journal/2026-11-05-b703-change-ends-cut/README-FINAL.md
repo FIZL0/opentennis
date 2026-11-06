@@ -41,3 +41,12 @@ b7da0da0 (`third_party/bevy_pbr/src/lib.rs` has no `HST (<task>):` marker), and 
 `twin_view::shared_cascades` (both noted on B704). With `--blocked` it runs the same checks, so I committed by hand
 after `cargo clippy -p hst-play --all-targets -D warnings` and `tools/audit.sh` both passed, along with the
 change_ends/alt_camera/own_camera tests. B703 is marked `[~]` so it can be reviewed and ticked.
+
+## Outcome (user 2026-11-05)
+The user preferred the original's glide from shot 2 after seeing both side by side, so the cut is reverted. The
+zoom-out they had reported is the Game Set Match screen's transition after the match-end celebration (B705).
+What they wanted fixed here: the next server (Cody in the clip) was drawn lying in his dive from the last point for
+the first frames of the move, crossfading up into the serve stance. The idle players already cut to the stand on the
+phase's first tick (B535); the server's stance now cuts in on that tick too (`play.rs` `motions`). Checked with a
+before/after clip of the same seeded bot match (court 1, seed 1234, frames 4320–4740): standing from the first frame.
+`change_ends` tests pass (3). Presentation only: motion commands and the sim are untouched.

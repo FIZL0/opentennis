@@ -173,7 +173,7 @@ fn step(g: Option<Res<Game>>, own: Option<ResMut<OwnCam>>, np: Option<Res<Netpla
 
 /// After the tick `step` stepped: does the shared camera still show the plain match view?
 /// B486: and through a change of ends, this machine's glide at the tick it ends on.
-fn plain(g: Option<Res<Game>>, own: Option<ResMut<OwnCam>>) {
+fn plain(g: Option<Res<Game>>, own: Option<ResMut<OwnCam>>, d: Option<Res<super::cutaway::Director>>) {
     let (Some(g), Some(mut o)) = (g, own) else { return };
     if o.passive {
         return;
@@ -181,12 +181,12 @@ fn plain(g: Option<Res<Game>>, own: Option<ResMut<OwnCam>>) {
     if std::mem::take(&mut o.fresh) {
         o.plain = g.cam.view == o.expect;
     }
-    o.glide = glide(&g, o.owner);
+    o.glide = glide(&g, o.owner, d.as_deref());
 }
 
 /// The own camera's change-ends glide at the tick `g` ends on (previous and current view): a function of the phase's
 /// count and the new set-up only, so a rollback's re-run ticks come out the same as the first run.
-fn glide(g: &Game, owner: usize) -> Option<(View, View)> {
+fn glide(g: &Game, owner: usize, d: Option<&super::cutaway::Director>) -> Option<(View, View)> {
     use super::change_ends::{at, start};
     let super::Phase::ChangeEnds(n) = g.phase else { return None };
     // the end view: this machine's match camera cut to the new set-up at its player's end
@@ -196,7 +196,7 @@ fn glide(g: &Game, owner: usize) -> Option<(View, View)> {
     let players: Vec<_> = g.players.iter().map(|p| p.pos).collect();
     cam.step(&Scene { players: &players, ball: g.flight.ball.pos });
     let to = cam.view;
-    let (from, pivot) = start(g, &to);
+    let (from, pivot) = start(g, &to, d, to);
     let prev = if n >= hst_sim::flow::CHANGE_ENDS { from } else { at(&from, &to, pivot, n + 1) };
     Some((prev, at(&from, &to, pivot, n)))
 }
@@ -308,8 +308,8 @@ mod tests {
         assert!(differs, "the own camera never showed its own view");
     }
 
-    /// B486: following the player the shared camera's change-ends view isn't behind, the picture shows its own
-    /// camera's view at that player's new end (B703: held, no glide) and the serve's set-up carries on from there, with no cut
+    /// B486: following the player the shared camera's change-ends glide isn't behind, the picture glides round that
+    /// player to its own camera's view at its new end and the serve's set-up carries on from there, with no cut
     /// (it showed the shared glide, the player at the far end, and snapped round when it ended; skipped without the ISO).
     #[test]
     fn the_change_of_ends_glides_behind_the_own_player() {

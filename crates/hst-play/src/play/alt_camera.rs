@@ -252,7 +252,7 @@ fn step(
         // the change of ends glides from behind the new end into the shot, as the normal camera's move does
         Some(match g.phase {
             Phase::ChangeEnds(n) => {
-                let (from, pivot) = *alt.move_in.get_or_insert_with(|| super::change_ends::start(&g, &to));
+                let (from, pivot) = *alt.move_in.get_or_insert_with(|| super::change_ends::start(&g, &to, Some(&d), alt.last.unwrap_or(to)));
                 super::change_ends::at(&from, &to, pivot, n)
             }
             _ => to,
