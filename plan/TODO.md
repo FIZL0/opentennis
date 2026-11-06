@@ -35,6 +35,7 @@ index out of bounds: the len is 0 but the index is 0"
 
 ### Presentation
 - [ ] **B702** "This is it" NPC quote plays at the wrong pitch: match the original's pitch (compare against PCSX2)
+- [ ] **B703** Odd zoom-out camera transition after the game-win celebration doesn't look right: compare with the original and fix
 
 
 ### Confirmations
