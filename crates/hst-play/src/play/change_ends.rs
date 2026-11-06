@@ -1,11 +1,13 @@
-//! The change-ends camera move (B49): the players are already at their new ends on the phase's first tick; the
-//! picture cuts to the first view of scripted shot 2 (behind the player at the match camera's new end) and glides
-//! from it round that player to the match camera's view of the new set-up over the phase
-//! (`hst_sim::camera::swing`), as the original's camera does on its change-ends message (B174).
+//! The change-ends camera (B49): the players are already at their new ends on the phase's first tick, and the picture
+//! cuts to the match camera's view of the new set-up and holds it over the phase, as a new point's set-up cuts to it.
+//!
+//! B703: the original glides there instead, from the first view of scripted shot 2 (B174: a telephoto from the ground
+//! behind the player at the new end, round that player out to the match camera, `hst_sim::camera::swing`). After
+//! the game's celebration that read as an odd zoom-out from a close-up nobody had seen, so the move starts where it
+//! ends: the same cut as at the end of a game without a change of ends. Presentation only: the sim never reads it.
 
 use bevy::prelude::*;
 use hst_sim::camera::{Scene, View, swing, swing_weight};
-use hst_sim::cutaway::{IDENTITY, Shot};
 use hst_sim::flow::CHANGE_ENDS;
 
 use super::{Game, Phase};
@@ -24,7 +26,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(FixedUpdate, step.after(super::replay_camera::step).before(super::start_effects));
 }
 
-pub(super) fn step(mut g: ResMut<Game>, mut s: ResMut<Swing>, d: Option<Res<super::cutaway::Director>>) {
+pub(super) fn step(mut g: ResMut<Game>, mut s: ResMut<Swing>) {
     let Phase::ChangeEnds(n) = g.phase else {
         s.run = None;
         s.last = Some(g.cam.view);
@@ -35,7 +37,7 @@ pub(super) fn step(mut g: ResMut<Game>, mut s: ResMut<Swing>, d: Option<Res<supe
         let mut cam = g.cam;
         let players: Vec<[f32; 3]> = g.players.iter().map(|p| p.pos).collect();
         cam.step(&Scene { players: &players, ball: g.flight.ball.pos });
-        let (from, pivot) = start(&g, &cam.view, d.as_deref(), s.last.unwrap_or(cam.view));
+        let (from, pivot) = start(&g, &cam.view);
         s.run = Some((from, cam.view, pivot));
         g.prev_view = from;
         // the placement's cut doesn't reach the picture: the move is shown instead
@@ -46,32 +48,18 @@ pub(super) fn step(mut g: ResMut<Game>, mut s: ResMut<Swing>, d: Option<Res<supe
     s.last = Some(g.cam.view);
 }
 
-/// The move's start view and pivot, gliding to the match camera's view `to` of the new set-up (`fallback`: the
-/// start without the cut-away director).
-pub(super) fn start(g: &Game, to: &View, d: Option<&super::cutaway::Director>, fallback: View) -> (View, [f32; 3]) {
-    // the pivot: the game's court spot 0x76, the player at the match camera's end, on the ground facing the net
-    // (both recorded glides fit it to 0.1 m: slot 5 and the Grand Palais with the camera on the human's side).
-    // ponytail: the first player at that end; which of two (doubles) the spot follows wasn't recorded
+/// The move's start view and pivot, ending on the match camera's view `to` of the new set-up: `to` itself (B703), so
+/// the picture cuts to it; the pivot is the player at that camera's end, on the ground.
+/// ponytail: the first player at that end; which of two (doubles) the original's move went round wasn't recorded
+pub(super) fn start(g: &Game, to: &View) -> (View, [f32; 3]) {
     let near = g.players.iter().find(|p| p.pos[2] * to.eye[2] > 0.0).unwrap_or(&g.players[g.score.server as usize]).pos;
-    let pivot = [near[0], 0.0, near[2]];
-    // the start: not the cut-away on screen but the first view of scripted shot 2, which orbits that spot from
-    // behind it (frame 0x77 is the same spot at the other end), so the move stays behind the new end's baseline
-    // instead of swinging round the court (out through the indoor court's walls)
-    let b = if pivot[2] > 0.0 { -1.0 } else { 1.0 };
-    let spot = |b: f32, p: [f32; 3]| [[b, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, b, 0.0], [p[0], 0.0, p[2], 1.0]];
-    let (here, there) = (spot(b, pivot), spot(-b, [-pivot[0], 0.0, -pivot[2]]));
-    let from = d.map_or(fallback, |d| {
-        let mut shot = Shot::new(&d.shots, 2, false);
-        shot.build(&|i| match i { 0x76 => here, 0x77 => there, _ => IDENTITY });
-        shot.view()
-    });
-    (from, pivot)
+    (*to, [near[0], 0.0, near[2]])
 }
 
 /// The move's view at phase tick `n`: the game counts its 80 down before use (79 on the first tick) and shows the
 /// match camera at 0.
 pub(super) fn at(from: &View, to: &View, pivot: [f32; 3], n: u32) -> View {
-    if n >= 2 { swing(from, to, swing_weight(n - 1), pivot) } else { *to }
+    if n >= 2 && from != to { swing(from, to, swing_weight(n - 1), pivot) } else { *to }
 }
 
 /// The player who serves next, through the change of ends (B262): the placement put everyone where the next point
@@ -119,16 +107,16 @@ mod tests {
     const ISO: &str = hst_data::fixture::ISO_PATH;
 
     /// A bot singles match plays to its first change of ends: the players stand at their new ends from the
-    /// phase's first tick, the picture glides (no cut after its first tick) to the match camera, which it reaches
-    /// on the phase's last tick, staying behind the new end's baseline (skipped without the ISO).
+    /// phase's first tick, and the picture cuts to the match camera's view of the new set-up and holds it (B703: no
+    /// zoom-out from the ground behind the new end), behind the new end's baseline (skipped without the ISO).
     #[test]
     fn change_of_ends_glides() {
         glide(None, None, &[6, 1]);
     }
 
     /// B174: the same on the indoor Grand Palais with the camera following player 0 (the human's view), whose
-    /// move ends on the other side of the court from where the post-point cut-away left it: it still starts
-    /// behind the new end (the original's shot 2) instead of swinging round the court through the hall's walls.
+    /// view of the new set-up is on the other side of the court from where the post-point cut-away left it: the cut
+    /// goes straight there, never round the court through the hall's walls.
     #[test]
     fn change_of_ends_glides_on_the_players_side() {
         glide(Some(7), Some(0), &[6, 1]);
@@ -209,6 +197,8 @@ mod tests {
             let e = eye(&v.2);
             assert!(e.z * to.eye[2] > 0.0 && e.z.abs() > 11.885 && e.x.abs() < 8.0, "tick {}: eye {e} off the new end", v.0);
         }
+        // B703: a cut on the first tick to the new set-up's view, held to the end (no move from anywhere else)
+        assert!(views.iter().all(|v| v.1 == to && v.2 == to), "the change of ends holds the new set-up's view");
         // each tick moves on from the last (no cut), and the last shows the match camera
         for w in views.windows(2) {
             assert_eq!(w[1].1, w[0].2, "tick {} starts where {} ended", w[1].0, w[0].0);

@@ -8,6 +8,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 
 ### Next (user priorities, in order)
 
+- [ ] **B704** split_view tests each_team_has_its_own_camera / each_human_has_their_own_camera panic: twin_view::shared_cascades needs DirectionalLightShadowMap in the test app (since b7da0da0) — also: tools/patches.py fails on main since b7da0da0 (third_party/bevy_pbr/src/lib.rs has an 'opentennis:' comment, not an 'HST (<task>):' marker, and no third_party/README.md row), which fails every done.sh
 - [~] **B698** Hit by the ball (user 2026-10-29): the conked player only falls backwards, so turn them to face the ball as the knock-down animation starts, so they always fall away from it (crates/hst-sim/src/bodyhit.rs, crates/hst-play/src/play/). Presentation only: no sim RNG or match timing change; replay tests stay exact. Release note line. BLOCKED: already turns to face the ball in every case tried (side, front, human, mod char, replay); needs the user's exact situation (court, chars, singles/doubles, human/CPU, replay/online, ball direction) to reproduce
 - [~] **M159** iOS install probe (files: crates/hst-base/src/ios.rs, crates/hst/src/update.rs, the Settings page): Settings shows an 'Install info' line on iOS only (Info.plist keys an installer added e.g. ALTDeviceID/ALTServerID, bundle ID, marker files beside the .app e.g. _TrollStore, embedded.mobileprovision kind dev/ad-hoc/enterprise + team name) so the user screenshots it after installing through their installer. No network, nothing sent. Then block for the user's screenshots and journal what each installer leaves. BLOCKED: needs the user's screenshots of Settings → Online & Mods → Updates after installing through each installer (AltStore, SideStore, TrollStore, Feather, Sideloadly); then journal what each leaves
 - [~] **B654** **Net hides in post-point cut-aways** (user 2026-10-22): when a post-point celebration cut-away has the camera close to the net, the net should not draw (`net_hide.rs` has the original's rule: 2 m to the net plane during a cut-away, 0.8 m otherwise) but it still shows. Find why the cut-away case never fires (cut-away flag not reaching it, the eye/heading it tests, k from the cut-away's fov, or B634/B638's split-view rework) and fix; check with `--shot` on a cut-away that frames a player at the net. → `crates/hst-play/src/play/net_hide.rs` · `play/cutaway.rs` · `play.rs` (camera) BLOCKED: the original draws the net in the net-post cut-away (game byte, slot 5); user decides: keep as original, or hide it within 2 m in cut-aways as our own addition
@@ -34,7 +35,7 @@ index out of bounds: the len is 0 but the index is 0"
 ### Match
 
 ### Presentation
-- [ ] **B703** Odd zoom-out camera transition after the game-win celebration doesn't look right: compare with the original and fix
+- [~] **B703** Odd zoom-out camera transition after the game-win celebration doesn't look right: compare with the original and fix BLOCKED: fix done + verified (journal); done.sh can't pass on main's pre-existing patches.py/split_view failures from b7da0da0 (B704): review the branch and tick it, or fix B704 and rerun done.sh
 
 
 ### Confirmations
