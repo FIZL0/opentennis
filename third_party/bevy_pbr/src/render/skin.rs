@@ -169,7 +169,8 @@ impl SkinUniformInfo {
 /// Returns true if skinning must use uniforms (and dynamic offsets) because
 /// storage buffers aren't supported on the current platform.
 pub fn skins_use_uniform_buffers(limits: &WgpuLimits) -> bool {
-    bevy_render::storage_buffers_are_unsupported(limits)
+    // HST (B706): also where the renderer picked them for a driver on Bevy's CPU-preprocessing list
+    bevy_render::skins_use_uniform_buffers(limits)
 }
 
 /// Uploads the buffers containing the joints to the GPU.

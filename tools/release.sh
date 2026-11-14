@@ -14,7 +14,7 @@
 #                                                                      (tools/ios-source.sh), so they update it
 #   web.tar.gz                                                         the website, which pages.yml deploys as built here
 # VERSION with a suffix (1.1.0-rc.1) is a pre-release, never Latest. notes.md is the "New in …" list (Markdown
-# bullets); without it, RELEASE_NOTES.md (kept up to date as changes land; emptied and committed after the release),
+# bullets); without it, RELEASE_NOTES.md (kept up to date as changes land; emptied and committed after a release, kept after a pre-release),
 # and if that has no bullets either, the commit subjects since the last v* tag (required for the first release). A draft unless
 # `publish` is given: check it on GitHub and publish there. Publishing puts the release on opentennis.dev when the repo
 # variable SITE_FROM is `release` (pages.yml). Every push to main is a beta (pages.yml), not made here.
@@ -138,7 +138,8 @@ gh release create "$tag" --target "$(git rev-parse HEAD)" --title "OpenTennis $v
     --notes-file "$body" $pre $publish "$out"/opentennis-* "$out"/opentennis.zip "$out"/web.tar.gz "$out"/SHA256SUMS "$out"/SHA256SUMS.sig "$out"/altstore-source.json
 # the shared FIZL0 source (github.com/FIZL0/apps) picks up this release now, not at its next hourly poll
 [ "$publish" = --latest ] && { gh workflow run source -R FIZL0/apps || echo "FIZL0/apps did not rebuild; it will within the hour" >&2; }
-if [ "$notes" = RELEASE_NOTES.md ]; then
+# a pre-release (1.6.3-beta.1) keeps the notes for the real release after it
+if [ "$notes" = RELEASE_NOTES.md ] && [ -z "$pre" ]; then
     sed -i '/^<!--/!d' RELEASE_NOTES.md
     git commit -qm "Release notes: emptied after v$version" -- RELEASE_NOTES.md && git push -q origin HEAD
 fi

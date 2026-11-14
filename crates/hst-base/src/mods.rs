@@ -849,6 +849,10 @@ fn worlds(doc: &gltf::Document) -> Vec<Mat4> {
     (0..parent.len()).map(|i| world(i, doc, &parent, &mut w)).collect()
 }
 
+/// The most joints one primitive (a part) may weight: phones without storage buffers in skinning (Bevy's uniform
+/// skin layout, B706) hold 256 matrices per draw.
+pub const PART_JOINTS: usize = bevy::pbr::MAX_JOINTS;
+
 /// §7's checks (opentennis-mods `tools/rerig/check.py`): the failures as `Err`, else the warnings.
 fn conform(doc: &gltf::Document, blob: &[u8], morph_face: bool) -> Result<Vec<String>, String> {
     let (mut fail, mut warn) = (Vec::new(), Vec::new());
@@ -924,7 +928,7 @@ fn conform(doc: &gltf::Document, blob: &[u8], morph_face: bool) -> Result<Vec<St
     } else if !(0.4 < h && h < 1.3) {
         warn.push(format!("Bip01 height {h:.3} m (HST 0.58–0.95)"));
     }
-    let (mut feet, mut over4, mut sums, mut targets) = (f32::NAN, false, 0, Vec::new());
+    let (mut feet, mut over4, mut sums, mut targets, mut wide) = (f32::NAN, false, 0, Vec::new(), Vec::new());
     for n in doc.nodes() {
         let Some(mesh) = n.mesh() else { continue };
         targets.extend(target_names(&mesh));
@@ -933,7 +937,18 @@ fn conform(doc: &gltf::Document, blob: &[u8], morph_face: bool) -> Result<Vec<St
             feet = r.read_positions().into_iter().flatten().map(|v| v[1]).fold(feet, f32::max);
             sums += r.read_weights(0).map(|w| w.into_f32().filter(|w| (w.iter().sum::<f32>() - 1.0).abs() > 0.01).count()).unwrap_or(0);
             over4 |= p.get(&gltf::Semantic::Joints(1)).is_some();
+            if let (Some(js), Some(ws)) = (r.read_joints(0), r.read_weights(0)) {
+                let mut used: Vec<u16> = js.into_u16().zip(ws.into_f32()).flat_map(|(j, w)| (0..4).filter(move |&k| w[k] != 0.0).map(move |k| j[k])).collect();
+                used.sort_unstable();
+                used.dedup();
+                if used.len() > PART_JOINTS {
+                    wide.push(format!("{}/{} weights {} joints", mesh.name().unwrap_or("?"), p.material().name().unwrap_or("?"), used.len()));
+                }
+            }
         }
+    }
+    if !wide.is_empty() {
+        fail.push(format!("≤{PART_JOINTS} weighted joints per primitive (split it): {}", wide.join(", ")));
     }
     if feet.is_nan() || feet.abs() >= 0.06 {
         warn.push(format!("feet at y=0 (lowest point {feet:.3})"));
@@ -2870,6 +2885,35 @@ mod tests {
         eprintln!("{n} mutations: {checked} passed the checks, {loaded} loaded");
         crate::modfs::remove(Path::new("t_fuzz"));
         assert!(panics.is_empty(), "mutations {panics:?} panicked");
+    }
+
+    /// B706: a primitive weighting more joints than a uniform-skin draw holds (`PART_JOINTS`) is refused, naming it;
+    /// one at the limit isn't.
+    #[test]
+    fn refuses_a_part_over_the_joint_limit() {
+        let glb = |n: usize| {
+            // one vertex per joint, each fully on its own joint (POSITION, JOINTS_0 u16, WEIGHTS_0 f32)
+            let mut bin = Vec::new();
+            (0..n).for_each(|_| bin.extend([0f32; 3].iter().flat_map(|f| f.to_le_bytes())));
+            (0..n).for_each(|j| bin.extend([j as u16, 0, 0, 0].iter().flat_map(|v| v.to_le_bytes())));
+            (0..n).for_each(|_| bin.extend([1f32, 0.0, 0.0, 0.0].iter().flat_map(|f| f.to_le_bytes())));
+            let (p, j) = (n * 12, n * 8);
+            let nodes: Vec<String> = std::iter::once(r#"{"mesh":0,"skin":0}"#.to_string()).chain((0..n).map(|i| format!(r#"{{"name":"j{i}"}}"#))).collect();
+            let joints: Vec<String> = (1..=n).map(|i| i.to_string()).collect();
+            let json = format!(
+                r#"{{"asset":{{"version":"2.0"}},"scenes":[{{"nodes":[0]}}],"nodes":[{nodes}],"skins":[{{"joints":[{joints}]}}],"meshes":[{{"name":"body","primitives":[{{"attributes":{{"POSITION":0,"JOINTS_0":1,"WEIGHTS_0":2}},"material":0}}]}}],"materials":[{{"name":"skin"}}],"buffers":[{{"byteLength":{len}}}],"bufferViews":[{{"buffer":0,"byteLength":{p}}},{{"buffer":0,"byteOffset":{p},"byteLength":{j}}},{{"buffer":0,"byteOffset":{w},"byteLength":{ws}}}],"accessors":[{{"bufferView":0,"componentType":5126,"count":{n},"type":"VEC3"}},{{"bufferView":1,"componentType":5123,"count":{n},"type":"VEC4"}},{{"bufferView":2,"componentType":5126,"count":{n},"type":"VEC4"}}]}}"#,
+                nodes = nodes.join(","),
+                joints = joints.join(","),
+                len = bin.len(),
+                w = p + j,
+                ws = n * 16
+            );
+            let g = gltf::Gltf::from_slice_without_validation(json.as_bytes()).unwrap();
+            conform(&g.document, &bin, false).err().unwrap_or_default()
+        };
+        let e = glb(PART_JOINTS + 1);
+        assert!(e.contains(&format!("body/skin weights {} joints", PART_JOINTS + 1)), "{e}");
+        assert!(!glb(PART_JOINTS).contains("weighted joints"));
     }
 
     /// A model off the standard is refused, naming what is wrong.

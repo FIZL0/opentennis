@@ -1329,10 +1329,7 @@ impl FromWorld for GpuPreprocessingSupport {
         //   than 730).
         // - We filter out Mali GPUs with driver versions lower than 48.
         // - We limit Pixel 10 GPUs (all versions for now) to preprocessing only (no culling)
-        fn is_non_supported_android_device(adapter_info: &RenderAdapterInfo) -> bool {
-            crate::get_adreno_model(adapter_info).is_some_and(|model| model != 720 && model <= 730)
-                || crate::get_mali_driver_version(adapter_info).is_some_and(|version| version < 48)
-        }
+        // HST (B706): the first two are `crate::gpu_preprocessing_blocked` (lib.rs), which the skin layout reads too
         fn is_preprocessing_only_android_device(adapter_info: &RenderAdapterInfo) -> bool {
             crate::get_pixel10_driver_version(adapter_info).is_some()
         }
@@ -1357,8 +1354,9 @@ impl FromWorld for GpuPreprocessingSupport {
 
         let adapter_info = RenderAdapterInfo(WgpuWrapper::new(adapter.get_info()));
 
+        // HST (B706): Bevy's driver list plus the game's switches (`crate::gpu_preprocessing_blocked`)
         let max_supported_mode = if device.limits().max_compute_workgroup_size_x == 0
-            || is_non_supported_android_device(&adapter_info)
+            || crate::gpu_preprocessing_blocked(&adapter_info)
             || adapter_info.backend == wgpu::Backend::Gl
         {
             info_once!(

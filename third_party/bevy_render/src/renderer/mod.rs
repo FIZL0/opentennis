@@ -375,10 +375,15 @@ pub async fn initialize_renderer(
     debug!("Configured wgpu adapter Limits: {:#?}", device.limits());
     debug!("Configured wgpu adapter Features: {:#?}", device.features());
 
+    // HST (B706): the skin buffers' layout is fixed before any mesh layout or pipeline is made
+    let adapter_info = RenderAdapterInfo(WgpuWrapper::new(adapter_info));
+    if crate::choose_skin_buffers(&adapter_info) && device.limits().max_storage_buffers_per_shader_stage > 0 {
+        info!("skins and morph weights in uniform buffers (CPU preprocessing on this driver)");
+    }
     RenderResources(
         RenderDevice::from(device),
         RenderQueue(Arc::new(WgpuWrapper::new(queue))),
-        RenderAdapterInfo(WgpuWrapper::new(adapter_info)),
+        adapter_info,
         RenderAdapter(Arc::new(WgpuWrapper::new(adapter))),
         RenderInstance(Arc::new(WgpuWrapper::new(instance))),
         #[cfg(feature = "raw_vulkan_init")]

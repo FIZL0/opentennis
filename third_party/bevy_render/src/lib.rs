@@ -587,3 +587,47 @@ pub fn storage_buffers_are_unsupported(limits: &WgpuLimits) -> bool {
     static STORAGE_BUFFERS_UNSUPPORTED: OnceLock<bool> = OnceLock::new();
     *STORAGE_BUFFERS_UNSUPPORTED.get_or_init(|| limits.max_storage_buffers_per_shader_stage == 0)
 }
+
+// HST (B706): an Adreno 730 (Bevy sends it, Adreno ≤ 730 and Mali drivers < 48, to CPU preprocessing) drew every
+// skinned mesh exploded or not at all, while static meshes, which read the same per-mesh storage buffer, drew fine.
+// Where Bevy's own driver list sends a GPU to CPU preprocessing, skins and morph weights take the layout of the
+// path that is built for CPU batching (WebGL2's): uniform buffers at a dynamic offset, morph targets in a texture.
+// `HST_CPU_PREPROCESS=1` or the game's `gpu_preprocess = off` takes that path on any GPU, `= on` skips the driver
+// list; `uniform_skins` overrides the skin layout either way. Both are set before the renderer starts.
+
+/// A switch set before the renderer starts: 0 Bevy's choice, 1 on, 2 off.
+pub static GPU_PREPROCESS_SWITCH: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+/// A switch set before the renderer starts: 0 the default (on where [`gpu_preprocessing_blocked`] is), 1 on, 2 off.
+pub static UNIFORM_SKINS_SWITCH: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+static UNIFORM_SKINS: OnceLock<bool> = OnceLock::new();
+
+/// True if this adapter's driver is on Bevy's list of drivers that mishandle GPU preprocessing (Adreno 730 and
+/// earlier but the 720, Mali drivers before 48), or the game asked for CPU preprocessing; false if it asked for GPU
+/// preprocessing whatever the list says.
+pub fn gpu_preprocessing_blocked(adapter_info: &RenderAdapterInfo) -> bool {
+    let forced_cpu = std::env::var_os("HST_CPU_PREPROCESS").is_some_and(|v| v == "1");
+    match GPU_PREPROCESS_SWITCH.load(core::sync::atomic::Ordering::Relaxed) {
+        _ if forced_cpu => true,
+        1 => false,
+        2 => true,
+        _ => {
+            get_adreno_model(adapter_info).is_some_and(|model| model != 720 && model <= 730)
+                || get_mali_driver_version(adapter_info).is_some_and(|version| version < 48)
+        }
+    }
+}
+
+/// Decides [`skins_use_uniform_buffers`] for the adapter the renderer picked; once, before any mesh layout is made.
+pub fn choose_skin_buffers(adapter_info: &RenderAdapterInfo) -> bool {
+    *UNIFORM_SKINS.get_or_init(|| match UNIFORM_SKINS_SWITCH.load(core::sync::atomic::Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => gpu_preprocessing_blocked(adapter_info),
+    })
+}
+
+/// True if skins and morph weights go in uniform buffers: storage buffers are unsupported, or
+/// [`choose_skin_buffers`] picked them.
+pub fn skins_use_uniform_buffers(limits: &WgpuLimits) -> bool {
+    storage_buffers_are_unsupported(limits) || UNIFORM_SKINS.get().copied().unwrap_or(false)
+}
