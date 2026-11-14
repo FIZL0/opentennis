@@ -999,13 +999,21 @@ if (gecko && !seen) {
     + 'Edge or Safari. (Tap to close.)';
   n.onclick = () => { n.remove(); try { localStorage.setItem('hst-gecko-notice', '1'); } catch {} };
 }
-const adapter = renderer !== 'webgl2' && (!gecko || renderer === 'webgpu') && navigator.gpu ? Promise.race([navigator.gpu.requestAdapter(), new Promise(r => setTimeout(r, 5000, null))]) : null;
+// B707: Settings → Display → Rendering's Software: the browser's fallback (CPU) WebGPU adapter, when it has one, in
+// the WebGPU build whatever the Renderer says (WebGL2 can't be asked to draw on the CPU); `hstSoftware` tells the game
+let rendering = 'hardware';
+try { rendering = /^rendering\s*=\s*(\w+)/m.exec(localStorage.getItem('./settings.txt') ?? '')?.[1] ?? 'hardware'; } catch {}
+const fallback = rendering === 'software' && navigator.gpu
+  ? await Promise.race([navigator.gpu.requestAdapter({ forceFallbackAdapter: true }), new Promise(r => setTimeout(r, 5000, null))]).catch(() => null) : null;
+if (rendering === 'software') console.info(`hst: software rendering ${fallback ? 'on' : 'asked for, but the browser has no fallback adapter'}`);
+const adapter = fallback ? Promise.resolve(fallback) : renderer !== 'webgl2' && (!gecko || renderer === 'webgpu') && navigator.gpu ? Promise.race([navigator.gpu.requestAdapter(), new Promise(r => setTimeout(r, 5000, null))]) : null;
 // P56: under Auto a software adapter (SwiftShader, what Chrome on Linux hands out with only the unsafe-WebGPU flag
 // on) is slower than hardware WebGL2: that one gets WebGL2 too. Why WebGL2 was picked goes to localStorage
 // `hst-renderer-why` for the site's Settings (site.js `rendererNote`)
 const software = a => !!a && (a.isFallbackAdapter || a.info?.isFallbackAdapter || a.info?.architecture === 'swiftshader');
 const got = await adapter?.catch(() => null);
-const webgpu = !new URLSearchParams(location.search).has('webgl2') && !!got && (renderer === 'webgpu' || !software(got));
+const webgpu = !new URLSearchParams(location.search).has('webgl2') && !!got && (!!fallback || renderer === 'webgpu' || !software(got));
+window.hstSoftware = webgpu && !!fallback;
 {
   const why = webgpu ? 'webgpu' : new URLSearchParams(location.search).has('webgl2') ? 'forced' : renderer === 'webgl2' ? 'setting'
     : gecko && renderer !== 'webgpu' ? 'gecko' : !navigator.gpu ? 'no-api' : !got ? 'no-adapter' : 'software';
@@ -1041,6 +1049,11 @@ window.hstRenderer = word => {
     q.delete('webgl2');
     location.search = q.toString();
   }, 100);
+};
+// B707: the Rendering setting changed in the game (after its confirm popup): the page reloads into it
+window.hstRendering = word => {
+  clearTimeout(reloading);
+  if (word !== rendering) reloading = setTimeout(() => location.reload(), 100);
 };
 window.hstWebGL2 = why => {
   if (!webgpu || renderer === 'webgpu') return false;

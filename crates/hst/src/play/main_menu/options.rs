@@ -53,6 +53,8 @@ pub(super) enum Opt {
     Chat,
     /// B273: the browser build's renderer.
     Renderer,
+    /// B707: Hardware or Software drawing (`render_mode`), every build.
+    Rendering,
     /// B118: the on-screen pad buzzes on each press.
     Vibration,
     /// B343: the speed-up switch (`Graphics::fewer_shadows`).
@@ -91,7 +93,14 @@ pub(super) fn tab(page: Screen) -> usize {
 
 /// The browser build stays in its page (`graphics::KEEP_WINDOWED`), so it has no Display mode row; it has a
 /// Renderer instead (B273).
-const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] } else { &[Display, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] };
+/// B707: Rendering, in every build, under the Display mode or the Renderer.
+const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Rendering, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] } else { &[Display, Rendering, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] };
+/// B707: the Rendering row's place on the Display page.
+pub(super) fn rendering_row() -> usize {
+    DISPLAY.iter().position(|&o| o == Rendering).unwrap_or(0)
+}
+/// B707: a `Menu::switch` for the Rendering row rather than the Renderer: this bit, with 1 for Software.
+pub(super) const MODE_SWITCH: u8 = 0x80;
 /// What a preset sets, then the textures, then the way into Advanced.
 const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Shading, Upscaled, Advanced];
 /// B411: Graphics → Advanced, the speed-up switches for a slow device.
@@ -151,6 +160,7 @@ fn label(o: Opt) -> &'static str {
         KeepDownloads => "Keep Online Downloads",
         Chat => "Chat",
         Renderer => "Renderer",
+        Rendering => "Rendering",
         Vibration => "Vibration",
         UpdateCheck => "Updates",
         FewerShadows => "Fewer Shadows",
@@ -200,6 +210,7 @@ fn about(o: Opt) -> &'static str {
         KeepDownloads => "After an online match, the mods you downloaded for it: ask whether to add them to your mods, always add them, or never.",
         Chat => "Show the online lobby's and match's text chat (T, or R2/L2 on a pad), or hide it.",
         Renderer => "Auto: WebGPU when the browser has it, else WebGL2; the one in use shows in brackets, with Hardware (drawn by the graphics card) or Software (drawn by the CPU, much slower: turn on the browser's hardware acceleration). A change asks first: the page reloads into it.",
+        Rendering => rendering_about(),
         Vibration => vibration_about(),
         UpdateCheck => "Look for a newer version while the game runs. Ask: the main menu asks Update? the first time it finds one. Always: it installs by itself where it can (a phone's installer still asks you to confirm). Never: no looking.",
         FewerShadows => "At Low shadows, only the players, the umpire and what shades the court cast: fewer draws. Off: Low casts as many as High.",
@@ -210,6 +221,24 @@ fn about(o: Opt) -> &'static str {
 /// B608: Auto fills the screen everywhere (the Safe Area setting keeps the menus off the notch); B624: Stretch is back.
 fn aspect_about() -> &'static str {
     "Auto fills the screen; a fixed ratio shows the whole picture at that shape, black bars around it; Stretch fills the whole screen with the menus and score too, past the notch and the Safe Area margin."
+}
+
+/// B707: the mode drawing now, where it isn't the setting's (not restarted yet, or no software renderer here).
+fn rendering_running(m: &Menu) -> Option<&'static str> {
+    let soft = *crate::graphics::SOFTWARE.get()?;
+    (soft != m.settings.software).then_some(crate::render_mode::MODES[soft as usize].1)
+}
+
+/// B707: the Rendering row's text, and a line when Software was asked for but this device has none.
+fn rendering_about() -> &'static str {
+    const ABOUT: &str = "Hardware draws with your graphics chip and is fastest. If players, courts or effects look wrong or go missing, try Software: it draws on the CPU, so it's slower but works the same on every device. A change asks first, then restarts the game.";
+    if crate::render_mode::MISSING.load(std::sync::atomic::Ordering::Relaxed) {
+        "Hardware draws with your graphics chip and is fastest. Software draws on the CPU, slower but the same on every device; it couldn't start on this device, so the game is drawing with Hardware (shown in brackets). Picking Software again tries once more."
+    } else if !crate::render_mode::can_restart() {
+        "Hardware draws with your graphics chip and is fastest. If players, courts or effects look wrong or go missing, try Software: it draws on the CPU, so it's slower but works the same on every device. A change applies the next time you open the game."
+    } else {
+        ABOUT
+    }
 }
 
 /// B329: the Vibration row's text, by what this browser can do (`web/touch.js`).
@@ -259,6 +288,7 @@ fn choices(o: Opt) -> Vec<String> {
         Msaa => words(&MSAA_NAMES),
         ShowFps => words(&SHOW_FPS_NAMES),
         Renderer => RENDERERS.iter().map(|(_, n)| n.to_string()).collect(),
+        Rendering => crate::render_mode::MODES.iter().map(|(_, n)| n.to_string()).collect(),
         ButtonIcons => super::legend::LAYOUTS.iter().map(|l| l.0.to_string()).collect(),
         Fps => FPS.map(fps_name).to_vec(),
         Volume(_) => (0..=10).map(|v| v.to_string()).collect(),
@@ -375,6 +405,7 @@ impl Settings {
                 crate::chat::HIDDEN.store(!self.chat, std::sync::atomic::Ordering::Relaxed);
             }
             Renderer => self.renderer = (self.renderer as isize + d).rem_euclid(RENDERERS.len() as isize) as u8,
+            Rendering => self.software = !self.software,
             Vibration => self.vibration = !self.vibration,
             // M140: Ask / Always / Never, Never being the older Check for Updates off
             UpdateCheck => {
@@ -456,6 +487,7 @@ impl Settings {
             OnlineMods => ASK_VALUES.iter().find(|(a, _)| *a == self.online_mods).unwrap().1.into(),
             Chat => on_off(self.chat),
             Renderer => RENDERERS[self.renderer as usize].1.into(),
+            Rendering => crate::render_mode::MODES[self.software as usize].1.into(),
             Vibration => on_off(self.vibration),
             UpdateCheck => ASK_VALUES.iter().find(|(a, _)| *a == self.updates()).unwrap().1.into(),
             FewerShadows => on_off(g.fewer_shadows),
@@ -528,6 +560,12 @@ impl Menu {
                 return;
             }
         }
+        // B707: Rendering asks before it switches (the game restarts into it)
+        if o == Some(Rendering) && k.ok {
+            self.switch = Some((MODE_SWITCH | !self.settings.software as u8, 0));
+            out.push(Effect::Sound(2));
+            return;
+        }
         // a two-way row (On/Off) flips at once on ✕, nothing to confirm (user 2026-10-21)
         if let Some(o) = o.filter(|&o| k.ok && !matches!(o, Volume(_)) && choices(o).len() == 2) {
             let now = self.settings;
@@ -586,7 +624,11 @@ impl Menu {
             self.switch = Some((r, 1 - c));
             out.push(Effect::Sound(0));
         } else if k.ok && c == 0 {
-            self.settings.renderer = r;
+            if r & MODE_SWITCH != 0 {
+                self.settings.software = r & 1 != 0;
+            } else {
+                self.settings.renderer = r;
+            }
             self.switch = None;
             out.extend([Effect::Sound(2), Effect::SaveSettings]);
         } else if k.ok || k.back {
@@ -949,7 +991,7 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         let on = i == m.sel;
         let vh = (h - 10.0 * PY).min(26.0 * PY);
         // (the Renderer's value carries the renderer running and Hardware/Software: room for "Auto (WebGPU, Hardware)")
-        let vw = if o == Renderer { 200.0 } else { 130.0f32 }.min(w * 0.4);
+        let vw = if o == Renderer || o == Rendering && rendering_running(m).is_some() { 200.0 } else { 130.0f32 }.min(w * 0.4);
         let vb = [x + w - vw - 5.0 * PX, y + (h - vh) / 2.0, vw, vh];
         let size = row_pill(d, r, on, label(o), vb[0] - x - 30.0 * PX, locked(o));
         if m.editing.is_none() {
@@ -972,9 +1014,13 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
                 (false, Some(k)) => format!("{value} ({running}, {k})"),
             };
         }
+        // B707: the mode actually drawing, where it isn't the setting's (not restarted yet, or no software renderer here)
+        if o == Rendering && let Some(running) = rendering_running(m) {
+            value = format!("{value} ({running})");
+        }
         let editing = on && m.editing.is_some() && !locked(o);
-        if o == Advanced {
-            // (a way in, not a value: no arrows)
+        if matches!(o, Advanced | Rendering) {
+            // (a way in, not a value: no arrows; B707: Rendering's ✕ asks, ◀ ▶ do nothing)
             look::steps(d, vb, false, &value, size, false, [false; 2]);
         } else if listed(o) {
             // B498: a dropdown's pill: its value and a ▼ (▲ blue while its list is open)
@@ -1153,6 +1199,18 @@ const SWITCH_TOP: f32 = 226.0;
 /// B327: the Renderer switch's confirm popup: the renderer picked, Switch and Cancel.
 fn switch_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
     let Some((r, c)) = m.switch else { return };
+    if r & MODE_SWITCH != 0 {
+        // B707: Rendering's
+        let line = if cfg!(target_arch = "wasm32") {
+            "The page reloads to change it."
+        } else if crate::render_mode::can_restart() {
+            "The game restarts to change it."
+        } else {
+            "It changes the next time you open the game."
+        };
+        confirm(d, &format!("Switch to {}?", crate::render_mode::MODES[r as usize & 1].1), line, "Switch", c, hand_x);
+        return;
+    }
     confirm(d, &format!("Switch to {}?", RENDERERS[r as usize].1), "The page reloads to change it.", "Switch", c, hand_x);
 }
 
@@ -1605,6 +1663,10 @@ mod tests {
                 assert_eq!((m.screen, m.sel), (s, i));
                 continue;
             }
+            // (B707: Rendering asks first: `rendering_asks_first`)
+            if o == Rendering {
+                continue;
+            }
             let was = m.settings;
             if listed(o) {
                 list_row(m, o);
@@ -1915,6 +1977,44 @@ mod tests {
         assert_eq!(m.reset_ask, None);
     }
 
+    /// B707: Rendering is on every build's Display page; ✕ on it asks first (◀ ▶ do nothing, as on Renderer), Cancel leaves it, Switch saves it
+    /// (settings.txt's `rendering`, which a fresh parse reads back) for the next start.
+    #[test]
+    fn rendering_asks_first() {
+        let row = rendering_row();
+        assert_eq!(page(Screen::Display)[row], Rendering);
+        let mut m = Menu { screen: Screen::Display, sel: row, ..default() };
+        assert_eq!((m.settings.value(Rendering).as_str(), choices(Rendering).len()), ("Hardware", 2));
+        assert!(!rendering_about().is_empty());
+        let fx = m.step(Dev::Keys, press(|k| &mut k.ok));
+        assert_eq!((m.switch, fx), (Some((MODE_SWITCH | 1, 0)), vec![Effect::Sound(2)]));
+        let fx = m.step(Dev::Keys, press(|k| &mut k.back));
+        assert_eq!((m.switch, m.settings, fx), (None, Settings::default(), vec![Effect::Sound(1)]));
+        for k in [press(|k| &mut k.right), press(|k| &mut k.left)] {
+            assert!(m.step(Dev::Keys, k).is_empty() && m.switch.is_none() && m.settings == Settings::default());
+        }
+        m.step(Dev::Keys, press(|k| &mut k.ok));
+        m.step(Dev::Keys, press(|k| &mut k.down));
+        let fx = m.step(Dev::Keys, press(|k| &mut k.ok));
+        assert_eq!((m.switch, m.settings, fx), (None, Settings::default(), vec![Effect::Sound(1)]));
+        m.step(Dev::Keys, press(|k| &mut k.ok));
+        let t = super::super::pointer::tests::text_with_mods(0);
+        for a in [16.0 / 9.0, 4.0 / 3.0, 9.0 / 16.0] {
+            m.grid = Grid::fit(a);
+            assert!(!super::super::drawn(&m, &t, &controls::Bindings::default(), &[], 0, 0.0).out.is_empty());
+        }
+        let fx = m.step(Dev::Keys, press(|k| &mut k.ok));
+        assert!(m.switch.is_none() && m.settings.software && fx.contains(&Effect::SaveSettings));
+        assert_eq!(m.settings.value(Rendering), "Software");
+        assert!(m.settings.text().contains("rendering = software\n"));
+        assert!(Settings::parse(&m.settings.text()).software && !Settings::parse("rendering = hardware\n").software);
+        // and back, asking again
+        m.step(Dev::Keys, press(|k| &mut k.ok));
+        assert_eq!(m.switch, Some((MODE_SWITCH, 0)));
+        m.step(Dev::Keys, press(|k| &mut k.ok));
+        assert!(!m.settings.software && m.settings.text().contains("rendering = hardware\n"));
+    }
+
     #[test]
     fn renderer_asks_first() {
         let mut m = Menu { screen: Screen::Display, sel: 1, ..default() };
@@ -1953,7 +2053,8 @@ mod tests {
         assert!(m.switch.is_none() && m.settings.renderer == 2 && fx.contains(&Effect::SaveSettings));
         assert!(m.settings.text().contains("renderer = webgl2") || !cfg!(target_arch = "wasm32"));
         assert_eq!(m.settings.value(Renderer), "WebGL2");
-        // ◀ ▶ on the row neither change it nor ask
+        // ◀ ▶ on the row neither change it nor ask (the browser's Renderer row; the desktop's Display mode)
+        m.sel = 0;
         m.step(Dev::Keys, press(|k| &mut k.right));
         assert_eq!((m.switch, m.settings.renderer), (None, 2));
         // the popup again, on every aspect

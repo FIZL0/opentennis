@@ -49,6 +49,7 @@ pub mod mips;
 pub mod noise;
 pub mod occlusion;
 pub mod pipelines;
+pub mod render_mode;
 pub mod jobs;
 pub mod seats;
 pub mod shade;

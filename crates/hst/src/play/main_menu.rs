@@ -18,7 +18,7 @@
 //! it, and a character with none free is drawn dark and passed over by the cursor); the computer players added are
 //! picked by player 1 after the humans. B368: the select is one column per player (`roster`), each browsing and
 //! scrolling the roster on its own device, its stats card always up (△ opens its name picker, B371).
-//! `HST_MENU=<screen>` (main, rematch = main with a Rematch card, settings, graphics, sound, controls, mode, assign, chars, coms = chars with 1P ready (the COM cards), coms-random / confirm-random = 2P's computer readied on Random, chars-random = 1P on the Random card, names / names-type / names-card = chars with 1P named and its name picker open on the list / typing / closed (B371, B541), attrs / mods-attrs = chars / mods (B368: the stats card is always up), roster1–roster4 = 1–4 humans (B368), roster4-names = four humans all typing a name (B577), roster2-favs / roster4-favs = them with four favorites, 1P in Favorites and 2P on the last section (B382), roster2-deep = 2P's column scrolled to a mod far down, lobby-bot = the host's lobby with a computer player, lobby-singles = a singles lobby (B490), lobby-wait = the host's lobby waiting on a player choosing about a mod (B281), lobby-fetching = the host's lobby with a player still downloading a mod (M122), confirm-court = confirm on Nakagawa River Courts (B192), confirm-handicap = confirm with 1P on one weight and 2P on two, 1P's plate chosen (B40g1), umpires-mod / confirm-umpire-mod = the umpire select / confirm on the first umpire mod (M8f3), courts-mod / confirm-court-mod = the court select / confirm on the first court mod (M8f6), chars4 = four humans on one portrait, mods = chars with 1P on the first mod, main-mods = main with the Mods row highlighted, main-update = main with B317's New version card highlighted (with `HST_LATEST`), rematch-update = both cards (M97), main-extras / extras = main on Extras / the Extras screen (M97), confirm, sets / games = confirm with that pill picked, assign-moved = assign with 1P moved to 3P, pending (B437), assign-drag = assign in doubles with 1P's card dragged most of the way onto 2P's pad (B597), online-custom / relay-url = the Relay row on Custom... / its URL entry, renderer = Display with the Renderer switch's confirm popup up (B327), takeover / takeover-toast = main with the pad takeover prompt up / its Yes's toast (M127), graphics-list / graphics-fps = Graphics with Preset's / Frame Limit's dropdown open (B498)) opens on that screen (for `--shot`).
+//! `HST_MENU=<screen>` (main, rematch = main with a Rematch card, settings, graphics, sound, controls, mode, assign, chars, coms = chars with 1P ready (the COM cards), coms-random / confirm-random = 2P's computer readied on Random, chars-random = 1P on the Random card, names / names-type / names-card = chars with 1P named and its name picker open on the list / typing / closed (B371, B541), attrs / mods-attrs = chars / mods (B368: the stats card is always up), roster1–roster4 = 1–4 humans (B368), roster4-names = four humans all typing a name (B577), roster2-favs / roster4-favs = them with four favorites, 1P in Favorites and 2P on the last section (B382), roster2-deep = 2P's column scrolled to a mod far down, lobby-bot = the host's lobby with a computer player, lobby-singles = a singles lobby (B490), lobby-wait = the host's lobby waiting on a player choosing about a mod (B281), lobby-fetching = the host's lobby with a player still downloading a mod (M122), confirm-court = confirm on Nakagawa River Courts (B192), confirm-handicap = confirm with 1P on one weight and 2P on two, 1P's plate chosen (B40g1), umpires-mod / confirm-umpire-mod = the umpire select / confirm on the first umpire mod (M8f3), courts-mod / confirm-court-mod = the court select / confirm on the first court mod (M8f6), chars4 = four humans on one portrait, mods = chars with 1P on the first mod, main-mods = main with the Mods row highlighted, main-update = main with B317's New version card highlighted (with `HST_LATEST`), rematch-update = both cards (M97), main-extras / extras = main on Extras / the Extras screen (M97), confirm, sets / games = confirm with that pill picked, assign-moved = assign with 1P moved to 3P, pending (B437), assign-drag = assign in doubles with 1P's card dragged most of the way onto 2P's pad (B597), online-custom / relay-url = the Relay row on Custom... / its URL entry, renderer = Display with the Renderer switch's confirm popup up (B327), rendering = Display with the Rendering switch's (Software) popup up (B707), takeover / takeover-toast = main with the pad takeover prompt up / its Yes's toast (M127), graphics-list / graphics-fps = Graphics with Preset's / Frame Limit's dropdown open (B498)) opens on that screen (for `--shot`).
 //!
 //! Custom characters (remaster-only): every standard mod under `mods/` beside the disc image (`mods::list`) is on a
 //! second page of the select, switched for everyone by Tab / □: B133: a grid like the disc characters', as many
@@ -308,6 +308,8 @@ pub struct Settings {
     updates_always: bool,
     /// B608: a `SAFE_AREAS` value (`widescreen::MARGIN`).
     safe_area: u8,
+    /// B707: Display → Rendering's Software (`render_mode`), from the next start.
+    software: bool,
 }
 /// B273: the browser's renderer setting, each as its settings.txt / web/index.html word and its Settings row's word
 /// (B316: the row's value and choices both come from here): Auto (WebGPU when the browser has an adapter), WebGPU,
@@ -371,6 +373,7 @@ impl Default for Settings {
             keep_downloads: Ask::Each,
             updates_always: false,
             safe_area: super::widescreen::AUTO_MARGIN,
+            software: false,
         }
     }
 }
@@ -419,6 +422,8 @@ impl Settings {
                 s.downloads = v.trim().parse::<u8>().ok().filter(|&n| n as usize <= max_downloads()).unwrap_or(0);
             } else if k.trim() == "button_icons" {
                 s.button_icons = legend::LAYOUTS.iter().position(|l| l.1 == v.trim()).unwrap_or(0) as u8;
+            } else if k.trim() == "rendering" {
+                s.software = crate::render_mode::MODES.iter().position(|r| r.0 == v.trim()).unwrap_or(0) == 1;
             } else if k.trim() == "renderer" {
                 s.renderer = RENDERERS.iter().position(|r| r.0 == v.trim()).unwrap_or(0) as u8;
             } else if k.trim() == "aspect" {
@@ -458,7 +463,7 @@ impl Settings {
     fn text(&self) -> String {
         let mut s = *self;
         let on: String = s.switches().iter().map(|(n, on)| format!("{n} = {}\n", if **on { "on" } else { "off" })).collect();
-        format!("aspect = {}\n", super::widescreen::ASPECTS[self.aspect as usize]) + &on + &format!("online_mods = {}\n", self.online_mods.word()) + &format!("keep_downloads = {}\n", self.keep_downloads.word()) + &self.graphics.text() + &self.volumes.text() + &self.renderer_line() + &format!("umpire = {}\n", self.umpire) + &format!("menu_size = {}\n", if self.menu_size == 0 { "auto".into() } else { format!("{}", self.menu_size as u32 * 10) }) + &format!("safe_area = {}\n", safe_area_name(self.safe_area).to_lowercase()) + &format!("downloads_at_once = {}\n", if self.downloads == 0 { "auto".into() } else { self.downloads.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.button_icons as usize].1) + &crate::mods_textures::settings_text() + &crate::update::settings_line(self.update_check, self.updates_always)
+        format!("aspect = {}\n", super::widescreen::ASPECTS[self.aspect as usize]) + &on + &format!("online_mods = {}\n", self.online_mods.word()) + &format!("keep_downloads = {}\n", self.keep_downloads.word()) + &self.graphics.text() + &self.volumes.text() + &self.renderer_line() + &crate::render_mode::line(self.software) + &format!("umpire = {}\n", self.umpire) + &format!("menu_size = {}\n", if self.menu_size == 0 { "auto".into() } else { format!("{}", self.menu_size as u32 * 10) }) + &format!("safe_area = {}\n", safe_area_name(self.safe_area).to_lowercase()) + &format!("downloads_at_once = {}\n", if self.downloads == 0 { "auto".into() } else { self.downloads.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.button_icons as usize].1) + &crate::mods_textures::settings_text() + &crate::update::settings_line(self.update_check, self.updates_always)
     }
 
     /// B339: how many store installs run at once: the setting, or on Auto 3 on desktop, 2 in a browser, 1 on a
@@ -2575,7 +2580,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     let lobby = !fresh && menu.screen == Screen::Lobby;
     menu.screen = match screen.as_str() {
         _ if lobby => Screen::Lobby,
-        "settings" | "display" | "renderer" => Screen::Display,
+        "settings" | "display" | "renderer" | "rendering" => Screen::Display,
         "graphics" | "graphics-list" | "graphics-fps" => Screen::Graphics,
         "advanced" => Screen::Advanced,
         "sound" | "sound-edit" => Screen::Sound,
@@ -2658,6 +2663,11 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
     // B327: the Renderer switch's popup up, on WebGL2
     if fresh && screen == "renderer" {
         menu.switch = Some((2, 0));
+    }
+    // B707: the Rendering switch's popup up, on Software
+    if fresh && screen == "rendering" {
+        menu.sel = options::rendering_row();
+        menu.switch = Some((options::MODE_SWITCH | 1, 0));
     }
     // B498: Graphics with Preset's / Frame Limit's dropdown open
     if fresh && (screen == "graphics-list" || screen == "graphics-fps") {
@@ -3647,6 +3657,8 @@ fn step(
                     }
                     #[cfg(target_arch = "wasm32")]
                     crate::web::renderer(RENDERERS[menu.settings.renderer as usize].0);
+                    // B707: a Rendering switch the popup confirmed restarts into it
+                    crate::render_mode::restart(menu.settings.software);
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 Effect::Quit => {

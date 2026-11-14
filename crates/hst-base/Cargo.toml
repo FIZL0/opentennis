@@ -82,6 +82,8 @@ n0-mainline = "0.7"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 iroh-mdns-address-lookup = "0.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+# B707: the software adapter looked up before the renderer starts (`render_mode.rs`; bevy's own wgpu and backends)
+wgpu = { version = "29", default-features = false }
 
 
 # M154: ARM Linux handhelds (Mali GPUs with no Vulkan driver): wgpu's GL ES backend beside Vulkan (the version bevy

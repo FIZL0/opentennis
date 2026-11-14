@@ -271,15 +271,14 @@ impl Shadows {
 
 /// `Match`: the match's resource (`play::Game`); P53: Auto times a match's first seconds, while one is on.
 /// Whether the renderer draws on the CPU (no graphics card: SwiftShader, WARP, llvmpipe), for the browser's Renderer
-/// row; unset until the renderer is up.
+/// row and Display → Rendering (B707); unset until the renderer is up.
 pub static SOFTWARE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 fn software_gpu(adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>) {
     let Some(a) = adapter.filter(|_| SOFTWARE.get().is_none()) else { return };
-    // a browser's WebGPU may not report the device type; WebGL2 names the renderer it sits on
-    let name = a.name.to_lowercase();
-    let soft = a.device_type == wgpu_types::DeviceType::Cpu || ["swiftshader", "llvmpipe", "basic render", "software"].iter().any(|s| name.contains(s));
+    let soft = crate::render_mode::is_software(a.device_type, &a.name);
     let _ = SOFTWARE.set(soft);
+    crate::render_mode::report(soft, &a.name);
 }
 
 pub fn plugin<Match: Resource>(app: &mut App) {
@@ -290,6 +289,8 @@ pub fn plugin<Match: Resource>(app: &mut App) {
         .add_systems(PreStartup, mesh_detail)
         .add_systems(First, mesh_detail)
         .add_systems(PostUpdate, (window, lights, msaa.after(bevy::camera::CameraUpdateSystems), fps_counter, software_gpu))
+        // B707: a Software start that gets going
+        .add_systems(Last, crate::render_mode::confirm)
         .add_systems(Last, limit)
         .add_systems(Last, auto_tune.run_if(resource_exists::<Match>))
         .add_systems(PreStartup, cpu_clusters)
