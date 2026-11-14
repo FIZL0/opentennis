@@ -14,7 +14,7 @@ test = "tools/check.sh"
 slots = 4
 slot_max_gb = 150 # trimmed stalest-first to half this; slots run 16-60 GB with warm builds
 min_free_gb = 100 # under this, free worktrees are cleaned and no task starts
-mode = "p"
+mode = "d" # never two running tasks on one file (shared_files aside); p = strict plan order
 weekly_max = 94
 notes = "context/notes"
 rules = "AGENT.md"
