@@ -5,6 +5,10 @@
 # keep that file, a phone only takes an update signed with the same key; M154: ARM Linux too), sign SHA256SUMS with the minisign key (~/.config/hst/release.key, asks its password) and upload to GitHub:
 #   opentennis-windows-x86_64.zip  opentennis-linux-x86_64.tar.gz  opentennis-ios.ipa  opentennis-android.apk   what players download
 #   opentennis-linux-aarch64.tar.gz                                    (an OpenTennis/ folder with its Ports launcher, M154)
+#   opentennis-macos-arm64.zip                                         M162: OpenTennis.app for Apple Silicon, ad-hoc signed, not
+#                                                                      notarized (its row says how to open it); no updater asset:
+#                                                                      swapping the binary would break the bundle's signature, so a
+#                                                                      Mac's update notice opens the release page
 #                                                                      both Linux tarballs carry vulkan/, Mesa's software renderer (B708)
 #   opentennis.zip                                                     M155a: the same as a PortMaster port (tools/portmaster.sh;
 #                                                                      PortMaster wants the zip named after the port)
@@ -68,7 +72,7 @@ git add web/stats.json
 git diff --cached --quiet || git commit -q -m "Dev stats for $tag" web/stats.json
 
 # B492: every player build drops the dev-only HST_* variables and debug logs (hst's `ship` feature)
-for f in tools/build.sh tools/apk.sh tools/ios-ipa.sh; do
+for f in tools/build.sh tools/apk.sh tools/ios-ipa.sh tools/macos-app.sh; do
     grep -q 'features[ =].*ship' "$f" || { echo "$f doesn't build with --features ship (B492)" >&2; exit 1; }
 done
 # B618: the web build checked up front (tools/web.sh runs last, after the long native builds)
@@ -94,6 +98,11 @@ cp dist/linux-aarch64/OpenTennis/opentennis "$out/opentennis-linux-aarch64"
 cp dist/windows/opentennis.exe "$out/opentennis-windows-x86_64.exe"
 cp dist/ios/opentennis-ios.ipa "$out/opentennis-ios.ipa"
 cp dist/opentennis.apk "$out/opentennis-android.apk"
+# M162: the Mac app: the zip holds a signed OpenTennis.app (an unsigned arm64 binary won't start at all)
+mac=dist/macos/opentennis-macos-arm64.zip
+unzip -l "$mac" | grep -q ' OpenTennis.app/Contents/MacOS/opentennis$' && unzip -l "$mac" | grep -q ' OpenTennis.app/Contents/_CodeSignature/CodeResources$' \
+    || { echo "$mac has no signed OpenTennis.app (tools/macos-app.sh)" >&2; exit 1; }
+cp "$mac" "$out/opentennis-macos-arm64.zip"
 # the website too: pages.yml deploys this release's web.tar.gz in ~1 min instead of building it for ~20 (opentennis.dev,
 # no HST_SITE: its links are the main site's)
 env -u HST_SITE HST_COMMIT=$HST_COMMIT tools/web.sh
@@ -117,6 +126,7 @@ body=$out/notes.md
     echo "| Platform | File | How to play |"
     echo "|---|---|---|"
     echo "| **Windows** 10/11 | [\`opentennis-windows-x86_64.zip\`](https://github.com/$repo/releases/download/$tag/opentennis-windows-x86_64.zip) | Unzip, then drop your ISO on \`opentennis.exe\` |"
+    echo "| **Mac** (Apple Silicon: M1 and later, macOS 11+) | [\`opentennis-macos-arm64.zip\`](https://github.com/$repo/releases/download/$tag/opentennis-macos-arm64.zip) | Unzip and drag OpenTennis to Applications. It isn't notarized, so the first time: right-click it → Open; on macOS 15 and later, open it once, then System Settings → Privacy & Security → Open Anyway. It asks for your ISO on first start |"
     echo "| **Linux** / **Steam Deck** | [\`opentennis-linux-x86_64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-x86_64.tar.gz) | Unpack and open \`opentennis\`, then pick your ISO. For Steam (with artwork): run \`add-to-steam.sh\` |"
     echo "| **Linux ARM64** (aarch64) | [\`opentennis-linux-aarch64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-aarch64.tar.gz) | Unpack and run \`OpenTennis/OpenTennis.sh\`, with your ISO in the \`OpenTennis\` folder |"
     echo "| **Handhelds** with [PortMaster](https://portmaster.games/) (muOS, ROCKNIX, Knulli…) | [\`opentennis.zip\`](https://github.com/$repo/releases/download/$tag/opentennis.zip) | Put the zip in PortMaster's \`autoinstall\` folder, then your ISO in \`ports/opentennis/\`, and start OpenTennis from Ports |"

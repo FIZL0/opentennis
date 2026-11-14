@@ -8,6 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(realpath -m "${1:-target/opentennis-macos-arm64.zip}")
+PATH=$PATH:$HOME/.cargo/bin  # where cargo install puts rcodesign
 command -v rcodesign >/dev/null || { echo "needs (once): cargo install apple-codesign   (rcodesign, the ad-hoc signer)" >&2; exit 1; }
 tools/macos-build.sh build --release -p hst --features ship
 stage=target/aarch64-apple-darwin/app
