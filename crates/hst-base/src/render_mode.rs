@@ -153,12 +153,14 @@ pub fn bundled_missing() -> bool {
 }
 
 /// B708: the Settings row's text where the platform settles that nothing can draw on the CPU (shown once Software was
-/// picked): Apple's Metal has no CPU device, and Android's Vulkan loader only takes the phone's own driver. `None`
+/// picked): Apple's Metal has no CPU device, and Android's Vulkan loader only takes the phone's own driver (B709: a
+/// headless SwiftShader posting frames to the window was weighed and dropped: the game on a CPU renderer runs ~9 fps on
+/// a 16-thread desktop, ~1 on two cores, so a phone couldn't play it). `None`
 /// where a software renderer may be found (Linux, Windows, a browser).
 pub const NO_SOFTWARE: Option<&str> = if cfg!(any(target_os = "ios", target_os = "macos")) {
     Some("Hardware draws with your graphics chip. Apple devices have no software renderer (Metal always needs the graphics chip), so with Software picked the game still draws with Hardware (shown in brackets).")
 } else if cfg!(target_os = "android") {
-    Some("Hardware draws with your graphics chip. Android only lets a game use the phone's own graphics driver, so there's no software renderer here yet: with Software picked the game still draws with Hardware (shown in brackets).")
+    Some("Hardware draws with your graphics chip. Android only lets a game use the phone's own graphics driver, and a phone's processor is far too slow to draw the game by itself, so there's no software renderer here: with Software picked the game still draws with Hardware (shown in brackets).")
 } else {
     None
 };
