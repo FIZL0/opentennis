@@ -8,6 +8,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 
 ### Next (user priorities, in order)
 
+- [ ] **B708** Ship a software renderer where the OS has none, for Display → Rendering's Software (B707): lavapipe (Mesa's Vulkan llvmpipe: libvulkan_lvp.so + its ICD json, VK_ADD_DRIVER_FILES at start) in the Linux AppImage/Flatpak and the Steam Deck/handheld builds, SwiftShader's Vulkan ICD in the Android APK; macOS/iOS have no CPU Metal device (say so). Files: crates/hst-base/src/render_mode.rs, tools/release.sh
 - [ ] **T12** (follow-up, critical) make the test `play::main_menu::handicap::tests::the_confirm_screen_sets_each_players_handicap` pass again: it fails on the shared branch (e47146186a), found by B704's merge gate, which merged anyway as not its doing. Find the merge that broke it (git bisect from the last gate it passed) and fix the code or the test. | t: `play::main_menu::handicap::tests::the_confirm_screen_sets_each_players_handicap`
 - [ ] **T13** (follow-up, critical) make the test `play::main_menu::online::tests::a_countdown_takes_the_select_as_it_stands` pass again: it fails on the shared branch (e47146186a), found by B704's merge gate, which merged anyway as not its doing. Find the merge that broke it (git bisect from the last gate it passed) and fix the code or the test. | t: `play::main_menu::online::tests::a_countdown_takes_the_select_as_it_stands`
 - [ ] **T14** (follow-up, critical) make the test `play::main_menu::online::tests::a_mod_pick_goes_out_again_once_read_in` pass again: it fails on the shared branch (e47146186a), found by B704's merge gate, which merged anyway as not its doing. Find the merge that broke it (git bisect from the last gate it passed) and fix the code or the test. | t: `play::main_menu::online::tests::a_mod_pick_goes_out_again_once_read_in`
@@ -46,7 +47,6 @@ index out of bounds: the len is 0 but the index is 0"
 ### Match
 
 ### Presentation
-- [ ] **B707** Rendering mode option in every build (desktop, Android, iOS, handhelds, web): Hardware (GPU) or Software (CPU: wgpu's fallback adapter / llvmpipe / SwiftShader, whichever each platform can ship), next to web's existing WebGPU/WebGL2 Renderer choice (Display page; native builds show Display there instead today: options.rs DISPLAY). Saved in settings and applied on restart (ask first, like web's reload). Hint text, roughly: "Hardware draws with your graphics chip and is fastest. If players, courts or effects look wrong or go missing, try Software: it draws on the CPU, so it's slower but works the same on every device." Release-notes line. Files: crates/hst/src/play/main_menu/options.rs, crates/hst/src/play/main_menu.rs (RENDERERS), crates/hst/src/main.rs (wgpu settings), crates/hst-base/src/graphics.rs (SOFTWARE detection)
 
 
 ### Confirmations
