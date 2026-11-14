@@ -92,7 +92,7 @@ vs 2 CPUs); in singles it plays the opponent. Every other player is a CPU.
 | Serve | any shot key | any shot button |
 | Emote | 1–4 | Right stick |
 | Pause | Esc | Start |
-| Swap hand (character select) / behind-the-player camera (match with one human) | C | Select |
+| Swap hand (character select) / switch camera (match) | C | Select |
 
 ## Mods
 
