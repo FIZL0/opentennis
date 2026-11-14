@@ -232,7 +232,9 @@ fn rendering_running(m: &Menu) -> Option<&'static str> {
 /// B707: the Rendering row's text, and a line when Software was asked for but this device has none.
 fn rendering_about() -> &'static str {
     const ABOUT: &str = "Hardware draws with your graphics chip and is fastest. If players, courts or effects look wrong or go missing, try Software: it draws on the CPU, so it's slower but works the same on every device. A change asks first, then restarts the game.";
-    if crate::render_mode::MISSING.load(std::sync::atomic::Ordering::Relaxed) {
+    if let Some(why) = crate::render_mode::NO_SOFTWARE.filter(|_| crate::render_mode::MISSING.load(std::sync::atomic::Ordering::Relaxed)) {
+        why
+    } else if crate::render_mode::MISSING.load(std::sync::atomic::Ordering::Relaxed) {
         "Hardware draws with your graphics chip and is fastest. Software draws on the CPU, slower but the same on every device; it couldn't start on this device, so the game is drawing with Hardware (shown in brackets). Picking Software again tries once more."
     } else if !crate::render_mode::can_restart() {
         "Hardware draws with your graphics chip and is fastest. If players, courts or effects look wrong or go missing, try Software: it draws on the CPU, so it's slower but works the same on every device. A change applies the next time you open the game."

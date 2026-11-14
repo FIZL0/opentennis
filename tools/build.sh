@@ -1,6 +1,7 @@
 #!/bin/bash
 # tools/build.sh [linux|linux-aarch64|windows|ios|android|all] — optimised (release) builds of the game into dist/:
 #   dist/linux/opentennis        run: ./opentennis "Hot Shots Tennis (USA).iso"
+#   dist/linux/vulkan/           B708: Mesa's software Vulkan driver (tools/lavapipe.sh), for Rendering → Software; also in OpenTennis/ below
 #   dist/linux-aarch64/OpenTennis/  ARM Linux (M154, tools/linux-aarch64.sh): opentennis + OpenTennis.sh, the launcher a
 #                         handheld's Ports menu runs (the folder goes in ROCKNIX's roms/ports/; on muOS, PortMaster's
 #                         layout: the folder in ports/, OpenTennis.sh in ROMS/Ports/; no display server there, so it
@@ -50,6 +51,7 @@ linux() {
     cp crates/hst/icon/hst.png dist/linux/opentennis.png
     printf '[Desktop Entry]\nType=Application\nName=OpenTennis\nExec=opentennis\nIcon=opentennis\nStartupWMClass=opentennis\nCategories=Game;\n' > dist/linux/opentennis.desktop
     cp tools/steam/add-to-steam.sh dist/linux/ && mkdir -p dist/linux/steam && cp tools/steam/*.png dist/linux/steam/  # a Steam shortcut with its artwork
+    tools/lavapipe.sh x86_64 dist/linux  # B708: vulkan/, the software renderer for Settings → Display → Rendering → Software
     local need glibc=2.31
     need=$(objdump -T dist/linux/opentennis | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
     echo "dist/linux/opentennis needs $need (sniper has GLIBC_$glibc)"
@@ -79,6 +81,7 @@ linux_aarch64() {
         $img sh -ec '
             [ -x /cache/cargo/bin/rustup ] || curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain none --no-modify-path
             PATH=/cache/cargo/bin:$PATH sh tools/linux-aarch64.sh build'
+    tools/lavapipe.sh aarch64 dist/linux-aarch64/OpenTennis  # B708: the software renderer (not in the PortMaster zip: no window system there)
     tools/portmaster.sh  # M155a: the same game as a PortMaster port
 }
 
