@@ -16,7 +16,9 @@ frame by frame against the real game, with better rendering on top.
 
 Newest unreleased build (every change to main, less tested): <https://beta.opentennis.dev>.
 
-**Download** for Windows, Linux, Android or iOS: [latest release](https://github.com/FIZL0/opentennis/releases/latest).
+**Download** for Windows, Mac (Apple Silicon), Linux, Android or iOS: [latest release](https://github.com/FIZL0/opentennis/releases/latest).
+The Mac app isn't notarized: the first time, right-click OpenTennis → Open, or on macOS 15 and later open it once, then
+System Settings → Privacy & Security → Open Anyway.
 
 **iPhone / iPad:** [add the source in one tap](https://opentennis.dev/ios.html) to Feather, AltStore or SideStore, or add
 `https://fizl0.github.io/apps/source.json` under Sources. You sign it

@@ -12,8 +12,8 @@
 #                         Needs the iOS SDK once: tools/ios-sdk.py Xcode_*.xip (see tools/ios-build.sh)
 #   dist/macos/opentennis-macos-arm64.zip  OpenTennis.app for Apple Silicon (M162, tools/macos-app.sh), ad-hoc signed, not
 #                         notarized (open it once with right-click → Open); the first start asks for the ISO, like Linux.
-#                         Needs MacOSX.sdk once: tools/ios-sdk.py Xcode_*.xip (see tools/macos-build.sh). Not in `all` yet:
-#                         it waits for the first build checked on a Mac (M162's journal)
+#                         Needs MacOSX.sdk once: ~/.local/share/hst-ios/MacOSX.sdk (copied from a Mac, or tools/ios-sdk.py
+#                         Xcode_*.xip; see tools/macos-build.sh) and rcodesign (cargo install apple-codesign)
 #   dist/opentennis.apk   Android (tools/apk.sh: SDK/NDK setup there); the player picks the ISO on first launch.
 # mods/ and settings.txt live in the per-user data folder (~/.local/share/hst, %APPDATA%\hst), not beside the binary. No game data goes into dist/.
 # Windows is cross-compiled with MinGW. One-time setup (Arch):
@@ -110,6 +110,6 @@ case $what in
     ios) mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa ;;
     macos) mkdir -p dist/macos && tools/macos-app.sh dist/macos/opentennis-macos-arm64.zip ;;
     android) tools/apk.sh ;;
-    all) linux; linux_aarch64; windows; mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa; tools/apk.sh ;;
+    all) linux; linux_aarch64; windows; mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa; mkdir -p dist/macos && tools/macos-app.sh dist/macos/opentennis-macos-arm64.zip; tools/apk.sh ;;
     *) echo "usage: tools/build.sh [linux|linux-aarch64|windows|ios|macos|android|all]" >&2; exit 2 ;;
 esac
