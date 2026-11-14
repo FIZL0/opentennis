@@ -87,10 +87,12 @@ vs 2 CPUs); in singles it plays the opponent. Every other player is a CPU.
 |---|---|---|
 | Move (aim while swinging) | WASD | Left stick / d-pad |
 | Topspin | J | A |
-| Slice / Serve | K | B |
+| Slice | K | B |
 | Lob | L | Y |
-| Drive | U | RB |
-| Swap hand (character select) | C | Select |
+| Serve | any shot key | any shot button |
+| Emote | 1–4 | Right stick |
+| Pause | Esc | Start |
+| Swap hand (character select) / behind-the-player camera (match with one human) | C | Select |
 
 ## Mods
 
