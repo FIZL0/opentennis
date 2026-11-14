@@ -9,6 +9,10 @@
 //! - `mod_two_sided = on`: mod materials drawn with both faces (no back-face culling).
 //! - `metal_precise_math = on`: Metal compiles the shaders without fast math (our wgpu-hal patch).
 //! - `mod_log = on | off`: each mod rig's parts logged once, a few seconds after it appears (on by default on Apple).
+//! - `gpu_preprocess = on | off` (B706): GPU mesh preprocessing even on a driver Bevy keeps it off for (Adreno 730
+//!   and earlier, Mali drivers before 48), or CPU preprocessing on any GPU (as `HST_CPU_PREPROCESS=1`).
+//! - `uniform_skins = on | off` (B706): skins and morph weights in uniform buffers (WebGL2's layout) or in storage
+//!   buffers; by default uniform buffers exactly where preprocessing runs on the CPU for the driver's sake.
 //!
 //! The log says which switches were read, each mod costume as loaded (its size and a hash, to compare with another
 //! device's copy), each part as built, and per rig each part's state as drawn.
@@ -34,6 +38,8 @@ pub struct Switches {
     pub two_sided: bool,
     pub precise_math: bool,
     pub log: Option<bool>,
+    pub gpu_preprocess: Option<bool>,
+    pub uniform_skins: Option<bool>,
     /// Lines that set nothing (an unknown key or value), for the log.
     pub unknown: Vec<String>,
 }
@@ -73,6 +79,8 @@ impl Switches {
                 "mod_two_sided" => on.map(|o| s.two_sided = o).is_some(),
                 "metal_precise_math" => on.map(|o| s.precise_math = o).is_some(),
                 "mod_log" => on.map(|o| s.log = Some(o)).is_some(),
+                "gpu_preprocess" => on.map(|o| s.gpu_preprocess = Some(o)).is_some(),
+                "uniform_skins" => on.map(|o| s.uniform_skins = Some(o)).is_some(),
                 _ => false,
             };
             if !known {
@@ -101,10 +109,16 @@ pub fn start() {
     let s = switches();
     #[cfg(target_vendor = "apple")]
     wgpu::hal::metal::PRECISE_MATH.store(s.precise_math, std::sync::atomic::Ordering::Relaxed);
+    let switch = |o: Option<bool>| o.map_or(0, |on| if on { 1 } else { 2 });
+    bevy::render::GPU_PREPROCESS_SWITCH.store(switch(s.gpu_preprocess), std::sync::atomic::Ordering::Relaxed);
+    bevy::render::UNIFORM_SKINS_SWITCH.store(switch(s.uniform_skins), std::sync::atomic::Ordering::Relaxed);
     if *s != Switches::default() {
-        eprintln!("debug.txt: mod_morph {:?}, mod_hide {:?}, mod_two_sided {}, metal_precise_math {}, mod_log {:?}", s.morph, s.hide, s.two_sided, s.precise_math, s.log);
+        eprintln!(
+            "debug.txt: mod_morph {:?}, mod_hide {:?}, mod_two_sided {}, metal_precise_math {}, mod_log {:?}, gpu_preprocess {:?}, uniform_skins {:?}",
+            s.morph, s.hide, s.two_sided, s.precise_math, s.log, s.gpu_preprocess, s.uniform_skins
+        );
         for l in &s.unknown {
-            eprintln!("debug.txt: `{l}` sets nothing (mod_morph = gpu|cpu|off, mod_hide = a, b, mod_two_sided = on, metal_precise_math = on, mod_log = on)");
+            eprintln!("debug.txt: `{l}` sets nothing (mod_morph = gpu|cpu|off, mod_hide = a, b, mod_two_sided = on, metal_precise_math = on, mod_log = on, gpu_preprocess = on|off, uniform_skins = on|off)");
         }
     }
     if logging() {
@@ -252,6 +266,9 @@ mod tests {
         assert_eq!(s.log, Some(false));
         assert_eq!(s.unknown, ["mod_morph2 = cpu", "nonsense"]);
         assert_eq!(Switches::parse(""), Switches::default());
+        let r = Switches::parse("gpu_preprocess = on\nuniform_skins = off\n");
+        assert_eq!((r.gpu_preprocess, r.uniform_skins), (Some(true), Some(false)));
+        assert_eq!(Switches::parse("uniform_skins = maybe").unknown, ["uniform_skins = maybe"]);
         assert_eq!(Switches::parse("mod_morph = maybe").unknown, ["mod_morph = maybe"]);
     }
 }
