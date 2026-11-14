@@ -1,4 +1,4 @@
-//! B707: Settings → Display → Rendering, in every build: Hardware (the graphics chip, the default) or Software (the
+//! B707: Settings → Graphics → Rendering, in every build: Hardware (the graphics chip, the default) or Software (the
 //! CPU: wgpu's fallback adapter, which is llvmpipe/lavapipe on Linux, WARP on Windows, SwiftShader in a browser's
 //! WebGPU). `rendering = hardware|software` in settings.txt; the renderer is picked once, at start, so a change
 //! applies after a restart (the menu asks first; [`restart`]). Where the device has no software adapter the game

@@ -271,7 +271,7 @@ impl Shadows {
 
 /// `Match`: the match's resource (`play::Game`); P53: Auto times a match's first seconds, while one is on.
 /// Whether the renderer draws on the CPU (no graphics card: SwiftShader, WARP, llvmpipe), for the browser's Renderer
-/// row and Display → Rendering (B707); unset until the renderer is up.
+/// row and Graphics → Rendering (B707); unset until the renderer is up.
 pub static SOFTWARE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 fn software_gpu(adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>) {

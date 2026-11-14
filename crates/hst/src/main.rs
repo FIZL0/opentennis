@@ -438,7 +438,7 @@ fn start(argv: Vec<String>) {
         render.priority = bevy::render::settings::WgpuSettingsPriority::WebGL2;
         render.limits = bevy::render::settings::WgpuLimits { max_texture_dimension_2d: 8192, max_texture_dimension_3d: 2048, ..bevy::render::settings::WgpuLimits::downlevel_webgl2_defaults() };
     }
-    // B707: Settings → Display → Rendering's Software (test windows keep the graphics chip unless `HST_SOFTWARE=1`)
+    // B707: Settings → Graphics → Rendering's Software (test windows keep the graphics chip unless `HST_SOFTWARE=1`)
     let saved = if bg { String::new() } else { store::read_to_string(play::main_menu::Settings::path(&args.iso)).unwrap_or_default() };
     let settings_file = store::settings(&args.iso);
     render_mode::apply(&mut render, &saved, settings_file.parent().filter(|_| !bg));

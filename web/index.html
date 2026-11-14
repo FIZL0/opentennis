@@ -999,7 +999,7 @@ if (gecko && !seen) {
     + 'Edge or Safari. (Tap to close.)';
   n.onclick = () => { n.remove(); try { localStorage.setItem('hst-gecko-notice', '1'); } catch {} };
 }
-// B707: Settings → Display → Rendering's Software: the browser's fallback (CPU) WebGPU adapter, when it has one, in
+// B707: Settings → Graphics → Rendering's Software: the browser's fallback (CPU) WebGPU adapter, when it has one, in
 // the WebGPU build whatever the Renderer says (WebGL2 can't be asked to draw on the CPU); `hstSoftware` tells the game
 let rendering = 'hardware';
 try { rendering = /^rendering\s*=\s*(\w+)/m.exec(localStorage.getItem('./settings.txt') ?? '')?.[1] ?? 'hardware'; } catch {}

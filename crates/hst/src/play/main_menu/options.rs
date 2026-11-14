@@ -93,16 +93,15 @@ pub(super) fn tab(page: Screen) -> usize {
 
 /// The browser build stays in its page (`graphics::KEEP_WINDOWED`), so it has no Display mode row; it has a
 /// Renderer instead (B273).
-/// B707: Rendering, in every build, under the Display mode or the Renderer.
-const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Rendering, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] } else { &[Display, Rendering, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] };
-/// B707: the Rendering row's place on the Display page.
+const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] } else { &[Display, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] };
+/// B707: the Rendering row's place on the Graphics page (every build).
 pub(super) fn rendering_row() -> usize {
-    DISPLAY.iter().position(|&o| o == Rendering).unwrap_or(0)
+    GRAPHICS.iter().position(|&o| o == Rendering).unwrap_or(0)
 }
 /// B707: a `Menu::switch` for the Rendering row rather than the Renderer: this bit, with 1 for Software.
 pub(super) const MODE_SWITCH: u8 = 0x80;
-/// What a preset sets, then the textures, then the way into Advanced.
-const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Shading, Upscaled, Advanced];
+/// What a preset sets, then the textures, Hardware/Software rendering (B707), then the way into Advanced.
+const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Shading, Upscaled, Rendering, Advanced];
 /// B411: Graphics → Advanced, the speed-up switches for a slow device.
 const ADVANCED: &[Opt] = &[Mesh, FewerShadows, Cull, CourtLife];
 const SOUND: &[Opt] = &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices];
@@ -1977,13 +1976,13 @@ mod tests {
         assert_eq!(m.reset_ask, None);
     }
 
-    /// B707: Rendering is on every build's Display page; ✕ on it asks first (◀ ▶ do nothing, as on Renderer), Cancel leaves it, Switch saves it
+    /// B707: Rendering is on every build's Graphics page; ✕ on it asks first (◀ ▶ do nothing, as on Renderer), Cancel leaves it, Switch saves it
     /// (settings.txt's `rendering`, which a fresh parse reads back) for the next start.
     #[test]
     fn rendering_asks_first() {
         let row = rendering_row();
-        assert_eq!(page(Screen::Display)[row], Rendering);
-        let mut m = Menu { screen: Screen::Display, sel: row, ..default() };
+        assert_eq!(page(Screen::Graphics)[row], Rendering);
+        let mut m = Menu { screen: Screen::Graphics, sel: row, ..default() };
         assert_eq!((m.settings.value(Rendering).as_str(), choices(Rendering).len()), ("Hardware", 2));
         assert!(!rendering_about().is_empty());
         let fx = m.step(Dev::Keys, press(|k| &mut k.ok));
