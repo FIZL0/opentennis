@@ -5,6 +5,7 @@
 # keep that file, a phone only takes an update signed with the same key; M154: ARM Linux too), sign SHA256SUMS with the minisign key (~/.config/hst/release.key, asks its password) and upload to GitHub:
 #   opentennis-windows-x86_64.zip  opentennis-linux-x86_64.tar.gz  opentennis-ios.ipa  opentennis-android.apk   what players download
 #   opentennis-linux-aarch64.tar.gz                                    (an OpenTennis/ folder with its Ports launcher, M154)
+#                                                                      both Linux tarballs carry vulkan/, Mesa's software renderer (B708)
 #   opentennis.zip                                                     M155a: the same as a PortMaster port (tools/portmaster.sh;
 #                                                                      PortMaster wants the zip named after the port)
 #   opentennis-windows-x86_64.exe  opentennis-linux-x86_64  opentennis-linux-aarch64   the bare binaries the updater fetches (plan/B374.md;
@@ -73,6 +74,10 @@ tools/webcheck.sh
 # M22: one commit stamp for every platform (the online build id: players of one release meet, other builds are refused)
 HST_COMMIT=$(git rev-parse HEAD | cut -c1-7)
 HST_COMMIT=$HST_COMMIT HST_VERSION=$tag tools/build.sh all  # B374: update.rs compares this tag
+# B708: the Linux downloads carry the software renderer (tools/lavapipe.sh) for Settings → Display → Rendering → Software
+for d in dist/linux dist/linux-aarch64/OpenTennis; do
+    [ -f $d/vulkan/lvp_icd.json ] && [ -f $d/vulkan/libvulkan_lvp.so ] || { echo "$d has no vulkan/ software renderer (tools/lavapipe.sh)" >&2; exit 1; }
+done
 out=dist/release
 rm -rf "$out" && mkdir -p "$out"
 tar -czf "$out/opentennis-linux-x86_64.tar.gz" -C dist/linux .

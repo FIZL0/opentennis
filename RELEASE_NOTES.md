@@ -2,3 +2,5 @@
 - After the winners' celebration, the Game, Set, Match screen now cuts to a close view of the players and slowly circles them, as in the original, instead of freezing on the celebration's wide last shot.
 - Android: players no longer go invisible or smear across the court on phones with older Snapdragon graphics (such as the Adreno 730 in the Snapdragon 8+ Gen 1).
 - Settings → Graphics has a new Rendering option on every device: Hardware (your graphics chip, fastest) or Software (drawn on the CPU: slower, but it looks the same everywhere), for when players, courts or effects look wrong or go missing. It asks first, then restarts the game into it.
+- Settings → Display has a new Rendering option on every device: Hardware (your graphics chip, fastest) or Software (drawn on the CPU: slower, but it looks the same everywhere), for when players, courts or effects look wrong or go missing. It asks first, then restarts the game into it.
+- Linux and Steam Deck: the download now brings its own software renderer, so Rendering → Software works even where the system has none; on iPhone, iPad and Android the setting now explains why Software isn't available there.

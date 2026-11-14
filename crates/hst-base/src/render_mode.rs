@@ -59,6 +59,7 @@ pub fn apply(render: &mut bevy::render::settings::WgpuSettings, text: &str, dir:
             MISSING.store(true, Relaxed);
             return;
         }
+        add_bundled_driver();
         let backends = render.backends.unwrap_or(wgpu::Backends::all());
         match software_adapter(backends) {
             Some((backend, name)) => {
@@ -113,6 +114,44 @@ fn forget_try() {
         let _ = std::fs::remove_file(d.join(TRY_FILE));
     }
 }
+
+/// B708: the Linux builds carry Mesa's software Vulkan driver (lavapipe, `vulkan/` beside the game: tools/lavapipe.sh)
+/// for systems that have none of their own. When Software is picked it's added to the drivers the Vulkan loader looks
+/// at (`VK_ADD_DRIVER_FILES`, read when the renderer starts), beside the system's, so Hardware stays available if the
+/// window can't use it. A system that has its own software driver lists both; the first found draws. Android's loader
+/// only takes the phone's own driver, and Apple's Metal has no CPU device ([`NO_SOFTWARE`]).
+#[cfg(all(target_os = "linux", not(target_os = "android")))]
+fn add_bundled_driver() {
+    let Some(icd) = std::env::current_exe().ok().and_then(|e| Some(e.canonicalize().ok()?.parent()?.join("vulkan/lvp_icd.json"))).filter(|f| f.is_file()) else {
+        return;
+    };
+    let list = match std::env::var_os("VK_ADD_DRIVER_FILES").filter(|v| !v.is_empty()) {
+        Some(v) => {
+            let mut v = v;
+            v.push(":");
+            v.push(&icd);
+            v
+        }
+        None => icd.into_os_string(),
+    };
+    eprintln!("rendering: bundled software driver added: {}", list.to_string_lossy());
+    // SAFETY: called from `apply`, before the app (and its render, audio and task threads) starts
+    unsafe { std::env::set_var("VK_ADD_DRIVER_FILES", list) };
+}
+
+#[cfg(not(any(target_arch = "wasm32", all(target_os = "linux", not(target_os = "android")))))]
+fn add_bundled_driver() {}
+
+/// B708: the Settings row's text where the platform settles that nothing can draw on the CPU (shown once Software was
+/// picked): Apple's Metal has no CPU device, and Android's Vulkan loader only takes the phone's own driver. `None`
+/// where a software renderer may be found (Linux, Windows, a browser).
+pub const NO_SOFTWARE: Option<&str> = if cfg!(any(target_os = "ios", target_os = "macos")) {
+    Some("Hardware draws with your graphics chip. Apple devices have no software renderer (Metal always needs the graphics chip), so with Software picked the game still draws with Hardware (shown in brackets).")
+} else if cfg!(target_os = "android") {
+    Some("Hardware draws with your graphics chip. Android only lets a game use the phone's own graphics driver, so there's no software renderer here yet: with Software picked the game still draws with Hardware (shown in brackets).")
+} else {
+    None
+};
 
 /// The first software adapter (a CPU device, or a driver known to draw on the CPU) among `backends`.
 #[cfg(not(target_arch = "wasm32"))]
