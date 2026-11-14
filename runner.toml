@@ -34,5 +34,8 @@ before_start = "ls /run/user/$(id -u)/wayland-[0-9]* >/dev/null 2>&1" # PCSX2 ne
 untested = ["*.md", ".github/*", "tools/*", "!tools/check.sh"]
 failures = '^---- (\S+) stdout ----'
 retest = "tools/check.sh -- --exact {names}"
+# A merge-fix/repair session builds every test target before it commits, so a clash git merged cleanly (two sides
+# adding one name) fails there, not in the gate after it. Outside the check slots: one slot's share of the cores.
+build = "cargo test -q --workspace --no-run --message-format=short -j $(( $(nproc) / 4 ))"
 not_attempt = '^{id} spec:' # a clean-room spec phase; the port phase starts once it merges
 suspect = 'BLOCKED:.*(pcsx2|pine|capture|record|screenshot|save state|unattended)'
