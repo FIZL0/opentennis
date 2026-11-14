@@ -35,12 +35,39 @@ export RUST_TEST_THREADS=${RUST_TEST_THREADS:-$jobs}
 # ponytail: whole-dir wipe, cargo-sweep by age if the rebuilds get annoying
 # Incremental caches (about half of it, only our own crates) go first: a full wipe rebuilds all of Bevy, which
 # misses sccache in every worktree (the patched path crates in third_party/ give Bevy a per-checkout hash).
+# T13: our crates bake their checkout's absolute path in at compile time (env!("CARGO_MANIFEST_DIR"): the disc,
+# fixtures/), and cargo doesn't rebuild a crate whose checkout moved with its target/ (its fingerprints are
+# relative). The merge worktree moving from ~/repos/opentennis-slots to agent-runner's home kept a hst-data
+# pointing at the old folder until hst-data's own sources changed, and every disc test failed in the gate.
+# target/.checkout remembers where the build was made; once it differs (or, with no stamp yet, the newest hst-data
+# names another folder) the workspace's own crates are cleaned, dependencies kept.
+moved_checkout() {
+  local here stamp=target/.checkout lib was
+  here=$(pwd -P)
+  [ -d target ] || { mkdir -p target; echo "$here" >"$stamp"; return; }
+  if [ -f "$stamp" ]; then
+    was=$(cat "$stamp")
+  else
+    lib=$(ls -t target/debug/deps/libhst_data-*.rlib 2>/dev/null | head -1)
+    was=$here
+    [ -n "$lib" ] && ! grep -qaF "$here/crates/hst-data" "$lib" && ! grep -qaF "$PWD/crates/hst-data" "$lib" && was="(another folder)"
+  fi
+  if [ "$was" != "$here" ]; then
+    echo "checkout moved ($was → $here): rebuilding our own crates" >&2
+    local pkgs
+    pkgs=$(cargo metadata -q --no-deps --format-version 1 9>&- | python3 -c 'import json,sys; print(" ".join("-p " + p["name"] for p in json.load(sys.stdin)["packages"]))')
+    # shellcheck disable=SC2086
+    cargo clean -q $pkgs 9>&- || return
+  fi
+  echo "$here" >"$stamp"
+}
 over() { [ -d "$1" ] && [ "$(du -s --block-size=1G "$1" | cut -f1)" -gt "${HST_TARGET_CAP_GB:-120}" ]; }
 for t in target target-*; do
   over "$t" && { echo "$t over ${HST_TARGET_CAP_GB:-120} GB, dropping incremental caches"
     find "$t" -maxdepth 3 -type d -name incremental -prune -exec rm -rf {} +; }
   over "$t" && { echo "$t still over, cleaning it"; cargo clean -q --target-dir "$t" 9>&-; }
 done
+moved_checkout
 # 9>&-: cargo mustn't inherit the lock, or the sccache server it starts holds it forever
 # The netplay match tests (two-to-four Apps playing thousands of ticks, minutes each) are skipped unless asked for:
 # HST_NETPLAY=1, or a test filter naming netplay/rollback/synctest. Touch netplay, net or the snapshot → run them.
