@@ -5,7 +5,7 @@
 //! character's prize voice (a bit of the sound generator), the gallery's ovation or groan and, for a winner, four
 //! cheers, and the result music (`bgmm_10`, win or lose) coming in once the match-end jingle has ended. It runs for
 //! the camera clip's length, then the result page opens (the music plays on);
-//! the figures and the clip's last view stay behind the result page. The sim and its generators are never touched:
+//! the figures stay behind the result page under its own camera, circling them (B705). The sim and its generators are never touched:
 //! the ending is copied in `match_over` and the voice's bit drawn from that copy.
 
 use std::sync::{Arc, Mutex};
@@ -42,6 +42,14 @@ const CHEER_VOLUME: i32 = 0x20;
 const RESULT_BGM: &str = "bgmm_10";
 const BGM_AT: u32 = 44;
 const BGM: f32 = 55.0;
+/// B705: the camera behind the result page (seen in the original, `research/journal/2026-11-14-b705-gameset-zoom`).
+/// The ceremony clip ends on a wide view; on the page's first tick the original cuts (under the page's dissolve) to
+/// a camera 1 m up, 2.0575 m from the shown side's mark, looking level at it with a 70° field of view, and turns it
+/// round the mark π/720 a tick (a full turn in 24 s) for as long as the page is up.
+const ORBIT_HEIGHT: f32 = 1.0;
+const ORBIT_RADIUS: f32 = 2.0575;
+const ORBIT_FOV: f32 = 70.0;
+const ORBIT_STEP: f32 = std::f32::consts::PI / 720.0;
 /// The match-end jingle's play (`Sound` id), for the result music to wait on.
 pub(in super::super) static END_JINGLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -208,8 +216,12 @@ impl Ceremony {
         self.t < self.length
     }
 
-    /// The camera at the clip's frame `t` (game space): eye, rows (right, down, forward), full FOV.
+    /// The camera at the clip's frame `t` (game space): eye, rows (right, down, forward), full FOV. Once the clip has
+    /// ended and the result page is open, the page's own camera.
     fn view(&self) -> ([f32; 3], [[f32; 3]; 3], f32) {
+        if self.t > self.length {
+            return orbit(&self.plan, self.t - self.length - 1);
+        }
         let (q, p, fov) = self.cam[(self.t as usize).min(self.cam.len() - 1)];
         let m = q_matrix(q);
         let turn = |r: [f32; 3]| if self.plan.turned { [-r[0], r[1], -r[2]] } else { r };
@@ -228,6 +240,20 @@ impl Ceremony {
         self.flake_rng = x;
         x as f32 / u32::MAX as f32
     }
+}
+
+/// The result page's camera `k` ticks after it opened: level with the shown side's mark at [`ORBIT_HEIGHT`],
+/// [`ORBIT_RADIUS`] from it, starting on the ceremony camera's side and circling it [`ORBIT_STEP`] a tick.
+fn orbit(plan: &Plan, k: u32) -> ([f32; 3], [[f32; 3]; 3], f32) {
+    let a = -(k as f32) * ORBIT_STEP;
+    let turn = |r: [f32; 3]| if plan.turned { [-r[0], r[1], -r[2]] } else { r };
+    let out = turn([a.sin(), 0.0, a.cos()]);
+    let o = plan.offset;
+    let eye = [o[0] + ORBIT_RADIUS * out[0], -ORBIT_HEIGHT, o[2] + ORBIT_RADIUS * out[2]];
+    let forward = [-out[0], 0.0, -out[2]];
+    let down = [0.0, 1.0, 0.0];
+    let right = [down[1] * forward[2], 0.0, -down[1] * forward[0]];
+    (eye, [right, down, forward], ORBIT_FOV.to_radians())
 }
 
 #[derive(Component)]
@@ -698,6 +724,25 @@ mod tests {
     }
 
     /// The shown side, clip and banner row for every line-up (B106): `local` from humans and this machine's seats.
+    /// B705: the result page's camera against the original's (`research/journal/2026-11-14-b705-gameset-zoom`,
+    /// bot doubles won on the near end): on the page's first tick the eye stands 1 m up at (0, −4.3425), looking
+    /// level down −z at the mark; 360 ticks on (a quarter turn) at (−2.0575, −6.4), looking down +x; the far end
+    /// is the same turned π.
+    #[test]
+    fn page_orbit() {
+        let near = plan(&local(&[false; 4], None), &[0; 4], 0, false, 70.0);
+        assert!(!near.turned && near.offset[2] == -6.4);
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 2e-3);
+        let (eye, rows, fov) = orbit(&near, 0);
+        assert!(close(eye, [0.0, -1.0, -4.3425]) && close(rows[2], [0.0, 0.0, -1.0]), "{eye:?} {rows:?}");
+        assert!((fov - 70f32.to_radians()).abs() < 1e-6);
+        let (eye, rows, _) = orbit(&near, 360);
+        assert!(close(eye, [-2.0575, -1.0, -6.4]) && close(rows[2], [1.0, 0.0, 0.0]), "{eye:?} {rows:?}");
+        let far = Plan { turned: true, offset: [0.0, 0.0, 6.4], ..near };
+        let (eye, rows, _) = orbit(&far, 360);
+        assert!(close(eye, [2.0575, -1.0, 6.4]) && close(rows[2], [-1.0, 0.0, 0.0]), "{eye:?} {rows:?}");
+    }
+
     #[test]
     fn shown_side() {
         // (shown, lost, clip, row) at rating 70 (rows 2/3)

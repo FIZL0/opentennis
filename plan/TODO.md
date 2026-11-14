@@ -35,7 +35,6 @@ index out of bounds: the len is 0 but the index is 0"
 ### Match
 
 ### Presentation
-- [ ] **B705** Odd zoom-out transition at the end of a match: after the winners' celebration animation, the cut/zoom into the Game Set Match screen doesn't look right (not the change of ends: B703 looked there by mistake). Compare with the original and fix
 
 
 ### Confirmations
