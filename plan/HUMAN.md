@@ -10,3 +10,8 @@ Work only the user can do (recordings, devices, accounts); agents add items here
   — j: 2026-10-16-b509-gag-ambience/1-AMBIENCE-FINAL.md
 - **Repo-wide `cargo fmt`? (for T4's CI gate)**: CI checks tests, clippy and cargo-deny, but not formatting: `cargo fmt --all --check` gives 8,103 diffs (no `rustfmt.toml`; the code is hand-wrapped at ~120 columns). Say whether to (a) add a `rustfmt.toml` (`max_width = 120` plus whatever keeps the current style) and reformat everything in one commit while no runners are going (every open task branch conflicts with it otherwise), then add `cargo fmt --all --check` to `.github/workflows/ci.yml`; or (b) leave formatting unchecked — j: 2026-10-21-t4-ci-gate/README-FINAL.md
 - **Clean-room wording (for R11)**: PLAN's "Find it in the decompile, port it" and AGENT.md's "`--similar` … `ported` ones have Rust to copy the shape of" contradict the two-session clean-room rule. Proposed replacements in `research/journal/2026-10-21-repo-audit/R11-DOCS-DRIFT-FINAL.md`; apply them (or say otherwise) — j: 2026-10-21-repo-audit
+- **Download Xcode again (for M162, the macOS build)**: sign in at https://developer.apple.com/download/all/ (a free
+  Apple ID will do), download the latest **Xcode** `.xip` (the full Xcode, not the Command Line Tools, ~3 GB) and leave
+  it in `~/Downloads` (any `Xcode*.xip` name). Then unblock M162 (`tools/ctx.py unblock M162`); the agent pulls
+  `MacOSX.sdk` out of it (`tools/ios-sdk.py`, which keeps your existing iPhoneOS.sdk) and builds the Mac app. If you
+  have a Mac (Apple Silicon) to try the first build on, say so in the note: the build can't be run here — j: 2026-11-14-m162-macos/README-READY.md
