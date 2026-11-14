@@ -19,13 +19,25 @@ use std::path::{Path, PathBuf};
 /// The disc image's file name, in the repo root.
 pub const ISO: &str = "Hot Shots Tennis (USA).iso";
 
-/// The disc image's full path, for a test that hands it on as a file name (the Bevy app's `Args::iso`); check
-/// [`has_iso`] first.
-pub const ISO_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Hot Shots Tennis (USA).iso");
+/// The disc image's path, for a test that hands it on as a file name (the Bevy app's `Args::iso`); check
+/// [`has_iso`] first. Relative to the working directory, which cargo sets to the test's own crate (`crates/<name>`)
+/// when it runs a test binary, so it names the repo root's disc. Not built from `env!("CARGO_MANIFEST_DIR")`: sccache
+/// hands a worktree a copy of this crate compiled in another checkout, the path baked into it then names that checkout
+/// (T12: a deleted slot dir), and every test in this worktree that reads the disc failed.
+pub const ISO_PATH: &str = "../../Hot Shots Tennis (USA).iso";
 
-/// The repo root (for the disc, `fixtures/` and `research/`).
+/// The repo root (for the disc, `fixtures/` and `research/`): the running test crate's (cargo sets
+/// `CARGO_MANIFEST_DIR` when it runs a test), else the one this crate was built in, else the one holding the test
+/// binary's `target/`. Found at run time for the sccache reason at [`ISO_PATH`].
 pub fn root() -> &'static Path {
-    Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| {
+        let is_root = |p: &Path| p.join("crates/hst-data/Cargo.toml").is_file();
+        let built = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+        let running = std::env::var_os("CARGO_MANIFEST_DIR").map(|d| PathBuf::from(d).join("../.."));
+        let exe = std::env::current_exe().ok().and_then(|e| e.ancestors().find(|a| is_root(a)).map(Path::to_path_buf));
+        running.into_iter().chain([built.clone()]).chain(exe).find(|p| is_root(p)).unwrap_or(built)
+    })
 }
 
 /// Every checkout of the repo that could hold `fixtures/`: this one, then (when it is a git worktree, its `.git` a
