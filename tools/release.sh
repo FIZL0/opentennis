@@ -10,6 +10,8 @@
 #                                                                      PortMaster wants the zip named after the port)
 #   opentennis-windows-x86_64.exe  opentennis-linux-x86_64  opentennis-linux-aarch64   the bare binaries the updater fetches (plan/B374.md;
 #                                                                      M140: the phones' updater fetches the .apk / hands on the .ipa)
+#   opentennis-linux-x86_64-vulkan.tar.gz  opentennis-linux-aarch64-vulkan.tar.gz   B710: each tarball's vulkan/ alone, which the
+#                                                                      updater adds beside a bare binary that has none (update.rs)
 #   SHA256SUMS  SHA256SUMS.sig
 #   altstore-source.json                                               M140: the iOS app as an AltStore / SideStore / Feather source
 #                                                                      (tools/ios-source.sh), so they update it
@@ -85,6 +87,9 @@ tar -czf "$out/opentennis-linux-aarch64.tar.gz" -C dist/linux-aarch64 OpenTennis
 (cd dist/windows && zip -q "../release/opentennis-windows-x86_64.zip" opentennis.exe)
 cp dist/linux-aarch64/opentennis.zip "$out/opentennis.zip"
 cp dist/linux/opentennis "$out/opentennis-linux-x86_64"
+# B710: the updater's copy of vulkan/ (named after the binary it goes with: update.rs looks for `<binary>-vulkan.tar.gz`)
+tar -czf "$out/opentennis-linux-x86_64-vulkan.tar.gz" -C dist/linux vulkan
+tar -czf "$out/opentennis-linux-aarch64-vulkan.tar.gz" -C dist/linux-aarch64/OpenTennis vulkan
 cp dist/linux-aarch64/OpenTennis/opentennis "$out/opentennis-linux-aarch64"
 cp dist/windows/opentennis.exe "$out/opentennis-windows-x86_64.exe"
 cp dist/ios/opentennis-ios.ipa "$out/opentennis-ios.ipa"

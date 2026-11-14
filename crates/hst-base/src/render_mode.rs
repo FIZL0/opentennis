@@ -142,6 +142,16 @@ fn add_bundled_driver() {
 #[cfg(not(any(target_arch = "wasm32", all(target_os = "linux", not(target_os = "android")))))]
 fn add_bundled_driver() {}
 
+/// B710: a Linux game with no `vulkan/` beside it ([`add_bundled_driver`]'s software driver, which only the downloads'
+/// tarballs carry: an update from before B710 brought the bare game), so Software found nothing to draw with unless the
+/// system had its own. Elsewhere, never.
+pub fn bundled_missing() -> bool {
+    #[cfg(all(target_os = "linux", not(target_os = "android")))]
+    return std::env::current_exe().ok().and_then(|e| Some(e.canonicalize().ok()?.parent()?.join("vulkan/lvp_icd.json"))).is_some_and(|f| !f.is_file());
+    #[allow(unreachable_code)]
+    false
+}
+
 /// B708: the Settings row's text where the platform settles that nothing can draw on the CPU (shown once Software was
 /// picked): Apple's Metal has no CPU device, and Android's Vulkan loader only takes the phone's own driver. `None`
 /// where a software renderer may be found (Linux, Windows, a browser).

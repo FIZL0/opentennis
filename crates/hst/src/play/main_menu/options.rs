@@ -233,6 +233,9 @@ fn rendering_about() -> &'static str {
     const ABOUT: &str = "Hardware draws with your graphics chip and is fastest. If players, courts or effects look wrong or go missing, try Software: it draws on the CPU, so it's slower but works the same on every device. A change asks first, then restarts the game.";
     if let Some(why) = crate::render_mode::NO_SOFTWARE.filter(|_| crate::render_mode::MISSING.load(std::sync::atomic::Ordering::Relaxed)) {
         why
+    } else if crate::render_mode::MISSING.load(std::sync::atomic::Ordering::Relaxed) && crate::render_mode::bundled_missing() {
+        // B710: an install updated from the bare game, before updates brought the software renderer along
+        "Hardware draws with your graphics chip and is fastest. Software draws on the CPU, but the software renderer that comes with the Linux download isn't in this game's folder (an older update brought only the game), so the game is drawing with Hardware (shown in brackets). The game fetches it by itself while it checks for updates, ready the next time you open it; or download the game again and unpack it over this one."
     } else if crate::render_mode::MISSING.load(std::sync::atomic::Ordering::Relaxed) {
         "Hardware draws with your graphics chip and is fastest. Software draws on the CPU, slower but the same on every device; it couldn't start on this device, so the game is drawing with Hardware (shown in brackets). Picking Software again tries once more."
     } else if !crate::render_mode::can_restart() {

@@ -120,6 +120,8 @@ struct Found {
     page: String,
     /// This platform's binary, `SHA256SUMS` and `SHA256SUMS.sig` (all three, or no install).
     files: Option<[String; 3]>,
+    /// B710: Linux's software renderer (`vulkan/`, B708) as the release's `<binary>-vulkan.tar.gz`, if it has one.
+    vulkan: Option<String>,
 }
 
 /// The newer build's release tag or commit (short), if one is out (and not put off till later).
@@ -147,6 +149,13 @@ pub fn latest() -> Option<String> {
         let t = std::thread::spawn(move || {
             let rt = crate::runtime();
             let api = std::env::var("HST_UPDATE_API").unwrap_or_else(|_| "https://api.github.com/repos/FIZL0/opentennis/releases/latest".into());
+            // B710: a game updated by an updater from before B710 came without vulkan/: its own release's, once
+            if let (Ok(v), Some(exe)) = (ours, exe()) {
+                let own = format!("https://api.github.com/repos/FIZL0/opentennis/releases/tags/{v}");
+                if let Err(e) = rt.block_on(mend(&own, ASSET, &exe, PUBLIC_KEY)) {
+                    bevy::log::info!("update: no software renderer beside the game: {e}");
+                }
+            }
             loop {
                 let asked = std::time::SystemTime::now();
                 match ours {
@@ -268,7 +277,8 @@ fn found(j: &serde_json::Value, ours: &str, asset: Option<&str>) -> Option<Found
         j["assets"].as_array()?.iter().find(|a| a["name"].as_str() == Some(name))?["browser_download_url"].as_str().map(str::to_string)
     };
     let files = asset.and_then(|a| Some([url(a)?, url("SHA256SUMS")?, url("SHA256SUMS.sig")?]));
-    Some(Found { tag: tag.into(), page: j["html_url"].as_str().unwrap_or(RELEASES).into(), files })
+    let vulkan = asset.filter(|a| a.starts_with("opentennis-linux-")).and_then(|a| url(&format!("{a}-vulkan.tar.gz")));
+    Some(Found { tag: tag.into(), page: j["html_url"].as_str().unwrap_or(RELEASES).into(), files, vulkan })
 }
 
 /// Whether version `a` comes after `b` (`v1.2.3`, `v0.1.0-beta.10`; semver order: a pre-release before its
@@ -630,6 +640,10 @@ pub fn act() {
                     let dir = exe.parent().map(|d| std::fs::create_dir_all(d).map_err(|e| format!("can't make {}: {e}", d.display())));
                     match dir.unwrap_or(Ok(())).and_then(|()| rt.block_on(install(&files, exe, PUBLIC_KEY, &shown))) {
                         Ok(()) => {
+                            // B710: the new game's folder gets Rendering → Software's driver too, or the row says where it went
+                            if let Err(e) = rt.block_on(vulkan(exe, self::exe().as_deref(), f.vulkan.as_deref(), &files, PUBLIC_KEY, &shown)) {
+                                bevy::log::warn!("update: no software renderer beside {}: {e}", exe.display());
+                            }
                             job(format!("Starting {}...", f.tag));
                             // the same arguments (the disc), from the new file (at the old one's path, or the copy)
                             match std::process::Command::new(exe).args(std::env::args_os().skip(1)).spawn() {
@@ -865,6 +879,71 @@ async fn download(url: &str, to: &std::path::Path, shown: &dyn Fn(u64, u64)) -> 
     }
     f.sync_all().map_err(|e| e.to_string())?;
     Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// B710: `vulkan/` (B708's software renderer, which the Linux tarballs carry beside the game) beside `exe`, a game
+/// just installed from the bare binary: left as it is when it's there; else copied from the folder of the game that's
+/// running (`running`: a tarball install whose update went to [`Way::Copy`]'s folder); else the release's
+/// `-vulkan.tar.gz` (`url`) downloaded, checked against the signed sums in `files` like the binary, and unpacked. A
+/// release without one, or a platform with none, is fine. A failure leaves no half-made `vulkan/`.
+#[cfg(not(target_arch = "wasm32"))]
+async fn vulkan(exe: &std::path::Path, running: Option<&std::path::Path>, url: Option<&str>, files: &[String; 3], key: &str, shown: &dyn Fn(u64, u64)) -> Result<(), String> {
+    const ICD: &str = "vulkan/lvp_icd.json";
+    let Some(dir) = exe.parent() else { return Ok(()) };
+    if dir.join(ICD).is_file() {
+        return Ok(());
+    }
+    let here = running.and_then(|r| r.parent()).filter(|r| r.join(ICD).is_file() && *r != dir);
+    if here.is_none() && url.is_none() {
+        return Ok(());
+    }
+    let new = dir.join(".vulkan.new");
+    let _ = std::fs::remove_dir_all(&new);
+    let made = async {
+        let e = |what: String, err: std::io::Error| format!("can't {what}: {err}");
+        std::fs::create_dir_all(new.join("vulkan")).map_err(|x| e(format!("make {}", new.display()), x))?;
+        if let Some(from) = here {
+            for f in std::fs::read_dir(from.join("vulkan")).map_err(|x| e(format!("read {}", from.display()), x))?.flatten() {
+                if f.path().is_file() {
+                    std::fs::copy(f.path(), new.join("vulkan").join(f.file_name())).map_err(|x| e(format!("copy {}", f.path().display()), x))?;
+                }
+            }
+        } else if let Some(url) = url {
+            let tgz = new.join("vulkan.tar.gz");
+            verified(&[url.to_string(), files[1].clone(), files[2].clone()], &tgz, key, shown).await?;
+            let out = std::process::Command::new("tar").arg("-xzf").arg(&tgz).arg("-C").arg(&new).output().map_err(|x| e("run tar".into(), x))?;
+            if !out.status.success() {
+                return Err(format!("tar couldn't unpack it: {}", String::from_utf8_lossy(&out.stderr).trim()));
+            }
+        }
+        if !new.join(ICD).is_file() {
+            return Err("it has no lvp_icd.json".into());
+        }
+        std::fs::rename(new.join("vulkan"), dir.join("vulkan")).map_err(|x| e("put vulkan/ in place".into(), x))
+    }
+    .await;
+    let _ = std::fs::remove_dir_all(&new);
+    made
+}
+
+/// B710: `vulkan/` for the game at `exe` from its own release (`api`, GitHub's JSON for this build's tag) when it has
+/// none, as [`vulkan`] puts it beside a game it updates: a game updated by an updater from before B710 got only the
+/// bare binary. Used from the next start (the Vulkan loader reads its drivers when the renderer starts). Nothing to do
+/// on a platform without the tarballs, with one there, or for a release from before B710 (no `-vulkan.tar.gz`).
+#[cfg(not(target_arch = "wasm32"))]
+async fn mend(api: &str, asset: Option<&str>, exe: &std::path::Path, key: &str) -> Result<(), String> {
+    let Some(a) = asset.filter(|a| a.starts_with("opentennis-linux-")) else { return Ok(()) };
+    if exe.parent().is_none_or(|d| d.join("vulkan/lvp_icd.json").is_file()) {
+        return Ok(());
+    }
+    let j = json(api).await?;
+    let url = |name: &str| {
+        j["assets"].as_array()?.iter().find(|x| x["name"].as_str() == Some(name))?["browser_download_url"].as_str().map(str::to_string)
+    };
+    let (Some(tgz), Some(sums), Some(sig)) = (url(&format!("{a}-vulkan.tar.gz")), url("SHA256SUMS"), url("SHA256SUMS.sig")) else { return Ok(()) };
+    vulkan(exe, None, Some(&tgz), &[String::new(), sums, sig], key, &|_, _| {}).await?;
+    bevy::log::info!("update: software renderer added beside {}", exe.display());
+    Ok(())
 }
 
 /// `new` in `exe`'s place. Linux: made executable and renamed over it (the running game keeps its open copy).
@@ -1114,6 +1193,82 @@ PGdwmy/sa9Kqh1f1dYqI+JP0Iweg2dLM/mEgnRNTVfsQ9pI1u5aeusKILuRdn61QcyAsnzeOSfS5RRAE
         let j = serde_json::json!({ "tag_name": "beta", "assets": [] });
         assert_eq!(found(&j, "v0.0.1", ASSET), None);
         let j = serde_json::json!({ "tag_name": "v2.0.0", "html_url": "p", "assets": [{ "name": "SHA256SUMS", "browser_download_url": "s" }] });
-        assert_eq!(found(&j, "v1.0.0", Some("opentennis-linux-x86_64")), Some(Found { tag: "v2.0.0".into(), page: "p".into(), files: None }));
+        assert_eq!(found(&j, "v1.0.0", Some("opentennis-linux-x86_64")), Some(Found { tag: "v2.0.0".into(), page: "p".into(), files: None, vulkan: None }));
+    }
+
+    /// B710: a release's software renderer (`<binary>-vulkan.tar.gz`, a stand-in `vulkan/` here) next to its binary,
+    /// signed by a second throwaway key (`minisign -G -W`, secret gone) with both files' sums.
+    const VK_KEY: &str = "RWSm/sV746l5mHOL2Kwpbsey/Y1Ep7Q50ToEmdTSG3eSUmDbqDSAwfuO";
+    const VK_TGZ: &[u8] = &[31, 139, 8, 0, 0, 0, 0, 0, 2, 3, 237, 213, 207, 10, 130, 64, 16, 199, 241, 61, 247, 20, 178, 15, 96, 254, 219, 2, 175, 117, 233, 41, 196, 50, 200, 18, 149, 213, 22, 34, 124, 247, 36, 233, 162, 96, 151, 148, 162, 239, 231, 50, 3, 187, 183, 31, 51, 99, 174, 217, 37, 206, 151, 98, 74, 78, 107, 173, 212, 179, 182, 250, 117, 216, 187, 174, 227, 42, 97, 41, 49, 131, 107, 85, 199, 218, 178, 132, 46, 138, 122, 236, 223, 187, 247, 31, 101, 186, 252, 179, 116, 223, 117, 81, 102, 74, 187, 42, 62, 158, 255, 42, 8, 70, 242, 95, 247, 242, 15, 60, 175, 205, 223, 33, 255, 201, 37, 58, 53, 71, 189, 16, 248, 79, 175, 249, 55, 101, 148, 30, 18, 251, 92, 21, 249, 36, 251, 127, 116, 254, 213, 170, 55, 255, 190, 239, 187, 204, 255, 28, 238, 114, 183, 217, 202, 240, 46, 219, 11, 160, 99, 125, 139, 202, 184, 62, 201, 80, 218, 131, 147, 32, 155, 134, 53, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 192, 87, 122, 0, 223, 225, 118, 248, 0, 40, 0, 0];
+    const VK_SUMS: &str = "288765569ab03c0fbf107b0f870fb74c42fff3d4b295613911a955cf8e967492  opentennis-linux-x86_64\n8eb186fe2c9c2d53cf640624029a3acd4fed4570e7a5151803b521d5deddbe40  opentennis-linux-x86_64-vulkan.tar.gz\n";
+    const VK_SIG: &str = "untrusted comment: signature from minisign secret key
+RUSm/sV746l5mLwKVP/7yzt7JZfAJh4xujz0dI7WNj1dMZdDV3Rze/tTlKb48/Xxv/VtciCw1vWIoUrPm1VRWSdS/JhM2FwPawE=
+trusted comment: test
+YzKgWNACEJeYrYmarV4RlDlUpsWcWUOvhsRtxHZGvmrUjFv/AcnSOg/hmIv4u4B0RnYH9Mk92mW/ioSbwIS9DA==
+";
+
+    /// B710: an update that brings only the bare binary also puts `vulkan/` beside it: from the release's tarball
+    /// (checked against the signed sums, a bad sum leaves none), from the running game's folder when that has one
+    /// (a [`Way::Copy`] of a tarball install), and leaves one that's there alone; a release without it is fine.
+    #[test]
+    fn updates_bring_the_software_renderer() {
+        let rt = crate::runtime();
+        let quiet = |_: u64, _: u64| {};
+        let root = std::env::temp_dir().join(format!("hst-update-vulkan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let files: HashMap<String, Vec<u8>> = [
+            ("/opentennis-linux-x86_64", BIN.to_vec()),
+            ("/opentennis-linux-x86_64-vulkan.tar.gz", VK_TGZ.to_vec()),
+            ("/SHA256SUMS", VK_SUMS.as_bytes().to_vec()),
+            ("/SHA256SUMS.sig", VK_SIG.as_bytes().to_vec()),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let base = serve(files);
+        let asset = |n: &str| serde_json::json!({ "name": n, "browser_download_url": format!("{base}/{n}") });
+        let names = ["opentennis-linux-x86_64", "opentennis-linux-x86_64-vulkan.tar.gz", "SHA256SUMS", "SHA256SUMS.sig"];
+        let j = serde_json::json!({ "tag_name": "v2.0.0", "assets": names.map(asset) });
+        let f = found(&j, "v1.0.0", Some("opentennis-linux-x86_64")).unwrap();
+        assert_eq!(f.vulkan.as_deref(), Some(&*format!("{base}/opentennis-linux-x86_64-vulkan.tar.gz")));
+        assert_eq!(found(&j, "v1.0.0", Some("opentennis-windows-x86_64.exe")).unwrap().vulkan, None);
+        let fs = f.files.clone().unwrap();
+        let icd = |d: &std::path::Path| d.join("vulkan/lvp_icd.json");
+
+        // a bare-binary install: the binary, then vulkan/ from the tarball
+        let a = root.join("a");
+        std::fs::create_dir_all(&a).unwrap();
+        let exe = a.join("opentennis");
+        rt.block_on(install(&fs, &exe, VK_KEY, &quiet)).unwrap();
+        rt.block_on(vulkan(&exe, Some(&exe), f.vulkan.as_deref(), &fs, VK_KEY, &quiet)).unwrap();
+        assert_eq!(std::fs::read(a.join("vulkan/libvulkan_lvp.so")).unwrap(), b"driver\n");
+        assert!(icd(&a).is_file() && !a.join(".vulkan.new").exists());
+
+        // a wrong key: no vulkan/, nothing half-made
+        let b = root.join("b");
+        std::fs::create_dir_all(&b).unwrap();
+        assert!(rt.block_on(vulkan(&b.join("opentennis"), None, f.vulkan.as_deref(), &fs, KEY, &quiet)).is_err());
+        assert!(!b.join("vulkan").exists() && !b.join(".vulkan.new").exists());
+
+        // a copy into the update folder takes the running game's vulkan/ without a download (no URL to get it from)
+        let c = root.join("update/v2.0.0");
+        std::fs::create_dir_all(&c).unwrap();
+        rt.block_on(vulkan(&c.join("opentennis"), Some(&exe), None, &fs, VK_KEY, &quiet)).unwrap();
+        assert_eq!(std::fs::read(icd(&c)).unwrap(), std::fs::read(icd(&a)).unwrap());
+
+        // one that's there stays; a release without the tarball and no copy to take: nothing, no error
+        std::fs::write(icd(&a), b"mine").unwrap();
+        rt.block_on(vulkan(&exe, Some(&exe), f.vulkan.as_deref(), &fs, VK_KEY, &quiet)).unwrap();
+        assert_eq!(std::fs::read(icd(&a)).unwrap(), b"mine");
+        rt.block_on(vulkan(&b.join("opentennis"), None, None, &fs, VK_KEY, &quiet)).unwrap();
+        assert!(!b.join("vulkan").exists());
+
+        // a game an older updater left bare mends itself from its own release's JSON; not on Windows
+        let api = format!("{}/tag", serve([("/tag".to_string(), j.to_string().into_bytes())].into()));
+        rt.block_on(mend(&api, Some("opentennis-windows-x86_64.exe"), &b.join("opentennis"), VK_KEY)).unwrap();
+        assert!(!b.join("vulkan").exists());
+        rt.block_on(mend(&api, Some("opentennis-linux-x86_64"), &b.join("opentennis"), VK_KEY)).unwrap();
+        assert!(icd(&b).is_file());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
