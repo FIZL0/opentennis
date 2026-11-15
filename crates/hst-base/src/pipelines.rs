@@ -8,6 +8,9 @@
 //! Each recorded shader carries a hash of its source and everything it imports (P136): a pipeline whose shader changed
 //! since (a new build that moved its bindings) is left out, never compiled against its stale layout, which fails
 //! validation and quits the app.
+//! A Mac with no record of its own starts from [`SEED`], one recorded on an M3, so even the first match doesn't
+//! compile in play (pipelines compile in the frame there, [`IN_PLACE`]). Refresh it from a Mac's `pipelines.json` after
+//! a few matches on different courts: entries this build no longer asks for only cost a compile in the menu.
 //! `HST_PREWARM=0` turns it off (neither recorded nor warmed).
 
 use bevy::platform::time::Instant;
@@ -28,6 +31,12 @@ use std::sync::{Arc, Mutex};
 /// `compiles_in_place`): there the menu feeds the record a pipeline a frame while nobody touches the controls.
 /// Elsewhere they compile on the async pool and the whole record goes at once.
 pub const IN_PLACE: bool = cfg!(any(target_arch = "wasm32", target_os = "macos"));
+
+/// The record a Mac starts from when it has none of its own (any Apple GPU: every Mac renders through Metal).
+#[cfg(any(target_os = "macos", test))]
+const SEED: Option<&str> = Some(include_str!("pipelines-macos.json"));
+#[cfg(not(any(target_os = "macos", test)))]
+const SEED: Option<&str> = None;
 
 /// Matches a recorded pipeline is kept for without one asking for it.
 const KEEP: u32 = 8;
@@ -404,10 +413,12 @@ fn collect<Match: Resource>(mut w: ResMut<Warmup>, args: Option<Res<crate::Args>
         w.loaded = true;
         w.path = crate::store::settings(&args.iso).with_file_name("pipelines.json");
         let device = device(&info);
+        let parse = |t: &str| serde_json::from_str::<Record>(t).ok().filter(|r| r.version == VERSION);
         w.record = crate::store::read_to_string(&w.path)
             .ok()
-            .and_then(|t| serde_json::from_str::<Record>(&t).ok())
-            .filter(|r| r.version == VERSION && r.device == device)
+            .and_then(|t| parse(&t))
+            .filter(|r| r.device == device)
+            .or_else(|| SEED.and_then(parse).map(|r| Record { device: device.clone(), ..r }))
             .unwrap_or(Record { version: VERSION, device, ..default() });
         w.todo = (0..w.record.pipelines.len()).collect();
         info!("pipelines: {} recorded for this GPU", w.todo.len());
@@ -508,6 +519,13 @@ mod tests {
 
     /// A descriptor goes into the record, through the JSON and back out equal; one no match asked for in [`KEEP`]
     /// matches is left out of the saved record, with the tables only it used.
+    #[test]
+    fn the_seed_is_this_format() {
+        let seed: Record = serde_json::from_str(SEED.unwrap()).expect("pipelines-macos.json parses");
+        assert_eq!(seed.version, VERSION, "re-record pipelines-macos.json on a Mac after a format change");
+        assert!(seed.pipelines.len() > 50);
+    }
+
     #[test]
     fn a_recorded_pipeline_comes_back_equal() {
         let mut app = App::new();
