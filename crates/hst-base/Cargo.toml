@@ -94,6 +94,7 @@ wgpu = { version = "29", features = ["gles"] }
 libc = "0.2"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))'.dependencies]
+libc = "0.2"  # logfile.rs
 # Add mod's file picker on desktop (the xdg portal on Linux; the browser build uses the page's input, iOS the Files app; none on Android)
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 

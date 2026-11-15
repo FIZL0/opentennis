@@ -20,6 +20,8 @@ pub mod needs_tap;
 pub mod install_info;
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+pub mod logfile;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod start_page;
 pub mod effects;

@@ -340,6 +340,9 @@ fn main() {
     // M143: settings, mods and the rest in the per-user folder, the ones beside the disc brought over once
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     store::init(&argv[0]);
+    // hst-log.txt beside settings.txt when nobody reads the output, as on the phones (`logfile.rs`)
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+    logfile::unwatched_to(&disc::data_dir());
     start(argv);
 }
 
@@ -460,6 +463,8 @@ fn start(argv: Vec<String>) {
     // Android: into hst-log.txt too (`android.rs`)
     #[cfg(target_os = "android")]
     let plugins = plugins.set(bevy::log::LogPlugin { fmt_layer: android::log_layer, ..default() });
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+    let plugins = plugins.set(bevy::log::LogPlugin { fmt_layer: logfile::layer, ..default() });
     // P62: a `--shot`/`HST_MENU` run reads no pad (not even gilrs') and no real key, only `HST_KEYS`
     let quiet = args.shot.is_some() || std::env::var_os("HST_MENU").is_some();
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
