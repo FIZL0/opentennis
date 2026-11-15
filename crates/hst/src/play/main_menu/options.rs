@@ -180,7 +180,7 @@ fn about(o: Opt) -> &'static str {
         KeyHints => "Show the keyboard's keys at the bottom during a match while you play on the keyboard.",
         SplitScreen => "How split screen divides the window when players on both teams share this device: Vertical puts the halves side by side, Horizontal stacks them. A tall window always stacks them.",
         ButtonIcons => "The controller buttons the hints show. Auto: each controller's own (PlayStation, Switch, Steam Deck, else Xbox); or the same set for every controller.",
-        Preset => "High draws at full quality with every speed-up off; Default looks the same with Fewer Shadows and Skip Off-Screen on; Steam Deck looks like High with vsync and the speed-ups on; Low and Phone trade detail for frame rate; Lowest is the cheapest that keeps everything (half resolution, no shadows, simpler characters) for the weakest devices; Potato is Lowest without Court Life (no crowd, small props or costume sway) for handhelds. Auto picks one for this device, then times the first seconds of each match and lowers the resolution and shadows until it holds 60 fps.",
+        Preset => "High draws at full quality with every speed-up off; Default looks the same with Fewer Shadows and Skip Off-Screen on; Low and Phone trade detail for frame rate; Lowest is the cheapest that keeps everything (half resolution, no shadows, simpler characters) for the weakest devices; Potato is Lowest without Court Life (no crowd, small props or costume sway) for handhelds. Auto picks one for this device, then times the first seconds of each match and lowers the resolution and shadows until it holds 60 fps.",
         Scale => "Draw the 3D scene (court, players, ball) at this share of the window's resolution, scaled up to fill it; menus and the HUD stay sharp. Lower runs faster. Above 100 % draws it larger and scales it down: smoother edges, more work for the graphics card.",
         Shadows => "Off, or the shadow map's detail (Low: one cascade, and only what shades the court casts). Original: the trees' and buildings' shadows soft as on the PS2 (Original Mode always draws them so).",
         Msaa if locked(o) => "Off on WebGL2: anti-aliasing makes the browser build every drawing setup a second time, which stalls the first match for seconds. WebGPU (Display → Renderer) or the desktop app has it.",
@@ -317,7 +317,6 @@ fn hint(o: Opt, c: &str) -> &'static str {
     match (o, c) {
         (Preset, "High") => "full quality, no speed-ups",
         (Preset, "Default") => "High with speed-ups on",
-        (Preset, "Steam Deck") => "High's look, vsync, speed-ups",
         (Preset, "Low") => "less detail, more fps",
         (Preset, "Lowest") => "half res, no shadows",
         (Preset, "Potato") => "Lowest, no crowd",
@@ -2078,7 +2077,7 @@ mod tests {
         let d = Graphics::default();
         let mut s = Settings::default();
         s.step(Preset, 1);
-        assert_eq!(s.graphics, Graphics::STEAM_DECK);
+        assert_eq!(s.graphics, Graphics { vsync: d.vsync, ..Graphics::LOW });
         s.step(Preset, -1);
         assert_eq!(s.graphics, d);
         // B412: High before Default, and the speed-up switches are part of a preset

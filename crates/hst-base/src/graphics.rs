@@ -1,7 +1,7 @@
 //! Video settings (remaster-only; P53: the Auto preset, picked per device and timed in matches, below): borderless fullscreen or a window, frame limit, Show FPS, vsync, render resolution scale, shadow quality, MSAA and the original
 //! 640×448 mode (`hud_gamma.rs` draws it; it also fixes the aspect ratio to 4:3 and turns texture replacements off, `main.rs`).
 //! The menu edits the [`Graphics`] resource (applied live) and passes it to a match as flags
-//! (`--windowed`, `--fps N`, `--vsync`, `--scale N`, `--shadows off|low|high|original`, `--msaa off|2x|4x`, `--original`, `--mesh N`, `--shading off`). The simulation stays a fixed
+//! (`--windowed`, `--fps N`, `--no-vsync`, `--scale N`, `--shadows off|low|high|original`, `--msaa off|2x|4x`, `--original`, `--mesh N`, `--shading off`). The simulation stays a fixed
 //! 60 Hz tick whatever these are. Defaults draw as before these settings existed.
 
 use bevy::light::{CascadeShadowConfigBuilder, DirectionalLightShadowMap};
@@ -80,14 +80,17 @@ const FEWER_SHADOWS: bool = true;
 
 impl Default for Graphics {
     fn default() -> Self {
-        Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, scenery: true, auto: false }
+        Self::DEFAULT
     }
 }
 
 impl Graphics {
-    /// The Steam Deck's (picked on a Deck's first run): its native 1280×800 at High's quality (P63: the Deck holds it),
-    /// with vsync and the speed-ups (Fewer Shadows, Skip Off-Screen) on.
-    pub const STEAM_DECK: Graphics = Graphics { fps: 0, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, scenery: true, auto: false };
+    /// High's picture with the speed-ups (Fewer Shadows, Skip Off-Screen) on, uncapped behind vsync (on by default:
+    /// uncapped without it ran a MacBook at 260+ fps, user 2026-11-14).
+    pub const DEFAULT: Graphics = Graphics { fps: 0, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, scenery: true, auto: false };
+    /// The Steam Deck's (picked on a Deck's first run, without Auto): Default, at its native 1280×800 (P63: the Deck
+    /// holds it). Its own preset until vsync went on by default, the one thing that set it apart.
+    pub const STEAM_DECK: Graphics = Self::DEFAULT;
     /// The Steam Deck preset before P63 (Low shadows): a settings.txt still on it moves up to [`Self::STEAM_DECK`].
     const STEAM_DECK_OLD: Graphics = Graphics { shadows: Shadows::Low, ..Self::STEAM_DECK };
     /// A phone's or tablet's (B351, picked on the browser build's first run on a touch screen and the iOS app's first
@@ -96,19 +99,19 @@ impl Graphics {
     /// hides the lower scale. B413: with Fewer Shadows and Skip Off-Screen on (the speed-ups that measurably help);
     /// Mesh stays 100%: 75% and 50% showed no gain native (dGPU, iGPU) or in a 4x-throttled phone browser, as the
     /// characters' few thousand triangles aren't what a phone's frame waits on.
-    pub const PHONE: Graphics = Graphics { fps: 60, vsync: false, scale: 67, shadows: Shadows::Low, msaa: 2, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: false, scenery: true, auto: false };
+    pub const PHONE: Graphics = Graphics { fps: 60, vsync: true, scale: 67, shadows: Shadows::Low, msaa: 2, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: false, scenery: true, auto: false };
     /// The cheapest that still looks like the game: for weak GPUs.
-    pub const LOW: Graphics = Graphics { fps: 60, vsync: false, scale: 67, shadows: Shadows::Low, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: false, scenery: true, auto: false };
+    pub const LOW: Graphics = Graphics { fps: 60, vsync: true, scale: 67, shadows: Shadows::Low, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: false, scenery: true, auto: false };
     /// B414: below Low, for the weakest devices: half scale, no shadows or MSAA, the characters at a quarter of their
     /// triangles, every speed-up on. 60, like every preset: 30 is unplayable (user 2026-10-15), never a default.
-    pub const LOWEST: Graphics = Graphics { fps: 60, vsync: false, scale: 50, shadows: Shadows::Off, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: true, cull: true, mesh: 25, shading: false, scenery: true, auto: false };
+    pub const LOWEST: Graphics = Graphics { fps: 60, vsync: true, scale: 50, shadows: Shadows::Off, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: true, cull: true, mesh: 25, shading: false, scenery: true, auto: false };
     /// B412: the best look, with every speed-up off (Fewer Shadows, Skip Off-Screen; full meshes). Default is the
     /// balanced one: the same picture with the speed-ups on.
-    pub const HIGH: Graphics = Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: false, cull: false, mesh: 100, shading: true, scenery: true, auto: false };
+    pub const HIGH: Graphics = Graphics { fps: 0, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: false, cull: false, mesh: 100, shading: true, scenery: true, auto: false };
     /// M157: below Lowest, for framebuffer handhelds (a Mali G31 CPU-bound at ~27 fps on Lowest): Lowest without Court
     /// Life (a lower scale gained nothing there: the CPU, not the GPU, sets its frame rate).
     pub const POTATO: Graphics = Graphics { scenery: false, ..Self::LOWEST };
-    pub const PRESETS: [(&str, Graphics); 7] = [("High", Self::HIGH), ("Default", Graphics { fps: 0, vsync: false, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, scenery: true, auto: false }), ("Steam Deck", Self::STEAM_DECK), ("Low", Self::LOW), ("Lowest", Self::LOWEST), ("Potato", Self::POTATO), ("Phone", Self::PHONE)];
+    pub const PRESETS: [(&str, Graphics); 6] = [("High", Self::HIGH), ("Default", Self::DEFAULT), ("Low", Self::LOW), ("Lowest", Self::LOWEST), ("Potato", Self::POTATO), ("Phone", Self::PHONE)];
 
     /// Read one `key = value` (settings.txt or a flag's name and value); false if the key isn't one of these.
     pub fn set(&mut self, key: &str, v: &str) -> bool {
@@ -158,8 +161,8 @@ impl Graphics {
     /// The match's flags.
     pub fn flags(&self) -> Vec<String> {
         let mut f = vec!["--fps".into(), self.fps.to_string(), "--scale".into(), self.scale.to_string(), "--shadows".into(), self.shadows.name().into(), "--msaa".into(), msaa_name(self.msaa).into()];
-        if self.vsync {
-            f.push("--vsync".into());
+        if !self.vsync {
+            f.push("--no-vsync".into());
         }
         if self.original {
             f.push("--original".into());
@@ -203,7 +206,7 @@ impl Graphics {
 
     /// Preset `p` with this one's settings that no preset sets (the window, Show FPS, Auto).
     pub fn keep(&self, p: Graphics) -> Graphics {
-        Graphics { windowed: self.windowed, show_fps: self.show_fps, auto: self.auto, ..p }
+        Graphics { windowed: self.windowed, show_fps: self.show_fps, auto: self.auto, vsync: self.vsync, ..p }
     }
 
     pub fn present_mode(&self) -> PresentMode {
@@ -1222,10 +1225,13 @@ mod tests {
         assert_eq!((Graphics::LOWEST.preset(), w.keep(Graphics::LOWEST).preset()), ("Lowest", "Lowest"));
         assert!(Graphics::LOWEST.fewer_shadows && Graphics::LOWEST.cull && Graphics::LOWEST.mesh == MESHES[0] && Graphics::LOWEST.scale == 50);
         let names: Vec<_> = Graphics::PRESETS.iter().map(|(n, _)| *n).collect();
-        assert_eq!(names, ["High", "Default", "Steam Deck", "Low", "Lowest", "Potato", "Phone"]);
-        // P63: the Deck at High's look with vsync and the speed-ups; an old Deck settings.txt moves up to it
-        assert_eq!(Graphics::STEAM_DECK, Graphics { vsync: true, ..default() });
-        assert_eq!(Graphics::STEAM_DECK.preset(), "Steam Deck");
+        assert_eq!(names, ["High", "Default", "Low", "Lowest", "Potato", "Phone"]);
+        // vsync on by default, and a preset leaves it as it is (like the window); the Deck is Default now
+        assert!(Graphics::default().vsync);
+        let off = Graphics { vsync: false, ..default() };
+        assert_eq!((off.preset(), off.keep(Graphics::HIGH).vsync, off.flags().last().unwrap().as_str()), ("Default", false, "--no-vsync"));
+        // P63: an old Deck settings.txt moves up to the Deck's
+        assert_eq!(Graphics::STEAM_DECK.preset(), "Default");
         let old = Graphics { shadows: Shadows::Low, windowed: true, ..Graphics::STEAM_DECK };
         assert_eq!(old.upgrade(), Graphics { windowed: true, ..Graphics::STEAM_DECK });
         assert_eq!((Graphics::LOW.upgrade(), Graphics::default().upgrade()), (Graphics::LOW, Graphics::default()));

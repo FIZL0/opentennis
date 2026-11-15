@@ -10,7 +10,7 @@
 #   dist/windows/opentennis.exe  run: drop the ISO on opentennis.exe, or `opentennis.exe "Hot Shots Tennis (USA).iso"`
 #   dist/ios/opentennis-ios.ipa  unsigned (M91): the player signs it (AltStore, Sideloadly…); the ISO goes in its Files folder.
 #                         Needs the iOS SDK once: tools/ios-sdk.py Xcode_*.xip (see tools/ios-build.sh)
-#   dist/macos/opentennis-macos-arm64.zip  OpenTennis.app for Apple Silicon (M162, tools/macos-app.sh), ad-hoc signed, not
+#   dist/macos/opentennis-macos-arm64.dmg  OpenTennis.app for Apple Silicon (M162, tools/macos-app.sh), ad-hoc signed, not
 #                         notarized (open it once with right-click → Open); the first start asks for the ISO, like Linux.
 #                         Needs MacOSX.sdk once: ~/.local/share/hst-ios/MacOSX.sdk (copied from a Mac, or tools/ios-sdk.py
 #                         Xcode_*.xip; see tools/macos-build.sh) and rcodesign (cargo install apple-codesign)
@@ -108,8 +108,8 @@ case $what in
     linux-aarch64) linux_aarch64 ;;
     windows) windows ;;
     ios) mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa ;;
-    macos) mkdir -p dist/macos && tools/macos-app.sh dist/macos/opentennis-macos-arm64.zip ;;
+    macos) mkdir -p dist/macos && tools/macos-app.sh dist/macos/opentennis-macos-arm64.dmg ;;
     android) tools/apk.sh ;;
-    all) linux; linux_aarch64; windows; mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa; mkdir -p dist/macos && tools/macos-app.sh dist/macos/opentennis-macos-arm64.zip; tools/apk.sh ;;
+    all) linux; linux_aarch64; windows; mkdir -p dist/ios && tools/ios-ipa.sh dist/ios/opentennis-ios.ipa; mkdir -p dist/macos && tools/macos-app.sh dist/macos/opentennis-macos-arm64.dmg; tools/apk.sh ;;
     *) echo "usage: tools/build.sh [linux|linux-aarch64|windows|ios|macos|android|all]" >&2; exit 2 ;;
 esac

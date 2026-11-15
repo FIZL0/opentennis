@@ -118,6 +118,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
                 roster = Some(inspect::Roster(disc, mods));
             }
             "--vsync" => gfx.vsync = true,
+            "--no-vsync" => gfx.vsync = false,
             "--original" => gfx.original = true,
             "--show-fps" => gfx.show_fps = 1,
             "--show-fps-detailed" => gfx.show_fps = 2,

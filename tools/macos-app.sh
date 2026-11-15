@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# M162: OpenTennis.app for Apple Silicon Macs, zipped: release build (tools/macos-build.sh), stripped, Info.plist +
+# M162: OpenTennis.app for Apple Silicon Macs, in a .dmg that opens on the app beside an Applications link to drag it
+# onto: release build (tools/macos-build.sh), stripped, Info.plist +
 # icon, ad-hoc signed with rcodesign (Apple Silicon runs nothing unsigned; no Apple account, so no notarization: the
 # player opens it once with right-click → Open, or System Settings → Privacy & Security → Open Anyway).
 # Like Linux, the first start asks for the ISO (disc.rs) and keeps the game's files in ~/Library/Application Support/hst.
-# Usage: tools/macos-app.sh [OUT.zip]   (default target/opentennis-macos-arm64.zip)
-# Needs (once): the SDK (tools/macos-build.sh), cargo install apple-codesign (rcodesign), ImageMagick (the icon).
+# Usage: tools/macos-app.sh [OUT.dmg]   (default target/opentennis-macos-arm64.dmg)
+# Needs (once): the SDK (tools/macos-build.sh), cargo install apple-codesign (rcodesign), ImageMagick (the icon), and
+# the .dmg makers in ~/.local/bin, built from source as Bitcoin Core's Linux-made .dmg does it: xorrisofs (GNU
+# xorriso: ./configure && make, xorriso/xorriso → xorrisofs) and dmg (github.com/fanquake/libdmg-hfsplus: cmake).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-out=$(realpath -m "${1:-target/opentennis-macos-arm64.zip}")
-PATH=$PATH:$HOME/.cargo/bin  # where cargo install puts rcodesign
+out=$(realpath -m "${1:-target/opentennis-macos-arm64.dmg}")
+PATH=$PATH:$HOME/.cargo/bin:$HOME/.local/bin  # where cargo install puts rcodesign; the .dmg makers
 command -v rcodesign >/dev/null || { echo "needs (once): cargo install apple-codesign   (rcodesign, the ad-hoc signer)" >&2; exit 1; }
+for t in xorrisofs dmg; do command -v $t >/dev/null || { echo "needs (once): $t in ~/.local/bin (see the top of this script)" >&2; exit 1; }; done
 tools/macos-build.sh build --release -p hst --features ship
 stage=target/aarch64-apple-darwin/app
 app=$stage/OpenTennis.app
@@ -52,6 +56,9 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 rcodesign sign "$app" >/dev/null  # no certificate given: an ad-hoc signature (binds Info.plist and the binary)
+# the .dmg: an ISO 9660 + Rock Ridge image (keeps the symlink and modes) of the app and an Applications link, compressed
+vol=$stage/dmg && mkdir -p "$vol" && mv "$app" "$vol/" && ln -s /Applications "$vol/Applications"
+xorrisofs -quiet -D -l -V OpenTennis -no-pad -r -dir-mode 0755 -o "$stage/raw.iso" "$vol"
 rm -f "$out"
-(cd "$stage" && zip -qry -X "$out" OpenTennis.app)
+dmg "$stage/raw.iso" "$out" >/dev/null
 echo "$out ($(du -h "$out" | cut -f1))"
