@@ -92,8 +92,8 @@ pub(super) fn tab(page: Screen) -> usize {
 }
 
 /// The browser build stays in its page (`graphics::KEEP_WINDOWED`), so it has no Display mode row; it has a
-/// Renderer instead (B273).
-const DISPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] } else { &[Display, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] };
+/// Renderer instead (B273); phones are always fullscreen, so they have neither.
+const DISPLAY: &[Opt] = if cfg!(any(target_os = "ios", target_os = "android")) { &[Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] } else if cfg!(target_arch = "wasm32") { &[Renderer, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] } else { &[Display, Aspect, MenuSize, SafeArea, ShowFps, KeyHints, ButtonIcons, SplitScreen] };
 /// B707: the Rendering row's place on the Graphics page (every build).
 pub(super) fn rendering_row() -> usize {
     GRAPHICS.iter().position(|&o| o == Rendering).unwrap_or(0)

@@ -234,7 +234,11 @@ impl Graphics {
         if webgl2() { 1 } else { self.msaa }
     }
 
+    /// Phones are always fullscreen: a window there is Bevy's 1280x720 points, turned 720 pt wide in landscape.
     pub fn window_mode(&self) -> WindowMode {
+        if cfg!(any(target_os = "ios", target_os = "android")) {
+            return WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+        }
         if self.windowed || KEEP_WINDOWED.load(Ordering::Relaxed) { WindowMode::Windowed } else { WindowMode::BorderlessFullscreen(MonitorSelection::Current) }
     }
 }
