@@ -42,3 +42,9 @@
   2. whether the ball is in the wind list;
   3. the reader of the odd-ratio keyed list;
   4. the sim's clip lengths per motion.
+
+## Wrap-up (second session, 2026-11-16)
+Checked SPEC.md against every item in the brief (constants with their rounding, motion switch and exceptions, nudge,
+km/h, wind, gravity, run speed, serve, AI, ball/replay counts, court life, the 84-row sort, boot/overlay data):
+all present, audit clean. The open questions need European recordings, which the port task M181 gets from M177;
+a note on M181 points at them. Ticked here: the port runs as M181, not as a second phase of M169a.
