@@ -299,6 +299,36 @@ mod tests {
         }
     }
 
+    /// After `serve_to_contact`: the served ball flies the recorded curve bit for bit through its bounce in the
+    /// receivers' court up to the return's contact `ret` (play level with the recording, as from the toss on), and
+    /// every player stands where the recording has them through `stand` (the returner's slide into the return after
+    /// it isn't matched yet: M186).
+    fn serve_to_return(name: &str, want: &[Tick], got: &[Tick], contact: usize, stand: usize, ret: usize) {
+        for k in contact + 1..=ret {
+            assert_eq!(want[k].2.map(f32::to_bits), got[k].2.map(f32::to_bits), "{name} tick {k}: the served ball");
+        }
+        assert!(want[ret + 1].2[2].abs() < want[ret].2[2].abs(), "{name}: returned at {ret}");
+        let ground = |t: &Tick| t.1.map(|p| [p[0].to_bits(), p[2].to_bits()]);
+        for k in contact..=stand {
+            assert_eq!(ground(&want[k]), ground(&got[k + 1]), "{name} tick {k}: the players");
+        }
+    }
+
+    /// Probe: from the serve's `contact` on, the first tick a player (on the ground, play a tick behind) or the ball
+    /// (play level) leaves the recording, and how far, through the first point.
+    fn first_point_part(name: &str, want: &[Tick], got: &[Tick], contact: usize) {
+        let end = want.iter().skip(contact).position(|t| t.0 != 3).map_or(want.len(), |n| n + contact);
+        let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
+        let player = (contact..end).find(|&k| ground(&want[k]) != ground(&got[k + 1]));
+        let ball = (contact + 1..end).find(|&k| want[k].2 != got[k].2);
+        eprintln!("{name} point 1 (rally to {end}): a player parts at {player:?}, the ball at {ball:?}");
+        for k in player.into_iter().chain(ball).flat_map(|t| t.saturating_sub(1)..(t + 4).min(end)) {
+            let off = (0..4).map(|i| (0..3).map(|a| (want[k].1[i][a] - got[k + 1].1[i][a]).abs()).fold(0f32, f32::max)).collect::<Vec<_>>();
+            let b = (0..3).map(|a| (want[k].2[a] - got[k].2[a]).abs()).fold(0f32, f32::max);
+            eprintln!("{name}   tick {k}: players off {off:?}, ball off {b} (want {:?} got {:?})", want[k].2, got[k].2);
+        }
+    }
+
     /// The European bot match (doubles, characters 0/1/1/0, court 6, 1 set of 4 games; M177's recording) in play.
     fn european(n: Option<usize>, toss_ai: usize) -> Option<(Vec<Tick>, Vec<Tick>)> {
         let iso = hst_data::fixture::path(EU);
@@ -313,7 +343,7 @@ mod tests {
         let _turn = super::EU_DISC.lock().unwrap_or_else(|e| e.into_inner());
         hst_base::match_speed::test_sim_hz(50);
         let _sixty = Sixty;
-        let args = Args { iso: iso.to_string_lossy().into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 6, stage: None, play: true, singles: false, chars: vec![0, 1, 1, 0], outfits: vec![], viewer: None, sound: None, music: false, umpire: 0, sets: 1, games: 4, pads: None };
+        let args = Args { iso: iso.to_string_lossy().into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 6, stage: Some(6), play: true, singles: false, chars: vec![0, 1, 1, 0], outfits: vec![], viewer: None, sound: None, music: false, umpire: 0, sets: 1, games: 4, pads: None };
         let want = recorded_ticks(&data);
         // the match seed: the 81 875th `rand()` output from boot (`eu_match_seed_search`)
         let (got, _) = played_ticks_rng(args, hst_sim::rng::Seed::after(81_874), n.unwrap_or(want.len() + 10), 0, toss_ai);
@@ -329,6 +359,7 @@ mod tests {
     fn the_european_first_serve_set_up_plays_as_recorded() {
         let Some((want, got)) = european(Some(300), 0) else { return };
         serve_to_contact("eu", &want, &got, 8, (114, 134, 141));
+        serve_to_return("eu", &want, &got, 141, 228, 230);
     }
 
     /// Probe, not a proof yet (M183a1): the whole European bot match in play from the original's match seed, beside the
@@ -341,6 +372,7 @@ mod tests {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
         let Some((want, got)) = european(None, toss_ai) else { return };
         compare("eu", &want, &got);
+        first_point_part("eu", &want, &got, 141);
         if std::env::var_os("HST_M183A1_DUMP").is_some() {
             for k in 0..240.min(want.len()) {
                 eprintln!("eu dump {k}: want {} {:?} {:?} | got {} {:?} {:?}", want[k].0, want[k].1[0], want[k].2, got[k + 1].0, got[k + 1].1[0], got[k + 1].2);
@@ -363,7 +395,7 @@ mod tests {
             return None;
         }
         let _turn = super::EU_DISC.lock().unwrap_or_else(|e| e.into_inner());
-        let args = Args { iso: hst_data::fixture::ISO_PATH.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 10, stage: None, play: true, singles: false, chars: vec![0, 2, 1, 5], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None };
+        let args = Args { iso: hst_data::fixture::ISO_PATH.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 10, stage: Some(10), play: true, singles: false, chars: vec![0, 2, 1, 5], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None };
         let size = 4 + 8 + 4 * 0x9d0;
         let rand_at = |v: u32| rng.chunks_exact(size).find(|s| u32::from_le_bytes(s[..4].try_into().unwrap()) == v).map(|s| u64::from_le_bytes(s[4..12].try_into().unwrap())).unwrap();
         // The match seed is the `rand()` output 0x28c7c4a1 (P3d3, `weather.rs`), but the intro was cut short when slot
@@ -385,8 +417,9 @@ mod tests {
     /// the press draws the swing kind, the contact the aim and the launch.
     #[test]
     fn the_us_first_serve_set_up_plays_as_recorded() {
-        let Some((want, got, rngs)) = us(Some(300), 240, 0) else { return };
+        let Some((want, got, rngs)) = us(Some(320), 240, 0) else { return };
         serve_to_contact("us", &want, &got, 9, (169, 215, 219));
+        serve_to_return("us", &want, &got, 219, 290, 298);
         let Ok(d) = hst_data::fixture::read("fixtures/p3b/rng_s05.bin") else { return };
         let size = 4 + 8 + 4 * 0x9d0;
         let rec = |k: u32| {
@@ -408,6 +441,7 @@ mod tests {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
         let Some((want, got, rngs)) = us(None, 400, toss_ai) else { return };
         compare("us", &want, &got);
+        first_point_part("us", &want, &got, 219);
         if std::env::var_os("HST_M183A1_DUMP").is_some() {
             for k in 0..240.min(want.len()) {
                 eprintln!("us dump {k}: want {} {:?} | got {} {:?}", want[k].0, want[k].2, got[k + 1].0, got[k + 1].2);
