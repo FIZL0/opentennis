@@ -195,7 +195,7 @@ fn spawn(
         }
     }
     if !cues.is_empty() {
-        crowd.sounds = Some((Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav, takes: Default::default(), stream: None }), cues));
+        crowd.sounds = Some((Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav, takes: Default::default(), stream: None, language: None }), cues));
     }
 }
 

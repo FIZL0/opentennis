@@ -287,6 +287,8 @@ pub struct Settings {
     update_check: bool,
     /// B474: the emotes' voice lines heard (`audio::EMOTE_VOICES`).
     emote_voices: bool,
+    /// added3: the voices' language (a `voices::LANGS` index; 0 the disc's own).
+    voice_language: u8,
     /// Split screen's halves stacked (Horizontal) instead of side by side (`split_view::STACKED`).
     split_stacked: bool,
     graphics: Graphics,
@@ -360,6 +362,7 @@ impl Default for Settings {
             vibration: true,
             update_check: true,
             emote_voices: true,
+            voice_language: 0,
             split_stacked: false,
             graphics: Graphics::default(),
             volumes: Volumes::default(),
@@ -457,13 +460,15 @@ impl Settings {
         crate::update::CHECK.store(s.update_check, std::sync::atomic::Ordering::Relaxed);
         crate::update::ALWAYS.store(s.updates_always, std::sync::atomic::Ordering::Relaxed);
         crate::audio::EMOTE_VOICES.store(s.emote_voices, std::sync::atomic::Ordering::Relaxed);
+        s.voice_language = crate::voices::parse_setting(text);
+        crate::voices::choose(s.voice_language);
         s
     }
 
     fn text(&self) -> String {
         let mut s = *self;
         let on: String = s.switches().iter().map(|(n, on)| format!("{n} = {}\n", if **on { "on" } else { "off" })).collect();
-        format!("aspect = {}\n", super::widescreen::ASPECTS[self.aspect as usize]) + &on + &format!("online_mods = {}\n", self.online_mods.word()) + &format!("keep_downloads = {}\n", self.keep_downloads.word()) + &self.graphics.text() + &self.volumes.text() + &self.renderer_line() + &crate::render_mode::line(self.software) + &format!("umpire = {}\n", self.umpire) + &format!("menu_size = {}\n", if self.menu_size == 0 { "auto".into() } else { format!("{}", self.menu_size as u32 * 10) }) + &format!("safe_area = {}\n", safe_area_name(self.safe_area).to_lowercase()) + &format!("downloads_at_once = {}\n", if self.downloads == 0 { "auto".into() } else { self.downloads.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.button_icons as usize].1) + &crate::mods_textures::settings_text() + &crate::update::settings_line(self.update_check, self.updates_always)
+        format!("aspect = {}\n", super::widescreen::ASPECTS[self.aspect as usize]) + &on + &format!("online_mods = {}\n", self.online_mods.word()) + &format!("keep_downloads = {}\n", self.keep_downloads.word()) + &self.graphics.text() + &self.volumes.text() + &self.renderer_line() + &crate::render_mode::line(self.software) + &format!("umpire = {}\n", self.umpire) + &format!("menu_size = {}\n", if self.menu_size == 0 { "auto".into() } else { format!("{}", self.menu_size as u32 * 10) }) + &format!("safe_area = {}\n", safe_area_name(self.safe_area).to_lowercase()) + &format!("downloads_at_once = {}\n", if self.downloads == 0 { "auto".into() } else { self.downloads.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.button_icons as usize].1) + &crate::mods_textures::settings_text() + &crate::update::settings_line(self.update_check, self.updates_always) + &crate::voices::setting_line(self.voice_language)
     }
 
     /// B339: how many store installs run at once: the setting, or on Auto 3 on desktop, 2 in a browser, 1 on a
@@ -4359,6 +4364,11 @@ mod tests {
         // B474: emote voices default on, round-trip off
         let e = Settings::parse("emote_voices = off\n");
         assert!(!e.emote_voices && Settings::parse("").emote_voices && !Settings::parse(&e.text()).emote_voices);
+        // added3: the voice language defaults to the disc's, round-trips, and an unknown word is the disc's
+        let j = Settings::parse("voice_language = ja\n");
+        assert!(j.voice_language == 6 && Settings::parse(&j.text()).voice_language == 6 && Settings::parse("").voice_language == 0);
+        assert_eq!(Settings::parse("voice_language = xx\n").voice_language, 0);
+        crate::voices::choose(0);
         assert_eq!(Settings::parse("uncapped_fps = off\n").graphics, Graphics { vsync: true, ..d });
         assert_eq!(s.flags()[..1], ["--fps"]);
         assert_eq!(Settings { upscaled_textures: false, menu_music: false, music: true, upscaled_downloads: false, aspect: 1, ..base }.flags()[..2], ["--no-upscale", "--music"]);

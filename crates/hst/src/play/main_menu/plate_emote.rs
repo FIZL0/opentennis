@@ -248,7 +248,7 @@ fn voice(id: usize, who: Who, mods: &[crate::mods::Mod], banks: &mut HashMap<Str
         }
     };
     *key = next(emote::voice_keys(id)?);
-    let bank = banks.entry(format!("disc {c}")).or_insert_with(|| Iso::open(iso).ok().and_then(|mut iso| crate::audio::voice_bank(&mut iso, c, 2, 0, false)).map(Arc::new)).clone()?;
+    let bank = banks.entry(format!("disc {c} {}", crate::voices::chosen())).or_insert_with(|| Iso::open(iso).ok().and_then(|mut iso| crate::audio::voice_bank(&mut iso, c, 2, 0, false)).map(Arc::new)).clone()?;
     Some((bank, sound::Play { slot: 0x16, program, key: *key, volume: 0x80, speed: 1.0 }))
 }
 
