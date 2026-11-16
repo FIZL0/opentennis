@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Unsigned IPA of the game for the user to sign (M91): release build (tools/ios-build.sh), stripped, in a
 # Payload/OpenTennis.app with Info.plist + icon, zipped. Usage: tools/ios-ipa.sh [OUT.ipa]  (default target/opentennis-ios.ipa)
+# HST_SYMBOLS=1: keep function names (not stripped) so Xcode Instruments' Time Profiler can name them; bigger file.
 # HST_BETA=1: a beta beside the normal app (its own bundle id and name "OpenTennis Beta", so its own folder too).
 # On the phone: the app's folder in the Files app ("On My iPhone → OpenTennis") takes the ISO, settings.txt and mods/.
 set -euo pipefail
@@ -11,7 +12,7 @@ stage=target/aarch64-apple-ios/ipa
 app=$stage/Payload/OpenTennis.app
 rm -rf target/aarch64-apple-ios/ipa
 mkdir -p "$app"
-llvm-strip -o "$app/opentennis" target/aarch64-apple-ios/release/hst
+if [ -n "${HST_SYMBOLS:-}" ]; then cp target/aarch64-apple-ios/release/hst "$app/opentennis"; else llvm-strip -o "$app/opentennis" target/aarch64-apple-ios/release/hst; fi
 cp web/icon-180.png "$app/AppIcon60x60@3x.png"
 id=io.github.fizl0.hst name=OpenTennis
 [ -z "${HST_BETA:-}" ] || { id=$id.beta name="OpenTennis Beta"; }
