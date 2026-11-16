@@ -5443,7 +5443,9 @@ mod tests {
             assert_eq!(me, guest);
             assert_eq!(r.open(), 0);
             let cpus: Vec<usize> = r.seats.iter().flatten().filter(|s| !s.human()).map(|s| s.pick.char).collect();
-            assert_eq!(cpus, [0, 1], "the open seats to the computer, characters nobody picked");
+            // the open seats to the computer: disc characters nobody picked, drawn at random (`start_bots_are_random`)
+            let picked: Vec<usize> = r.seats.iter().flatten().filter(|s| s.human()).map(|s| s.pick.char).collect();
+            assert!(cpus.len() == 2 && cpus[0] != cpus[1] && cpus.iter().all(|c| *c < 14 && !picked.contains(c)), "{cpus:?} beside {picked:?}");
             assert_eq!((r.court, r.seats[1].as_ref().unwrap().pick.char), (2, 5), "the match has the lobby's last picks");
             assert!(matches!(next(&hev, |e| matches!(e, Event::Start(..))).await, Event::Start(_, h) if h == "host"));
             // B196: back to the lobby together (the computer's seats open again), ready again, and a new start
