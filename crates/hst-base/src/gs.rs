@@ -37,8 +37,8 @@ use hst_data::mtl;
 use hst_sim::weather::Look;
 
 pub fn plugin(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "gs.wgsl");
-    bevy::asset::embedded_asset!(app, "gs_prepass.wgsl");
+    bevy::asset::embedded_asset!(app, "gs.wesl");
+    bevy::asset::embedded_asset!(app, "gs_prepass.wesl");
     app.add_plugins(MaterialPlugin::<GsMaterial>::default())
         .add_systems(PostUpdate, reextract_morphed.after(bevy::camera::visibility::VisibilitySystems::CheckVisibility));
 }
@@ -556,19 +556,19 @@ pub fn hole_triangles(test: Test, indices: &[u32], alpha: &[f32], uv: &[[f32; 2]
 
 impl Material for GsMaterial {
     fn vertex_shader() -> ShaderRef {
-        "embedded://hst_base/gs.wgsl".into()
+        "embedded://hst_base/gs.wesl".into()
     }
 
     fn fragment_shader() -> ShaderRef {
-        "embedded://hst_base/gs.wgsl".into()
+        "embedded://hst_base/gs.wesl".into()
     }
 
     fn prepass_vertex_shader() -> ShaderRef {
-        "embedded://hst_base/gs_prepass.wgsl".into()
+        "embedded://hst_base/gs_prepass.wesl".into()
     }
 
     fn prepass_fragment_shader() -> ShaderRef {
-        "embedded://hst_base/gs_prepass.wgsl".into()
+        "embedded://hst_base/gs_prepass.wesl".into()
     }
 
     fn depth_bias(&self) -> f32 {

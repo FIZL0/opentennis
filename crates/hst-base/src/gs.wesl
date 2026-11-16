@@ -1,8 +1,16 @@
 // PS2 GS colour path for court models (see gs.rs). Values are in PS2 units: 1.0 = 0x80 for vertex/material colour
 // and alpha, texel colour 1.0 = 0xff, texel alpha 1.0 = 0x80 (mtl.rs expands it to 0xff).
-#import bevy_pbr::{mesh_view_bindings as view_bindings, mesh_view_types, shadows, shadow_sampling}
-#import bevy_pbr::{mesh_bindings::mesh, mesh_functions, skinning, morph, forward_io::Vertex}
-#import bevy_pbr::view_transformations::position_world_to_clip
+import bevy_pbr::render::{
+    mesh_view_bindings as view_bindings,
+    mesh_view_types,
+    shadows,
+    mesh_bindings::mesh,
+    mesh_functions,
+    skinning,
+    morph,
+    forward_io::{Vertex, UncompressedVertex, decompress_vertex},
+    view_transformations::position_world_to_clip,
+};
 
 struct Gs {
     color: vec4<f32>,
@@ -38,74 +46,69 @@ fn on(f: u32) -> bool {
     return (gs.flags & f) != 0u;
 }
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> gs: Gs;
-@group(#{MATERIAL_BIND_GROUP}) @binding(1) var gs_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(2) var gs_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> gs: Gs;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var gs_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var gs_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) world_position: vec4<f32>,
-#ifdef VERTEX_UVS_A
+    @if(VERTEX_UVS_A)
     @location(2) uv: vec2<f32>,
-#endif
     // VU1's vertex colour, as the GS gets it: vertex × material colour × light, 8-bit (0x80 = 1.0, at most 0xff)
     @location(5) color: vec4<f32>,
     // its specular term (the vertex alpha HIGHLIGHT2 adds)
     @location(8) spec: f32,
     // the fog coefficient F VU1 writes to the vertex (0..255); the GS interpolates it linearly on screen
-#ifdef GS_NO_LINEAR
     // WebGL2 has no linear (noperspective) interpolation: F·w and w, both perspective-correct, divide to F linear on
     // screen
+    @if(GS_NO_LINEAR)
     @location(9) fog: vec2<f32>,
-#else
+    @if(!GS_NO_LINEAR)
     @location(9) @interpolate(linear) fog: f32,
-#endif
-#ifdef GS_GUARD_DISCARD
     // B485: 1 at a vertex outside the guard band, 0 inside: above 0 anywhere on a triangle that has one
+    @if(GS_GUARD_DISCARD)
     @location(10) guard: f32,
-#endif
 }
 
-#ifdef MORPH_TARGETS
-// as Bevy's mesh.wgsl
-fn morph_vertex(vertex_in: Vertex, instance_index: u32) -> Vertex {
+// as Bevy's mesh.wesl
+@if(MORPH_TARGETS)
+fn morph_vertex(vertex_in: UncompressedVertex, instance_index: u32) -> UncompressedVertex {
     var vertex = vertex_in;
     let vertex_index = vertex.index - mesh[instance_index].first_vertex_index;
-#ifndef SKINS_USE_UNIFORM_BUFFERS
-    // B277: Bevy 0.19 builds a mesh instance that just became visible before its morph descriptor, so it has none
-    // (u32::MAX) until it is extracted again. Browsers' WebGPU clamps that read to the last descriptor, another mesh's
+    let descriptor = mesh[instance_index].morph_descriptor_index;
+    // B277: Bevy 0.19 built a mesh instance that just became visible before its morph descriptor, so it had none
+    // (u32::MAX) until it was extracted again. Browsers' WebGPU clamps that read to the last descriptor, another mesh's
     // weights and targets, which flung a face's vertices across the screen: draw it unmorphed instead.
-    if mesh[instance_index].morph_descriptor_index == 0xffffffffu {
+    @if(!SKINS_USE_UNIFORM_BUFFERS)
+    if descriptor == 0xffffffffu {
         return vertex;
     }
-#endif
-    for (var i = 0u; i < morph::layer_count(instance_index); i++) {
-        let weight = morph::weight_at(i, instance_index);
+    for (var i = 0u; i < morph::layer_count(descriptor); i++) {
+        let weight = morph::weight_at(i, descriptor);
         if weight != 0.0 {
-            vertex.position += weight * morph::morph_position(vertex_index, i, instance_index);
+            vertex.position += weight * morph::morph_position(vertex_index, i, descriptor);
         }
     }
     return vertex;
 }
-#endif
 
 @vertex
-fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
+fn vertex(vertex_in: Vertex) -> VertexOutput {
     var out: VertexOutput;
-    let instance = vertex_no_morph.instance_index;
-#ifdef MORPH_TARGETS
+    let instance = vertex_in.instance_index;
+    let vertex_no_morph = decompress_vertex(vertex_in, instance);
+    @if(MORPH_TARGETS)
     let vertex = morph_vertex(vertex_no_morph, instance);
-#else
+    @else
     let vertex = vertex_no_morph;
-#endif
-#ifdef SKINNED
+    @if(SKINNED)
     let world_from_local = skinning::skin_model(vertex.joint_indices, vertex.joint_weights, instance);
-#else
+    @else
     let world_from_local = mesh_functions::get_world_from_local(instance);
-#endif
     out.world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4(vertex.position, 1.0));
     out.position = position_world_to_clip(out.world_position.xyz);
-#ifdef GS_GUARD
+    @if(GS_GUARD) {
     // VU1's reject pass drops every court triangle with a vertex outside the GS guard band,
     // 2048 ± 1280 in GS coordinates: ±1280/278.5 half-widths across (at the original's 4:3, one half-width — tan of
     // the 10° half field of view — is 278.5 GS pixels, not 320; B168: court 7's under-floor box, GS dump) and
@@ -116,36 +119,32 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     // Ground (facing up, under 1 m) is exempt: the GPU clips it, so a low replay camera keeps the floor in front of it
     // (B169); the original's floor would lose its big near triangles there too.
     let p = out.position;
-#ifdef GS_GUARD_DISCARD
+    @if(GS_GUARD_DISCARD)
     out.guard = 0.0;
-#endif
     let across = view_bindings::view.clip_from_view[1][1] * 0.75 / view_bindings::view.clip_from_view[0][0];
-#ifdef VERTEX_NORMALS
+    @if(VERTEX_NORMALS)
     let ground = out.world_position.y < 1.0 && normalize(mesh_functions::mesh_normal_local_to_world(vertex.normal, instance)).y > 0.7;
-#else
+    @else
     let ground = false;
-#endif
     if !ground && (abs(p.x) * across > 1280.0 / 278.5 * abs(p.w) || abs(p.y) > 1280.0 / 112.0 * abs(p.w)) {
-#ifdef GS_GUARD_DISCARD
         // B485: the browser's GL leaves a NaN position to the driver, and some (Firefox on Linux) drew the triangle
         // as a huge flat fan from the middle of the screen: the vertex stays where it is and the fragment stage drops
         // its triangles
+        @if(GS_GUARD_DISCARD) {
         out.guard = 1.0;
-#else
+        } @else {
         let z = p.w * 0.0;
         out.position = vec4(z / z);
-#endif
+        }
     }
-#endif
-#ifdef VERTEX_UVS_A
+    }
+    @if(VERTEX_UVS_A)
     out.uv = vertex.uv;
-#endif
     // vertex colour × material colour (0x80 = 1.0)
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     var c = vertex.color * gs.color;
-#else
+    @else
     var c = gs.color;
-#endif
     // VU1 lighting, per vertex in game space (y down; GameSpace turns it 180° about X): ambient + each light's colour
     // × its diffuse term (the first dimmed with the ambient when the camera looks near it, `glare`), and a specular term on the half vector between the light and the camera's forward axis,
     // Schlick's t/(k − (k − 1)t) for t^k. A skinned vertex's normal is the sum of its bones' pre-weighted normals
@@ -154,19 +153,19 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     // the tangent slot turned by bones 1..3 blended by their weights (bone 1 alone on the disc), so Σ wᵢ·Rᵢ·N.
     // Meshes without normals (the weather's particles) go unlit.
     out.spec = 0.0;
-#ifdef VERTEX_NORMALS
-#ifdef SKINNED
+    @if(VERTEX_NORMALS) {
+    @if(SKINNED)
     let j0 = skinning::skin_model(vertex.joint_indices, vec4(1.0, 0.0, 0.0, 0.0), instance);
+    @if(SKINNED)
     var n = mat3x3(j0[0].xyz, j0[1].xyz, j0[2].xyz) * vertex.normal;
-#ifdef VERTEX_TANGENTS
+    @if(!SKINNED)
+    var n = mesh_functions::mesh_normal_local_to_world(vertex.normal, instance);
+    @if(SKINNED && VERTEX_TANGENTS) {
     // B693: no 0/0 even in the branch `select` drops (Metal compiles with fast math, which assumes no NaN)
     let rest = vertex.joint_weights.y + vertex.joint_weights.z + vertex.joint_weights.w;
     let j1 = skinning::skin_model(vertex.joint_indices, select(vec4(0.0, 1.0, 0.0, 0.0), vec4(0.0, vertex.joint_weights.yzw / max(rest, 1e-6)), rest > 0.0), instance);
     n += mat3x3(j1[0].xyz, j1[1].xyz, j1[2].xyz) * vertex.tangent.xyz;
-#endif
-#else
-    var n = mesh_functions::mesh_normal_local_to_world(vertex.normal, instance);
-#endif
+    }
     let flip = vec3(1.0, -1.0, -1.0);
     n *= flip;
     // unlit (object flag bit 1): VU1 skips the normal transform, N' = (1, 0, 0): full light, no second light or highlight
@@ -178,7 +177,7 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     let x = gs.glare * max((-dot(forward, gs.light_dir.xyz) - 0.8) / 0.2, 0.0);
     let diffuse2 = lit * max(-dot(n, gs.light2_dir.xyz), 0.0);
     c = vec4(c.rgb * (gs.ambient.rgb * (1.0 - x * 0.5) + gs.light_color.rgb * (1.0 - 0.6 * x) * diffuse + gs.light2_color.rgb * diffuse2), c.a);
-#endif
+    }
     // VU1: F from the vertex's view depth (clip w), at most F near, then at least F far (MINI, MAX), FTOI to an
     // integer; both ends go towards 255 as the eye rises past 30 m (game y = −Bevy y)
     let vz = view_bindings::view.view_from_world;
@@ -186,11 +185,10 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     let lift = clamp((view_bindings::view.world_position.y - 30.0) * 0.02, 0.0, 0.7);
     let ends = gs.fog.xy + lift * (255.0 - gs.fog.xy);
     let f = floor(max(min(ends.x + (w - gs.fog.z) * (ends.y - ends.x) / (gs.fog.w - gs.fog.z), ends.x), ends.y));
-#ifdef GS_NO_LINEAR
+    @if(GS_NO_LINEAR)
     out.fog = vec2(f, 1.0) * out.position.w;
-#else
+    @else
     out.fog = f;
-#endif
     // FTOI0 to the GS's 8 bits
     out.color = floor(min(c * 128.0, vec4(255.0)) + 1e-3) / 128.0;
     return out;
@@ -209,7 +207,7 @@ fn sun_visibility(in: VertexOutput) -> f32 {
     return 1.0;
 }
 
-#ifdef GS_CLEAR
+@if(GS_CLEAR) {
 // M129: where the ray from the eye along `d` first enters the box `centre` ± `half` (in units of `d`); a large number
 // where it never does.
 fn box_entry(eye: vec3<f32>, d: vec3<f32>, centre: vec3<f32>, half: vec3<f32>) -> f32 {
@@ -252,16 +250,14 @@ fn cleared(p: vec3<f32>, pixel: vec2<f32>) -> bool {
     let q = vec2<u32>(pixel) % vec2(4u);
     return f32(bayer[q.y * 4u + q.x]) / 16.0 >= keep;
 }
-#endif
+}
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-#ifdef GS_GUARD_DISCARD
+    @if(GS_GUARD_DISCARD)
     if in.guard > 0.0 { discard; }
-#endif
-#ifdef GS_CLEAR
+    @if(GS_CLEAR)
     if cleared(in.world_position.xyz, in.position.xy) { discard; }
-#endif
     // the vertex's lit colour, Gouraud-shaded
     var rgb = in.color.rgb;
     var a = in.color.a;
@@ -306,11 +302,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     rgb = clamp(rgb, vec3(0.0), vec3(1.0));
     if on(FOG) {
     // GS: the interpolated F truncated to 8 bits, (F·C + (255 − F)·FOGCOL) >> 8 on 8-bit values
-#ifdef GS_NO_LINEAR
+    @if(GS_NO_LINEAR)
     let fog = floor(in.fog.x / in.fog.y);
-#else
+    @else
     let fog = floor(in.fog);
-#endif
     rgb = (floor(fog * floor(rgb * 255.0) / 256.0) + floor((255.0 - fog) * floor(gs.fog_color.rgb * 255.0 + 0.5) / 256.0)) / 255.0;
     }
     // shadow: (0 − Cd)·A + Cd on the frame buffer, the same as darkening every layer drawn there

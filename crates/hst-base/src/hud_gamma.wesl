@@ -1,8 +1,8 @@
 // The window's last two passes (`hud_gamma/out.rs`), full-screen triangles: with PERSIST the frame persistence,
 // else the composite.
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
-#ifdef GLOW
+@if(GLOW) {
 // B629: the picture averaged down into the small glow image: each texel the mean of an 8×8 grid of bilinear taps
 // spread over its share of the picture, so the bars' glow has no detail left to shimmer or streak.
 @group(0) @binding(0) var scene: texture_2d<f32>;
@@ -21,7 +21,8 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     }
     return vec4(sum / 64.0, 1.0);
 }
-#else ifdef PERSIST
+}
+@elif(PERSIST) {
 // the match's frame persistence: this frame's scene with `weight.x` of the last frame shown mixed in, on the
 // encoded values as the GS blends (Cd + (Cs − Cd)·FIX, Cs the last frame, FIX 0x20 = 25 % at 60 Hz).
 // Facing the sun (`weight.y` > 0) the sun glare instead: the frame drawn over itself twice at FIX `weight.y`,
@@ -54,7 +55,8 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let p = vec2<i32>(in.position.xy);
     return vec4(mix(textureLoad(scene, p, 0).rgb, textureLoad(last, p, 0).rgb, weight.x), 1.0);
 }
-#else
+}
+@else {
 
 // the composite: the HUD (premultiplied, linear) over the scene (gamma-encoded), blended on the encoded values as the
 // GS does. B629: on the whole window, the scene in the picture's rect (`picture`); beside it (a fixed Aspect Ratio's
@@ -113,4 +115,4 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let c = select(vec3(0.0), h.rgb / h.a, h.a > 0.0);
     return vec4(dec(enc(c) * h.a + b * (1.0 - h.a)), 1.0);
 }
-#endif
+}

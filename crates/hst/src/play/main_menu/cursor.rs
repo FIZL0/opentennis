@@ -82,7 +82,7 @@ pub(in crate::play) fn setup(
         Camera3d::default(),
         Camera { order: -1, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
         RenderTarget::Image(ImageRenderTarget { handle: image.clone(), scale_factor: 1.0 }),
-        bevy::core_pipeline::tonemapping::Tonemapping::None,
+        bevy::core_pipeline::tonemapping::Tonemapping::Linear, // P143: 0.19's None (0.20's None also drops dither and the clamp)
         Msaa::Off,
         Projection::Orthographic(OrthographicProjection { scaling_mode: ScalingMode::Fixed { width: w, height: w / 2.0 }, ..OrthographicProjection::default_3d() }),
         Transform::from_xyz(x, y, 10.0),

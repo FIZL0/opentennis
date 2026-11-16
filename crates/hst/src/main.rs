@@ -825,7 +825,7 @@ fn load(
     commands.spawn((
         Camera3d::default(),
         // the PS2 writes its colours as they are
-        bevy::core_pipeline::tonemapping::Tonemapping::None,
+        bevy::core_pipeline::tonemapping::Tonemapping::Linear, // P143: 0.19's None (0.20's None also drops dither and the clamp)
         Projection::Perspective(PerspectiveProjection { far: 20_000.0, ..default() }),
         Transform::default(),
         // play mode: broadcast view from behind the near (your) baseline

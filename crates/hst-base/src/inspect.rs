@@ -60,7 +60,7 @@ pub fn plugin(app: &mut App) {
 
 /// The previews' Bevy plugins, which set up the render app too.
 pub fn render(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "inspect.wgsl");
+    bevy::asset::embedded_asset!(app, "inspect.wesl");
     app.add_plugins((HierarchyPropagatePlugin::<RenderLayers>::new(PostUpdate), UiMaterialPlugin::<PreviewMaterial>::default()));
 }
 
@@ -76,7 +76,7 @@ pub struct PreviewMaterial {
 
 impl UiMaterial for PreviewMaterial {
     fn fragment_shader() -> ShaderRef {
-        "embedded://hst_base/inspect.wgsl".into()
+        "embedded://hst_base/inspect.wesl".into()
     }
 }
 
@@ -140,7 +140,7 @@ pub fn spawn(commands: &mut Commands, data: &Arc<CharacterData>, n: usize, hand:
                 output_mode: CameraOutputMode::Write { blend_state: Some(BlendState::REPLACE), clear_color: ClearColorConfig::None },
                 ..default()
             },
-            bevy::core_pipeline::tonemapping::Tonemapping::None,
+            bevy::core_pipeline::tonemapping::Tonemapping::Linear, // P143: 0.19's None (0.20's None also drops dither and the clamp)
             Projection::Perspective(PerspectiveProjection { fov: 2.0 * (AXIS.y.max(448.0 - AXIS.y) / FOCAL.y).atan(), near: 0.01, far: 3072.0, ..default() }),
             Transform::default(),
             layers,

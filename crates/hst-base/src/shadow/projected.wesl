@@ -1,10 +1,9 @@
 // G2: a caster's shadow texture projected on its receiver triangles (projected.rs): the frame buffer × this colour.
-#import bevy_pbr::mesh_functions
-#import bevy_pbr::view_transformations::position_world_to_clip
+import bevy_pbr::render::{mesh_functions, view_transformations::position_world_to_clip};
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> darken: vec4<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(1) var shadow_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(2) var shadow_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> darken: vec4<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var shadow_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var shadow_sampler: sampler;
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,

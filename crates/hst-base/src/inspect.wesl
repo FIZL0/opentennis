@@ -1,5 +1,5 @@
 // A preview's image (inspect.rs `PreviewMaterial`): GS-encoded colour, decoded for the sRGB HUD; alpha −1 = nothing drawn.
-#import bevy_ui::ui_vertex_output::UiVertexOutput
+import bevy_ui_render::ui_vertex_output::UiVertexOutput;
 
 @group(1) @binding(0) var image: texture_2d<f32>;
 @group(1) @binding(1) var image_sampler: sampler;

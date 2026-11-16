@@ -33,9 +33,8 @@ use std::sync::{Arc, Mutex};
 pub const IN_PLACE: bool = cfg!(any(target_arch = "wasm32", target_os = "macos"));
 
 /// The record a Mac starts from when it has none of its own (any Apple GPU: every Mac renders through Metal).
-#[cfg(any(target_os = "macos", test))]
-const SEED: Option<&str> = Some(include_str!("pipelines-macos.json"));
-#[cfg(not(any(target_os = "macos", test)))]
+/// P143: none until one is recorded on a Mac with Bevy 0.20 (the 0.19 one named `.wgsl` shaders that are gone);
+/// put it back as `Some(include_str!("pipelines-macos.json"))` for macOS and tests.
 const SEED: Option<&str> = None;
 
 /// Matches a recorded pipeline is kept for without one asking for it.
@@ -45,8 +44,8 @@ const KEEP: u32 = 8;
 const MAX: usize = 1000;
 
 /// The record's format; another one is dropped. A shader edit needs no bump: the source hashes catch it (P136).
-/// 3 = the shaders' source hashes.
-const VERSION: u32 = 3;
+/// 3 = the shaders' source hashes. 4 = Bevy 0.20's (WESL) shaders, every one renamed and rewritten (P143).
+const VERSION: u32 = 4;
 
 /// How long the feed waits for a recorded pipeline's shader (one the asset server loads, or one it imports) to load
 /// before leaving the pipeline out.
@@ -194,7 +193,10 @@ enum Miss {
 struct Hashes(HashMap<AssetId<Shader>, u64>);
 
 impl Hashes {
-    /// `id`'s hash; `None` while it or one of its imports isn't loaded.
+    /// `id`'s hash; `None` while it isn't loaded. P143: only WESL shaders have imports (Bevy 0.20), scanned so that
+    /// each item is named twice, as the module and as `module::item`, along with modules behind an `@if` that may never
+    /// load; Bevy's shader cache follows those that resolve and skips the rest, and so does the hash. An import that
+    /// loads late changes the hash, which leaves the pipeline out of this run's warm-up, never compiled stale.
     fn get(&mut self, shaders: &Assets<Shader>, id: AssetId<Shader>) -> Option<u64> {
         if let Some(&h) = self.0.get(&id) {
             return Some(h);
@@ -211,8 +213,10 @@ impl Hashes {
             }
             h.chunk(format!("{:?}", s.shader_defs).as_bytes());
             for import in &s.imports {
-                if seen.insert(import.clone()) {
-                    stack.push(by_import.get(import)?);
+                if seen.insert(import.clone())
+                    && let Some(found) = by_import.get(import)
+                {
+                    stack.push(found);
                 }
             }
         }
@@ -528,7 +532,8 @@ mod tests {
     /// matches is left out of the saved record, with the tables only it used.
     #[test]
     fn the_seed_is_this_format() {
-        let seed: Record = serde_json::from_str(SEED.unwrap()).expect("pipelines-macos.json parses");
+        let Some(seed) = SEED else { return };
+        let seed: Record = serde_json::from_str(seed).expect("pipelines-macos.json parses");
         assert_eq!(seed.version, VERSION, "re-record pipelines-macos.json on a Mac after a format change");
         assert!(seed.pipelines.len() > 50);
     }
@@ -565,10 +570,13 @@ mod tests {
         app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default())).init_asset::<Shader>();
         let w = app.world_mut();
         let server = w.resource::<AssetServer>().clone();
+        // WESL modules named `test::view`/`test::main` (as from `embedded://`), at plain paths so the record finds
+        // them in `Assets` by path rather than through the asset server
+        let wesl = |source: String, name: &str| Shader { path: format!("test/{name}.wesl"), ..Shader::from_wesl(source, format!("embedded://test/{name}.wesl")) };
         let build = |module: &str, main: &str| {
             let mut shaders = Assets::<Shader>::default();
-            shaders.add(Shader::from_wgsl(format!("#define_import_path test::view\n{module}"), "test/view.wgsl"));
-            let main = shaders.add(Shader::from_wgsl(format!("#import test::view::a\n{main}"), "test/main.wgsl"));
+            shaders.add(wesl(module.to_string(), "view"));
+            let main = shaders.add(wesl(format!("import test::view::a;\n{main}"), "main"));
             (shaders, main)
         };
         let (shaders, main) = build("@group(0) @binding(0) var<uniform> a: f32;", "@vertex fn vertex() { let x = a; }");
@@ -583,7 +591,7 @@ mod tests {
         assert_eq!(fed(build("@group(0) @binding(0) var<uniform> a: f32;", "@vertex fn vertex() { let y = a; }")), Err(Miss::Changed), "the shader edited");
         assert_eq!(fed(build("@group(0) @binding(1) var<uniform> a: f32;", "@vertex fn vertex() { let x = a; }")), Err(Miss::Changed), "an import edited");
         let mut shaders = Assets::<Shader>::default();
-        shaders.add(Shader::from_wgsl("#import test::view::a\n@vertex fn vertex() { let x = a; }", "test/main.wgsl"));
-        assert_eq!(fed((shaders, Handle::default())), Err(Miss::Loading), "an import not loaded yet");
+        shaders.add(wesl("import test::view::a;\n@vertex fn vertex() { let x = a; }".into(), "main"));
+        assert_eq!(fed((shaders, Handle::default())), Err(Miss::Changed), "an import not loaded yet");
     }
 }

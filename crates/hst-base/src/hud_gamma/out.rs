@@ -88,7 +88,7 @@ impl FromWorld for Pipeline {
         let glow = BindGroupLayoutDescriptor::new("hst_glow", &BindGroupLayoutEntries::sequential(ShaderStages::FRAGMENT, (tex(), sampler(SamplerBindingType::Filtering))));
         let buffer = |label, size| world.resource::<RenderDevice>().create_buffer(&BufferDescriptor { label: Some(label), size, usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST, mapped_at_creation: false });
         let (weight, picture) = (buffer("hst_persist_weight", 16), buffer("hst_composite_picture", 32));
-        let shader = world.resource::<AssetServer>().load("embedded://hst_base/hud_gamma.wgsl");
+        let shader = world.resource::<AssetServer>().load("embedded://hst_base/hud_gamma.wesl");
         Pipeline { mix, composite, glow, weight, picture, fullscreen: world.resource::<FullscreenShader>().clone(), shader }
     }
 }
