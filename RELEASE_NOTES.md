@@ -21,3 +21,5 @@
 - Players' faces in the match no longer go blank after choosing another release under Settings → Gameplay → Rules
 - New Settings → Gameplay → Base Disc on computers (shown when you have more than one release's disc): choose whether the game runs from the US, Japanese or European disc, for its menus, text and default rules. The game asks, then restarts on that disc; the others stay beside it, so Rules and Voice Language still offer them
 - Computer players now settle how they'll serve as the ball is tossed, like the original, so their serves are timed and placed as they are there
+- Computer players' serves now fly exactly as the original's do, and their play from the toss of each later point follows the original's too
+- When a serve swing misses the toss, the dropped ball now bounces with its sound, as in the original

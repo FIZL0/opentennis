@@ -345,16 +345,16 @@ pub(super) fn track(g: &mut Game, i: usize, phase: Ai) {
     }
 }
 
-/// The hit message to computer player `i` from hitter `who`. Doubles (P11k6): the re-entry and its own team's
-/// formation repick happen here (`Rally::heard_hit_doubles`). Singles doesn't re-enter on the hit (nor draw the roll
-/// or the net repick). Whether `step` re-enters: always false (the net repick is the doubles re-entry's own).
-pub(super) fn heard_hit(g: &mut Game, i: usize, who: usize) -> bool {
+/// The hit message to computer player `i` from hitter `who`, who stood at `at` as it hit. Doubles (P11k6): the
+/// re-entry and its own team's formation repick happen here (`Rally::heard_hit_doubles`). Singles doesn't re-enter on
+/// the hit (nor draw the roll or the net repick). Whether `step` re-enters: always false (the net repick is the doubles re-entry's own).
+pub(super) fn heard_hit(g: &mut Game, i: usize, who: usize, at: V3) -> bool {
     let mind = g.players[i].ai_mind;
     let rally = mind.is_some_and(|m| m.phase == Ai::Rally);
     if g.players.len() == 4 {
         // the hit message reaches the AI only while it plays the point
         if mind.is_some_and(|m| matches!(m.phase, Ai::Receive | Ai::Rally)) {
-            let (shots, at) = (g.shots, up(g.players[who].pos));
+            let (shots, at) = (g.shots, up(at));
             at_message(g, i, |x, b, w, roll| x.heard_hit_doubles(rally, shots, b, w, Some((who as i32, at)), &mut || roll()));
         }
     }
@@ -401,15 +401,14 @@ pub(super) fn aimed(g: &mut Game, i: usize, target: V3) {
     }
 }
 
-/// The singles hit message to each computer player on an opponent's shot, at the strike: the shot's kind and spot
-/// (the hitter's position now, y down, w 1) become its opponent's last shot, and a dive sends a NET or ALL style
-/// that isn't dashing to the net.
+/// The singles hit message to each computer player on an opponent's shot, at the strike (or a later toss, which
+/// tells of the last stroke again): the shot's kind and spot (where the hitter stood as it hit, y down, w 1) become
+/// its opponent's last shot, and a dive sends a NET or ALL style that isn't dashing to the net.
 fn singles_hit(g: &mut Game) {
-    let Ok(who) = usize::try_from(g.last_hitter) else { return };
+    let Some(Stroke { who, at: [x, y, z], .. }) = g.last_stroke else { return };
     if g.players.len() != 2 || who >= 2 {
         return;
     }
-    let [x, y, z] = g.players[who].pos;
     for i in 0..2 {
         let p = &g.players[i];
         if i & 1 == who & 1 || g.humans.get(i) == Some(&true) {
@@ -567,7 +566,7 @@ pub(super) fn human(g: &mut Game, i: usize) {
         Phase::ChangeEnds(_) => return,
     };
     // not while it serves (to its serve's end) or reacts to the point
-    let serving = i as i32 == g.score.server && (g.phase == Phase::Serve || g.players[i].served.is_some());
+    let serving = i as i32 == g.score.server && (g.phase == Phase::Serve || serve_swinging(g) || g.players[i].served.is_some());
     if g.players.len() != 4 || serving || input_off(g) {
         return;
     }

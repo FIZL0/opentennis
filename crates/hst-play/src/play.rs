@@ -371,6 +371,13 @@ pub struct Game {
     phase: Phase,
     /// Player who hit last (−1: none yet).
     last_hitter: i32,
+    /// The match's last real stroke, as every AI reads it at a hit message (`ai_heard_stroke`); a toss doesn't write
+    /// it and a new point doesn't clear it, so a later point's toss is heard as this stroke again.
+    #[serde(default)]
+    last_stroke: Option<Stroke>,
+    /// The serve's swing has asked the match for the rally phase; it turns before the next ball step (`enter_rally`).
+    #[serde(default)]
+    rally_due: bool,
     since_hit: u32,
     /// The ball as it was struck, for the prediction the original held when the ball touched the net.
     hit_flight: Flight,
@@ -538,6 +545,17 @@ struct Serving {
     scatter: V3,
 }
 
+/// A real stroke as the AIs hear it (`Game::last_stroke`): who hit, its swing branch (`branch::*`), whether it was a
+/// lob, the ball's launch velocity and where the hitter stood.
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+struct Stroke {
+    who: usize,
+    branch: u8,
+    lob: bool,
+    vel: V3,
+    at: V3,
+}
+
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 struct ServeSwing {
     left: u32,
@@ -545,6 +563,9 @@ struct ServeSwing {
     offset: i32,
     grade: u8,
     kind: i32,
+    /// Where the server stood on the press tick: the serve's aim is built from there.
+    #[serde(default)]
+    from: [f32; 3],
 }
 
 /// One controller slot's state, gathered every display frame and consumed by the 60 Hz simulation.
@@ -1460,6 +1481,8 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
         ],
         phase: Phase::Serve,
         last_hitter: -1,
+        last_stroke: None,
+        rally_due: false,
         since_hit: 0,
         hit_flight: Flight::new(Ball { pos: [0.0; 3], vel: [0.0; 3], spin: 0.0 }, [[0.0; 4]; 4], [[0.0; 4]; 4]),
         path_base: 0,
@@ -2232,7 +2255,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
                             press.unwrap_or(0)
                         };
                         let (grade, offset) = offbeat::sweet(g, grades[k], k as i32 - SWEET_FRAME);
-                        s.swing = Some(ServeSwing { left: k as u32, frames: k as u32, offset, grade, kind });
+                        s.swing = Some(ServeSwing { left: k as u32, frames: k as u32, offset, grade, kind, from: pos });
                         whoosh(g, i, 0, kind);
                     }
                     None => {
@@ -2240,6 +2263,8 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
                         s.whiff_t = s.t;
                     }
                 }
+                // the swing starting, struck or whiffed, asks the match for the rally phase
+                g.rally_due = true;
             }
         }
         Some(mut sw) => {
@@ -2262,7 +2287,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
         let aim = if pads_aim(g, i) {
             stick
         } else {
-            g.serving.bot_aim
+            ai_stick(g.serving.bot_aim)
         };
         let coins = || g.rng.shared.bit();
         let d = &g.serve_data[i];
@@ -2271,7 +2296,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             toss,
             sw.offset,
             sw.grade,
-            pos,
+            sw.from,
             end,
             g.score.side,
             g.rules.players > 2,
@@ -2285,7 +2310,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             kind: hst_sim::shot::stick_kind(branch::SERVE, sw.kind, [aim.x, aim.y], end),
             ..sw
         };
-        let target = serve::inside(pos[0], hit, target, serve_bent(g, i, toss, sw.kind, sw.grade, sw.offset));
+        let target = serve::inside(sw.from[0], hit, target, serve_bent(g, i, toss, sw.kind, sw.grade, sw.offset));
         let error = serve::depth_error(
             d,
             toss,
@@ -2407,6 +2432,13 @@ fn pad_stick(v: Vec2) -> Vec2 {
     Vec2::new(axis(v.x), -axis(-v.y))
 }
 
+/// A computer player's stick as it reaches the pad state the game reads: each axis in steps of 1/127, rounded to the
+/// nearest (measured on both builds' first serves: the served ball is exact only with the quantised aim).
+fn ai_stick(v: Vec2) -> Vec2 {
+    let q = |a: f32| (a.clamp(-1.0, 1.0) * 127.0).round() / 127.0;
+    Vec2::new(q(v.x), q(v.y))
+}
+
 /// Whether player `i`'s serve aim comes from a stick (humans) rather than the stand-in AI's pick.
 fn pads_aim(g: &Game, i: usize) -> bool {
     g.serving.bot_due.is_none() || i != g.score.server as usize
@@ -2428,22 +2460,24 @@ fn toss_released(g: &Game, t: u32) -> bool {
 }
 
 /// The toss is announced as a hit: the predicted path starts from it and every computer player hears the match's
-/// hit message, the hitter being the match's last hitter (the toss doesn't change it).
+/// hit message, which tells of the match's last real stroke (`Game::last_stroke`; the toss doesn't change it).
 fn toss_heard(g: &mut Game) {
     g.hit_flight = g.flight;
     g.since_hit = 0;
-    if g.last_hitter < 0 {
+    match g.last_stroke {
+        // a later point: the last real stroke, heard over again as it was played
+        Some(stroke) => ai_heard_stroke(g, stroke),
         // nobody has hit yet this match: nobody's team, so no shot to note or react to, only the redraw
-        for i in 0..g.players.len() {
-            if g.humans.get(i) == Some(&true) {
-                continue;
+        None => {
+            for i in 0..g.players.len() {
+                if g.humans.get(i) == Some(&true) {
+                    continue;
+                }
+                doubles_ai::heard_nobody(g, i);
+                ai_redraw(g, i);
             }
-            doubles_ai::heard_nobody(g, i);
-            ai_redraw(g, i);
         }
     }
-    // ponytail: a toss on a later point (the last hitter still set) isn't announced to the AIs yet (M184's open
-    // question: what shot they note for it)
     doubles_ai::heard(g, msg::HIT);
 }
 
@@ -3296,7 +3330,7 @@ fn control(mut g: ResMut<Game>, pads: Res<Pads>, tick: Res<tick_input::TickPads>
 fn human(g: &mut Game, i: usize, pad: &SlotPad, shot: Option<i32>) {
     g.players[i].aim = pad.stick;
     g.players[i].dpad = pad.dpad;
-    if g.phase == Phase::Serve && g.score.server == i as i32 {
+    if (g.phase == Phase::Serve || serve_swinging(g)) && g.score.server == i as i32 {
         // B655: only the shot buttons toss and hit; □ (`SlotPad::serve`) never serves
         let press = shot;
         // the serve aims with the run direction, as the original (its dead square, ×1.2 clip, camera flip)
@@ -3349,14 +3383,22 @@ fn ai_draw(g: &mut Game, i: usize, shots: Option<hst_sim::ai::Shots>) {
 /// The AI's hit message: every computer player remembers an opponent's shot (or notes its own team's hit) and
 /// redraws its timing errors. `branch` is the hitter's swing branch code.
 fn ai_heard_hit(g: &mut Game, who: usize, branch: u8, vel: V3) {
+    let lob = branch != branch::SERVE && g.players[who].kind == kind::LOB;
+    let stroke = Stroke { who, branch, lob, vel, at: g.players[who].pos };
+    g.last_stroke = Some(stroke);
+    ai_heard_stroke(g, stroke);
+}
+
+/// Every computer player hears `stroke` (a hit message): an opponent's shot is remembered, its own team's noted;
+/// then its redraw.
+fn ai_heard_stroke(g: &mut Game, Stroke { who, branch, lob, vel, at }: Stroke) {
     // the AI's shot kinds are the hitter's branch: 0 serve, 1 ground stroke, 2 volley, 3 dive, 4 smash
     let kind = branch as i32;
-    let lob = branch != branch::SERVE && g.players[who].kind == kind::LOB;
     for i in 0..g.players.len() {
         if g.humans.get(i) == Some(&true) {
             continue;
         }
-        let again = doubles_ai::heard_hit(g, i, who);
+        let again = doubles_ai::heard_hit(g, i, who, at);
         ai_heard_shot(g, i, i & 1 == who & 1, again);
         let p = &mut g.players[i];
         let shots = if i & 1 != who & 1 {
@@ -3552,7 +3594,7 @@ fn ai_wait(g: &mut Game, i: usize) -> Option<V3> {
 /// shots) and shot choice 10's deeper dash spot waits for P11's shot choice.
 fn ai_wait_singles(g: &mut Game, i: usize) -> Option<V3> {
     use hst_sim::position::{Court, Single};
-    if g.players.len() != 2 || g.phase != Phase::Rally {
+    if g.players.len() != 2 || g.phase != Phase::Rally || serve_swinging(g) {
         return None;
     }
     let (p, o) = (g.players[i], g.players[1 - i]);
@@ -3832,6 +3874,21 @@ fn ai_heard_shot(g: &mut Game, i: usize, own: bool, again: bool) {
     g.players[i].ai_mind = Some(m);
 }
 
+/// The rally phase the serve's swing asked for (`Game::rally_due`), as the match turns to it at the start of its next
+/// frame, before anything moves: play's ball step that follows is the game's next frame's.
+fn enter_rally(g: &mut Game) {
+    if g.phase == Phase::Serve {
+        g.phase = Phase::Rally;
+        g.umpire.rally();
+    }
+}
+
+/// Whether the serve's swing has started and the ball isn't struck yet: the match is in rally from the tick after the
+/// press, but the server still plays its serve (`serve_turn`) and nothing the serve set-up kept off starts yet.
+fn serve_swinging(g: &Game) -> bool {
+    g.phase == Phase::Rally && g.shots == 0 && (g.serving.swing.is_some() || g.serving.whiffed)
+}
+
 /// What drawing blends from: facing and camera as the last tick left them.
 fn remember(mut g: ResMut<Game>) {
     g.prev_view = g.cam.view;
@@ -3842,6 +3899,9 @@ fn remember(mut g: ResMut<Game>) {
 
 fn simulate(mut g: ResMut<Game>) {
     let g2 = &mut *g;
+    if std::mem::take(&mut g2.rally_due) {
+        enter_rally(g2);
+    }
     g2.instant.ticks += 1;
     // she steps first, the scoreboard's calls come after (the game's order); a phase message the match sends
     // below (verdict, serve, change of ends) is the next tick's phase entry in the game, which reaches her
@@ -3906,6 +3966,7 @@ fn simulate(mut g: ResMut<Game>) {
                     match_stats::match_over(g);
                     g.score = Score::new();
                     g.first_serve = true;
+                    g.last_stroke = None;
                     g.players.iter_mut().for_each(|p| p.stance = 3.0);
 
                     return next_point(g, true);
@@ -4314,7 +4375,7 @@ fn motions(mut g: ResMut<Game>, mut q: Query<(&Figure, &mut Motion)>) {
         m.arm = p.arm;
         // a whiffed serve's miss motion plays on through the fault's call, until the players react (B270: a
         // double fault's reaction takes the server too)
-        let serving = (g.phase == Phase::Serve || g.serving.whiffed && !g.post.as_ref().is_some_and(|p| p.reacted))
+        let serving = (g.phase == Phase::Serve || serve_swinging(&g) || g.serving.whiffed && !g.post.as_ref().is_some_and(|p| p.reacted))
             && g.score.server == i as i32
             || change_ends::server(&g) == Some(i);
         // an emote before the toss (B231) plays its own motion, then the stance comes back

@@ -71,7 +71,7 @@ mod tests {
                 drawn.push(t);
             }
             let g = app.world().resource::<Game>();
-            if g.serving.whiffed || g.phase != Phase::Serve && g.players[i].served.is_none() {
+            if g.serving.whiffed || g.phase != Phase::Serve && !serve_swinging(g) && g.players[i].served.is_none() {
                 return None;
             }
             if press.is_none()

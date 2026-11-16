@@ -270,9 +270,9 @@ mod tests {
     /// k has the recording's ball of tick k. Panics where they part: every player stands where the recording has
     /// them (on the ground) through the contact; the held ball follows the hand bit for bit from `held` until the
     /// release; the toss flies the recorded curve bit for bit from the tick after the release to the contact; the
-    /// served ball leaves the racket the tick after the contact, within `launch` of the recorded one (not bit for
-    /// bit yet: a follow-up task).
-    fn serve_to_contact(name: &str, want: &[Tick], got: &[Tick], held: usize, release: usize, contact: usize, launch: f32) {
+    /// served ball flies the recorded curve bit for bit from the tick after the contact; the match turns to rally the
+    /// tick after the swing's `press`.
+    fn serve_to_contact(name: &str, want: &[Tick], got: &[Tick], held: usize, (release, press, contact): (usize, usize, usize)) {
         // on the ground: the overhead serve's jump isn't applied in play (`serve_ik_start`)
         let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
         for k in 0..=contact {
@@ -288,9 +288,15 @@ mod tests {
         }
         let toss_on = |t: &Tick, prev: &Tick| (t.2[0] - prev.2[0]).abs() < 0.01;
         assert!(!toss_on(&want[contact + 1], &want[contact]) && !toss_on(&got[contact + 1], &got[contact]), "{name}: struck at {contact}");
-        let off = (0..3).map(|c| (want[contact + 1].2[c] - got[contact + 1].2[c]).abs()).fold(0.0, f32::max);
-        eprintln!("{name} serve: launched {off} off the recording");
-        assert!(off <= launch, "{name}: the serve leaves {off} off the recording");
+        for k in contact + 1..contact + 4 {
+            assert_eq!(want[k].2.map(f32::to_bits), got[k].2.map(f32::to_bits), "{name} tick {k}: the served ball");
+        }
+        // the phase: rally from the tick after the swing press (play's a tick ahead, as its ball is)
+        let rally = want.iter().position(|t| t.0 == 3).unwrap();
+        assert_eq!(rally, press + 1, "{name}: rally from the tick after the press");
+        for k in 0..=contact {
+            assert_eq!(want[k].0, got[k].0, "{name} tick {k}: the phase");
+        }
     }
 
     /// The European bot match (doubles, characters 0/1/1/0, court 6, 1 set of 4 games; M177's recording) in play.
@@ -322,7 +328,7 @@ mod tests {
     #[test]
     fn the_european_first_serve_set_up_plays_as_recorded() {
         let Some((want, got)) = european(Some(300), 0) else { return };
-        serve_to_contact("eu", &want, &got, 8, 114, 141, 2e-4);
+        serve_to_contact("eu", &want, &got, 8, (114, 134, 141));
     }
 
     /// Probe, not a proof yet (M183a1): the whole European bot match in play from the original's match seed, beside the
@@ -380,7 +386,7 @@ mod tests {
     #[test]
     fn the_us_first_serve_set_up_plays_as_recorded() {
         let Some((want, got, rngs)) = us(Some(300), 240, 0) else { return };
-        serve_to_contact("us", &want, &got, 9, 169, 219, 2e-4);
+        serve_to_contact("us", &want, &got, 9, (169, 215, 219));
         let Ok(d) = hst_data::fixture::read("fixtures/p3b/rng_s05.bin") else { return };
         let size = 4 + 8 + 4 * 0x9d0;
         let rec = |k: u32| {

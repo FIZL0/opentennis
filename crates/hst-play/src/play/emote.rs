@@ -58,7 +58,8 @@ pub(super) fn tick(g: &mut Game, i: usize, start: Option<u8>) -> bool {
     // B278: one from the rally plays on into the post-point time; the reaction (`react`) ends it
     // B363: not once the point has won a game or set (the match too): the game's and set's reactions and show
     let open = match g.phase {
-        Phase::Rally => true,
+        // the server's serve swing (the rally starts the tick after its press) is its serve still
+        Phase::Rally => !(super::serve_swinging(g) && g.score.server == i as i32),
         Phase::Post => !ends_a_game(g),
         Phase::Serve => !serving || g.serving.toss.is_none(),
         Phase::ChangeEnds(_) => false,
