@@ -9,3 +9,4 @@
 - Phones use less battery and run cooler: the graphics presets stop at 60 fps on iPhone and Android (pick 90 or 120 yourself if you want them, with a note on what it costs), and Low Power Mode / battery saver holds the game to 60 while it's on. On every device the menus and pause screen now slow their drawing while nothing on them moves
 - Voice Language now also applies to add-on characters and umpires that bring their lines in other languages; a line they don't have in your language is heard in their own
 - Phones and tablets: the touch controls' Vibration setting moved to a new Gameplay page in Settings (it was the Mobile page)
+- The game uses far less CPU during matches, so phones and laptops run cooler and the battery lasts longer

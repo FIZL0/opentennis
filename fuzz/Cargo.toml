@@ -21,6 +21,7 @@ members = ["."]
 # the game's patches (../Cargo.toml, documented in ../third_party/README.md), so hst-base builds as it does there;
 # tools/patches.py checks the two lists match
 [patch.crates-io]
+bevy_transform = { path = "../third_party/bevy_transform" }
 gilrs-core = { path = "../third_party/gilrs-core" }
 ggrs = { path = "../third_party/ggrs" }
 wgpu = { path = "../third_party/wgpu" }
