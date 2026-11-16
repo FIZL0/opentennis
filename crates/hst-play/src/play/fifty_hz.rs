@@ -151,6 +151,103 @@ mod tests {
         assert!(!change_ends.is_empty() && change_ends.iter().all(|&n| n == 66), "change ends at {change_ends:?}");
     }
 
+    /// The recorded European bot match (`fixtures/m169/eu-bot-match.bin`, M177): its phases from the first serve
+    /// set-up, each as (phase, vsyncs, the players' positions as it starts), the game's phase numbers mapped to
+    /// play's (2 serve set-up, 3 rally, 4 point over, 1 change of ends).
+    fn recorded_phases(data: &[u8]) -> Vec<(u8, u32, [[f32; 3]; 4])> {
+        let frames = hst_sim::replay::frames_live(data);
+        let first = frames.iter().position(|f| f.gm()[0x55] == 2).unwrap();
+        let mut out: Vec<(u8, u32, [[f32; 3]; 4])> = Vec::new();
+        let mut start = frames[first].vsync();
+        for &f in &frames[first..] {
+            let ph = f.gm()[0x55];
+            if out.last().is_none_or(|l| l.0 != ph) {
+                if let Some(l) = out.last_mut() {
+                    l.1 = f.vsync() - start;
+                }
+                start = f.vsync();
+                out.push((ph, 0, std::array::from_fn(|i| f.player_pos(i))));
+            }
+        }
+        out.pop();
+        out
+    }
+
+    /// Probe, not a proof yet (M183a1): the European bot match (doubles, characters 0/1/1/0, court 6, 1 set of 4 games)
+    /// in play from the original's match seed (the 875 477th `rand()` from boot, as the recording's RAM holds it),
+    /// listed phase by phase beside the recording. Asserts nothing: as of M183a the first serve set-up already differs
+    /// (135 recorded vsyncs, 215 in play). Run by hand while chasing that:
+    /// `tools/check.sh -p hst-play the_european_bot_match_plays_as_recorded -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn the_european_bot_match_plays_as_recorded() {
+        let iso = hst_data::fixture::path(EU);
+        let Ok(data) = std::fs::read(hst_data::fixture::path("fixtures/m169/eu-bot-match.bin")) else { return eprintln!("skipped") };
+        if !iso.exists() {
+            return eprintln!("skipped: no {EU}");
+        }
+        let _turn = super::EU_DISC.lock().unwrap_or_else(|e| e.into_inner());
+        hst_base::match_speed::test_sim_hz(50);
+        let _sixty = Sixty;
+        crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+        let args = Args { iso: iso.to_string_lossy().into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 6, stage: None, play: true, singles: false, chars: vec![0, 1, 1, 0], outfits: vec![], viewer: None, sound: None, music: false, umpire: 0, sets: 1, games: 4, pads: None };
+        // the match seed as main.rs draws it: the menus' `rand()` calls, then the weather schedule and the setup's draws
+        let seed = hst_sim::rng::Seed::after(875_476);
+        let mut disc = hst_data::iso::Iso::open(&iso).unwrap();
+        let (cnf, bin) = (disc.read("SYSTEM.CNF").unwrap(), disc.read("ZZBIN/GAME.BIN").unwrap());
+        let exe = hst_data::exe::Game::new(&cnf, &bin).unwrap();
+        let o = exe.weather_odds(6);
+        let odds = hst_sim::weather::Odds { cloudy: o[0], cloudy_len: [o[1], o[2]], rain: o[3], rain_len: [o[4], o[5]], no_border: o[7] != 0, heavy: o[8] != 0 };
+        let ((directions, speed), (chance, kind)) = (exe.wind(6), exe.gusts(6));
+        let wind = hst_sim::weather::Wind { chance, kind, directions, speed };
+        let mut mt = hst_sim::weather::Mt::new(seed.shared);
+        let schedule = hst_sim::weather::schedule(&odds, &wind, 4, 1, 4, || mt.next());
+        let mut rngs = hst_sim::rng::Rngs::new(seed.rand, mt);
+        let (effects, _) = rngs.setup_rand(0);
+        set_effects_seed(effects);
+        app.insert_resource(MatchRng(rngs));
+        app.insert_resource(crate::weather::Weather { schedule, game: 0, fixed: None });
+        app.insert_resource(args);
+        app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
+        app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
+        app.add_systems(Startup, setup);
+        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, played_out, held_ball).chain());
+        app.update();
+        let want = recorded_phases(&data);
+        let code = |p: &Phase| match p {
+            Phase::Serve => 2,
+            Phase::Rally => 3,
+            Phase::Post => 4,
+            Phase::ChangeEnds(_) => 1,
+        };
+        let mut got: Vec<(u8, u32, [[f32; 3]; 4])> = Vec::new();
+        let pos = |g: &Game| std::array::from_fn(|i| g.players[i].body.pos);
+        {
+            let g = app.world().resource::<Game>();
+            got.push((code(&g.phase), 0, pos(g)));
+        }
+        let total: u32 = want.iter().map(|w| w.1).sum();
+        for _ in 0..total + 10 {
+            app.world_mut().run_schedule(FixedUpdate);
+            let g = app.world().resource::<Game>();
+            let c = code(&g.phase);
+            let l = got.last_mut().unwrap();
+            l.1 += 1;
+            if l.0 != c {
+                l.1 -= 1;
+                got.push((c, 1, pos(g)));
+            }
+        }
+        for (k, (w, g)) in want.iter().zip(&got).enumerate().take(60) {
+            eprintln!("{k:3} want {} {:4} {:?} | got {} {:4} {:?}", w.0, w.1, w.2[0], g.0, g.1, g.2[0]);
+        }
+        let same = want.iter().zip(&got).take_while(|(w, g)| w.0 == g.0 && w.1 == g.1).count();
+        eprintln!("{same} of {} phases match", want.len());
+    }
+
     impl Game {
         fn clone_phase(&self) -> (Phase, u32, bool) {
             (self.phase.clone(), self.shots as u32, self.serving.tossed)

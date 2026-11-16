@@ -6,6 +6,7 @@
 //! ran too long or the replay option cut it) and `recorded` (the rally left enough recorded shots to replay).
 #![deny(clippy::float_arithmetic)]
 
+use crate::build::Build;
 use crate::lines::{BASELINE, SERVICE_LINE, SINGLES_SIDELINE, sideline};
 use crate::ps2::F;
 
@@ -94,6 +95,9 @@ pub struct Point {
     pub ticks: i32,
 }
 
+/// A fast rally replays only within this many ticks (60 Hz; [`Build::frames`] at 50 Hz).
+const FAST_RALLY_TICKS: i32 = 900;
+
 /// What the decision does.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Decision {
@@ -107,9 +111,15 @@ pub struct Decision {
 
 /// The ball's speed in km/h, as the game computes it.
 pub fn speed_kmh(v: [f32; 3]) -> f32 {
+    speed_kmh_in(v, Build::Us)
+}
+
+/// [`speed_kmh`] at `build`'s ticks a second (×50 at 50 Hz, so a shot shows the same real-world speed).
+pub fn speed_kmh_in(v: [f32; 3], build: Build) -> f32 {
     let acc = (F(v[1]) * v[1]).madd(v[0], v[0]);
     let s = acc.madd(v[2], v[2]).sqrt();
-    (3600.0 * (60.0 * s) / 1000.0).0
+    let per_second: f32 = if build.fifty() { 50.0 } else { 60.0 };
+    (3600.0 * (per_second * s) / 1000.0).0
 }
 
 /// A bounce's distances past the side line and the base line (singles lines while serving, `wide` for the
@@ -145,6 +155,12 @@ fn line_call(p: &Point) -> bool {
 
 /// Whether the point replays (the match handler's point message, after the score).
 pub fn decide(p: &Point) -> Decision {
+    decide_in(p, Build::Us)
+}
+
+/// [`decide`] on `build`'s timing: the fast-rally gate's ticks ([`Build::frames`]) and the speed tests' km/h
+/// ([`speed_kmh_in`]) follow its tick rate; the km/h thresholds stay.
+pub fn decide_in(p: &Point, build: Build) -> Decision {
     let mut o = Decision { allowed: p.allowed, recorded: p.recorded, ..Decision::default() };
     if p.players < 2 || !p.awarded {
         return o;
@@ -166,7 +182,7 @@ pub fn decide(p: &Point) -> Decision {
     if !hitter_won {
         return o;
     }
-    let speed = || speed_kmh(p.ball_vel);
+    let speed = || speed_kmh_in(p.ball_vel, build);
     let ace = p.shots == 1 && p.faults == 0 && speed() > 100.0;
     let special = p.ball_kind == BALL_SPECIAL && p.ball_sub == 0;
     let not_return = p.shots != 2;
@@ -188,7 +204,7 @@ pub fn decide(p: &Point) -> Decision {
         && not_return
         && (!line || p.timing.wrapping_abs() > 1 || p.ball_kind.wrapping_sub(1) > 1 || p.ball_sub == 3 || speed() < 100.0)
     {
-        p.shots >= 10 && p.ticks <= 900 && fast_kind()
+        p.shots >= 10 && p.ticks <= build.frames(FAST_RALLY_TICKS) && fast_kind()
     } else {
         true
     };
@@ -197,4 +213,47 @@ pub fn decide(p: &Point) -> Decision {
         o.reset_cut = line && p.shots > 2 && !special;
     }
     o
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A long rally of 10 shots won by a human's fast flat shot: replayed only within the fast-rally gate.
+    fn fast_rally(ticks: i32, vel: [f32; 3]) -> Point {
+        Point {
+            players: 2,
+            awarded: true,
+            winner: Some(0),
+            hitter: Some(0),
+            receiver: 1,
+            rally: 1,
+            shots: 10,
+            record_shots: 10,
+            ball_vel: vel,
+            ball_kind: BALL_FAST,
+            out_side: true,
+            bounces: [[0.0, 3.0]; 2],
+            option: option::LONG,
+            ticks,
+            ..Point::default()
+        }
+    }
+
+    /// The fast-rally gate is 900 ticks at 60 Hz, 750 at 50 Hz; the speed test reads the same km/h for the same
+    /// real-world speed (a ball at 50 Hz moves 6/5 as far a frame).
+    #[test]
+    fn fast_rally_gate_follows_the_tick_rate() {
+        let us = [0.0, 0.0, 0.5];
+        let eu = [0.0, 0.0, 0.6];
+        assert_eq!(speed_kmh_in(us, Build::Us), speed_kmh_in(eu, Build::Europe));
+        for (ticks, us_replays, eu_replays) in [(750, true, true), (751, true, false), (900, true, false), (901, false, false)] {
+            assert_eq!(decide_in(&fast_rally(ticks, us), Build::Us).replay, us_replays, "US {ticks}");
+            assert_eq!(decide_in(&fast_rally(ticks, eu), Build::Europe).replay, eu_replays, "EU {ticks}");
+        }
+        assert_eq!(decide(&fast_rally(900, us)), decide_in(&fast_rally(900, us), Build::Us));
+        // 0.5 m a frame at 50 Hz is 90 km/h: a fast kind's 90 km/h isn't passed (it is at 60 Hz: 108)
+        assert!(!decide_in(&fast_rally(100, us), Build::Europe).replay);
+        assert!(decide_in(&fast_rally(100, us), Build::Japan).replay);
+    }
 }

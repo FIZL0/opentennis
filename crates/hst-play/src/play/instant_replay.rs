@@ -12,7 +12,7 @@
 //! point once the board has paused and the point allows it (and △ again while a replay's post-point runs); either
 //! puts the serve back at the end of that tick and plays the pads up to it, then hands the pads back. During a
 //! replay ✕ fast-forwards to 20 ticks before the next shot, ○ to the replay's end. A rally that runs 1800 ticks
-//! cancels its replay (the pad recorder's limit).
+//! (1500 at 50 Hz) cancels its replay (the pad recorder's limit).
 
 use super::{Game, Phase, snapshot, tick_input};
 use bevy::prelude::*;
@@ -26,7 +26,7 @@ const CROSS: u16 = hst_sim::replay::Pad::CROSS;
 const CIRCLE: u16 = hst_sim::replay::Pad::CIRCLE;
 const TRIANGLE: u16 = hst_sim::replay::Pad::TRIANGLE;
 const SQUARE: u16 = hst_sim::replay::Pad::SQUARE;
-/// A rally this long (match-handler ticks) cancels its replay.
+/// A rally this long (match-handler ticks at 60 Hz; `Build::frames` at 50 Hz) cancels its replay.
 const LONG_RALLY: i32 = 1800;
 
 /// The decision's own state across a point.
@@ -149,8 +149,9 @@ fn presses(w: &mut World) -> u16 {
 /// through one. Returns the ticks to fast-forward.
 fn buttons(g: &mut Game, pressed: u16) -> i32 {
     let (phase, post) = (g.phase.clone(), g.post.as_ref().map(|p| p.pausing_out()));
+    let long = g.build.frames(LONG_RALLY);
     let i = &mut g.instant;
-    if phase == Phase::Rally && !i.cancelled && i.ticks >= LONG_RALLY {
+    if phase == Phase::Rally && !i.cancelled && i.ticks >= long {
         (i.cancelled, i.decision.allowed, i.decision.recorded) = (true, false, false);
     }
     if !i.replaying && g.shots as usize > i.shot_ticks.len() {
@@ -306,9 +307,9 @@ pub(super) fn point(g: &mut Game, team: usize, event: Option<Event>, call: u8) {
         },
         ticks: g.instant.ticks,
     };
-    let d = instant::decide(&p);
+    let d = instant::decide_in(&p, g.build);
     if d.replay {
-        bevy::log::info!("instant replay: {} shots, class {} kind {}, event {}, {:.0} km/h", p.shots, p.ball_kind, p.ball_sub, p.event, instant::speed_kmh(p.ball_vel));
+        bevy::log::info!("instant replay: {} shots, class {} kind {}, event {}, {:.0} km/h", p.shots, p.ball_kind, p.ball_sub, p.event, instant::speed_kmh_in(p.ball_vel, g.build));
     }
     g.instant.decision = d;
 }
