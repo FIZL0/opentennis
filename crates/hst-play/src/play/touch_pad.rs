@@ -12,7 +12,7 @@
 //! screen's left part. A touch keeps the control it landed on until it lifts, wherever it slides; the menus never see
 //! it (its `Touches` press is taken back). Each finger counts on its own (B165, B274): a second finger on a button
 //! neither presses it again nor lets it go when it lifts, and a button is down for at least one frame, so a tap shorter
-//! than a frame still counts. A press gives the phone's light haptic tick (Settings → Mobile → Vibration).
+//! than a frame still counts. A press gives the phone's light haptic tick (Settings → Gameplay → Vibration).
 //!
 //! M102: the Android app's too (`tools/apk.sh`), where native touches arrive as `TouchInput` like the iPhone's; its safe
 //! area is the edge-to-edge window's system bars and camera cutout (`android.rs`), read by `widescreen` (M106), which
@@ -44,7 +44,7 @@ use super::legend::{Act, Drawn, Item};
 pub(super) const SONY: u16 = 0x054c;
 /// The pad's name: `emote::touch` knows it by its start ("Touch controls", as the browser's).
 const NAME: &str = if cfg!(target_os = "android") { "Touch controls (Android)" } else { "Touch controls (iPhone)" };
-/// The Vibration setting (Settings → Mobile), as the menus last had it.
+/// The Vibration setting (Settings → Gameplay), as the menus last had it.
 pub static BUZZ: AtomicBool = AtomicBool::new(true);
 
 /// Whether this app is played by touch: the iPhone or Android app, or anything with `HST_TOUCH` set.

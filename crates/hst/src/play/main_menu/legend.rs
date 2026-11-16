@@ -45,7 +45,7 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
         Screen::Main if m.main_rows().get(s) == Some(&super::home::Row::ModUpdates) => v.extend([(Act::UpDown, "Move"), (Act::Ok, "Update all"), (Act::Back, "Back")]),
         Screen::Main if m.main_rows().get(s) == Some(&super::home::Row::Update) => v.extend([(Act::UpDown, "Move"), (Act::Ok, crate::update::button()), (Act::Back, "Later")]),
         Screen::Main => v.extend([(Act::UpDown, "Move"), (Act::Ok, if m.main_rows().get(s) == Some(&super::home::Row::Quit) { if cfg!(target_arch = "wasm32") { "Launcher" } else { "Quit" } } else { "Choose" }), (Act::Back, "Back")]),
-        Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::ModSettings | Screen::Mobile => {
+        Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::ModSettings | Screen::Gameplay => {
             let open = options::page(m.screen).get(s).is_some_and(|o| !options::locked(*o));
             let listed = open && options::page(m.screen).get(s).is_some_and(|o| options::listed(*o));
             if m.listing.is_some() && listed {

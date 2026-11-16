@@ -532,7 +532,7 @@ pub fn touch_labels(words: &[String; 8], play: bool) {
     }
 }
 
-/// B118: the page's on-screen pad's press vibration (Settings → Mobile). Sent when it changes.
+/// B118: the page's on-screen pad's press vibration (Settings → Gameplay). Sent when it changes.
 pub fn touch_buzz(buzz: bool) {
     static SENT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(u8::MAX);
     let v = buzz as u8;
