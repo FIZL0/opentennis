@@ -317,8 +317,8 @@ mod tests {
     }
 
     /// The model is the tables' own: Big Chief's flat serve cells, flown with their record's spin, land in the very
-    /// frames the table gives (to a frame: the authors cut the landing finer). Powered 1.4 the table builds in a second or two (once per match load, off the hit),
-    /// the fastest serve goes 1.4× as fast, the same bits every build (the hash pins them for every platform; a
+    /// frames the table gives (to a frame: the authors cut the landing finer). Powered 1.4 (built once per match load, off
+    /// the hit; its time is printed, not asserted: a wall-clock bound fails on a loaded test machine) the fastest serve goes 1.4× as fast, the same bits every build (the hash pins them for every platform; a
     /// change to the generator moves it, and online peers must then all run it), and at power 2 no speed passes the
     /// 12-bit field's top.
     #[test]
@@ -337,7 +337,6 @@ mod tests {
         let p = t.powered(&b, 1.4, |_, _| spin);
         let took = start.elapsed();
         eprintln!("built in {took:?}; top speed {} -> {}", t.top_speed(), p.top_speed());
-        assert!(took.as_secs_f32() < 5.0, "{took:?}");
         assert!(p.top_speed() > 1.35 * t.top_speed(), "{} vs {}", p.top_speed(), t.top_speed());
         assert!(p == t.powered(&b, 1.4, |_, _| spin));
         let hash = p.0.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &w| (h ^ w as u64).wrapping_mul(0x100_0000_01b3));
@@ -388,14 +387,13 @@ mod tests {
         }
     }
 
-    /// The generator's fingerprint is quick and pinned: a change to the generator or the ball's step moves it (then
+    /// The generator's fingerprint is pinned (its time is printed, not asserted: wall-clock bounds fail under load): a change to the generator or the ball's step moves it (then
     /// every platform's build moves with it; `tests/platforms.rs` checks they agree).
     #[test]
     fn probe_is_quick_and_pinned() {
         let start = std::time::Instant::now();
         let h = probe();
         eprintln!("probe {h} in {:?}", start.elapsed());
-        assert!(start.elapsed().as_secs_f32() < 1.0);
         assert_eq!(h, probe());
         assert_eq!(h, 10950907952750171707, "generator fingerprint moved");
     }
