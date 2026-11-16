@@ -47,7 +47,7 @@ copied into `fixtures/<task>/` (`cp --reflink`) when the test lands; tests never
 `context/.trash/`, `--empty` clears that); a recording a research script needs must be named by its path in it.
 
 ## Plan
-`PLAN.md` holds the rules and a code map; the ordered open tasks are in `plan/TODO.md` (each line ends in fields:
+`PLAN.md` holds the rules (code map: `plan/CODEMAP.md`, by crate: `agent-runner plan <crate>`); the ordered open tasks are in `plan/TODO.md` (each line ends in fields:
 `| files: a, b | after: X | test: t | journal: d`),  finished ones in `plan/DONE.md`. "continue" means: `agent-runner plan next`, read `agent-runner plan brief <ID>` (line, plan file,
 journal, files), port + verify, `tools/done.sh <ID> "<msg>"` (tests, tick into DONE.md, commit). Don't grep the repo for where things live — the code map says. Background (game
 control, done list, known gaps): `plan/REFERENCE.md`. `agent-runner plan` (index) · `next` · `N1e` (plan/tasks/N1e.md, else

@@ -19,7 +19,7 @@ day=$(date +%F)
 line=''
 if [ "${HST_TODO_RAW:-0}" != 1 ]; then
   ctx="Code map:
-$(awk '/^## Code map/{f=1} /^## Needs the human/{f=0} f' PLAN.md)
+$(cat plan/CODEMAP.md)
 
 Source files:
 $(git ls-files 'crates/*.rs' 'web/*' | grep -v /tests/)
