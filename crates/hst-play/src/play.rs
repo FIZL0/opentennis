@@ -2188,8 +2188,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
     s.t += 1;
     if !s.tossed {
         g.serving = s;
-        // released TOSS_RELEASE ticks after the press tick (`s.t` counts it as 1), as the original
-        if s.t as f32 <= g.build.toss_release() {
+        if !toss_released(g, s.t) {
             hold_ball(g);
         } else {
             let (hand, apex) = serve::toss_points(&g.serve_data[i], toss, &player_matrix(&g.players[i]));
@@ -2210,6 +2209,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             g.prev_ball = hand;
             g.serving.tossed = true;
             toss_draws(g);
+            toss_heard(g);
         }
         g.players[i].serve_anim = Some(0.35 * (s.t as f32 / g.build.toss_release()).min(1.0));
         return;
@@ -2416,6 +2416,48 @@ fn pads_aim(g: &Game, i: usize) -> bool {
 /// rule 1 reads them).
 fn toss_draws(g: &mut Game) {
     g.flight.irregular = offbeat::launch(g);
+}
+
+/// Whether the toss leaves the hand this tick, `t` ticks into it (the press tick counts as 1): once the toss
+/// motion's posed frame (0 on the press tick) plus its speed (one frame a tick in every build) reaches the build's
+/// release frame.
+fn toss_released(g: &Game, t: u32) -> bool {
+    const TOSS_SPEED: f32 = 1.0;
+    let posed = t as f32 - 2.0;
+    posed + TOSS_SPEED >= g.build.toss_release()
+}
+
+/// The toss is announced as a hit: the predicted path starts from it and every computer player hears the match's
+/// hit message, the hitter being the match's last hitter (the toss doesn't change it).
+fn toss_heard(g: &mut Game) {
+    g.hit_flight = g.flight;
+    g.since_hit = 0;
+    if g.last_hitter < 0 {
+        // nobody has hit yet this match: nobody's team, so no shot to note or react to, only the redraw
+        for i in 0..g.players.len() {
+            if g.humans.get(i) == Some(&true) {
+                continue;
+            }
+            doubles_ai::heard_nobody(g, i);
+            ai_redraw(g, i);
+        }
+    }
+    // ponytail: a toss on a later point (the last hitter still set) isn't announced to the AIs yet (M184's open
+    // question: what shot they note for it)
+    doubles_ai::heard(g, msg::HIT);
+}
+
+/// A computer player's redraw on a hit by no team (`toss_heard`): its timing errors and its picks, no dive chance
+/// (kept), no reaction, no guess.
+fn ai_redraw(g: &mut Game, i: usize) {
+    let (receiver, first) = (g.score.receiver == i as i32, !g.players[i].ai_hit);
+    let third = g.players.len() == 4 && g.humans.get(i ^ 2) == Some(&true);
+    let rng = &mut g.rng.ai;
+    g.players[i].ai_timing = g.players[i].ai.timing(None, receiver, first, third, &mut || rng.next());
+    let kept = g.players[i].ai_picks.dive;
+    g.players[i].ai_picks = g.players[i].ai.picks(false, &mut ai_roll(&mut g.rng));
+    g.players[i].ai_picks.dive = kept;
+    (g.players[i].ai_hold, g.players[i].ai_guess) = (0, None);
 }
 
 /// A new point's placement message: one shared draw per player, right after the reseed.

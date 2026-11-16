@@ -361,6 +361,16 @@ pub(super) fn heard_hit(g: &mut Game, i: usize, who: usize) -> bool {
     false
 }
 
+/// `heard_hit` for a hit by nobody (the match's first toss): no team's shot, only the rally state's part.
+pub(super) fn heard_nobody(g: &mut Game, i: usize) {
+    let mind = g.players[i].ai_mind;
+    let rally = mind.is_some_and(|m| m.phase == Ai::Rally);
+    if g.players.len() == 4 && mind.is_some_and(|m| matches!(m.phase, Ai::Receive | Ai::Rally)) {
+        let shots = g.shots;
+        at_message(g, i, |x, b, w, roll| x.heard_hit_doubles(rally, shots, b, w, None, &mut || roll()));
+    }
+}
+
 /// Doubles: a message's work on computer player `i`'s AI routine (`f`), at the message, with its body and world as
 /// they are now and the app's net pick in; the net pick and the shot records it writes go back.
 fn at_message(g: &mut Game, i: usize, f: impl FnOnce(&mut Rally, &Body, &mut World, &mut dyn FnMut() -> u32)) {

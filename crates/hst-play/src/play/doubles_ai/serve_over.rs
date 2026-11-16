@@ -50,7 +50,7 @@ fn a_server_enters_its_rally_return_roll_first() {
     for singles in [true, false] {
         let (mut entries, mut telling) = (0, 0);
         let mut app = cpus(singles);
-        for _ in 0..5000 {
+        for _ in 0..8000 {
             let g = &mut *app.world_mut().resource_mut::<Game>();
             let s = g.score.server as usize;
             // the hand-over's AI update (P131): the server's own frame, run alone

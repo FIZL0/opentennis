@@ -138,4 +138,23 @@ launch math.
 
 ## Open questions
 
-none
+Raised by the port phase (journal `3-PORT-PART.md`). The match's first toss (last hitter nobody) is ported and
+proven. Each question below names what the port couldn't do from this spec.
+
+1. **A toss on a later point (the last-hitter record still names someone).** Section 2 says each computer player
+   then runs "the usual team branches … exactly as after a real hit by them, with the shot count 0". A real hit's
+   message carries the shot it notes: the hitter's swing kind (serve, ground stroke, volley, dive, smash) and the
+   ball's velocity. Those feed the opponent's shot record, the pace and serve-pace error draws, the fast-ball
+   reaction, the reaction and guess draws (serve or not, lob or not), and on the own team, whether the hitter dove.
+   What do these read on a toss? Is it the ball's toss velocity, the last hitter's last stroke kind, or something
+   else? For doubles, which hitter position does the team branch's repick use? Until this is answered, play
+   announces a later point's toss to no AI. Only the predictor and doubles message side run.
+2. **The match phase at the serve's swing press.** In both recordings the match phase turns to rally on the sample
+   after the swing press (US 216, EU 135), four and six ticks before the contact. Play turns it at the contact. What
+   does the swing press set (the phase, and anything that keys off it: the line calls, the AI phases, the doubles
+   path record), and does it do the same for a whiffed swing?
+3. **The served ball's launch is about 1e-4 off.** All three generators match through the contact (US,
+   `rng_s05.bin`), the toss is bit for bit at the contact tick, and the contact tick is right in both builds. But
+   the first step of the served ball differs by 8.6e-5 (US) and 6.2e-5 (EU) in position. Which input to the serve's
+   aim or launch differs? Candidates: the contact point (the server is airborne at contact in the game, y −0.167,
+   and on the ground in play), the aim target, the power.

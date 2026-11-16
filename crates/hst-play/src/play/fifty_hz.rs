@@ -163,7 +163,8 @@ mod tests {
         let mut out = Vec::new();
         for w in frames[first..].windows(2) {
             let b = w[0].live_ball();
-            let ball = [0, 4, 8].map(|o| f32::from_le_bytes(b[0x120 + o..0x124 + o].try_into().unwrap()));
+            // the live position (+0x120 is the copy each flight step saves first: a tick behind in flight)
+            let ball = [0, 4, 8].map(|o| f32::from_le_bytes(b[0xe0 + o..0xe4 + o].try_into().unwrap()));
             let t = (w[0].gm()[0x55], std::array::from_fn(|i| w[0].player_pos(i)), ball);
             out.extend(std::iter::repeat_n(t, (w[1].vsync() - w[0].vsync()) as usize));
         }
@@ -262,23 +263,34 @@ mod tests {
         same
     }
 
-    /// How far the first serve set-up of `got` (play, one tick ahead of the recording: its setup state is the game's
-    /// last frame before the set-up) follows `want`: the first tick a player stands elsewhere or the phase differs,
-    /// and the longest span of ticks before it that the ball is where the recording has it. A torn sample (the
-    /// recorder read the ball a tick early or late) counts as a match with the tick beside it.
-    fn first_serve(want: &[Tick], got: &[Tick]) -> (usize, std::ops::Range<usize>) {
-        let players = want.iter().zip(&got[1..]).position(|(w, g)| (w.0, w.1) != (g.0, g.1)).unwrap_or(want.len());
-        let same = |k: usize| (k..k + 3).any(|j| got.get(j).is_some_and(|g| g.2 == want[k].2));
-        let mut best = 0..0;
-        let mut k = 0;
-        while k < players {
-            let end = (k..players).find(|&j| !same(j)).unwrap_or(players);
-            if end - k > best.len() {
-                best = k..end;
-            }
-            k = end + 1;
+    /// The first serve of `got` (play) beside `want` (the recording) from its set-up to the contact, as play's
+    /// ticks line up with the game's: play's setup state is the game's last frame before the set-up, so play's tick
+    /// k + 1 is the recording's tick k; play steps a launched ball in the tick it leaves the hand or the racket (the
+    /// game's ball update, first in its next frame), so from the toss on play's ball is a tick ahead and play's tick
+    /// k has the recording's ball of tick k. Panics where they part: every player stands where the recording has
+    /// them (on the ground) through the contact; the held ball follows the hand bit for bit from `held` until the
+    /// release; the toss flies the recorded curve bit for bit from the tick after the release to the contact; the
+    /// served ball leaves the racket the tick after the contact, within `launch` of the recorded one (not bit for
+    /// bit yet: a follow-up task).
+    fn serve_to_contact(name: &str, want: &[Tick], got: &[Tick], held: usize, release: usize, contact: usize, launch: f32) {
+        // on the ground: the overhead serve's jump isn't applied in play (`serve_ik_start`)
+        let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
+        for k in 0..=contact {
+            assert_eq!(ground(&want[k]), ground(&got[k + 1]), "{name} tick {k}: the players");
         }
-        (players, best)
+        for k in held..release {
+            assert_eq!(want[k].2.map(f32::to_bits), got[k + 1].2.map(f32::to_bits), "{name} tick {k}: the held ball");
+        }
+        // the release: the recording's ball still at the hand point, play's (a tick ahead) on its first step
+        assert_ne!(want[release].2, want[release + 1].2, "{name}: the toss leaves at {release}");
+        for k in release + 1..=contact {
+            assert_eq!(want[k].2.map(f32::to_bits), got[k].2.map(f32::to_bits), "{name} tick {k}: the toss");
+        }
+        let toss_on = |t: &Tick, prev: &Tick| (t.2[0] - prev.2[0]).abs() < 0.01;
+        assert!(!toss_on(&want[contact + 1], &want[contact]) && !toss_on(&got[contact + 1], &got[contact]), "{name}: struck at {contact}");
+        let off = (0..3).map(|c| (want[contact + 1].2[c] - got[contact + 1].2[c]).abs()).fold(0.0, f32::max);
+        eprintln!("{name} serve: launched {off} off the recording");
+        assert!(off <= launch, "{name}: the serve leaves {off} off the recording");
     }
 
     /// The European bot match (doubles, characters 0/1/1/0, court 6, 1 set of 4 games; M177's recording) in play.
@@ -302,17 +314,15 @@ mod tests {
         Some((want, got))
     }
 
-    /// The European match's first serve set-up in play from the original's seed, beside the recording: the server
-    /// walks to the same spot on the same ticks and every player stands where the recording has them until the serve
-    /// is struck; the held ball follows the server's hand bit for bit from tick 8 until the toss leaves it. Where they
-    /// part (M183a1's journal): the game's toss flies the same path 3 ticks later than play's (1 at 60 Hz), and play
-    /// strikes the serve 3 ticks after the game.
+    /// The European match's first serve in play from the original's seed, beside the recording (M184's tick table):
+    /// the server walks to the same spot on the same ticks, tosses at 76, the ball leaves the hand at 114 (the posed
+    /// toss frame plus its speed reaching 37.5: 38 ticks after the press), the AI presses at 134 and strikes at 141;
+    /// every player stands where the recording has them and the ball follows the hand and the toss curve bit for bit
+    /// to the contact.
     #[test]
     fn the_european_first_serve_set_up_plays_as_recorded() {
         let Some((want, got)) = european(Some(300), 0) else { return };
-        let (players, ball) = first_serve(&want, &got);
-        eprintln!("eu first serve: players to {players}, the ball {ball:?}");
-        assert!(players >= 135 && ball.start <= 8 && ball.end >= 113, "players to {players}, the ball {ball:?}");
+        serve_to_contact("eu", &want, &got, 8, 114, 141, 2e-4);
     }
 
     /// Probe, not a proof yet (M183a1): the whole European bot match in play from the original's match seed, beside the
@@ -362,17 +372,26 @@ mod tests {
         Some((want, got, rngs))
     }
 
-    /// The US baseline for the European test above (M183a1): in slot 5's first serve set-up every player stands where
-    /// the recording has them until the serve is struck, and the held ball follows the server's hand bit for bit from
-    /// tick 9 until the toss. Where it parts (M183a1's journal): the game's toss flies the same path a tick later
-    /// than play's (3 ticks at 50 Hz), its AI generator draws 60 values at the toss that play doesn't, and the serve
-    /// launches differently.
+    /// The US baseline for the European test above: slot 5's first serve as recorded (M184's tick table): toss press
+    /// at 124, the ball leaves the hand at 169 (45 ticks on), the press at 215, the contact at 219; players, the held
+    /// ball and the toss bit for bit to the contact. And the generators, beside `rng_s05.bin`: the toss's hit message
+    /// redraws each computer player's timing errors and picks (60 AI draws in all, with the launch's 2 shared ones),
+    /// the press draws the swing kind, the contact the aim and the launch.
     #[test]
     fn the_us_first_serve_set_up_plays_as_recorded() {
-        let Some((want, got, _)) = us(Some(300), 0, 0) else { return };
-        let (players, ball) = first_serve(&want, &got);
-        eprintln!("us first serve: players to {players}, the ball {ball:?}");
-        assert!(players >= 216 && ball.start <= 9 && ball.end >= 169, "players to {players}, the ball {ball:?}");
+        let Some((want, got, rngs)) = us(Some(300), 240, 0) else { return };
+        serve_to_contact("us", &want, &got, 9, 169, 219, 2e-4);
+        let Ok(d) = hst_data::fixture::read("fixtures/p3b/rng_s05.bin") else { return };
+        let size = 4 + 8 + 4 * 0x9d0;
+        let rec = |k: u32| {
+            let s = d.chunks_exact(size).find(|s| u32::from_le_bytes(s[..4].try_into().unwrap()) == 7566 + k).unwrap();
+            (u64::from_le_bytes(s[4..12].try_into().unwrap()), hst_sim::rng::Mt::from_ram(&s[12..]), hst_sim::rng::Mt::from_ram(&s[12 + 0x9d0..]))
+        };
+        for k in [123, 124, 168, 169, 214, 215, 219, 220] {
+            let (rand, shared, ai) = rec(k);
+            let r = &rngs[k as usize + 1];
+            assert!(r.rand.0 == rand && r.shared == shared && r.ai == ai, "us tick {k}: the generators");
+        }
     }
 
     /// The US baseline for the European probe, compared the same way, so a 50 Hz gap can be told from one that plays
