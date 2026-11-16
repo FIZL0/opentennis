@@ -39,6 +39,7 @@ pub mod mod_debug;
 pub mod mods;
 pub mod mods_online;
 pub mod mods_umpire;
+pub mod mod_voices;
 pub mod mods_court;
 pub mod mods_textures;
 pub mod court_mod;

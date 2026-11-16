@@ -11,6 +11,8 @@
 //! told apart by the archive's last letter; the Japanese one keeps its player voices inside the motion archives), so a
 //! bank is looked up by its name. A bank whose sequences don't line up with the main disc's (a different take count
 //! or order) stays the main disc's, so a cue never plays the wrong line.
+//!
+//! Character and umpire mods follow the same choice with their own folders per language (`mod_voices`, M168).
 
 use crate::audio::SoundBank;
 use hst_data::iso::Iso;

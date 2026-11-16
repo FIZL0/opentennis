@@ -6,3 +6,4 @@
 - Online, a disc is now checked by whether it plays the same game as the host's, not by being a byte-identical copy: players running from a disc image are checked too, and a disc that plays differently is turned away with a message naming both discs
 - Settings → Controls → Swap: trades the controller's Cross and Circle (A and B) everywhere, so Circle hits topspin and confirms in the menus while Cross slices and goes back; the on-screen button icons follow
 - The Japanese disc (Minna no Tennis) can now be played: matches follow that version's own rules (serves timed like ground strokes, no special serve or counter shots, the red landing marker on serves too), and the menus show plain English where that disc has no English text
+- Voice Language now also applies to add-on characters and umpires that bring their lines in other languages; a line they don't have in your language is heard in their own
