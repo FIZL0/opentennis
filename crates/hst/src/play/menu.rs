@@ -548,7 +548,8 @@ pub(super) fn set_paused(w: &mut World, open: bool) {
     if open {
         fixed.set_timestep(Duration::from_secs(1 << 20));
     } else {
-        fixed.set_timestep_hz(60.0);
+        // M176: back to the match's own rate
+        fixed.set_timestep_hz(crate::match_speed::MatchHz::now().hz());
         let over = fixed.overstep();
         fixed.discard_overstep(over);
     }
@@ -788,7 +789,8 @@ fn step(
         if let Some(s) = &sound {
             s.hold(false);
         }
-        fixed.set_timestep_hz(60.0);
+        // M176: back to the match's own rate
+        fixed.set_timestep_hz(crate::match_speed::MatchHz::now().hz());
         let over = fixed.overstep();
         fixed.discard_overstep(over);
     }

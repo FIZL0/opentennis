@@ -685,6 +685,8 @@ pub fn flags(room: &Room, me: &str, devices: &[Option<super::controls::Seat>], e
     if room.no_marks {
         a.push("--no-shot-markers".into());
     }
+    // M176: the host's Match Speed
+    a.extend(crate::match_speed::flags(room.match_hz()));
     // B370: the select's hand toggles, by match slot
     if order.iter().any(|&s| pick(s).is_some_and(|p| p.swap)) {
         a.extend(["--swap-hands".into(), order.iter().map(|&s| if pick(s).is_some_and(|p| p.swap) { "1" } else { "0" }).collect::<Vec<_>>().join(",")]);
@@ -832,6 +834,27 @@ mod tests {
         assert!(!off(&room));
         room.no_marks = true;
         assert!(off(&room));
+    }
+
+    /// M176: the host's Match Speed reaches every peer's match (nothing at the default 60, so a 60 Hz lobby's wire and
+    /// flags are the ones it always had), and the rollback clock and input delay run in its ticks.
+    #[test]
+    fn flags_carry_the_match_speed() {
+        use crate::net::{Pick, Seat};
+        let s = |peer: &str| Some(Seat { peer: peer.into(), pick: Pick::disc(0, 0) });
+        let mut room = Room { seats: vec![s("host"), s("g")], ..Default::default() };
+        let hz = |room: &Room| {
+            let a = flags(room, "g", &[None], &[]);
+            a.iter().position(|f| f == "--match-hz").map(|i| a[i + 1].clone())
+        };
+        assert_eq!((room.match_hz(), hz(&room)), (60, None));
+        assert!(!serde_json::to_string(&room).unwrap().contains("hz"));
+        room.hz = 50;
+        assert_eq!((room.match_hz(), hz(&room).as_deref()), (50, Some("50")));
+        room.hz = 42;
+        assert_eq!((room.match_hz(), hz(&room)), (60, None));
+        let rtt = std::time::Duration::from_millis(300);
+        assert_eq!((crate::net::delay_at(rtt, 60), crate::net::delay_at(rtt, 50)), (crate::net::delay_for(rtt), 9));
     }
 
     /// M8f3: the host's umpire mod goes in the flags by id (each peer looks it up under its own `mods/`, the donor

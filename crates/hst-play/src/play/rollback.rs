@@ -180,6 +180,8 @@ impl Rollback {
             .with_num_players(seats.len())?
             .with_input_delay(DELAY)
             .with_max_prediction_window(WINDOW)
+            // M176: its clock runs at the match's ticks a second (the host's Match Speed)
+            .with_fps(room.match_hz() as usize)?
             .with_desync_detection_mode(DesyncDetection::On { interval: super::netplay::HASH_EVERY })
             // B196: a silent peer is `recover.rs`'s to deal with (ggrs' own drops it after 2 s)
             .with_disconnect_timeout(std::time::Duration::from_secs(1 << 20))

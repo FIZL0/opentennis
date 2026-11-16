@@ -277,6 +277,9 @@ fn hold(w: &mut World) {
     let mut q = w.query::<&Gamepad>();
     skip |= q.iter(w).filter(|g| super::controls::readable(g)).any(|g| g.just_pressed(GamepadButton::South));
     let dt = w.resource::<Time<Real>>().delta_secs();
+    // M176: one match tick (1/60 s, 1/50 at the European original's speed)
+    let hz = w.get_resource::<crate::match_speed::MatchHz>().copied().unwrap_or_default();
+    let tick = hz.tick();
     let online = w.contains_resource::<super::netplay::Netplay>();
     let mut intro = w.remove_resource::<Intro>().unwrap();
     if !online && skip && !paused && intro.showing() {
@@ -285,11 +288,11 @@ fn hold(w: &mut World) {
     intro.press |= online && skip && !paused;
     if !paused {
         intro.acc += dt;
-        while intro.acc >= 1.0 / 60.0 && intro.at < intro.ticks {
+        while intro.acc >= tick && intro.at < intro.ticks {
             if online {
                 // the tick runs once every seat's ✕ (or not) for it is in, the same on every machine
                 let Some(skip) = super::netplay::intro_tick(w, intro.press) else {
-                    intro.acc = intro.acc.min(1.0 / 60.0);
+                    intro.acc = intro.acc.min(tick);
                     break;
                 };
                 intro.press = false;
@@ -298,7 +301,7 @@ fn hold(w: &mut World) {
                     intro.skip();
                 }
             }
-            intro.acc -= 1.0 / 60.0;
+            intro.acc -= tick;
             intro.at += 1;
             pose_players(w);
             if let Err(e) = w.run_system_cached(super::carts::intro) {
@@ -320,7 +323,7 @@ fn hold(w: &mut World) {
     let done = intro.at >= intro.ticks;
     let mut fixed = w.resource_mut::<Time<Fixed>>();
     if done {
-        fixed.set_timestep_hz(60.0);
+        fixed.set_timestep_hz(hz.hz());
         let over = fixed.overstep();
         fixed.discard_overstep(over);
         if let Some(mut np) = w.get_resource_mut::<super::netplay::Netplay>() {

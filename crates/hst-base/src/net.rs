@@ -336,6 +336,13 @@ pub struct Room {
     pub rules: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sim: Option<u64>,
+    /// M176: the match's ticks a second, the host's Match Speed (`match_speed`; 0: the default 60).
+    #[serde(default, skip_serializing_if = "hz_unset")]
+    pub hz: u32,
+}
+
+fn hz_unset(n: &u32) -> bool {
+    *n == 0
 }
 
 /// B281: how long the host's Start waits for a player still choosing whether to download a mod (ms; tests shorten it).
@@ -364,6 +371,11 @@ pub struct Live {
 }
 
 impl Room {
+    /// M176: the match's ticks a second (60 where the host sent none).
+    pub fn match_hz(&self) -> u32 {
+        if self.hz == 0 { 60 } else { crate::match_speed::valid(self.hz) }
+    }
+
     pub fn open(&self) -> usize {
         self.seats.iter().filter(|s| s.is_none()).count()
     }
@@ -838,7 +850,12 @@ pub static COUNTDOWN_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomi
 
 /// The input delay for a round trip of `rtt`: enough ticks to cover one way, plus one for jitter (2..=15).
 pub fn delay_for(rtt: Duration) -> u32 {
-    ((rtt.as_secs_f64() / 2.0 * 60.0).ceil() as u32 + 1).clamp(2, 15)
+    delay_at(rtt, 60)
+}
+
+/// M176: [`delay_for`] in ticks of a match at `hz` ticks a second.
+pub fn delay_at(rtt: Duration, hz: u32) -> u32 {
+    ((rtt.as_secs_f64() / 2.0 * hz as f64).ceil() as u32 + 1).clamp(2, 15)
 }
 
 /// Messages out through one stream (or the browser's data channel, `rtc.rs`), each after [`LAG_MS`], in order.
@@ -1787,6 +1804,11 @@ async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) 
     let _rules = crate::rules_choice::Online::host();
     // M171: the lobby plays this disc's rules; a guest on another disc gets its data for what differs
     (room.rules, room.sim) = crate::rules_choice::lobby();
+    // M176: and its host's Match Speed
+    room.hz = match crate::match_speed::chosen() {
+        60 => 0,
+        hz => hz,
+    };
     room.names.insert("host".into(), cx.name.clone());
     room.courts.insert("host".into(), cx.courts.clone());
     room.devices.insert("host".into(), *cx.device.lock().unwrap());
@@ -2151,7 +2173,7 @@ impl Hosted {
         {
             // ponytail: no probe answer in time counts as 250 ms; a slower peer just stalls the match more
             let worst = self.joined.iter().map(|(p, ..)| self.rtt.get(p).copied().unwrap_or(Duration::from_millis(250))).max().unwrap_or_default();
-            self.room.delay = delay_for(worst);
+            self.room.delay = delay_at(worst, self.room.match_hz());
             self.room.lockstep = std::env::var_os("HST_NET_LOCKSTEP").is_some();
             self.room.seed = (SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos()) as u32) | 1;
             self.room.bots();
@@ -3086,6 +3108,12 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
                     cx.say(Event::Status(format!("A pick this game can't play: {}", r.check().unwrap_err())));
                     seated = true;
                     cx.say(Event::Room(r));
+                }
+                // M176: a lobby at a speed this app can't play (50 Hz without the European disc)
+                Ok(Msg::Room(r) | Msg::Start(r)) if crate::match_speed::refused(r.hz).is_some() => {
+                    cx.say(Event::Failed(crate::match_speed::refused(r.hz).unwrap_or_default()));
+                    conn.close(b"left");
+                    return seated;
                 }
                 Ok(Msg::Start(r)) if r.check().is_err() => {
                     cx.say(Event::Failed(format!("Left: {}", r.check().unwrap_err())));

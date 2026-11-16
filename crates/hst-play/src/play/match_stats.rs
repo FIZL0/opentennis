@@ -28,7 +28,7 @@ use bevy::prelude::*;
 use hst_data::{iso::Iso, xb::Archive};
 use hst_sim::score::{Event, Score};
 use hst_sim::serve::{self, Balloon};
-use hst_sim::stats::{Table, hms};
+use hst_sim::stats::Table;
 use std::time::Duration;
 
 use super::panel::{self, Colours};
@@ -142,7 +142,8 @@ fn layout(v: &View) -> Vec<Quad> {
         q(Tex::Text, digit(d), nat(digit(d), 216 + 16 * k as i32, 359), WHITE, 128);
     }
     q(Tex::Text, [0, 344, 80, 24], [352, 359, 80, 24], WHITE, 128);
-    for (k, part) in hms(t.frames).into_iter().enumerate() {
+    // M176: in the match's own ticks a second
+    for (k, part) in hst_sim::stats::hms_at(t.frames, crate::match_speed::current()).into_iter().enumerate() {
         let x = 440 + 40 * k as i32;
         q(Tex::Text, digit(part / 10 % 10), [x, 359, 16, 24], WHITE, 128);
         q(Tex::Text, digit(part % 10), [x + 16, 359, 16, 24], WHITE, 128);
