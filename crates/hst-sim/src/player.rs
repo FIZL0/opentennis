@@ -276,8 +276,13 @@ pub const STAMINA_FRAMES: i32 = 60;
 /// Speed of a running player, metres per frame: `run` frames into the run, with `stamina` left. `size` is the
 /// player's size percentage (100 in normal play).
 pub fn run_speed(s: &Stats, run: i32, stamina: i32, size: i32) -> f32 {
+    run_speed_in(s, run, stamina, size, crate::build::Build::Us)
+}
+
+/// `run_speed` from `build`'s base run speed (`crate::build::Build::run`).
+pub fn run_speed_in(s: &Stats, run: i32, stamina: i32, size: i32, build: crate::build::Build) -> f32 {
     let frac = F(run.min(s.agility) as f32) / s.agility as f32;
-    let base = RUN * F::ONE.madd(RUN_GAIN, frac);
+    let base = build.run() * F::ONE.madd(RUN_GAIN, frac);
     let scale = if stamina < TIRED {
         F::ONE.msub(TIRED_LOSS, (TIRED - stamina) as f32) * size as f32 / 100.0
     } else {
@@ -683,12 +688,17 @@ pub fn turned([x, z]: [f32; 2]) -> [f32; 2] {
 /// while held at a limit). ponytail: the mover's collision check is skipped (a baseline server never
 /// reaches the court bounds or the partner).
 pub fn serve_walk(x: f32, dir: [f32; 2], end: f32, side: i32, doubles: bool, hand: f32) -> (f32, i32) {
-    use crate::serve::{WALK, WALK_MAX_DOUBLES, WALK_MAX_SINGLES, WALK_MIN};
+    serve_walk_in(x, dir, end, side, doubles, hand, crate::build::Build::Us)
+}
+
+/// `serve_walk` at `build`'s walk step (`crate::build::Build::serve_walk`).
+pub fn serve_walk_in(x: f32, dir: [f32; 2], end: f32, side: i32, doubles: bool, hand: f32, build: crate::build::Build) -> (f32, i32) {
+    use crate::serve::{WALK_MAX_DOUBLES, WALK_MAX_SINGLES, WALK_MIN};
     if dir[0] == 0.0 || !(dir[1].abs() < dir[0].abs()) {
         return (x, id::SERVE_STANCE);
     }
     let step = if dir[0] < 0.0 { -1.0 } else { 1.0 };
-    let x = (F::ZERO + x).madd(WALK, step);
+    let x = (F::ZERO + x).madd(build.serve_walk(), step);
     let court = if side == 0 { 1.0 } else { -1.0 };
     let far = F(if doubles { WALK_MAX_DOUBLES } else { WALK_MAX_SINGLES }) * end * court;
     let min = F(WALK_MIN);

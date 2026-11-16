@@ -35,6 +35,13 @@ impl Anim {
     pub fn end_tick(&self) -> i32 {
         self.tracks.iter().flat_map(|t| [&t.rotation, &t.position]).filter_map(|k| k.last().map(|k| k.0)).max().unwrap_or(0)
     }
+
+    /// The motion played at `ticks_per_frame` instead of its file's own: the keys keep their ticks, so it takes
+    /// more or fewer frames (the European program's 50 Hz loaders: `hst_sim::build::Build::motion_rate`).
+    pub fn retimed(mut self, ticks_per_frame: i32) -> Anim {
+        self.ticks_per_frame = ticks_per_frame;
+        self
+    }
 }
 
 pub fn parse(d: &[u8]) -> Result<Anim, Error> {

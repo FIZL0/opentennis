@@ -246,8 +246,14 @@ impl<'a> Game<'a> {
 
     /// Shot parameter source data (see `hst_sim::params`).
     pub fn shot_params(&self) -> ShotParamSource {
+        self.shot_params_at(60)
+    }
+
+    /// `shot_params` for a match at `hz`: at 50 a European disc's table as it is on the disc (its own 50 Hz
+    /// speeds, for a match played at 50 Hz), at 60 rescaled to 60 Hz as `shot_params` does.
+    pub fn shot_params_at(&self, hz: u32) -> ShotParamSource {
         let mut base = self.f32s(0x40_4810, 4 * 0x451);
-        if self.release == Release::Europe {
+        if self.release == Release::Europe && hz != 50 {
             sixty_hz(&mut base);
         }
         ShotParamSource {

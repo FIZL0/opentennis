@@ -221,6 +221,14 @@ impl Clip {
         Clip { ticks_per_frame, length: (F(anim.end_tick() as f32) / ticks_per_frame).0, tracks }
     }
 
+    /// `Clip::new` for a player's motion `index` (`None` for anything else) under `build`: played at the build's
+    /// rate for it, its length worked out the build's way (`Build::motion_rate`, `Build::clip_length`).
+    pub fn for_build(sk: &Skeleton, anim: &Anim, build: crate::build::Build, index: Option<usize>) -> Clip {
+        let anim = anim.clone().retimed(build.motion_rate(anim.ticks_per_frame, index));
+        let clip = Clip::new(sk, &anim);
+        Clip { length: build.clip_length(anim.end_tick() as f32, clip.ticks_per_frame), ..clip }
+    }
+
     /// The player's time after setting it to `t` frames (`wrap`).
     pub fn wrap(&self, t: f32, looping: bool) -> f32 {
         wrap(t, self.length, looping)

@@ -799,6 +799,11 @@ pub fn serve_wait(roll: &mut impl FnMut() -> u32) -> i32 {
     r15(roll()) as i32 % 60 + 60
 }
 
+/// `serve_wait` under `build`: 50 to 99 frames at 50 Hz, from the same one draw (`crate::build::Build::serve_wait`).
+pub fn serve_wait_in(roll: &mut impl FnMut() -> u32, build: crate::build::Build) -> i32 {
+    build.serve_wait(roll())
+}
+
 /// What the AI's run estimate reads off its player: its side and spot, its running state and the match's
 /// stamina rules (`player::drain`).
 #[derive(Clone, Copy, Debug, Default)]
