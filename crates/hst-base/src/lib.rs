@@ -49,6 +49,8 @@ pub mod chat;
 pub mod hud_gamma;
 pub mod inspect;
 pub mod lod;
+/// M176: Settings → Gameplay → Match Speed, a match's ticks a second (60, or 50 for the European original).
+pub mod match_speed;
 pub mod mips;
 pub mod noise;
 pub mod occlusion;

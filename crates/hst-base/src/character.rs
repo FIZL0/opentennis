@@ -1673,8 +1673,11 @@ pub fn animate(
     mut joints: Query<&mut Transform>,
     mut cache: Local<bevy::platform::collections::HashMap<Entity, Posing>>,
     mut frame: Local<u32>,
+    hz: Option<Res<crate::match_speed::MatchHz>>,
 ) {
     *frame = frame.wrapping_add(1);
+    // M176: fixed-clock seconds to ticks at the match's rate (60 in the menus)
+    let tps = hz.map_or(60.0, |h| h.hz());
     for (root, rig, motion, mut weights, minor, shown, talk, own_facing, head) in &mut rigs {
         if put_away(minor, shown) {
             continue;
@@ -1697,7 +1700,7 @@ pub fn animate(
             // instead of starting the stance over: the tail's clock is frames since the swing's set less
             // SERVE_READY.0, the motion's drawn time lags its set by a tick
             c.stand_on = (after_serve && motion.id == hst_sim::motion::id::STAND as usize)
-                .then(|| (motion.sets, ((c.set_at - swung_at) * 60.0).round() as f32 - SERVE_READY.0 + 1.0));
+                .then(|| (motion.sets, ((c.set_at - swung_at) * tps).round() as f32 - SERVE_READY.0 + 1.0));
             let carried = c.stand_on.is_some() && c.ready_w >= 1.0;
             let own = rig.data.own(new);
             let ease = if motion.mix.is_none() && (own || c.own) {
@@ -1825,7 +1828,7 @@ pub fn animate(
             if w > 0.0 {
                 ready = w * w * (3.0 - 2.0 * w);
                 // on its own clock: the serve's holds its end
-                let since = ((time.elapsed_secs_f64() - c.set_at) * 60.0) as f32 + time.overstep_fraction();
+                let since = ((time.elapsed_secs_f64() - c.set_at) * tps) as f32 + time.overstep_fraction();
                 pose_at(&rig.data.joints, stand, stand.wrap((since - SERVE_READY.0).max(0.0), true), &mut c.ready);
                 for (d, &(q, v)) in drawn.iter_mut().zip(&c.ready) {
                     *d = (d.0.slerp(q, ready), d.1.lerp(v, ready));
@@ -1875,7 +1878,7 @@ pub fn animate(
             hold_head(&rig.data, grip, &mut drawn, 1.0 - mine, &mut c.held, now.delta_secs() * 60.0 / GRIP_EASE);
         }
         if !c.from.is_empty() {
-            let w = (((time.elapsed_secs_f64() - c.eased) * 60.0) as f32 + time.overstep_fraction()) / c.ease;
+            let w = (((time.elapsed_secs_f64() - c.eased) * tps) as f32 + time.overstep_fraction()) / c.ease;
             let w = w.min(1.0);
             let w = w * w * (3.0 - 2.0 * w);
             // eased out as the gap from the new motion's first pose drawn, so that motion moves from the start (from
@@ -1912,11 +1915,11 @@ pub fn animate(
             let pos = |n: &str| rig.data.joint(n).map_or(Vec3::ZERO, |j| w[j].w_axis.truncate());
             let (h, r, p) = (pos("Bip01Head"), pos("Racket"), pos("Bip01Pelvis"));
             let (wt, wr) = joints.get(root).map(|t| (t.translation, t.rotation.to_euler(EulerRot::YXZ).0)).unwrap_or_default();
-            let ew = if c.from.is_empty() { -1.0 } else { ((time.elapsed_secs_f64() - c.eased) * 60.0) as f32 + time.overstep_fraction() };
+            let ew = if c.from.is_empty() { -1.0 } else { ((time.elapsed_secs_f64() - c.eased) * tps) as f32 + time.overstep_fraction() };
             eprintln!(
                 "POSE {root:?} t={:.4} fx={:.4} id={:#x} sets={} a={a:.2} b={b:.2} f={f:.3} ready={ready:.3} ease={ew:.2} mix={:?} at=({:.4},{:.4},{:.4}) yaw={wr:.4} head=({:.4},{:.4},{:.4}) racket=({:.4},{:.4},{:.4}) pelvis=({:.4},{:.4},{:.4})",
                 now.elapsed_secs_f64(),
-                time.elapsed_secs_f64() + time.overstep_fraction() as f64 / 60.0,
+                time.elapsed_secs_f64() + time.overstep_fraction() as f64 / tps,
                 motion.id,
                 motion.sets,
                 motion.mix,

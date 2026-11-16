@@ -65,6 +65,8 @@ pub(super) enum Opt {
     MatchRumble,
     /// M175: which release's game a match plays (`rules_choice`).
     Rules,
+    /// M176: a match's ticks a second, 60 or the European original's 50 (`match_speed`).
+    MatchSpeed,
     /// B343: the speed-up switch (`Graphics::fewer_shadows`).
     FewerShadows,
     /// B364: the characters' share of triangles (`Graphics::mesh`, `lod.rs`).
@@ -117,10 +119,14 @@ const SOUND: &[Opt] = if cfg!(target_arch = "wasm32") { &[Volume(0), Volume(1), 
 const MODS: &[Opt] = if cfg!(target_arch = "wasm32") { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat] } else { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat, UpdateCheck] };
 /// M167: Gameplay's rows: how a match plays (offline Rules, match rumble go before Vibration), then the on-screen
 /// pad's Vibration (B118, was the Mobile tab's), last since only a touch screen shows it (`gameplay`).
-const GAMEPLAY: &[Opt] = &[Rules, MatchRumble, Vibration];
-/// Gameplay's rows on this device: Vibration only on a touch screen.
+/// M176: Match Speed after Rules, shown only where a match can run at 50 Hz (`gameplay`).
+const GAMEPLAY: &[Opt] = &[Rules, MatchSpeed, MatchRumble, Vibration];
+/// M176: Gameplay's rows where 60 Hz is the only speed.
+const GAMEPLAY_60: &[Opt] = &[Rules, MatchRumble, Vibration];
+/// Gameplay's rows on this device: Match Speed only with a choice to make, Vibration only on a touch screen.
 fn gameplay() -> &'static [Opt] {
-    if super::touch_page() { GAMEPLAY } else { &GAMEPLAY[..GAMEPLAY.len() - 1] }
+    let rows = if crate::match_speed::available().len() > 1 { GAMEPLAY } else { GAMEPLAY_60 };
+    if super::touch_page() { rows } else { &rows[..rows.len() - 1] }
 }
 /// B289: Online Mod Downloads' values.
 const ASK_VALUES: [(Ask, &str); 3] = [(Ask::Each, "Ask"), (Ask::Always, "Always"), (Ask::Never, "Never")];
@@ -179,6 +185,7 @@ fn label(o: Opt) -> &'static str {
         Vibration => "Vibration",
         MatchRumble => "Match Rumble",
         Rules => "Rules",
+        MatchSpeed => "Match Speed",
         UpdateCheck => "Updates",
         FewerShadows => "Fewer Shadows",
         Mesh => "Mesh",
@@ -234,6 +241,7 @@ fn about(o: Opt) -> &'static str {
         Rendering => rendering_about(),
         Vibration => vibration_about(),
         MatchRumble => "Controllers rumble in a match: hard on a mistimed or framed hit, a short crisp tick on a sweet-spot hit, a thump when a hard serve lands (the receiver's, and softer the server's) and when the ball hits you. Your own controller only; never in replays.",
+        MatchSpeed => "How many times a second the match moves on. 60 Hz is the US and Japanese game. 50 Hz is the European original (Everybody's Tennis), retimed by its makers for 50 Hz television: the same game at its own timing, from the European disc's data, so it shows once that disc is here (the game's own, or beside it). Online, the lobby always plays its host's speed.",
         Rules => "Which release's game a match plays: the US one (Hot Shots Tennis) or the Japanese one (Minna no Tennis), an earlier build with a few rules of its own (no counters or special serves, a mistimed hard toss never strays, a different aim on lobs and smashes). A release shows once its disc is here: the game's own, or another release's disc in the same folder. Online, the lobby always plays its host's rules.",
         UpdateCheck => "Look for a newer version while the game runs. Ask: the main menu asks Update? the first time it finds one. Always: it installs by itself where it can (a phone's installer still asks you to confirm). Never: no looking.",
         FewerShadows => "At Low shadows, only the players, the umpire and what shades the court cast: fewer draws. Off: Low casts as many as High.",
@@ -327,7 +335,7 @@ const MSAA_NAMES: [&str; 3] = ["Off", "2x", "4x"];
 /// B294: every value `o` can take, in order, as [`Settings::value`] words it (the side panel's choices).
 /// added3: a row with only one choice to show (Voice Language with only the disc's voices): ◀ ▶ leave it be.
 pub(super) fn fixed(o: Opt) -> bool {
-    matches!(o, VoiceLanguage | Rules) && choices(o).len() < 2
+    matches!(o, VoiceLanguage | Rules | MatchSpeed) && choices(o).len() < 2
 }
 
 fn choices(o: Opt) -> Vec<String> {
@@ -354,6 +362,7 @@ fn choices(o: Opt) -> Vec<String> {
         AtOnce => (0..=super::max_downloads()).map(at_once_name).collect(),
         VoiceLanguage => crate::voices::available().into_iter().map(|l| crate::voices::LANGS[l as usize].name.to_string()).collect(),
         Rules => crate::rules_choice::available().into_iter().map(|r| crate::rules_choice::name(r).to_string()).collect(),
+        MatchSpeed => crate::match_speed::available().into_iter().map(|hz| crate::match_speed::name(hz).to_string()).collect(),
         Advanced | AddVoices => Vec::new(),
         _ => words(&["Off", "On"]),
     }
@@ -482,6 +491,10 @@ impl Settings {
                 self.rules = if r == crate::rules_choice::own() { 0 } else { r };
                 crate::rules_choice::choose(self.rules);
             }
+            MatchSpeed => {
+                self.match_speed = cycle(&crate::match_speed::available(), crate::match_speed::chosen(), d);
+                crate::match_speed::choose(self.match_speed);
+            }
             // M140: Ask / Always / Never, Never being the older Check for Updates off
             UpdateCheck => {
                 let a = cycle(&ASK_VALUES.map(|(a, _)| a), self.updates(), d);
@@ -567,6 +580,7 @@ impl Settings {
             Vibration => on_off(self.vibration),
             MatchRumble => on_off(self.match_rumble),
             Rules => crate::rules_choice::name(crate::rules_choice::chosen()).into(),
+            MatchSpeed => crate::match_speed::name(crate::match_speed::chosen()).into(),
             UpdateCheck => ASK_VALUES.iter().find(|(a, _)| *a == self.updates()).unwrap().1.into(),
             FewerShadows => on_off(g.fewer_shadows),
             Advanced => ">".into(),
@@ -614,6 +628,7 @@ impl Menu {
                     crate::play::rumble::ON.store(was.match_rumble, std::sync::atomic::Ordering::Relaxed);
                     crate::voices::choose(was.voice_language);
                     crate::rules_choice::choose(was.rules);
+                    crate::match_speed::choose(was.match_speed);
                     out.push(Effect::SaveSettings);
                 }
                 out.push(Effect::Sound(1));
@@ -2185,6 +2200,28 @@ mod tests {
             assert_eq!(choices(Rules), [crate::rules_choice::name(own)]);
             s.step(Rules, 1);
             assert_eq!(s.rules, 0);
+        }
+    }
+
+    /// M176: Gameplay → Match Speed shows only with a choice to make (50 Hz needs the European data and the sim's
+    /// 50 Hz timing), after Rules; with 60 Hz alone it is hidden and a match starts with no `--match-hz`.
+    #[test]
+    fn match_speed_row() {
+        assert_eq!(&GAMEPLAY[..2], [Rules, MatchSpeed]);
+        let mut s = Settings::default();
+        assert_eq!(s.match_speed, 60);
+        if crate::match_speed::available() == [60] {
+            assert!(!page(Screen::Gameplay).contains(&MatchSpeed));
+            assert!(fixed(MatchSpeed));
+            s.step(MatchSpeed, 1);
+            assert_eq!(s.match_speed, 60);
+            assert_eq!(crate::match_speed::flags(crate::match_speed::chosen()), Vec::<String>::new());
+        } else {
+            assert_eq!(page(Screen::Gameplay)[1], MatchSpeed);
+            s.step(MatchSpeed, 1);
+            assert_eq!((s.match_speed, s.value(MatchSpeed).as_str()), (50, "50 Hz (European original)"));
+            s.step(MatchSpeed, 1);
+            assert_eq!(s.match_speed, 60);
         }
     }
 

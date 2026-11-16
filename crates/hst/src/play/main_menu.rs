@@ -293,6 +293,8 @@ pub struct Settings {
     voice_language: u8,
     /// M175: Settings → Gameplay → Rules (a `rules_choice::RULES` index; 0 the main disc's own).
     rules: u8,
+    /// M176: Settings → Gameplay → Match Speed (60, or 50 for the European original; `match_speed`).
+    match_speed: u32,
     /// Split screen's halves stacked (Horizontal) instead of side by side (`split_view::STACKED`).
     split_stacked: bool,
     /// M172: controllers rumble on hits, hard serves' landings and the ball hitting the player (`play::rumble::ON`).
@@ -370,6 +372,7 @@ impl Default for Settings {
             emote_voices: true,
             voice_language: 0,
             rules: 0,
+            match_speed: 60,
             split_stacked: false,
             match_rumble: false,
             graphics: Graphics::default(),
@@ -474,13 +477,15 @@ impl Settings {
         crate::voices::choose(s.voice_language);
         s.rules = crate::rules_choice::parse_setting(text);
         crate::rules_choice::choose(s.rules);
+        s.match_speed = crate::match_speed::parse_setting(text);
+        crate::match_speed::choose(s.match_speed);
         s
     }
 
     fn text(&self) -> String {
         let mut s = *self;
         let on: String = s.switches().iter().map(|(n, on)| format!("{n} = {}\n", if **on { "on" } else { "off" })).collect();
-        format!("aspect = {}\n", super::widescreen::ASPECTS[self.aspect as usize]) + &on + &format!("online_mods = {}\n", self.online_mods.word()) + &format!("keep_downloads = {}\n", self.keep_downloads.word()) + &self.graphics.text() + &self.volumes.text() + &self.renderer_line() + &crate::render_mode::line(self.software) + &format!("umpire = {}\n", self.umpire) + &format!("menu_size = {}\n", if self.menu_size == 0 { "auto".into() } else { format!("{}", self.menu_size as u32 * 10) }) + &format!("safe_area = {}\n", safe_area_name(self.safe_area).to_lowercase()) + &format!("downloads_at_once = {}\n", if self.downloads == 0 { "auto".into() } else { self.downloads.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.button_icons as usize].1) + &crate::mods_textures::settings_text() + &crate::update::settings_line(self.update_check, self.updates_always) + &crate::voices::setting_line(self.voice_language) + &crate::rules_choice::setting_line(self.rules)
+        format!("aspect = {}\n", super::widescreen::ASPECTS[self.aspect as usize]) + &on + &format!("online_mods = {}\n", self.online_mods.word()) + &format!("keep_downloads = {}\n", self.keep_downloads.word()) + &self.graphics.text() + &self.volumes.text() + &self.renderer_line() + &crate::render_mode::line(self.software) + &format!("umpire = {}\n", self.umpire) + &format!("menu_size = {}\n", if self.menu_size == 0 { "auto".into() } else { format!("{}", self.menu_size as u32 * 10) }) + &format!("safe_area = {}\n", safe_area_name(self.safe_area).to_lowercase()) + &format!("downloads_at_once = {}\n", if self.downloads == 0 { "auto".into() } else { self.downloads.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.button_icons as usize].1) + &crate::mods_textures::settings_text() + &crate::update::settings_line(self.update_check, self.updates_always) + &crate::voices::setting_line(self.voice_language) + &crate::rules_choice::setting_line(self.rules) + &crate::match_speed::setting_line(self.match_speed)
     }
 
     /// B339: how many store installs run at once: the setting, or on Auto 3 on desktop, 2 in a browser, 1 on a
@@ -2201,6 +2206,8 @@ impl Menu {
         if self.no_marks {
             a.push("--no-shot-markers".into());
         }
+        // M176: Settings → Match Speed
+        a.extend(crate::match_speed::flags(crate::match_speed::chosen()));
         a.extend(slot_mods);
         a.extend(self.umpire_mod_flags());
         a.extend(self.court_mod_flags());
@@ -4402,6 +4409,10 @@ mod tests {
         let r = Settings::parse("rules = jp\n");
         assert!(r.rules == 2 && Settings::parse(&r.text()).rules == 2 && Settings::parse("").rules == 0);
         crate::rules_choice::choose(0);
+        // M176: Match Speed (60 Hz by default)
+        let m = Settings::parse("match_speed = 50\n");
+        assert!(m.match_speed == 50 && Settings::parse(&m.text()).match_speed == 50 && Settings::parse("").match_speed == 60);
+        crate::match_speed::choose(60);
         crate::voices::choose(0);
         assert_eq!(Settings::parse("uncapped_fps = off\n").graphics, Graphics { vsync: true, ..d });
         assert_eq!(s.flags()[..1], ["--fps"]);

@@ -658,7 +658,9 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(no_hud::plugin);
     #[cfg(target_arch = "wasm32")]
     app.add_systems(Last, |g: Option<Res<Game>>| crate::web::in_match(g.is_some()));
-    app.insert_resource(Time::<Fixed>::from_hz(60.0))
+    // M176: the match's ticks a second (`--match-hz`: 60, or 50 for the European original)
+    app.insert_resource(crate::match_speed::MatchHz::now());
+    app.insert_resource(crate::match_speed::MatchHz::now().fixed())
         .init_resource::<Pads>()
         .add_systems(PostStartup, setup) // after the court's game-space root exists
         .add_systems(PostUpdate, effects::collapse_hidden.before(bevy::transform::TransformSystems::Propagate))

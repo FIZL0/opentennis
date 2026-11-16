@@ -71,6 +71,8 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
     let mut gfx = graphics::Graphics::default();
     let mut music = false;
     let mut no_marks = false;
+    // M176: the match's ticks a second (Settings → Match Speed, online the host's)
+    let mut match_hz = 60;
     let mut shot_at = 0.5;
     let mut sound = None;
     let mut swap_hands = play::hand_swap::SwapHands::default();
@@ -151,6 +153,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
             }
             "--no-upscale" => upscale = false,
             "--no-shot-markers" => no_marks = true,
+            "--match-hz" => match_hz = a.next().and_then(|r| r.parse().ok()).unwrap_or(match_hz),
             // M98: no HUD in the match (promo screenshots)
             "--no-hud" => play::no_hud::OFF.store(true, std::sync::atomic::Ordering::Relaxed),
             // B505: F10 toggles the HUD only with this
@@ -236,6 +239,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Cli {
     }
     // each match's flags set it afresh (the menu's next match parses its own)
     play::NO_MARKS.store(no_marks, std::sync::atomic::Ordering::Relaxed);
+    match_speed::set_current(match_hz);
     let args = Args { iso, archives, shot, shot_at, radius, ball, court, stage, play, singles, chars, outfits, viewer: viewer_char.map(|c| (c, viewer_motion)), sound, music, umpire, sets, games, pads };
     Cli { args, gfx, upscale, viewer_mod, mod_slot, slot_mods, roster, swap_hands, names, handicaps, offbeat, umpire_mod, court_mod }
 }

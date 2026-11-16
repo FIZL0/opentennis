@@ -216,6 +216,12 @@ pub fn hms(frames: u32) -> [u32; 3] {
     [s / 3600, s % 3600 / 60, s % 60]
 }
 
+/// M176: frames of a match at `hz` ticks a second (the European original's 50) as hours, minutes, seconds.
+pub fn hms_at(frames: u32, hz: u32) -> [u32; 3] {
+    let s = frames / hz.max(1);
+    [s / 3600, s % 3600 / 60, s % 60]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,5 +263,6 @@ mod tests {
         // shares 100+25 and 50+100 over 2 games: 63 and 75, 46 to 54, and the winner never rates below 51
         assert_eq!((t.rows[0][8], t.rows[1][8]), (51.0, 49.0));
         assert_eq!(hms(60 * 3725), [1, 2, 5]);
+        assert_eq!((hms_at(60 * 3725, 60), hms_at(50 * 3725 + 49, 50)), ([1, 2, 5], [1, 2, 5]));
     }
 }
