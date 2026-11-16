@@ -20,7 +20,7 @@ if [ -n "${HST_PCSX2:-}" ]; then
     [ "$(ls "$d" | wc -l)" != "$before" ] || "$T/vpad.py" send "down l3" "down r3" "sleep 120" "up r3" "up l3"
     for _ in $(seq 20); do sleep 0.3; [ "$(ls "$d" | wc -l)" != "$before" ] && break; done
     [ "$(ls "$d" | wc -l)" != "$before" ] || { echo "PCSX2 copy $HST_PCSX2 wrote no screenshot (paused?)" >&2; exit 1; }
-    f=$d/$(ls "$d" | sort -V | tail -1)
+    f=$d/$(ls -t "$d" | sed -n 1p)  # newest: names start with the game title, so a name sort mixes discs
     # PCSX2 writes the PNG after creating the file: wait until its size settles
     for _ in $(seq 30); do s=$(stat -c %s "$f"); sleep 0.3; [ "$s" -gt 0 ] && [ "$s" = "$(stat -c %s "$f")" ] && break; done
     cp "$f" "$out"

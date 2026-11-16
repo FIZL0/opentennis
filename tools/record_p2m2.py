@@ -6,15 +6,17 @@ Writes `frames` samples. It polls the running game (a PCSX2 copy runs at 1x; the
 slowed: NominalScalar 0.5 or 0.25), taking a sample only when two reads in a row are identical, so it is never torn
 mid-frame (a frame that ticks mid-read is skipped and logged).
 Sample = u32 vsync counter + the regions in REGIONS order (fixed size; layout in README of the P0 journal), then
-the live ball *(gm+0x88) and the rally block 0x3165f0 (not in round1.bin, which predates them)."""
+the live ball *(gm+0x88) and the rally block 0x3165f0 (not in round1.bin, which predates them).
+Any release in rec.DISCS (US, European 50 Hz): it reads the running disc's serial and records the same layout from
+that program's addresses."""
 import struct, sys, time, zipfile
 from pine import Pine
-from rec import match_regions
-
-VSYNC, GM_PTR = 0x1d5780, 0x422f80
-regions = match_regions  # the sample layout, shared with tools/play_p2m2.py
+from rec import match_regions, disc
 
 p, out, want = Pine(step=True), open(sys.argv[2], "wb"), int(sys.argv[3])
+d = disc(p)
+VSYNC, GM_PTR = d["vsync"], d["globals"]
+regions = lambda p: match_regions(p, d)  # the sample layout, shared with tools/play_p2m2.py
 if sys.argv[1].isdigit():
     last = p.read32(VSYNC)
     p.load_state(int(sys.argv[1]))
