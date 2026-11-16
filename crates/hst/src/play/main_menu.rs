@@ -71,6 +71,7 @@ mod umpire_mods;
 mod umpire_picker;
 mod court_mods;
 mod court_picker;
+mod disc_text;
 pub(super) mod pause;
 mod plate_emote;
 mod assign;
@@ -2483,15 +2484,9 @@ fn read_sheets(mut commands: Commands, args: Res<Args>, mut images: ResMut<Asset
 fn read_text(mut commands: Commands, args: Res<Args>, mut sheets: ResMut<Sheets>, mut images: ResMut<Assets<Image>>) {
     commands.remove_resource::<Sheets>();
     let mut iso = Iso::open(&args.iso).expect("open iso");
-    let read = |iso: &mut Iso, xb: &str, name: &str| -> Vec<u8> {
-        let arc = iso.read(xb).expect("menu archive on disc");
-        let arc = Archive::parse(&arc).expect("xb archive");
-        let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().replace('\\', "/").ends_with(name)).unwrap_or_else(|| panic!("{name} in {xb}"));
-        arc.read(e).expect("archive bytes")
-    };
     let mut art = std::mem::take(&mut sheets.art);
     let glyphs = super::glyph_sheet::glyphs().map.clone();
-    let msg = messages(&read(&mut iso, "MENU/MENU00B.XB0", "/message0.dat"));
+    let msg = disc_text::messages(&mut iso);
     let (cnf, bin) = (iso.read("SYSTEM.CNF").expect("SYSTEM.CNF"), iso.read("ZZBIN/MENU.BIN").expect("MENU.BIN"));
     let grades = hst_data::exe::Menu::new(&cnf, &bin).expect("supported disc").grades();
     let pc = iso.read("PCDATA/PCDATA.XB").expect("character archive on disc");

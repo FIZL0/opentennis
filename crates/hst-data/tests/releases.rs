@@ -95,9 +95,9 @@ fn japanese_tables_match_the_us_ones_but_for_its_tuning() {
     let (jp_cnf, jp_bin) = (jp.read("SYSTEM.CNF").unwrap(), jp.read("ZZBIN/GAME.BIN").unwrap());
     let (us_game, jp_game) = (Game::new(&us_cnf, &us_bin).unwrap(), Game::new(&jp_cnf, &jp_bin).unwrap());
     assert_eq!((us_game.release(), jp_game.release()), (Release::Us, Release::Japan));
-    // read, not played: its rules differ (M163a1)
+    // both play, the Japanese one by its own rules (M163a1a)
     assert!(us.playable().is_ok());
-    assert!(jp.playable().unwrap_err().to_string().contains("isn't playable yet"));
+    assert!(jp.playable().is_ok());
     let mut wrong = Vec::new();
     for ((k, a), (_, b)) in tables(&us_game).into_iter().zip(tables(&jp_game)) {
         if (a == b) == japan_differs(&k) {
