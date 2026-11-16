@@ -61,6 +61,8 @@ pub(super) enum Opt {
     Rendering,
     /// B118: the on-screen pad buzzes on each press.
     Vibration,
+    /// M175: which release's game a match plays (`rules_choice`).
+    Rules,
     /// B343: the speed-up switch (`Graphics::fewer_shadows`).
     FewerShadows,
     /// B364: the characters' share of triangles (`Graphics::mesh`, `lod.rs`).
@@ -113,7 +115,7 @@ const SOUND: &[Opt] = if cfg!(target_arch = "wasm32") { &[Volume(0), Volume(1), 
 const MODS: &[Opt] = if cfg!(target_arch = "wasm32") { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat] } else { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat, UpdateCheck] };
 /// M167: Gameplay's rows: how a match plays (offline Rules, match rumble go before Vibration), then the on-screen
 /// pad's Vibration (B118, was the Mobile tab's), last since only a touch screen shows it (`gameplay`).
-const GAMEPLAY: &[Opt] = &[Vibration];
+const GAMEPLAY: &[Opt] = &[Rules, Vibration];
 /// Gameplay's rows on this device: Vibration only on a touch screen.
 fn gameplay() -> &'static [Opt] {
     if super::touch_page() { GAMEPLAY } else { &GAMEPLAY[..GAMEPLAY.len() - 1] }
@@ -173,6 +175,7 @@ fn label(o: Opt) -> &'static str {
         Renderer => "Renderer",
         Rendering => "Rendering",
         Vibration => "Vibration",
+        Rules => "Rules",
         UpdateCheck => "Updates",
         FewerShadows => "Fewer Shadows",
         Mesh => "Mesh",
@@ -227,6 +230,7 @@ fn about(o: Opt) -> &'static str {
         Renderer => "Auto: WebGPU when the browser has it, else WebGL2; the one in use shows in brackets, with Hardware (drawn by the graphics card) or Software (drawn by the CPU, much slower: turn on the browser's hardware acceleration). A change asks first: the page reloads into it.",
         Rendering => rendering_about(),
         Vibration => vibration_about(),
+        Rules => "Which release's game a match plays: the US one (Hot Shots Tennis) or the Japanese one (Minna no Tennis), an earlier build with a few rules of its own (no counters or special serves, a mistimed hard toss never strays, a different aim on lobs and smashes). A release shows once its disc is here: the game's own, or another release's disc in the same folder. Online, the lobby always plays its host's rules.",
         UpdateCheck => "Look for a newer version while the game runs. Ask: the main menu asks Update? the first time it finds one. Always: it installs by itself where it can (a phone's installer still asks you to confirm). Never: no looking.",
         FewerShadows => "At Low shadows, only the players, the umpire and what shades the court cast: fewer draws. Off: Low casts as many as High.",
         Advanced => "Switches that trade a little detail for speed on a slow device: the characters' mesh detail, fewer shadows, skipping what's off-screen.",
@@ -319,7 +323,7 @@ const MSAA_NAMES: [&str; 3] = ["Off", "2x", "4x"];
 /// B294: every value `o` can take, in order, as [`Settings::value`] words it (the side panel's choices).
 /// added3: a row with only one choice to show (Voice Language with only the disc's voices): ◀ ▶ leave it be.
 pub(super) fn fixed(o: Opt) -> bool {
-    o == VoiceLanguage && choices(o).len() < 2
+    matches!(o, VoiceLanguage | Rules) && choices(o).len() < 2
 }
 
 fn choices(o: Opt) -> Vec<String> {
@@ -345,6 +349,7 @@ fn choices(o: Opt) -> Vec<String> {
         OnlineMods | KeepDownloads | UpdateCheck => ASK_VALUES.iter().map(|(_, n)| n.to_string()).collect(),
         AtOnce => (0..=super::max_downloads()).map(at_once_name).collect(),
         VoiceLanguage => crate::voices::available().into_iter().map(|l| crate::voices::LANGS[l as usize].name.to_string()).collect(),
+        Rules => crate::rules_choice::available().into_iter().map(|r| crate::rules_choice::name(r).to_string()).collect(),
         Advanced | AddVoices => Vec::new(),
         _ => words(&["Off", "On"]),
     }
@@ -463,6 +468,12 @@ impl Settings {
             Renderer => self.renderer = (self.renderer as isize + d).rem_euclid(RENDERERS.len() as isize) as u8,
             Rendering => self.software = !self.software,
             Vibration => self.vibration = !self.vibration,
+            Rules => {
+                // the main disc's own release saves as the default, so another main disc plays its own
+                let r = cycle(&crate::rules_choice::available(), crate::rules_choice::chosen(), d);
+                self.rules = if r == crate::rules_choice::own() { 0 } else { r };
+                crate::rules_choice::choose(self.rules);
+            }
             // M140: Ask / Always / Never, Never being the older Check for Updates off
             UpdateCheck => {
                 let a = cycle(&ASK_VALUES.map(|(a, _)| a), self.updates(), d);
@@ -546,6 +557,7 @@ impl Settings {
             Renderer => RENDERERS[self.renderer as usize].1.into(),
             Rendering => crate::render_mode::MODES[self.software as usize].1.into(),
             Vibration => on_off(self.vibration),
+            Rules => crate::rules_choice::name(crate::rules_choice::chosen()).into(),
             UpdateCheck => ASK_VALUES.iter().find(|(a, _)| *a == self.updates()).unwrap().1.into(),
             FewerShadows => on_off(g.fewer_shadows),
             Advanced => ">".into(),
@@ -591,6 +603,7 @@ impl Menu {
                     crate::chat::HIDDEN.store(!was.chat, std::sync::atomic::Ordering::Relaxed);
                     crate::audio::EMOTE_VOICES.store(was.emote_voices, std::sync::atomic::Ordering::Relaxed);
                     crate::voices::choose(was.voice_language);
+                    crate::rules_choice::choose(was.rules);
                     out.push(Effect::SaveSettings);
                 }
                 out.push(Effect::Sound(1));
@@ -2146,6 +2159,23 @@ mod tests {
         }
         s.voice_language = 6;
         assert_eq!(s.value(VoiceLanguage), "Japanese");
+    }
+
+    /// M175: Gameplay → Rules shows every device (so the Gameplay tab does), first; with only the main disc's
+    /// release here it is that one alone and ◀ ▶ leave it be (saved as the default).
+    #[test]
+    fn rules_row() {
+        assert_eq!(page(Screen::Gameplay)[0], Rules);
+        assert!(tabs_shown().iter().any(|t| t.1 == Screen::Gameplay));
+        let own = crate::rules_choice::own();
+        let mut s = Settings::default();
+        assert_eq!(s.value(Rules), crate::rules_choice::name(own));
+        if crate::rules_choice::available() == [own] {
+            assert!(fixed(Rules) && !listed(Rules));
+            assert_eq!(choices(Rules), [crate::rules_choice::name(own)]);
+            s.step(Rules, 1);
+            assert_eq!(s.rules, 0);
+        }
     }
 
     /// (settings.txt's `rendering`, which a fresh parse reads back) for the next start.
