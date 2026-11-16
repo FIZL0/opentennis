@@ -51,6 +51,8 @@ pub const KNOWN_PACKS: &[(u64, &str)] = &[
     (0x3010_8488_3532_83da, "SCUS-97610 US 1.00"),
     // the Redump "Minna no Tennis (Japan, Asia)" image, faces blanked
     (0x0d38_064f_5be1_fdd5, "SCPS-15113 Japan 1.00"),
+    // the European image (M170), faces blanked
+    (0x5895_f0a7_9053_fe1a, "SCES-54535 Europe 1.00"),
 ];
 
 /// The release a known pack hash is a copy of (`"SCPS-15113 Japan 1.00"`).
@@ -181,7 +183,8 @@ impl Iso {
         w.write_all(&index)?;
         h.write(&index);
         for (i, n) in names.iter().enumerate() {
-            let data = blank(n, self.read(n)?);
+            // the disc's own bytes (no retimed tables: the pack is the disc, re-read like it)
+            let data = blank(n, self.read_unlogged(n)?);
             w.write_all(&data)?;
             h.write(&data);
             progress(i + 1, names.len());
@@ -247,11 +250,12 @@ impl Iso {
     pub fn read(&mut self, path: &str) -> io::Result<Vec<u8>> {
         let (key, data) = self.read_keyed(path)?;
         crate::uselog::disc(&key, &data);
-        Ok(data)
+        Ok(self.retimed(&key, data))
     }
 
-    /// [`Iso::read`] without noting the file in the asset-use log (`uselog`): for reads that only check the disc
-    /// (the online gameplay digest, `digest`), not draw or play from it.
+    /// [`Iso::read`] without noting the file in the asset-use log (`uselog`) and without retiming (`set_retime`): the
+    /// disc's own bytes, for reads that only check or copy the disc (the online gameplay digest, `digest`; packs), not
+    /// draw or play from it.
     pub fn read_unlogged(&mut self, path: &str) -> io::Result<Vec<u8>> {
         self.read_keyed(path).map(|(_, data)| data)
     }
@@ -303,6 +307,28 @@ impl Iso {
             return self.files.contains_key(boot).then(|| boot.to_string());
         }
         None
+    }
+}
+
+/// Rebuilds a trajectory archive (`TRAJ/…`) of a disc whose tables are timed for another tick rate as it is read
+/// ([`set_retime`]).
+pub type Retime = fn(&mut Iso, &str, Vec<u8>) -> Vec<u8>;
+
+static RETIME: std::sync::OnceLock<Retime> = std::sync::OnceLock::new();
+
+/// From now on [`Iso::read`] passes a trajectory archive of a disc whose release plays on regenerated tables
+/// (`exe::Release::regenerated_shots`, the European disc) through `f`. The game's sim sets it
+/// (`hst_sim::shot::powered::regen::install`), which this crate can't name. [`Iso::read_unlogged`] (the online
+/// gameplay digest) always reads the disc's own bytes.
+pub fn set_retime(f: Retime) {
+    let _ = RETIME.set(f);
+}
+
+impl Iso {
+    fn retimed(&mut self, key: &str, data: Vec<u8>) -> Vec<u8> {
+        let Some(f) = RETIME.get().filter(|_| key.starts_with("TRAJ/")) else { return data };
+        let regenerated = self.read_unlogged("SYSTEM.CNF").ok().and_then(|cnf| crate::exe::Release::of(&cnf).ok()).is_some_and(|r| r.regenerated_shots());
+        if regenerated { f(self, key, data) } else { data }
     }
 }
 

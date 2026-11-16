@@ -1,7 +1,6 @@
 //! Every known release reads the same way (M163a): the Japanese disc's tables come out equal to the US disc's
-//! except where its own tuning differs and its files answer to the US names, though it doesn't play yet (its rules
-//! differ); the European disc is refused.
-//! Needs the US disc and `fixtures/discs/SCPS-15113.iso` (the Japanese one; skipped without it).
+//! except where its own tuning differs and its files answer to the US names; the European disc's come out equal.
+//! Needs the US disc and `fixtures/discs/SCPS-15113.iso` / `SCES-54535.iso` (skipped without them).
 
 use hst_data::exe::{Game, Menu, Release, bank_volumes, court_plates, sound_tables, stereo_tables};
 use hst_data::fixture;
@@ -135,15 +134,42 @@ fn japanese_files_answer_to_the_us_names() {
     assert!(jp.read("NOT/THERE.XB0").is_err());
 }
 
-#[test]
-fn the_european_disc_is_refused() {
+fn europe() -> Option<Iso> {
     if !fixture::path(EUROPE).exists() {
-        return eprintln!("skipped: no {EUROPE}");
+        // not the user's disc: optional even under HST_REQUIRE_DISC
+        eprintln!("skipped: no {EUROPE}");
+        return None;
     }
-    let mut eu = Iso::open(fixture::path(EUROPE)).unwrap();
-    let cnf = eu.read("SYSTEM.CNF").unwrap();
-    let e = Release::of(&cnf).unwrap_err().to_string();
-    assert!(e.contains("50 Hz"), "{e}");
+    Some(Iso::open(fixture::path(EUROPE)).unwrap())
+}
+
+/// The European disc's program data reads as the US disc's, every table but two camera script times: its shot records (151 per-frame amounts
+/// stored ×1.2 for 50 Hz) come back as the US values to the bit, and so do the boot program's tables and the
+/// select's grades. It plays (at 60 Hz on regenerated trajectory tables, offline).
+#[test]
+fn european_tables_read_as_the_us_ones() {
+    let Some(mut eu) = europe() else { return };
+    let Ok(mut us) = fixture::iso() else { return };
+    let (us_cnf, us_bin) = (us.read("SYSTEM.CNF").unwrap(), us.read("ZZBIN/GAME.BIN").unwrap());
+    let (eu_cnf, eu_bin) = (eu.read("SYSTEM.CNF").unwrap(), eu.read("ZZBIN/GAME.BIN").unwrap());
+    let (us_game, eu_game) = (Game::new(&us_cnf, &us_bin).unwrap(), Game::new(&eu_cnf, &eu_bin).unwrap());
+    assert_eq!(eu_game.release(), Release::Europe);
+    assert!(eu_game.release().regenerated_shots() && !us_game.release().regenerated_shots());
+    assert!(eu.playable().is_ok());
+    let bits = |b: &[f32]| b.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+    assert_eq!(bits(&us_game.shot_params().base), bits(&eu_game.shot_params().base));
+    // two camera script times were retuned for 50 Hz (a few hundredths of a second shorter): presentation only, kept
+    let wrong: Vec<String> = tables(&us_game).into_iter().zip(tables(&eu_game)).filter(|((k, a), (_, b))| a != b && k != "camera").map(|((k, _), _)| k).collect();
+    assert!(wrong.is_empty(), "differ: {wrong:?}");
+
+    let (us_elf, eu_elf) = (us.read(Release::Us.boot()).unwrap(), eu.read(Release::Us.boot()).unwrap());
+    assert_eq!(sound_tables(&us_elf).unwrap(), sound_tables(&eu_elf).unwrap());
+    assert_eq!(stereo_tables(&us_elf).unwrap(), stereo_tables(&eu_elf).unwrap());
+    assert_eq!(bank_volumes(&us_elf).unwrap(), bank_volumes(&eu_elf).unwrap());
+    assert_eq!(court_plates(&us_elf).unwrap(), court_plates(&eu_elf).unwrap());
+
+    let (us_menu, eu_menu) = (us.read("ZZBIN/MENU.BIN").unwrap(), eu.read("ZZBIN/MENU.BIN").unwrap());
+    assert_eq!(Menu::new(&us_cnf, &us_menu).unwrap().grades(), Menu::new(&eu_cnf, &eu_menu).unwrap().grades());
 }
 
 /// Imports the Japanese disc into a pack and checks it's a known copy. ~170 MB hashed: slow in a debug build, so
@@ -156,3 +182,4 @@ fn the_japanese_disc_imports() {
     let hash = jp.write_pack_to(&mut std::io::Cursor::new(Vec::new()), |_, _| {}).unwrap();
     assert_eq!(hst_data::iso::release_name(hash), Some("SCPS-15113 Japan 1.00"));
 }
+

@@ -297,8 +297,7 @@ pub fn probe() -> u64 {
     p.0.iter().chain([&solved]).fold(0xcbf2_9ce4_8422_2325u64, |h, &w| (h ^ w as u64).wrapping_mul(0x100_0000_01b3))
 }
 
-#[cfg(test)]
-mod regen;
+pub mod regen;
 
 #[cfg(test)]
 mod tests {

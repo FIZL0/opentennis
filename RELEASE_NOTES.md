@@ -1,7 +1,7 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
 - iPhone/iPad: the game no longer crashes on first launch before a disc image has been added
 - New Voice Language setting on the Sound page: put the European or Japanese disc image in the voices folder beside your settings and the players, umpire and crowd can speak English (Europe), French, Italian, German, Spanish or Japanese; only you hear it and the match plays the same
-- Choosing the European disc now says plainly that it can't be played, instead of calling it a bad copy
+- The European disc (SCES-54535) now plays offline on its own at 60 Hz. Its shots are worked out again for 60 Hz, so they come very close to the original game but aren't exact, and the main menu says so beside the disc name. Online it only meets other European discs
 - Settings → Sound → Add Voices: choose the European or Japanese disc image right in the game to add its voice languages, with progress shown, instead of copying it into a folder and restarting
 - Online, a disc is now checked by whether it plays the same game as the host's, not by being a byte-identical copy: players running from a disc image are checked too, and a disc that plays differently is turned away with a message naming both discs
 - Settings → Controls → Swap: trades the controller's Cross and Circle (A and B) everywhere, so Circle hits topspin and confirms in the menus while Cross slices and goes back; the on-screen button icons follow

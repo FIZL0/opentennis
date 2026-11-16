@@ -252,6 +252,8 @@ const BUILD_ID: &str = concat!(env!("CARGO_PKG_VERSION"), " ", env!("HST_COMMIT"
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn run() -> Result<(), wasm_bindgen::JsValue> {
     handshake::set_build(BUILD_ID);
+    // M170: a 50 Hz disc's shot tables read at 60 Hz
+    hst_sim::shot::regen::install();
     use web::{FILLING, PACK, paste};
     let (bytes, at) = FILLING.with(|f| f.borrow_mut().take()).ok_or("run before pack_begin")?;
     if at != bytes.len() {
@@ -320,6 +322,8 @@ fn main() {
     // M140: a newer release the updater put in the user data folder runs instead (the game's own folder was read-only)
     update::relaunch();
     handshake::set_build(BUILD_ID);
+    // M170: a 50 Hz disc's shot tables read at 60 Hz
+    hst_sim::shot::regen::install();
     #[cfg(target_os = "ios")]
     ios::log_to_documents(&disc::data_dir());
     // B693: debug.txt's switches for the mod heads on iOS, the Metal one before the renderer starts
