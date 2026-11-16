@@ -8,8 +8,10 @@
 //! Controllers keep their slot while connected: unplugging one frees its slot (the other pad stays where it was) and
 //! the next pad plugged in takes the first free slot.
 
+use bevy::input::gamepad::GamepadInput;
 use bevy::prelude::*;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
@@ -63,8 +65,9 @@ enum Input {
     Pad(GamepadButton),
 }
 
+/// The actions' bindings; M164: and whether every pad's ✕ and ○ trade places (`swap_cross_circle` in the file).
 #[derive(Resource, Clone, PartialEq, Debug)]
-pub struct Bindings([Vec<Input>; 14]);
+pub struct Bindings([Vec<Input>; 14], bool);
 
 impl Default for Bindings {
     fn default() -> Self {
@@ -86,7 +89,7 @@ impl Default for Bindings {
             vec![K(C::Digit2)],
             vec![K(C::Digit3)],
             vec![K(C::Digit4)],
-        ])
+        ], false)
     }
 }
 
@@ -144,6 +147,14 @@ impl Bindings {
                 errors.push(format!("not `action = keys`: {line}"));
                 continue;
             };
+            if action.trim() == SWAP_LINE {
+                match names.trim() {
+                    "on" => b.1 = true,
+                    "off" => b.1 = false,
+                    v => errors.push(format!("{SWAP_LINE}: not on or off: {v}")),
+                }
+                continue;
+            }
             let Some(i) = ACTIONS.iter().position(|(_, n)| *n == action.trim()) else {
                 // the free camera's turn keys (gone, B218) and the serve key (gone, B119) in an older file
                 if matches!(action.trim(), "turn_left" | "turn_right" | "serve") {
@@ -173,12 +184,14 @@ impl Bindings {
              # Keys by Bevy KeyCode name (J or KeyJ, 1 or Digit1, Space, ArrowLeft, ShiftLeft, …),\n\
              # pad buttons with a Pad prefix (PadSouth = ✕/A, PadEast = ○/B, PadNorth = △/Y, PadWest, PadLeftTrigger,\n\
              # PadRightTrigger2, PadSelect, PadDPadUp, …). The left stick always moves; the right stick flicked\n\
-             # fully up/down/left/right plays the emotes; camera swaps the hand at character select and, with one player, the match camera.\n",
+             # fully up/down/left/right plays the emotes; camera swaps the hand at character select and, with one player, the match camera.\n\
+             # swap_cross_circle = on: every controller's ✕ and ○ trade places (menus' OK / Back, the shots), the names above stay.\n",
         );
         for (i, (_, name)) in ACTIONS.iter().enumerate() {
             let names: Vec<_> = self.0[i].iter().map(|x| x.name()).collect();
             s += &format!("{name} = {}\n", names.join(" "));
         }
+        s += &format!("{SWAP_LINE} = {}\n", if self.1 { "on" } else { "off" });
         s
     }
 
@@ -201,6 +214,90 @@ impl Bindings {
     pub fn pad_just_pressed(&self, g: &Gamepad, a: Action) -> bool {
         self.of(a).iter().any(|x| matches!(x, Input::Pad(b) if g.just_pressed(*b)))
     }
+}
+
+/// M164: the ✕ / ○ swap's line in `controls.txt`.
+const SWAP_LINE: &str = "swap_cross_circle";
+
+impl Bindings {
+    /// M164: whether every controller's ✕ and ○ trade places (Settings → Controls, off by default).
+    pub fn swapped(&self) -> bool {
+        self.1
+    }
+
+    pub fn set_swapped(&mut self, on: bool) {
+        self.1 = on;
+    }
+}
+
+/// M164: the swap as last applied ([`note_swap`]), for code with no `Bindings` at hand (the legend's art).
+static SWAPPED: AtomicBool = AtomicBool::new(false);
+
+/// M164: whether the controllers' ✕ and ○ are swapped this frame.
+pub fn swapped() -> bool {
+    SWAPPED.load(Ordering::Relaxed)
+}
+
+/// M164: the pads whose ✕ and ○ [`swap_pads`] traded this frame, for [`unswap_pads`] to put back before Bevy reads the
+/// next frame's events into them.
+#[derive(Resource, Default)]
+struct SwappedPads(Vec<Entity>);
+
+/// M164: trade the South and East buttons' states (held, just pressed, just released, and their analog values).
+fn swap_face(g: &mut Gamepad) {
+    use GamepadButton::{East, South};
+    let state = |g: &Gamepad, b| (g.digital().pressed(b), g.digital().just_pressed(b), g.digital().just_released(b), g.analog().get(GamepadInput::Button(b)));
+    let (s, e) = (state(g, South), state(g, East));
+    for (b, (held, down, up, value)) in [(South, e), (East, s)] {
+        let d = g.digital_mut();
+        d.reset(b);
+        if held || down || up {
+            d.press(b);
+        }
+        if !down {
+            d.clear_just_pressed(b);
+        }
+        if !held {
+            d.release(b);
+        }
+        if !up {
+            d.clear_just_released(b);
+        }
+        match value {
+            Some(v) => g.analog_mut().set(GamepadInput::Button(b), v),
+            None => g.analog_mut().remove(GamepadInput::Button(b)),
+        };
+    }
+}
+
+/// M164: before Bevy's input systems, the pads [`swap_pads`] swapped get their own buttons back, so the frame's
+/// button events land on the buttons they name.
+fn unswap_pads(mut swapped: ResMut<SwappedPads>, mut pads: Query<&mut Gamepad>) {
+    for e in swapped.0.drain(..) {
+        if let Ok(mut g) = pads.get_mut(e) {
+            swap_face(&mut g);
+        }
+    }
+}
+
+/// M164: with the swap on, every controller's ✕ (South) and ○ (East) trade places right after Bevy reads them, so
+/// everything after (the menus' OK / Back, the bindings, the shots) sees the swapped button: the match, its replays and
+/// netplay only ever see the logical button. Not the on-screen touch pad, whose buttons say what they do.
+fn swap_pads(bind: Res<Bindings>, mut swapped: ResMut<SwappedPads>, mut pads: Query<(Entity, &mut Gamepad, Option<&Name>)>) {
+    if !bind.1 {
+        return;
+    }
+    for (e, mut g, name) in &mut pads {
+        if !name.is_some_and(|n| super::emote::is_touch(n)) {
+            swap_face(&mut g);
+            swapped.0.push(e);
+        }
+    }
+}
+
+/// M164: [`swapped`] follows the setting.
+fn note_swap(bind: Res<Bindings>) {
+    SWAPPED.store(bind.1, Ordering::Relaxed);
 }
 
 /// Every action's name in `controls.txt`, in order (the rebinding screen's rows).
@@ -386,6 +483,8 @@ impl PadSlots {
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Bindings>().init_resource::<PadSlots>().add_systems(Startup, load);
+    app.init_resource::<SwappedPads>()
+        .add_systems(PreUpdate, (unswap_pads.before(bevy::input::InputSystems), swap_pads.after(bevy::input::InputSystems).before(crate::mode::hush), note_swap.after(bevy::input::InputSystems)));
     app.add_systems(PreUpdate, no_key_repeat.after(bevy::input::InputSystems));
 }
 
@@ -503,6 +602,63 @@ mod tests {
         assert!(!key(&mut app, true));
         assert!(app.world().resource::<ButtonInput<KeyCode>>().pressed(KeyCode::KeyJ));
         assert!(!key(&mut app, true));
+    }
+
+    /// M164: the ✕ / ○ swap: off by default, `swap_cross_circle = on` in the file (round trip, a bad value reported).
+    #[test]
+    fn swap_line_round_trips() {
+        assert!(!Bindings::default().swapped());
+        assert!(Bindings::default().text().contains("swap_cross_circle = off"));
+        let (b, errors) = Bindings::parse("swap_cross_circle = on\n");
+        assert!(b.swapped() && errors.is_empty());
+        assert_eq!(Bindings::parse(&b.text()), (b.clone(), vec![]));
+        let (b, errors) = Bindings::parse("swap_cross_circle = maybe\n");
+        assert!(!b.swapped() && errors.len() == 1);
+    }
+
+    /// M164: with the swap on, a real pad's ✕ (South) reads as ○ (East) and the other way round, held, just pressed and
+    /// just released, across frames with no new events (the swap undone before Bevy's input systems each frame); off, as
+    /// pressed; the on-screen touch pad never swaps.
+    #[test]
+    fn swap_trades_cross_and_circle() {
+        use bevy::input::InputPlugin;
+        use bevy::input::gamepad::{GamepadConnection, GamepadConnectionEvent, RawGamepadButtonChangedEvent, RawGamepadEvent};
+        use GamepadButton::{East, South};
+        let mut app = App::new();
+        app.add_plugins(InputPlugin).init_resource::<SwappedPads>().insert_resource(Bindings::parse("swap_cross_circle = on").0);
+        app.add_systems(PreUpdate, (unswap_pads.before(bevy::input::InputSystems), swap_pads.after(bevy::input::InputSystems)));
+        let connect = |app: &mut App, name: &str| {
+            let e = app.world_mut().spawn_empty().id();
+            app.world_mut().write_message(GamepadConnectionEvent::new(e, GamepadConnection::Connected { name: name.into(), vendor_id: None, product_id: None }));
+            e
+        };
+        let (pad, touch) = (connect(&mut app, "Pad"), connect(&mut app, "Touch controls (iPhone)"));
+        app.update();
+        let state = |app: &App, e: Entity, b| {
+            let g = app.world().get::<Gamepad>(e).unwrap();
+            (g.pressed(b), g.just_pressed(b), g.just_released(b))
+        };
+        let button = |app: &mut App, e: Entity, b, v: f32| {
+            app.world_mut().write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(e, b, v)));
+        };
+        button(&mut app, pad, South, 1.0);
+        button(&mut app, touch, South, 1.0);
+        app.update();
+        assert_eq!((state(&app, pad, East), state(&app, pad, South)), ((true, true, false), (false, false, false)));
+        assert_eq!(app.world().get::<Gamepad>(pad).unwrap().get(East), Some(1.0));
+        assert_eq!(state(&app, touch, South), (true, true, false), "the touch pad isn't swapped");
+        app.update();
+        assert_eq!((state(&app, pad, East), state(&app, pad, South)), ((true, false, false), (false, false, false)), "still held, swapped");
+        button(&mut app, pad, East, 1.0);
+        app.update();
+        assert_eq!((state(&app, pad, East), state(&app, pad, South)), ((true, false, false), (true, true, false)));
+        button(&mut app, pad, South, 0.0);
+        app.update();
+        assert_eq!((state(&app, pad, East), state(&app, pad, South)), ((false, false, true), (true, false, false)));
+        // off: the next frame reads the buttons as they are
+        app.world_mut().resource_mut::<Bindings>().set_swapped(false);
+        app.update();
+        assert_eq!((state(&app, pad, East), state(&app, pad, South)), ((true, false, false), (false, false, false)));
     }
 
     /// B119: no serve binding. ✕ (keyboard J, pad South) latches the topspin press the serve tosses on (press 0 →

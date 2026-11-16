@@ -4,3 +4,4 @@
 - Choosing the Japanese or European disc now says plainly that only the US disc can be played for now, instead of calling it a bad copy
 - Settings → Sound → Add Voices: choose the European or Japanese disc image right in the game to add its voice languages, with progress shown, instead of copying it into a folder and restarting
 - Online, a disc is now checked by whether it plays the same game as the host's, not by being a byte-identical copy: players running from a disc image are checked too, and a disc that plays differently is turned away with a message naming both discs
+- Settings → Controls → Swap: trades the controller's Cross and Circle (A and B) everywhere, so Circle hits topspin and confirms in the menus while Cross slices and goes back; the on-screen button icons follow

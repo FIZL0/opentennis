@@ -874,6 +874,8 @@ enum Effect {
     /// popup when they aren't already.
     AskResetControls,
     ResetControls,
+    /// M164: flip the Controls page's ✕ / ○ swap and save it.
+    SwapCrossCircle,
     Online(online::Fx),
     /// The umpire picker's Preview Voice: umpire, voice program, key (`hst_sim::umpire`'s banks).
     Hear(u8, u8, u8),
@@ -1661,10 +1663,18 @@ impl Menu {
         // B609: ↑↓ walk the table's rows with the banner's Reset over the first (`sel` past the actions: it
         // resets every binding, as a stick on a phone's pad can't be bound back), ←→ the row's two cells
         let n = controls::action_names().count();
-        let mut at = (self.sel + 1) % (n + 1);
+        // M164: the strip holds the Swap pill (`sel` n + 1, left) beside Reset (n): ←→ between them
+        let strip = self.sel >= n;
+        let mut at = if strip { 0 } else { self.sel + 1 };
         step_rows(k, n + 1, &mut at, out);
-        self.sel = (at + n) % (n + 1);
-        if (k.left || k.right) && self.sel < n && self.keys_tab != k.right {
+        self.sel = if at > 0 { at - 1 } else if strip { self.sel } else { n };
+        let pill = if k.left { n + 1 } else { n };
+        if (k.left || k.right) && self.sel >= n && self.sel != pill {
+            self.sel = pill;
+            out.push(Sound(0));
+        } else if k.ok && self.sel == n + 1 {
+            out.extend([SwapCrossCircle, Sound(2)]);
+        } else if (k.left || k.right) && self.sel < n && self.keys_tab != k.right {
             self.keys_tab = k.right;
             out.push(Sound(0));
         } else if k.card || k.ok && self.sel == n {
@@ -3672,6 +3682,13 @@ fn step(
                 Effect::AskResetControls => {
                     if *bind != Bindings::default() {
                         menu.reset_ask = Some(0);
+                    }
+                }
+                Effect::SwapCrossCircle => {
+                    let on = !bind.swapped();
+                    bind.set_swapped(on);
+                    if let Err(e) = bind.save(&args.iso) {
+                        warn!("controls.txt: {e}");
                     }
                 }
                 Effect::ResetControls => {

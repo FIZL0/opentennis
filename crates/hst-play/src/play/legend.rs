@@ -302,8 +302,8 @@ fn button_glyph_of(style: Style, b: GamepadButton) -> Glyph {
     let (ps, sw, xb) = (style == Style::Ps, style == Style::Switch, style == Style::Xbox);
     let pick = |p: &'static str, s: &'static str, x: &'static str| if sw { s } else if xb { x } else { p };
     match b {
-        B::South => Glyph::Face(style, 0),
-        B::East => Glyph::Face(style, 1),
+        B::South => Glyph::Face(style, face(0)),
+        B::East => Glyph::Face(style, face(1)),
         B::West => Glyph::Face(style, 2),
         B::North => Glyph::Face(style, 3),
         B::LeftTrigger => Glyph::Shoulder(pick("L1", "L", "LB")),
@@ -434,13 +434,25 @@ fn note_pads(pads: Query<(Entity, &Gamepad)>, all: Query<&Gamepad>) {
     }
 }
 
+/// M164: face button `i`'s art (0 bottom, 1 right, …) with the Controls page's ✕ / ○ swap: on, the bottom button's
+/// job is the right button's, so its art is the other's.
+fn face(i: u8) -> u8 {
+    if controls::swapped() && i < 2 { 1 - i } else { i }
+}
+
+/// M164: the swap changed since the last frame (the first frame too, when it's on), so the baked art is out of date.
+fn swap_changed(mut was: Local<bool>) -> bool {
+    let now = controls::swapped();
+    std::mem::replace(&mut *was, now) != now
+}
+
 /// B362: each style's ✕ (the keyboard's Enter), for the menus' join hints, and its width / height.
 #[derive(Resource, Default)]
 pub struct Buttons(pub HashMap<Style, (Handle<Image>, f32)>, pub HashMap<(Style, u8), (Handle<Image>, f32)>);
 
 /// `style`'s ✕ (bottom face button; the keyboard's Enter).
 fn ok_glyph(style: Style) -> Glyph {
-    if style == Style::Keys { Glyph::Cap("Enter".into()) } else { Glyph::Face(style, 0) }
+    if style == Style::Keys { Glyph::Cap("Enter".into()) } else { Glyph::Face(style, face(0)) }
 }
 
 /// [`ok_glyph`]'s width / height.
@@ -523,8 +535,8 @@ pub fn glyphs(style: Style, it: &Item) -> Vec<Glyph> {
         Act::Move => vec![Glyph::Dpad([true; 4])],
         Act::UpDown => vec![Glyph::Dpad([true, true, false, false])],
         Act::LeftRight => vec![Glyph::Dpad([false, false, true, true])],
-        Act::Ok | Act::Select => vec![Glyph::Face(style, 0)],
-        Act::Back => vec![Glyph::Face(style, 1)],
+        Act::Ok | Act::Select => vec![Glyph::Face(style, face(0))],
+        Act::Back => vec![Glyph::Face(style, face(1))],
         Act::Page => vec![Glyph::Face(style, 2)],
         Act::Card => vec![Glyph::Face(style, 3)],
         Act::Costume if sw => vec![Glyph::Shoulder("L"), Glyph::Shoulder("R")],
@@ -877,7 +889,7 @@ pub fn draw(
             }
         }
         for it in &g.items {
-            let k = format!("{styles:?} {it:?}");
+            let k = format!("{styles:?} {it:?} {}", controls::swapped());
             if !chips.0.contains_key(&k) {
                 match chip(&styles, it) {
                     Some(p) => want.push((k.clone(), p)),
@@ -928,7 +940,8 @@ pub fn plugin(app: &mut App) {
         .insert_resource(Last::Keys)
         .add_systems(Startup, (setup, bake_buttons))
         .add_systems(PreUpdate, (track, note_pads).after(bevy::input::InputSystems))
-        .add_systems(PostUpdate, draw.before(bevy::ui::UiSystems::Layout));
+        .add_systems(PostUpdate, draw.before(bevy::ui::UiSystems::Layout))
+        .add_systems(Update, bake_buttons.run_if(swap_changed));
 }
 
 #[cfg(test)]
