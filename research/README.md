@@ -115,6 +115,31 @@ and save the state to that slot.
 | 5 | A full CPU-only doubles game (no human input; for ball, AI and camera captures). Court 10. |
 | 8, 9 | Scratch saves for tools. Never overwrite 3–5. |
 
+### The European disc (SCES-54535, 50 Hz)
+
+`HST_ISO=fixtures/discs/SCES-54535.iso tools/pcsx2-hst.sh` boots it; PCSX2 follows the game into PAL (50 vsyncs a
+second, 512 lines). `tools/record_p2m2.py` and `tools/record_anim.py` read the running disc's serial and take the
+European program's addresses from `rec.DISCS` (frame clock, pad manager and rally block 0x14d00 above the US ones,
+match globals 0x14e80 above; struct offsets unchanged), so the samples have the US layout. They were found by
+mapping each US address through M169's function matches (`context/m169/match.tsv`): the same instruction in the
+matched EU function names the EU address. A new address: do the same, then check it live.
+
+The menu route to a CPU-only doubles match (no memory-card save needed; M177):
+- English (✕) → Start → play data 1 (empty) → name entry: Start → "Create a save file?" No → "Exit without
+  saving?" Left, ✕ (Yes) → main menu.
+- Right to Tennis with Everybody → ✕ → Right to Doubles → ✕.
+- Each of the four entrants: Down ×9 to COM → ✕. Then ✕.
+- Characters: ✕ until the confirm screen (a fresh save has only Yelena and Yuki: Yelena/Yuki vs Yuki/Yelena),
+  Start the match. Alpine Heights (grass), umpire Chika, 1 set of 4 games.
+- The menus drop presses that land during a screen change: wait each screen out (screenshot) rather than
+  scripting the route blind.
+
+The states this gave are kept in `fixtures/m169/` (load one by copying it to `SCES-54535 (7B09C4CB).0N.p2s` in the
+copy's `sstates/`): `eu-bot-start.p2s` is saved the frame the match object appears (during the loading screen;
+play starts about 600 frames later), `eu-bot-late.p2s` at 3–3 in the same match; `*_ee.bin` are their RAM images.
+Recordings from them (M177's journal lists frames and gaps): `eu-bot-match.bin` and `eu-bot-late.bin`
+(`record_p2m2.py`, the US `frames_live` layout) and `eu-bot-anim.bin` (`record_anim.py`).
+
 Launch with `tools/pcsx2-hst.sh`, which turns PINE (PCSX2's memory IPC, port 28011) on and boots the disc. On a PCSX2
 copy (`HST_PCSX2=N`) nothing needs setting for per-frame recordings: the copy runs at 1x and the recorders poll it,
 skipping and logging the odd frame that ticks mid-read (`missed frame …`). No lock-step/frame-stepping (it stalled

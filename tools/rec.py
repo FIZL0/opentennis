@@ -88,11 +88,31 @@ MATCH_PLAYER = ((0x1380, 0x200), (0x3c00, 0x400))  # reach/params, positions/con
 MATCH_RALLY = (0x3165f0, 0x50)          # judge inputs, faults, let, tiebreak, deuce/advantage
 
 
-def match_regions(p):
-    """(gm, [(address, size), …]) for one match sample, read through Pine `p`."""
-    gm = p.read32(MATCH_GLOBALS[0])
-    r = [MATCH_PAD, MATCH_GLOBALS, (gm, MATCH_GM), (p.read32(gm + 0x98), MATCH_BALL)]
+def match_regions(p, d=None):
+    """(gm, [(address, size), …]) for one match sample, read through Pine `p`; `d` = disc(p) for another release."""
+    pad, glob, rally = (d["pad"], d["globals"], d["rally"]) if d else (MATCH_PAD[0], MATCH_GLOBALS[0], MATCH_RALLY[0])
+    gm = p.read32(glob)
+    r = [(pad, MATCH_PAD[1]), (glob, MATCH_GLOBALS[1]), (gm, MATCH_GM), (p.read32(gm + 0x98), MATCH_BALL)]
     for k in range(4):
         pl = p.read32(gm + 0xa8 + 4 * k)
         r += [(pl + o, n) for o, n in MATCH_PLAYER]
-    return gm, r + [(p.read32(gm + 0x88), MATCH_BALL), MATCH_RALLY]
+    return gm, r + [(p.read32(gm + 0x88), MATCH_BALL), (rally, MATCH_RALLY[1])]
+
+
+# Where each release keeps the recorders' fixed addresses. The European program (SCES-54535, 50 Hz) is a relinked
+# build: its boot-program data sits 0x14d00 above the US (frame clock, pad manager, rally block) and its match
+# globals 0x14e80 above; every struct offset (match object, players, ball, motion objects) is the US one (M177:
+# found through the M169 function matches, checked live). The Japanese one has its own recorder (record_jp.py).
+DISCS = {
+    "SCUS-97610": dict(vsync=0x1d5780, globals=0x422f80, pad=0x2efb00, rally=0x3165f0, hz=60),
+    "SCES-54535": dict(vsync=0x1ea480, globals=0x437e00, pad=0x304800, rally=0x32b2f0, hz=50),
+}
+
+
+def disc(p):
+    """The running release's addresses (DISCS) by its serial; points pine's frame clock at its counter."""
+    import pine
+    gid = p.game_id()
+    if gid not in DISCS: raise SystemExit(f"no recorder addresses for {gid!r} (have {', '.join(DISCS)})")
+    pine.VSYNC = DISCS[gid]["vsync"]
+    return DISCS[gid]
