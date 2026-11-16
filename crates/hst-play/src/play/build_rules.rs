@@ -2,7 +2,8 @@
 //! the Japanese disc (SCPS-15113) its own earlier build's. Set once at match setup, after the players are loaded
 //! (a mod character's own aim values included); the rest of the match asks `Game::build` where a rule differs.
 //! Settings → Gameplay → Rules (M175, `crate::rules_choice`) can lay another release's disc over the main one, which
-//! then reads as that release here too; online the lobby's host's disc decides (M171).
+//! then reads as that release here too; online the lobby's host's disc decides (M171). A match at 50 Hz
+//! (`hst_base::match_speed::current`, once `FIFTY_HZ_SIM` is on) on the European disc plays its own retimed program.
 
 use super::Game;
 use hst_data::exe::Release;
@@ -12,12 +13,15 @@ use hst_sim::build::Build;
 /// The build of the disc's release (US for anything that isn't the Japanese release).
 pub(super) fn of(iso: &mut Iso) -> Build {
     let release = iso.read("SYSTEM.CNF").ok().and_then(|cnf| Release::of(&cnf).ok());
-    build_of(release)
+    let hz = if hst_base::match_speed::FIFTY_HZ_SIM { hst_base::match_speed::current() } else { 60 };
+    build_at(release, hz)
 }
 
-fn build_of(release: Option<Release>) -> Build {
+/// The build of `release` for a match at `hz`: the European program only at 50 Hz on the European disc.
+fn build_at(release: Option<Release>, hz: u32) -> Build {
     match release {
         Some(Release::Japan) => Build::Japan,
+        Some(Release::Europe) if hz == 50 => Build::Europe,
         _ => Build::Us,
     }
 }
@@ -42,9 +46,17 @@ mod tests {
 
     #[test]
     fn only_the_japanese_release_changes_the_rules() {
-        assert_eq!(build_of(Some(Release::Us)), Build::Us);
-        assert_eq!(build_of(None), Build::Us);
-        assert_eq!(build_of(Some(Release::Japan)), Build::Japan);
+        assert_eq!(build_at(Some(Release::Us), 60), Build::Us);
+        assert_eq!(build_at(None, 60), Build::Us);
+        assert_eq!(build_at(Some(Release::Japan), 60), Build::Japan);
+        assert_eq!(build_at(Some(Release::Europe), 60), Build::Us);
+    }
+
+    #[test]
+    fn the_european_disc_at_50_hz_plays_its_own_program() {
+        assert_eq!(build_at(Some(Release::Europe), 50), Build::Europe);
+        assert_eq!(build_at(Some(Release::Us), 50), Build::Us);
+        assert_eq!(build_at(Some(Release::Japan), 50), Build::Japan);
     }
 }
 

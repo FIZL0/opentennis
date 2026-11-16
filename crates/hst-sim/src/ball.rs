@@ -173,10 +173,15 @@ pub struct Ball {
 impl Ball {
     /// Velocity update for one airborne frame: drag, Magnus, gravity. `dt` is the slow-motion scale (1 normally).
     pub fn accelerate(&mut self, p: &Params, dt: f32) {
+        self.accelerate_in(p, dt, GRAVITY_PER_FRAME);
+    }
+
+    /// `accelerate` with `gravity` per frame² (`crate::build::Build::gravity`: the European program's at 50 Hz).
+    pub fn accelerate_in(&mut self, p: &Params, dt: f32, gravity: f32) {
         // The original's instruction sequence, on PS2 float arithmetic (see `ps2`): every product, sum and
         // accumulator step in the same order, so recorded flights reproduce bit for bit.
         let dt = F(dt);
-        let g = dt * (GRAVITY_PER_FRAME * F(p.gravity));
+        let g = dt * (F(gravity) * F(p.gravity));
         let v = fs(self.vel).map(|c| c * dt);
         let sq = |v: [F; 3]| (F::ZERO + v[1] * v[1] + v[0] * v[0]).madd(v[2], v[2]);
         let s = sq(v).sqrt();
@@ -294,6 +299,9 @@ pub struct Flight {
     /// from the launch's two uniforms (`irregular`). `None` with the rule off; a launch sets it afresh.
     #[serde(default)]
     pub irregular: Option<[f32; 2]>,
+    /// The game build's timing: gravity and the rally timeout (`crate::build::Build`; the US one by default).
+    #[serde(default)]
+    pub build: crate::build::Build,
 }
 
 /// A live ball still in the rally phase this many steps after its launch comes to rest on the next one.
@@ -364,12 +372,12 @@ mod k {
 
 impl Flight {
     pub fn new(ball: Ball, spin_frame: [V4; 4], contact: [V4; 4]) -> Self {
-        Self { ball, frame: 0, bounces: 0, contacts: 0, special_contacts: 0, rolling: false, landing: ([0.0; 3], COURT), spin_frame, contact, slide: 0.0, net: true, lines: None, call: crate::judge::Call::None, line_distance: 0.0, in_play: true, model: placed(&IDENTITY, ball.pos), last: ball.vel, touched: false, at_rest: false, normal: INTO_GROUND, rally: false, irregular: None }
+        Self { ball, frame: 0, bounces: 0, contacts: 0, special_contacts: 0, rolling: false, landing: ([0.0; 3], COURT), spin_frame, contact, slide: 0.0, net: true, lines: None, call: crate::judge::Call::None, line_distance: 0.0, in_play: true, model: placed(&IDENTITY, ball.pos), last: ball.vel, touched: false, at_rest: false, normal: INTO_GROUND, rally: false, irregular: None, build: crate::build::Build::Us }
     }
 
-    /// `next` launched in place of this ball: it keeps this ball's latest contact normal and rally flag.
+    /// `next` launched in place of this ball: it keeps this ball's latest contact normal, rally flag and build.
     pub fn relaunch(&self, next: Flight) -> Flight {
-        Flight { normal: self.normal, rally: self.rally, ..next }
+        Flight { normal: self.normal, rally: self.rally, build: self.build, ..next }
     }
 
     /// A struck ball: as `new`, with the model's rotation set to the shot's spin frame (the hit sets both).
@@ -447,7 +455,7 @@ impl Flight {
         let speed = (v[1] * v[1]).madd(v[0], v[0]).madd(v[2], v[2]).sqrt();
         let slow = (!self.touched || self.rolling) && speed < REST_SPEED && gentle((-F(self.normal[1])).0);
         // the step count before this step's own
-        if slow || self.rally && self.frame - 1 > REST_TIMEOUT {
+        if slow || self.rally && self.frame - 1 > self.build.rest_timeout() {
             self.at_rest = true;
             self.call = judge::rested(self.call);
         }
@@ -500,7 +508,7 @@ impl Flight {
     /// hit, the point on the surface, its material and whether it is the ghost material (passed through, not counted).
     fn advance(&mut self, shot: &Shot, surface: &Surface, mut query: impl FnMut(V4, V4, i32) -> Option<(crate::contact::Hit, [f32; 3], Material, bool)>) {
         let r = shot.params.radius;
-        self.ball.accelerate(&shot.params, 1.0);
+        self.ball.accelerate_in(&shot.params, 1.0, self.build.gravity());
         let v = self.ball.vel;
         let mut d: V4 = [v[0], v[1], v[2], 0.0];
         if self.bounces == 0 {

@@ -82,8 +82,13 @@ impl ServeData {
 /// The ball's launch velocity for a toss from `hand` peaking at `apex` (game space): straight up at
 /// √(2gh), drifting to the apex's x/z by the time it gets there.
 pub fn toss_velocity(hand: [f32; 3], apex: [f32; 3]) -> [f32; 3] {
-    let up = (F(TOSS_GRAVITY) * 2.0 * (F(hand[1]) - apex[1]).abs()).sqrt();
-    let t = up / TOSS_GRAVITY;
+    toss_velocity_in(hand, apex, TOSS_GRAVITY)
+}
+
+/// `toss_velocity` under `gravity` per frame² (`crate::build::Build::toss_gravity`).
+pub fn toss_velocity_in(hand: [f32; 3], apex: [f32; 3], gravity: f32) -> [f32; 3] {
+    let up = (F(gravity) * 2.0 * (F(hand[1]) - apex[1]).abs()).sqrt();
+    let t = up / gravity;
     f32s([(F(apex[0]) - hand[0]) / t, -up, (F(apex[2]) - hand[2]) / t])
 }
 

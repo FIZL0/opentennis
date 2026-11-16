@@ -340,21 +340,24 @@ impl Whiff {
     }
 }
 
-/// After a ground stroke's contact (`id::GROUND_STROKES`) a slow ball (|v|² < `SOFT_SPEED2`) switches the next
+/// After a ground stroke's contact (`id::GROUND_STROKES`) a slow ball (|v|² < `Build::soft_speed2`, 0.2143347 at 60 Hz) switches the next
 /// frame to the soft follow-through, `f_w` or `b_w` (crossfaded in, `SOFT_FOLLOW_HOLD`). `side` is the contact's
 /// side bits (`LEFT_SIDE` the left side), mirrored for left-handers.
 pub fn soft_follow(branch: u8, anim: i32, ball_vel: [f32; 3], side: u32, hand: f32) -> Option<i32> {
+    soft_follow_in(branch, anim, ball_vel, side, hand, crate::build::Build::Us)
+}
+
+/// `soft_follow` with `build`'s slow-ball threshold (`crate::build::Build::soft_speed2`).
+pub fn soft_follow_in(branch: u8, anim: i32, ball_vel: [f32; 3], side: u32, hand: f32, build: crate::build::Build) -> Option<i32> {
     let v = fs(ball_vel);
     let v2 = v[2] * v[2] + v[0] * v[0] + v[1] * v[1];
-    if !(v2 < SOFT_SPEED2 && id::GROUND_STROKES.contains(&anim) && branch == branch::GROUND) {
+    if !(v2 < build.soft_speed2() && id::GROUND_STROKES.contains(&anim) && branch == branch::GROUND) {
         return None;
     }
     let fore = (side & LEFT_SIDE == 0) != (hand < 0.0);
     Some(if fore { id::SOFT_FORE } else { id::SOFT_BACK })
 }
 
-/// The ball's speed² (m/frame) below which a ground stroke follows through softly.
-const SOFT_SPEED2: f32 = 0.2143347;
 /// The contact's side bit for the left side.
 const LEFT_SIDE: u32 = 2;
 /// The follow-through's recovery frames: after a slice (or a weak, slice or underhand serve), else.
