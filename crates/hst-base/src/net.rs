@@ -2947,9 +2947,13 @@ fn picks_ok(p: &[Pick]) -> Result<(), String> {
 async fn join(cx: &Ctx, code: &str, picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>) -> bool {
     // M175: the host's rules, never this app's Rules setting (laid again once out of the lobby)
     let _own = crate::rules_choice::Online::join();
-    let seated = join_as(cx, code, picks, cmds, &Handshake::here()).await;
-    // M171: out of the host's lobby: the disc plays as itself again
-    crate::handshake::end_crossplay();
+    let xp = std::sync::Arc::new(Crossplay::default());
+    let seated = join_with(cx, code, picks, cmds, &Handshake::here(), xp.clone()).await;
+    // M171: out of the host's lobby: the disc plays as itself again (B711: only where this lobby laid the host's
+    // data, so leaving one never takes off what something else laid over the same disc)
+    if xp.involved() {
+        crate::handshake::end_crossplay();
+    }
     seated
 }
 
@@ -3025,6 +3029,11 @@ impl Crossplay {
         wait
     }
 
+    /// B711: whether this session waited for or laid the host's data (so leaving it has that to take off).
+    fn involved(&self) -> bool {
+        self.want.load(std::sync::atomic::Ordering::Relaxed) != 0 || self.done()
+    }
+
     /// Whether the host's data is laid over the disc.
     fn done(&self) -> bool {
         self.done.load(std::sync::atomic::Ordering::Relaxed)
@@ -3051,7 +3060,13 @@ impl Crossplay {
 }
 
 /// `join`, with handshake `hand` (M22's and M142's tests play another build and disc).
-async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>, hand: &Handshake) -> bool {
+#[cfg(test)]
+async fn join_as(cx: &Ctx, code: &str, picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>, hand: &Handshake) -> bool {
+    join_with(cx, code, picks, cmds, hand, Default::default()).await
+}
+
+/// [`join_as`] with the session's crossplay state `xp` kept by the caller (whether it laid the host's data).
+async fn join_with(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>, hand: &Handshake, xp: std::sync::Arc<Crossplay>) -> bool {
     // a home relay first, as when bind waited for it (B224 moved that here; bounded: a dead relay still leaves LAN)
     if let Some(ep) = cx.ep.as_ref().filter(|_| cx.relays) {
         let _ = n0_future::time::timeout(Duration::from_secs(10), ep.online()).await;
@@ -3063,7 +3078,6 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
     let ev = cx.ev.clone();
     let p = cx.ev.clone();
     // M171: the host's data (crossplay) comes on a pack stream too
-    let xp = std::sync::Arc::new(Crossplay::default());
     let (x1, x2, l1, l2, c1) = (xp.clone(), xp.clone(), link.clone(), link.clone(), conn.clone());
     n0_future::task::spawn(read_packs(
         conn.clone(),
