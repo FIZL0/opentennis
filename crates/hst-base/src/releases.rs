@@ -109,6 +109,8 @@ pub fn find(main: &Path, voices: &Path) {
         if d.edition.release().is_none() {
             continue;
         }
+        // M175: its release joins Settings → Gameplay → Rules (Europe's doesn't: it plays the US game)
+        crate::rules_choice::add_sibling(&d.path.to_string_lossy());
         let digest = hst_data::iso::Iso::open(&d.path).map_err(|e| e.to_string()).and_then(|mut iso| hst_data::digest::of(&mut iso));
         match digest {
             Ok(digest) => register(Have { edition: d.edition, path: d.path.clone(), main: false, digest: Some(digest) }),
