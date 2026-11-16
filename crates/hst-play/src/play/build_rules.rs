@@ -1,6 +1,8 @@
 //! The game build a match plays by, from the disc's release (`hst_sim::build::Build`): a US disc plays the US rules,
 //! the Japanese disc (SCPS-15113) its own earlier build's. Set once at match setup, after the players are loaded
 //! (a mod character's own aim values included); the rest of the match asks `Game::build` where a rule differs.
+//! Settings → Gameplay → Rules (M175, `crate::rules_choice`) can lay another release's disc over the main one, which
+//! then reads as that release here too; online the lobby's host's disc decides (M171).
 
 use super::Game;
 use hst_data::exe::Release;

@@ -67,6 +67,8 @@ pub mod ui_census;
 pub mod scene_census;
 pub mod ui_pool;
 pub mod vertex_patch;
+/// M175: Settings → Gameplay → Rules, which release's game a match plays.
+pub mod rules_choice;
 /// added3: Settings → Sound → Voice Language, other releases' voices.
 pub mod voices;
 pub mod weather;

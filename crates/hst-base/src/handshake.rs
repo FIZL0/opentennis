@@ -80,6 +80,8 @@ static SIM: std::sync::Mutex<Option<(String, Option<(u64, hst_data::digest::Mani
 pub fn set_disc(path: &str) {
     set_pack(hst_data::iso::Iso::open(path).ok().and_then(|i| i.pack_hash));
     *DISC.lock().unwrap() = Some(path.to_string());
+    // M175: the Rules setting's other release over this disc, where one is chosen
+    crate::rules_choice::apply();
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(sim);
 }
@@ -192,7 +194,8 @@ pub fn rules_differ(host: &str, own: &str) -> Vec<&'static str> {
 /// match (`hst_data::crossplay::Patch`, encoded for the wire); `None` when it can't be read.
 pub fn patch_for(peer: &hst_data::digest::Manifest) -> Option<Vec<u8>> {
     let path = disc()?;
-    let mut iso = hst_data::iso::Iso::open_own(&path).ok()?;
+    // M175: the Rules choice's other release where it is laid over the disc (what this host's lobby plays)
+    let mut iso = if crate::rules_choice::laid() { hst_data::iso::Iso::open(&path) } else { hst_data::iso::Iso::open_own(&path) }.ok()?;
     let p = hst_data::crossplay::patch_for(|f| iso.read_unlogged(f).ok(), peer).map_err(|e| eprintln!("hst: no crossplay data: {e}")).ok()?;
     Some(p.encode())
 }

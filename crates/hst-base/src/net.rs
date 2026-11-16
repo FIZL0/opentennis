@@ -1783,8 +1783,10 @@ fn refuse(link: &Link, conn: Conn, why: String) {
 }
 
 async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) {
+    // M175: the lobby plays the Rules choice (held till it ends)
+    let _rules = crate::rules_choice::Online::host();
     // M171: the lobby plays this disc's rules; a guest on another disc gets its data for what differs
-    (room.rules, room.sim) = (crate::handshake::rules().into(), crate::handshake::sim());
+    (room.rules, room.sim) = crate::rules_choice::lobby();
     room.names.insert("host".into(), cx.name.clone());
     room.courts.insert("host".into(), cx.courts.clone());
     room.devices.insert("host".into(), *cx.device.lock().unwrap());
@@ -2921,6 +2923,8 @@ fn picks_ok(p: &[Pick]) -> Result<(), String> {
 
 /// Join by code; true once seated (the lobby then runs until it starts or someone leaves).
 async fn join(cx: &Ctx, code: &str, picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>) -> bool {
+    // M175: the host's rules, never this app's Rules setting (laid again once out of the lobby)
+    let _own = crate::rules_choice::Online::join();
     let seated = join_as(cx, code, picks, cmds, &Handshake::here()).await;
     // M171: out of the host's lobby: the disc plays as itself again
     crate::handshake::end_crossplay();
