@@ -51,7 +51,7 @@ index out of bounds: the len is 0 but the index is 0"
 
 ### Follow-ups
 
-- [ ] **M176** (follow-up, normal) **Crossplay rejoin** (from M171): a guest on another release's disc that drops out of a crossplay match is refused on rejoining (`net.rs` host rejoin: the Start would beat the host's data). Send the host's data first and hold the guest's Start until it's verified (`Crossplay` in net.rs, `handshake::take_patch`), then let it rejoin; prove with a US↔JP rejoin in `recover.rs`'s tests.
+- [ ] **M178** (follow-up, normal) **Crossplay rejoin** (from M171): a guest on another release's disc that drops out of a crossplay match is refused on rejoining (`net.rs` host rejoin: the Start would beat the host's data). Send the host's data first and hold the guest's Start until it's verified (`Crossplay` in net.rs, `handshake::take_patch`), then let it rejoin; prove with a US↔JP rejoin in `recover.rs`'s tests.
 
 
 
