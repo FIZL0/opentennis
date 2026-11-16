@@ -832,8 +832,6 @@ dependencies = [
 [[package]]
 name = "bevy_ecs"
 version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a350b2e4c2e47f7903d688affb8a723b31bca63af9789f1da88703f1ba04e354"
 dependencies = [
  "arrayvec",
  "bevy_ecs_macros",
