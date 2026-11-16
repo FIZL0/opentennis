@@ -335,9 +335,12 @@ fn japanese_serves_grade_with_the_rally_table() {
 /// time a CPU's reaction wait is drawn, `AiParams::reaction` over the AIParam row the app parses from the Japanese disc,
 /// fed the recorded generator, gives the recorded wait in one draw, with the Japanese rules (no lob or special-serve
 /// half). The draw sits at the same place for an incoming lob as for any other shot: the lob draws nothing more.
+/// A serve's return is replayed whole from the AI record (seen shots, recorded timing errors): timing errors,
+/// shot-choice picks, reaction and guess (ヤマ張り) must use exactly the frame's draws and give the recorded wait,
+/// which a guess replaces with its move frames, and the recorded guess.
 #[test]
 fn japanese_cpu_reactions() {
-    use hst_sim::ai::{AiParams, RECORD_BYTES, Reacting, Seen, Timing};
+    use hst_sim::ai::{AiParams, Guess, RECORD_BYTES, Reacting, Seen, Timing};
     use hst_sim::build::Build;
     use hst_sim::rng::Mt;
     use hst_sim::shot::branch;
@@ -375,6 +378,7 @@ fn japanese_cpu_reactions() {
         })
         .collect();
     let (mut seen, mut lobs, mut us_differs, mut fast, mut odd) = ([0usize; 4], 0, 0, 0, vec![]);
+    let mut guesses = 0;
     for w in frames.windows(2) {
         let (prev, f) = (w[0], w[1]);
         let mut ai_rng = mt(prev);
@@ -392,13 +396,24 @@ fn japanese_cpu_reactions() {
             // the AI's far/near bases are the row's singles ones
             assert_eq!((word(f, ai_at(p) + 0x20), word(f, ai_at(p) + 0x24)), (a.react_singles_base, a.react_singles_net), "{at}");
             let (kind, shot) = (word(f, ai_at(p) + 0x124), word(f, ai_at(p) + 0x128));
+            let tick = (p == 1) as i32;
+            if kind == branch::SERVE as i32 {
+                // the receiver's draws end the frame's, or player 1's 15 follow them when player 0 receives
+                let end = if p == 0 { n - 15 } else { n };
+                match serve_return(a, f, ai_at(p), mt(prev), end) {
+                    Some((want, guess)) if want == wait + tick && f[ai_at(p) + 0x23f] == guess.map_or(0, |g| 1 + (g == Guess::Other) as u8) => {
+                        guesses += guess.is_some() as usize;
+                        seen[0] += 1;
+                    }
+                    _ => odd.push(format!("{at}: serve return, wait {wait}, guess byte {}", f[ai_at(p) + 0x23f])),
+                }
+                continue;
+            }
             let lob = (branch::GROUND as i32..=branch::DIVE as i32).contains(&kind) && shot == hst_sim::shot::kind::LOB;
             // where the draw falls in the frame: last in the receiver's own draws, which player 1's 15 follow when
-            // player 0 receives (it updates first); on a serve's return the count of returns may follow it (one
-            // more). Player 1's wait has already counted down once by the end of the frame
-            let back = if p == 0 { 16 } else { 1 };
-            let backs: &[usize] = if kind == branch::SERVE as i32 { &[back, back + 1] } else { &[back] };
-            let tick = (p == 1) as i32;
+            // player 0 receives (it updates first). Player 1's wait has already counted down once by the end of the
+            // frame
+            let backs: &[usize] = if p == 0 { &[16] } else { &[1] };
             // the wait and the draws it took
             let answer = |back: usize, fast_ball: i32, near_net: bool, build: Build| {
                 let mut it = draws[n - back..].iter().copied().chain(std::iter::repeat(0));
@@ -428,11 +443,47 @@ fn japanese_cpu_reactions() {
             }
         }
     }
-    eprintln!("{} frames: reactions to serves/ground/volley-dive/smash {seen:?} ({fast} fast balls), {lobs} lobs, the US rule misses {us_differs}", frames.len());
-    // one serve return's wait (7 frames, below any base) is set by something other than this draw: M163a1a1a
-    let known = ["vsync 44645 player 1: wait 7, kind 0/1"];
-    odd.retain(|o| !known.contains(&o.as_str()));
+    eprintln!(
+        "{} frames: reactions to serves/ground/volley-dive/smash {seen:?} ({fast} fast balls, {guesses} serve guesses), {lobs} lobs, the US rule misses {us_differs}",
+        frames.len()
+    );
     assert!(odd.is_empty(), "{} reactions no draw gives:\n{}", odd.len(), odd.join("\n"));
-    assert!(lobs >= 20 && seen.iter().sum::<usize>() >= 200, "too few reactions");
+    assert!(lobs >= 20 && seen.iter().sum::<usize>() >= 200 && guesses >= 1, "too few reactions");
     assert_eq!(us_differs, lobs, "the US lob half should take a draw more on every lob");
+}
+
+/// A recorded serve's return replayed through the port from the receiver's AI record (at `ai` in frame `f`; the
+/// Japanese record is the US one 0x10 lower from the seen shots on): the timing draw whose errors are the recorded
+/// ones, starting anywhere in the frame's draws on generator `g`, then the picks, the reaction and the guess, which
+/// must use the draws up to `end` exactly. The frames it waits (a guess's move frames in place of the reaction) and
+/// the guess.
+fn serve_return(a: &hst_sim::ai::AiParams, f: &[u8], ai: usize, mut g: hst_sim::rng::Mt, end: usize) -> Option<(i32, Option<hst_sim::ai::Guess>)> {
+    use hst_sim::ai::{Reacting, Seen, Shots};
+    let word = |o: usize| i32::from_le_bytes(f[ai + o..ai + o + 4].try_into().unwrap());
+    let fl = |o: usize| f32::from_bits(word(o) as u32);
+    let seen = |r: usize| Seen { kind: word(r + 4), vel: [fl(r + 0x30), fl(r + 0x34), fl(r + 0x38)] };
+    let shots = Shots {
+        last: seen(0x120),
+        before: (word(0x160) >= 0).then(|| seen(0x160)),
+        serve_before: (word(0x1e0) >= 0).then(|| seen(0x1e0).vel),
+    };
+    let errs = [0x224, 0x228, 0x22c, 0x230].map(word);
+    let draws: Vec<u32> = (0..end + 64).map(|_| g.next()).collect();
+    (0..end).find_map(|j| {
+        let mut it = draws[j..].iter().copied();
+        let mut used = j;
+        let mut roll = || {
+            used += 1;
+            it.next().unwrap()
+        };
+        let t = a.timing(Some(&shots), true, f[ai + 0x220] != 0, false, &mut roll);
+        if [t.stroke, t.volley, t.smash, t.serve] != errs {
+            return None;
+        }
+        a.picks(false, &mut roll);
+        // a receiver stands at its baseline
+        let reaction = a.reaction(&t, &shots.last, Reacting::default(), &mut roll);
+        let guess = a.guess(&t, true, true, &mut roll);
+        (used == end).then(|| (guess.map_or(reaction, |_| a.guess[1]), guess))
+    })
 }
