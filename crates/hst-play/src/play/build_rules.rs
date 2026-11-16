@@ -141,3 +141,65 @@ mod europe {
         assert!(serves >= 2 && most >= 3, "{serves} serves, longest rally {most} shots");
     }
 }
+
+/// M174: the European disc with the US disc lent to it (`hst_data::crossplay::lend`, a player with both discs) plays
+/// the US game exactly: a bot match on it and one on the US disc run tick for tick to the same state hash (players,
+/// ball, score, the match's random generators, motions). Skipped without `fixtures/discs/SCES-54535.iso` even under
+/// `HST_REQUIRE_DISC` (not the user's disc). ~4 s.
+#[cfg(test)]
+mod europe_lent {
+    use super::super::*;
+    use crate::{Args, GameSpace};
+    use hst_sim::build::Build;
+
+    fn bot_match(iso: &std::path::Path) -> App {
+        crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+        app.insert_resource(Args { iso: iso.to_string_lossy().into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 3, stage: None, play: true, singles: true, chars: vec![0, 13], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None });
+        app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
+        app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
+        app.add_systems(Startup, setup);
+        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, played_out, held_ball).chain());
+        app.update();
+        app
+    }
+
+    #[test]
+    fn a_bot_match_on_the_european_disc_with_the_us_disc_lent_plays_the_us_match() {
+        let eu = hst_data::fixture::path("fixtures/discs/SCES-54535.iso");
+        if !eu.exists() {
+            // not the user's disc: skipped even under HST_REQUIRE_DISC
+            return eprintln!("skipped: no fixtures/discs/SCES-54535.iso");
+        }
+        if !hst_data::fixture::has_iso() {
+            return;
+        }
+        let us = hst_data::fixture::path(hst_data::fixture::ISO);
+        // a link of its own, so the other tests read the European disc alone
+        let link = std::env::temp_dir().join(format!("hst-lent-match-{}.iso", std::process::id()));
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(eu.canonicalize().unwrap(), &link).unwrap();
+        struct Gone(std::path::PathBuf);
+        impl Drop for Gone {
+            fn drop(&mut self) {
+                hst_data::crossplay::unlend(&self.0);
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _gone = Gone(link.clone());
+        hst_data::crossplay::lend(&link, &us).unwrap();
+        let (mut a, mut b) = (bot_match(&us), bot_match(&link));
+        assert_eq!(b.world().resource::<Game>().build, Build::Us);
+        let mut shots = 0;
+        for tick in 0..60 * 30 {
+            a.world_mut().run_schedule(FixedUpdate);
+            b.world_mut().run_schedule(FixedUpdate);
+            let (ha, hb) = (snapshot::state_hash(a.world_mut()), snapshot::state_hash(b.world_mut()));
+            assert_eq!(ha, hb, "tick {tick}: the European disc's match drifted from the US one");
+            shots = shots.max(a.world().resource::<Game>().shots);
+        }
+        assert!(shots >= 3, "longest rally {shots} shots");
+    }
+}

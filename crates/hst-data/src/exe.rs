@@ -129,7 +129,9 @@ impl Release {
     /// Whether a match can be played from it. All three play: the Japanese one by its own earlier build's rules
     /// (`hst_sim::build`, task M163a1), checked against a bot match on that disc (M163a1a); the European one at 60 Hz
     /// on regenerated trajectory tables ([`Release::regenerated_shots`]: close, not exact; online its digest meets
-    /// only other European discs). An `Err` names why a release can't play; none do today.
+    /// only other European discs), or exactly as the US game when the player's US disc lends it its data
+    /// (`crossplay::lend`, M174: the disc then reads as the US release). An `Err` names why a release can't play;
+    /// none do today.
     pub fn playable(self) -> Result<(), Error> {
         match self {
             Release::Us | Release::Japan | Release::Europe => Ok(()),

@@ -84,6 +84,16 @@ pub fn set_disc(path: &str) {
     std::thread::spawn(sim);
 }
 
+/// M174: what was worked out of this app's disc (its digest and manifest, its rules) is worked out again: another
+/// release's data was lent to it (`hst_data::crossplay::lend`), so it plays that release's game now.
+pub fn forget_disc_data() {
+    *SIM.lock().unwrap() = None;
+    RULES_AGAIN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Bumped by [`forget_disc_data`]: `rules` reads the disc again.
+static RULES_AGAIN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// M178's test: this app's disc's path, its pack hash left as it is (other tests in the binary stamp their own).
 #[cfg(test)]
 pub(crate) fn set_disc_path(path: &str) {
@@ -138,15 +148,17 @@ pub fn rules_of(system_cnf: &[u8]) -> &'static str {
 /// This app's disc's rules (`rules_of`), read off the disc itself; empty without a disc.
 pub fn rules() -> &'static str {
     let Some(path) = disc() else { return "" };
-    static RULES: std::sync::Mutex<Option<(String, &'static str)>> = std::sync::Mutex::new(None);
+    static RULES: std::sync::Mutex<Option<(String, u32, &'static str)>> = std::sync::Mutex::new(None);
     let mut c = RULES.lock().unwrap();
-    if let Some((p, r)) = c.as_ref()
+    let again = RULES_AGAIN.load(std::sync::atomic::Ordering::Relaxed);
+    if let Some((p, n, r)) = c.as_ref()
         && *p == path
+        && *n == again
     {
         return r;
     }
     let r = hst_data::iso::Iso::open_own(&path).ok().and_then(|mut i| i.read_unlogged("SYSTEM.CNF").ok()).map_or("", |c| rules_of(&c));
-    *c = Some((path, r));
+    *c = Some((path, again, r));
     r
 }
 

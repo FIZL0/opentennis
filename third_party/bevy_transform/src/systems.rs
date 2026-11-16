@@ -486,6 +486,7 @@ mod serial {
 /// Parallel hierarchy traversal with a batched work sharing scheduler. Often 2-5 times faster than
 /// the serial version.
 #[cfg(feature = "multi_threaded")]
+#[allow(dead_code)] // HST (P139): kept for reference, never scheduled
 mod parallel {
     use crate::prelude::*;
     // TODO: this implementation could be used in no_std if there are equivalents of these.

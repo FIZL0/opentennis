@@ -110,11 +110,34 @@ fn checked<T>(r: io::Result<T>, p: &Path) -> io::Result<T> {
     r
 }
 
-/// The user's disc.
+/// The user's disc. Under `HST_DISC_EU=1` (M174) the European disc instead (`fixtures/discs/SCES-54535.iso`, read
+/// through a link of its own) with the US disc's gameplay data lent to it (`crossplay::lend`), as a player with both
+/// discs plays it: every test that reads the disc through here then checks the European disc plays the US game
+/// exactly (`HST_DISC_EU=1 tools/check.sh -p hst-sim`).
 #[track_caller]
 pub fn iso() -> io::Result<Iso> {
     let p = path(ISO);
+    if std::env::var_os("HST_DISC_EU").is_some_and(|v| !v.is_empty() && v != "0") && p.exists() {
+        return Iso::open(europe_lent(&p));
+    }
     checked(Iso::open(&p), &p)
+}
+
+/// `HST_DISC_EU`'s disc: a link to the European disc with the US disc `us` lent to it, made once per test binary.
+fn europe_lent(us: &Path) -> &'static Path {
+    static LINK: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    LINK.get_or_init(|| {
+        let eu = path("fixtures/discs/SCES-54535.iso");
+        assert!(eu.exists(), "HST_DISC_EU: no {}", eu.display());
+        let link = std::env::temp_dir().join(format!("hst-disc-eu-{}.iso", std::process::id()));
+        let _ = std::fs::remove_file(&link);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(eu.canonicalize().unwrap(), &link).unwrap();
+        #[cfg(not(unix))]
+        std::fs::hard_link(&eu, &link).unwrap();
+        crate::crossplay::lend(&link, us).unwrap();
+        link
+    })
 }
 
 /// Whether the user's disc is there (skip/fail as above when it isn't), for a test that only needs [`ISO_PATH`].

@@ -37,6 +37,9 @@ pub struct Iso {
     pub pack_hash: Option<u64>,
     /// M171: a lobby host's gameplay data read over this disc (`crossplay::install`), taken at `open`.
     overlay: Option<Arc<crate::crossplay::Overlay>>,
+    /// M174: another release's gameplay data this player has, read under the disc's own (`crossplay::lend`, the US
+    /// disc's under the European one), taken at `open`; under a lobby host's data, which goes first.
+    lent: Option<Arc<crate::crossplay::Overlay>>,
 }
 
 /// Pack layout: magic, u64 hash, u32 count, per file (u16 name length, name, u64 offset, u32 size), then the data.
@@ -106,16 +109,28 @@ impl Iso {
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         let mounted = MOUNTS.lock().unwrap().get(path.as_ref()).cloned();
         let overlay = crate::crossplay::overlay(path.as_ref());
+        let lent = crate::crossplay::lent_overlay(path.as_ref());
         let mut iso = match mounted {
             Some(bytes) => Self::from_source(Box::new(io::Cursor::new(bytes))),
             None => Self::from_source(Box::new(File::open(path)?)),
         }?;
         iso.overlay = overlay;
+        iso.lent = lent;
+        Ok(iso)
+    }
+
+    /// [`Iso::open`] of the disc's own files only: neither a lobby host's data nor another release's data lent to it
+    /// (`crossplay::lend`) read over them.
+    pub fn open_bare(path: impl AsRef<Path>) -> io::Result<Self> {
+        let mut iso = Self::open(path)?;
+        iso.overlay = None;
+        iso.lent = None;
         Ok(iso)
     }
 
     /// [`Iso::open`] of the disc itself, without a lobby host's data over it (`crossplay::install`): what the disc
-    /// itself plays (its own gameplay digest, its own rules).
+    /// itself plays (its own gameplay digest, its own rules; with another release's data lent to it, `crossplay::lend`,
+    /// that data's).
     pub fn open_own(path: impl AsRef<Path>) -> io::Result<Self> {
         let mut iso = Self::open(path)?;
         iso.overlay = None;
@@ -124,7 +139,7 @@ impl Iso {
 
     /// An ISO image or a pack read through any `Source`.
     pub fn from_source(file: Box<dyn Source>) -> io::Result<Self> {
-        let mut iso = Self { file, files: BTreeMap::new(), pack_hash: None, overlay: None };
+        let mut iso = Self { file, files: BTreeMap::new(), pack_hash: None, overlay: None, lent: None };
         if iso.read_at(0, 8).ok().as_deref() == Some(PACK_MAGIC) {
             iso.read_index()?;
             return Ok(iso);
@@ -277,11 +292,29 @@ impl Iso {
     fn read_keyed(&mut self, path: &str) -> io::Result<(String, Vec<u8>)> {
         let key = path.replace('\\', "/").trim_start_matches('/').to_ascii_uppercase();
         if let Some(o) = self.overlay.clone().filter(|o| o.covers(&key)) {
-            let own = self.read_own(&key).ok().map(|(_, d)| d);
+            let own = self.read_lent(&key).ok().map(|(_, d)| d);
             let data = o.read(&key, own).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("{path} not on the host's disc")))?;
             return Ok((key, data));
         }
-        self.read_own(&key)
+        self.read_lent(&key)
+    }
+
+    /// File `key` as this player's discs give it: another release's data lent to this disc (`crossplay::lend`) read
+    /// over the disc's own files.
+    fn read_lent(&mut self, key: &str) -> io::Result<(String, Vec<u8>)> {
+        if let Some(o) = self.lent.clone().filter(|o| o.covers(key)) {
+            let own = self.read_own(key).ok().map(|(_, d)| d);
+            let data = o.read(key, own).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("{key} not on the lending disc")))?;
+            return Ok((key.to_string(), data));
+        }
+        self.read_own(key)
+    }
+
+    /// File `path` off this disc itself, whatever is read over it (a lobby host's data, another release's lent):
+    /// what the disc is (its own `SYSTEM.CNF`, its own programs).
+    pub fn read_disc(&mut self, path: &str) -> io::Result<Vec<u8>> {
+        let key = path.replace('\\', "/").trim_start_matches('/').to_ascii_uppercase();
+        self.read_own(&key).map(|(_, d)| d)
     }
 
     /// File `key` (upper case, `/`) off this disc itself, under its own name or an alias.
@@ -327,7 +360,8 @@ impl Iso {
             return self.files.contains_key(&bare).then_some(bare);
         }
         if key == crate::exe::Release::Us.boot() {
-            let cnf = self.read("SYSTEM.CNF").ok()?;
+            // the disc's own boot line: a `SYSTEM.CNF` read over it (a lobby host's, a lent one) names another's program
+            let cnf = self.read_own("SYSTEM.CNF").ok()?.1;
             let boot = crate::exe::Release::of(&cnf).ok()?.boot();
             return self.files.contains_key(boot).then(|| boot.to_string());
         }

@@ -11,17 +11,28 @@ static SERIAL: std::sync::RwLock<String> = std::sync::RwLock::new(String::new())
 /// The serial of the disc the menus last read ([`messages`]); the US one before any.
 pub(in crate::play) fn serial() -> String {
     let s = SERIAL.read().map(|s| s.clone()).unwrap_or_default();
-    if s.is_empty() { "SCUS-97610".into() } else { s }
+    if s.is_empty() {
+        return "SCUS-97610".into();
+    }
+    match s.strip_suffix(CLOSE) {
+        // M174: a US disc beside it lends it the US game's data (found after the menus read their text)
+        Some(serial) if hst_data::crossplay::any_lent() => format!("{serial} (60 Hz: the US game, from your US disc)"),
+        _ => s,
+    }
 }
+
+/// M170: the header's note on a disc that plays its 60 Hz shot tables off our own solver.
+const CLOSE: &str = " (60 Hz: close, not the original)";
 
 /// The menu archive's text table, or [`fallback`] when the disc has none.
 pub(in crate::play) fn messages(iso: &mut Iso) -> Vec<String> {
-    let release = iso.read("SYSTEM.CNF").ok().and_then(|cnf| hst_data::exe::Release::of(&cnf).ok());
+    // the disc's own release, not one whose data is read over it (M174: the US disc's lent to the European one)
+    let release = iso.read_disc("SYSTEM.CNF").ok().and_then(|cnf| hst_data::exe::Release::of(&cnf).ok());
     if let (Some(r), Ok(mut s)) = (release, SERIAL.write()) {
         *s = r.name().split(' ').next().unwrap_or_default().to_string();
         if r.regenerated_shots() {
             // M170: its 60 Hz shot tables are our own solver's, close to the original but not it
-            s.push_str(" (60 Hz: close, not the original)");
+            s.push_str(CLOSE);
         }
     }
     let table = iso.read("MENU/MENU00B.XB0").ok().and_then(|data| {

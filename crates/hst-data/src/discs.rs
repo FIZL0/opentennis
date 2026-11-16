@@ -64,12 +64,13 @@ impl Edition {
     /// remaster reads are where it reads them). The European overlay is only checked to be an overlay: the remaster
     /// reads none of its tables yet.
     pub fn of(iso: &mut Iso) -> Option<Edition> {
-        let cnf = iso.read_unlogged("SYSTEM.CNF").ok()?;
+        // the disc's own files, not another release's read over them (`crossplay::lend`, a lobby host's)
+        let cnf = iso.read_disc("SYSTEM.CNF").ok()?;
         let edition = Edition::of_cnf(&cnf)?;
         if !iso.files.contains_key(edition.boot()) {
             return None;
         }
-        let bin = iso.read_unlogged("ZZBIN/GAME.BIN").ok()?;
+        let bin = iso.read_disc("ZZBIN/GAME.BIN").ok()?;
         let ok = match edition.release() {
             Some(_) => Game::new(&cnf, &bin).is_ok(),
             None => bin.get(..4) == Some(b"MWo3"),

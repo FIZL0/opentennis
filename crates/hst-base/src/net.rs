@@ -4786,7 +4786,7 @@ mod tests {
             until(&gev, |e| matches!(e, Event::Start(..))).await;
             // it drops out; the new process's disc plays as itself
             hcmd.send(Cmd::Send(Msg::Away { who: vec![g1.clone()], left: 60, ask: false })).unwrap();
-            assert!(crossplay::remove(&link));
+            crossplay::remove(&link); // T24: another net test's end_crossplay may have taken it off already
             // the rejoiner: the host's data first, then the Start, then the state the host sends right behind it
             let (rcx, rev, g2) = cx(Some(1)).await;
             let (_rcmd, mut rrx) = amp::unbounded_channel();
@@ -4804,7 +4804,7 @@ mod tests {
             until(&rev, |e| matches!(e, Event::Match(_, Msg::State { tick: 7, .. }))).await;
             hcmd.send(Cmd::Leave).unwrap();
         });
-        assert!(crossplay::remove(&link));
+        crossplay::remove(&link); // T24: as above
         let _ = std::fs::remove_file(&link);
         let _ = std::fs::remove_dir(&dir);
     }

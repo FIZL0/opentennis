@@ -14,3 +14,4 @@
 - The game uses far less CPU during matches, so phones and laptops run cooler and the battery lasts longer
 - Keep the European or Japanese disc image in the same folder as your game disc (any file name) and the game finds it at start and adds its voice languages by itself; on phones and tablets, put it in the game's folder beside your disc. With several disc images there and no imported disc yet, phones now start from the US one
 - Online, a player on a different disc from the host's (US or Japanese) who drops out of a match can now rejoin it: the host's game data is sent again and the match picks up once it's in
+- The European disc now plays exactly like the US game when your US disc image is in the same folder (any file name): the game reads the US disc's match data and keeps the European menus, text and voices. The main menu shows it beside the disc name, and online you meet US players
