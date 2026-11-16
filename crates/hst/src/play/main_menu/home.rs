@@ -322,6 +322,7 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
         // the chosen row breathes in and out, as the disc start page's chosen pill (`hst_base::start_page`)
         if on {
             d.scale_since(drawn, [rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0], 1.0 + 0.025 * (d.clock * 3.0).sin());
+            breathing(drawn.0..d.out.len());
         }
         d.hit(rect, pointer::Act::Row(i, pointer::OK));
         if on {
@@ -853,6 +854,27 @@ pub(super) fn faces(m: &Menu) -> Vec<Who> {
     let mut seen = std::collections::HashSet::new();
     v.retain(|w| seen.insert(*w));
     v
+}
+
+/// P137: the breathing row's quads this frame (`hst_base::calm`: the menus count as still while only it moves),
+/// packed start << 32 | end; taken each frame by [`breath_marks`].
+static BREATH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn breathing(r: std::ops::Range<usize>) {
+    BREATH.store((r.start as u64) << 32 | r.end as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// P137: marks the quads the breathing row drew this frame [`hst_base::calm::Ambient`] (after `draw`).
+pub(super) fn breath_marks(mut commands: bevy::prelude::Commands, slots: bevy::prelude::Query<(bevy::prelude::Entity, &super::Slot, bevy::prelude::Has<hst_base::calm::Ambient>)>) {
+    let b = BREATH.swap(0, std::sync::atomic::Ordering::Relaxed);
+    let r = (b >> 32) as usize..(b & 0xffff_ffff) as usize;
+    for (e, super::Slot(i), has) in &slots {
+        match (r.contains(i), has) {
+            (true, false) => _ = commands.entity(e).insert(hst_base::calm::Ambient),
+            (false, true) => _ = commands.entity(e).remove::<hst_base::calm::Ambient>(),
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]

@@ -571,6 +571,15 @@ pub fn plugin(app: &mut App) {
     super::main_menu::pause::plugin(app);
     super::main_menu::legend::plugin(app);
     app.add_systems(Update, legend.after(step));
+    app.add_systems(Update, calm.after(draw));
+}
+
+/// P137: the pause screen draws only while something moves; offline only (online play keeps the peers' messages
+/// flowing at the full rate), never while it's closing into play or the menu.
+fn calm(menu: Res<Menu>, net: Option<Res<super::netplay::Netplay>>) {
+    if menu.open && menu.quitting.is_none() && net.is_none() {
+        hst_base::calm::want();
+    }
 }
 
 /// M14: the pause menu's legend (its Settings screens fill their own, `pause.rs`): `step`'s keys and buttons.

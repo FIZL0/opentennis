@@ -52,6 +52,8 @@ pub(in crate::play) fn setup(
     let Some(arc) = Iso::open(&args.iso).ok().and_then(|mut iso| iso.read("MENU/MENU00B.XB0").ok()) else { return };
     let Ok(arc) = Archive::parse(&arc) else { return };
     let layers = RenderLayers::layer(LAYER);
+    // P137: its wag loops forever: the menus still count as still while only the hand moves
+    hst_base::calm::ambient_layer(LAYER);
     // game space (y down) → Bevy, seen from the side the original shows: fingertip right, back of the hand front
     let root = commands.spawn((Transform::from_rotation(Quat::from_rotation_z(std::f32::consts::PI)), Visibility::default(), Propagate(layers.clone()))).id();
     let Ok((mut effect, shown)) = crate::effects::model(&arc, "menu/3d/cursor", &mut commands, root, &mut meshes, &mut materials, &mut images, &mut bindposes) else {

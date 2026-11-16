@@ -4038,6 +4038,8 @@ fn bgm(menu: Res<Menu>, tracks: Option<Res<MenuBgm>>, sound: Option<Res<Sound>>,
 }
 
 pub fn plugin(app: &mut App) {
+    // P137: the menus draw only while something moves
+    app.add_systems(Update, (|| hst_base::calm::want(), home::breath_marks.after(draw)));
     app.add_plugins((controls::plugin, super::widescreen::plugin))
         .add_systems(Startup, ((read_sheets, read_text, setup).chain(), load_bgm, cursor::setup))
         .add_systems(PreUpdate, pointer::mouse_idle.after(bevy::input::InputSystems))

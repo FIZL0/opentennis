@@ -365,6 +365,8 @@ fn hint(o: Opt, c: &str) -> &'static str {
         (Preset, "Phone") => "for phones and tablets",
         (Preset, AUTO) => "picks and tunes itself",
         (Preset, "Custom") => "your own mix",
+        // P137: a phone's frame limits above 60
+        (Fps, c) if crate::graphics::battery_note(FPS.into_iter().find(|&f| fps_name(f) == c).unwrap_or(60)).is_some() => "smoother, ~2x battery, warmer",
         _ => "",
     }
 }
@@ -1122,6 +1124,8 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         #[cfg(not(target_arch = "wasm32"))]
         let reach: Option<String> = None;
         let note = reach.as_deref().unwrap_or(note);
+        // P137: a phone's frame limit above 60
+        let note = if o == Fps { crate::graphics::battery_note(m.settings.graphics.fps).unwrap_or(note) } else { note };
         // M159: iOS shows under Updates what installed the app, for the player to screenshot (`update::install_info`)
         let info = if o == UpdateCheck { crate::update::install_info() } else { None };
         let note = info.as_deref().unwrap_or(note);
