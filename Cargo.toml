@@ -49,6 +49,8 @@ opt-level = 1
 # P139: transform propagation always walks serially; the parallel walk's workers spin while one thread walks a skeleton
 # (src/systems.rs)
 bevy_transform = { path = "third_party/bevy_transform" }
+# P141: `par_iter` over fewer than 4096 items runs on the calling thread (src/query/par_iter.rs)
+bevy_ecs = { path = "third_party/bevy_ecs" }
 # gilrs-core: a read-only fallback for gamepads whose device node isn't writable (src/platform/linux/gamepad.rs);
 # M91: an iOS backend over Apple's GameController framework (src/platform/ios, platform/mod.rs)
 gilrs-core = { path = "third_party/gilrs-core" }

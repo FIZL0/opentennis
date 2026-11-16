@@ -22,6 +22,7 @@ members = ["."]
 # tools/patches.py checks the two lists match
 [patch.crates-io]
 bevy_transform = { path = "../third_party/bevy_transform" }
+bevy_ecs = { path = "../third_party/bevy_ecs" }
 gilrs-core = { path = "../third_party/gilrs-core" }
 ggrs = { path = "../third_party/ggrs" }
 wgpu = { path = "../third_party/wgpu" }
