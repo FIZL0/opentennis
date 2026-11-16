@@ -213,9 +213,45 @@ pub fn huffman(src: &[u8], size: usize) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// An archive of `entries` (name, bytes), every one stored raw and its name list unpacked: what [`Archive::parse`]
+/// reads back as the same names and bytes. For files the remaster rebuilds in memory (never written to the disc).
+pub fn write(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
+    let mut names = Vec::new();
+    for (n, _) in entries {
+        names.extend([n.len() as u8, 0]);
+        names.extend(n.as_bytes());
+        names.push(0);
+    }
+    let mut out = MAGIC.to_vec();
+    out.extend((entries.len() as u32).to_le_bytes());
+    let table = out.len();
+    out.resize(table + 8 * entries.len(), 0);
+    out.extend((names.len() as u32).to_le_bytes());
+    out.extend(0u32.to_le_bytes());
+    out.extend(&names);
+    for (i, (_, data)) in entries.iter().enumerate() {
+        out.resize(out.len().next_multiple_of(4), 0);
+        let at = table + 8 * i;
+        out[at..at + 4].copy_from_slice(&(data.len() as u32).to_le_bytes());
+        let word = (3 << 28) | (out.len() / 4) as u32;
+        out[at + 4..at + 8].copy_from_slice(&word.to_le_bytes());
+        out.extend(data);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn written_archives_read_back() {
+        let entries = vec![("a\\b.dat".to_string(), vec![1, 2, 3]), ("c.dat".to_string(), vec![9; 4096])];
+        let data = write(&entries);
+        let arc = Archive::parse(&data).unwrap();
+        let back: Vec<(String, Vec<u8>)> = arc.entries.iter().map(|e| (e.name.clone(), arc.read(e).unwrap())).collect();
+        assert_eq!(back, entries);
+    }
 
     /// Damaged archives fail instead of panicking or asking for gigabytes (found by `fuzz/`'s `disc`).
     #[test]

@@ -1320,6 +1320,7 @@ pub fn setup(
         Some(a) => a,
         None => own_fx.insert(Assets::default()),
     };
+    hst_sim::shot::regen::install(); // M170: a 50 Hz disc's shot tables at 60 Hz (the match without the menus too)
     let mut iso = Iso::open(&args.iso).expect("open iso");
     let art = balloon_art(&mut iso, &mut images);
     let (mut game, shot_params) = new_game(&mut iso, &args, match_rng.as_deref());

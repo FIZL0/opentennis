@@ -99,3 +99,45 @@ mod japan {
         assert!(serves > 0 && serve_reds == serves, "{serves} serves, {serve_reds} with the red marker");
     }
 }
+
+/// A bot match on the European disc alone (`fixtures/discs/SCES-54535.iso`; skipped without it even under
+/// `HST_REQUIRE_DISC`, as it isn't the user's disc, M170): it plays by the US rules on the US shot records, its
+/// trajectory tables read back regenerated for 60 Hz, and rallies play out point after point.
+#[cfg(test)]
+mod europe {
+    use super::super::*;
+    use crate::{Args, GameSpace};
+    use hst_sim::build::Build;
+
+    #[test]
+    fn a_bot_match_on_the_european_disc_alone() {
+        let iso = hst_data::fixture::path("fixtures/discs/SCES-54535.iso");
+        if !iso.exists() {
+            // not the user's disc: skipped even under HST_REQUIRE_DISC
+            return eprintln!("skipped: no fixtures/discs/SCES-54535.iso");
+        }
+        crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+        app.insert_resource(Args { iso: iso.to_string_lossy().into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 1, stage: None, play: true, singles: true, chars: vec![0, 13], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None });
+        app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
+        app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
+        app.add_systems(Startup, setup);
+        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, played_out, held_ball).chain());
+        app.update();
+        assert_eq!(app.world().resource::<Game>().build, Build::Us);
+        // the match's reads of a trajectory archive are the regenerated one, the disc's own bytes stay as they are
+        let mut disc = hst_data::iso::Iso::open(&iso).unwrap();
+        assert_ne!(disc.read("TRAJ/TRAJ00A.XB").unwrap(), disc.read_unlogged("TRAJ/TRAJ00A.XB").unwrap());
+        let (mut serves, mut most) = (0, 0);
+        for _ in 0..60 * 40 {
+            let before = app.world().resource::<Game>().shots;
+            app.world_mut().run_schedule(FixedUpdate);
+            let shots = app.world().resource::<Game>().shots;
+            serves += (shots == 1 && before == 0) as i32;
+            most = most.max(shots);
+        }
+        assert!(serves >= 2 && most >= 3, "{serves} serves, longest rally {most} shots");
+    }
+}

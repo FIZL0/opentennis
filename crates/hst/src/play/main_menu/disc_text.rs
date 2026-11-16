@@ -19,6 +19,10 @@ pub(in crate::play) fn messages(iso: &mut Iso) -> Vec<String> {
     let release = iso.read("SYSTEM.CNF").ok().and_then(|cnf| hst_data::exe::Release::of(&cnf).ok());
     if let (Some(r), Ok(mut s)) = (release, SERIAL.write()) {
         *s = r.name().split(' ').next().unwrap_or_default().to_string();
+        if r.regenerated_shots() {
+            // M170: its 60 Hz shot tables are our own solver's, close to the original but not it
+            s.push_str(" (60 Hz: close, not the original)");
+        }
     }
     let table = iso.read("MENU/MENU00B.XB0").ok().and_then(|data| {
         let arc = Archive::parse(&data).ok()?;

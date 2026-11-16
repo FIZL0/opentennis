@@ -341,13 +341,13 @@ fn import(file: std::fs::File, pack: &Path, done: &AtomicU32) -> Result<(), Stri
         info!("not a disc image: {e}");
         "That file isn't a disc image. Choose the Hot Shots Tennis (USA) ISO.".to_string()
     })?;
-    // M163a: a disc the game reads but can't play (the European release) is refused as a wrong disc; the Japanese one
-    // plays (M163a1a)
+    // M163a: a disc the game reads but can't play is refused as a wrong disc; the Japanese one plays (M163a1a), the
+    // European one too, on its shot tables regenerated for 60 Hz (M170)
     let hash = disc
         .playable()
         .and_then(|()| disc.write_pack(pack, |i, n| done.store((i * 1000 / n.max(1)) as u32, Ordering::Relaxed)))
         .map_err(|e| match e.kind() {
-            std::io::ErrorKind::InvalidData => format!("That's not the disc this game needs ({e}). It needs Hot Shots Tennis (USA), SCUS-97610, or Minna no Tennis (Japan), SCPS-15113, version 1.00."),
+            std::io::ErrorKind::InvalidData => format!("That's not the disc this game needs ({e}). It needs Hot Shots Tennis (USA), SCUS-97610, Minna no Tennis (Japan), SCPS-15113, or Everybody's Tennis (Europe), SCES-54535, version 1.00."),
             _ => format!("Couldn't copy the disc: {e}"),
         })?;
     info!("disc pack {hash:016x}");
