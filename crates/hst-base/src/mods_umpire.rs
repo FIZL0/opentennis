@@ -61,6 +61,7 @@ pub fn read(dir: &Path) -> Result<Umpire, String> {
     if !crate::modfs::plain(voice.strip_suffix('/').unwrap_or(&voice)) {
         return Err(err(format!("`voice` `{voice}` must be a path inside the mod folder")));
     }
+    crate::mod_voices::check(&j).map_err(err)?;
     Ok(Umpire {
         dir: dir.to_path_buf(),
         id: text("id")?,
@@ -84,7 +85,12 @@ pub fn find(root: &Path, id: &str) -> Option<Umpire> {
 /// The match's slot 5 bank for umpire mod `u`: its donor's disc bank `disc` with the mod's calls over it
 /// (`SoundBank::takes`: heard in place of the disc's, the disc's lengths still timing the match).
 pub fn bank(disc: &SoundBank, u: &Umpire) -> SoundBank {
-    let (bank, n) = SoundBank { hd: disc.hd.clone(), bd: disc.bd.clone(), wav: Default::default(), takes: Default::default(), stream: None, language: None }.with_takes(&u.dir.join(&u.voice));
+    let (mut bank, n) = SoundBank { hd: disc.hd.clone(), bd: disc.bd.clone(), wav: Default::default(), takes: Default::default(), stream: None, language: None }.with_takes(&u.dir.join(&u.voice));
+    // M168: the calls it carries in the chosen Voice Language heard in place of its default ones
+    if let Some(lang) = crate::mod_voices::chosen_folder(&u.dir) {
+        let k = crate::mod_voices::over_takes(&mut bank, &u.dir.join(&u.voice), &lang);
+        info!("umpire mod {}: {k} calls in {}", u.id, crate::voices::LANGS[crate::voices::chosen() as usize].name);
+    }
     info!("umpire mod {}: {n} calls of its own over umpire {}'s", u.id, u.donor);
     bank
 }

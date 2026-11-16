@@ -239,7 +239,7 @@ fn voice(id: usize, who: Who, mods: &[crate::mods::Mod], banks: &mut HashMap<Str
         Who::Disc(c) => c,
         Who::Mod(i) => {
             let m = mods.get(i).filter(|m| crate::modfs::ready(&m.dir))?;
-            let own = banks.entry(format!("mod {}", m.dir.join(&m.voice).display())).or_insert_with(|| crate::mods::voice(m).map(Arc::new)).clone();
+            let own = banks.entry(format!("mod {} {}", m.dir.join(&m.voice).display(), crate::voices::chosen())).or_insert_with(|| crate::mods::voice(m).map(Arc::new)).clone();
             if let Some(own) = own.filter(|o| o.wav.contains_key(&(program as usize))) {
                 *key = next(emote::own_voice_keys(id, |p| own.wav.get(&(p as usize)).map_or(0, Vec::len))?);
                 return Some((own, sound::Play { slot: 0x16, program, key: *key, volume: 0x80, speed: 1.0 }));
