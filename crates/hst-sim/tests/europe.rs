@@ -267,3 +267,168 @@ fn players_run_at_the_european_speed() {
     assert!(bad.is_empty(), "{} off:\n{}", bad.len(), bad[..bad.len().min(20)].join("\n"));
     assert!(speeds > 5000, "{speeds}");
 }
+
+fn tick(f: hst_sim::replay::Frame) -> u32 {
+    u32::from_le_bytes(f.gm()[0x58..0x5c].try_into().unwrap())
+}
+
+/// The score as the recording holds it (the European program's globals, recorded at the US layout).
+fn score_at(f: hst_sim::replay::Frame) -> hst_sim::score::Score {
+    let (points, games, sets) = f.score();
+    let u = |a| f.global_u8(a) != 0;
+    hst_sim::score::Score {
+        points,
+        games,
+        sets,
+        deuce: f.rally_u8(0x316620) != 0,
+        advantage: f.rally_u8(0x316628) != 0,
+        tiebreak: f.rally_u8(0x31661a) != 0,
+        tiebreak_count: f.rally(0x31661c),
+        rotation: f.global(0x4230b0),
+        swapped: u(0x4230b4),
+        game_changed: u(0x4230ac),
+        games_played: f.global(0x4230c0),
+        match_over: u(0x4230be),
+        server: f.global(0x42304c),
+        side: f.global(0x423050),
+        receiver: f.global(0x423054),
+        ..hst_sim::score::Score::new()
+    }
+}
+
+/// The rally block as `Rally` models it.
+fn rally_block(f: hst_sim::replay::Frame) -> hst_sim::judge::Rally {
+    use hst_sim::judge::{Call, Rally};
+    let call = |v: u8| [Call::None, Call::In, Call::Out, Call::Net, Call::NetIn, Call::NetOut][v as usize];
+    let r = |a| f.rally(a);
+    let u = |a| f.rally_u8(a) != 0;
+    Rally {
+        call: call(f.rally_u8(0x3165f0)),
+        shots: r(0x3165f4),
+        hitter: r(0x3165f8),
+        server: r(0x3165fc),
+        illegal_hit: u(0x316604),
+        faults: r(0x316608),
+        let_: u(0x31660c),
+        serve_call: call(f.rally_u8(0x316610)),
+        checked_shots: r(0x316614),
+        return_bounced: u(0x316618),
+        hit_on_serve: u(0x316629),
+        lose: u(0x31662a),
+        serve_bounced: u(0x31662b),
+    }
+}
+
+/// The point-over phase entered at `frames[0]` under `build`'s flow, fed the recorded score and rally block at the
+/// decision: faults, points and games must match every game tick, and the next phase must be asked for on the
+/// game's tick. `settle`: the tick the umpire's call line ends (`None`: the countdown settles the call).
+fn post_point(frames: &[hst_sim::replay::Frame], t: &hst_data::exe::ScoreboardTiming, build: Build, settle: Option<u32>) -> Result<u32, String> {
+    use hst_sim::flow::{Next, PostPoint};
+    use hst_sim::score::Event;
+    let f = frames[0];
+    let mut score = score_at(f);
+    let mut rally = rally_block(f);
+    let body = Some(f.global(0x42305c)).filter(|&p| p >= 0);
+    let event = match f.global(0x4230b8) {
+        0 if score.tiebreak => Some(Event::TiebreakPoint),
+        0 => Some(Event::Point),
+        1 => Some(Event::Game),
+        2 => Some(Event::Set),
+        _ => None,
+    };
+    let mut pp = PostPoint::called(event, rally.judge(body).call, t).in_build(build);
+    let mut asked = None;
+    for &s in frames {
+        while pp.tick < tick(s) {
+            let idle = settle.is_some_and(|v| pp.tick + 1 >= v);
+            if let Some(n) = pp.step_with(&mut score, &mut rally, t, idle, false) {
+                asked.get_or_insert((n, pp.tick));
+            }
+        }
+        if s.gm()[0x56] != 0xff {
+            let want = match s.gm()[0x56] {
+                1 => Next::ChangeEnds,
+                2 => Next::Serve,
+                _ => Next::MatchOver,
+            };
+            return if asked == Some((want, tick(s))) { Ok(tick(s)) } else { Err(format!("{event:?}: asked {asked:?}, game {want:?} at {}", tick(s))) };
+        }
+        if asked.is_some() {
+            return Err(format!("{event:?}: port asked early ({asked:?}), game at tick {}", tick(s)));
+        }
+        let want = (s.rally(0x316608), s.score().0, s.score().1);
+        if (rally.faults, score.points, score.games) != want {
+            return Err(format!("{event:?} tick {}: port {:?}, game {want:?}", tick(s), (rally.faults, score.points, score.games)));
+        }
+    }
+    Err("recording ends mid-phase".into())
+}
+
+/// Every point-over phase of the European bot match (the match-over point left out) under `build`: a called one
+/// must match for one tick where her call line ends (searched from 1 to the call's countdown) or on the countdown
+/// alone (pushed as 0). Returns (phases, failures, called phases' line ends by call).
+fn post_points(frames: &[hst_sim::replay::Frame], t: &hst_data::exe::ScoreboardTiming, build: Build) -> (usize, Vec<String>, Vec<(u8, u32)>) {
+    let (mut checked, mut bad, mut lines) = (0, Vec::new(), Vec::new());
+    for k in 1..frames.len() {
+        let (a, f) = (frames[k - 1], frames[k]);
+        if !(f.gm()[0x55] == 4 && a.gm()[0x55] != 4) || score_at(f).match_over {
+            continue;
+        }
+        let call = rally_block(f).judge(Some(f.global(0x42305c)).filter(|&p| p >= 0)).call;
+        checked += 1;
+        if call == 0 || call == 6 {
+            if let Err(e) = post_point(&frames[k..], t, build, None) {
+                bad.push(format!("vsync {}: {e}", f.vsync()));
+            }
+            continue;
+        }
+        let line = (1..=t.call_wait[call as usize] as u32).find(|&v| post_point(&frames[k..], t, build, Some(v)).is_ok());
+        match line.or_else(|| post_point(&frames[k..], t, build, None).is_ok().then_some(0)) {
+            Some(v) => lines.push((call, v)),
+            None => bad.push(format!("vsync {}: call {call}: {}", f.vsync(), post_point(&frames[k..], t, build, None).unwrap_err())),
+        }
+    }
+    (checked, bad, lines)
+}
+
+/// The point-over and change-ends phases of the European bot match run on the European flow (`PostPoint::in_build`,
+/// `flow::change_ends`): the scoreboard pauses 25 ticks (not 30), a score stays up its hold × 50 ticks, the call
+/// sprite's hold and fade stay the US ticks while her line (5/6 as many ticks) settles it sooner, the change-ends cut is 66 ticks; the scoreboard's waits and show steps are the
+/// US table's, read at the European GAME.BIN's offsets. Every point, game and change of ends asks for the next
+/// phase on the game's own tick (134 ticks a point, 255 a game, 67 a change of ends). The US flow misses every one.
+#[test]
+fn match_flow_runs_on_the_european_timing() {
+    use hst_sim::replay::frames_live;
+    let (Some(mut iso), Some(data)) = (disc(), fixture("eu-bot-match.bin")) else { return };
+    let (cnf, bin) = (iso.read("SYSTEM.CNF").unwrap(), iso.read("ZZBIN/GAME.BIN").unwrap());
+    // the match's umpire and voice from its start state (the US menu bytes, at the European boot data's shift)
+    let ram = fixture("eu-bot-start_ee.bin").unwrap();
+    let (voice, umpire) = (ram[0x2ef7df + 0x14d00], ram[0x2ef7de + 0x14d00]);
+    eprintln!("umpire {umpire} voice {voice}");
+    let t = hst_data::exe::Game::new(&cnf, &bin).unwrap().scoreboard_timing(voice, umpire);
+    let frames = frames_live(&data);
+    let mut changes = 0;
+    for k in 1..frames.len() {
+        let (a, f) = (frames[k - 1], frames[k]);
+        if f.gm()[0x55] == 1 && a.gm()[0x55] != 1 {
+            let end = frames[k..].iter().find(|s| s.gm()[0x56] != 0xff).unwrap();
+            assert_eq!((end.gm()[0x56], tick(*end)), (2, hst_sim::flow::change_ends(Build::Europe) + 1), "vsync {}: change ends", f.vsync());
+            changes += 1;
+        }
+    }
+    let (checked, bad, lines) = post_points(&frames, &t, Build::Europe);
+    eprintln!("{checked} point-over phases (call line ends {lines:?}), {changes} change-ends phases");
+    assert!(bad.is_empty(), "{} off:\n{}", bad.len(), bad.join("\n"));
+    assert!(checked > 30 && !lines.is_empty() && changes >= 2, "{checked} {changes}");
+    // umpire 0 a's line calls (out, fault, double fault, let, out after net) are 28, 29, 47, 29, 29 frames of audio
+    // at 60 Hz: 5/6 as many ticks here (integer), heard stopping `VOICE_LAG` ticks after, a tick sooner now and then
+    assert_eq!(umpire, 0, "the call clips below are umpire 0's");
+    let clip = [0, 28, 29, 47, 29, 29].map(|n: u32| n * 50 / 60);
+    let lag = hst_sim::umpire::VOICE_LAG;
+    let after = |&(c, v): &(u8, u32)| v - clip[c as usize];
+    assert!(lines.iter().all(|l| after(l) == lag || after(l) == lag - 1), "{lines:?}");
+    assert!(lines.iter().filter(|l| after(l) == lag).count() * 2 > lines.len(), "{lines:?}");
+    let (_, us_bad, _) = post_points(&frames, &t, Build::Us);
+    assert!(us_bad.len() * 2 > checked, "the US flow matched {} of {checked}", checked - us_bad.len());
+}
+

@@ -7,6 +7,7 @@
 //! the game sometimes spends several vsyncs on one tick while it loads, and those don't count.
 #![deny(clippy::float_arithmetic)]
 
+use crate::build::Build;
 use crate::judge::{Rally, verdict};
 use crate::ps2::F;
 use crate::score::{Event, Score};
@@ -19,6 +20,11 @@ const PAUSE: i32 = 30;
 /// Ticks the umpire's call sprite holds once settled, and its fade-out.
 const CALL_HOLD: i32 = 29;
 const CALL_FADE: i32 = 5;
+
+/// `CHANGE_ENDS` in `build`: the 50 Hz program's cut is 66 ticks (80 × 5/6, rounded down).
+pub fn change_ends(build: Build) -> u32 {
+    if build.fifty() { 66 } else { CHANGE_ENDS }
+}
 
 /// The score show's stages (`ShowState::stage`).
 pub mod stage {
@@ -63,6 +69,9 @@ pub struct PostPoint {
     /// The match is over and the scoreboard has paused: the players have stopped and the umpire calls the match
     /// (`Umpire::call_match`); the match-over phase follows once her voice has stopped. Instead of `reacted`.
     pub calling_match: bool,
+    /// Whose program's flow this is (`PostPoint::in_build`); the US one unless set.
+    #[serde(default)]
+    pub build: Build,
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
@@ -107,7 +116,7 @@ struct Show {
 impl PostPoint {
     /// The point that produced `event` was just scored, without an umpire call.
     pub fn new(event: Event) -> Self {
-        PostPoint { tick: 0, event: Some(event), board: Board::Pause(0), pause: PAUSE, reacted: false, shown: false, before: None, calling_match: false }
+        PostPoint { tick: 0, event: Some(event), board: Board::Pause(0), pause: PAUSE, reacted: false, shown: false, before: None, calling_match: false, build: Build::Us }
     }
 
     /// The point ended on the judge's `call` (`judge::verdict`): `event` what it did to the score, `None` for no
@@ -115,12 +124,23 @@ impl PostPoint {
     /// call sprite first (its countdown from `t.call_wait`); out, out after net and double fault then chain into
     /// the score show, a fault or let ends the phase.
     pub fn called(event: Option<Event>, call: u8, t: &ScoreboardTiming) -> Self {
-        let mut p = PostPoint { tick: 0, event, board: Board::Pause(0), pause: PAUSE, reacted: false, shown: false, before: None, calling_match: false };
+        let mut p = PostPoint { tick: 0, event, board: Board::Pause(0), pause: PAUSE, reacted: false, shown: false, before: None, calling_match: false, build: Build::Us };
         if (verdict::OUT..=verdict::NET_OUT).contains(&call) {
             let chain = matches!(call, verdict::OUT | verdict::DOUBLE_FAULT | verdict::NET_OUT);
             p.board = Board::Call(CallShow { call, frames: 0, anim_end: 0.0, chain, countdown: t.call_wait[call as usize], settled: false, held: 0, fade: -1 });
         }
         p
+    }
+
+    /// This phase as `build`'s program runs it (right after `new` or `called`): at 50 Hz the scoreboard pauses 25
+    /// ticks and a score stays up its hold's seconds × 50 ticks; the call sprite's hold and fade, the waits and the
+    /// show's own steps stay the US ticks (her voice line ends sooner in ticks: the caller's `voice_idle`).
+    pub fn in_build(mut self, build: Build) -> Self {
+        self.build = build;
+        if self.pause == PAUSE {
+            self.pause = build.frames(PAUSE);
+        }
+        self
     }
 
     /// The scoreboard's pause is over (the umpire calls the score then, `Umpire::call_score`).
@@ -225,13 +245,13 @@ impl PostPoint {
                         _ => {}
                     }
                     let mut s = Show::new(event);
-                    if s.step(score, t) { Board::Done } else { Board::Show(s) }
+                    if s.step(score, t, self.build) { Board::Done } else { Board::Show(s) }
                 } else {
                     Board::Wait(n + 1)
                 }
             }
             Board::Show(mut s) => {
-                if s.step(score, t) { Board::Done } else { Board::Show(s) }
+                if s.step(score, t, self.build) { Board::Done } else { Board::Show(s) }
             }
             Board::Done => Board::Done,
         };
@@ -312,7 +332,7 @@ impl Show {
     }
 
     /// One frame of the show; true when it is over.
-    fn step(&mut self, score: &mut Score, tm: &ScoreboardTiming) -> bool {
+    fn step(&mut self, score: &mut Score, tm: &ScoreboardTiming, build: Build) -> bool {
         if self.fading_out {
             self.t -= 1;
             if self.t < 0 {
@@ -389,7 +409,7 @@ impl Show {
         if self.settled {
             self.held += 1;
             let hold = if matches!(self.event, Event::Point | Event::TiebreakPoint) { tm.point_hold } else { tm.game_hold };
-            if F(hold) * 60.0 <= self.held as f32 && !self.fading_out {
+            if F(hold) * build.hz() as f32 <= self.held as f32 && !self.fading_out {
                 (self.fading_out, self.t) = (true, 5);
             }
         }
