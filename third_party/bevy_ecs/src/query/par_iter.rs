@@ -9,7 +9,7 @@ use super::{IterQueryData, QueryFilter, QueryItem, QueryState, ReadOnlyQueryData
 
 use alloc::vec::Vec;
 
-/// HST (P141): fewer items than this are iterated on the calling thread. A parallel pass wakes every compute thread
+/// HST (P142): fewer items than this are iterated on the calling thread. A parallel pass wakes every compute thread
 /// (a futex each), and they spin and park again for a few microseconds of work; at our entity counts (a few hundred to
 /// a couple of thousand) that cost far more than the work, every frame, in a dozen of Bevy's own systems (visibility,
 /// material specialization). Serial is what the web build (no `multi_threaded`) always does.
@@ -141,7 +141,7 @@ impl<'w, 's, D: IterQueryData, F: QueryFilter> QueryParIter<'w, 's, D, F> {
         }
     }
 
-    // HST (P141): every item the query matches, across its tables or archetypes
+    // HST (P142): every item the query matches, across its tables or archetypes
     #[cfg(all(not(target_arch = "wasm32"), feature = "multi_threaded"))]
     fn total_items(&self) -> usize {
         // SAFETY: only table/archetype metadata is read, as in `get_batch_size`.
