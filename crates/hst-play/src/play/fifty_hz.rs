@@ -151,60 +151,58 @@ mod tests {
         assert!(!change_ends.is_empty() && change_ends.iter().all(|&n| n == 66), "change ends at {change_ends:?}");
     }
 
-    /// The recorded European bot match (`fixtures/m169/eu-bot-match.bin`, M177): its phases from the first serve
-    /// set-up, each as (phase, vsyncs, the players' positions as it starts), the game's phase numbers mapped to
-    /// play's (2 serve set-up, 3 rally, 4 point over, 1 change of ends).
-    fn recorded_phases(data: &[u8]) -> Vec<(u8, u32, [[f32; 3]; 4])> {
+    /// One tick of a bot match: the phase in the recording's numbers (2 serve set-up, 3 rally, 4 point over, 1 change
+    /// of ends), the players' positions and the ball's (game space, Y down).
+    type Tick = (u8, [[f32; 3]; 4], [f32; 3]);
+
+    /// A recorded bot match (`frames_live`) tick by tick from its first serve set-up, one entry a vsync (a missing
+    /// vsync repeats the sample before it).
+    fn recorded_ticks(data: &[u8]) -> Vec<Tick> {
         let frames = hst_sim::replay::frames_live(data);
         let first = frames.iter().position(|f| f.gm()[0x55] == 2).unwrap();
+        let mut out = Vec::new();
+        for w in frames[first..].windows(2) {
+            let b = w[0].live_ball();
+            let ball = [0, 4, 8].map(|o| f32::from_le_bytes(b[0x120 + o..0x124 + o].try_into().unwrap()));
+            let t = (w[0].gm()[0x55], std::array::from_fn(|i| w[0].player_pos(i)), ball);
+            out.extend(std::iter::repeat_n(t, (w[1].vsync() - w[0].vsync()) as usize));
+        }
+        out
+    }
+
+    /// `ticks` as phases: (phase, ticks, the players' positions as it starts); the last, unfinished one dropped.
+    fn phases(ticks: &[Tick]) -> Vec<(u8, u32, [[f32; 3]; 4])> {
         let mut out: Vec<(u8, u32, [[f32; 3]; 4])> = Vec::new();
-        let mut start = frames[first].vsync();
-        for &f in &frames[first..] {
-            let ph = f.gm()[0x55];
-            if out.last().is_none_or(|l| l.0 != ph) {
-                if let Some(l) = out.last_mut() {
-                    l.1 = f.vsync() - start;
-                }
-                start = f.vsync();
-                out.push((ph, 0, std::array::from_fn(|i| f.player_pos(i))));
+        for t in ticks {
+            match out.last_mut() {
+                Some(l) if l.0 == t.0 => l.1 += 1,
+                _ => out.push((t.0, 1, t.1)),
             }
         }
         out.pop();
         out
     }
 
-    /// Probe, not a proof yet (M183a1): the European bot match (doubles, characters 0/1/1/0, court 6, 1 set of 4 games)
-    /// in play from the original's match seed (the 875 477th `rand()` from boot, as the recording's RAM holds it),
-    /// listed phase by phase beside the recording. Asserts nothing: as of M183a the first serve set-up already differs
-    /// (135 recorded vsyncs, 215 in play). Run by hand while chasing that:
-    /// `tools/check.sh -p hst-play the_european_bot_match_plays_as_recorded -- --ignored --nocapture`.
-    #[test]
-    #[ignore]
-    fn the_european_bot_match_plays_as_recorded() {
-        let iso = hst_data::fixture::path(EU);
-        let Ok(data) = std::fs::read(hst_data::fixture::path("fixtures/m169/eu-bot-match.bin")) else { return eprintln!("skipped") };
-        if !iso.exists() {
-            return eprintln!("skipped: no {EU}");
-        }
-        let _turn = super::EU_DISC.lock().unwrap_or_else(|e| e.into_inner());
-        hst_base::match_speed::test_sim_hz(50);
-        let _sixty = Sixty;
+    /// A bot match in play (all CPU) from the original's match seed as main.rs sets it up (the weather schedule, the
+    /// setup's draws), `n` ticks of it from the setup, at the sim rate already set, with the match's generators after
+    /// each of the first `keep` ticks. `toss_ai` AI draws stand in at
+    /// every toss for the ones play doesn't make yet (the game's AI generator draws 60 there; M183a1's journal), so
+    /// what parts after them shows.
+    fn played_ticks_rng(args: Args, seed: hst_sim::rng::Seed, n: usize, keep: usize, toss_ai: usize) -> (Vec<Tick>, Vec<hst_sim::rng::Rngs>) {
         crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()));
         app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
-        let args = Args { iso: iso.to_string_lossy().into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 6, stage: None, play: true, singles: false, chars: vec![0, 1, 1, 0], outfits: vec![], viewer: None, sound: None, music: false, umpire: 0, sets: 1, games: 4, pads: None };
-        // the match seed as main.rs draws it: the menus' `rand()` calls, then the weather schedule and the setup's draws
-        let seed = hst_sim::rng::Seed::after(875_476);
-        let mut disc = hst_data::iso::Iso::open(&iso).unwrap();
+        let mut disc = hst_data::iso::Iso::open(&args.iso).unwrap();
         let (cnf, bin) = (disc.read("SYSTEM.CNF").unwrap(), disc.read("ZZBIN/GAME.BIN").unwrap());
         let exe = hst_data::exe::Game::new(&cnf, &bin).unwrap();
-        let o = exe.weather_odds(6);
+        let o = exe.weather_odds(args.court as u32);
         let odds = hst_sim::weather::Odds { cloudy: o[0], cloudy_len: [o[1], o[2]], rain: o[3], rain_len: [o[4], o[5]], no_border: o[7] != 0, heavy: o[8] != 0 };
-        let ((directions, speed), (chance, kind)) = (exe.wind(6), exe.gusts(6));
+        let ((directions, speed), (chance, kind)) = (exe.wind(args.court as u32), exe.gusts(args.court as u32));
         let wind = hst_sim::weather::Wind { chance, kind, directions, speed };
         let mut mt = hst_sim::weather::Mt::new(seed.shared);
-        let schedule = hst_sim::weather::schedule(&odds, &wind, 4, 1, 4, || mt.next());
+        let players = if args.singles { 2 } else { 4 };
+        let schedule = hst_sim::weather::schedule(&odds, &wind, args.games, args.sets, players, || mt.next());
         let mut rngs = hst_sim::rng::Rngs::new(seed.rand, mt);
         let (effects, _) = rngs.setup_rand(0);
         set_effects_seed(effects);
@@ -214,38 +212,272 @@ mod tests {
         app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
         app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
         app.add_systems(Startup, setup);
-        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, played_out, held_ball).chain());
+        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, played_out, held_ball, flare_tick).chain());
         app.update();
-        let want = recorded_phases(&data);
         let code = |p: &Phase| match p {
             Phase::Serve => 2,
             Phase::Rally => 3,
             Phase::Post => 4,
             Phase::ChangeEnds(_) => 1,
         };
-        let mut got: Vec<(u8, u32, [[f32; 3]; 4])> = Vec::new();
-        let pos = |g: &Game| std::array::from_fn(|i| g.players[i].body.pos);
-        {
-            let g = app.world().resource::<Game>();
-            got.push((code(&g.phase), 0, pos(g)));
-        }
-        let total: u32 = want.iter().map(|w| w.1).sum();
-        for _ in 0..total + 10 {
+        let tick = |g: &Game| (code(&g.phase), std::array::from_fn(|i| g.players[i].pos), g.flight.ball.pos);
+        let mut out = vec![tick(app.world().resource::<Game>())];
+        let mut rngs = vec![app.world().resource::<Game>().rng.clone()];
+        for k in 1..n {
+            let tossed = app.world().resource::<Game>().serving.tossed;
             app.world_mut().run_schedule(FixedUpdate);
-            let g = app.world().resource::<Game>();
-            let c = code(&g.phase);
-            let l = got.last_mut().unwrap();
-            l.1 += 1;
-            if l.0 != c {
-                l.1 -= 1;
-                got.push((c, 1, pos(g)));
+            let mut g = app.world_mut().resource_mut::<Game>();
+            if g.serving.tossed && !tossed {
+                (0..toss_ai).for_each(|_| _ = g.rng.ai.next());
+            }
+            out.push(tick(app.world().resource::<Game>()));
+            if k < keep {
+                rngs.push(app.world().resource::<Game>().rng.clone());
             }
         }
-        for (k, (w, g)) in want.iter().zip(&got).enumerate().take(60) {
-            eprintln!("{k:3} want {} {:4} {:?} | got {} {:4} {:?}", w.0, w.1, w.2[0], g.0, g.1, g.2[0]);
+        (out, rngs)
+    }
+
+    /// The two side by side: the first phases, how many match in kind and length, and the first tick a player stands
+    /// elsewhere. Returns the phases that match.
+    fn compare(name: &str, want: &[Tick], got: &[Tick]) -> usize {
+        let (w, g) = (phases(want), phases(got));
+        for (k, (w, g)) in w.iter().zip(&g).enumerate().take(30) {
+            eprintln!("{name} {k:3} want {} {:4} {:?} | got {} {:4} {:?}", w.0, w.1, w.2[0], g.0, g.1, g.2[0]);
         }
-        let same = want.iter().zip(&got).take_while(|(w, g)| w.0 == g.0 && w.1 == g.1).count();
-        eprintln!("{same} of {} phases match", want.len());
+        let same = w.iter().zip(&g).take_while(|(w, g)| w.0 == g.0 && w.1 == g.1).count();
+        eprintln!("{name}: {same} of {} phases match", w.len());
+        // play's tick k + shift beside the recording's tick k: where the players, then the ball, first part
+        for shift in 0..3 {
+            let got = &got[shift..];
+            let players = want.iter().zip(got).position(|(w, g)| (w.0, w.1) != (g.0, g.1));
+            let ball = want.iter().zip(got).position(|(w, g)| w.2 != g.2);
+            eprintln!("{name} shift {shift}: players part at {players:?}, the ball at {ball:?}");
+            for t in [players, ball].into_iter().flatten() {
+                for k in t.saturating_sub(1)..(t + 3).min(want.len()) {
+                    eprintln!("{name}   tick {k}: want {:?}\n{name}             got  {:?}", want[k], got[k]);
+                }
+            }
+        }
+        same
+    }
+
+    /// How far the first serve set-up of `got` (play, one tick ahead of the recording: its setup state is the game's
+    /// last frame before the set-up) follows `want`: the first tick a player stands elsewhere or the phase differs,
+    /// and the longest span of ticks before it that the ball is where the recording has it. A torn sample (the
+    /// recorder read the ball a tick early or late) counts as a match with the tick beside it.
+    fn first_serve(want: &[Tick], got: &[Tick]) -> (usize, std::ops::Range<usize>) {
+        let players = want.iter().zip(&got[1..]).position(|(w, g)| (w.0, w.1) != (g.0, g.1)).unwrap_or(want.len());
+        let same = |k: usize| (k..k + 3).any(|j| got.get(j).is_some_and(|g| g.2 == want[k].2));
+        let mut best = 0..0;
+        let mut k = 0;
+        while k < players {
+            let end = (k..players).find(|&j| !same(j)).unwrap_or(players);
+            if end - k > best.len() {
+                best = k..end;
+            }
+            k = end + 1;
+        }
+        (players, best)
+    }
+
+    /// The European bot match (doubles, characters 0/1/1/0, court 6, 1 set of 4 games; M177's recording) in play.
+    fn european(n: Option<usize>, toss_ai: usize) -> Option<(Vec<Tick>, Vec<Tick>)> {
+        let iso = hst_data::fixture::path(EU);
+        let Ok(data) = std::fs::read(hst_data::fixture::path("fixtures/m169/eu-bot-match.bin")) else {
+            eprintln!("skipped: no eu-bot-match.bin");
+            return None;
+        };
+        if !iso.exists() {
+            eprintln!("skipped: no {EU}");
+            return None;
+        }
+        let _turn = super::EU_DISC.lock().unwrap_or_else(|e| e.into_inner());
+        hst_base::match_speed::test_sim_hz(50);
+        let _sixty = Sixty;
+        let args = Args { iso: iso.to_string_lossy().into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 6, stage: None, play: true, singles: false, chars: vec![0, 1, 1, 0], outfits: vec![], viewer: None, sound: None, music: false, umpire: 0, sets: 1, games: 4, pads: None };
+        let want = recorded_ticks(&data);
+        // the match seed: the 81 875th `rand()` output from boot (`eu_match_seed_search`)
+        let (got, _) = played_ticks_rng(args, hst_sim::rng::Seed::after(81_874), n.unwrap_or(want.len() + 10), 0, toss_ai);
+        Some((want, got))
+    }
+
+    /// The European match's first serve set-up in play from the original's seed, beside the recording: the server
+    /// walks to the same spot on the same ticks and every player stands where the recording has them until the serve
+    /// is struck; the held ball follows the server's hand bit for bit from tick 8 until the toss leaves it. Where they
+    /// part (M183a1's journal): the game's toss flies the same path 3 ticks later than play's (1 at 60 Hz), and play
+    /// strikes the serve 3 ticks after the game.
+    #[test]
+    fn the_european_first_serve_set_up_plays_as_recorded() {
+        let Some((want, got)) = european(Some(300), 0) else { return };
+        let (players, ball) = first_serve(&want, &got);
+        eprintln!("eu first serve: players to {players}, the ball {ball:?}");
+        assert!(players >= 135 && ball.start <= 8 && ball.end >= 113, "players to {players}, the ball {ball:?}");
+    }
+
+    /// Probe, not a proof yet (M183a1): the whole European bot match in play from the original's match seed, beside the
+    /// recording phase by phase and tick by tick. Asserts nothing. Run by hand:
+    /// `tools/check.sh -p hst-play bot_match_plays_as_recorded -- --ignored --nocapture` (`HST_M183A1_TOSS_AI=n`: n
+    /// AI draws at each toss, `HST_M183A1_DUMP`: the first 240 ticks of the server and the ball).
+    #[test]
+    #[ignore]
+    fn the_european_bot_match_plays_as_recorded() {
+        let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
+        let Some((want, got)) = european(None, toss_ai) else { return };
+        compare("eu", &want, &got);
+        if std::env::var_os("HST_M183A1_DUMP").is_some() {
+            for k in 0..240.min(want.len()) {
+                eprintln!("eu dump {k}: want {} {:?} {:?} | got {} {:?} {:?}", want[k].0, want[k].1[0], want[k].2, got[k + 1].0, got[k + 1].1[0], got[k + 1].2);
+            }
+        }
+    }
+
+    /// Slot 5's bot match (`fixtures/match_s05.bin`: doubles, characters 0/2/1/5, court 10, umpire 4, 1 set of 4
+    /// games) in play at 60 Hz from its match seed, with the generators after each of the first `keep` ticks.
+    fn us(n: Option<usize>, keep: usize, toss_ai: usize) -> Option<(Vec<Tick>, Vec<Tick>, Vec<hst_sim::rng::Rngs>)> {
+        let Ok(data) = hst_data::fixture::read("fixtures/match_s05.bin") else {
+            eprintln!("skipped: no match_s05.bin");
+            return None;
+        };
+        let Ok(rng) = hst_data::fixture::read("fixtures/p3b/rng_s05.bin") else {
+            eprintln!("skipped: no rng_s05.bin");
+            return None;
+        };
+        if !hst_data::fixture::has_iso() {
+            return None;
+        }
+        let _turn = super::EU_DISC.lock().unwrap_or_else(|e| e.into_inner());
+        let args = Args { iso: hst_data::fixture::ISO_PATH.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 10, stage: None, play: true, singles: false, chars: vec![0, 2, 1, 5], outfits: vec![], viewer: None, sound: None, music: false, umpire: 4, sets: 1, games: 4, pads: None };
+        let size = 4 + 8 + 4 * 0x9d0;
+        let rand_at = |v: u32| rng.chunks_exact(size).find(|s| u32::from_le_bytes(s[..4].try_into().unwrap()) == v).map(|s| u64::from_le_bytes(s[4..12].try_into().unwrap())).unwrap();
+        // The match seed is the `rand()` output 0x28c7c4a1 (P3d3, `weather.rs`), but the intro was cut short when slot
+        // 5 was made (a button skips it): `rand()` stands 2642 draws past the seed as the first point starts, where a
+        // whole intro's lens flare (394 ticks of 24 draws) takes 9456. So `rand()` starts where play's setup (the
+        // setup's 50 draws, the sound manager's reseed, the whole intro) lands on the recording's `rand()` the frame
+        // before the first point's reseed (vsync 7565); the shared generator keeps the seed the schedule came from.
+        let rand = hst_sim::rng::Rand(rand_back(rand_at(7565), 50 + 1 + 394 * 24));
+        let seed = hst_sim::rng::Seed { rand, shared: 0x28c7_c4a1 };
+        let want = recorded_ticks(&data);
+        let (got, rngs) = played_ticks_rng(args, seed, n.unwrap_or(want.len() + 10), keep, toss_ai);
+        Some((want, got, rngs))
+    }
+
+    /// The US baseline for the European test above (M183a1): in slot 5's first serve set-up every player stands where
+    /// the recording has them until the serve is struck, and the held ball follows the server's hand bit for bit from
+    /// tick 9 until the toss. Where it parts (M183a1's journal): the game's toss flies the same path a tick later
+    /// than play's (3 ticks at 50 Hz), its AI generator draws 60 values at the toss that play doesn't, and the serve
+    /// launches differently.
+    #[test]
+    fn the_us_first_serve_set_up_plays_as_recorded() {
+        let Some((want, got, _)) = us(Some(300), 0, 0) else { return };
+        let (players, ball) = first_serve(&want, &got);
+        eprintln!("us first serve: players to {players}, the ball {ball:?}");
+        assert!(players >= 216 && ball.start <= 9 && ball.end >= 169, "players to {players}, the ball {ball:?}");
+    }
+
+    /// The US baseline for the European probe, compared the same way, so a 50 Hz gap can be told from one that plays
+    /// the US match wrong too; with the generators beside slot 5's recorded ones.
+    #[test]
+    #[ignore]
+    fn the_us_bot_match_plays_as_recorded() {
+        let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
+        let Some((want, got, rngs)) = us(None, 400, toss_ai) else { return };
+        compare("us", &want, &got);
+        if std::env::var_os("HST_M183A1_DUMP").is_some() {
+            for k in 0..240.min(want.len()) {
+                eprintln!("us dump {k}: want {} {:?} | got {} {:?}", want[k].0, want[k].2, got[k + 1].0, got[k + 1].2);
+            }
+        }
+        // the generators beside slot 5's recorded ones (`fixtures/p3b/rng_s05.bin`, vsyncs 7533..9032; the serve
+        // set-up starts at 7566): each played tick's rand / shared / AI generator, at the recorded vsync it equals
+        if let Ok(d) = hst_data::fixture::read("fixtures/p3b/rng_s05.bin") {
+            use hst_sim::rng::Mt;
+            let size = 4 + 8 + 4 * 0x9d0;
+            let rec: Vec<(u32, u64, Mt, Mt)> = d
+                .chunks_exact(size)
+                .map(|s| (u32::from_le_bytes(s[..4].try_into().unwrap()), u64::from_le_bytes(s[4..12].try_into().unwrap()), Mt::from_ram(&s[12..]), Mt::from_ram(&s[12 + 0x9d0..])))
+                .collect();
+            // how many `rand()` draws play's is from the recording's, at play's setup and first ticks
+            for k in [0usize, 1, 2, 3, 10] {
+                let (mine, theirs) = (rngs[k].rand, rec.iter().find(|x| x.0 == 7565 + k as u32).unwrap().1);
+                let ahead = |from: u64, to: u64| {
+                    let mut r = hst_sim::rng::Rand(from);
+                    (0..2_000_000).find(|_| {
+                        r.next();
+                        r.0 == to
+                    })
+                };
+                eprintln!("us rand tick {k}: play's is {:?} draws after the recording's, or {:?} before", ahead(theirs, mine.0).map(|n| n + 1), ahead(mine.0, theirs).map(|n| n + 1));
+            }
+            // the AI generator around the serve's press and contact: draws from its state at vsync 7566 + 124
+            let ai124 = rec.iter().find(|x| x.0 == 7566 + 124).unwrap().3.clone();
+            let draws = |to: &Mt| {
+                let mut g = ai124.clone();
+                (0..400).find(|_| {
+                    let hit = g == *to;
+                    g.next();
+                    hit
+                })
+            };
+            let mut last = None;
+            for x in rec.iter().filter(|x| (7566 + 124..7566 + 300).contains(&x.0)) {
+                let n = draws(&x.3);
+                if n != last {
+                    eprintln!("us ai recorded at {}: {n:?} draws past 124", x.0 as i64 - 7566);
+                    last = n;
+                }
+            }
+            for (k, r) in rngs.iter().enumerate().take(230).skip(214) {
+                eprintln!("us ai play tick {k}: {:?} draws past 124", draws(&r.ai));
+            }
+            for (k, r) in rngs.iter().enumerate() {
+                let at = |f: &dyn Fn(&(u32, u64, Mt, Mt)) -> bool| rec.iter().find(|x| f(x)).map(|x| x.0 as i64 - 7566);
+                let (rand, shared, ai) = (at(&|x| x.1 == r.rand.0), at(&|x| x.2 == r.shared), at(&|x| x.3 == r.ai));
+                if k < 12 || k % 20 == 0 || (205..226).contains(&k) {
+                    eprintln!("us rng tick {k}: rand at {rand:?}, shared at {shared:?}, ai at {ai:?}");
+                }
+            }
+        }
+    }
+
+    /// One-off (M183a1): which `rand()` output seeded the European match's weather schedule, the one in
+    /// `eu-bot-late_ee.bin` (match object +0xd8 weathers, +0x11c speed and direction pairs), walking back from the
+    /// 3–3 point's reseed (the 875 477th output).
+    #[test]
+    #[ignore]
+    fn eu_match_seed_search() {
+        let iso = hst_data::fixture::path(EU);
+        let Ok(ram) = std::fs::read(hst_data::fixture::path("fixtures/m169/eu-bot-late_ee.bin")) else { return };
+        let u = |a: usize| u32::from_le_bytes(ram[a..a + 4].try_into().unwrap());
+        let gm = u(0x437e00) as usize;
+        let mut disc = hst_data::iso::Iso::open(&iso).unwrap();
+        let (cnf, bin) = (disc.read("SYSTEM.CNF").unwrap(), disc.read("ZZBIN/GAME.BIN").unwrap());
+        let exe = hst_data::exe::Game::new(&cnf, &bin).unwrap();
+        let o = exe.weather_odds(6);
+        let odds = hst_sim::weather::Odds { cloudy: o[0], cloudy_len: [o[1], o[2]], rain: o[3], rain_len: [o[4], o[5]], no_border: o[7] != 0, heavy: o[8] != 0 };
+        let ((directions, speed), (chance, kind)) = (exe.wind(6), exe.gusts(6));
+        let wind = hst_sim::weather::Wind { chance, kind, directions, speed };
+        let want: Vec<(u8, u32, u32)> = (0..65).map(|i| (ram[gm + 0xd8 + i], u(gm + 0x11c + 8 * i), u(gm + 0x120 + 8 * i))).collect();
+        let mut st = hst_sim::rng::Seed::after(875_476).rand.0;
+        for back in 0..875_477u32 {
+            let out = (st >> 32) as u32 & 0x7fff_ffff;
+            let mut mt = hst_sim::weather::Mt::new(out);
+            let s = hst_sim::weather::schedule(&odds, &wind, 4, 1, 4, || mt.next());
+            if s.iter().zip(&want).all(|(g, w)| (g.weather, g.speed.to_bits(), g.degrees as i32 as u32) == *w) {
+                eprintln!("eu seed: output {out:#x}, {back} outputs back, the {}th from boot", 875_477 - back);
+                return;
+            }
+            st = rand_back(st, 1);
+        }
+        panic!("no seed");
+    }
+
+    /// newlib's `rand()` state `n` draws before `state`.
+    fn rand_back(state: u64, n: u32) -> u64 {
+        const A: u64 = 0x5851_f42d_4c95_7f2d;
+        // A's inverse mod 2^64 (Newton: each step doubles the bits that are right)
+        let inv = (0..6).fold(A, |x, _| x.wrapping_mul(2u64.wrapping_sub(A.wrapping_mul(x))));
+        (0..n).fold(state, |x, _| x.wrapping_sub(1).wrapping_mul(inv))
     }
 
     impl Game {
