@@ -6,7 +6,7 @@ Other agents edit play.rs at the same time: keep your play.rs changes local (add
 
 In the task's journal entry, list under 'Not verified / not 1:1' everything you couldn't verify against the original or couldn't match exactly, with the reason (or 'none').
 
-Finish with `tools/done.sh {tid} "<msg>"` (tests, tick, commit), or `tools/done.sh {tid} "<msg>" --spec` for a clean-room spec phase. If stuck (AGENT.md 'If you get stuck'): `tools/done.sh {tid} "<msg>" --blocked "<why + what unblocks>"`, then stop. A usage limit is not stuck: commit what's solid, but don't mark the task [~] or stop PCSX2; the session waits for the reset and continues.
+Finish with `tools/done.sh {tid} "<msg>"` (tests, tick, commit), or `tools/done.sh {tid} "<msg>" --spec` for a clean-room spec phase. If stuck (AGENT.md *Stuck*): `tools/done.sh {tid} "<msg>" --blocked "<why + what unblocks>"`, then stop. A usage limit is not stuck: commit what's solid, but don't mark the task [~] or stop PCSX2; the session waits for the reset and continues.
 
 The task list is a tool: `agent-runner plan`, `agent-runner plan <ID>`, `agent-runner plan add <PREFIX> "<text>" --files a,b [--after ID] [--test name]` for a follow-up you must not do now (always `--files`: the files it will change). Never hand-edit a checkbox.
 

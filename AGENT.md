@@ -1,134 +1,82 @@
 # Agent notes
 
-Rust/Bevy remaster of Hot Shots Tennis (SCUS-97610). Faithful: same AI, physics, timing; better rendering.
+Rust/Bevy remaster of Hot Shots Tennis (SCUS-97610). Faithful: same AI, physics, timing; better rendering. PLAN.md
+has the rules and where code lives; this is how to work. How-tos on demand: `agent-runner plan "<section>"` (from
+`plan/GUIDE.md`): *PS2 libraries*, *Research setup*, *Function oracle*, *Tests in detail*, *Waiting on things*,
+*Driving the game*, *Unattended runs*, *Mod versions*, *Concept branches*, *Main checkout in detail*.
 
-- Retail data is read from the user's ISO at runtime. Never commit game data, extracted assets, or dumps.
-- No retail addresses or Ghidra names (`FUN_…`, `DAT_…`) in shipped code; describe behaviour instead. Ports go
-  spec first, then a second session ports from the spec with the decompile locked (PLAN.md *Clean-room ports*).
-  Single exception (user decision, 2026-10-06): `hst-data::exe` reads tuning *data* that only exists inside the
-  game program from the user's own GAME.BIN at documented offsets, after checking the disc is SCUS-97610 US 1.00.
-  No code addresses, no game data in git.
-  Second exception (user decision, 2026-10-15): a small curated set of promo screenshots of our own renderer (website,
-  README) may be committed, in `docs/screenshots/`; not texture sheets, raw captures or bulk dumps.
+## Never
+
+- Commit game data, extracted assets or dumps: retail data is read from the user's ISO at runtime.
+- Put retail addresses or Ghidra names (`FUN_…`, `DAT_…`) in shipped code; ports go spec first, then a second session
+  ports from the spec with the decompile locked (PLAN.md *Clean-room ports*). Exceptions (user decisions):
+  `hst-data::exe` reads tuning *data* from the user's own GAME.BIN at documented offsets after checking the disc is
+  SCUS-97610 US 1.00, no code addresses (2026-10-06); a small curated set of promo screenshots of our own renderer in
+  `docs/screenshots/`, not texture sheets, raw captures or bulk dumps (2026-10-15).
+- Copy `../ps2-float` / `../ps2-oracle` back in: they're ours, fix them there (*PS2 libraries*).
+- `rm` with a glob (`rm -f context/x/*`): the rm check prompts even in bypass mode and unattended runs sit on it. Write
+  each run to a fresh `context/<task>/runN/`, or let the tool overwrite its files.
+- `pkill pcsx2-qt`, or touch PCSX2 while a capture (`pgrep -f record_p2m2`) runs (*Driving the game*).
+- `git add -A/./-u` or `git commit -a` in the main checkout (below).
+
+## Ports
+
 - Exactness: ported math uses `hst_sim::ps2` (PCSX2's EE FPU model: chop rounding, aligned adds) wherever the
   original's float results must match bit for bit.
-- The PS2 libraries are ours: FIZL0/ps2-float (`../ps2-float`: EE FPU, VU0, the SDK's fdlibm, newlib rand/MT;
-  `hst_sim::ps2`/`vu0`/`libm`/`rng` re-export it) and FIZL0/ps2-oracle (`../ps2-oracle`: the R5900 interpreter under
-  `hst-oracle`), tag-pinned git dependencies shared with the decomp kits. Agents may fix and extend them when a port
-  needs it (new op, missing function, wrong rounding): change it there with a test, tag a release, bump the tag here
-  and in the decomp kits (their own repos' `crates/game-sim`, `crates/kit-oracle`, not in this one), run their tests. Never copy them back in.
-- Research: our own scripts and notes are in `research/` (in git: no game data, no decompiled code, no captures or
-  screenshots); everything derived from the disc or the running game is in `context/` (scratch) or, if a test reads it, `fixtures/` (both git-ignored). Journal:
-  `research/journal/YYYY-MM-DD-<slug>/` (slug starts with the lowercase task ID), one dir per task: a `README-<STATE>.md`
-  or numbered iteration files `N-<TOPIC>-<STATE>.md` (a README is optional then); the newest one's state says whose move
-  it is: `-FINAL` done, `-PART` agent continues, `-READY` needs the human. `tools/done.sh` renames a ticked task's
-  newest `-READY`/`-PART` to `-FINAL`. Older dirs with no state suffix anywhere count as `-FINAL`; the plan's checkbox
-  wins if they disagree. Put captures and images in `context/`, not the journal.
-- Gameplay ports are verified against the real game over PINE (`tools/pine.py`, launch with `tools/pcsx2-hst.sh`).
-
-## Release notes
-Anything a player would notice (new feature, fix, change in how something plays or looks) gets one plain-English
-`- ` line in `RELEASE_NOTES.md`, committed with the change: what changed for the player, not how. No task IDs, crate
-names or jargon. Internal work (tests, tooling, refactors, research) gets nothing. `tools/release.sh` publishes it.
-
-## Mod versions
-Any change to a published mod (rebuilt model, motions, faces, textures, manifest fix) bumps its `mod.json` `version`
-before it is re-uploaded, so the mod store sees an update and installed copies refresh.
-`../opentennis-mods/out/mods` is the user's live mods folder, and a mods worktree that links `out/` to main's
-writes straight into it: merge main into your branch before running a packager there (`package.py`, `texpack.py`,
-court exports refuse otherwise, `tools/fresh.py`), or a stale branch rebuilds the mods without main's newer work.
-
-## Research setup
-`research/README.md` rebuilds `context/` and `fixtures/` from the disc (extract, overlay ELFs, Ghidra project,
-decompilation dumps, save states, recordings) and lists the tool pitfalls. `fixtures/` (git-ignored, game data) holds
-everything the tests read: disc extracts (`fixtures/iso`, `xb`), RAM images, recordings. A recording a test needs is
-copied into `fixtures/<task>/` (`cp --reflink`) when the test lands; tests never read `context/`.
-`tools/context_prune.py` reports what `context/` holds that nothing refers to any more (`--delete` moves it to
-`context/.trash/`, `--empty` clears that); a recording a research script needs must be named by its path in it.
+- Gameplay ports are verified against the real game over PINE (`tools/pine.py`, launch with `tools/pcsx2-hst.sh`); a
+  pure function of its arguments and RAM against the function oracle instead (*Function oracle*).
+- Decompile: `research/fn.sh <addr>`, `research/xref.py <addr> [--similar]`.
+- Research: our own scripts and notes in `research/` (in git: no game data, no decompiled code, no captures or
+  screenshots); anything from the disc or the running game in `context/` (scratch) or, if a test reads it,
+  `fixtures/` (both git-ignored; *Research setup*).
+- Journal: `research/journal/YYYY-MM-DD-<slug>/` (slug starts with the lowercase task ID), one dir per task: a
+  `README-<STATE>.md` or numbered iteration files `N-<TOPIC>-<STATE>.md`; the newest one's state says whose move it
+  is: `-FINAL` done, `-PART` agent continues, `-READY` needs the human. `tools/done.sh` renames a ticked task's newest
+  `-READY`/`-PART` to `-FINAL`. Dirs with no state suffix count as `-FINAL`; the plan's checkbox wins if they
+  disagree. Captures and images go in `context/`, not the journal.
 
 ## Plan
-`PLAN.md` holds the rules (code map: `plan/CODEMAP.md`, by crate: `agent-runner plan <crate>`); the ordered open tasks are in `plan/TODO.md` (each line ends in fields:
-`| files: a, b | after: X | test: t | journal: d`),  finished ones in `plan/DONE.md`. "continue" means: `agent-runner plan next`, read `agent-runner plan brief <ID>` (line, plan file,
-journal, files), port + verify, `tools/done.sh <ID> "<msg>"` (tests, tick into DONE.md, commit). Don't grep the repo for where things live — the code map says. Background (game
-control, done list, known gaps): `plan/REFERENCE.md`. `agent-runner plan` (index) · `next` · `N1e` (plan/tasks/N1e.md, else
-its TODO/DONE line) · `"when blocked"` (a section) · `-f FILE <name>` (any markdown) · `tick <ID>` · `block <ID> <why>` · `unblock <ID> [note]` · `move <ID> top|before ID|after ID|in SECTION` · `add <PREFIX> TEXT [@ WHERE]` (next free id) · `note <ID> TEXT` · `newid <PREFIX>` · `drop <ID> WHY` (`agent-runner plan --help`: the rest). Use these for reprioritising and new tasks instead of reading/editing TODO.md.
-Work that needs another task to land first is that task's subtask: `add B646 TEXT` gives `B646a`, then `B646b`
-(`add B646a …` → `B646a1`). The runner never runs one family (B646, B646a, B646b) side by side, so they go one at a
-time; a fresh number (`add B …`) starts in parallel at once, whatever its line says it follows.
-Make a subtask only when it can't start before its parent lands (it needs the parent's code, data or verdict); "same topic" or "came out of that task" is no reason. Everything else gets a fresh number so the runner runs it in parallel (user 2026-11-16: a family of unrelated work queues one at a time). Splitting a request into several tasks: one fresh number per piece that can start now, children only under the piece each one waits for.
-Every new task names its files and what it waits on as fields, never in prose: `agent-runner plan add B "text" --files crates/x/src/a.rs,crates/y/** --after B646 --test name`
-(prose is never read for files or ids; a line with no `files:` runs beside anything, and `after:` is the only way to wait on a fresh-numbered task).
 
-## Concept branches
-A task marked **concept** (user 2026-10-21) is an experiment the user wants to try before it reaches main: its code
-lives on `concept/<slug>` (the slug is on the task line), never on main. Pick up where the branch left off
-(`git fetch origin concept/<slug>` → `git switch concept/<slug>`, or `git switch -c concept/<slug>` the first time; merge
-main into it) in your own slot, not a new `git worktree add` folder (`tools/worktree-gc.sh` sweeps any left over after
-each runner session), build and commit there, `git push -u origin concept/<slug>`, then `git switch` back to your task
-branch so it carries only the journal and plan. Write in the task's journal what's on the branch, how to try it
-(`git switch concept/<slug>`, the flags) and what's next, then end with `tools/done.sh <ID> "<msg>" --blocked
-"concept round N on concept/<slug>: waiting on the user"`. The user unblocks it for another round, or asks for a
-merge into main as a normal task. Mode-off and the replay tests stay exact on the branch too.
+Open tasks in `plan/TODO.md` (line fields: `| files: a, b | after: X | test: t | journal: d`), finished in
+`plan/DONE.md`, background (game control, done list, known gaps) in `plan/REFERENCE.md`. Never read or edit TODO.md
+directly: `agent-runner plan` (index) · `next` · `<ID>` · `brief <ID>` · `"<section>"` · `-f FILE <name>` · `tick` ·
+`block <ID> <why>` · `unblock <ID> [note]` · `move <ID> top|before ID|after ID|in SECTION` · `add <PREFIX> TEXT [@ WHERE]` ·
+`note <ID> TEXT` · `newid <PREFIX>` · `drop <ID> WHY` (`--help`: the rest). "continue" means: `agent-runner plan next`,
+read its brief, port + verify, `tools/done.sh <ID> "<msg>"` (tests, tick into DONE.md, commit).
+
+New tasks name their files and waits as fields, never in prose (prose is never read for files or ids):
+`agent-runner plan add B "text" --files crates/x/src/a.rs,crates/y/** --after B646 --test name`. A subtask (`add B646 …`
+→ `B646a`) only when it can't start before its parent lands (needs its code, data or verdict): the runner runs one
+family at a time. Anything else gets a fresh number, so it runs in parallel (user 2026-11-16); `after:` is the only way
+to wait on a fresh-numbered task. Concept tasks: *Concept branches*.
+
+## Release notes
+
+Anything a player would notice (new feature, fix, change in how something plays or looks) gets one plain-English `- `
+line in `RELEASE_NOTES.md`, committed with the change: what changed for the player, not how. No task IDs, crate names or
+jargon. Internal work (tests, tooling, refactors, research) gets nothing. `tools/release.sh` publishes it. A published
+mod's change bumps its `mod.json` `version` (*Mod versions*).
 
 ## Cheap context
-- Every turn re-reads the whole conversation: pipe long output through `tail`/`grep`, read files by line range
-  (`sed -n`, Read offset/limit), never dump whole logs or big files.
-- Decompile: `research/fn.sh <addr>` (one function), `research/xref.py <addr>` (callers/callees),
-  `research/xref.py <addr> --similar` (look-alike functions; `ported` ones have Rust to copy the shape of). A hook
-  blocks reading the 16 MB dumps whole.
-- Tests: `tools/check.sh [-p crate --test name]`, not bare `cargo test`; full log in `context/notes/check.log`.
-  While working, run only the tests you touched (`tools/check.sh -p hst <filter>`): three check slots serve every
-  agent, and a full-suite run holds one for many minutes. The full suite runs once, in `tools/done.sh`.
-  A test reads the disc and `fixtures/` recordings through `hst_data::fixture` (`iso()`, `read`, `skip`), never by
-  its own path: it skips without them, and fails instead under check.sh's `HST_REQUIRE_DISC=1`.
-  Keep each test under ~10 s: share one match between checks, force the rare case (e.g. set the replay camera's
-  closing-shot list) instead of playing on until it happens. Slower ones are `#[ignore]` with a doc line saying
-  how and when to run them (`tools/check.sh -p hst <name> -- --ignored`). `check.sh` skips the netplay match tests
-  (`play::netplay::tests::matches`) unless `HST_NETPLAY=1` or the filter names netplay/rollback/synctest: touch netplay,
-  net or the snapshot → `HST_NETPLAY=1 tools/check.sh -p hst-play netplay` (the match, netplay included, is in `hst-play`; the menus in `hst`). Ignored: the full-match netplay/rollback runs,
-  `synctest_through_a_change_of_ends` (snapshot/change of ends), `a_silent_peer_rejoins_and_a_silent_host_ends_it`
-  (`recover.rs`), `short_code_on_a_testnet` (DHT/short codes). Touch those areas → run the matching one.
-- Function oracle (`crates/hst-oracle`): for a pure function of its arguments and RAM (math, AI decisions, table
-  lookups) check the port with `Ee::game()`/`Ee::from_ram(dump)` + `call(addr(name), ints, floats, budget)` over
-  ≥10k generated inputs instead of recording it (names → addresses in `research/oracle.txt`; examples in its
-  `tests/`; `use hst_oracle::HstEe` for those two). An unknown op panics with its address: add it to the interpreter
-  (ps2-oracle, see above). Timing, frame flow, VU0 and
-  rendering still need PCSX2 recordings.
-- `CAPTURE FAILED` from any PINE tool means the output file is incomplete: fix PCSX2, re-record.
-- Waiting: a `run_in_background` command re-invokes you when it exits, so end the turn or do other work. Don't
-  `sleep N; cat …output` (a hook blocks it) and don't poll its output file. If you really must wait on a condition,
-  use a bounded loop (`timeout 600 bash -c 'until …; do sleep 3; done'`) that also stops when the process exits.
-- Wrap-up is one call, no subagent: `tools/done.sh <ID> "<msg>"` (tests, tick, commit) or `… --blocked "<why>"`.
-  In the main checkout (shared with other sessions) add `-- <paths you changed>`; it commits only those + plan/.
-  A hook blocks `git add -A/./-u` and `git commit -a` there: stage and commit your own paths
-  (`git commit -m … -- <paths>`). Bigger ad-hoc work: `git worktree add "$(agent-runner home)/wt/<slug>"`, merge when done.
-  The `chore` subagent is only for bigger mechanical jobs (checking a capture, reformatting).
 
-## Controlling the game
-`plan/REFERENCE.md` → *Controlling the real game* (PINE, virtual pad `tools/vpad.py`, `tools/screenshot.sh`; remaster `--shot`s in a fixed-size floating window: `tools/shot.sh`) and
-`PLAN.md` → *When blocked* (switch prompts, never stop while work remains). Unattended runs: `tmux new -s hst agent-runner run [N|once]`
-([agent-runner](https://github.com/FIZL0/agent-runner), settings in `runner.toml`; N slots at once in worktrees, default 5, `once` = one task then stop; `--mode d` = different files instead of TODO order; `--force` = past the 94% weekly cap; `--shutdown` = power the computer off once nothing is running, merging or startable; stop gently with s + Enter in its pane or `agent-runner stop`; each slot builds in its own worktree `target/`, dependencies shared through sccache; don't set `CARGO_TARGET_DIR`). Multi-step game drives
-go under `tools/pcsx2.sh <cmd>`; pine.py tools take the same lock by themselves. In a parallel run `HST_PCSX2=N` gives
-each agent its own PCSX2 copy (tools, pad, PINE and lock all follow it). When you're done with the game for your task,
-close yours: `tools/pcsx2.sh tools/pcsx2-hst.sh stop` (waits for anything mid-use). Never `pkill pcsx2-qt`.
-Wine (Windows build checks): always `WINEDLLOVERRIDES="mscoree,mshtml=" WINEDEBUG=-all wine …` so a fresh prefix doesn't pop the
-mono/gecko install dialogs on the user's desktop.
-Never `rm` with a glob (`rm -f context/x/*`): Claude Code's rm check prompts even in bypass mode and unattended
-runs sit on it until it auto-denies. Write each run to a fresh `context/<task>/runN/`, or let the tool overwrite its files.
+- Every turn re-reads the whole conversation: pipe long output through `tail`/`grep`, read files by line range, never
+  dump whole logs or big files.
+- Tests: `tools/check.sh -p <crate> <filter>` for what you touched, not bare `cargo test`; the full suite runs once,
+  in `tools/done.sh`. Tests read the disc only through `hst_data::fixture`, stay under ~10 s, and netplay has its own
+  switch (*Tests in detail*).
+- Background commands re-invoke you when they exit: never poll or `sleep; cat` (*Waiting on things*).
+- Wrap-up is one call, no subagent: `tools/done.sh <ID> "<msg>"` or `… --blocked "<why>"`.
 
-## Sharing the main checkout
-Other sessions and the runners' merges work in this same checkout at the same time. In it, commit only the paths you
-changed: `git commit -m "…" -- <paths>`, never `git commit -a` or `git add -A`/`.` (they sweep up other sessions'
-half-done edits). Commit as soon as a change is solid; uncommitted work can end up stashed or in someone else's
-commit. `.git/MERGE_HEAD` exists → a merge is under way: wait for it, don't commit or touch the index. Anything bigger
-than a quick edit while runners are going: work in your own worktree (`git worktree add "$(agent-runner home)/wt/<slug>"`) and
-merge it into main when done. `tools/done.sh` (`git add -A`) is for the runners' task worktrees, not this checkout.
-Interactive session (the user's) that moves from adding TODOs to code work: switch into a worktree first (EnterWorktree,
-or start it with `claude -w <slug>`), commit there, merge into main when done; a runner merge waits while uncommitted
-edits in main touch the files it changes. Never use a runner slot (`$(agent-runner home slots)/sN`): the runner resets those.
+## Main checkout
 
-## If you get stuck, move on
-Never wait or loop on one obstacle. If a tool hangs, PCSX2 won't cooperate, the same fix fails twice, something
-needs the human, or ~20 minutes go by without progress: write what happened and what you tried in the prompt's
-journal, `agent-runner plan block <ID> <one-line reason>`, commit what's solid, and start the next open
-prompt. Don't touch PCSX2 while a capture (`pgrep -f record_p2m2`) is running.
+Other sessions and the runners' merges share it. Commit only your own paths (`git commit -m "…" -- <paths>`; with
+done.sh add `-- <paths>`), as soon as they're solid. `.git/MERGE_HEAD` exists → wait, don't commit or touch the index.
+Bigger work while runners go: your own worktree (`git worktree add "$(agent-runner home)/wt/<slug>"`), merged when
+done; never a runner slot (*Main checkout in detail*).
+
+## Stuck
+
+Never wait or loop on one obstacle: tool hangs, PCSX2 won't cooperate, the same fix fails twice, it needs the human, or
+~20 minutes without progress → journal what happened and what you tried, commit what's solid,
+`tools/done.sh <ID> "<msg>" --blocked "<why + what unblocks>"` (or `agent-runner plan block`), next task. PLAN.md
+*When blocked* has the rest.

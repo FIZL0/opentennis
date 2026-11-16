@@ -3,7 +3,7 @@
 dir = "plan"
 journal = "research/journal"
 brief_extra = "tools/cleanroom.py {id}" # a SPEC.md's spec/port phase; in a slot's worktree it writes the .cleanroom lock
-lookup = ["PLAN.md", "plan/CODEMAP.md"]
+lookup = ["PLAN.md", "plan/CODEMAP.md", "plan/GUIDE.md"]
 
 [run]
 # Claude Code (Opus) runs every session. For other providers (Codex, Copilot, ...) the runner can use Pi
