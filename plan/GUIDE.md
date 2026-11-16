@@ -72,8 +72,8 @@ doesn't pop the mono/gecko install dialogs on the user's desktop.
 ## Unattended runs
 
 `tmux new -s hst agent-runner run [N|once]` ([agent-runner](https://github.com/FIZL0/agent-runner), settings in
-`runner.toml`; N slots at once in worktrees, default 5, `once` = one task then stop; `--mode d` = different files
-instead of TODO order; `--force` = past the 94% weekly cap; `--shutdown` = power the computer off once nothing is
+`runner.toml`; N slots at once in worktrees, default 5, `once` = one task then stop (never two tasks on one file);
+`--force` = past the 94% weekly cap; `--shutdown` = power the computer off once nothing is
 running, merging or startable; stop gently with s + Enter in its pane or `agent-runner stop`; each slot builds in its
 own worktree `target/`, dependencies shared through sccache; don't set `CARGO_TARGET_DIR`).
 
