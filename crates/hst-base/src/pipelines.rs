@@ -33,9 +33,8 @@ use std::sync::{Arc, Mutex};
 pub const IN_PLACE: bool = cfg!(any(target_arch = "wasm32", target_os = "macos"));
 
 /// The record a Mac starts from when it has none of its own (any Apple GPU: every Mac renders through Metal).
-#[cfg(any(target_os = "macos", test))]
-const SEED: Option<&str> = Some(include_str!("pipelines-macos.json"));
-#[cfg(not(any(target_os = "macos", test)))]
+/// P143: none until one is recorded on a Mac with Bevy 0.20 (the 0.19 one named `.wgsl` shaders that are gone);
+/// put it back as `Some(include_str!("pipelines-macos.json"))` for macOS and tests.
 const SEED: Option<&str> = None;
 
 /// Matches a recorded pipeline is kept for without one asking for it.
@@ -45,8 +44,8 @@ const KEEP: u32 = 8;
 const MAX: usize = 1000;
 
 /// The record's format; another one is dropped. A shader edit needs no bump: the source hashes catch it (P136).
-/// 3 = the shaders' source hashes.
-const VERSION: u32 = 3;
+/// 3 = the shaders' source hashes. 4 = Bevy 0.20's (WESL) shaders, every one renamed and rewritten (P143).
+const VERSION: u32 = 4;
 
 /// How long the feed waits for a recorded pipeline's shader (one the asset server loads, or one it imports) to load
 /// before leaving the pipeline out.
@@ -172,6 +171,9 @@ struct Stage {
     hash: u64,
     defs: u32,
     entry: Option<String>,
+    /// The stage's pipeline-overridable constants (none in records made before Bevy 0.20).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    constants: Vec<(String, f64)>,
 }
 
 /// Why a recorded pipeline can't be queued (yet).
@@ -191,7 +193,10 @@ enum Miss {
 struct Hashes(HashMap<AssetId<Shader>, u64>);
 
 impl Hashes {
-    /// `id`'s hash; `None` while it or one of its imports isn't loaded.
+    /// `id`'s hash; `None` while it isn't loaded. P143: only WESL shaders have imports (Bevy 0.20), scanned so that
+    /// each item is named twice, as the module and as `module::item`, along with modules behind an `@if` that may never
+    /// load; Bevy's shader cache follows those that resolve and skips the rest, and so does the hash. An import that
+    /// loads late changes the hash, which leaves the pipeline out of this run's warm-up, never compiled stale.
     fn get(&mut self, shaders: &Assets<Shader>, id: AssetId<Shader>) -> Option<u64> {
         if let Some(&h) = self.0.get(&id) {
             return Some(h);
@@ -204,17 +209,14 @@ impl Hashes {
         while let Some(s) = stack.pop() {
             match &s.source {
                 Source::Wgsl(t) | Source::Wesl(t) => h.chunk(t.as_bytes()),
-                Source::Glsl(t, stage) => {
-                    h.chunk(t.as_bytes());
-                    h.chunk(format!("{stage:?}").as_bytes());
-                }
                 Source::SpirV(b) => h.chunk(b),
             }
             h.chunk(format!("{:?}", s.shader_defs).as_bytes());
-            let extra = s.additional_imports.iter().map(|i| ShaderImport::Custom(i.import.clone()));
-            for import in s.imports.iter().cloned().chain(extra) {
-                if seen.insert(import.clone()) {
-                    stack.push(by_import.get(&import)?);
+            for import in &s.imports {
+                if seen.insert(import.clone())
+                    && let Some(found) = by_import.get(import)
+                {
+                    stack.push(found);
                 }
             }
         }
@@ -273,14 +275,21 @@ fn intern<T: PartialEq>(table: &mut Vec<T>, v: T) -> u32 {
 impl Record {
     /// `d` as a record entry; `None` when a shader has no path (or isn't all loaded).
     fn entry(&mut self, d: &RenderPipelineDescriptor, shaders: &Assets<Shader>, hashes: &mut Hashes) -> Option<Pipeline> {
-        let mut stage = |shader: &Handle<Shader>, defs: &[ShaderDefVal], entry: &Option<std::borrow::Cow<'static, str>>| {
+        type Constants = [(std::borrow::Cow<'static, str>, f64)];
+        let mut stage = |shader: &Handle<Shader>, defs: &[ShaderDefVal], entry: &Option<std::borrow::Cow<'static, str>>, constants: &Constants| {
             let path = shaders.get(shader.id()).map(|s| s.path.clone()).filter(|p| !p.is_empty())?;
             let hash = hashes.get(shaders, shader.id())?;
-            Some(Stage { shader: intern(&mut self.shaders, path), hash, defs: intern(&mut self.defs, defs.to_vec()), entry: entry.as_ref().map(|e| e.to_string()) })
+            Some(Stage {
+                shader: intern(&mut self.shaders, path),
+                hash,
+                defs: intern(&mut self.defs, defs.to_vec()),
+                entry: entry.as_ref().map(|e| e.to_string()),
+                constants: constants.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+            })
         };
-        let vertex = stage(&d.vertex.shader, &d.vertex.shader_defs, &d.vertex.entry_point)?;
+        let vertex = stage(&d.vertex.shader, &d.vertex.shader_defs, &d.vertex.entry_point, &d.vertex.constants)?;
         let fragment = match &d.fragment {
-            Some(f) => Some((stage(&f.shader, &f.shader_defs, &f.entry_point)?, f.targets.clone())),
+            Some(f) => Some((stage(&f.shader, &f.shader_defs, &f.entry_point, &f.constants)?, f.targets.clone())),
             None => None,
         };
         Some(Pipeline {
@@ -322,6 +331,7 @@ impl Record {
                 shader_defs: self.defs.get(s.defs as usize).ok_or(Miss::Gone)?.clone(),
                 entry_point: s.entry.clone().map(Into::into),
                 targets: targets.clone(),
+                constants: s.constants.iter().map(|(k, v)| (k.clone().into(), *v)).collect(),
             }),
             None => None,
         };
@@ -339,6 +349,7 @@ impl Record {
                 shader: vertex_shader,
                 shader_defs: self.defs.get(p.vertex.defs as usize).ok_or(Miss::Gone)?.clone(),
                 entry_point: p.vertex.entry.clone().map(Into::into),
+                constants: p.vertex.constants.iter().map(|(k, v)| (k.clone().into(), *v)).collect(),
                 buffers: p.buffers.iter().map(|b| VertexBufferLayout { array_stride: b.stride, step_mode: b.step, attributes: b.attributes.clone() }).collect(),
             },
             primitive: p.primitive,
@@ -521,7 +532,8 @@ mod tests {
     /// matches is left out of the saved record, with the tables only it used.
     #[test]
     fn the_seed_is_this_format() {
-        let seed: Record = serde_json::from_str(SEED.unwrap()).expect("pipelines-macos.json parses");
+        let Some(seed) = SEED else { return };
+        let seed: Record = serde_json::from_str(seed).expect("pipelines-macos.json parses");
         assert_eq!(seed.version, VERSION, "re-record pipelines-macos.json on a Mac after a format change");
         assert!(seed.pipelines.len() > 50);
     }
@@ -558,10 +570,13 @@ mod tests {
         app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default())).init_asset::<Shader>();
         let w = app.world_mut();
         let server = w.resource::<AssetServer>().clone();
+        // WESL modules named `test::view`/`test::main` (as from `embedded://`), at plain paths so the record finds
+        // them in `Assets` by path rather than through the asset server
+        let wesl = |source: String, name: &str| Shader { path: format!("test/{name}.wesl"), ..Shader::from_wesl(source, format!("embedded://test/{name}.wesl")) };
         let build = |module: &str, main: &str| {
             let mut shaders = Assets::<Shader>::default();
-            shaders.add(Shader::from_wgsl(format!("#define_import_path test::view\n{module}"), "test/view.wgsl"));
-            let main = shaders.add(Shader::from_wgsl(format!("#import test::view::a\n{main}"), "test/main.wgsl"));
+            shaders.add(wesl(module.to_string(), "view"));
+            let main = shaders.add(wesl(format!("import test::view::a;\n{main}"), "main"));
             (shaders, main)
         };
         let (shaders, main) = build("@group(0) @binding(0) var<uniform> a: f32;", "@vertex fn vertex() { let x = a; }");
@@ -576,7 +591,7 @@ mod tests {
         assert_eq!(fed(build("@group(0) @binding(0) var<uniform> a: f32;", "@vertex fn vertex() { let y = a; }")), Err(Miss::Changed), "the shader edited");
         assert_eq!(fed(build("@group(0) @binding(1) var<uniform> a: f32;", "@vertex fn vertex() { let x = a; }")), Err(Miss::Changed), "an import edited");
         let mut shaders = Assets::<Shader>::default();
-        shaders.add(Shader::from_wgsl("#import test::view::a\n@vertex fn vertex() { let x = a; }", "test/main.wgsl"));
-        assert_eq!(fed((shaders, Handle::default())), Err(Miss::Loading), "an import not loaded yet");
+        shaders.add(wesl("import test::view::a;\n@vertex fn vertex() { let x = a; }".into(), "main"));
+        assert_eq!(fed((shaders, Handle::default())), Err(Miss::Changed), "an import not loaded yet");
     }
 }

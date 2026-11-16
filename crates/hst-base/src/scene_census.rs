@@ -36,7 +36,7 @@ fn set(world: &World, e: Entity) -> String {
     let names = |e: Entity| -> Vec<String> {
         world
             .inspect_entity(e)
-            .map(|it| it.map(|i| i.name().shortname().to_string()).filter(|n| !n.contains("Transform") && !n.contains("Visibility") && n != "ChildOf" && n != "Children" && !n.starts_with("Inherited")).collect())
+            .map(|it| it.map(|(_, i)| i.name().shortname().to_string()).filter(|n| !n.contains("Transform") && !n.contains("Visibility") && n != "ChildOf" && n != "Children" && !n.starts_with("Inherited")).collect())
             .unwrap_or_default()
     };
     let mut r = e;
@@ -93,7 +93,7 @@ fn report(world: &mut World) {
     for (r, n) in roots.iter().take(12) {
         let comps: Vec<String> = world
             .inspect_entity(*r)
-            .map(|it| it.map(|i| i.name().shortname().to_string()).filter(|n| !n.contains("Transform") && !n.contains("Visibility")).collect())
+            .map(|it| it.map(|(_, i)| i.name().shortname().to_string()).filter(|n| !n.contains("Transform") && !n.contains("Visibility")).collect())
             .unwrap_or_default();
         eprintln!("    {n:?} {r} {}", comps.join(","));
     }

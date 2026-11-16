@@ -1272,8 +1272,8 @@ fn bake(
     }
 }
 
-/// The baker's read-back (`size`, `Rgba16Float`: GS-encoded colour, alpha −1 where nothing drew, as `inspect.wgsl`
-/// reads it) as sRGB bytes with straight alpha: what `inspect.wgsl` would draw.
+/// The baker's read-back (`size`, `Rgba16Float`: GS-encoded colour, alpha −1 where nothing drew, as `inspect.wesl`
+/// reads it) as sRGB bytes with straight alpha: what `inspect.wesl` would draw.
 fn straight(data: &[u8], size: UVec2) -> Vec<u8> {
     let half = |b: &[u8]| {
         let h = u16::from_le_bytes([b[0], b[1]]);

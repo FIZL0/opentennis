@@ -10,14 +10,14 @@ hst-data = { path = "../hst-data" }
 hst-sim = { path = "../hst-sim" }
 # `debug`: type names, which hst-play's `mode.rs` tells its resources by; `bevy_debug_stepping`: its executor's skip list,
 # which `mode.rs` runs a mode's start a slice a frame with (P50)
-bevy = { version = "0.19.1", features = ["debug", "bevy_debug_stepping"] }
+bevy = { version = "0.20.1", features = ["debug", "bevy_debug_stepping"] }
 gltf = { version = "1.4", default-features = false, features = ["extras", "names", "utils"] }
 serde_json = "1"
 # `SystemTime` that also works in the browser (std's panics on wasm32-unknown-unknown)
 web-time = "1"
 serde = { version = "1", features = ["derive"] }
 # P55: the recorded render pipelines' wgpu states as JSON (`pipelines.rs`; the version bevy already builds)
-wgpu-types = { version = "29", features = ["serde"] }
+wgpu-types = { version = "30", features = ["serde"] }
 # mods' PNGs: decode, resize, encode (`mods.rs`, `modfs.rs`, `inspect.rs`, …; bevy's own image crate)
 image = { version = "0.25", default-features = false, features = ["png"] }
 # netplay transport (`net.rs`): iroh QUIC (relay-only in the browser), tickets for codes/links; tasks and timers through
@@ -37,7 +37,7 @@ sha2 = "0.11"
 
 # copy/paste of join codes through the OS clipboard (arboard: none on iOS/Android, where it stays in-app)
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
-bevy = { version = "0.19.1", features = ["system_clipboard"] }
+bevy = { version = "0.20.1", features = ["system_clipboard"] }
 
 # iOS: stderr into the app's log file (`ios.rs`); the window's view for the on-screen pad's safe area (hst-play's `play/touch_pad.rs`)
 [target.'cfg(target_os = "ios")'.dependencies]
@@ -49,7 +49,7 @@ block2 = "0.6"
 # P49: a display link asking ProMotion for 120 Hz (`ios.rs` frame_rate); the versions wgpu-hal already uses
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CADisplayLink", "CAFrameRateRange"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSRunLoop", "NSString", "NSObjCRuntime"] }
-wgpu = "29"
+wgpu = "30"
 raw-window-handle = "0.6"
 
 # M99: the Android start page's file picker and restart (`android.rs` → `android/…/HstActivity.java`)
@@ -83,13 +83,13 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 iroh-mdns-address-lookup = "0.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 # B707: the software adapter looked up before the renderer starts (`render_mode.rs`; bevy's own wgpu and backends)
-wgpu = { version = "29", default-features = false }
+wgpu = { version = "30", default-features = false }
 
 
 # M154: ARM Linux handhelds (Mali GPUs with no Vulkan driver): wgpu's GL ES backend beside Vulkan (the version bevy
 # already builds; EGL is loaded at run time, nothing more to link)
 [target.'cfg(all(target_os = "linux", target_arch = "aarch64"))'.dependencies]
-wgpu = { version = "29", features = ["gles"] }
+wgpu = { version = "30", features = ["gles"] }
 # M155: the framebuffer's size (`fbdev.rs`)
 libc = "0.2"
 

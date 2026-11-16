@@ -6,7 +6,7 @@
 //! court's music and creature sounds. A `__clear` node isn't drawn while it stands between the eye and the court
 //! (M8f5a3, `clear_view`); a gimmick creature standing in the players' room isn't drawn at all (B506,
 //! `creatures_in_play`), and a big piece of the court or its gimmicks right in front of the camera isn't drawn
-//! (M129, gs.wgsl's `GS_CLEAR`), nor is a whole gimmick one of whose pieces comes right up in front of the lens
+//! (M129, gs.wesl's `GS_CLEAR`), nor is a whole gimmick one of whose pieces comes right up in front of the lens
 //! (B510, [`NearPiece`]); none of it while the intro flies over (B583, `cull::Off`). Nothing here reads or writes the match: replays stay bit-exact.
 
 use std::collections::HashMap;
@@ -547,7 +547,7 @@ fn primitive(p: &gltf::Primitive, blob: &[u8], light: Option<&Light>, rest: &[Ma
             *c = [rgb.x, rgb.y, rgb.z, c[3]];
         }
     }
-    // gs.wgsl draws an untextured colour as the GS does (0x80 = 128 of 255); glTF's vertex colour 1.0 is full white
+    // gs.wesl draws an untextured colour as the GS does (0x80 = 128 of 255); glTF's vertex colour 1.0 is full white
     // (M8f10a1: Open Tee 2's and Get a Grip's vertex-coloured skies came out at half brightness)
     if p.material().pbr_metallic_roughness().base_color_texture().is_none() {
         for c in &mut col {
@@ -562,7 +562,7 @@ fn primitive(p: &gltf::Primitive, blob: &[u8], light: Option<&Light>, rest: &[Ma
         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, col)
         .with_inserted_indices(Indices::U32(idx));
     if skinned {
-        // gs.wgsl's skinned normal: the first joint's share in the normal slot, the rest in the tangent slot
+        // gs.wesl's skinned normal: the first joint's share in the normal slot, the rest in the tangent slot
         mesh = mesh
             .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, nrm.iter().zip(&weights).map(|(n, w)| (Vec3::from(*n) * w[0]).to_array()).collect::<Vec<_>>())
             .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, nrm.iter().zip(&weights).map(|(n, w)| (Vec3::from(*n) * (1.0 - w[0])).extend(0.0).to_array()).collect::<Vec<_>>())

@@ -60,7 +60,7 @@ pub fn plugin(app: &mut App) {
 
 /// The previews' Bevy plugins, which set up the render app too.
 pub fn render(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "inspect.wgsl");
+    bevy::asset::embedded_asset!(app, "inspect.wesl");
     app.add_plugins((HierarchyPropagatePlugin::<RenderLayers>::new(PostUpdate), UiMaterialPlugin::<PreviewMaterial>::default()));
 }
 
@@ -76,7 +76,7 @@ pub struct PreviewMaterial {
 
 impl UiMaterial for PreviewMaterial {
     fn fragment_shader() -> ShaderRef {
-        "embedded://hst_base/inspect.wgsl".into()
+        "embedded://hst_base/inspect.wesl".into()
     }
 }
 
@@ -140,7 +140,7 @@ pub fn spawn(commands: &mut Commands, data: &Arc<CharacterData>, n: usize, hand:
                 output_mode: CameraOutputMode::Write { blend_state: Some(BlendState::REPLACE), clear_color: ClearColorConfig::None },
                 ..default()
             },
-            bevy::core_pipeline::tonemapping::Tonemapping::None,
+            bevy::core_pipeline::tonemapping::Tonemapping::Linear, // P143: 0.19's None (0.20's None also drops dither and the clamp)
             Projection::Perspective(PerspectiveProjection { fov: 2.0 * (AXIS.y.max(448.0 - AXIS.y) / FOCAL.y).atan(), near: 0.01, far: 3072.0, ..default() }),
             Transform::default(),
             layers,
@@ -374,7 +374,7 @@ fn uv_offsets(
     for (root, rig, m, uv) in &rigs {
         let d = &rig.data;
         let offset = part_uv(d, m.face, uv.0.sampled);
-        for (mesh, mat) in parts.iter_many(children.iter_descendants(root)) {
+        for (mesh, mat) in parts.iter_many(children.iter_descendants(root)).flatten() {
             let o = d.parts.iter().position(|p| p.0.id() == crate::cpu_morph::shared(mesh.0.id())).map_or(Vec2::ZERO, |k| offset[k]);
             if gs.get(&mat.0).is_some_and(|g| g.uniform.uv_offset != o) {
                 gs.get_mut(&mat.0).unwrap().uniform.uv_offset = o;

@@ -145,7 +145,7 @@ fn show(w: &mut World, state: &mut Split, eyes: [(Transform, f32); 2], views: [(
                 msaa_writeback: bevy::camera::MsaaWriteback::Off,
                 ..default()
             },
-            bevy::core_pipeline::tonemapping::Tonemapping::None,
+            bevy::core_pipeline::tonemapping::Tonemapping::Linear, // P143: 0.19's None (0.20's None also drops dither and the clamp)
             Projection::Perspective(PerspectiveProjection { far: 20_000.0, ..default() }),
             Transform::default(),
             RenderLayers::from_layers(&[0, twin_view::BOTTOM]),

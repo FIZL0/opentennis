@@ -567,7 +567,7 @@ fn setup_calls(
         Camera3d::default(),
         // B659: over the split view's second half (`split_view`, order 2) too
         Camera { order: 3, is_active: false, clear_color: ClearColorConfig::None, ..default() },
-        bevy::core_pipeline::tonemapping::Tonemapping::None,
+        bevy::core_pipeline::tonemapping::Tonemapping::Linear, // P143: 0.19's None (0.20's None also drops dither and the clamp)
         Projection::Perspective(PerspectiveProjection::default()),
         Transform::default(),
         layer,

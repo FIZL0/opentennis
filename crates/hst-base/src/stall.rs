@@ -33,16 +33,17 @@ pub fn plugin(app: &mut App) {
     let Some(r) = app.get_sub_app_mut(RenderApp) else { return };
     use bevy::render::view::prepare_windows;
     use bevy::render::renderer::{RenderGraph, RenderGraphSystems as G};
-    r.init_resource::<Uploaded>().add_systems(RenderGraph, mark::<5>.in_set(G::Begin)).add_systems(
+    // the marks touch no ECS data, so Bevy 0.20's weak set ordering would let them drift: each is pinned (P143)
+    r.init_resource::<Uploaded>().add_systems(RenderGraph, mark::<5>.in_set(G::Begin).before(G::Render)).add_systems(
         Render,
         (
-            mark::<0>.in_set(R::ExtractCommands),
-            mark::<1>.in_set(R::PrepareMeshes),
+            mark::<0>.in_set(R::ExtractCommands).before(R::PrepareAssets),
+            mark::<1>.in_set(R::PrepareMeshes).after(R::PrepareAssets),
             mark::<2>.in_set(R::PrepareViews).before(prepare_windows),
             mark::<3>.in_set(R::PrepareViews).after(prepare_windows),
             mark::<4>.in_set(R::Prepare).after(R::PrepareBindGroups),
-            render_end.in_set(R::Cleanup),
-            held.in_set(R::Cleanup),
+            render_end.in_set(R::Cleanup).after(R::Render),
+            held.in_set(R::Cleanup).after(R::Render),
         ),
     );
 }

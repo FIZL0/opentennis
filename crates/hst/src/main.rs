@@ -499,7 +499,7 @@ fn start(argv: Vec<String>) {
     // Bevy 0.19 despawns a monitor's windows with it (`HasWindows` is linked_spawn): a monitor switching modes drops
     // out for a moment and took the window, and the game, with it. Nothing reads the link, so no monitor keeps one
     // (taking it off a monitor unlinks its windows; taking `OnMonitor` off the window instead left it in the list).
-    app.add_observer(|on: On<Add, bevy::window::HasWindows>, mut commands: Commands| {
+    app.add_observer(|on: On<Add<bevy::window::HasWindows>>, mut commands: Commands| {
         commands.entity(on.entity).remove::<bevy::window::HasWindows>();
     });
     #[cfg(target_os = "ios")]
@@ -825,7 +825,7 @@ fn load(
     commands.spawn((
         Camera3d::default(),
         // the PS2 writes its colours as they are
-        bevy::core_pipeline::tonemapping::Tonemapping::None,
+        bevy::core_pipeline::tonemapping::Tonemapping::Linear, // P143: 0.19's None (0.20's None also drops dither and the clamp)
         Projection::Perspective(PerspectiveProjection { far: 20_000.0, ..default() }),
         Transform::default(),
         // play mode: broadcast view from behind the near (your) baseline
@@ -986,7 +986,7 @@ fn load_court(
         };
         // B185: the Grand Palais end houses: the match camera behind your baseline sits inside one
         if stem.starts_with("w-house") {
-            let b = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::compute_aabb(meshes.get(m)?)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), a| (lo.min(a.min().into()), hi.max(a.max().into())));
+            let b = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::get_aabb(meshes.get(m)?)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), a| (lo.min(a.min().into()), hi.max(a.max().into())));
             commands.entity(e).insert(HideInside { lo: b.0, hi: b.1, at: t.compute_affine().inverse() });
         }
         // B303: trees and props that come right up in front of the lens are hidden (`net_hide::in_front`)
@@ -1234,7 +1234,7 @@ fn net_decal(
 
 /// The placed box of `parts` under `t`: their meshes' boxes' corners, moved.
 fn placed_box(parts: &[(Handle<Mesh>, Handle<gs::GsMaterial>)], meshes: &Assets<Mesh>, t: &Transform) -> (Vec3, Vec3) {
-    let corners = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::compute_aabb(meshes.get(m)?)).flat_map(|a| (0..8).map(move |i| Vec3::from(a.center) + Vec3::from(a.half_extents) * Vec3::new([-1.0, 1.0][i & 1], [-1.0, 1.0][i >> 1 & 1], [-1.0, 1.0][i >> 2])));
+    let corners = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::get_aabb(meshes.get(m)?)).flat_map(|a| (0..8).map(move |i| Vec3::from(a.center) + Vec3::from(a.half_extents) * Vec3::new([-1.0, 1.0][i & 1], [-1.0, 1.0][i >> 1 & 1], [-1.0, 1.0][i >> 2])));
     corners.map(|c| t.transform_point(c)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), c| (lo.min(c), hi.max(c)))
 }
 
@@ -1328,7 +1328,7 @@ fn gs_models_anim(
             let texture = mat.texture.map(|i| {
                 let mut img = image(tex(i));
                 img.texture_descriptor.format = TextureFormat::Rgba8Unorm;
-                // the mip levels TEX1 MXL lets the GS use; gs.wgsl picks one from the view depth
+                // the mip levels TEX1 MXL lets the GS use; gs.wesl picks one from the view depth
                 let t = tex(i);
                 if !t.mips.is_empty() && !t.rgba.is_empty() {
                     img.texture_descriptor.mip_level_count = 1 + t.mips.len() as u32;
@@ -1426,7 +1426,7 @@ fn shift_colours(parts: &[(Handle<Mesh>, Handle<gs::GsMaterial>)], meshes: &mut 
 
 /// B161: a see-through texture the GS samples at its top level only (no MXL levels), such as Academy Grounds'
 /// chain-link fence (1-texel wires): its own mip chain, colour weighted by alpha, so wires thinner than a pixel fade
-/// out evenly instead of popping in and out as the camera moves (gs.wgsl `screen_lod`). `None` for opaque textures
+/// out evenly instead of popping in and out as the camera moves (gs.wesl `screen_lod`). `None` for opaque textures
 /// and ones that have levels.
 /// ponytail: only for draws that blend their see-through texels (an averaged alpha just reads as fainter); a pure
 /// cut-out (TEST 10..19, the trees' leaves) would thin out, so those keep the GS's single level

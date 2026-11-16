@@ -44,11 +44,11 @@ const ORDER: f32 = -5.0e5;
 
 impl Material for ProjectedMaterial {
     fn vertex_shader() -> ShaderRef {
-        "embedded://hst_base/shadow/projected.wgsl".into()
+        "embedded://hst_base/shadow/projected.wesl".into()
     }
 
     fn fragment_shader() -> ShaderRef {
-        "embedded://hst_base/shadow/projected.wgsl".into()
+        "embedded://hst_base/shadow/projected.wesl".into()
     }
 
     fn alpha_mode(&self) -> AlphaMode {
@@ -93,7 +93,7 @@ impl Material for ProjectedMaterial {
 }
 
 pub fn plugin(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "projected.wgsl");
+    bevy::asset::embedded_asset!(app, "projected.wesl");
     app.add_plugins(MaterialPlugin::<ProjectedMaterial>::default()).add_systems(Update, show.after(crate::weather::apply));
 }
 

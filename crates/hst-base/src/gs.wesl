@@ -1,0 +1,327 @@
+// PS2 GS colour path for court models (see gs.rs). Values are in PS2 units: 1.0 = 0x80 for vertex/material colour
+// and alpha, texel colour 1.0 = 0xff, texel alpha 1.0 = 0x80 (mtl.rs expands it to 0xff).
+import bevy_pbr::render::{
+    mesh_view_bindings as view_bindings,
+    mesh_view_types,
+    shadows,
+    mesh_bindings::mesh,
+    mesh_functions,
+    skinning,
+    morph,
+    forward_io::{Vertex, UncompressedVertex, decompress_vertex},
+    view_transformations::position_world_to_clip,
+};
+
+struct Gs {
+    color: vec4<f32>,
+    shininess: f32,
+    highlight: f32,
+    shadow: f32,
+    uv_offset: vec2<f32>,
+    fog: vec4<f32>,
+    fog_color: vec4<f32>,
+    lod_k: f32,
+    light_dir: vec4<f32>,
+    light_color: vec4<f32>,
+    ambient: vec4<f32>,
+    light2_dir: vec4<f32>,
+    light2_color: vec4<f32>,
+    glare: f32,
+    unlit: f32,
+    screen_lod: f32,
+    // gs.rs `FLAG_*`, and the alpha test's bounds on the 8-bit A
+    flags: u32,
+    alpha_min: f32,
+    alpha_max: f32,
+}
+
+const TEXTURED: u32 = 1u;
+const MODULATE: u32 = 2u;
+const FOG: u32 = 4u;
+const PREMUL: u32 = 8u;
+const SUB: u32 = 16u;
+const CLEAR_ZERO: u32 = 64u;
+
+fn on(f: u32) -> bool {
+    return (gs.flags & f) != 0u;
+}
+
+@group(constants::MATERIAL_BIND_GROUP) @binding(0) var<uniform> gs: Gs;
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var gs_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var gs_sampler: sampler;
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) world_position: vec4<f32>,
+    @if(VERTEX_UVS_A)
+    @location(2) uv: vec2<f32>,
+    // VU1's vertex colour, as the GS gets it: vertex × material colour × light, 8-bit (0x80 = 1.0, at most 0xff)
+    @location(5) color: vec4<f32>,
+    // its specular term (the vertex alpha HIGHLIGHT2 adds)
+    @location(8) spec: f32,
+    // the fog coefficient F VU1 writes to the vertex (0..255); the GS interpolates it linearly on screen
+    // WebGL2 has no linear (noperspective) interpolation: F·w and w, both perspective-correct, divide to F linear on
+    // screen
+    @if(GS_NO_LINEAR)
+    @location(9) fog: vec2<f32>,
+    @if(!GS_NO_LINEAR)
+    @location(9) @interpolate(linear) fog: f32,
+    // B485: 1 at a vertex outside the guard band, 0 inside: above 0 anywhere on a triangle that has one
+    @if(GS_GUARD_DISCARD)
+    @location(10) guard: f32,
+}
+
+// as Bevy's mesh.wesl
+@if(MORPH_TARGETS)
+fn morph_vertex(vertex_in: UncompressedVertex, instance_index: u32) -> UncompressedVertex {
+    var vertex = vertex_in;
+    let vertex_index = vertex.index - mesh[instance_index].first_vertex_index;
+    let descriptor = mesh[instance_index].morph_descriptor_index;
+    // B277: Bevy 0.19 built a mesh instance that just became visible before its morph descriptor, so it had none
+    // (u32::MAX) until it was extracted again. Browsers' WebGPU clamps that read to the last descriptor, another mesh's
+    // weights and targets, which flung a face's vertices across the screen: draw it unmorphed instead.
+    @if(!SKINS_USE_UNIFORM_BUFFERS)
+    if descriptor == 0xffffffffu {
+        return vertex;
+    }
+    for (var i = 0u; i < morph::layer_count(descriptor); i++) {
+        let weight = morph::weight_at(i, descriptor);
+        if weight != 0.0 {
+            vertex.position += weight * morph::morph_position(vertex_index, i, descriptor);
+        }
+    }
+    return vertex;
+}
+
+@vertex
+fn vertex(vertex_in: Vertex) -> VertexOutput {
+    var out: VertexOutput;
+    let instance = vertex_in.instance_index;
+    let vertex_no_morph = decompress_vertex(vertex_in, instance);
+    @if(MORPH_TARGETS)
+    let vertex = morph_vertex(vertex_no_morph, instance);
+    @else
+    let vertex = vertex_no_morph;
+    @if(SKINNED)
+    let world_from_local = skinning::skin_model(vertex.joint_indices, vertex.joint_weights, instance);
+    @else
+    let world_from_local = mesh_functions::get_world_from_local(instance);
+    out.world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4(vertex.position, 1.0));
+    out.position = position_world_to_clip(out.world_position.xyz);
+    @if(GS_GUARD) {
+    // VU1's reject pass drops every court triangle with a vertex outside the GS guard band,
+    // 2048 ± 1280 in GS coordinates: ±1280/278.5 half-widths across (at the original's 4:3, one half-width — tan of
+    // the 10° half field of view — is 278.5 GS pixels, not 320; B168: court 7's under-floor box, GS dump) and
+    // ±1280/112 half-heights of the 224-line field. That is what hides w-house2 (Grand Palais) with the eye inside it. A NaN position drops every
+    // triangle using the vertex.
+    // ponytail: band size from a stage-7 GS dump (largest drawn |x − 2048| 1261), not the microcode's own constant
+    // CLIP tests against |w|, so a vertex behind the eye is only flagged when it lies outside the band too.
+    // Ground (facing up, under 1 m) is exempt: the GPU clips it, so a low replay camera keeps the floor in front of it
+    // (B169); the original's floor would lose its big near triangles there too.
+    let p = out.position;
+    @if(GS_GUARD_DISCARD)
+    out.guard = 0.0;
+    let across = view_bindings::view.clip_from_view[1][1] * 0.75 / view_bindings::view.clip_from_view[0][0];
+    @if(VERTEX_NORMALS)
+    let ground = out.world_position.y < 1.0 && normalize(mesh_functions::mesh_normal_local_to_world(vertex.normal, instance)).y > 0.7;
+    @else
+    let ground = false;
+    if !ground && (abs(p.x) * across > 1280.0 / 278.5 * abs(p.w) || abs(p.y) > 1280.0 / 112.0 * abs(p.w)) {
+        // B485: the browser's GL leaves a NaN position to the driver, and some (Firefox on Linux) drew the triangle
+        // as a huge flat fan from the middle of the screen: the vertex stays where it is and the fragment stage drops
+        // its triangles
+        @if(GS_GUARD_DISCARD) {
+        out.guard = 1.0;
+        } @else {
+        let z = p.w * 0.0;
+        out.position = vec4(z / z);
+        }
+    }
+    }
+    @if(VERTEX_UVS_A)
+    out.uv = vertex.uv;
+    // vertex colour × material colour (0x80 = 1.0)
+    @if(VERTEX_COLORS)
+    var c = vertex.color * gs.color;
+    @else
+    var c = gs.color;
+    // VU1 lighting, per vertex in game space (y down; GameSpace turns it 180° about X): ambient + each light's colour
+    // × its diffuse term (the first dimmed with the ambient when the camera looks near it, `glare`), and a specular term on the half vector between the light and the camera's forward axis,
+    // Schlick's t/(k − (k − 1)t) for t^k. A skinned vertex's normal is the sum of its bones' pre-weighted normals
+    // (|n| = the weight), each turned by its bone, not normalised; the second bone's rides in the tangent slot
+    // (character.rs). A mod's vertex has one normal N for up to four bones: w0·N in the normal slot, (1 − w0)·N in
+    // the tangent slot turned by bones 1..3 blended by their weights (bone 1 alone on the disc), so Σ wᵢ·Rᵢ·N.
+    // Meshes without normals (the weather's particles) go unlit.
+    out.spec = 0.0;
+    @if(VERTEX_NORMALS) {
+    @if(SKINNED)
+    let j0 = skinning::skin_model(vertex.joint_indices, vec4(1.0, 0.0, 0.0, 0.0), instance);
+    @if(SKINNED)
+    var n = mat3x3(j0[0].xyz, j0[1].xyz, j0[2].xyz) * vertex.normal;
+    @if(!SKINNED)
+    var n = mesh_functions::mesh_normal_local_to_world(vertex.normal, instance);
+    @if(SKINNED && VERTEX_TANGENTS) {
+    // B693: no 0/0 even in the branch `select` drops (Metal compiles with fast math, which assumes no NaN)
+    let rest = vertex.joint_weights.y + vertex.joint_weights.z + vertex.joint_weights.w;
+    let j1 = skinning::skin_model(vertex.joint_indices, select(vec4(0.0, 1.0, 0.0, 0.0), vec4(0.0, vertex.joint_weights.yzw / max(rest, 1e-6)), rest > 0.0), instance);
+    n += mat3x3(j1[0].xyz, j1[1].xyz, j1[2].xyz) * vertex.tangent.xyz;
+    }
+    let flip = vec3(1.0, -1.0, -1.0);
+    n *= flip;
+    // unlit (object flag bit 1): VU1 skips the normal transform, N' = (1, 0, 0): full light, no second light or highlight
+    let lit = 1.0 - gs.unlit;
+    let diffuse = select(max(-dot(n, gs.light_dir.xyz), 0.0), 1.0, gs.unlit != 0.0);
+    let forward = -view_bindings::view.world_from_view[2].xyz * flip;
+    let h = lit * max(-dot(n, normalize(gs.light_dir.xyz + forward)), 0.0);
+    out.spec = gs.highlight * h / (gs.shininess - (gs.shininess - 1.0) * h);
+    let x = gs.glare * max((-dot(forward, gs.light_dir.xyz) - 0.8) / 0.2, 0.0);
+    let diffuse2 = lit * max(-dot(n, gs.light2_dir.xyz), 0.0);
+    c = vec4(c.rgb * (gs.ambient.rgb * (1.0 - x * 0.5) + gs.light_color.rgb * (1.0 - 0.6 * x) * diffuse + gs.light2_color.rgb * diffuse2), c.a);
+    }
+    // VU1: F from the vertex's view depth (clip w), at most F near, then at least F far (MINI, MAX), FTOI to an
+    // integer; both ends go towards 255 as the eye rises past 30 m (game y = −Bevy y)
+    let vz = view_bindings::view.view_from_world;
+    let w = -dot(vec4(vz[0].z, vz[1].z, vz[2].z, vz[3].z), out.world_position);
+    let lift = clamp((view_bindings::view.world_position.y - 30.0) * 0.02, 0.0, 0.7);
+    let ends = gs.fog.xy + lift * (255.0 - gs.fog.xy);
+    let f = floor(max(min(ends.x + (w - gs.fog.z) * (ends.y - ends.x) / (gs.fog.w - gs.fog.z), ends.x), ends.y));
+    @if(GS_NO_LINEAR)
+    out.fog = vec2(f, 1.0) * out.position.w;
+    @else
+    out.fog = f;
+    // FTOI0 to the GS's 8 bits
+    out.color = floor(min(c * 128.0, vec4(255.0)) + 1e-3) / 128.0;
+    return out;
+}
+
+// 1 lit, 0 in shadow: the first directional light that casts shadows (the match's sun)
+fn sun_visibility(in: VertexOutput) -> f32 {
+    for (var i = 0u; i < view_bindings::lights.n_directional_lights; i++) {
+        if (view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u {
+            let v = view_bindings::view.view_from_world;
+            let view_z = dot(vec4(v[0].z, v[1].z, v[2].z, v[3].z), in.world_position);
+            // receivers are the flat ground: up is its normal
+            return shadows::fetch_directional_shadow(i, in.world_position, vec3(0.0, 1.0, 0.0), view_z, in.position.xy);
+        }
+    }
+    return 1.0;
+}
+
+@if(GS_CLEAR) {
+// M129: where the ray from the eye along `d` first enters the box `centre` ± `half` (in units of `d`); a large number
+// where it never does.
+fn box_entry(eye: vec3<f32>, d: vec3<f32>, centre: vec3<f32>, half: vec3<f32>) -> f32 {
+    let inv = 1.0 / select(d, vec3(1e-6), abs(d) < vec3(1e-6));
+    let a = (centre - half - eye) * inv;
+    let b = (centre + half - eye) * inv;
+    let lo = min(a, b);
+    let hi = max(a, b);
+    let t0 = max(max(max(lo.x, lo.y), lo.z), 0.0);
+    let t1 = min(min(hi.x, hi.y), hi.z);
+    return select(1e9, t0, t1 >= t0);
+}
+
+// M129: only a big blocker isn't drawn (user 2026-10-19): anything within 1 m of the eye (a replay camera inside a
+// prop), and a piece of scenery close to the eye (within 7 m, fading out by ordered dither to 10 m), over 0.5 m up,
+// outside the players' room (the doubles court, 4 m beside it and 6 m behind each baseline, at any height: what
+// stands over the play, a helicopter's rotor, stays), whose ray from the eye goes on into the players' room (up
+// to 20 m, so the whole of a pole in front of the camera goes, not only where it covers the court). Bevy's world, y up.
+// B580: further out, such a piece goes too while it stands less than 3/4 of the way from the eye to the room (Studio
+// A's cloud on the wall behind the camera covering the run-off a player runs into, ~0.72; fading out to 0.77, so
+// what stands by the room's end stays: Dubno's house, the gas lamps, the trees beside a baseline, 0.77 and up).
+fn cleared(p: vec3<f32>, pixel: vec2<f32>) -> bool {
+    let eye = view_bindings::view.world_position;
+    let d = p - eye;
+    let dist = length(d);
+    if dist < 1.0 {
+        return true;
+    }
+    if p.y < 0.5 || (abs(p.x) < 5.485 + 4.0 && abs(p.z) < 11.885 + 6.0) {
+        return false;
+    }
+    let t = box_entry(eye, d, vec3(0.0, 10.0, 0.0), vec3(5.485 + 4.0, 10.0, 11.885 + 6.0));
+    if t <= 1.0 || t > 1e8 {
+        return false;
+    }
+    // how far it's kept: by its distance (7..10 m), or by its share of the way into the room (0.74..0.77), the nearer
+    let keep = min((dist - 7.0) / 3.0, (1.0 / t - 0.74) / 0.03);
+    // 4×4 Bayer threshold, 0..15/16
+    var bayer = array<u32, 16>(0u, 8u, 2u, 10u, 12u, 4u, 14u, 6u, 3u, 11u, 1u, 9u, 15u, 7u, 13u, 5u);
+    let q = vec2<u32>(pixel) % vec2(4u);
+    return f32(bayer[q.y * 4u + q.x]) / 16.0 >= keep;
+}
+}
+
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    @if(GS_GUARD_DISCARD)
+    if in.guard > 0.0 { discard; }
+    @if(GS_CLEAR)
+    if cleared(in.world_position.xyz, in.position.xy) { discard; }
+    // the vertex's lit colour, Gouraud-shaded
+    var rgb = in.color.rgb;
+    var a = in.color.a;
+    let spec = in.spec;
+    if on(TEXTURED) {
+    // TEX1 as the game sets it: LCM 0, L 0, K per model material, MMIN linear-mipmap-nearest, MXL = the levels
+    // uploaded. Q = 1/w (VU1), w the view depth (m), so LOD = log2(w) + K, rounded off to a level; the sampler
+    // clamps it to the last level (MXL; textureNumLevels doesn't exist on WebGL2)
+    let vz = view_bindings::view.view_from_world;
+    let w = -dot(vec4(vz[0].z, vz[1].z, vz[2].z, vz[3].z), in.world_position);
+    var level = max(floor(log2(w) + gs.lod_k + 0.5), 0.0);
+    // a cut-out the GS samples at level 0 only, given levels of our own (B161): trilinear by the texel's size on
+    // screen, one level up, so a 2-texel wire grid is averaged before it beats against the pixel grid (moiré); the
+    // original at 448 lines sees it ~1.5–2 levels coarser still
+    let texels = (in.uv + gs.uv_offset) * vec2<f32>(textureDimensions(gs_texture, 0));
+    let dx = dpdx(texels);
+    let dy = dpdy(texels);
+    if gs.screen_lod != 0.0 {
+        level = max(0.5 * log2(max(dot(dx, dx), dot(dy, dy))) + gs.screen_lod, 0.0);
+    }
+    let t = textureSampleLevel(gs_texture, gs_sampler, in.uv + gs.uv_offset, level);
+    rgb = t.rgb * rgb;
+    if on(MODULATE) {
+    // Av = (At·Af) >> 7 on the GS's integers: At 0..0x80 (stored ·255/0x80), Af the interpolated vertex alpha,
+    // truncated (+1/64 takes up float error, so a constant 0x80 stays 0x80 and passes A ≥ 0x80)
+    a = round(t.a * 128.0) * floor(a * 128.0 + 1.0 / 64.0) / 16384.0;
+    } else {
+    // HIGHLIGHT2: + vertex alpha (0..0xff), which carries the highlight
+    a = t.a;
+    rgb += min(spec, 1.0);
+    }
+    } else {
+    // untextured: the GS draws VU1's 8-bit colour as it is (0x80 is 128 of 255, not 1.0 as MODULATE makes it)
+    rgb = min(rgb + spec * 255.0 / 128.0, vec3(255.0 / 128.0)) * 128.0 / 255.0;
+    }
+    // alpha test on the 8-bit value
+    let a8 = floor(a * 128.0);
+    if a8 < gs.alpha_min || a8 >= gs.alpha_max { discard; }
+    // P32: TEST A < 0x80: alpha 0 blends to the frame buffer as it was (SrcAlpha·Cs + (1 − SrcAlpha)·Cd, or + 0 for
+    // `@add`), so the hole's see-through texels are left out before the blend
+    if on(CLEAR_ZERO) && a <= 0.0 { discard; }
+    rgb = clamp(rgb, vec3(0.0), vec3(1.0));
+    if on(FOG) {
+    // GS: the interpolated F truncated to 8 bits, (F·C + (255 − F)·FOGCOL) >> 8 on 8-bit values
+    @if(GS_NO_LINEAR)
+    let fog = floor(in.fog.x / in.fog.y);
+    @else
+    let fog = floor(in.fog);
+    rgb = (floor(fog * floor(rgb * 255.0) / 256.0) + floor((255.0 - fog) * floor(gs.fog_color.rgb * 255.0 + 0.5) / 256.0)) / 255.0;
+    }
+    // shadow: (0 − Cd)·A + Cd on the frame buffer, the same as darkening every layer drawn there
+    if gs.shadow > 0.0 {
+        rgb *= 1.0 - gs.shadow * (1.0 - sun_visibility(in));
+    }
+    if on(PREMUL) {
+    // `@add`/`@sub`: the GS adds Cs·As >> 7 on its integers, Cs (texel × vertex >> 7, clamped) and As truncated, so
+    // the blend is One/One on this already-floored 8-bit term (the scene is Rgba8Unorm: k/255 lands on k exactly)
+    if on(SUB) {
+    // (0 − Cs)·As >> 7 shifts a negative: the GS takes off the term rounded up
+    rgb = ceil(floor(rgb * 255.0 + 1e-4) * a8 / 128.0) / 255.0;
+    } else {
+    rgb = floor(floor(rgb * 255.0 + 1e-4) * a8 / 128.0) / 255.0;
+    }
+    }
+    // the scene holds gamma-encoded values, as the GS's frame buffer (hud_gamma.rs)
+    return vec4(rgb, clamp(a, 0.0, 1.0));
+}
