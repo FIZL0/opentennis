@@ -65,6 +65,7 @@ pub mod textures;
 pub mod twin_view;
 pub mod ui_census;
 pub mod scene_census;
+pub mod sched;
 pub mod ui_pool;
 pub mod vertex_patch;
 /// M175: Settings → Gameplay → Rules, which release's game a match plays.
