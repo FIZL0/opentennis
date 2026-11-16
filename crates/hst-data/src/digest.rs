@@ -88,9 +88,12 @@ fn data(ext: &str) -> bool {
     matches!(ext, "dat" | "txt" | "csv" | "mdl" | "mtl" | "ani" | "ani2" | "cam" | "hmp")
 }
 
+/// Which of an archive's entries count, by extension.
+type Counted = fn(&str) -> bool;
+
 /// The archives that feed the match, each with which of its entries count (by extension), in a fixed order.
-fn sources() -> Vec<(String, fn(&str) -> bool)> {
-    let mut out: Vec<(String, fn(&str) -> bool)> = Vec::new();
+fn sources() -> Vec<(String, Counted)> {
+    let mut out: Vec<(String, Counted)> = Vec::new();
     for c in 0..CHARACTERS {
         for ab in ["A", "B"] {
             out.push((format!("TRAJ/TRAJ{c:02}{ab}.XB"), data));
@@ -200,5 +203,18 @@ mod tests {
         for n in 1..=11 {
             assert!(!missing.iter().any(|p| p == &format!("COURT/{n:02}/HOL01.XB")), "court {n}");
         }
+    }
+
+    /// Today's other releases don't play the US match: the Japanese disc's tuning differs (M163a), so its digest does.
+    /// Skips without `fixtures/discs/SCPS-15113.iso` (not the user's disc) even under HST_REQUIRE_DISC.
+    #[test]
+    fn the_japanese_disc_digests_differently() {
+        let jp = fixture::path("fixtures/discs/SCPS-15113.iso");
+        let Ok(mut us) = fixture::iso() else { return };
+        if !jp.exists() {
+            return eprintln!("skipped: no {}", jp.display());
+        }
+        let jp = of(&mut Iso::open(jp).unwrap()).unwrap();
+        assert_ne!(of(&mut us).unwrap(), jp);
     }
 }

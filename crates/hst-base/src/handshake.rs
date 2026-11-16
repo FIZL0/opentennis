@@ -2,7 +2,9 @@
 //! agree with the host's on what the lobby can't make the same, its build and its disc, else the host refuses it with
 //! a message saying what differs (M142), and on how it builds a mod's generated shot tables (M151d: `tables`). The rest that changes the simulation is the lobby's own: the rules, seats
 //! and picks (B40g3: each player's handicap with them, the host's to set) come from the host's `Room`, a mod's
-//! gameplay data from the wire (`mods_online::Wire`); anything that still drifts shows in the desync hash.
+//! gameplay data from the wire (`mods_online::Wire`); anything that still drifts shows in the desync hash. M163b: the
+//! disc is compared by what it plays (`hst_data::digest`, `Handshake::sim`), not its bytes, so releases and imports
+//! whose discs play the same match meet.
 
 use bevy::prelude::*;
 use hst_sim::rng::Seed;
@@ -22,6 +24,10 @@ pub struct Handshake {
     /// `shots` `power`/`arc` tables are built by every peer from the wire, so they must come out the same. `None`
     /// from a peer that doesn't send it.
     pub tables: Option<u64>,
+    /// M163b: its disc's gameplay digest (`hst_data::digest`): what on the disc feeds the match. When both sides send
+    /// one it is checked instead of `pack`, so players on different releases (or imports) whose discs play the same
+    /// match meet; `None` before the disc's digest could be read, or from a peer that doesn't send it.
+    pub sim: Option<u64>,
 }
 
 /// This machine's [`Handshake::tables`], worked out once (a few milliseconds).
@@ -59,10 +65,50 @@ pub fn set_pack(hash: Option<u64>) {
     *PACK.lock().unwrap() = hash;
 }
 
+/// The disc (ISO or pack path) whose gameplay digest `sim` reads, stamped with the pack (`set_disc`).
+static DISC: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// The digest worked out last and the disc it is of; held while one is being worked out, so a second asker waits.
+static SIM: std::sync::Mutex<Option<(String, Option<u64>)>> = std::sync::Mutex::new(None);
+
+/// Stamps the disc this app plays (M163b): its pack hash (`set_pack`) and, for `sim`, its path. On desktop the
+/// digest (a few hundred milliseconds of reading) is worked out at once on a thread of its own, so a lobby has it ready.
+pub fn set_disc(path: &str) {
+    set_pack(hst_data::iso::Iso::open(path).ok().and_then(|i| i.pack_hash));
+    *DISC.lock().unwrap() = Some(path.to_string());
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(sim);
+}
+
+/// This app's disc's gameplay digest (`Handshake::sim`), worked out once per disc; `None` without a disc or when it
+/// can't be read (a release the remaster doesn't read).
+pub fn sim() -> Option<u64> {
+    let path = DISC.lock().unwrap().clone()?;
+    let mut cache = SIM.lock().unwrap();
+    if let Some((p, d)) = cache.as_ref()
+        && *p == path
+    {
+        return *d;
+    }
+    let d = hst_data::iso::Iso::open(&path).map_err(|e| e.to_string()).and_then(|mut iso| hst_data::digest::of(&mut iso));
+    if let Err(e) = &d {
+        eprintln!("hst: no gameplay digest for {path}: {e}");
+    }
+    *cache = Some((path, d.as_ref().ok().copied()));
+    d.ok()
+}
+
+/// A pack hash as a release's name, for messages ("SCPS-15113 Japan 1.00"), else the hash.
+fn disc_name(pack: Option<u64>) -> String {
+    match pack {
+        Some(h) => hst_data::iso::release_name(h).map_or(format!("{h:016x}"), str::to_string),
+        None => "a disc image".into(),
+    }
+}
+
 impl Handshake {
     /// This app's.
     pub fn here() -> Handshake {
-        Handshake { build: build().into(), pack: pack(), tables: Some(tables()) }
+        Handshake { build: build().into(), pack: pack(), tables: Some(tables()), sim: sim() }
     }
 
     /// A joining peer's handshake (`self`) against the host's: `Ok` to play, else why not, in words for the player.
@@ -70,8 +116,18 @@ impl Handshake {
         if self.build != host.build {
             return Err(crate::net::version_differs(&host.build, &self.build));
         }
+        // M163b: discs that play the same match meet, whatever release or import they are
+        if let (Some(a), Some(b)) = (self.sim, host.sim) {
+            if a != b {
+                return Err(format!(
+                    "your disc ({}) plays differently from the host's ({}): its game data differs (digest {a:016x}, host {b:016x}), so you can't play together.",
+                    disc_name(self.pack),
+                    disc_name(host.pack)
+                ));
+            }
+        }
         // an older import and a newer one of the same disc play together
-        if let (Some(a), Some(b)) = (self.pack, host.pack)
+        else if let (Some(a), Some(b)) = (self.pack, host.pack)
             && !hst_data::iso::same_disc(a, b)
         {
             return Err(format!(
@@ -102,7 +158,7 @@ mod tests {
 
     #[test]
     fn same_build_and_disc_join_and_differences_are_refused() {
-        let h = Handshake { build: build().into(), pack: Some(7), tables: Some(tables()) };
+        let h = Handshake { build: build().into(), pack: Some(7), tables: Some(tables()), sim: None };
         assert_eq!(h.check(&h), Ok(()));
         // an ISO (no pack hash) is taken on its disc ID, on either side
         assert_eq!(Handshake { pack: None, ..h.clone() }.check(&h), Ok(()));
@@ -118,6 +174,22 @@ mod tests {
         assert_eq!(Handshake { tables: None, ..h.clone() }.check(&h), Ok(()));
         let e = Handshake { tables: Some(tables() ^ 1), ..h.clone() }.check(&h).unwrap_err();
         assert!(e.contains("computes the game differently"), "{e}");
+    }
+
+    #[test]
+    fn discs_that_play_alike_meet_whatever_release() {
+        let [us, jp] = [0, 2].map(|i| Some(hst_data::iso::KNOWN_PACKS[i].0));
+        let h = Handshake { build: build().into(), pack: us, tables: Some(tables()), sim: Some(1) };
+        // M163b: another release (or a modified import) with the same gameplay digest is let in
+        assert_eq!(Handshake { pack: jp, ..h.clone() }.check(&h), Ok(()));
+        assert_eq!(Handshake { pack: Some(8), ..h.clone() }.check(&h), Ok(()));
+        // a different digest is refused, naming both releases, even from the same release's pack
+        let e = Handshake { pack: jp, sim: Some(2), ..h.clone() }.check(&h).unwrap_err();
+        assert!(e.contains("(SCPS-15113 Japan 1.00) plays differently from the host's (SCUS-97610 US 1.00)"), "{e}");
+        assert!(Handshake { sim: Some(2), ..h.clone() }.check(&h).is_err());
+        // without a digest on one side, the packs decide as before
+        assert!(Handshake { pack: jp, sim: None, ..h.clone() }.check(&h).unwrap_err().contains("Re-import"));
+        assert_eq!(Handshake { sim: None, ..h.clone() }.check(&h), Ok(()));
     }
 
     #[test]
