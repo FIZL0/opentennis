@@ -446,7 +446,7 @@ fn log_passes(d: Res<bevy::diagnostic::DiagnosticsStore>, time: Res<Time<Real>>,
 /// `HST_PASSES=1` (P48): every 5 s, what Bevy's `bin_unpacking` compute pass did last frame: one dispatch per batch
 /// set (pipeline + material bind group + vertex/index slab) of each binned phase (opaque, alpha mask, prepass,
 /// shadow) of each view (the cameras and every shadow cascade), and how many mesh instances they unpacked in all.
-fn log_unpacking(b: Res<bevy::render::batching::gpu_preprocessing::BinUnpackingBuffers>, mut next: Local<f32>) {
+fn log_unpacking(b: Res<bevy::render::batching::gpu_preprocessing::SceneUnpackingBuffers>, mut next: Local<f32>) {
     let t = f32::from_bits(NOW.load(Ordering::Relaxed));
     if t < *next {
         return;

@@ -3998,7 +3998,7 @@ fn draw(
         // the corners: units to logical pixels at the quad's placed width
         let k = window.single().map_or(0.0, |win| width / 100.0 * super::widescreen::view_size(win).x / quad.dst[2].max(1e-3));
         let [tl, tr, br, bl] = quad.round.map(|r| Val::Px(r * k));
-        node.border_radius = BorderRadius { top_left: tl, top_right: tr, bottom_right: br, bottom_left: bl };
+        node.border_radius = BorderRadius::new(tl, tr, br, bl);
         // an outline: the node's own border (a true rounded stroke) in the quad's colour, the image clear
         node.border = UiRect::all(Val::Px(quad.rim * k));
         if quad.rim > 0.0 {

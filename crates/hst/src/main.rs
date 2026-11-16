@@ -499,7 +499,7 @@ fn start(argv: Vec<String>) {
     // Bevy 0.19 despawns a monitor's windows with it (`HasWindows` is linked_spawn): a monitor switching modes drops
     // out for a moment and took the window, and the game, with it. Nothing reads the link, so no monitor keeps one
     // (taking it off a monitor unlinks its windows; taking `OnMonitor` off the window instead left it in the list).
-    app.add_observer(|on: On<Add, bevy::window::HasWindows>, mut commands: Commands| {
+    app.add_observer(|on: On<Add<bevy::window::HasWindows>>, mut commands: Commands| {
         commands.entity(on.entity).remove::<bevy::window::HasWindows>();
     });
     #[cfg(target_os = "ios")]
@@ -986,7 +986,7 @@ fn load_court(
         };
         // B185: the Grand Palais end houses: the match camera behind your baseline sits inside one
         if stem.starts_with("w-house") {
-            let b = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::compute_aabb(meshes.get(m)?)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), a| (lo.min(a.min().into()), hi.max(a.max().into())));
+            let b = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::get_aabb(meshes.get(m)?)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), a| (lo.min(a.min().into()), hi.max(a.max().into())));
             commands.entity(e).insert(HideInside { lo: b.0, hi: b.1, at: t.compute_affine().inverse() });
         }
         // B303: trees and props that come right up in front of the lens are hidden (`net_hide::in_front`)
@@ -1234,7 +1234,7 @@ fn net_decal(
 
 /// The placed box of `parts` under `t`: their meshes' boxes' corners, moved.
 fn placed_box(parts: &[(Handle<Mesh>, Handle<gs::GsMaterial>)], meshes: &Assets<Mesh>, t: &Transform) -> (Vec3, Vec3) {
-    let corners = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::compute_aabb(meshes.get(m)?)).flat_map(|a| (0..8).map(move |i| Vec3::from(a.center) + Vec3::from(a.half_extents) * Vec3::new([-1.0, 1.0][i & 1], [-1.0, 1.0][i >> 1 & 1], [-1.0, 1.0][i >> 2])));
+    let corners = parts.iter().filter_map(|(m, _)| bevy::camera::primitives::MeshAabb::get_aabb(meshes.get(m)?)).flat_map(|a| (0..8).map(move |i| Vec3::from(a.center) + Vec3::from(a.half_extents) * Vec3::new([-1.0, 1.0][i & 1], [-1.0, 1.0][i >> 1 & 1], [-1.0, 1.0][i >> 2])));
     corners.map(|c| t.transform_point(c)).fold((Vec3::MAX, Vec3::MIN), |(lo, hi), c| (lo.min(c), hi.max(c)))
 }
 

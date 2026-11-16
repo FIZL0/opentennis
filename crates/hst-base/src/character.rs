@@ -483,7 +483,7 @@ pub fn texture_faces(
     for (e, rig, w, children) in &rigs {
         let Some(face) = &rig.data.texture_face else { continue };
         let (srgb, raw) = face.show(w.weights(), shown.entry(e).or_default(), time.elapsed_secs());
-        for (s, g) in parts.iter_many(children) {
+        for (s, g) in parts.iter_many(children).flatten() {
             // only the face's draws carry a face texture; touch them only on a change
             if let Some(m) = s.filter(|m| std_materials.get(&m.0).and_then(|m| m.base_color_texture.as_ref()).is_some_and(|t| t != srgb && face.holds(t))) {
                 std_materials.get_mut(&m.0).unwrap().base_color_texture = Some(srgb.clone());
@@ -2234,7 +2234,7 @@ pub fn uv_offsets(
             continue;
         }
         let offset = crate::inspect::part_uv(d, m.face, m.uv_clock.sampled);
-        for (mesh, mat) in parts.iter_many(children.iter_descendants(root)) {
+        for (mesh, mat) in parts.iter_many(children.iter_descendants(root)).flatten() {
             let o = part_of(d, mesh.0.id()).map_or(Vec2::ZERO, |k| offset[k]);
             if gs.get(&mat.0).is_some_and(|g| g.uniform.uv_offset != o) {
                 gs.get_mut(&mat.0).unwrap().uniform.uv_offset = o;

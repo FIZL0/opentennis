@@ -81,13 +81,13 @@ fn report(world: &mut World) {
         let ch = changed.get(&r).copied().unwrap_or_default().map(|v| (v as f32 / frames.max(1) as f32 * 10.0).round() / 10.0);
         let comps: Vec<String> = world
             .inspect_entity(r)
-            .map(|it| it.map(|i| i.name().shortname().to_string()).filter(|n| !n.starts_with("Computed") && !n.contains("Transform") && !n.contains("Visibility")).collect())
+            .map(|it| it.map(|(_, i)| i.name().shortname().to_string()).filter(|n| !n.starts_with("Computed") && !n.contains("Transform") && !n.contains("Visibility")).collect())
             .unwrap_or_default();
         let display = world.get::<Node>(r).map(|n| n.display);
         let vis = world.get::<Visibility>(r).copied();
         eprintln!("  {n:4} {r} {display:?} {vis:?} {ch:?} {}", comps.join(","));
         if let Some(&e) = sample.get(&r).filter(|&&e| e != r) {
-            let comps: Vec<String> = world.inspect_entity(e).map(|it| it.map(|i| i.name().shortname().to_string()).filter(|n| !n.starts_with("Computed") && !n.contains("Transform") && !n.contains("Visibility") && !n.starts_with("Inherited") && !n.starts_with("Propagate")).collect()).unwrap_or_default();
+            let comps: Vec<String> = world.inspect_entity(e).map(|it| it.map(|(_, i)| i.name().shortname().to_string()).filter(|n| !n.starts_with("Computed") && !n.contains("Transform") && !n.contains("Visibility") && !n.starts_with("Inherited") && !n.starts_with("Propagate")).collect()).unwrap_or_default();
             eprintln!("       changed e.g. {e}: {}", comps.join(","));
         }
     }

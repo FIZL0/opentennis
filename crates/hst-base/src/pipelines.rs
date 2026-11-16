@@ -172,6 +172,9 @@ struct Stage {
     hash: u64,
     defs: u32,
     entry: Option<String>,
+    /// The stage's pipeline-overridable constants (none in records made before Bevy 0.20).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    constants: Vec<(String, f64)>,
 }
 
 /// Why a recorded pipeline can't be queued (yet).
@@ -204,17 +207,12 @@ impl Hashes {
         while let Some(s) = stack.pop() {
             match &s.source {
                 Source::Wgsl(t) | Source::Wesl(t) => h.chunk(t.as_bytes()),
-                Source::Glsl(t, stage) => {
-                    h.chunk(t.as_bytes());
-                    h.chunk(format!("{stage:?}").as_bytes());
-                }
                 Source::SpirV(b) => h.chunk(b),
             }
             h.chunk(format!("{:?}", s.shader_defs).as_bytes());
-            let extra = s.additional_imports.iter().map(|i| ShaderImport::Custom(i.import.clone()));
-            for import in s.imports.iter().cloned().chain(extra) {
+            for import in &s.imports {
                 if seen.insert(import.clone()) {
-                    stack.push(by_import.get(&import)?);
+                    stack.push(by_import.get(import)?);
                 }
             }
         }
@@ -273,14 +271,21 @@ fn intern<T: PartialEq>(table: &mut Vec<T>, v: T) -> u32 {
 impl Record {
     /// `d` as a record entry; `None` when a shader has no path (or isn't all loaded).
     fn entry(&mut self, d: &RenderPipelineDescriptor, shaders: &Assets<Shader>, hashes: &mut Hashes) -> Option<Pipeline> {
-        let mut stage = |shader: &Handle<Shader>, defs: &[ShaderDefVal], entry: &Option<std::borrow::Cow<'static, str>>| {
+        type Constants = [(std::borrow::Cow<'static, str>, f64)];
+        let mut stage = |shader: &Handle<Shader>, defs: &[ShaderDefVal], entry: &Option<std::borrow::Cow<'static, str>>, constants: &Constants| {
             let path = shaders.get(shader.id()).map(|s| s.path.clone()).filter(|p| !p.is_empty())?;
             let hash = hashes.get(shaders, shader.id())?;
-            Some(Stage { shader: intern(&mut self.shaders, path), hash, defs: intern(&mut self.defs, defs.to_vec()), entry: entry.as_ref().map(|e| e.to_string()) })
+            Some(Stage {
+                shader: intern(&mut self.shaders, path),
+                hash,
+                defs: intern(&mut self.defs, defs.to_vec()),
+                entry: entry.as_ref().map(|e| e.to_string()),
+                constants: constants.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+            })
         };
-        let vertex = stage(&d.vertex.shader, &d.vertex.shader_defs, &d.vertex.entry_point)?;
+        let vertex = stage(&d.vertex.shader, &d.vertex.shader_defs, &d.vertex.entry_point, &d.vertex.constants)?;
         let fragment = match &d.fragment {
-            Some(f) => Some((stage(&f.shader, &f.shader_defs, &f.entry_point)?, f.targets.clone())),
+            Some(f) => Some((stage(&f.shader, &f.shader_defs, &f.entry_point, &f.constants)?, f.targets.clone())),
             None => None,
         };
         Some(Pipeline {
@@ -322,6 +327,7 @@ impl Record {
                 shader_defs: self.defs.get(s.defs as usize).ok_or(Miss::Gone)?.clone(),
                 entry_point: s.entry.clone().map(Into::into),
                 targets: targets.clone(),
+                constants: s.constants.iter().map(|(k, v)| (k.clone().into(), *v)).collect(),
             }),
             None => None,
         };
@@ -339,6 +345,7 @@ impl Record {
                 shader: vertex_shader,
                 shader_defs: self.defs.get(p.vertex.defs as usize).ok_or(Miss::Gone)?.clone(),
                 entry_point: p.vertex.entry.clone().map(Into::into),
+                constants: p.vertex.constants.iter().map(|(k, v)| (k.clone().into(), *v)).collect(),
                 buffers: p.buffers.iter().map(|b| VertexBufferLayout { array_stride: b.stride, step_mode: b.step, attributes: b.attributes.clone() }).collect(),
             },
             primitive: p.primitive,

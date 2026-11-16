@@ -374,7 +374,7 @@ fn uv_offsets(
     for (root, rig, m, uv) in &rigs {
         let d = &rig.data;
         let offset = part_uv(d, m.face, uv.0.sampled);
-        for (mesh, mat) in parts.iter_many(children.iter_descendants(root)) {
+        for (mesh, mat) in parts.iter_many(children.iter_descendants(root)).flatten() {
             let o = d.parts.iter().position(|p| p.0.id() == crate::cpu_morph::shared(mesh.0.id())).map_or(Vec2::ZERO, |k| offset[k]);
             if gs.get(&mat.0).is_some_and(|g| g.uniform.uv_offset != o) {
                 gs.get_mut(&mat.0).unwrap().uniform.uv_offset = o;

@@ -12,7 +12,7 @@ hst-sim = { path = "../hst-sim" }
 hst-base = { path = "../hst-base" }
 # `debug`: type names, which `mode.rs` tells its resources by; `bevy_debug_stepping`: its executor's skip list, which
 # `mode.rs` runs a mode's start a slice a frame with (P50)
-bevy = { version = "0.19.1", features = ["debug", "bevy_debug_stepping"] }
+bevy = { version = "0.20.1", features = ["debug", "bevy_debug_stepping"] }
 # rollback (M2h, `play/rollback.rs`): ggrs core, its messages as bincode in iroh datagrams
 ggrs = { version = "0.13", features = ["sync-send"] }
 bincode = "1.3"

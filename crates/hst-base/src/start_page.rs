@@ -152,7 +152,7 @@ fn page(mut commands: Commands, words: Res<Words>, mut fonts: ResMut<Assets<Font
                 row.spawn(Node { width: u(290.0), flex_shrink: 0.0, flex_direction: FlexDirection::Column, row_gap: u(16.0), ..default() }).with_children(|col| {
                     for (i, name) in ["Choose disc", "Help"].into_iter().enumerate() {
                         col.spawn((
-                            Button,
+                            bevy::ui_widgets::Button,
                             Pill(i),
                             Node { height: u(58.0), padding: UiRect::horizontal(u(26.0)), align_items: AlignItems::Center, justify_content: JustifyContent::SpaceBetween, border: UiRect::all(u(4.0)), border_radius: BorderRadius::MAX, ..default() },
                             BackgroundColor(GREY),
@@ -263,12 +263,10 @@ fn look(
 }
 
 /// A pill tapped or clicked, or the keys: up/down choose, back returns to Choose disc, any other key presses the chosen one.
-fn tap(mut start: ResMut<Start>, pills: Query<(&Pill, &Interaction), Changed<Interaction>>, mut keys: MessageReader<KeyboardInput>) {
+fn tap(mut start: ResMut<Start>, pills: Query<&Pill, Added<bevy::ui::Pressed>>, mut keys: MessageReader<KeyboardInput>) {
     let mut press = None;
-    for (pill, i) in &pills {
-        if *i == Interaction::Pressed {
-            press = Some(pill.0);
-        }
+    for pill in &pills {
+        press = Some(pill.0);
     }
     for k in keys.read().filter(|k| k.state.is_pressed() && !k.repeat && k.key_code != KeyCode::BrowserBack) {
         match k.key_code {
