@@ -92,12 +92,14 @@ fn looks(nodes: &Shown) -> u64 {
 }
 
 /// `HST_CALM=1`: slows a `--shot` or unattended run too (to check this in one).
-static FORCE: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var_os("HST_CALM").is_some());
+static FORCE: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var_os("HST_CALM").is_some_and(|v| v != "0"));
+/// `HST_CALM=0`: never slows (to tell whether something seen on a menu comes from this).
+static OFF: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var_os("HST_CALM").is_some_and(|v| v == "0"));
 
 /// Whether the drawing slows now: wanted, still for [`SETTLE`] s, and not a `--shot` or unattended run (those count
 /// frames) unless [`FORCE`]d.
 fn slow(wanted: bool, moved: bool, still: &mut f32, dt: f32) -> bool {
-    let off = crate::graphics::NO_AUTO.load(Ordering::Relaxed) && !*FORCE;
+    let off = crate::graphics::NO_AUTO.load(Ordering::Relaxed) && !*FORCE || *OFF;
     if !wanted || moved || off || cfg!(target_arch = "wasm32") {
         *still = 0.0;
         return false;
