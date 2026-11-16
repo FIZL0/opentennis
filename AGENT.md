@@ -51,7 +51,7 @@ copied into `fixtures/<task>/` (`cp --reflink`) when the test lands; tests never
 open), finished ones in `plan/DONE.md`. "continue" means: `agent-runner plan next`, read `agent-runner plan brief <ID>` (line, plan file,
 journal, files), port + verify, `tools/done.sh <ID> "<msg>"` (tests, tick into DONE.md, commit). Don't grep the repo for where things live — the code map says. Background (game
 control, done list, known gaps): `plan/REFERENCE.md`. `agent-runner plan` (index) · `next` · `N1e` (plan/tasks/N1e.md, else
-its TODO/DONE line) · `"when blocked"` (a section) · `-f FILE <name>` (any markdown) · `tick <ID>` · `block <ID> <why>` · `unblock <ID> [note]` · `move <ID> top|before ID|after ID|in SECTION` · `add <PREFIX> TEXT [@ WHERE]` (next free id) · `note <ID> TEXT` · `newid <PREFIX>` · `drop <ID> WHY` (`agent-runner plan --help`: the rest). `tools/ctx.py` is a shim for it, kept only for agents started before 2026-11-16. Use these for reprioritising and new tasks instead of reading/editing TODO.md.
+its TODO/DONE line) · `"when blocked"` (a section) · `-f FILE <name>` (any markdown) · `tick <ID>` · `block <ID> <why>` · `unblock <ID> [note]` · `move <ID> top|before ID|after ID|in SECTION` · `add <PREFIX> TEXT [@ WHERE]` (next free id) · `note <ID> TEXT` · `newid <PREFIX>` · `drop <ID> WHY` (`agent-runner plan --help`: the rest). Use these for reprioritising and new tasks instead of reading/editing TODO.md.
 Work that needs another task to land first is that task's subtask: `add B646 TEXT` gives `B646a`, then `B646b`
 (`add B646a …` → `B646a1`). The runner never runs one family (B646, B646a, B646b) side by side, so they go one at a
 time; a fresh number (`add B …`) starts in parallel at once, whatever its line says it follows.
