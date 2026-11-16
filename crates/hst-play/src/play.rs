@@ -96,6 +96,7 @@ mod reaction_voices;
 pub mod emote;
 mod replay_camera;
 mod surprise;
+pub mod rumble;
 pub(crate) mod snapshot;
 mod serve_check;
 mod partner_ball;
@@ -643,6 +644,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(flare::plugin);
     app.add_plugins(reaction_voices::plugin);
     app.add_plugins(surprise::plugin);
+    app.add_plugins(rumble::plugin);
     app.add_plugins(tick_input::plugin);
     app.add_plugins(tornado::plugin);
     app.add_plugins(replay_pace::plugin);

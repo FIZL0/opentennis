@@ -61,6 +61,8 @@ pub(super) enum Opt {
     Rendering,
     /// B118: the on-screen pad buzzes on each press.
     Vibration,
+    /// M172: controllers rumble in a match (`play::rumble`).
+    MatchRumble,
     /// B343: the speed-up switch (`Graphics::fewer_shadows`).
     FewerShadows,
     /// B364: the characters' share of triangles (`Graphics::mesh`, `lod.rs`).
@@ -113,7 +115,7 @@ const SOUND: &[Opt] = if cfg!(target_arch = "wasm32") { &[Volume(0), Volume(1), 
 const MODS: &[Opt] = if cfg!(target_arch = "wasm32") { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat] } else { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat, UpdateCheck] };
 /// M167: Gameplay's rows: how a match plays (offline Rules, match rumble go before Vibration), then the on-screen
 /// pad's Vibration (B118, was the Mobile tab's), last since only a touch screen shows it (`gameplay`).
-const GAMEPLAY: &[Opt] = &[Vibration];
+const GAMEPLAY: &[Opt] = &[MatchRumble, Vibration];
 /// Gameplay's rows on this device: Vibration only on a touch screen.
 fn gameplay() -> &'static [Opt] {
     if super::touch_page() { GAMEPLAY } else { &GAMEPLAY[..GAMEPLAY.len() - 1] }
@@ -173,6 +175,7 @@ fn label(o: Opt) -> &'static str {
         Renderer => "Renderer",
         Rendering => "Rendering",
         Vibration => "Vibration",
+        MatchRumble => "Match Rumble",
         UpdateCheck => "Updates",
         FewerShadows => "Fewer Shadows",
         Mesh => "Mesh",
@@ -227,6 +230,7 @@ fn about(o: Opt) -> &'static str {
         Renderer => "Auto: WebGPU when the browser has it, else WebGL2; the one in use shows in brackets, with Hardware (drawn by the graphics card) or Software (drawn by the CPU, much slower: turn on the browser's hardware acceleration). A change asks first: the page reloads into it.",
         Rendering => rendering_about(),
         Vibration => vibration_about(),
+        MatchRumble => "Controllers rumble in a match: hard on a mistimed or framed hit, a short crisp tick on a sweet-spot hit, a thump when a hard serve lands (the receiver's, and softer the server's) and when the ball hits you. Your own controller only; never in replays.",
         UpdateCheck => "Look for a newer version while the game runs. Ask: the main menu asks Update? the first time it finds one. Always: it installs by itself where it can (a phone's installer still asks you to confirm). Never: no looking.",
         FewerShadows => "At Low shadows, only the players, the umpire and what shades the court cast: fewer draws. Off: Low casts as many as High.",
         Advanced => "Switches that trade a little detail for speed on a slow device: the characters' mesh detail, fewer shadows, skipping what's off-screen.",
@@ -463,6 +467,10 @@ impl Settings {
             Renderer => self.renderer = (self.renderer as isize + d).rem_euclid(RENDERERS.len() as isize) as u8,
             Rendering => self.software = !self.software,
             Vibration => self.vibration = !self.vibration,
+            MatchRumble => {
+                self.match_rumble = !self.match_rumble;
+                crate::play::rumble::ON.store(self.match_rumble, std::sync::atomic::Ordering::Relaxed);
+            }
             // M140: Ask / Always / Never, Never being the older Check for Updates off
             UpdateCheck => {
                 let a = cycle(&ASK_VALUES.map(|(a, _)| a), self.updates(), d);
@@ -546,6 +554,7 @@ impl Settings {
             Renderer => RENDERERS[self.renderer as usize].1.into(),
             Rendering => crate::render_mode::MODES[self.software as usize].1.into(),
             Vibration => on_off(self.vibration),
+            MatchRumble => on_off(self.match_rumble),
             UpdateCheck => ASK_VALUES.iter().find(|(a, _)| *a == self.updates()).unwrap().1.into(),
             FewerShadows => on_off(g.fewer_shadows),
             Advanced => ">".into(),
@@ -590,6 +599,7 @@ impl Menu {
                     self.settings = was;
                     crate::chat::HIDDEN.store(!was.chat, std::sync::atomic::Ordering::Relaxed);
                     crate::audio::EMOTE_VOICES.store(was.emote_voices, std::sync::atomic::Ordering::Relaxed);
+                    crate::play::rumble::ON.store(was.match_rumble, std::sync::atomic::Ordering::Relaxed);
                     crate::voices::choose(was.voice_language);
                     out.push(Effect::SaveSettings);
                 }
