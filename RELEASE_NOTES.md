@@ -12,3 +12,4 @@
 - Online, players with the US and Japanese discs can now play each other: the match plays by the host's disc's rules (the host sends what your disc plays differently, just for that match), the lobby list shows whose rules a lobby plays, and joining one with other rules shows how they differ from yours. Everyone keeps their own voices and text
 - New Settings → Gameplay → Match Rumble (off by default): your controller rumbles hard on a mistimed or framed hit, gives a short crisp tick on a sweet-spot hit, and thumps when a hard serve lands or the ball hits you
 - The game uses far less CPU during matches, so phones and laptops run cooler and the battery lasts longer
+- Online, a player on a different disc from the host's (US or Japanese) who drops out of a match can now rejoin it: the host's game data is sent again and the match picks up once it's in

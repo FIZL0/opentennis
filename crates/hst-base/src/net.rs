@@ -2629,10 +2629,11 @@ async fn relay(cx: &Ctx, mut room: Room, mut joined: Vec<(String, Link, Conn)>, 
                     let back = back_for(&room, &away, &name, seat);
                     match back {
                         Some(_) if let Err(e) = hand.check(&Handshake::here()) => refuse(&link, conn, e),
-                        // M171: the match would start before the host's data got there
-                        Some(_) if hand.needs_data(&Handshake::here()) => refuse(&link, conn, "Rejoining a match played by another disc's rules isn't possible yet.".into()),
                         Some(old) => {
                             bevy::log::info!("{name} ({}) rejoins for {}", short(&peer), short(&old));
+                            // M178: a rejoiner on another disc gets this disc's data too; it holds the Start until
+                            // that's laid over its disc and checked (`Crossplay::holds`)
+                            crossplay_send(&hand, &conn);
                             away.retain(|p| *p != old);
                             if let Some(i) = joined.iter().position(|(p, ..)| *p == old) {
                                 joined.remove(i).2.close(b"rejoined");
@@ -2940,13 +2941,23 @@ fn crossplay_send(hand: &Handshake, conn: &Conn) {
     });
 }
 
-/// `f` on a thread of its own (the browser: now, it has no threads).
+/// `f` on a thread of its own (the browser: now, it has no threads). M178: in the caller's runtime, so it can spawn
+/// network work (`send_pack`).
 fn off_thread(f: impl FnOnce() + Send + 'static) {
     #[cfg(not(target_arch = "wasm32"))]
-    std::thread::spawn(f);
+    {
+        let rt = tokio::runtime::Handle::try_current().ok();
+        std::thread::spawn(move || {
+            let _in = rt.as_ref().map(|rt| rt.enter());
+            f()
+        });
+    }
     #[cfg(target_arch = "wasm32")]
     f();
 }
+
+/// M178: how long a rejoiner on another disc waits for the host's data before it gives up.
+const CROSSPLAY_WAIT: Duration = Duration::from_secs(60);
 
 /// M171: a guest's side of crossplay: what it has of the host's data so far (the host's digest it waits for, 0: none;
 /// whether it's laid over the disc).
@@ -2954,6 +2965,8 @@ fn off_thread(f: impl FnOnce() + Send + 'static) {
 struct Crossplay {
     want: std::sync::atomic::AtomicU64,
     done: std::sync::atomic::AtomicBool,
+    /// M178: told when the host's data has been tried (laid over the disc, or refused), for a held Start.
+    tried: tokio::sync::Notify,
 }
 
 impl Crossplay {
@@ -2966,12 +2979,29 @@ impl Crossplay {
                 me.done.store(true, std::sync::atomic::Ordering::Relaxed);
                 link.send(&Msg::Fetching(None));
                 let _ = ev.send(Event::Status("The host's game data is here: you play by their disc's rules.".into()));
+                me.tried.notify_one();
             }
             Err(e) => {
                 let _ = ev.send(Event::Failed(format!("Couldn't play by the host's disc: {e}")));
                 conn.close(b"crossplay");
+                me.tried.notify_one();
             }
         });
+    }
+
+    /// M178: whether a `Start` with line-up `r` waits for the host's data (a rejoiner on another disc gets the Start
+    /// without a lobby first, the data right behind it); if so, the data is now awaited as a lobby's would be.
+    fn holds(&self, r: &Room, hand: &Handshake, link: &Link) -> bool {
+        let wait = r.sim.is_some_and(|h| hand.sim.is_some_and(|s| s != h) && hand.manifest.is_some()) && !self.done();
+        if wait {
+            self.room(r, hand, link);
+        }
+        wait
+    }
+
+    /// Whether the host's data is laid over the disc.
+    fn done(&self) -> bool {
+        self.done.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// How far the host's data is (bytes so far of `n`, stream keyed `h`): told to the host as a download.
@@ -3026,6 +3056,9 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
     ));
     let mut seated = false;
     let mut playing = false;
+    // M178: a rejoiner's Start held for the host's data (crossplay), until when, and what came behind it meanwhile
+    let mut held: Option<(Room, n0_future::time::Instant)> = None;
+    let mut behind: Vec<Msg> = Vec::new();
     // B114: connected but no seat from the host by then: give up instead of "Joining..." for ever
     let handshake = n0_future::time::sleep(Duration::from_secs(20));
     n0_future::pin!(handshake);
@@ -3038,6 +3071,12 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
                 return false;
             }
             m = inbox.recv() => match m.unwrap_or_else(|| Err("closed".into())) {
+                Ok(Msg::Refused(_)) | Err(_) if held.is_some() => {
+                    cx.say(Event::Failed("The host left before you could rejoin.".into()));
+                    conn.close(b"left");
+                    return seated;
+                }
+                Ok(m) if held.is_some() => behind.push(m),
                 // B275: a pick this game can't play only ends the link at the start; in the lobby it's a message
                 Ok(Msg::Room(r)) if r.check().is_err() => {
                     cx.say(Event::Status(format!("A pick this game can't play: {}", r.check().unwrap_err())));
@@ -3071,6 +3110,10 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
                     playing = false;
                     cx.say(Event::Match("host".into(), Msg::Lobby(r)));
                 }
+                Ok(Msg::Start(r)) if xp.holds(&r, hand, &link) => {
+                    cx.say(Event::Status("Getting the host's game data to rejoin...".into()));
+                    held = Some((r, n0_future::time::Instant::now() + CROSSPLAY_WAIT));
+                }
                 Ok(Msg::Start(r)) => {
                     // a rejoiner (B196) gets Start without a Room first
                     (playing, seated) = (true, true);
@@ -3096,7 +3139,28 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
                 }
                 Ok(_) => {}
             },
-            Some(d) = dgrams.recv() => if playing && let Some((from, data)) = undatagram(&d) {
+            _ = xp.tried.notified(), if held.is_some() => {
+                let Some((r, _)) = held.take().filter(|_| xp.done()) else {
+                    // refused: it said why and closed the connection
+                    return seated;
+                };
+                (playing, seated) = (true, true);
+                cx.say(Event::Start(r, me.clone()));
+                for m in behind.drain(..) {
+                    match m {
+                        Msg::Ping(t) => link.send(&Msg::Pong(t)),
+                        Msg::Chat { from, name, text } => cx.say(Event::Chat { from, name, text }),
+                        m if m.in_match() => cx.say(Event::Match("host".into(), m)),
+                        _ => {}
+                    }
+                }
+            }
+            _ = n0_future::time::sleep(held.as_ref().map_or(Duration::ZERO, |h| h.1.saturating_duration_since(n0_future::time::Instant::now()))), if held.is_some() => {
+                cx.say(Event::Failed(format!("The host's game data didn't come in {} s: couldn't rejoin.", CROSSPLAY_WAIT.as_secs())));
+                conn.close(b"left");
+                return seated;
+            }
+            Some(d) = dgrams.recv(), if held.is_none() => if playing && let Some((from, data)) = undatagram(&d) {
                 cx.say(Event::Datagram(from, data.to_vec()));
             },
             c = cmds.recv() => match c {
@@ -4647,6 +4711,102 @@ mod tests {
         // a listing from before M22 has no build: read as another build's
         let before: Listing = serde_json::from_str(r#"{"id":"x","name":"","doubles":false,"court":0,"taken":1,"seats":2,"time":0}"#).unwrap();
         assert!(!before.same_build());
+    }
+
+    /// M178: a guest on the Japanese disc playing a US host's match (crossplay) drops out and a new process for it
+    /// (its disc as itself again) rejoins: the host sends its data with the Start, and the rejoiner holds the Start
+    /// until that data is laid over its disc and checked; what the host sent behind the Start (its state) follows it.
+    #[test]
+    fn a_crossplay_guest_rejoins_on_the_hosts_data() {
+        use hst_data::{crossplay, digest, iso::Iso};
+        let jp = hst_data::fixture::path("fixtures/discs/SCPS-15113.iso");
+        if !hst_data::fixture::has_iso() || !jp.exists() {
+            // the Japanese disc isn't the user's: skipped even under HST_REQUIRE_DISC
+            return eprintln!("skipped: no ISO or fixtures/discs/SCPS-15113.iso");
+        }
+        // this process's disc (the host's, and the guests', with the host's data over it) under a path of its own,
+        // so the overlay goes over it and no other test's
+        let dir = std::env::temp_dir().join(format!("hst-m178-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let link = dir.join("disc.iso");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(std::fs::canonicalize(hst_data::fixture::path(hst_data::fixture::ISO)).unwrap(), &link).unwrap();
+        crate::handshake::set_disc_path(&link.to_string_lossy());
+        let mut iso = Iso::open_own(&jp).unwrap();
+        let (sim, manifest) = digest::survey(|f| iso.read_unlogged(f).ok()).unwrap();
+        let here = Handshake::here();
+        assert_ne!(here.sim, Some(sim), "the two discs play alike");
+        let japan = Handshake { build: our_build().into(), pack: None, tables: Some(crate::handshake::tables()), sim: Some(sim), manifest: Some(manifest) };
+        assert!(japan.check(&here).is_ok() && japan.needs_data(&here));
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let testnet = n0_mainline::Testnet::new(3).await.unwrap();
+            let cx = |seat: Option<u8>| {
+                let bootstrap = testnet.bootstrap.clone();
+                async move {
+                    let (ep, _) = endpoint(&Relay::Off).await.unwrap();
+                    let id = ep.id().to_string();
+                    let (tx, rx) = mpsc::channel();
+                    (Ctx { ep: Some(ep), dht: Dht::builder().bootstrap(&bootstrap).build().unwrap(), lan: Lan::default(), ev: tx, name: "g".into(), courts: Vec::new(), device: Default::default(), seat, relays: false }, rx, id)
+                }
+            };
+            /// The events up to the first `want` gives true for (that one last); a Failed fails the test.
+            async fn until(ev: &mpsc::Receiver<Event>, want: impl Fn(&Event) -> bool) -> Vec<Event> {
+                let mut seen = Vec::new();
+                for _ in 0..3000 {
+                    while let Ok(e) = ev.try_recv() {
+                        assert!(!matches!(e, Event::Failed(_)), "{e:?}");
+                        let done = want(&e);
+                        seen.push(e);
+                        if done {
+                            return seen;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                panic!("timed out, after {seen:?}")
+            }
+            let data_here = |e: &Event| matches!(e, Event::Status(s) if s.starts_with("The host's game data is here"));
+            let (hcx, hev, _) = cx(None).await;
+            let (hcmd, mut hrx) = amp::unbounded_channel();
+            let mut r = room(false);
+            r.take("host", &[Pick::disc(3, 0)]);
+            tokio::spawn(async move { host(&hcx, r, &mut hrx).await });
+            let Event::Code(code) = until(&hev, |e| matches!(e, Event::Code(_))).await.pop().unwrap() else { unreachable!() };
+            // the first guest: the host's data in the lobby, then the match
+            let (gcx, gev, g1) = cx(None).await;
+            let (gcmd, mut grx) = amp::unbounded_channel();
+            let (c, hand) = (code.clone(), japan.clone());
+            tokio::spawn(async move { join_as(&gcx, &c, vec![Pick::disc(1, 0)], &mut grx, &hand).await });
+            until(&gev, data_here).await;
+            gcmd.send(Cmd::Prepared(true)).unwrap();
+            until(&hev, |e| matches!(e, Event::Room(r) if r.ready.len() == 1 && r.fetching.is_empty())).await;
+            hcmd.send(Cmd::Start).unwrap();
+            until(&hev, |e| matches!(e, Event::Start(..))).await;
+            until(&gev, |e| matches!(e, Event::Start(..))).await;
+            // it drops out; the new process's disc plays as itself
+            hcmd.send(Cmd::Send(Msg::Away { who: vec![g1.clone()], left: 60, ask: false })).unwrap();
+            assert!(crossplay::remove(&link));
+            // the rejoiner: the host's data first, then the Start, then the state the host sends right behind it
+            let (rcx, rev, g2) = cx(Some(1)).await;
+            let (_rcmd, mut rrx) = amp::unbounded_channel();
+            let hand = japan.clone();
+            tokio::spawn(async move { join_as(&rcx, &code, vec![Pick::disc(1, 0)], &mut rrx, &hand).await });
+            let back = until(&hev, |e| matches!(e, Event::Match(_, Msg::Rejoined { .. }))).await.pop().unwrap();
+            assert!(matches!(&back, Event::Match(_, Msg::Rejoined { old, new, .. }) if *old == g1 && *new == g2), "{back:?}");
+            hcmd.send(Cmd::Send(Msg::State { tick: 7, data: vec![1, 2, 3], last: true })).unwrap();
+            let seen = until(&rev, |e| matches!(e, Event::Start(..))).await;
+            assert!(crossplay::installed(&link), "started before the host's data was laid over the disc");
+            let Some(Event::Start(r, me)) = seen.last() else { unreachable!() };
+            assert!(r.rejoin && *me == g2 && r.seats[1].as_ref().is_some_and(|s| s.peer == g2), "{r:?}");
+            assert!(seen.iter().any(|e| matches!(e, Event::Status(s) if s.starts_with("Getting the host's game data"))), "never held: {seen:?}");
+            assert!(seen.iter().any(data_here), "{seen:?}");
+            until(&rev, |e| matches!(e, Event::Match(_, Msg::State { tick: 7, .. }))).await;
+            hcmd.send(Cmd::Leave).unwrap();
+        });
+        assert!(crossplay::remove(&link));
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_dir(&dir);
     }
 
     /// B549 on loopback: a host with the relays on whose code never goes out (here: no home relay, ever) isn't
