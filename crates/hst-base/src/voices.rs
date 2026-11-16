@@ -5,7 +5,8 @@
 //! its random numbers never see the choice, and online each player hears their own.
 //!
 //! A player adds a release by putting its ISO in `voices/` beside the settings (desktop, phones' Files folder): the
-//! next start copies its voice banks into `voices/<disc id>.pack` (about 25 MB a language) and the ISO can go. Each
+//! next start copies its voice banks into `voices/<disc id>.pack` (about 25 MB a language) and the ISO can go; or
+//! Settings → Sound → Add Voices picks the ISO and reads it in at once ([`add_disc`], M165). Each
 //! release's archives hold the same banks under the same names as the US disc's (the European one once per language,
 //! told apart by the archive's last letter; the Japanese one keeps its player voices inside the motion archives), so a
 //! bank is looked up by its name. A bank whose sequences don't line up with the main disc's (a different take count
@@ -247,6 +248,11 @@ pub fn dub_in(mut bank: SoundBank, hd: &str, lang: u8) -> SoundBank {
 /// Reads the voice banks off release `iso` into `out` (a [`MAGIC`] pack); the languages it brought. A disc this
 /// doesn't know (the US one included: its voices are the main disc's) is refused.
 pub fn import(iso: &mut Iso, out: &Path) -> io::Result<Vec<u8>> {
+    import_with(iso, out, &mut |_| {})
+}
+
+/// [`import`], telling `progress` how far it is (0..=1, by the archives' bytes read) as it goes.
+pub fn import_with(iso: &mut Iso, out: &Path, progress: &mut dyn FnMut(f32)) -> io::Result<Vec<u8>> {
     let id = disc_id(iso).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no SYSTEM.CNF: not a PS2 disc"))?;
     let lang_of = release(&id).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, format!("{id} brings no other voices (Everybody's Tennis Europe SCES-54535 or Minna no Tennis SCPS-15113 do)")))?;
     let archives: Vec<(String, u8)> = iso.files.keys().filter(|p| p.starts_with("SND/") || p.starts_with("PCANI/")).filter_map(|p| Some((p.clone(), lang_of(p)?))).collect();
@@ -260,7 +266,11 @@ pub fn import(iso: &mut Iso, out: &Path) -> io::Result<Vec<u8>> {
         at += d.len() as u64;
         Ok(span)
     };
+    let total: u64 = archives.iter().map(|(p, _)| iso.files.get(p).map_or(0, |f| f.1 as u64)).sum();
+    let mut read = 0u64;
     for (path, lang) in archives {
+        progress(read as f32 / total.max(1) as f32);
+        read += iso.files.get(&path).map_or(0, |f| f.1 as u64);
         let data = iso.read(&path)?;
         let Ok(arc) = Archive::parse(&data) else { continue };
         for e in &arc.entries {
@@ -295,6 +305,7 @@ pub fn import(iso: &mut Iso, out: &Path) -> io::Result<Vec<u8>> {
     w.into_inner().map_err(|e| e.into_error())?.sync_all()?;
     std::fs::rename(&tmp, out)?;
     *PACKS.lock().unwrap() = None;
+    progress(1.0);
     let mut langs: Vec<u8> = index.iter().map(|b| b.0).collect();
     langs.sort_unstable();
     langs.dedup();
@@ -309,7 +320,7 @@ pub fn import_waiting() {
     for p in isos {
         let Ok(mut iso) = Iso::open(&p) else { continue };
         let Some(id) = disc_id(&mut iso) else { continue };
-        let out = dir.join(format!("{}.pack", id.replace(['_', '.'], "")));
+        let out = pack_in(&dir, &id);
         if out.exists() {
             continue;
         }
@@ -318,6 +329,156 @@ pub fn import_waiting() {
             Err(e) => eprintln!("voices: {}: {e}", p.display()),
         }
     }
+}
+
+/// M165: Settings → Sound → Add Voices: where reading a disc in from the menu is.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Adding {
+    Idle,
+    /// The system's file picker is up.
+    Picking,
+    /// Reading the disc's voices: how far (0..=1).
+    Reading(f32),
+    /// Done: the languages the disc brought.
+    Added(Vec<u8>),
+    /// It didn't work: why, for the player.
+    Failed(String),
+}
+
+static ADDING: Mutex<Adding> = Mutex::new(Adding::Idle);
+
+fn set_adding(a: Adding) {
+    *ADDING.lock().unwrap() = a;
+}
+
+/// Where Add Voices is (the Settings row's text).
+pub fn adding() -> Adding {
+    ADDING.lock().unwrap().clone()
+}
+
+/// Whether a disc is being picked or read (a second press waits for it).
+pub fn adding_busy() -> bool {
+    matches!(adding(), Adding::Picking | Adding::Reading(_))
+}
+
+/// The pack release `id` (`SCES_545.35`) is read into in `dir`.
+fn pack_in(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{}.pack", id.replace(['_', '.'], "")))
+}
+
+/// M165: Add Voices pressed: the system's file picker for a European or Japanese disc image (desktop: the file dialog;
+/// Android: the system's picker; iOS: the images already put in the voices folder through the Files app), then its
+/// voices read into a pack in [`dir`] on a worker thread, [`adding`] saying how far. The new languages are on the
+/// Voice Language row as soon as it's done; a release read before is read again (a better copy replaces it).
+pub fn add_disc() {
+    if adding_busy() {
+        return;
+    }
+    let Some(dir) = dir() else {
+        return set_adding(Adding::Failed("The voices folder isn't ready yet.".into()));
+    };
+    set_adding(if cfg!(target_os = "ios") { Adding::Reading(0.0) } else { Adding::Picking });
+    std::thread::spawn(move || {
+        set_adding(match add_from(&dir) {
+            Ok(Some(langs)) => Adding::Added(langs),
+            Ok(None) => Adding::Idle,
+            Err(e) => {
+                eprintln!("voices: {e}");
+                Adding::Failed(e)
+            }
+        })
+    });
+}
+
+/// The picked disc read into its pack in `dir`: its languages, or `None` if nothing was picked.
+#[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
+fn add_from(dir: &Path) -> Result<Option<Vec<u8>>, String> {
+    let Some(path) = pick_disc() else { return Ok(None) };
+    let iso = Iso::open(&path).map_err(|e| format!("That file isn't a disc image ({e})."))?;
+    read_in(iso, dir).map(Some)
+}
+
+#[cfg(target_os = "android")]
+fn add_from(dir: &Path) -> Result<Option<Vec<u8>>, String> {
+    if !crate::android::pick() {
+        return Err("The file picker didn't open.".into());
+    }
+    // the picker answers through the activity; asked a few times a second (it's the player's, so no time limit)
+    let file = loop {
+        match crate::android::taken() {
+            None => std::thread::sleep(std::time::Duration::from_millis(250)),
+            Some(None) => return Ok(None),
+            Some(Some(f)) => break f,
+        }
+    };
+    set_adding(Adding::Reading(0.0));
+    let iso = Iso::from_source(Box::new(file)).map_err(|e| format!("That file isn't a disc image ({e})."))?;
+    read_in(iso, dir).map(Some)
+}
+
+/// iOS has no picker yet: the images the player put in the voices folder (the Files app) are read in now, without
+/// waiting for the next start.
+#[cfg(target_os = "ios")]
+fn add_from(dir: &Path) -> Result<Option<Vec<u8>>, String> {
+    let _ = std::fs::create_dir_all(dir);
+    let isos: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("iso"))).collect();
+    if isos.is_empty() {
+        return Err("No disc image in the voices folder: in the Files app, put the European or Japanese disc image in Hot Shots Tennis → voices, then press again.".into());
+    }
+    let mut langs = Vec::new();
+    for p in isos {
+        let iso = Iso::open(&p).map_err(|e| format!("{}: not a disc image ({e}).", p.file_name().unwrap_or_default().to_string_lossy()))?;
+        langs.extend(read_in(iso, dir)?);
+    }
+    langs.sort_unstable();
+    langs.dedup();
+    Ok(Some(langs))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn add_from(_dir: &Path) -> Result<Option<Vec<u8>>, String> {
+    Err("The browser build can't read a disc's voices: the desktop and phone apps can.".into())
+}
+
+/// Disc `iso`'s voices into its release's pack in `dir`, [`adding`] following along; its languages.
+#[cfg(not(target_arch = "wasm32"))]
+fn read_in(mut iso: Iso, dir: &Path) -> Result<Vec<u8>, String> {
+    let id = disc_id(&mut iso).ok_or_else(|| "That file isn't a PS2 disc image.".to_string())?;
+    if release(&id).is_none() {
+        return Err(if id == "SCUS_976.10" {
+            "That's the game's own disc: its voices are the English ones already. Choose the European (Everybody's Tennis) or Japanese (Minna no Tennis) disc.".into()
+        } else {
+            format!("That disc ({id}) has no other voices: choose the European (Everybody's Tennis) or Japanese (Minna no Tennis) disc.")
+        });
+    }
+    std::fs::create_dir_all(dir).map_err(|e| format!("Couldn't make the voices folder: {e}"))?;
+    set_adding(Adding::Reading(0.0));
+    let out = pack_in(dir, &id);
+    let langs = import_with(&mut iso, &out, &mut |f| set_adding(Adding::Reading(f))).map_err(|e| format!("Couldn't read the disc's voices: {e}"))?;
+    eprintln!("voices: {id} → {} ({})", out.display(), langs.iter().map(|&l| LANGS[l as usize].name).collect::<Vec<_>>().join(", "));
+    Ok(langs)
+}
+
+/// The desktop's file dialog for a disc image (as the first start's, `disc.rs`: zenity or kdialog first on Linux, for
+/// the Steam Deck's Gaming Mode, else the system's).
+// ponytail: macOS wants dialogs on the main thread; this runs on a worker (fine on Linux/Windows), as Add mod's
+#[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
+fn pick_disc() -> Option<PathBuf> {
+    // a test pressing ✕ on every Settings row never pops a dialog up on the desktop
+    if cfg!(any(test, feature = "testing")) {
+        return None;
+    }
+    const TITLE: &str = "Hot Shots Tennis: pick the European or Japanese disc image for its voices";
+    #[cfg(target_os = "linux")]
+    for (cmd, args) in [
+        ("zenity", &["--file-selection", "--title", TITLE, "--file-filter", "Disc image | *.iso *.ISO", "--file-filter", "All files | *"][..]),
+        ("kdialog", &["--title", TITLE, "--getopenfilename", ".", "*.iso *.ISO"][..]),
+    ] {
+        let Ok(out) = std::process::Command::new(cmd).args(args).output() else { continue };
+        let picked = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        return (out.status.success() && !picked.is_empty()).then(|| PathBuf::from(picked));
+    }
+    rfd::FileDialog::new().set_title(TITLE).add_filter("Disc image", &["iso", "ISO"]).pick_file()
 }
 
 #[cfg(test)]
@@ -410,5 +571,35 @@ mod tests {
         assert!(sound.bank_of(id).is_some_and(|b| Arc::ptr_eq(&b, &german)), "the call is heard in German");
         let id = sound.play_centre(&main, call(0));
         assert!(sound.bank_of(id).is_some_and(|b| Arc::ptr_eq(&b, &main)), "undubbed: the disc's");
+    }
+
+    /// M165: Add Voices' reading: the game's own disc is turned away with words for the player; the Japanese disc
+    /// (`fixtures/discs/SCPS-15113.iso`, skipped without it) reads into its pack with its progress rising to 1 and
+    /// Adding following it. A few seconds.
+    #[test]
+    fn add_voices_reads_a_disc_with_progress() {
+        let Ok(us) = fixture::iso() else { return };
+        let tmp = std::env::temp_dir().join(format!("hst-voices-add-{}", std::process::id()));
+        struct Gone(PathBuf);
+        impl Drop for Gone {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _gone = Gone(tmp.clone());
+        let e = read_in(us, &tmp).unwrap_err();
+        assert!(e.contains("game's own disc"), "{e}");
+        assert!(!tmp.exists(), "nothing written for the US disc");
+        let jp = "fixtures/discs/SCPS-15113.iso";
+        if !fixture::exists(jp) {
+            return fixture::skip("the Japanese disc (fixtures/discs/)");
+        }
+        assert_eq!(read_in(Iso::open(fixture::path(jp)).unwrap(), &tmp).unwrap(), [6]);
+        assert_eq!(adding(), Adding::Reading(1.0), "the last progress said is the end");
+        assert!(tmp.join("SCPS15113.pack").exists());
+        let mut seen = Vec::new();
+        let langs = import_with(&mut Iso::open(fixture::path(jp)).unwrap(), &pack_in(&tmp, "SCPS_151.13"), &mut |f| seen.push(f)).unwrap();
+        assert_eq!(langs, [6]);
+        assert!(seen.len() > 2 && seen.windows(2).all(|w| w[0] <= w[1]) && seen[0] == 0.0 && *seen.last().unwrap() == 1.0, "{seen:?}");
     }
 }

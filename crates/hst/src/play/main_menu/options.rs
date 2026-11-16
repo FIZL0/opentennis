@@ -45,6 +45,8 @@ pub(super) enum Opt {
     EmoteVoices,
     /// added3: whose voices: the disc's or another release's (`voices`).
     VoiceLanguage,
+    /// M165: ✕ picks a European or Japanese disc image and reads its voices in (`voices::add_disc`).
+    AddVoices,
     Downloads,
     /// B339: how many store downloads run at once.
     AtOnce,
@@ -106,7 +108,8 @@ pub(super) const MODE_SWITCH: u8 = 0x80;
 const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Shading, Upscaled, Rendering, Advanced];
 /// B411: Graphics → Advanced, the speed-up switches for a slow device.
 const ADVANCED: &[Opt] = &[Mesh, FewerShadows, Cull, CourtLife];
-const SOUND: &[Opt] = &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices, VoiceLanguage];
+/// M165: Add Voices under Voice Language, but in the browser (it can't keep a disc's voices).
+const SOUND: &[Opt] = if cfg!(target_arch = "wasm32") { &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices, VoiceLanguage] } else { &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices, VoiceLanguage, AddVoices] };
 const MODS: &[Opt] = if cfg!(target_arch = "wasm32") { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat] } else { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat, UpdateCheck] };
 /// B118: phone-only options (later: control size and opacity).
 const MOBILE: &[Opt] = &[Vibration];
@@ -156,6 +159,7 @@ fn label(o: Opt) -> &'static str {
         MatchMusic => "Match Music",
         EmoteVoices => "Emote Voices",
         VoiceLanguage => "Voice Language",
+        AddVoices => "Add Voices",
         Downloads => "Upscaled Downloads",
         AtOnce => "Downloads at Once",
         OnlineMods => "Online Mod Downloads",
@@ -207,7 +211,9 @@ fn about(o: Opt) -> &'static str {
         MatchMusic => "Play each court's music during a match.",
         EmoteVoices => "Hear the players' voice lines when they emote. Off mutes them on this device only; the emote itself still plays.",
         VoiceLanguage if cfg!(target_arch = "wasm32") => "The players', the umpire's and the crowd's voices in another release's language: the desktop and phone apps can take them from the European or Japanese disc.",
-        VoiceLanguage => "The players', the umpire's and the crowd's voices in another release's language, from the next match. To add languages, put the European (Everybody's Tennis: English, French, Italian, German, Spanish, Japanese) or Japanese (Minna no Tennis) disc image in the voices folder beside your settings and start the game again; it copies their voices and the image can go. Only you hear it: the match plays exactly the same, online too.",
+        VoiceLanguage => "The players', the umpire's and the crowd's voices in another release's language, from the next match. Add Voices, below, brings the languages in. Only you hear it: the match plays exactly the same, online too.",
+        AddVoices if cfg!(target_os = "ios") => "Copies another release's voices into the game, then they're on Voice Language. In the Files app, put the European (Everybody's Tennis: English, French, Italian, German, Spanish, Japanese) or Japanese (Minna no Tennis) disc image in Hot Shots Tennis → voices, then choose Add Voices here. It takes a few seconds; afterwards the image can go.",
+        AddVoices => "Choose the European (Everybody's Tennis: English, French, Italian, German, Spanish, Japanese) or Japanese (Minna no Tennis) disc image: the game copies its voices (about 25 MB a language) and they're on Voice Language. It takes a few seconds; afterwards the image can go.",
         Downloads => "Download mods' upscaled textures from the mod store (most of a mod's size).",
         AtOnce => "How many mods the mod store downloads side by side (Download all, or several installs). Auto: 3 on a computer, 2 in a browser, 1 on a phone; a browser keeps each one in memory until it's saved, so it allows fewer.",
         OnlineMods => "When another player online picks a mod you don't have: ask each time, always download it, or never (you'll see the character it's based on instead).",
@@ -266,6 +272,31 @@ fn vibration_about() -> &'static str {
     }
 }
 
+/// M165: the Add Voices row's value: what ✕ does, or how far a disc is.
+fn add_voices_value() -> String {
+    use crate::voices::Adding;
+    match crate::voices::adding() {
+        Adding::Picking => "Choosing…".into(),
+        Adding::Reading(f) => format!("Reading {:.0} %", f * 100.0),
+        Adding::Added(_) => "Added".into(),
+        Adding::Failed(_) => "Not added".into(),
+        Adding::Idle if cfg!(target_os = "ios") => "Read folder".into(),
+        Adding::Idle => "Choose disc".into(),
+    }
+}
+
+/// M165: the side panel's line under Add Voices: the picker up, the languages a disc brought, or why it didn't.
+fn add_voices_note() -> Option<String> {
+    use crate::voices::{Adding, LANGS};
+    match crate::voices::adding() {
+        Adding::Idle => None,
+        Adding::Picking => Some("Choose the disc image in the file picker.".into()),
+        Adding::Reading(_) => Some("Copying the disc's voices. You can leave this page; it carries on.".into()),
+        Adding::Added(langs) => Some(format!("Added: {}. Choose one under Voice Language.", langs.iter().map(|&l| LANGS[l as usize].name).collect::<Vec<_>>().join(", "))),
+        Adding::Failed(why) => Some(why),
+    }
+}
+
 /// A Menu Size value's word (`MENU_SIZES`: 0 Auto, else tenths).
 fn menu_size_name(t: u8) -> String {
     if t == 0 { "Auto".into() } else { format!("{}%", t as u32 * 10) }
@@ -309,7 +340,7 @@ fn choices(o: Opt) -> Vec<String> {
         OnlineMods | KeepDownloads | UpdateCheck => ASK_VALUES.iter().map(|(_, n)| n.to_string()).collect(),
         AtOnce => (0..=super::max_downloads()).map(at_once_name).collect(),
         VoiceLanguage => crate::voices::available().into_iter().map(|l| crate::voices::LANGS[l as usize].name.to_string()).collect(),
-        Advanced => Vec::new(),
+        Advanced | AddVoices => Vec::new(),
         _ => words(&["Off", "On"]),
     }
 }
@@ -320,7 +351,7 @@ const LIST: usize = 3;
 
 /// B498: whether `o` opens a dropdown (a slider or a way in never does).
 pub(super) fn listed(o: Opt) -> bool {
-    !locked(o) && !matches!(o, Volume(_) | Advanced) && choices(o).len() >= LIST
+    !locked(o) && !matches!(o, Volume(_) | Advanced | AddVoices) && choices(o).len() >= LIST
 }
 
 /// B498: a dropdown choice's short hint (the presets'), so Low and Phone tell apart without the side panel.
@@ -435,7 +466,7 @@ impl Settings {
             }
             FewerShadows => g.fewer_shadows = !g.fewer_shadows,
             Mesh => g.mesh = cycle(&MESHES, g.mesh, d),
-            Advanced => {}
+            Advanced | AddVoices => {}
         }
     }
 
@@ -511,6 +542,7 @@ impl Settings {
             UpdateCheck => ASK_VALUES.iter().find(|(a, _)| *a == self.updates()).unwrap().1.into(),
             FewerShadows => on_off(g.fewer_shadows),
             Advanced => ">".into(),
+            AddVoices => add_voices_value(),
         }
     }
 }
@@ -523,8 +555,8 @@ impl Menu {
     /// change it at once, unopened.
     pub(super) fn step_page(&mut self, k: Press, out: &mut Vec<Effect>) {
         let o = page(self.screen).get(self.sel).copied().filter(|&o| !locked(o));
-        // B411: Advanced is never picked (it opens its page)
-        if o == Some(Advanced) {
+        // B411: Advanced is never picked (it opens its page); M165: nor Add Voices (it opens the file picker)
+        if matches!(o, Some(Advanced | AddVoices)) {
             self.editing = None;
         }
         if let Some(j) = self.listing {
@@ -561,6 +593,14 @@ impl Menu {
         // B411: Advanced opens its page instead of being picked
         if k.ok && o == Some(Advanced) {
             self.go(Screen::Advanced, out);
+            return;
+        }
+        // M165: Add Voices opens the file picker (once: a press while a disc is read does nothing)
+        if k.ok && o == Some(AddVoices) {
+            if !crate::voices::adding_busy() {
+                crate::voices::add_disc();
+                out.push(Effect::Sound(2));
+            }
             return;
         }
         if let Some(o) = o.filter(|&o| listed(o)) {
@@ -1039,7 +1079,7 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
             value = format!("{value} ({running})");
         }
         let editing = on && m.editing.is_some() && !locked(o);
-        if matches!(o, Advanced | Rendering) {
+        if matches!(o, Advanced | Rendering | AddVoices) {
             // (a way in, not a value: no arrows; B707: Rendering's ✕ asks, ◀ ▶ do nothing)
             look::steps(d, vb, false, &value, size, false, [false; 2]);
         } else if listed(o) {
@@ -1085,6 +1125,9 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         // M159: iOS shows under Updates what installed the app, for the player to screenshot (`update::install_info`)
         let info = if o == UpdateCheck { crate::update::install_info() } else { None };
         let note = info.as_deref().unwrap_or(note);
+        // M165: how adding a disc went, in full (the row has room for a word or two)
+        let added = if o == AddVoices { add_voices_note() } else { None };
+        let note = added.as_deref().unwrap_or(note);
         let now = m.settings.value(o);
         side_panel(d, side, strip(list, opts.len()), label(o), about(o), "Choices", &choices(o), Some(&now), note);
     }
@@ -1683,8 +1726,8 @@ mod tests {
                 assert_eq!((m.screen, m.sel), (s, i));
                 continue;
             }
-            // (B707: Rendering asks first: `rendering_asks_first`)
-            if o == Rendering {
+            // (B707: Rendering asks first: `rendering_asks_first`; M165: Add Voices opens the picker: `add_voices_row`)
+            if matches!(o, Rendering | AddVoices) {
                 continue;
             }
             // (added3: Voice Language with only the disc's voices has nothing to change to: `voice_language_row`)
@@ -1945,7 +1988,7 @@ mod tests {
     #[test]
     fn choices_are_each_rows_own_values() {
         let all = [DISPLAY, &[Display, Renderer], GRAPHICS, ADVANCED, SOUND, MODS, MOBILE].concat();
-        for o in all.into_iter().filter(|o| !matches!(o, Volume(_) | Preset | Advanced)) {
+        for o in all.into_iter().filter(|o| !matches!(o, Volume(_) | Preset | Advanced | AddVoices)) {
             let mut s = Settings::default();
             let want = choices(o);
             let seen: Vec<_> = (0..want.len()).map(|_| (s.value(o), s.step(o, 1)).0).collect();
@@ -2002,6 +2045,30 @@ mod tests {
     }
 
     /// B707: Rendering is on every build's Graphics page; ✕ on it asks first (◀ ▶ do nothing, as on Renderer), Cancel leaves it, Switch saves it
+    /// M165: the Sound page's Add Voices row, under Voice Language (not in the browser): a way in, never picked or
+    /// changed with ◀ ▶; ✕ starts the picker (none in tests: nothing picked, back to Choose disc) with a click.
+    #[test]
+    fn add_voices_row() {
+        let i = SOUND.iter().position(|&o| o == AddVoices).unwrap();
+        assert_eq!(SOUND[i - 1], VoiceLanguage);
+        assert!(choices(AddVoices).is_empty() && !listed(AddVoices) && !fixed(AddVoices));
+        // (an empty folder: no packs, as without one)
+        crate::voices::set_dir(std::env::temp_dir().join(format!("hst-no-voices-{}", std::process::id())));
+        let mut m = Menu { screen: Screen::Sound, sel: i, ..default() };
+        let was = m.settings;
+        for k in [Press { right: true, ..default() }, Press { left: true, ..default() }] {
+            assert!(m.step(Dev::Keys, k).is_empty() && m.settings == was);
+        }
+        let fx = m.step(Dev::Keys, press(|k| &mut k.ok));
+        assert!(m.editing.is_none() && m.settings == was && fx.contains(&Effect::Sound(2)), "{fx:?}");
+        let t = std::time::Instant::now();
+        while crate::voices::adding_busy() && t.elapsed().as_secs() < 5 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(crate::voices::adding(), crate::voices::Adding::Idle, "nothing picked");
+        assert_eq!(m.settings.value(AddVoices), "Choose disc");
+    }
+
     /// added3: the Sound page's Voice Language row: the disc's voices (English) until another release's are added, so ◀ ▶
     /// with nothing else there leave it be; its word is the language's name.
     #[test]

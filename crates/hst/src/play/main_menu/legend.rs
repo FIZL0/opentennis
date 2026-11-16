@@ -65,7 +65,12 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
                     v.extend([(Act::LeftRight, "Change"), (Act::Ok, "Open list")]);
                 } else if open {
                     // B411: Graphics' Advanced row opens its page
-                    v.push((Act::Ok, if options::page(m.screen).get(s) == Some(&options::Opt::Advanced) { "Open" } else { "Change" }));
+                    v.push((Act::Ok, match options::page(m.screen).get(s) {
+                        Some(&options::Opt::Advanced) => "Open",
+                        // M165: Add Voices opens the file picker
+                        Some(&options::Opt::AddVoices) => "Add disc",
+                        _ => "Change",
+                    }));
                 }
                 v.extend([(Act::Costume, "Page"), (Act::Back, "Back")]);
             }
@@ -505,7 +510,8 @@ mod tests {
         starts.push((m, Dev::Keys));
         // B326: a Settings row picked, on every row of every page (B411: Advanced, which opens its page, never is)
         for s in [Screen::Display, Screen::Graphics, Screen::Advanced, Screen::Sound, Screen::ModSettings] {
-            for sel in (0..options::page(s).len()).filter(|&i| options::page(s)[i] != options::Opt::Advanced) {
+            // (M165: nor Add Voices, which opens the file picker)
+            for sel in (0..options::page(s).len()).filter(|&i| !matches!(options::page(s)[i], options::Opt::Advanced | options::Opt::AddVoices)) {
                 let mut m = base(s);
                 (m.sel, m.editing) = (sel, Some(m.settings));
                 starts.push((m.clone(), Dev::Keys));
