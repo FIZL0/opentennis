@@ -70,6 +70,5 @@ code as guesses. Don't touch PCSX2 while `pgrep -f record_p2m2` runs.
 
 ## Code map
 
-`plan/CODEMAP.md`, not loaded every turn: `agent-runner plan <crate>` (hst-data, hst-sim, hst-oracle, hst-base, hst-play, hst,
-hst-gltf, tools, docs) prints that crate's modules; or read the whole file. Add or fix a line there when a
-module lands or moves.
+`agent-runner plan <crate>` (hst-data, hst-sim, hst-oracle, hst-base, hst-play, hst, hst-gltf, tools, docs), from
+`plan/CODEMAP.md`; add or fix its line when a module lands or moves.

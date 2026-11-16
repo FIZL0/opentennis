@@ -14,8 +14,8 @@ has the rules and where code lives; this is how to work. How-tos on demand: `age
   SCUS-97610 US 1.00, no code addresses (2026-10-06); a small curated set of promo screenshots of our own renderer in
   `docs/screenshots/`, not texture sheets, raw captures or bulk dumps (2026-10-15).
 - Copy `../ps2-float` / `../ps2-oracle` back in: they're ours, fix them there (*PS2 libraries*).
-- `rm` with a glob (`rm -f context/x/*`): the rm check prompts even in bypass mode and unattended runs sit on it. Write
-  each run to a fresh `context/<task>/runN/`, or let the tool overwrite its files.
+- `rm` with a glob: the rm check prompts even in bypass mode and unattended runs sit on it; write each run to a fresh
+  `context/<task>/runN/` or let the tool overwrite.
 - `pkill pcsx2-qt`, or touch PCSX2 while a capture (`pgrep -f record_p2m2`) runs (*Driving the game*).
 - `git add -A/./-u` or `git commit -a` in the main checkout (below).
 
@@ -25,7 +25,6 @@ has the rules and where code lives; this is how to work. How-tos on demand: `age
   original's float results must match bit for bit.
 - Gameplay ports are verified against the real game over PINE (`tools/pine.py`, launch with `tools/pcsx2-hst.sh`); a
   pure function of its arguments and RAM against the function oracle instead (*Function oracle*).
-- Decompile: `research/fn.sh <addr>`, `research/xref.py <addr> [--similar]`.
 - Research: our own scripts and notes in `research/` (in git: no game data, no decompiled code, no captures or
   screenshots); anything from the disc or the running game in `context/` (scratch) or, if a test reads it,
   `fixtures/` (both git-ignored; *Research setup*).
