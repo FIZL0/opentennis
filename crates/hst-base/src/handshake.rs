@@ -84,6 +84,12 @@ pub fn set_disc(path: &str) {
     std::thread::spawn(sim);
 }
 
+/// M178's test: this app's disc's path, its pack hash left as it is (other tests in the binary stamp their own).
+#[cfg(test)]
+pub(crate) fn set_disc_path(path: &str) {
+    *DISC.lock().unwrap() = Some(path.to_string());
+}
+
 /// The disc this app plays (`set_disc`'s path).
 pub fn disc() -> Option<String> {
     DISC.lock().unwrap().clone()
