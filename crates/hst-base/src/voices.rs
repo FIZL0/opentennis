@@ -320,15 +320,36 @@ pub fn import_waiting() {
     let Some(dir) = dir() else { return };
     let isos = std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("iso")));
     for p in isos {
-        let Ok(mut iso) = Iso::open(&p) else { continue };
-        let Some(id) = disc_id(&mut iso) else { continue };
-        let out = pack_in(&dir, &id);
-        if out.exists() {
-            continue;
+        import_disc(&p, &dir);
+    }
+}
+
+/// One import at a time: the start's ([`import_waiting`]) and the other discs beside the main one's (M166) may name
+/// the same release, whose pack they would both write.
+static IMPORTING: Mutex<()> = Mutex::new(());
+
+/// M166: disc image or pack `path` read into its release's pack in `dir`, unless one is there already or the disc
+/// brings no voices (the US disc, another game); whether a pack was written. Run off the main thread.
+pub fn import_disc(path: &Path, dir: &Path) -> bool {
+    let _one = IMPORTING.lock().unwrap_or_else(|e| e.into_inner());
+    let Ok(mut iso) = Iso::open(path) else { return false };
+    let Some(id) = disc_id(&mut iso) else { return false };
+    let out = pack_in(dir, &id);
+    if out.exists() || release(&id).is_none() {
+        return false;
+    }
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        eprintln!("voices: {}: {e}", dir.display());
+        return false;
+    }
+    match import(&mut iso, &out) {
+        Ok(langs) => {
+            eprintln!("voices: {} → {} ({})", path.display(), out.display(), langs.iter().map(|&l| LANGS[l as usize].name).collect::<Vec<_>>().join(", "));
+            true
         }
-        match import(&mut iso, &out) {
-            Ok(langs) => eprintln!("voices: {} → {} ({})", p.display(), out.display(), langs.iter().map(|&l| LANGS[l as usize].name).collect::<Vec<_>>().join(", ")),
-            Err(e) => eprintln!("voices: {}: {e}", p.display()),
+        Err(e) => {
+            eprintln!("voices: {}: {e}", path.display());
+            false
         }
     }
 }

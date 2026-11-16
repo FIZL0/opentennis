@@ -368,7 +368,8 @@ fn android_main(app: bevy::android::android_activity::AndroidApp) {
     android::init_tls();
     // mods/ and the other paths the desktop build keeps beside the binary land in the same dir
     let _ = std::env::set_current_dir(&dir);
-    let iso = std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("iso")));
+    // M166: with several there (other releases beside it), the US disc
+    let iso = hst_data::discs::main_first(std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("iso"))).collect());
     let Some(disc) = Some(dir.join("disc.pack")).filter(|p| p.exists()).or(iso) else { android::no_disc(dir) };
     start(vec![disc.to_string_lossy().into_owned()]);
 }
@@ -378,6 +379,8 @@ fn start(argv: Vec<String>) {
     let Cli { args, mut gfx, upscale, viewer_mod, mod_slot, slot_mods, roster, swap_hands, names, handicaps, offbeat, umpire_mod, court_mod } = parse(argv.into_iter());
     // M142: the disc a lobby's host checks a guest's against (an imported pack's hash; an ISO's ID was checked)
     handshake::set_disc(&args.iso);
+    // M166: the other releases' discs beside it: their voices read in, their gameplay data registered
+    releases::start(&args.iso, store::path(&args.iso, "voices"));
     // nothing asked for: the main menu, which starts matches in this app (`mode.rs`) with the flags above
     // a bad archive name would otherwise panic inside `load` and take the renderer down with it
     if !args.archives.is_empty() && let Ok(mut iso) = Iso::open(&args.iso) {
@@ -703,6 +706,7 @@ fn no_disc_mode(app: &mut App) {
         eprintln!("disc image found: {}", iso.display());
         args.iso = iso.to_string_lossy().into_owned();
         handshake::set_disc(&args.iso);
+        releases::start(&args.iso, store::path(&args.iso, "voices"));
         next.0 = Some(mode::Mode::new(menu_mode));
     };
     app.add_systems(Startup, ios::no_disc).add_systems(Update, look);
