@@ -89,8 +89,32 @@ pub struct Disc {
 /// Smallest file looked into: a pack is ≈ 170 MB and an image over 1 GB, so anything under this is something else.
 const SMALLEST: u64 = 32 << 20;
 
+/// How sure a copy of a release is the retail disc, higher first: a pack whose hash is a known retail copy
+/// (`iso::KNOWN_PACKS`), then an image by its volume's creation date (a prototype or preview build of a release is
+/// mastered before the disc that shipped), then anything else.
+fn rank(path: &Path) -> (bool, [u8; 16]) {
+    let Ok(iso) = Iso::open_bare(path) else { return (false, [0; 16]) };
+    if let Some(hash) = iso.pack_hash {
+        return (crate::iso::release_name(hash).is_some(), [0; 16]);
+    }
+    (false, volume_date(path).unwrap_or([0; 16]))
+}
+
+/// An ISO 9660 image's volume creation date, as its primary volume descriptor writes it (`YYYYMMDDhhmmsscc`, digits
+/// that sort in time order); `None` if it holds none.
+fn volume_date(path: &Path) -> Option<[u8; 16]> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut pvd = [0; 830];
+    file.seek(SeekFrom::Start(16 * 2048)).ok()?;
+    file.read_exact(&mut pvd).ok()?;
+    let date: [u8; 16] = pvd[813..829].try_into().ok()?;
+    (&pvd[1..6] == b"CD001" && date.iter().all(u8::is_ascii_digit)).then_some(date)
+}
+
 /// The release discs in `dirs` (not their subfolders), any file name, the main disc `main` left out, in file-name
-/// order per folder. Each release counts once: its first disc found (a second copy of one is passed over).
+/// order per folder. Each release counts once: of two copies of one, the one more surely the retail disc ([`rank`]:
+/// a known pack, else the later-mastered image, so a prototype gives way to the release), else the first found.
 pub fn beside(main: &Path, dirs: &[PathBuf]) -> Vec<Disc> {
     let main = main.canonicalize().unwrap_or_else(|_| main.to_path_buf());
     let mut found: Vec<Disc> = Vec::new();
@@ -109,8 +133,10 @@ pub fn beside(main: &Path, dirs: &[PathBuf]) -> Vec<Disc> {
                 continue;
             }
             let Some(edition) = Iso::open(&path).ok().and_then(|mut iso| Edition::of(&mut iso)) else { continue };
-            if !found.iter().any(|d| d.edition == edition) {
-                found.push(Disc { path, edition });
+            match found.iter_mut().find(|d| d.edition == edition) {
+                None => found.push(Disc { path, edition }),
+                Some(kept) if rank(&path) > rank(&kept.path) => kept.path = path,
+                Some(_) => {}
             }
         }
     }
@@ -139,26 +165,29 @@ mod tests {
         assert_eq!(Edition::of_cnf(b"VMODE = NTSC\n"), None);
     }
 
-    /// The Japanese and European discs in `fixtures/discs/` (skipped without them) are found beside the US one under
-    /// their own names, the US disc itself and the folders there passed over; a renamed copy is found as well, a
-    /// small file or a second copy of a release is not. The US disc is the one to play from.
+    /// A link to `target` at `at` (a copy where links aren't made).
+    fn link(target: &Path, at: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, at).unwrap();
+        #[cfg(not(unix))]
+        std::fs::copy(target, at).unwrap();
+    }
+
+    /// The Japanese and European discs in `fixtures/discs/` (skipped without them), linked into a folder of the
+    /// test's own (whatever else lands in `fixtures/discs/`), are found beside the US one under their own names, the
+    /// US disc itself and the folders there passed over; a renamed copy is found as well, a small file or a second
+    /// copy of a release is not. A prototype of the European release beside it (`SCES-54535-proto-0119.iso`, if
+    /// there) gives way to the retail disc though its name sorts first. The US disc is the one to play from.
     #[test]
     fn finds_the_other_releases() {
         let Ok(mut us) = fixture::iso() else { return };
         assert_eq!(Edition::of(&mut us), Some(Edition::Us));
-        let dir = fixture::path("fixtures/discs");
-        let (jp, eu) = (dir.join("SCPS-15113.iso"), dir.join("SCES-54535.iso"));
+        let discs = fixture::path("fixtures/discs");
+        let (jp, eu) = (discs.join("SCPS-15113.iso"), discs.join("SCES-54535.iso"));
         if !jp.exists() || !eu.exists() {
             return fixture::skip("the Japanese and European discs (fixtures/discs/)");
         }
-        let found = beside(&jp, std::slice::from_ref(&dir));
-        assert_eq!(found, [Disc { path: eu.clone(), edition: Edition::Europe }], "the main disc itself left out");
-        let found = beside(&fixture::path(fixture::ISO), std::slice::from_ref(&dir));
-        assert_eq!(found.iter().map(|d| d.edition).collect::<Vec<_>>(), [Edition::Europe, Edition::Japan]);
-
-        // any name: a renamed copy (a link, no space taken) is found; a second copy of a release counts once
         let tmp = std::env::temp_dir().join(format!("hst-discs-{}", std::process::id()));
-        std::fs::create_dir_all(&tmp).unwrap();
         struct Gone(PathBuf);
         impl Drop for Gone {
             fn drop(&mut self) {
@@ -166,14 +195,34 @@ mod tests {
             }
         }
         let _gone = Gone(tmp.clone());
-        let renamed = tmp.join("minna");
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&jp, &renamed).unwrap();
-        #[cfg(not(unix))]
-        std::fs::copy(&jp, &renamed).unwrap();
-        std::fs::write(tmp.join("notes.iso"), b"not a disc").unwrap();
-        let found = beside(&eu, &[tmp.clone(), dir.clone()]);
+        let (dir, other) = (tmp.join("discs"), tmp.join("other"));
+        std::fs::create_dir_all(dir.join("SCES-54535")).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let (jp_here, eu_here) = (dir.join("SCPS-15113.iso"), dir.join("SCES-54535.iso"));
+        link(&jp, &jp_here);
+        link(&eu, &eu_here);
+
+        let found = beside(&jp_here, std::slice::from_ref(&dir));
+        assert_eq!(found, [Disc { path: eu_here.clone(), edition: Edition::Europe }], "the main disc itself left out");
+        let found = beside(&fixture::path(fixture::ISO), std::slice::from_ref(&dir));
+        assert_eq!(found.iter().map(|d| d.edition).collect::<Vec<_>>(), [Edition::Europe, Edition::Japan]);
+
+        // any name: a renamed copy (a link, no space taken) is found; a second copy of a release counts once
+        let renamed = other.join("minna");
+        link(&jp, &renamed);
+        std::fs::write(other.join("notes.iso"), b"not a disc").unwrap();
+        let found = beside(&eu_here, &[other.clone(), dir.clone()]);
         assert_eq!(found, [Disc { path: renamed.clone(), edition: Edition::Japan }]);
-        assert_eq!(main_first(vec![eu.clone(), jp.clone()]), Some(eu.clone()), "no US disc: the first by name");
+        assert_eq!(main_first(vec![eu_here.clone(), jp_here.clone()]), Some(eu_here.clone()), "no US disc: the first by name");
+
+        // the retail disc over a prototype of the same release, found first or not
+        let proto = discs.join("SCES-54535-proto-0119.iso");
+        if !proto.exists() {
+            return;
+        }
+        link(&proto, &dir.join("SCES-54535-proto-0119.iso"));
+        link(&proto, &other.join("0-proto"));
+        let found = beside(&jp_here, &[other.clone(), dir.clone()]);
+        assert_eq!(found, [Disc { path: eu_here.clone(), edition: Edition::Europe }]);
     }
 }
