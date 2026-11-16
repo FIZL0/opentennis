@@ -47,8 +47,8 @@ copied into `fixtures/<task>/` (`cp --reflink`) when the test lands; tests never
 `context/.trash/`, `--empty` clears that); a recording a research script needs must be named by its path in it.
 
 ## Plan
-`PLAN.md` holds the rules and a code map; the ordered open tasks are in `plan/TODO.md` (each line names the files to
-open), finished ones in `plan/DONE.md`. "continue" means: `agent-runner plan next`, read `agent-runner plan brief <ID>` (line, plan file,
+`PLAN.md` holds the rules and a code map; the ordered open tasks are in `plan/TODO.md` (each line ends in fields:
+`| files: a, b | after: X | test: t | journal: d`),  finished ones in `plan/DONE.md`. "continue" means: `agent-runner plan next`, read `agent-runner plan brief <ID>` (line, plan file,
 journal, files), port + verify, `tools/done.sh <ID> "<msg>"` (tests, tick into DONE.md, commit). Don't grep the repo for where things live — the code map says. Background (game
 control, done list, known gaps): `plan/REFERENCE.md`. `agent-runner plan` (index) · `next` · `N1e` (plan/tasks/N1e.md, else
 its TODO/DONE line) · `"when blocked"` (a section) · `-f FILE <name>` (any markdown) · `tick <ID>` · `block <ID> <why>` · `unblock <ID> [note]` · `move <ID> top|before ID|after ID|in SECTION` · `add <PREFIX> TEXT [@ WHERE]` (next free id) · `note <ID> TEXT` · `newid <PREFIX>` · `drop <ID> WHY` (`agent-runner plan --help`: the rest). Use these for reprioritising and new tasks instead of reading/editing TODO.md.
@@ -56,6 +56,8 @@ Work that needs another task to land first is that task's subtask: `add B646 TEX
 (`add B646a …` → `B646a1`). The runner never runs one family (B646, B646a, B646b) side by side, so they go one at a
 time; a fresh number (`add B …`) starts in parallel at once, whatever its line says it follows.
 Make a subtask only when it can't start before its parent lands (it needs the parent's code, data or verdict); "same topic" or "came out of that task" is no reason. Everything else gets a fresh number so the runner runs it in parallel (user 2026-11-16: a family of unrelated work queues one at a time). Splitting a request into several tasks: one fresh number per piece that can start now, children only under the piece each one waits for.
+Every new task names its files and what it waits on as fields, never in prose: `agent-runner plan add B "text" --files crates/x/src/a.rs,crates/y/** --after B646 --test name`
+(prose is never read for files or ids; a line with no `files:` runs beside anything, and `after:` is the only way to wait on a fresh-numbered task).
 
 ## Concept branches
 A task marked **concept** (user 2026-10-21) is an experiment the user wants to try before it reaches main: its code

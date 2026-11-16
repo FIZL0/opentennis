@@ -32,7 +32,7 @@ slot_env = [
 ]
 on_exit = "tools/pcsx2.sh tools/pcsx2-hst.sh stop; tools/context_sync.py -q --link; tools/worktree-gc.sh; tools/target-sweep.sh"
 before_start = "ls /run/user/$(id -u)/wayland-[0-9]* >/dev/null 2>&1" # PCSX2 needs this user's desktop session
-untested = ["*.md", ".github/*", "tools/*", "!tools/check.sh"]
+untested = ["*.md", "LICENSE*", ".github/*", "tools/*", "!tools/check.sh"]
 failures = '^---- (\S+) stdout ----'
 retest = "tools/check.sh -- --exact {names}"
 # A merge-fix/repair session builds every test target before it commits, so a clash git merged cleanly (two sides
