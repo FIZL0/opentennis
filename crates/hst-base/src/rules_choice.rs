@@ -166,10 +166,14 @@ pub fn apply() {
 
 /// Lays sibling release `r`'s gameplay data over `disc`, checked to digest as that disc: the patch laid and that digest.
 fn lay(disc: &str, r: u8) -> Result<(Patch, u64), String> {
-    let path = sibling(r).ok_or("no disc of that release here")?;
-    let (want, _) = survey(&path)?;
+    lay_from(disc, &sibling(r).ok_or("no disc of that release here")?)
+}
+
+/// Lays the gameplay data of the disc at `path` over `disc`, checked to digest as that disc.
+fn lay_from(disc: &str, path: &str) -> Result<(Patch, u64), String> {
+    let (want, _) = survey(path)?;
     let (_, here) = survey(disc)?;
-    let mut sib = Iso::open_own(&path).map_err(|e| e.to_string())?;
+    let mut sib = Iso::open_own(path).map_err(|e| e.to_string())?;
     let p = crossplay::patch_for(|f| sib.read_unlogged(f).ok(), &here)?;
     crossplay::verify(disc, p.clone(), want)?;
     Ok((p, want))
@@ -262,6 +266,8 @@ mod tests {
     /// one's game (its digest, its release's SYSTEM.CNF and so `Build`), its own textures and voices kept; taken off,
     /// it reads as itself. The US disc with the Japanese one beside it, and the European with the US one (it then
     /// plays the US game exactly, no regenerated tables). Skipped without those discs (not the user's).
+    /// It lays the other disc by its path, not through the shared sibling list: other tests register siblings in temp
+    /// dirs they delete afterwards (`releases`), and the list hands back the first of a release.
     #[test]
     fn another_release_beside_the_main_disc() {
         use hst_data::fixture;
@@ -271,11 +277,11 @@ mod tests {
         }
         for (main, beside, r, tag) in [(&us, &jp, 2, "us-jp"), (&eu, &us, 1, "eu-us")] {
             let disc = own_path(main, tag);
-            SIBLINGS.lock().unwrap().push((r, beside.to_string_lossy().into()));
-            let (want, _) = survey(&beside.to_string_lossy()).unwrap();
+            let beside = beside.to_string_lossy();
+            let (want, _) = survey(&beside).unwrap();
             let (alone, _) = survey(&disc).unwrap();
             assert_ne!(want, alone, "{tag}: the two discs play alike");
-            assert_eq!(lay(&disc, r).unwrap().1, want);
+            assert_eq!(lay_from(&disc, &beside).unwrap().1, want);
             let mut iso = Iso::open(&disc).unwrap();
             assert_eq!(hst_data::digest::of(&mut iso).unwrap(), want, "{tag}");
             let cnf = iso.read("SYSTEM.CNF").unwrap();
