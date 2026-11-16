@@ -100,6 +100,7 @@ pub fn find(main: &Path, voices: &Path) {
         eprintln!("hst: {} beside the main disc: {}", d.edition.name(), d.path.display());
         register(Have { edition: d.edition, path: d.path.clone(), main: false, digest: None });
     }
+    lend_us(main, edition, &others);
     // digests next (quick), the main disc's the same as the lobby's (`handshake::sim`, already under way)
     if let Some(edition) = edition {
         register(Have { edition, path: main.to_path_buf(), main: true, digest: crate::handshake::sim() });
@@ -117,6 +118,21 @@ pub fn find(main: &Path, voices: &Path) {
     // then the voices (a first import of a disc takes some seconds)
     for d in &others {
         crate::voices::import_disc(&d.path, voices);
+    }
+}
+
+/// M174: a European main disc with a US disc beside it plays the US game exactly: the US disc's gameplay data is lent
+/// to it (`hst_data::crossplay::lend`: the program, shot tables, character data and courts; menus, text and voices stay
+/// European), and what was worked out of the disc alone (its digest, its rules) is worked out again. Alone, it keeps
+/// playing on regenerated shot tables (M170).
+fn lend_us(main: &Path, edition: Option<Edition>, others: &[discs::Disc]) {
+    let Some(us) = others.iter().find(|d| d.edition == Edition::Us).filter(|_| edition == Some(Edition::Europe)) else { return };
+    match hst_data::crossplay::lend(main, &us.path) {
+        Ok(_) => {
+            eprintln!("hst: the European disc plays the US game on {}'s data", us.path.display());
+            crate::handshake::forget_disc_data();
+        }
+        Err(e) => eprintln!("hst: the US disc's data can't be lent to the European disc: {e}"),
     }
 }
 
@@ -172,5 +188,51 @@ mod tests {
         let written = std::fs::metadata(voices.join("SCPS15113.pack")).unwrap().modified().unwrap();
         assert!(!crate::voices::import_disc(&home.join("other SCPS-15113.iso"), &voices), "read once");
         assert_eq!(std::fs::metadata(voices.join("SCPS15113.pack")).unwrap().modified().unwrap(), written);
+    }
+
+    /// M174: a European main disc with a US disc beside it has the US disc's gameplay data lent at start, so it digests
+    /// (and plays) as the US disc; the European disc alone keeps its own. Skipped without
+    /// `fixtures/discs/SCES-54535.iso`. ~3 s.
+    #[test]
+    fn a_european_main_disc_borrows_the_us_disc_beside_it() {
+        if !fixture::has_iso() {
+            return fixture::skip("the US disc");
+        }
+        let eu = fixture::path("fixtures/discs/SCES-54535.iso");
+        if !eu.exists() {
+            return eprintln!("skipped: no {}", eu.display());
+        }
+        let tmp = std::env::temp_dir().join(format!("hst-releases-eu-{}", std::process::id()));
+        struct Gone(PathBuf);
+        impl Drop for Gone {
+            fn drop(&mut self) {
+                hst_data::crossplay::unlend(self.0.join("home/disc.iso"));
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _gone = Gone(tmp.clone());
+        let (home, voices) = (tmp.join("home"), tmp.join("voices"));
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&voices).unwrap();
+        let main = home.join("disc.iso");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&eu, &main).unwrap();
+        #[cfg(not(unix))]
+        return;
+        let own = hst_data::digest::of(&mut hst_data::iso::Iso::open(&main).unwrap()).unwrap();
+        // alone: nothing to borrow
+        lend_us(&main, Some(Edition::Europe), &[]);
+        assert!(!hst_data::crossplay::lent(&main));
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(fixture::path(fixture::ISO), home.join("us copy.iso")).unwrap();
+        let others = discs::beside(&main, std::slice::from_ref(&home));
+        lend_us(&main, Some(Edition::Europe), &others);
+        assert!(hst_data::crossplay::lent(&main));
+        let us = hst_data::digest::of(&mut fixture::iso().unwrap()).unwrap();
+        let now = hst_data::digest::of(&mut hst_data::iso::Iso::open_own(&main).unwrap()).unwrap();
+        assert_eq!(now, us);
+        assert_ne!(own, us);
+        // still the European disc to the release list
+        assert_eq!(hst_data::iso::Iso::open(&main).ok().and_then(|mut i| Edition::of(&mut i)), Some(Edition::Europe));
     }
 }

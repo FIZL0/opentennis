@@ -16,3 +16,4 @@
 - Online, a player on a different disc from the host's (US or Japanese) who drops out of a match can now rejoin it: the host's game data is sent again and the match picks up once it's in
 - New Rules setting on Settings → Gameplay: choose whether matches play the US game or the Japanese one (Minna no Tennis). It lists the releases whose discs you have and starts on your disc's own; online, the lobby always plays its host's choice
 - Desktop computers with many cores: the game uses noticeably less CPU during a match and frame pacing is steadier
+- The European disc now plays exactly like the US game when your US disc image is in the same folder (any file name): the game reads the US disc's match data and keeps the European menus, text and voices. The main menu shows it beside the disc name, and online you meet US players

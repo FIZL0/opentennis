@@ -246,6 +246,73 @@ pub fn verify(disc: impl AsRef<Path>, patch: Patch, host: u64) -> Result<(), Str
     }
 }
 
+/// M174: another release's data a player's own discs lend each other: the European disc reads the US disc's
+/// gameplay data when the player has both, and plays the US game exactly (its menus, text and voices its own).
+static LENT: Mutex<BTreeMap<PathBuf, Arc<Overlay>>> = Mutex::new(BTreeMap::new());
+
+/// Gameplay data a match doesn't read today, lent whole all the same so nothing reads it timed for the other release:
+/// the second copy of the shot tables (`SAITOU/TRAJ`, re-solved for 50 Hz on the European disc).
+fn also_lent(path: &str) -> bool {
+    path.starts_with("SAITOU/TRAJ/")
+}
+
+/// From now on `Iso::open(disc)` (and `Iso::open_own`) reads the gameplay data of the disc at `from` under its own
+/// files: the program and its tables, and every source archive's counted entries that differ (as a lobby host's data,
+/// [`patch_for`]), plus [`also_lent`]'s files. Checked: the disc must then digest as `from` does, or nothing is lent.
+/// The digest both now play, or why not.
+pub fn lend(disc: impl AsRef<Path>, from: impl AsRef<Path>) -> Result<u64, String> {
+    let disc = disc.as_ref();
+    let err = |e: std::io::Error| e.to_string();
+    let mut own = Iso::open_bare(disc).map_err(err)?;
+    let mut lender = Iso::open_bare(from.as_ref()).map_err(err)?;
+    let (_, wants) = digest::survey(|f| own.read_unlogged(f).ok())?;
+    let (target, _) = digest::survey(|f| lender.read_unlogged(f).ok())?;
+    let mut patch = patch_for(|f| lender.read_unlogged(f).ok(), &wants)?;
+    // the lender's program always: its `SYSTEM.CNF` says which release's rules (and timing) the match plays
+    for f in PROGRAM {
+        if !patch.files.iter().any(|(k, _)| k == f) {
+            patch.files.push((f.to_string(), lender.read_unlogged(f).ok()));
+        }
+    }
+    let extra: Vec<String> = lender.files.keys().filter(|k| also_lent(k)).cloned().collect();
+    for k in extra {
+        let data = lender.read_unlogged(&k).ok();
+        patch.files.push((k, data));
+    }
+    LENT.lock().unwrap().insert(disc.to_path_buf(), Arc::new(Overlay::new(patch)));
+    let got = Iso::open_own(disc).map_err(err).and_then(|mut iso| digest::of(&mut iso));
+    match got {
+        Ok(d) if d == target => Ok(d),
+        other => {
+            unlend(disc);
+            Err(match other {
+                Ok(d) => format!("the lent data didn't make the disc play as the lender's (digest {d:016x}, lender {target:016x})"),
+                Err(e) => e,
+            })
+        }
+    }
+}
+
+/// Ends [`lend`]: `disc` reads as itself again. Whether anything was lent to it.
+pub fn unlend(disc: impl AsRef<Path>) -> bool {
+    LENT.lock().unwrap().remove(disc.as_ref()).is_some()
+}
+
+/// Whether another release's data is lent to `disc` ([`lend`]).
+pub fn lent(disc: impl AsRef<Path>) -> bool {
+    LENT.lock().unwrap().contains_key(disc.as_ref())
+}
+
+/// Whether any disc has another release's data lent to it (the main menu's header says so).
+pub fn any_lent() -> bool {
+    !LENT.lock().unwrap().is_empty()
+}
+
+/// The lent data `Iso::open(disc)` reads under the disc's own.
+pub(crate) fn lent_overlay(disc: &Path) -> Option<Arc<Overlay>> {
+    LENT.lock().unwrap().get(disc).cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

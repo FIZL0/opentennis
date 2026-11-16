@@ -183,3 +183,86 @@ fn the_japanese_disc_imports() {
     assert_eq!(hst_data::iso::release_name(hash), Some("SCPS-15113 Japan 1.00"));
 }
 
+
+/// Archive `data`'s entries (lower-case names), decoded, sorted.
+fn entries(data: &[u8]) -> Vec<(String, Vec<u8>)> {
+    let arc = hst_data::xb::Archive::parse(data).unwrap();
+    let mut v: Vec<_> = arc.entries.iter().map(|e| (e.name.to_ascii_lowercase(), arc.read(e).unwrap())).collect();
+    v.sort();
+    v
+}
+
+/// M174: the European disc with the US disc lent to it (`crossplay::lend`, a player with both) plays the US game: it
+/// digests as the US disc; its program, shot tables (both copies), character data and courts read as the US ones (court
+/// 3's plant layout and its two European-only sign models included); its menus, text, voices, mode pictures and court 5's
+/// drawn models stay its own. It plays, is still the European disc, and reads as itself again once nothing is lent.
+#[test]
+fn the_european_disc_plays_the_us_game_with_the_us_disc_lent() {
+    let Some(mut bare) = europe() else { return };
+    let Ok(mut us) = fixture::iso() else { return };
+    if std::env::var_os("HST_DISC_EU").is_some() {
+        return eprintln!("skipped: HST_DISC_EU already lends the US disc");
+    }
+    // a link of its own, so the other tests read the European disc alone
+    let link = std::env::temp_dir().join(format!("hst-lend-{}.iso", std::process::id()));
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink(fixture::path(EUROPE).canonicalize().unwrap(), &link).unwrap();
+    struct Gone(std::path::PathBuf);
+    impl Drop for Gone {
+        fn drop(&mut self) {
+            hst_data::crossplay::unlend(&self.0);
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    let _gone = Gone(link.clone());
+    let us_digest = hst_data::digest::of(&mut us).unwrap();
+    assert_eq!(hst_data::crossplay::lend(&link, fixture::path(fixture::ISO)), Ok(us_digest));
+    assert!(hst_data::crossplay::lent(&link));
+    let mut eu = Iso::open(&link).unwrap();
+    assert_eq!(hst_data::digest::of(&mut Iso::open_own(&link).unwrap()), Ok(us_digest));
+
+    // the program: the US one (shot records as stored, the two camera script times, every table)
+    let (us_cnf, us_bin) = (us.read("SYSTEM.CNF").unwrap(), us.read("ZZBIN/GAME.BIN").unwrap());
+    let (cnf, bin) = (eu.read("SYSTEM.CNF").unwrap(), eu.read("ZZBIN/GAME.BIN").unwrap());
+    assert!(cnf == us_cnf && bin == us_bin);
+    let game = Game::new(&cnf, &bin).unwrap();
+    assert_eq!(game.release(), Release::Us);
+    assert_eq!(tables(&game), tables(&Game::new(&us_cnf, &us_bin).unwrap()));
+    assert!(eu.playable().is_ok());
+    assert!(eu.read("ZZBIN/MENU.BIN").unwrap() == us.read("ZZBIN/MENU.BIN").unwrap());
+    // still the European disc: its own serial, boot program (whose tables are the US ones) and edition
+    assert_eq!(eu.read_disc("SYSTEM.CNF").unwrap(), bare.read("SYSTEM.CNF").unwrap());
+    assert!(eu.read(Release::Us.boot()).unwrap() == bare.read(Release::Us.boot()).unwrap());
+    assert_eq!(hst_data::discs::Edition::of(&mut eu), Some(hst_data::discs::Edition::Europe));
+
+    // shot tables, both copies, every character: the US ones
+    for c in 0..14 {
+        for ab in ["A", "B"] {
+            let p = format!("TRAJ/TRAJ{c:02}{ab}.XB");
+            assert!(entries(&eu.read(&p).unwrap()) == entries(&us.read(&p).unwrap()), "{p}");
+        }
+        let p = format!("SAITOU/TRAJ/TRAJPC{c:02}.XB");
+        if us.files.contains_key(&p) {
+            assert!(eu.read(&p).unwrap() == us.read(&p).unwrap(), "{p}");
+            assert!(bare.read(&p).unwrap() != us.read(&p).unwrap(), "{p}: the European copy is timed for 50 Hz");
+        }
+    }
+    // court 3: the US plant layout; the European-only signs it places are gone, its pictures stay the disc's own
+    for p in ["COURT/03/HOL01.XB", "COURT/03/SSN1/HOL01.XB"] {
+        let (got, want, own) = (entries(&eu.read(p).unwrap()), entries(&us.read(p).unwrap()), entries(&bare.read(p).unwrap()));
+        let data = |v: &[(String, Vec<u8>)]| v.iter().filter(|(n, _)| !n.ends_with(".mti")).cloned().collect::<Vec<_>>();
+        assert!(data(&got) == data(&want), "{p}");
+        assert!(own.iter().any(|(n, _)| n.contains("banktitle")) && !got.iter().any(|(n, _)| n.contains("banktitle.mdl")), "{p}");
+    }
+    // presentation stays European: menus and their text, voices, the mode screens' pictures, court 5's drawn figures
+    for p in ["MENU/MENU00B.XB0", "SND/VOICE/PC/PC03VCE0.XB0", "SAITOU/HSMODE/HSM.XB0", "COURTSET/05/HOLE01.XB"] {
+        let own = bare.read(p).unwrap();
+        assert!(eu.read(p).unwrap() == own, "{p}");
+    }
+    for p in ["SAITOU/HSMODE/HSM.XB0", "COURTSET/05/HOLE01.XB"] {
+        assert!(us.read(p).unwrap() != bare.read(p).unwrap(), "{p}: the US disc's differs");
+    }
+
+    drop(_gone);
+    assert!(!hst_data::crossplay::lent(&link));
+}
