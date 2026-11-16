@@ -41,39 +41,103 @@ pub fn of_files(read: impl FnMut(&str) -> Option<Vec<u8>>) -> Result<u64, String
 }
 
 /// `of_files` with each counted entry's bytes passed through `map(path, name, bytes)` (tests change one).
-fn of_entries(mut read: impl FnMut(&str) -> Option<Vec<u8>>, mut map: impl FnMut(&str, &str, Vec<u8>) -> Vec<u8>) -> Result<u64, String> {
+fn of_entries(read: impl FnMut(&str) -> Option<Vec<u8>>, map: impl FnMut(&str, &str, Vec<u8>) -> Vec<u8>) -> Result<u64, String> {
+    survey_entries(read, map).map(|(d, _)| d)
+}
+
+/// What a disc's gameplay digest is made of, piece by piece (M171): the program tables' hash and each source
+/// archive's (`sources` order), so a lobby host can tell which of them a peer's disc plays differently and send it
+/// only those (`crate::crossplay`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Manifest {
+    pub tables: u64,
+    pub sources: Vec<u64>,
+}
+
+/// The disc's gameplay digest and its [`Manifest`], in one read of the disc (by US name, like `of_files`).
+pub fn survey(read: impl FnMut(&str) -> Option<Vec<u8>>) -> Result<(u64, Manifest), String> {
+    survey_entries(read, |_, _, b| b)
+}
+
+/// The digest of what `read` returns, and its manifest, each counted entry through `map`.
+fn survey_entries(mut read: impl FnMut(&str) -> Option<Vec<u8>>, mut map: impl FnMut(&str, &str, Vec<u8>) -> Vec<u8>) -> Result<(u64, Manifest), String> {
     let mut h = XxHash3_64::new();
-    let cnf = read("SYSTEM.CNF").ok_or("no SYSTEM.CNF")?;
-    let bin = read("ZZBIN/GAME.BIN").ok_or("no game program")?;
-    let game = Game::new(&cnf, &bin).map_err(|e| e.to_string())?;
-    put(&mut h, tables(&game).as_bytes());
+    let t = program(&mut read)?;
+    put(&mut h, t.as_bytes());
+    let mut man = Manifest { tables: XxHash3_64::oneshot(t.as_bytes()), sources: Vec::new() };
     for (path, only) in sources() {
-        put(&mut h, path.as_bytes());
-        match read(&path) {
-            None => h.write_u8(0xff),
-            Some(data) => match Archive::parse(&data) {
-                Err(_) => put(&mut h, &data),
-                Ok(arc) => {
-                    let mut entries: Vec<(String, Vec<u8>)> = arc
-                        .entries
-                        .iter()
-                        .filter_map(|e| {
-                            let name = e.name.rsplit(['/', '\\']).next().unwrap_or(&e.name).to_ascii_lowercase();
-                            let ext = name.rsplit_once('.').map_or("", |(_, x)| x);
-                            only(ext).then(|| arc.read(e).ok().map(|b| (name.clone(), map(&path, &name, b)))).flatten()
-                        })
-                        .collect();
-                    entries.sort();
+        let mut one = XxHash3_64::new();
+        let found = read(&path).map(|data| counted(&path, data, only, &mut map));
+        for h in [&mut h, &mut one] {
+            put(h, path.as_bytes());
+            match &found {
+                None => h.write_u8(0xff),
+                Some(Err(data)) => put(h, data),
+                Some(Ok(entries)) => {
                     h.write_u64(entries.len() as u64);
-                    for (name, bytes) in &entries {
-                        put(&mut h, name.as_bytes());
-                        put(&mut h, bytes);
+                    for (name, _, bytes) in entries {
+                        put(h, name.as_bytes());
+                        put(h, bytes);
                     }
                 }
-            },
+            }
         }
+        man.sources.push(one.finish());
     }
-    Ok(h.finish())
+    Ok((h.finish(), man))
+}
+
+/// The program's tuning tables (`tables`), from `read`'s `SYSTEM.CNF` and game program.
+fn program(read: &mut impl FnMut(&str) -> Option<Vec<u8>>) -> Result<String, String> {
+    let cnf = read("SYSTEM.CNF").ok_or("no SYSTEM.CNF")?;
+    let bin = read("ZZBIN/GAME.BIN").ok_or("no game program")?;
+    Game::new(&cnf, &bin).map(|g| tables(&g)).map_err(|e| e.to_string())
+}
+
+/// (name as counted, name in the archive, bytes as read).
+type CountedEntry = (String, String, Vec<u8>);
+
+/// An archive's counted entries (`only`, by extension), sorted as the digest takes them: (name as counted, name in
+/// the archive, bytes as read). `Err(data)`: not an archive, counted whole.
+fn counted(path: &str, data: Vec<u8>, only: Counted, map: &mut impl FnMut(&str, &str, Vec<u8>) -> Vec<u8>) -> Result<Vec<CountedEntry>, Vec<u8>> {
+    let Ok(arc) = Archive::parse(&data) else { return Err(data) };
+    let mut entries: Vec<(String, String, Vec<u8>)> = arc
+        .entries
+        .iter()
+        .filter_map(|e| {
+            let name = counted_name(&e.name);
+            only(ext(&name)).then(|| arc.read(e).ok().map(|b| (name.clone(), e.name.clone(), map(path, &name, b)))).flatten()
+        })
+        .collect();
+    entries.sort_by(|a, b| (&a.0, &a.2).cmp(&(&b.0, &b.2)));
+    Ok(entries)
+}
+
+/// An archive entry's name as the digest counts it: its file name, lower case.
+pub(crate) fn counted_name(name: &str) -> String {
+    name.rsplit(['/', '\\']).next().unwrap_or(name).to_ascii_lowercase()
+}
+
+/// A (lower-case) file name's extension.
+pub(crate) fn ext(name: &str) -> &str {
+    name.rsplit_once('.').map_or("", |(_, x)| x)
+}
+
+/// The source archive at `path` (a US name) and which of its entries count; `None`: not a source.
+pub(crate) fn source(path: &str) -> Option<Counted> {
+    sources().into_iter().find(|(p, _)| p == path).map(|(_, c)| c)
+}
+
+/// The source archives in manifest order (US names).
+pub(crate) fn source_paths() -> Vec<String> {
+    sources().into_iter().map(|(p, _)| p).collect()
+}
+
+/// An archive's counted entries as the host sends them (name in the archive, bytes as read), sorted as counted;
+/// `None` when `data` isn't an archive.
+pub(crate) fn host_entries(path: &str, data: Vec<u8>) -> Option<Vec<(String, Vec<u8>)>> {
+    let only = source(path)?;
+    counted(path, data, only, &mut |_, _, b| b).ok().map(|v| v.into_iter().map(|(_, n, b)| (n, b)).collect())
 }
 
 /// `bytes`, length first, so two fields can't run into each other.
@@ -89,7 +153,7 @@ fn data(ext: &str) -> bool {
 }
 
 /// Which of an archive's entries count, by extension.
-type Counted = fn(&str) -> bool;
+pub(crate) type Counted = fn(&str) -> bool;
 
 /// The archives that feed the match, each with which of its entries count (by extension), in a fixed order.
 fn sources() -> Vec<(String, Counted)> {

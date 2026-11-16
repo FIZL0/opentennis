@@ -7,6 +7,7 @@ pub mod layout;
 pub mod ani;
 pub mod bmp;
 pub mod columns;
+pub mod crossplay;
 pub mod digest;
 pub mod mdl;
 pub mod mor;

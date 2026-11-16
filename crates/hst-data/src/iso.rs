@@ -35,6 +35,8 @@ pub struct Iso {
     pub files: BTreeMap<String, (u64, u32)>,
     /// A pack's content hash (XXH3-64 of everything after its header); `None` for an ISO.
     pub pack_hash: Option<u64>,
+    /// M171: a lobby host's gameplay data read over this disc (`crossplay::install`), taken at `open`.
+    overlay: Option<Arc<crate::crossplay::Overlay>>,
 }
 
 /// Pack layout: magic, u64 hash, u32 count, per file (u16 name length, name, u64 offset, u32 size), then the data.
@@ -103,15 +105,26 @@ pub fn unknown_pack(hash: u64) -> io::Error {
 impl Iso {
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         let mounted = MOUNTS.lock().unwrap().get(path.as_ref()).cloned();
-        match mounted {
+        let overlay = crate::crossplay::overlay(path.as_ref());
+        let mut iso = match mounted {
             Some(bytes) => Self::from_source(Box::new(io::Cursor::new(bytes))),
             None => Self::from_source(Box::new(File::open(path)?)),
-        }
+        }?;
+        iso.overlay = overlay;
+        Ok(iso)
+    }
+
+    /// [`Iso::open`] of the disc itself, without a lobby host's data over it (`crossplay::install`): what the disc
+    /// itself plays (its own gameplay digest, its own rules).
+    pub fn open_own(path: impl AsRef<Path>) -> io::Result<Self> {
+        let mut iso = Self::open(path)?;
+        iso.overlay = None;
+        Ok(iso)
     }
 
     /// An ISO image or a pack read through any `Source`.
     pub fn from_source(file: Box<dyn Source>) -> io::Result<Self> {
-        let mut iso = Self { file, files: BTreeMap::new(), pack_hash: None };
+        let mut iso = Self { file, files: BTreeMap::new(), pack_hash: None, overlay: None };
         if iso.read_at(0, 8).ok().as_deref() == Some(PACK_MAGIC) {
             iso.read_index()?;
             return Ok(iso);
@@ -263,6 +276,18 @@ impl Iso {
     /// `path`'s key in `files` and its bytes.
     fn read_keyed(&mut self, path: &str) -> io::Result<(String, Vec<u8>)> {
         let key = path.replace('\\', "/").trim_start_matches('/').to_ascii_uppercase();
+        if let Some(o) = self.overlay.clone().filter(|o| o.covers(&key)) {
+            let own = self.read_own(&key).ok().map(|(_, d)| d);
+            let data = o.read(&key, own).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("{path} not on the host's disc")))?;
+            return Ok((key, data));
+        }
+        self.read_own(&key)
+    }
+
+    /// File `key` (upper case, `/`) off this disc itself, under its own name or an alias.
+    fn read_own(&mut self, key: &str) -> io::Result<(String, Vec<u8>)> {
+        let path = key;
+        let key = key.to_string();
         let key = if self.files.contains_key(&key) { key } else { self.alias(&key).unwrap_or(key) };
         let &(off, size) = self
             .files

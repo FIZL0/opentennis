@@ -77,6 +77,14 @@ impl<'a> Archive<'a> {
     }
 
     pub fn read(&self, e: &Entry) -> Result<Vec<u8>> {
+        let out = self.decode(e)?;
+        crate::uselog::entry(self.data, &e.name, &out);
+        // an earlier release's character data in the layout every reader expects
+        Ok(crate::columns::us_layout(&e.name, out))
+    }
+
+    /// An entry's bytes as stored (unpacked), without [`Archive::read`]'s asset-use note or layout change.
+    pub fn decode(&self, e: &Entry) -> Result<Vec<u8>> {
         let out = match e.kind {
             3 => self
                 .data
@@ -91,10 +99,39 @@ impl<'a> Archive<'a> {
         if out.len() != e.size as usize {
             return err(format!("{}: decoded {} bytes, expected {}", e.name, out.len(), e.size));
         }
-        crate::uselog::entry(self.data, &e.name, &out);
-        // an earlier release's character data in the layout every reader expects
-        Ok(crate::columns::us_layout(&e.name, out))
+        Ok(out)
     }
+}
+
+/// An archive of `entries` (name, bytes), each stored raw and its name list unpacked: what [`Archive::parse`] reads
+/// back as the same names and bytes (M171: a lobby host's gameplay data merged into a peer's own archive).
+pub fn build(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
+    let mut names = Vec::new();
+    for (n, _) in entries {
+        let n = &n.as_bytes()[..n.len().min(255)];
+        names.push(n.len() as u8);
+        names.push(0);
+        names.extend_from_slice(n);
+        names.push(0);
+    }
+    let pad4 = |v: &mut Vec<u8>| v.resize(v.len().next_multiple_of(4), 0);
+    let head = 8 + entries.len() * 8;
+    let mut body = Vec::new();
+    body.extend((names.len() as u32).to_le_bytes());
+    body.extend(0u32.to_le_bytes());
+    body.extend(&names);
+    let mut table = Vec::with_capacity(head);
+    table.extend(MAGIC);
+    table.extend((entries.len() as u32).to_le_bytes());
+    for (_, b) in entries {
+        pad4(&mut body);
+        let at = head + body.len();
+        table.extend((b.len() as u32).to_le_bytes());
+        table.extend(((3u32 << 28) | (at / 4) as u32).to_le_bytes());
+        body.extend_from_slice(b);
+    }
+    table.extend(body);
+    table
 }
 
 fn block(d: &[u8], at: usize, decode: fn(&[u8], usize) -> Result<Vec<u8>>) -> Result<Vec<u8>> {
