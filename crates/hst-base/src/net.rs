@@ -2947,9 +2947,11 @@ fn picks_ok(p: &[Pick]) -> Result<(), String> {
 async fn join(cx: &Ctx, code: &str, picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>) -> bool {
     // M175: the host's rules, never this app's Rules setting (laid again once out of the lobby)
     let _own = crate::rules_choice::Online::join();
-    let seated = join_as(cx, code, picks, cmds, &Handshake::here()).await;
-    // M171: out of the host's lobby: the disc plays as itself again
-    crate::handshake::end_crossplay();
+    let xp = std::sync::Arc::new(Crossplay::default());
+    let seated = join_in(cx, code, picks, cmds, &Handshake::here(), &xp).await;
+    // M171: out of the host's lobby: the disc plays as itself again (T24: only if this lobby laid the host's data
+    // over it, so leaving one lobby never takes another's off)
+    xp.leave();
     seated
 }
 
@@ -2993,6 +2995,8 @@ struct Crossplay {
     done: std::sync::atomic::AtomicBool,
     /// M178: told when the host's data has been tried (laid over the disc, or refused), for a held Start.
     tried: tokio::sync::Notify,
+    /// T24: the lobby is over (`leave`): data that lands after that comes off again at once.
+    left: std::sync::atomic::AtomicBool,
 }
 
 impl Crossplay {
@@ -3002,7 +3006,10 @@ impl Crossplay {
         let (me, ev, link, conn) = (self.clone(), ev.clone(), link.clone(), conn.clone());
         off_thread(move || match crate::handshake::take_patch(&b, h) {
             Ok(()) => {
-                me.done.store(true, std::sync::atomic::Ordering::Relaxed);
+                me.done.store(true, std::sync::atomic::Ordering::SeqCst);
+                if me.left.load(std::sync::atomic::Ordering::SeqCst) {
+                    crate::handshake::end_crossplay();
+                }
                 link.send(&Msg::Fetching(None));
                 let _ = ev.send(Event::Status("The host's game data is here: you play by their disc's rules.".into()));
                 me.tried.notify_one();
@@ -3023,6 +3030,15 @@ impl Crossplay {
             self.room(r, hand, link);
         }
         wait
+    }
+
+    /// T24: out of the lobby: the host's data this lobby laid over the disc comes off (none: the disc is left alone,
+    /// whatever another lobby laid over it).
+    fn leave(&self) {
+        self.left.store(true, std::sync::atomic::Ordering::SeqCst);
+        if self.done.load(std::sync::atomic::Ordering::SeqCst) {
+            crate::handshake::end_crossplay();
+        }
     }
 
     /// Whether the host's data is laid over the disc.
@@ -3051,7 +3067,13 @@ impl Crossplay {
 }
 
 /// `join`, with handshake `hand` (M22's and M142's tests play another build and disc).
-async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>, hand: &Handshake) -> bool {
+#[cfg(test)]
+async fn join_as(cx: &Ctx, code: &str, picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>, hand: &Handshake) -> bool {
+    join_in(cx, code, picks, cmds, hand, &std::sync::Arc::new(Crossplay::default())).await
+}
+
+/// `join_as`, with what it has of the host's data in `xp` (T24: `join` takes it off when it leaves).
+async fn join_in(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>, hand: &Handshake, xp: &std::sync::Arc<Crossplay>) -> bool {
     // a home relay first, as when bind waited for it (B224 moved that here; bounded: a dead relay still leaves LAN)
     if let Some(ep) = cx.ep.as_ref().filter(|_| cx.relays) {
         let _ = n0_future::time::timeout(Duration::from_secs(10), ep.online()).await;
@@ -3063,7 +3085,6 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
     let ev = cx.ev.clone();
     let p = cx.ev.clone();
     // M171: the host's data (crossplay) comes on a pack stream too
-    let xp = std::sync::Arc::new(Crossplay::default());
     let (x1, x2, l1, l2, c1) = (xp.clone(), xp.clone(), link.clone(), link.clone(), conn.clone());
     n0_future::task::spawn(read_packs(
         conn.clone(),
@@ -4818,7 +4839,7 @@ mod tests {
             until(&gev, |e| matches!(e, Event::Start(..))).await;
             // it drops out; the new process's disc plays as itself
             hcmd.send(Cmd::Send(Msg::Away { who: vec![g1.clone()], left: 60, ask: false })).unwrap();
-            crossplay::remove(&link); // T24: another net test's end_crossplay may have taken it off already
+            assert!(crossplay::remove(&link));
             // the rejoiner: the host's data first, then the Start, then the state the host sends right behind it
             let (rcx, rev, g2) = cx(Some(1)).await;
             let (_rcmd, mut rrx) = amp::unbounded_channel();
