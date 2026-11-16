@@ -30,13 +30,21 @@ the motion advances (pose, then step); then the pose/hand update; then any pendi
     3-tick European lag.
 - The test only marks the release ("ball up" plus "release pending"). The launch itself happens at the end of the
   same player tick, after the motion advance and the hand update. The ball starts at the toss hand's point.
-- **The ball doesn't move on its first ticks.** In the recording the ball reads exactly the hand point on the
-  release tick and on the tick after it. Only then does it start along the toss curve, at the curve's first step.
-  From then on it is play's curve, shifted later by the ticks it held. Play instead steps the ball on the release tick.
-  Two things add to the hold: the ball's own update runs earlier in the match frame than the players' ticks, so a
-  ball launched during a player's tick isn't moved until the next frame; and the toss launch marks the ball as
-  "tossed", and the ball update handles that before the flight steps. The port matches the recorded positions:
-  hand point on the release tick and the next one, then the curve from its first sample.
+- **The ball holds at the hand point for one tick.** The toss launch places the ball at the hand point and then
+  marks it as flying. The ball's own update runs earlier in the match frame than the players' ticks, and it moves
+  only a flying ball. So the ball isn't moved in the frame it is launched: on the release tick it reads the hand
+  point. From the next tick on it follows the toss curve from the curve's first step, one step per tick. Its first
+  step is a plain flight step: the launch resets the flight's tick count and bounce count to 0, and nothing skips
+  or delays that step. Play instead steps the ball on the release tick. Checked in both recordings, on the ball's
+  live position: on the release tick it is the hand point, and the next tick it has moved. US: release on recorded
+  tick 169, where the shared generator draws 2 and the AI generator draws 60. EU: release on recorded tick 114.
+  Ticks are counted from the first serve set-up sample = 0.
+- **The second hand-point sample is a recording artefact, not the game.** Each flight step first saves the ball's
+  position before it moves it (a "previous position" copy), and M183a1's tick list reads that copy, not the live
+  position. The copy lags the live position by exactly one tick all through the flight, which is what doubles the
+  hold and adds a tick to every flight comparison made from it. A held ball's copy equals its live position, so
+  the lag only appears once the ball flies. The port matches the live position (hand point on the release tick,
+  curve sample 1 the next). Any test that keeps reading the copy compares it one tick late.
 - While the ball is up: if it bounces before a swing press, the server tosses again (the toss state starts over
   and sends the "toss" message). A swing press goes to the swing, masked by toss kind: an underhand toss takes only
   the lob button, an overhand toss only topspin/slice.
@@ -63,12 +71,25 @@ What the hit message does to each computer player on a toss:
   - Singles: it notes the shot as its opponent's or its own team's, then redraws its timing errors and picks.
   - Doubles: the rally re-entry needs the rally state and a shot count above 1, so it doesn't run at the toss. Then
     the team branch, then the doubles redraw (timing errors, picks and the doubles extras).
-- With nobody as the hitter, no opponent's shot is recorded and no reaction or pace draws fire. Slot 5's first
-  toss (four computer players, doubles) draws **60 values from the AI generator in total**, all on the release tick.
-  With 60 draws there, the AI generator matches the recording through tick 237 (M183a1). Read as the usual redraw,
-  that is 15 per player: 8 for the four timing errors (stroke, volley, smash, serve; a sign coin and a size each)
-  and 7 picks (quick serve, body shot, low shot, the four levels; no dive chance). The port reuses the redraw it
-  already has and checks it against that count.
+- **"Nobody" belongs to no team.** Both team tests ("the hitter is on my team", "the hitter is on the other team")
+  first require a hitter of 0 or more. So with the record at −1 both are false. Parity never comes into it. For each
+  computer player, singles and doubles alike, that means:
+  - no shot is recorded, neither as the opponent's last shot nor as its own team's (the records keep what they
+    held), and none of the own-team bookkeeping runs;
+  - the redraw takes its "not my team, not the other team" path: the reaction, pace and guess draws (opponent's hit
+    only) don't fire. The reaction frames are set to 0 and the guess is cleared. The dive chance (point start or
+    own team's hit only) isn't drawn and keeps its old value. The doubles extras that need an opponent's hit don't
+    fire either;
+  - what is drawn, in this order, is **15 values**: the four timing errors, each a sign coin then a size (stroke,
+    volley, smash, serve: 8 draws; the doubles smash size has two forms, beside a human partner or not, and both
+    draw once), then 7 picks: quick serve, then two shot-choice chances (body shot, low shot), then the four
+    level picks. Doubles and singles draw the same 15 here.
+- Slot 5's first toss (four computer players, doubles) therefore draws 4 × 15 = **60 values from the AI
+  generator**, in player order, all on the release tick. This matches `rng_s05.bin` exactly: the AI generator
+  moves 60 and the shared generator 2 on recorded tick 169, and nothing else on that tick. On a later point the
+  record still names the previous point's last hitter. Then the usual team branches run for that player
+  (opponent's shot recorded, reaction/pace/guess draws for the other team), exactly as after a real hit by them,
+  with the shot count 0.
 - **What it decides.** The redraw replaces, for every computer player including the **server**, the timing errors
   and picks drawn at the point's start. The server's serve then uses the toss-time values: its quick-serve pick
   (the contact pick takes a rising ball only on a quick serve), its serve timing error (the countdown press rule
@@ -84,8 +105,20 @@ its contact search follow from the press.
 
 The 60 Hz and 50 Hz contact ticks follow from three inputs, which sections 1 and 2 change: when the ball leaves the
 hand, when it starts to move, and which quick-serve pick and serve error the server holds. With the toss-time redraw,
-the European release one tick later and the recorded two-tick hold, play's European contact (3 ticks late in M183a1)
-should land on the recorded tick. Nothing at 50 Hz is retimed beyond the 37.5 threshold.
+the European release one tick later and the one-tick hold, play's European contact (3 ticks late in M183a1) should
+land on the recorded tick. Nothing at 50 Hz is retimed beyond the 37.5 threshold.
+
+The recorded serve ticks, counted from the first serve set-up sample = 0, read from the server's serve sub-state,
+its "ball up" flag, the ball's live position and (US) the generators:
+
+| | toss press | release (ball up, hand point) | swing press (ball up cleared) | contact (ball launched) |
+|---|---|---|---|---|
+| US, slot 5 | 124 (AI draws 1) | 169 (shared 2, AI 60) | 215 (AI draws 1) | 219 (shared 4, AI 68) |
+| EU bot match | 76 | 114 | 134 | 141 |
+
+Press to release is 45 ticks in the US build and 38 in the European one, as section 1 says. The port's two
+first-serve tests are done when play reaches each of these ticks. M183a1's "tick 143" for the European contact
+was read from the ball's previous-position copy and in that test's alignment. The live-position contact is 141.
 
 ## 4. The serve launch at 60 Hz (gap 4)
 
@@ -101,16 +134,8 @@ launch math.
 2. Motion advance, hand update.
 3. Toss launch: ball to the hand point, the toss path, two shared draws, the predicted path replaced, the hit
    message to every AI (each runs its redraw, in player order).
-4. The ball reads the hand point this tick and next. It moves from the tick after that.
+4. The ball reads the hand point this tick (its live position). The ball update moves it from the next tick on.
 
 ## Open questions
 
-- Is the second tick at the hand point part of the game (the "tossed" handling), or a repeated sample in the
-  recorder? The flight after it lags play's by the same 2 aligned ticks all the way to the contact, which points
-  to the game. The port matches the recording either way.
-- The per-player split of the 60 draws (15 each) and the hitter's team when the record says nobody: does "nobody"
-  count as team 1 by parity, or as no team? Both are inferred from the total and the usual redraw. The port confirms
-  them with the generator recording (`rng_s05.bin`) at the release tick.
-- The European press tick wasn't checked against a European generator recording (there isn't one). The 3-tick
-  European lag is taken as release +1, hold +1 (as at 60 Hz) and the redraw's change to the contact pick. Section 3
-  is only confirmed once the port's European contact lands on recorded tick 143.
+none
