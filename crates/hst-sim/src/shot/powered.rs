@@ -298,6 +298,9 @@ pub fn probe() -> u64 {
 }
 
 #[cfg(test)]
+mod regen;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use hst_data::xb::Archive;
