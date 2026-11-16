@@ -396,6 +396,7 @@ pub fn read(dir: &Path) -> Result<Mod, String> {
     }
     let voice = j["voice"].as_str().unwrap_or("voice/").to_string();
     inside("voice", voice.strip_suffix('/').unwrap_or(&voice))?;
+    crate::mod_voices::check(&j).map_err(err)?;
     let motions = match &j["motions"] {
         serde_json::Value::Null => None,
         serde_json::Value::String(f) if crate::modfs::is_file(&dir.join(f)) => Some(f.clone()),
@@ -659,8 +660,9 @@ pub fn tparam_row(csv: &[u8], grades: Option<&[[u8; 5]; 14]>, m: &Mod) -> Result
 }
 
 /// The mod's voice programs (§5), if it ships any `<program>_<key>.wav`.
+/// M168: each take heard in the chosen Voice Language's folder where the mod carries one (`mod_voices`).
 pub fn voice(m: &Mod) -> Option<crate::audio::SoundBank> {
-    crate::audio::SoundBank::wavs(&m.dir.join(&m.voice))
+    crate::mod_voices::bank(&m.dir.join(&m.voice), crate::mod_voices::chosen_folder(&m.dir).as_deref())
 }
 
 /// B596: how many voice takes (`<program>_<key>.wav`) mod `m` has of each program, by program; online the owner's

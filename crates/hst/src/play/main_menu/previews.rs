@@ -1554,7 +1554,7 @@ fn voice(act: Act, who: Who, costume: usize, mods: &[Mod], banks: &mut HashMap<S
         Who::Disc(c) => (c, costume),
         Who::Mod(i) => {
             let m = mods.get(i).filter(|m| crate::modfs::ready(&m.dir))?;
-            let own = banks.entry(format!("mod {}", m.dir.join(&m.voice).display())).or_insert_with(|| crate::mods::voice(m).map(Arc::new)).clone();
+            let own = banks.entry(format!("mod {} {}", m.dir.join(&m.voice).display(), crate::voices::chosen())).or_insert_with(|| crate::mods::voice(m).map(Arc::new)).clone();
             let program: u8 = match act { Act::Win => 9, Act::Loss => 10, Act::Pose => return None };
             if let Some(own) = own.filter(|o| o.wav.contains_key(&(program as usize))) {
                 return Some((own, sound::Play { slot: 0x16, program, key: 0, volume: 0x80, speed: 1.0 }));
@@ -1611,7 +1611,7 @@ fn pick_voice(who: Who, mods: &[Mod], banks: &mut HashMap<String, Option<Arc<Sou
         Who::Disc(c) => c,
         Who::Mod(i) => {
             let Some(m) = mods.get(i).filter(|m| crate::modfs::ready(&m.dir)) else { return Vec::new() };
-            let own = banks.entry(format!("mod {}", m.dir.join(&m.voice).display())).or_insert_with(|| crate::mods::voice(m).map(Arc::new)).clone();
+            let own = banks.entry(format!("mod {} {}", m.dir.join(&m.voice).display(), crate::voices::chosen())).or_insert_with(|| crate::mods::voice(m).map(Arc::new)).clone();
             let takes: Vec<_> = own
                 .iter()
                 .flat_map(|o| [7u8, 9].into_iter().flat_map(move |p| (0..o.wav.get(&(p as usize)).map_or(0, Vec::len)).map(move |k| (o.clone(), sound::Play { slot: 0x16, program: p, key: k as u8, volume: 0x80, speed: 1.0 }))))
