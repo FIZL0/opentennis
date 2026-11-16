@@ -1073,6 +1073,7 @@ Oldest entries first (full text as they were in the old TODO.md):
 - [x] **B710** Linux self-update fetches vulkan/ (B708's bundled lavapipe) for installs that only get the bare binary from the updater, or says to re-download the tarball for Rendering → Software. Files: crates/hst/src/update.rs, tools/release.sh
 - [x] **B709** Android Software rendering (B708 follow-up): Android's Vulkan loader takes only the phone's driver, so SwiftShader can't be an ICD; draw headless on SwiftShader (libvk_swiftshader.so loaded directly, wgpu Instance::from_hal) and post each frame to the window with ANativeWindow_lock, or decide it isn't worth it. Files: crates/hst-base/src/render_mode.rs, crates/hst-base/src/android.rs, tools/apk.sh
 - [x] **added3** M163 **Voice language option** (from added M163's findings): a Sound setting picks which release's voices/commentary/umpire calls play (English default; Japanese from Minna no Tennis, EU languages if the European disc has them), from any disc the player has imported alongside their main one; purely presentation, the sim and RNG untouched; online each player hears their own choice → crates/hst-base/src/audio.rs · crates/hst/src/play/main_menu/
+- [x] **M163a** **Play from any region's disc** (from M163's findings): disc-ID check accepts each supported release, `hst-data::exe` gets per-release offsets, import/pack works for each; with the US disc nothing changes (replay tests stay bit-exact) → crates/hst-data/src/exe.rs · iso.rs · crates/hst-base/src/disc.rs
 
 
 ### Shots

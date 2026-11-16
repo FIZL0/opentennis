@@ -2,39 +2,202 @@
 //! user's own disc at runtime.
 //!
 //! This is the one place that knows retail locations, and only for *data*: each read names what it is, the
-//! disc is identified first (US 1.00, SCUS-97610), and nothing here is code addresses or game logic.
+//! disc is identified first ([`Release`]), and nothing here is code addresses or game logic.
+//!
+//! Reads are written against the US 1.00 program (SCUS-97610). Another release keeps the same tables in the same
+//! order, shifted: its [`Layout`] says by how much from each US location on, and which tables it doesn't have. A new
+//! read has to be checked on every release (`tests/releases.rs`): a table the other releases moved or lack needs a
+//! line in their layouts.
 
 use crate::xb::Error;
 
-/// SYSTEM.CNF boot line of the supported disc.
-const BOOT: &str = "SCUS_976.10";
-/// The GAME overlay: Metrowerks header "MWo3", overlay id 2, 0x100280 bytes, loaded at 0x322d00.
-const GAME_SIZE: usize = 0x10_0280;
-const GAME_LOAD: u32 = 0x32_2d00;
+/// A retail release the remaster plays from, told apart by the boot line in its `SYSTEM.CNF`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Release {
+    /// Hot Shots Tennis, USA (SCUS-97610), the release the remaster is proven against.
+    Us,
+    /// Minna no Tennis, Japan (SCPS-15113): the same game an update earlier, with its own tuning in a few tables
+    /// (shot blends, rain odds, AI and trajectory files) and no strong-toss serve error table.
+    Japan,
+}
 
-/// The GAME overlay of the supported disc.
+/// Where one release keeps what this module reads.
+struct Layout {
+    name: &'static str,
+    /// Its main program, as named on the disc and in SYSTEM.CNF's boot line.
+    boot: &'static str,
+    boot_size: usize,
+    /// From each US location on (ascending), how far the boot program's data lies from the US one's.
+    boot_shift: &'static [(usize, isize)],
+    /// GAME overlay: size and load address.
+    game_size: usize,
+    game_load: u32,
+    /// From each US location on (ascending), how far this release's GAME overlay data lies from the US one's in the
+    /// file; `None` where it has no such table.
+    game_shift: &'static [(u32, Option<i32>)],
+    /// MENU overlay: size, load address, and where the character grades are.
+    menu_size: usize,
+    menu_load: u32,
+    grades: u32,
+    /// The umpire's word countdowns exist for the Japanese language only (the US program's language 0xb).
+    japanese_umpire_only: bool,
+}
+
+const US: Layout = Layout {
+    name: "SCUS-97610 US 1.00",
+    boot: "SCUS_976.10",
+    boot_size: 864_720,
+    boot_shift: &[(0, 0)],
+    // Metrowerks header "MWo3", overlay id 2
+    game_size: 0x10_0280,
+    game_load: 0x32_2d00,
+    game_shift: &[(0, Some(0))],
+    // "MWo3", overlay id 3, loaded where GAME.BIN loads
+    menu_size: 0x7_1e00,
+    menu_load: 0x32_2d00,
+    grades: 0x38_d310,
+    japanese_umpire_only: false,
+};
+
+const JAPAN: Layout = Layout {
+    name: "SCPS-15113 Japan 1.00",
+    boot: "SCPS_151.13",
+    boot_size: 873_936,
+    boot_shift: &[(0, 0x1df0), (0x1b_b880, 0x1de0), (0x1b_d038, 0x1e00), (0x1c_e970, 0x2430)],
+    game_size: 0xf_ff80,
+    game_load: 0x32_4900,
+    game_shift: &[
+        (0, Some(0x5e0)),
+        // strong-toss serve error: not in this release
+        (0x3f_c760, None),
+        (0x3f_c980, Some(0x5a0)),
+        (0x40_40b0, Some(0x5b0)),
+        // umpire word countdowns: only the Japanese language's (`japanese_umpire_only`)
+        (0x41_3e20, None),
+        (0x41_4910, Some(-0x540)),
+        (0x41_4b40, None),
+        (0x41_4f28, Some(-0x928)),
+        (0x41_5000, Some(-0x920)),
+        (0x41_6650, Some(-0x860)),
+        (0x41_aec0, Some(-0x480)),
+        (0x41_dac0, Some(-0x430)),
+        (0x41_e410, Some(-0x460)),
+        (0x41_eee0, Some(-0x3b0)),
+        (0x42_1e80, Some(-0x2e0)),
+    ],
+    menu_size: 0x7_a680,
+    menu_load: 0x32_4900,
+    grades: 0x39_1ed0,
+    japanese_umpire_only: true,
+};
+
+impl Release {
+    /// The release whose `SYSTEM.CNF` this is. The European release is known but refused: it runs at 50 Hz, its
+    /// shot trajectory tables are timed for that, and the remaster's match runs the 60 Hz game.
+    pub fn of(system_cnf: &[u8]) -> Result<Self, Error> {
+        let cnf = String::from_utf8_lossy(system_cnf);
+        let boot = cnf.lines().find(|l| l.trim_start().starts_with("BOOT2")).unwrap_or_default();
+        if let Some(r) = [Release::Us, Release::Japan].into_iter().find(|r| boot.contains(r.layout().boot)) {
+            return Ok(r);
+        }
+        if boot.contains("SCES_545.35") {
+            return Err(Error("Everybody's Tennis (Europe, SCES-54535) isn't supported yet: it runs at 50 Hz and its shots are timed for that. Use the US disc (SCUS-97610)".into()));
+        }
+        Err(Error("unsupported disc: Hot Shots Tennis USA (SCUS-97610) is the one the game plays".into()))
+    }
+
+    /// Whether a match can be played from it. The Japanese release reads (its tables, files and pack are known) but
+    /// doesn't play yet: it is an earlier build whose rules differ from the US game's (no strong and weak serve
+    /// tosses, no missed-serve table, fewer CPU reaction times; its character tables have fewer columns), and the
+    /// remaster's match is the US game (task M163a1).
+    pub fn playable(self) -> Result<(), Error> {
+        match self {
+            Release::Us => Ok(()),
+            Release::Japan => Err(Error(
+                "Minna no Tennis (Japan, SCPS-15113) isn't playable yet: it's an earlier version of the game with different rules. Use the US disc (SCUS-97610)".into(),
+            )),
+        }
+    }
+
+    fn layout(self) -> &'static Layout {
+        match self {
+            Release::Us => &US,
+            Release::Japan => &JAPAN,
+        }
+    }
+
+    /// Its serial, region and version (`"SCUS-97610 US 1.00"`), as [`crate::iso::KNOWN_PACKS`] names it.
+    pub fn name(self) -> &'static str {
+        self.layout().name
+    }
+
+    /// Its main program's file name (`SCUS_976.10`).
+    pub fn boot(self) -> &'static str {
+        self.layout().boot
+    }
+
+    /// The release whose main program this is (by its size and load segment).
+    fn of_boot(elf: &[u8]) -> Result<Self, Error> {
+        let elf_ok = elf.get(..4) == Some(b"\x7fELF") && elf.get(0x3c..0x40) == Some(&0x10_0000u32.to_le_bytes());
+        [Release::Us, Release::Japan]
+            .into_iter()
+            .find(|r| elf_ok && elf.len() == r.layout().boot_size)
+            .ok_or_else(|| Error("the main program does not match a supported release (SCUS_976.10 US 1.00, SCPS_151.13 Japan 1.00)".into()))
+    }
+}
+
+/// The step `table` takes at US location `at`: its last entry at or before it.
+fn shift<A: PartialOrd + Copy, S: Copy>(table: &[(A, S)], at: A) -> S {
+    table.iter().rev().find(|&&(from, _)| from <= at).unwrap_or(&table[0]).1
+}
+
+/// Whether `bin` is an "MWo3" overlay with this id, size and load address.
+fn overlay(bin: &[u8], id: u32, size: usize, load: u32) -> bool {
+    bin.len() == size && bin.get(..4) == Some(b"MWo3") && bin.get(4..8) == Some(&id.to_le_bytes()) && bin.get(8..12) == Some(&load.to_le_bytes())
+}
+
+/// The GAME overlay of a supported disc.
 pub struct Game<'a> {
     bin: &'a [u8],
+    release: Release,
 }
 
 impl<'a> Game<'a> {
     /// `system_cnf` and `game_bin` are `SYSTEM.CNF` and `ZZBIN/GAME.BIN` from the disc.
     pub fn new(system_cnf: &[u8], game_bin: &'a [u8]) -> Result<Self, Error> {
-        if !String::from_utf8_lossy(system_cnf).contains(BOOT) {
-            return Err(Error("unsupported disc: only Hot Shots Tennis USA (SCUS-97610) is known".into()));
+        let release = Release::of(system_cnf)?;
+        let l = release.layout();
+        if !overlay(game_bin, 2, l.game_size, l.game_load) {
+            return Err(Error(format!("GAME.BIN does not match the {} overlay", l.name)));
         }
-        let ok = game_bin.len() == GAME_SIZE
-            && game_bin.get(..4) == Some(b"MWo3")
-            && game_bin.get(4..8) == Some(&2u32.to_le_bytes())
-            && game_bin.get(8..12) == Some(&GAME_LOAD.to_le_bytes());
-        if !ok {
-            return Err(Error("GAME.BIN does not match the supported US 1.00 overlay".into()));
-        }
-        Ok(Self { bin: game_bin })
+        Ok(Self { bin: game_bin, release })
     }
 
-    fn at(&self, addr: u32, len: usize) -> &'a [u8] {
-        let o = (addr - GAME_LOAD) as usize;
+    /// The disc's release.
+    pub fn release(&self) -> Release {
+        self.release
+    }
+
+    /// `len` bytes of the table the US program keeps at `addr`, wherever this release keeps it.
+    /// A read that runs over a place where this release's data moves (bytes it inserted or left out) is put
+    /// together piece by piece, so it comes out as the US bytes would.
+    fn at(&self, addr: u32, len: usize) -> Vec<u8> {
+        let l = self.release.layout();
+        let end = addr + len as u32;
+        let mut out = Vec::with_capacity(len);
+        let mut a = addr;
+        while a < end {
+            let moved = shift(l.game_shift, a).unwrap_or_else(|| panic!("{}: no table at the US program's {a:#x}", l.name));
+            let next = l.game_shift.iter().map(|&(from, _)| from).find(|&from| from > a).map_or(end, |from| from.min(end));
+            let o = ((a - US.game_load) as i64 + moved as i64) as usize;
+            out.extend_from_slice(&self.bin[o..o + (next - a) as usize]);
+            a = next;
+        }
+        out
+    }
+    /// `len` bytes at `addr` in this release's own address space (a pointer read from one of its tables).
+    fn own(&self, addr: u32, len: usize) -> &'a [u8] {
+        let o = (addr - self.release.layout().game_load) as usize;
         &self.bin[o..o + len]
     }
     fn f32s(&self, addr: u32, n: usize) -> Vec<f32> {
@@ -51,7 +214,7 @@ impl<'a> Game<'a> {
             base: self.f32s(0x40_4810, 4 * 0x451),
             kinds: self.at(0x40_3b90, 16).as_chunks::<4>().0.iter().map(|&c| i32::from_le_bytes(c)).collect(),
             // 17 rows of 0x7c bytes; rows 3..16 (= character + 3) hold the blend weights
-            weights: self.f32s(0x40_3f60, 17 * 0x7c / 4),
+            weights: (0..17).flat_map(|r| self.f32s(0x40_3f60 + r * 0x7c, 0x7c / 4)).collect(),
             middle_mix: self.f32(0x41_0a18),
         }
     }
@@ -218,7 +381,11 @@ impl<'a> Game<'a> {
     }
 
     /// The strong toss's serve mistiming error (cm) per skill level 0..2: depth, along the stick, random sideways.
+    /// The Japanese release has no such table: zero there (task M163a1 checks what its serve does instead).
     pub fn serve_miss(&self) -> [[i32; 3]; 3] {
+        if self.release == Release::Japan {
+            return [[0; 3]; 3];
+        }
         std::array::from_fn(|l| std::array::from_fn(|k| i32::from_le_bytes(self.at(0x3f_c760 + 12 * l as u32 + 4 * k as u32, 4).try_into().unwrap())))
     }
 
@@ -272,7 +439,8 @@ impl<'a> Game<'a> {
     /// sounds): score words (program 0, 14 keys) and announcements (program 2, 5 keys), for the game's language
     /// setting `language`, umpire `umpire` (0..5) and her voice set `set` (0..2).
     pub fn umpire_words(&self, language: u8, umpire: u8, set: u8) -> ([i32; 14], [i32; 5]) {
-        let l = if language == 0xb { 5 } else { language as u32 };
+        let japanese = language == 0xb || self.release.layout().japanese_umpire_only;
+        let l = if japanese { 5 } else { language as u32 };
         let (u, v) = (umpire as u32, set as u32);
         let i = |a, k: u32| i32::from_le_bytes(self.at(a + 4 * k, 4).try_into().unwrap());
         (
@@ -295,7 +463,7 @@ impl<'a> Game<'a> {
                 let e = self.at(0x41_2820 + court * 0xc0 + k * 12, 12);
                 let name = u32::from_le_bytes(e[0..4].try_into().unwrap());
                 (name != 0).then(|| {
-                    let s = self.at(name, 16);
+                    let s = self.own(name, 16);
                     NpcEntry { name: String::from_utf8_lossy(&s[..s.iter().position(|&c| c == 0).unwrap_or(16)]).into(), kind: e[4] }
                 })
             })
@@ -314,7 +482,7 @@ impl<'a> Game<'a> {
     pub fn wind(&self, court: u32) -> (Vec<f32>, f32) {
         let row = self.at(0x41_cf90 + (court - 1) * 0x14, 0x14);
         let i32_at = |o: usize| i32::from_le_bytes(row[o..o + 4].try_into().unwrap());
-        let degrees = self.at(0x41_d070, 32).as_chunks::<4>().0.iter().map(|&c| i32::from_le_bytes(c) as f32);
+        let degrees = self.at(0x41_d070, 32).as_chunks::<4>().0.iter().map(|&c| i32::from_le_bytes(c) as f32).collect::<Vec<_>>().into_iter();
         let allowed: Vec<f32> = degrees.zip(&row[8..16]).filter(|(_, f)| **f != 0).map(|(d, _)| d).collect();
         let speed = if i32_at(0) > 0 { i32_at(0x10) as f32 } else { 0.0 };
         (if allowed.is_empty() { vec![0.0] } else { allowed }, speed)
@@ -369,7 +537,7 @@ impl<'a> Game<'a> {
         let r = self.at(0x41_c6d0 + 0x18 * ty as u32, 0x18);
         let s = |o: usize| {
             let a = u32::from_le_bytes(r[o..o + 4].try_into().unwrap());
-            let s = if a == 0 { &[0][..] } else { self.at(a, 32) };
+            let s = if a == 0 { &[0][..] } else { self.own(a, 32) };
             String::from_utf8_lossy(&s[..s.iter().position(|&c| c == 0).unwrap_or(32)]).into_owned()
         };
         let mdl = u32::from_le_bytes(r[0..4].try_into().unwrap());
@@ -479,10 +647,10 @@ impl<'a> Game<'a> {
 }
 
 /// The sound driver's pitch table (`snd::pitch`): 608 steps, 192 per octave, 0x1000 at the root note. Read from the
-/// IOP sound driver `MODULES2/SG2IOPM1.IRX` of the supported disc.
+/// IOP sound driver `MODULES2/SG2IOPM1.IRX` of a supported disc (the same file on each).
 pub fn pitch_table(irx: &[u8]) -> Result<Vec<u16>, Error> {
     if irx.len() != 28093 || !irx.windows(13).any(|w| w == b"sg2iop_driver") {
-        return Err(Error("SG2IOPM1.IRX does not match the supported US 1.00 driver".into()));
+        return Err(Error("SG2IOPM1.IRX does not match the driver of a supported release".into()));
     }
     Ok(irx[0x4880..0x4880 + 2 * 608].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect())
 }
@@ -521,15 +689,14 @@ pub fn court_plates(elf: &[u8]) -> Result<Vec<[u8; 3]>, Error> {
 }
 
 fn check_boot(elf: &[u8]) -> Result<(), Error> {
-    if elf.len() != 864_720 || elf.get(..4) != Some(b"\x7fELF") || elf.get(0x3c..0x40) != Some(&0x10_0000u32.to_le_bytes()) {
-        return Err(Error("SCUS_976.10 does not match the supported US 1.00 program".into()));
-    }
-    Ok(())
+    Release::of_boot(elf).map(|_| ())
 }
 
-/// `n` bytes of the boot program at `addr`: one loadable segment from file offset 0x100 to vaddr 0x100000.
+/// `n` bytes of the table the US boot program keeps at `addr`, wherever this one keeps it: one loadable segment
+/// from file offset 0x100 to vaddr 0x100000. `elf` has passed [`check_boot`].
 fn boot_at(elf: &[u8], addr: usize, n: usize) -> &[u8] {
-    &elf[addr - 0x10_0000 + 0x100..][..n]
+    let moved = Release::of_boot(elf).map_or(0, |r| shift(r.layout().boot_shift, addr));
+    &elf[(addr - 0x10_0000 + 0x100).wrapping_add_signed(moved)..][..n]
 }
 
 /// One roster line: a creature entry name (`npc06`) and the figure it becomes — a trigger creature type (0..53),
@@ -796,33 +963,27 @@ pub struct CameraShot {
     pub script: Vec<(u8, f32)>,
 }
 
-/// The MENU overlay: "MWo3", overlay id 3, 0x71e00 bytes, loaded where GAME.BIN loads.
-const MENU_SIZE: usize = 0x7_1e00;
-
-/// The MENU overlay of the supported disc (`ZZBIN/MENU.BIN`).
+/// The MENU overlay of a supported disc (`ZZBIN/MENU.BIN`).
 pub struct Menu<'a> {
     bin: &'a [u8],
+    release: Release,
 }
 
 impl<'a> Menu<'a> {
     pub fn new(system_cnf: &[u8], menu_bin: &'a [u8]) -> Result<Self, Error> {
-        if !String::from_utf8_lossy(system_cnf).contains(BOOT) {
-            return Err(Error("unsupported disc: only Hot Shots Tennis USA (SCUS-97610) is known".into()));
+        let release = Release::of(system_cnf)?;
+        let l = release.layout();
+        if !overlay(menu_bin, 3, l.menu_size, l.menu_load) {
+            return Err(Error(format!("MENU.BIN does not match the {} overlay", l.name)));
         }
-        let ok = menu_bin.len() == MENU_SIZE
-            && menu_bin.get(..4) == Some(b"MWo3")
-            && menu_bin.get(4..8) == Some(&3u32.to_le_bytes())
-            && menu_bin.get(8..12) == Some(&GAME_LOAD.to_le_bytes());
-        if !ok {
-            return Err(Error("MENU.BIN does not match the supported US 1.00 overlay".into()));
-        }
-        Ok(Self { bin: menu_bin })
+        Ok(Self { bin: menu_bin, release })
     }
 
     /// The character select's attribute grades per character (0..13): Serve, Stroke, Volley, Impact, Footwork, each
     /// 0..5 shown as the letter `"ABCDEF"[5 - v]`. A character's grades are the same in every costume.
     pub fn grades(&self) -> [[u8; 5]; 14] {
-        let o = (0x38_d310 - GAME_LOAD) as usize;
+        let l = self.release.layout();
+        let o = (l.grades - l.menu_load) as usize;
         std::array::from_fn(|c| self.bin[o + 5 * c..o + 5 * c + 5].try_into().unwrap())
     }
 }
