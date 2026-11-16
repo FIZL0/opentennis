@@ -75,9 +75,10 @@ pub fn pack_path() -> PathBuf {
 /// iOS: no disc in the app's folder at launch; the app shows where it goes until one is there.
 pub static WAITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// iOS: the first ISO in the app's folder (Files → On My iPhone → OpenTennis).
+/// iOS: the ISO in the app's folder (Files → On My iPhone → OpenTennis); with other releases' discs there too (M166),
+/// the US one.
 pub fn first_iso() -> Option<PathBuf> {
-    std::fs::read_dir(data_dir()).into_iter().flatten().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("iso")))
+    hst_data::discs::main_first(std::fs::read_dir(data_dir()).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("iso"))).collect())
 }
 
 /// Puts the disc to run from in front of `argv` (see the module doc).

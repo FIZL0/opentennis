@@ -8,6 +8,7 @@ pub mod ani;
 pub mod bmp;
 pub mod columns;
 pub mod digest;
+pub mod discs;
 pub mod mdl;
 pub mod mor;
 pub mod mtl;
