@@ -738,6 +738,9 @@ pub enum Msg {
         /// M151d: its generated tables' fingerprint (`handshake::Handshake::tables`), checked with the build.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tables: Option<u64>,
+        /// M163b: its disc's gameplay digest (`handshake::Handshake::sim`), checked instead of the pack when both send one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sim: Option<u64>,
     },
     Room(Room),
     Refused(String),
@@ -1712,14 +1715,14 @@ fn micros(t0: n0_future::time::Instant) -> u64 {
 
 /// A guest's arrivals into the host task: its Hello first (else it's dropped), then what it says and sends, then gone.
 async fn guest(gtx: amp::UnboundedSender<Guest>, peer: String, conn: Conn, link: Link, mut inbox: Inbox) {
-    let Some(Ok(Msg::Hello { build, picks, name, courts, device, seat, pack, tables })) = inbox.msgs.recv().await else {
+    let Some(Ok(Msg::Hello { build, picks, name, courts, device, seat, pack, tables, sim })) = inbox.msgs.recv().await else {
         conn.close(b"no hello");
         return;
     };
     let g = gtx.clone();
     let p = gtx.clone();
     n0_future::task::spawn(read_packs(conn.clone(), move |h, b| drop(g.send(Guest::Pack(h, b))), move |h, got, n| drop(p.send(Guest::Progress(h, got, n)))));
-    let _ = gtx.send(Guest::In { peer: peer.clone(), name, picks, hand: Handshake { build, pack, tables }, link: link.clone(), conn, courts, device, seat });
+    let _ = gtx.send(Guest::In { peer: peer.clone(), name, picks, hand: Handshake { build, pack, tables, sim }, link: link.clone(), conn, courts, device, seat });
     loop {
         tokio::select! {
             m = inbox.msgs.recv() => match m {
@@ -2909,7 +2912,7 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
         let _ = n0_future::time::timeout(Duration::from_secs(10), ep.online()).await;
     }
     let Some((conn, link, inbox, me)) = connect(cx, code, cmds).await else { return false };
-    link.send(&Msg::Hello { build: hand.build.clone(), picks: picks.clone(), name: cx.name.clone(), courts: cx.courts.clone(), device: *cx.device.lock().unwrap(), seat: cx.seat, pack: hand.pack, tables: hand.tables });
+    link.send(&Msg::Hello { build: hand.build.clone(), picks: picks.clone(), name: cx.name.clone(), courts: cx.courts.clone(), device: *cx.device.lock().unwrap(), seat: cx.seat, pack: hand.pack, tables: hand.tables, sim: hand.sim });
     cx.say(Event::Me(me.clone()));
     let Inbox { msgs: mut inbox, mut dgrams } = inbox;
     let ev = cx.ev.clone();
@@ -4501,7 +4504,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             };
             let code2 = code.clone();
-            let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &Handshake { build: "0.0.0 1a2b3c4".into(), pack: None, tables: None }).await });
+            let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &Handshake { build: "0.0.0 1a2b3c4".into(), pack: None, tables: None, sim: None }).await });
             let why = loop {
                 match gev.try_recv() {
                     Ok(Event::Failed(w)) => break w,
@@ -4518,7 +4521,7 @@ mod tests {
             let (gcx, gev) = cx().await;
             let (_gcmd, mut grx) = amp::unbounded_channel();
             let code = code2;
-            let other = Handshake { build: our_build().into(), pack: Some(2), tables: None };
+            let other = Handshake { build: our_build().into(), pack: Some(2), tables: None, sim: None };
             let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &other).await });
             let why = loop {
                 match gev.try_recv() {

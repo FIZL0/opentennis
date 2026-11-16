@@ -245,6 +245,19 @@ impl Iso {
     /// Read a file by path; case-insensitive, `/` or `\` separators, leading separator optional. Paths are the US
     /// disc's: on another release a name it spells differently ([`Iso::alias`]) reads that release's file.
     pub fn read(&mut self, path: &str) -> io::Result<Vec<u8>> {
+        let (key, data) = self.read_keyed(path)?;
+        crate::uselog::disc(&key, &data);
+        Ok(data)
+    }
+
+    /// [`Iso::read`] without noting the file in the asset-use log (`uselog`): for reads that only check the disc
+    /// (the online gameplay digest, `digest`), not draw or play from it.
+    pub fn read_unlogged(&mut self, path: &str) -> io::Result<Vec<u8>> {
+        self.read_keyed(path).map(|(_, data)| data)
+    }
+
+    /// `path`'s key in `files` and its bytes.
+    fn read_keyed(&mut self, path: &str) -> io::Result<(String, Vec<u8>)> {
         let key = path.replace('\\', "/").trim_start_matches('/').to_ascii_uppercase();
         let key = if self.files.contains_key(&key) { key } else { self.alias(&key).unwrap_or(key) };
         let &(off, size) = self
@@ -252,8 +265,7 @@ impl Iso {
             .get(&key)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("{path} not on disc")))?;
         let data = self.read_at(off, size as usize)?;
-        crate::uselog::disc(&key, &data);
-        Ok(data)
+        Ok((key, data))
     }
 }
 

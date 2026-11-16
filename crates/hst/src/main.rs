@@ -373,7 +373,7 @@ fn android_main(app: bevy::android::android_activity::AndroidApp) {
 fn start(argv: Vec<String>) {
     let Cli { args, mut gfx, upscale, viewer_mod, mod_slot, slot_mods, roster, swap_hands, names, handicaps, offbeat, umpire_mod, court_mod } = parse(argv.into_iter());
     // M142: the disc a lobby's host checks a guest's against (an imported pack's hash; an ISO's ID was checked)
-    handshake::set_pack(Iso::open(&args.iso).ok().and_then(|i| i.pack_hash));
+    handshake::set_disc(&args.iso);
     // nothing asked for: the main menu, which starts matches in this app (`mode.rs`) with the flags above
     // a bad archive name would otherwise panic inside `load` and take the renderer down with it
     if !args.archives.is_empty() && let Ok(mut iso) = Iso::open(&args.iso) {
@@ -698,7 +698,7 @@ fn no_disc_mode(app: &mut App) {
         }
         eprintln!("disc image found: {}", iso.display());
         args.iso = iso.to_string_lossy().into_owned();
-        handshake::set_pack(Iso::open(&args.iso).ok().and_then(|i| i.pack_hash));
+        handshake::set_disc(&args.iso);
         next.0 = Some(mode::Mode::new(menu_mode));
     };
     app.add_systems(Startup, ios::no_disc).add_systems(Update, look);
