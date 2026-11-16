@@ -314,6 +314,15 @@ mod tests {
         }
     }
 
+    /// After `serve_to_return`: the return flies the recorded curve bit for bit from the tick after its contact `ret`
+    /// through `to` (play level with the recording), so its aim and launch are the game's: the aim reads the
+    /// computer player's stick as the pad state it wrote, in steps of 1/127.
+    fn return_flight(name: &str, want: &[Tick], got: &[Tick], ret: usize, to: usize) {
+        for k in ret + 1..=to {
+            assert_eq!(want[k].2.map(f32::to_bits), got[k].2.map(f32::to_bits), "{name} tick {k}: the returned ball");
+        }
+    }
+
     /// Probe: from the serve's `contact` on, the first tick a player (on the ground, play a tick behind) or the ball
     /// (play level) leaves the recording, and how far, through the first point.
     fn first_point_part(name: &str, want: &[Tick], got: &[Tick], contact: usize) {
@@ -357,9 +366,11 @@ mod tests {
     /// to the contact.
     #[test]
     fn the_european_first_serve_set_up_plays_as_recorded() {
-        let Some((want, got)) = european(Some(300), 0) else { return };
+        let Some((want, got)) = european(Some(310), 0) else { return };
         serve_to_contact("eu", &want, &got, 8, (114, 134, 141));
-        serve_to_return("eu", &want, &got, 141, 248, 230);
+        serve_to_return("eu", &want, &got, 141, 249, 230);
+        // to the tick before the server's side strikes it back (its partner moves off at 250: M185's kind)
+        return_flight("eu", &want, &got, 230, 303);
     }
 
     /// Probe, not a proof yet (M183a1): the whole European bot match in play from the original's match seed, beside the
@@ -417,9 +428,11 @@ mod tests {
     /// the press draws the swing kind, the contact the aim and the launch.
     #[test]
     fn the_us_first_serve_set_up_plays_as_recorded() {
-        let Some((want, got, rngs)) = us(Some(320), 240, 0) else { return };
+        let Some((want, got, rngs)) = us(Some(380), 240, 0) else { return };
         serve_to_contact("us", &want, &got, 9, (169, 215, 219));
         serve_to_return("us", &want, &got, 219, 290, 298);
+        // to the tick before the server's side strikes it back (players part at 318 first: M185)
+        return_flight("us", &want, &got, 298, 370);
         // the returner's slide into the return (the contact IK's body step, 8 ticks from 291): the game solves it for
         // its own predicted contact point, a few millionths off the ball play predicts, so it lands within 1e-5
         for k in 291..=298 {

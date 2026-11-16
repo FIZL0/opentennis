@@ -3741,15 +3741,17 @@ fn button_kind(b: u8) -> i32 {
 }
 
 /// The stick a computer player holds at its contact: the one aimed at its press (a fresh aim if it has none),
-/// bent by the singles kind lock off a flat or drop shot the button didn't ask for.
+/// bent by the singles kind lock off a flat or drop shot the button didn't ask for. The aim reads it as the pad
+/// state the AI wrote, in steps of 1/127 (`ai_stick`), as the serve's: both bot matches' returns land as recorded
+/// only with it.
 fn ai_contact_stick(g: &mut Game, i: usize) -> Vec2 {
-    let Some((stick, b)) = g.players[i].ai_press.take() else { return ai_aim(g, i) };
+    let Some((stick, b)) = g.players[i].ai_press.take() else { return ai_stick(ai_aim(g, i)) };
     if g.players.len() != 2 {
-        return stick;
+        return ai_stick(stick);
     }
     let (ai, end) = (g.players[i].ai, g.players[i].end);
     let s = ai.lock_stick(b, [stick.x, 0.0, stick.y, 0.0], end, &mut ai_roll(&mut g.rng));
-    Vec2::new(s[0], s[2])
+    ai_stick(Vec2::new(s[0], s[2]))
 }
 
 /// A serving computer player's toss (`AiParams::serve_toss`) as the press kind `serve_turn` reads.
