@@ -2,7 +2,7 @@
 name = "hst-base"
 version.workspace = true
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 
 # The lower layer of the game (P60, `src/lib.rs`): split out of `hst` so an edit in the match or the menus rebuilds less.
 [dependencies]

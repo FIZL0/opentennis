@@ -25,10 +25,11 @@ ignore = [
 ]
 
 [licenses]
-# permissive licences, plus MPL-2.0 (file-level copyleft: fine to link, changes to its own files stay MPL)
+# permissive licences, our own GPL, plus MPL-2.0 (file-level copyleft: fine to link, changes to its own files stay MPL)
 allow = [
     "0BSD",
     "Apache-2.0",
+    "GPL-3.0-or-later", # our own crates
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",

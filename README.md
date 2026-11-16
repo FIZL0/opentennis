@@ -144,7 +144,7 @@ More (settings file, terminal client): [docs/DEVELOPING.md](docs/DEVELOPING.md).
 
 ## License
 
-The code is licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at your option.
+The code is licensed under the [GNU General Public License v3.0 or later](LICENSE).
 This covers the code only, not the game or its data.
 
 ## Legal

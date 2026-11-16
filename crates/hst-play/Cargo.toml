@@ -2,7 +2,7 @@
 name = "hst-play"
 version.workspace = true
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 
 # The match (P61, `src/lib.rs`): split out of `hst` so an edit in the menus rebuilds and relinks less, and the match's
 # tests build without the front-end.

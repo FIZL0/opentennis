@@ -2,7 +2,7 @@
 name = "hst"
 version.workspace = true
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 
 # Android (`tools/apk.sh`): the game as a NativeActivity .so; only built when asked for, never by `cargo test`
 # (src/android_so.rs is a symlink to main.rs: the same file under its own name, B618, or Cargo warns that main.rs is in

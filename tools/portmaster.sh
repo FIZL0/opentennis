@@ -27,7 +27,7 @@ cp docs/screenshots/portmaster.png "$out/screenshot.png"
 install -m 755 $src/OpenTennis.sh "$out/OpenTennis.sh"
 install -m 755 "$bin" "$out/opentennis/opentennis.aarch64"
 # no bundled .so: libs.aarch64 stays empty (the launcher puts it on LD_LIBRARY_PATH, as the template does)
-cp LICENSE-MIT LICENSE-APACHE "$out/opentennis/licenses/"
+cp LICENSE "$out/opentennis/licenses/"
 cp crates/hst/assets/fonts/OFL.txt "$out/opentennis/licenses/OFL-MPLUSRounded1c.txt"
 cp CREDITS.md "$out/opentennis/licenses/CREDITS.md"
 
