@@ -880,7 +880,10 @@ impl Decodable for Stream {
 }
 
 pub fn plugin(app: &mut App) {
-    app.add_audio_source::<Stream>().add_systems(Startup, start).add_systems(PostUpdate, reopened);
+    app.add_audio_source::<Stream>().add_systems(Startup, start)
+        // iOS with no disc yet (`disc::WAITING`): no sound until the ISO is copied in, then it starts
+        .add_systems(Update, start.run_if(not(resource_exists::<Sound>)))
+        .add_systems(PostUpdate, reopened);
 }
 
 /// B677: the output device came back (a new sink pulls the mix again): the one-shot sounds started while nothing
@@ -895,7 +898,7 @@ fn reopened(mut reopened: MessageReader<bevy::audio::AudioOutputReopened>, sound
 }
 
 fn start(mut commands: Commands, args: Res<Args>, mut streams: ResMut<Assets<Stream>>) {
-    let mut iso = Iso::open(&args.iso).expect("open iso");
+    let Ok(mut iso) = Iso::open(&args.iso) else { return };
     let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
     // B235: the saved volumes (the menu's Sound screen sets them again as they change)
     let settings = crate::store::settings(&args.iso);
