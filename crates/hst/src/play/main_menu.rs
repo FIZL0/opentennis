@@ -3740,6 +3740,7 @@ fn step(
                     }
                     *baking = None;
                     info!("starting the match: {}", a.join(" "));
+                    crate::rules_choice::settle();
                     // the match in this app; its quit comes back to this menu as it is now
                     // the offbeat rules don't carry over: back from this match (rematch too), they're all off
                     let (base, kept) = (args.clone(), Menu { offbeat: default(), ..menu.clone() });

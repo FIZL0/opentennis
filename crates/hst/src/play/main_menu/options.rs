@@ -489,7 +489,7 @@ impl Settings {
                 // the main disc's own release saves as the default, so another main disc plays its own
                 let r = cycle(&crate::rules_choice::available(), crate::rules_choice::chosen(), d);
                 self.rules = if r == crate::rules_choice::own() { 0 } else { r };
-                crate::rules_choice::choose(self.rules);
+                crate::rules_choice::choose_soon(self.rules);
             }
             MatchSpeed => {
                 self.match_speed = cycle(&crate::match_speed::available(), crate::match_speed::chosen(), d);
@@ -627,7 +627,7 @@ impl Menu {
                     crate::audio::EMOTE_VOICES.store(was.emote_voices, std::sync::atomic::Ordering::Relaxed);
                     crate::play::rumble::ON.store(was.match_rumble, std::sync::atomic::Ordering::Relaxed);
                     crate::voices::choose(was.voice_language);
-                    crate::rules_choice::choose(was.rules);
+                    crate::rules_choice::choose_soon(was.rules);
                     crate::match_speed::choose(was.match_speed);
                     out.push(Effect::SaveSettings);
                 }

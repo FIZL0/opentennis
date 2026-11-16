@@ -68,6 +68,21 @@ pub fn choose(r: u8) {
     apply();
 }
 
+/// [`choose`] from a menu: laying another release reads a few hundred MB of both discs (~1 s), so natively off the
+/// frame; a match started meanwhile waits on it ([`settle`]).
+pub fn choose_soon(r: u8) {
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(move || choose(r));
+    #[cfg(target_arch = "wasm32")]
+    choose(r);
+}
+
+/// Waits for a [`choose_soon`] still laying (`apply` holds `OURS` throughout).
+// ponytail: a start within the thread's first instant, before it takes the lock, isn't waited for; no menu is that fast
+pub fn settle() {
+    drop(OURS.lock());
+}
+
 /// A release's name in the player's words.
 pub fn name(r: u8) -> &'static str {
     match RULES[r as usize] {
