@@ -60,9 +60,8 @@ impl Edition {
     }
 
     /// The release disc (image or pack) `iso` is, checked: its boot line names one, its main program and game overlay
-    /// are on it, and for the US and Japanese releases the overlay is that release's 1.00 one (the tables the
-    /// remaster reads are where it reads them). The European overlay is only checked to be an overlay: the remaster
-    /// reads none of its tables yet.
+    /// are on it, and the overlay is that release's 1.00 one (the tables the remaster reads are where it reads them),
+    /// so a prototype or another version that boots the same program name is passed over.
     pub fn of(iso: &mut Iso) -> Option<Edition> {
         // the disc's own files, not another release's read over them (`crossplay::lend`, a lobby host's)
         let cnf = iso.read_disc("SYSTEM.CNF").ok()?;
@@ -71,11 +70,8 @@ impl Edition {
             return None;
         }
         let bin = iso.read_disc("ZZBIN/GAME.BIN").ok()?;
-        let ok = match edition.release() {
-            Some(_) => Game::new(&cnf, &bin).is_ok(),
-            None => bin.get(..4) == Some(b"MWo3"),
-        };
-        ok.then_some(edition)
+        // every release's overlay is checked to be its 1.00 one: a prototype with the same boot line loads elsewhere
+        Game::new(&cnf, &bin).is_ok().then_some(edition)
     }
 }
 
@@ -141,7 +137,8 @@ mod tests {
 
     /// The Japanese and European discs in `fixtures/discs/` (skipped without them) are found beside the US one under
     /// their own names, the US disc itself and the folders there passed over; a renamed copy is found as well, a
-    /// small file or a second copy of a release is not. The US disc is the one to play from.
+    /// small file, a second copy of a release or a prototype of one (`SCES-54535-proto-0119.iso`, if there) is not.
+    /// The US disc is the one to play from.
     #[test]
     fn finds_the_other_releases() {
         let Ok(mut us) = fixture::iso() else { return };
@@ -150,6 +147,10 @@ mod tests {
         let (jp, eu) = (dir.join("SCPS-15113.iso"), dir.join("SCES-54535.iso"));
         if !jp.exists() || !eu.exists() {
             return fixture::skip("the Japanese and European discs (fixtures/discs/)");
+        }
+        let proto = dir.join("SCES-54535-proto-0119.iso");
+        if proto.exists() {
+            assert_eq!(Iso::open(&proto).ok().and_then(|mut iso| Edition::of(&mut iso)), None, "a prototype isn't the release");
         }
         let found = beside(&jp, std::slice::from_ref(&dir));
         assert_eq!(found, [Disc { path: eu.clone(), edition: Edition::Europe }], "the main disc itself left out");
