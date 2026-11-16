@@ -330,6 +330,12 @@ pub struct Room {
     /// player has their downloads; a download that begins during the countdown stops it and waits again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub held: bool,
+    /// M171: the rules the lobby plays, its host's disc's (`handshake::rules`: "us", "jp", "eu"; empty: unknown), and
+    /// the host's gameplay digest, which a guest's disc with the host's data over it must match (crossplay).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub rules: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sim: Option<u64>,
 }
 
 /// B281: how long the host's Start waits for a player still choosing whether to download a mod (ms; tests shorten it).
@@ -647,12 +653,15 @@ pub struct Listing {
     /// M22: the host's build id (`handshake::build`); empty from a build before it. Find greys out the others.
     #[serde(default)]
     pub build: String,
+    /// M171: the rules it plays (its host's disc's, `Room::rules`), for the list.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub rules: String,
 }
 
 impl Listing {
     fn of(id: EndpointId, room: &Room) -> Listing {
         let seats = room.seats.len();
-        Listing { id: id.to_string(), name: room.name.clone(), doubles: room.doubles, court: room.court, taken: seats - room.open(), seats, time: crate::unix_secs(), code: String::new(), build: our_build().into() }
+        Listing { id: id.to_string(), name: room.name.clone(), doubles: room.doubles, court: room.court, taken: seats - room.open(), seats, time: crate::unix_secs(), code: String::new(), build: our_build().into(), rules: room.rules.clone() }
     }
 
     /// M22: hosted by this same build, so joining it can work (else the host refuses at the Hello).
@@ -741,6 +750,10 @@ pub enum Msg {
         /// M163b: its disc's gameplay digest (`handshake::Handshake::sim`), checked instead of the pack when both send one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sim: Option<u64>,
+        /// M171: its disc's digest piece by piece (`handshake::Handshake::manifest`): a disc that plays differently is
+        /// let in, and the host sends it its data for what differs (crossplay).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        manifest: Option<hst_data::digest::Manifest>,
     },
     Room(Room),
     Refused(String),
@@ -1715,14 +1728,14 @@ fn micros(t0: n0_future::time::Instant) -> u64 {
 
 /// A guest's arrivals into the host task: its Hello first (else it's dropped), then what it says and sends, then gone.
 async fn guest(gtx: amp::UnboundedSender<Guest>, peer: String, conn: Conn, link: Link, mut inbox: Inbox) {
-    let Some(Ok(Msg::Hello { build, picks, name, courts, device, seat, pack, tables, sim })) = inbox.msgs.recv().await else {
+    let Some(Ok(Msg::Hello { build, picks, name, courts, device, seat, pack, tables, sim, manifest })) = inbox.msgs.recv().await else {
         conn.close(b"no hello");
         return;
     };
     let g = gtx.clone();
     let p = gtx.clone();
     n0_future::task::spawn(read_packs(conn.clone(), move |h, b| drop(g.send(Guest::Pack(h, b))), move |h, got, n| drop(p.send(Guest::Progress(h, got, n)))));
-    let _ = gtx.send(Guest::In { peer: peer.clone(), name, picks, hand: Handshake { build, pack, tables, sim }, link: link.clone(), conn, courts, device, seat });
+    let _ = gtx.send(Guest::In { peer: peer.clone(), name, picks, hand: Handshake { build, pack, tables, sim, manifest }, link: link.clone(), conn, courts, device, seat });
     loop {
         tokio::select! {
             m = inbox.msgs.recv() => match m {
@@ -1770,6 +1783,8 @@ fn refuse(link: &Link, conn: Conn, why: String) {
 }
 
 async fn host(cx: &Ctx, mut room: Room, cmds: &mut amp::UnboundedReceiver<Cmd>) {
+    // M171: the lobby plays this disc's rules; a guest on another disc gets its data for what differs
+    (room.rules, room.sim) = (crate::handshake::rules().into(), crate::handshake::sim());
     room.names.insert("host".into(), cx.name.clone());
     room.courts.insert("host".into(), cx.courts.clone());
     room.devices.insert("host".into(), *cx.device.lock().unwrap());
@@ -2185,6 +2200,7 @@ impl Hosted {
                     refuse(&link, conn, why);
                     return;
                 }
+                crossplay_send(&hand, &conn);
                 let name = if name.trim().is_empty() { short(&peer).to_string() } else { name.chars().take(16).collect() };
                 // B549: someone reached the lobby (board, LAN or link) before its short code went out: friends can
                 // join, whatever stage the code is stuck at
@@ -2613,6 +2629,8 @@ async fn relay(cx: &Ctx, mut room: Room, mut joined: Vec<(String, Link, Conn)>, 
                     let back = back_for(&room, &away, &name, seat);
                     match back {
                         Some(_) if let Err(e) = hand.check(&Handshake::here()) => refuse(&link, conn, e),
+                        // M171: the match would start before the host's data got there
+                        Some(_) if hand.needs_data(&Handshake::here()) => refuse(&link, conn, "Rejoining a match played by another disc's rules isn't possible yet.".into()),
                         Some(old) => {
                             bevy::log::info!("{name} ({}) rejoins for {}", short(&peer), short(&old));
                             away.retain(|p| *p != old);
@@ -2902,7 +2920,78 @@ fn picks_ok(p: &[Pick]) -> Result<(), String> {
 
 /// Join by code; true once seated (the lobby then runs until it starts or someone leaves).
 async fn join(cx: &Ctx, code: &str, picks: Vec<Pick>, cmds: &mut amp::UnboundedReceiver<Cmd>) -> bool {
-    join_as(cx, code, picks, cmds, &Handshake::here()).await
+    let seated = join_as(cx, code, picks, cmds, &Handshake::here()).await;
+    // M171: out of the host's lobby: the disc plays as itself again
+    crate::handshake::end_crossplay();
+    seated
+}
+
+/// M171: the host's side of crossplay: a guest whose disc plays differently (`Handshake::needs_data`) gets this disc's
+/// data for what differs, worked out off the network's thread, on a pack stream keyed by the host's digest.
+fn crossplay_send(hand: &Handshake, conn: &Conn) {
+    let here = Handshake::here();
+    let (Some(key), Some(peer)) = (here.sim, hand.manifest.clone().filter(|_| hand.needs_data(&here))) else { return };
+    let conn = conn.clone();
+    off_thread(move || {
+        if let Some(b) = crate::handshake::patch_for(&peer) {
+            bevy::log::info!("crossplay: sending a guest {} KB of this disc's game data", b.len() / 1024);
+            send_pack(&conn, key, std::sync::Arc::new(b));
+        }
+    });
+}
+
+/// `f` on a thread of its own (the browser: now, it has no threads).
+fn off_thread(f: impl FnOnce() + Send + 'static) {
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(f);
+    #[cfg(target_arch = "wasm32")]
+    f();
+}
+
+/// M171: a guest's side of crossplay: what it has of the host's data so far (the host's digest it waits for, 0: none;
+/// whether it's laid over the disc).
+#[derive(Default)]
+struct Crossplay {
+    want: std::sync::atomic::AtomicU64,
+    done: std::sync::atomic::AtomicBool,
+}
+
+impl Crossplay {
+    /// The host's data (`b`, a pack stream keyed `h`, the host's digest): laid over the disc and checked, off the
+    /// network's thread.
+    fn take(self: &std::sync::Arc<Self>, h: u64, b: Vec<u8>, ev: &mpsc::Sender<Event>, link: &Link, conn: &Conn) {
+        let (me, ev, link, conn) = (self.clone(), ev.clone(), link.clone(), conn.clone());
+        off_thread(move || match crate::handshake::take_patch(&b, h) {
+            Ok(()) => {
+                me.done.store(true, std::sync::atomic::Ordering::Relaxed);
+                link.send(&Msg::Fetching(None));
+                let _ = ev.send(Event::Status("The host's game data is here: you play by their disc's rules.".into()));
+            }
+            Err(e) => {
+                let _ = ev.send(Event::Failed(format!("Couldn't play by the host's disc: {e}")));
+                conn.close(b"crossplay");
+            }
+        });
+    }
+
+    /// How far the host's data is (bytes so far of `n`, stream keyed `h`): told to the host as a download.
+    fn progress(&self, h: u64, got: u64, n: u64, link: &Link) -> bool {
+        if h == 0 || h != self.want.load(std::sync::atomic::Ordering::Relaxed) {
+            return false;
+        }
+        if !self.done.load(std::sync::atomic::Ordering::Relaxed) {
+            link.send(&Msg::Fetching(Some((got * 100 / n.max(1)).min(99) as u8)));
+        }
+        true
+    }
+
+    /// The lobby's line-up `r` came: a lobby on another disc's data waits for it (the start holds for a download).
+    fn room(&self, r: &Room, hand: &Handshake, link: &Link) {
+        let Some(host) = r.sim.filter(|&h| hand.sim.is_some_and(|s| s != h) && hand.manifest.is_some()) else { return };
+        if self.want.swap(host, std::sync::atomic::Ordering::Relaxed) != host && !self.done.load(std::sync::atomic::Ordering::Relaxed) {
+            link.send(&Msg::Fetching(Some(0)));
+        }
+    }
 }
 
 /// `join`, with handshake `hand` (M22's and M142's tests play another build and disc).
@@ -2912,12 +3001,29 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
         let _ = n0_future::time::timeout(Duration::from_secs(10), ep.online()).await;
     }
     let Some((conn, link, inbox, me)) = connect(cx, code, cmds).await else { return false };
-    link.send(&Msg::Hello { build: hand.build.clone(), picks: picks.clone(), name: cx.name.clone(), courts: cx.courts.clone(), device: *cx.device.lock().unwrap(), seat: cx.seat, pack: hand.pack, tables: hand.tables, sim: hand.sim });
+    link.send(&Msg::Hello { build: hand.build.clone(), picks: picks.clone(), name: cx.name.clone(), courts: cx.courts.clone(), device: *cx.device.lock().unwrap(), seat: cx.seat, pack: hand.pack, tables: hand.tables, sim: hand.sim, manifest: hand.manifest.clone() });
     cx.say(Event::Me(me.clone()));
     let Inbox { msgs: mut inbox, mut dgrams } = inbox;
     let ev = cx.ev.clone();
     let p = cx.ev.clone();
-    n0_future::task::spawn(read_packs(conn.clone(), move |h, b| drop(ev.send(Event::Pack(h, b))), move |h, got, n| drop(p.send(Event::Progress(h, got, n)))));
+    // M171: the host's data (crossplay) comes on a pack stream too
+    let xp = std::sync::Arc::new(Crossplay::default());
+    let (x1, x2, l1, l2, c1) = (xp.clone(), xp.clone(), link.clone(), link.clone(), conn.clone());
+    n0_future::task::spawn(read_packs(
+        conn.clone(),
+        move |h, b| {
+            if b.starts_with(hst_data::crossplay::MAGIC) {
+                x1.take(h, b, &ev, &l1, &c1);
+            } else {
+                drop(ev.send(Event::Pack(h, b)));
+            }
+        },
+        move |h, got, n| {
+            if !x2.progress(h, got, n, &l2) {
+                drop(p.send(Event::Progress(h, got, n)))
+            }
+        },
+    ));
     let mut seated = false;
     let mut playing = false;
     // B114: connected but no seat from the host by then: give up instead of "Joining..." for ever
@@ -2944,6 +3050,7 @@ async fn join_as(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
                     return seated;
                 }
                 Ok(Msg::Room(r)) => {
+                    xp.room(&r, hand, &link);
                     if !seated {
                         // B114: the last status was "Joining...", which read as still trying
                         cx.say(Event::Status("Joined: pick your character, then choose Ready.".into()));
@@ -4054,7 +4161,7 @@ mod tests {
 
     #[test]
     fn quickplay_takes_the_busiest_that_fits() {
-        let l = |id: &str, taken, seats, time| Listing { id: id.into(), name: String::new(), doubles: seats == 4, court: 0, taken, seats, time, code: String::new(), build: our_build().into() };
+        let l = |id: &str, taken, seats, time| Listing { id: id.into(), name: String::new(), doubles: seats == 4, court: 0, taken, seats, time, code: String::new(), build: our_build().into(), rules: String::new() };
         let list = [l("a", 1, 4, 5), l("b", 2, 4, 1), l("c", 3, 4, 9), l("d", 1, 2, 9)];
         assert_eq!(quick_pick(&list, true, 2).iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["b", "a"]);
         assert_eq!(quick_pick(&list, true, 1)[0].id, "c");
@@ -4063,7 +4170,7 @@ mod tests {
 
     #[test]
     fn find_never_lists_our_own_lobby() {
-        let l = |id: &str| Listing { id: id.into(), name: String::new(), doubles: false, court: 0, taken: 1, seats: 2, time: 0, code: String::new(), build: our_build().into() };
+        let l = |id: &str| Listing { id: id.into(), name: String::new(), doubles: false, court: 0, taken: 1, seats: 2, time: 0, code: String::new(), build: our_build().into(), rules: String::new() };
         let ids = |v: Vec<Listing>| v.into_iter().map(|l| l.id).collect::<Vec<_>>();
         assert_eq!(ids(not_mine(vec![l("me"), l("a"), l("b")], Some("me".into()))), ["a", "b"]);
         // B332: Quickplay would otherwise dial itself
@@ -4504,7 +4611,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             };
             let code2 = code.clone();
-            let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &Handshake { build: "0.0.0 1a2b3c4".into(), pack: None, tables: None, sim: None }).await });
+            let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &Handshake { build: "0.0.0 1a2b3c4".into(), pack: None, tables: None, sim: None, manifest: None }).await });
             let why = loop {
                 match gev.try_recv() {
                     Ok(Event::Failed(w)) => break w,
@@ -4521,7 +4628,7 @@ mod tests {
             let (gcx, gev) = cx().await;
             let (_gcmd, mut grx) = amp::unbounded_channel();
             let code = code2;
-            let other = Handshake { build: our_build().into(), pack: Some(2), tables: None, sim: None };
+            let other = Handshake { build: our_build().into(), pack: Some(2), tables: None, sim: None, manifest: None };
             let seated = tokio::spawn(async move { join_as(&gcx, &code, vec![Pick::disc(1, 0)], &mut grx, &other).await });
             let why = loop {
                 match gev.try_recv() {
@@ -4533,7 +4640,7 @@ mod tests {
             assert!(why.starts_with("Refused: your imported disc (0000000000000002) isn't the same as the host's (0000000000000001)"), "{why}");
             assert!(!seated.await.unwrap(), "never seated");
         });
-        let l = |build: &str| Listing { id: build.into(), name: String::new(), doubles: false, court: 0, taken: 1, seats: 2, time: 0, code: String::new(), build: build.into() };
+        let l = |build: &str| Listing { id: build.into(), name: String::new(), doubles: false, court: 0, taken: 1, seats: 2, time: 0, code: String::new(), build: build.into(), rules: String::new() };
         let (ours, other, old) = (l(our_build()), l("0.0.0 1a2b3c4"), l(""));
         assert!(ours.same_build() && !other.same_build() && !old.same_build());
         assert_eq!(quick_pick(&[other, old, ours], false, 1).iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), [our_build()]);

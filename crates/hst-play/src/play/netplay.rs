@@ -1005,6 +1005,8 @@ mod tests {
             /// Instant replays in the harness's matches. A full match's mashed pads keep asking for them (△ during one
             /// asks again), so it never ends with them on.
             static REPLAYS: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+            /// M171: a peer's own disc (its name, the path) where it isn't the US one (`ISO`).
+            static DISCS: std::cell::RefCell<Vec<(String, String)>> = const { std::cell::RefCell::new(Vec::new()) };
         }
 
         fn app(room: &Room, me: &str) -> App {
@@ -1022,7 +1024,8 @@ mod tests {
             app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
             app.init_asset::<crate::gs::GsMaterial>();
             let chars = [0, 2, 1, 3].map(|s| room.seats[s].as_ref().unwrap().pick.char).to_vec();
-            let mut args = Args { iso: ISO.into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles: false, chars, outfits: vec![], viewer: None, sound: None, music: false, umpire: room.umpire, sets: 1, games: room.games, pads: None };
+            let iso = DISCS.with_borrow(|d| d.iter().find(|(p, _)| p == me).map(|(_, iso)| iso.clone())).unwrap_or_else(|| ISO.into());
+            let mut args = Args { iso, archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles: false, chars, outfits: vec![], viewer: None, sound: None, music: false, umpire: room.umpire, sets: 1, games: room.games, pads: None };
             if let Some(looks) = looks {
                 let order = [0, 2, 1, 3];
                 (args.court, args.stage) = (room.court + 1, Some(room.court as u32 + 1));
@@ -1790,6 +1793,91 @@ mod tests {
         /// The notice the next frame would show (a frame of no time).
         fn notice(a: &mut App) -> String {
             recover::tick(a.world_mut(), 0.0)
+        }
+
+        // ---------------------------------------------------------------- crossplay (M171)
+
+        /// M171: a US host and a guest on the Japanese disc with the host's data over it play the host's match in
+        /// sync, in lockstep and with rollback; without the data they go apart (the control).
+        #[test]
+        fn a_japanese_disc_plays_a_us_hosts_match() {
+            crossplay(false);
+        }
+
+        /// M171: the other way round: a Japanese host, a guest on the US disc, the Japanese rules on both.
+        #[test]
+        fn a_us_disc_plays_a_japanese_hosts_match() {
+            crossplay(true);
+        }
+
+        fn crossplay(host_jp: bool) {
+            use hst_data::{crossplay, digest, iso::Iso};
+            use hst_sim::build::Build;
+            let jp = hst_data::fixture::path("fixtures/discs/SCPS-15113.iso");
+            if !hst_data::fixture::has_iso() || !jp.exists() {
+                // the Japanese disc isn't the user's: skipped even under HST_REQUIRE_DISC
+                return eprintln!("skipped: no ISO or fixtures/discs/SCPS-15113.iso");
+            }
+            let us = std::path::PathBuf::from(ISO);
+            let (host, own) = if host_jp { (jp, us) } else { (us, jp) };
+            // the guest's disc under a path of its own, so the host's data goes over it and nobody else's
+            let dir = std::env::temp_dir().join(format!("hst-crossplay-{}-{host_jp}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let link = dir.join("disc.iso");
+            let _ = std::fs::remove_file(&link);
+            std::os::unix::fs::symlink(std::fs::canonicalize(&own).unwrap(), &link).unwrap();
+            let survey = |p: &Path| {
+                let mut iso = Iso::open_own(p).unwrap();
+                digest::survey(|f| iso.read_unlogged(f).ok()).unwrap()
+            };
+            let ((hd, _), (gd, gm)) = (survey(&host), survey(&link));
+            assert_ne!(hd, gd, "the two discs play alike");
+            let set = |g: &Path| DISCS.set(vec![("host".into(), host.to_string_lossy().into()), ("g".into(), g.to_string_lossy().into())]);
+            let want = if host_jp { Build::Japan } else { Build::Us };
+            let builds = |apps: &[App]| apps.iter().map(|a| a.world().resource::<Game>().build).collect::<Vec<_>>();
+            REPLAYS.set(true);
+
+            // the control: the guest's own disc, the host's match: they go apart
+            set(&own);
+            let apps = play_room(room(crate::net::delay_for(std::time::Duration::from_millis(200))), 6, 900, None);
+            // (a resync hands the guest the host's state, its rules included, so only the desync report tells)
+            assert!(apps.iter().any(|a| a.world().resource::<Netplay>().report.is_some()), "the discs played alike without the host's data");
+
+            // the host's data, over the wire's encoding, laid over the guest's disc and checked against its digest
+            let mut hiso = Iso::open_own(&host).unwrap();
+            let patch = crossplay::patch_for(|f| hiso.read_unlogged(f).ok(), &gm).unwrap().encode();
+            eprintln!("crossplay: {} KB of the host's data", patch.len() / 1024);
+            crossplay::verify(&link, crossplay::Patch::decode(&patch).unwrap(), hd).unwrap();
+            set(&link);
+
+            // lockstep
+            let apps = play_room(room(crate::net::delay_for(std::time::Duration::from_millis(200))), 6, 900, None);
+            assert_eq!(builds(&apps), [want, want]);
+            let [a, b] = apps.each_ref().map(|a| a.world().resource::<Netplay>());
+            for np in [a, b] {
+                assert_eq!((np.end.as_deref(), np.desynced, np.note.as_ref().map(|n| &n.0)), (None, false, None), "{}", np.me);
+            }
+            let n = a.lock.log.len().min(b.lock.log.len());
+            assert!(n > 600, "{n} ticks");
+            assert_eq!(a.lock.log[..n], b.lock.log[..n]);
+            eprintln!("crossplay lockstep: in sync over {n} ticks, {:?}", builds(&apps));
+
+            // rollback
+            let apps = peers(true, 900, |_, _, _| {});
+            assert_eq!(builds(&apps), [want, want]);
+            let logs: Vec<_> = apps.iter().map(|a| a.world().resource::<Netplay>()).collect();
+            let n = logs.iter().map(|np| np.lock.log.len()).min().unwrap() - rollback::WINDOW;
+            assert!(n > 600, "only {n} ticks in step");
+            for np in &logs {
+                assert_eq!((np.end.as_deref(), np.desynced, np.note.as_ref().map(|n| &n.0)), (None, false, None), "{}", np.me);
+                assert_eq!(np.lock.log[..n], logs[0].lock.log[..n], "{} ran other pads", np.me);
+            }
+            eprintln!("crossplay rollback: in step over {n} ticks");
+
+            DISCS.set(Vec::new());
+            assert!(crossplay::remove(&link));
+            let _ = std::fs::remove_file(&link);
+            let _ = std::fs::remove_dir(&dir);
         }
 
         fn press(a: &mut App, k: KeyCode) {

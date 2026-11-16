@@ -62,6 +62,8 @@ pub struct View {
     pub kept: HashSet<PathBuf>,
     /// B484: the prompt's cursor when it's asked over the select or the confirm (the lobby's is `sel`).
     pub ask_row: usize,
+    /// M171: the host's rules (`Room::rules`) while the note on how they differ from this disc's shows (`rules_note`).
+    pub rules_note: Option<String>,
     pub ready: Option<u32>,
     /// The lobby's picks' faces still being drawn here (`previews::lent_drawn`): Ready holds for them, `poll` caps it.
     pub faces: bool,
@@ -1767,6 +1769,10 @@ impl Menu {
                 if !v.hosting && !r.short.is_empty() {
                     v.short = r.short.clone();
                 }
+                // M171: a guest joining a lobby on another disc's rules is told how they differ
+                if !v.hosting && v.room.is_none() {
+                    v.rules_note = super::rules_note::on_join(&r.rules);
+                }
                 v.room = Some(r);
                 // M120: the host and a guest are already on the select (or done picking): they stay where they are
                 if v.pick_next {
@@ -2030,20 +2036,20 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, hand_x: f32) {
                     }
                     let nw = 120.0 * w / 480.0;
                     d.centred(&l.name, col(70.0), y + 9.0, 20.0 * (nw / d.width(&l.name, 20.0).max(nw)), grey);
-                    d.label(if l.doubles { "Doubles" } else { "Singles" }, col(180.0), y + 9.0, 20.0, 90.0 * w / 480.0, grey);
+                    d.label(&super::rules_note::kind(l.doubles, &l.rules), col(180.0), y + 9.0, 20.0, 90.0 * w / 480.0, grey);
                     d.label("Other version: update", col(360.0), y + 9.0, 20.0, 230.0 * w / 480.0, grey);
                     continue;
                 }
                 if geo.court {
                     d.fitted(&l.name, col(70.0), y + 9.0, 20.0, 120.0);
-                    d.centred(if l.doubles { "Doubles" } else { "Singles" }, col(180.0), y + 9.0, 20.0, rgb);
+                    d.label(&super::rules_note::kind(l.doubles, &l.rules), col(180.0), y + 9.0, 20.0, 100.0 * w / 480.0, rgb);
                     d.fitted(&court_name(text, l.court), col(315.0), y + 9.0, 20.0, 170.0);
                     d.centred(&format!("{} open", l.open()), col(440.0), y + 9.0, 20.0, rgb);
                 } else {
                     // B695: too narrow for the court's column: the host, the kind, the seats
                     let c = |k: f32| x + w * k;
                     d.fitted(&l.name, c(0.2), y + 9.0, 20.0, w * 0.34);
-                    d.centred(if l.doubles { "Doubles" } else { "Singles" }, c(0.56), y + 9.0, 20.0, rgb);
+                    d.label(&super::rules_note::kind(l.doubles, &l.rules), c(0.56), y + 9.0, 20.0, w * 0.2, rgb);
                     d.centred(&format!("{} open", l.open()), c(0.84), y + 9.0, 20.0, rgb);
                 }
             }
@@ -2364,7 +2370,7 @@ fn card_art(d: &mut Draw, m: &Menu, sel: usize, cfg: &Online, relay: &str, [x, y
             let count = if l.same_build() { format!("{} / {}", l.taken, l.seats) } else { "Other version".into() };
             let cw = d.width(&count, 15.0);
             fit(d, &l.name, r[0] + 10.0, r[1] + 5.0, 15.0, r[2] * 0.5 - 14.0, INK);
-            d.text(if l.doubles { "Doubles" } else { "Singles" }, r[0] + r[2] * 0.5, r[1] + 5.0, 15.0, MUTED);
+            fit(d, &super::rules_note::kind(l.doubles, &l.rules), r[0] + r[2] * 0.5, r[1] + 5.0, 15.0, r[2] * 0.5 - 20.0 - d.width(&count, 15.0), MUTED);
             d.text(&count, r[0] + r[2] - 10.0 - cw, r[1] + 5.0, 15.0, if l.same_build() { INK } else { MUTED });
         }
     };
@@ -3027,7 +3033,7 @@ pub(super) fn sample(m: &mut Menu) {
     m.net.code = "endpointaabbccddeeffgghhiijjkkllmmnnooppqqrrssttuuvvwwxxyyzz223344556677".into();
     // M22: the third one is another build's, greyed out
     let build = |i| if i == 2 { "0.9.0 1a2b3c4".to_string() } else { crate::handshake::build().into() };
-    m.net.list = (0..3).map(|i| Listing { id: format!("{i}"), name: format!("Lobby {i}"), doubles: i != 1, court: i, taken: 1 + i % 2, seats: if i != 1 { 4 } else { 2 }, time: 0, code: String::new(), build: build(i) }).collect();
+    m.net.list = (0..3).map(|i| Listing { id: format!("{i}"), name: format!("Lobby {i}"), doubles: i != 1, court: i, taken: 1 + i % 2, seats: if i != 1 { 4 } else { 2 }, time: 0, code: String::new(), build: build(i), rules: String::new() }).collect();
     // B236: the loading, empty and failed states
     match menu.as_str() {
         "lobbies-searching" | "lobbies-none" | "lobbies-failed" => m.net.list.clear(),
@@ -4605,7 +4611,7 @@ mod tests {
         let dev = super::super::Dev::Keys;
         let ok = Press { ok: true, ..default() };
         let mut m = Menu { screen: Screen::Lobbies, seats: [Some(dev), None, None, None], net: View { cfg: Some(Online::default()), ..default() }, ..default() };
-        let l = |build: &str| Listing { id: "X".into(), name: "Kim".into(), doubles: false, court: 1, taken: 1, seats: 2, time: 0, code: String::new(), build: build.into() };
+        let l = |build: &str| Listing { id: "X".into(), name: "Kim".into(), doubles: false, court: 1, taken: 1, seats: 2, time: 0, code: String::new(), build: build.into(), rules: String::new() };
         m.heard(Event::Found(vec![l("0.0.0 1a2b3c4"), l(crate::handshake::build())]));
         let fx = m.step(dev, ok);
         assert_eq!(m.screen, Screen::Lobbies);
@@ -4625,7 +4631,7 @@ mod tests {
         assert_eq!(m.screen, Screen::Lobbies);
         assert!(fx.contains(&Effect::Online(Fx::Net(Cmd::Find))), "{fx:?}");
         // a singles and a doubles lobby side by side
-        let l = |id: &str, doubles, taken| Listing { id: id.into(), name: id.into(), doubles, court: 1, taken, seats: if doubles { 4 } else { 2 }, time: 0, code: String::new(), build: crate::handshake::build().into() };
+        let l = |id: &str, doubles, taken| Listing { id: id.into(), name: id.into(), doubles, court: 1, taken, seats: if doubles { 4 } else { 2 }, time: 0, code: String::new(), build: crate::handshake::build().into(), rules: String::new() };
         m.heard(Event::Found(vec![l("S", false, 1), l("D", true, 2)]));
         assert_eq!(m.net.list.len(), 2);
         for (sel, id, doubles, fit) in [(0, "S", false, 1), (1, "D", true, 2)] {
@@ -4661,7 +4667,7 @@ mod tests {
     fn joining_shows_no_failure_before_it_fails() {
         let dev = super::super::Dev::Keys;
         let ok = Press { ok: true, ..default() };
-        let l = Listing { id: "S".into(), name: "Kim".into(), doubles: false, court: 1, taken: 1, seats: 2, time: 0, code: String::new(), build: crate::handshake::build().into() };
+        let l = Listing { id: "S".into(), name: "Kim".into(), doubles: false, court: 1, taken: 1, seats: 2, time: 0, code: String::new(), build: crate::handshake::build().into(), rules: String::new() };
         let mut m = Menu { screen: Screen::Lobbies, seats: [Some(dev), None, None, None], net: View { cfg: Some(Online::default()), finding: 2, ..default() }, ..default() };
         m.heard(Event::Found(vec![l.clone()]));
         m.step(dev, ok);
@@ -4712,7 +4718,7 @@ mod tests {
     #[test]
     fn find_offers_join_by_code() {
         let dev = super::super::Dev::Keys;
-        let l = Listing { id: "S".into(), name: "S".into(), doubles: false, court: 1, taken: 1, seats: 2, time: 0, code: String::new(), build: crate::handshake::build().into() };
+        let l = Listing { id: "S".into(), name: "S".into(), doubles: false, court: 1, taken: 1, seats: 2, time: 0, code: String::new(), build: crate::handshake::build().into(), rules: String::new() };
         for (sel, p) in [(2, Press { ok: true, ..default() }), (0, Press { page: true, ..default() }), (1, Press { page: true, ..default() })] {
             let net = View { cfg: Some(Online::default()), list: vec![l.clone()], go: Some(Go::Find), finding: 1, ..default() };
             let mut m = Menu { screen: Screen::Lobbies, sel, seats: [Some(dev), None, None, None], net, ..default() };

@@ -28,6 +28,10 @@ pub struct Handshake {
     /// one it is checked instead of `pack`, so players on different releases (or imports) whose discs play the same
     /// match meet; `None` before the disc's digest could be read, or from a peer that doesn't send it.
     pub sim: Option<u64>,
+    /// M171: its disc's digest piece by piece (`hst_data::digest::Manifest`): a peer whose disc plays differently from
+    /// the host's is let in with it, and the host sends what its disc plays differently (`patch_for`). `None` with no
+    /// digest, or from a peer that doesn't send it (refused on a digest that differs, as before).
+    pub manifest: Option<hst_data::digest::Manifest>,
 }
 
 /// This machine's [`Handshake::tables`], worked out once (a few milliseconds).
@@ -67,8 +71,9 @@ pub fn set_pack(hash: Option<u64>) {
 
 /// The disc (ISO or pack path) whose gameplay digest `sim` reads, stamped with the pack (`set_disc`).
 static DISC: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-/// The digest worked out last and the disc it is of; held while one is being worked out, so a second asker waits.
-static SIM: std::sync::Mutex<Option<(String, Option<u64>)>> = std::sync::Mutex::new(None);
+/// The digest (and its manifest) worked out last and the disc it is of; held while one is being worked out, so a
+/// second asker waits.
+static SIM: std::sync::Mutex<Option<(String, Option<(u64, hst_data::digest::Manifest)>)>> = std::sync::Mutex::new(None);
 
 /// Stamps the disc this app plays (M163b): its pack hash (`set_pack`) and, for `sim`, its path. On desktop the
 /// digest (a few hundred milliseconds of reading) is worked out at once on a thread of its own, so a lobby has it ready.
@@ -79,22 +84,126 @@ pub fn set_disc(path: &str) {
     std::thread::spawn(sim);
 }
 
+/// The disc this app plays (`set_disc`'s path).
+pub fn disc() -> Option<String> {
+    DISC.lock().unwrap().clone()
+}
+
 /// This app's disc's gameplay digest (`Handshake::sim`), worked out once per disc; `None` without a disc or when it
 /// can't be read (a release the remaster doesn't read).
 pub fn sim() -> Option<u64> {
-    let path = DISC.lock().unwrap().clone()?;
+    survey().map(|(d, _)| d)
+}
+
+/// This app's disc's digest piece by piece (`Handshake::manifest`).
+pub fn manifest() -> Option<hst_data::digest::Manifest> {
+    survey().map(|(_, m)| m)
+}
+
+/// The disc's own digest and manifest, worked out once per disc: read without a lobby host's data over it
+/// (`hst_data::crossplay`), so it is always what this disc itself plays.
+fn survey() -> Option<(u64, hst_data::digest::Manifest)> {
+    let path = disc()?;
     let mut cache = SIM.lock().unwrap();
     if let Some((p, d)) = cache.as_ref()
         && *p == path
     {
-        return *d;
+        return d.clone();
     }
-    let d = hst_data::iso::Iso::open(&path).map_err(|e| e.to_string()).and_then(|mut iso| hst_data::digest::of(&mut iso));
+    let d = hst_data::iso::Iso::open_own(&path).map_err(|e| e.to_string()).and_then(|mut iso| hst_data::digest::survey(|f| iso.read_unlogged(f).ok()));
     if let Err(e) = &d {
         eprintln!("hst: no gameplay digest for {path}: {e}");
     }
-    *cache = Some((path, d.as_ref().ok().copied()));
+    *cache = Some((path, d.as_ref().ok().cloned()));
     d.ok()
+}
+
+/// M171: which release's rules a disc plays, from its `SYSTEM.CNF`: `"us"`, `"jp"`, `"eu"`; empty when unknown.
+pub fn rules_of(system_cnf: &[u8]) -> &'static str {
+    let text = String::from_utf8_lossy(system_cnf).to_ascii_uppercase();
+    match () {
+        _ if text.contains("SCUS_976") => "us",
+        _ if text.contains("SCPS_151") => "jp",
+        _ if text.contains("SCES_545") => "eu",
+        _ => "",
+    }
+}
+
+/// This app's disc's rules (`rules_of`), read off the disc itself; empty without a disc.
+pub fn rules() -> &'static str {
+    let Some(path) = disc() else { return "" };
+    static RULES: std::sync::Mutex<Option<(String, &'static str)>> = std::sync::Mutex::new(None);
+    let mut c = RULES.lock().unwrap();
+    if let Some((p, r)) = c.as_ref()
+        && *p == path
+    {
+        return r;
+    }
+    let r = hst_data::iso::Iso::open_own(&path).ok().and_then(|mut i| i.read_unlogged("SYSTEM.CNF").ok()).map_or("", |c| rules_of(&c));
+    *c = Some((path, r));
+    r
+}
+
+/// M171: a release's rules in the player's words ("Japanese"), for the lobby list and card.
+pub fn rules_name(rules: &str) -> &'static str {
+    match rules {
+        "us" => "US",
+        "jp" => "Japanese",
+        "eu" => "European",
+        _ => "",
+    }
+}
+
+/// M171: how the host's rules (`host`) play differently from this disc's own (`own`), in player terms, one line each;
+/// empty when they play alike or it isn't known. From the Japanese build's rule list (`hst_sim::build::Build`) and the
+/// discs' data (M163a); the European disc doesn't play yet (M174), so nothing is listed for it.
+pub fn rules_differ(host: &str, own: &str) -> Vec<&'static str> {
+    match (host, own) {
+        ("jp", "us") => vec![
+            "Every serve is timed like a rally shot.",
+            "A mistimed strong serve never goes astray.",
+            "No special serves, and no counter shots.",
+            "Lobs and slices can't be aimed as wide.",
+            "Smashes off their timing narrow only deep in the court.",
+            "Computer players don't react extra to lobs.",
+            "Some characters' shots fly differently.",
+            "The red landing marker shows on serves too.",
+        ],
+        ("us", "jp") => vec![
+            "Strong and weak serves have their own timing.",
+            "A mistimed strong serve can go astray.",
+            "Special serves and counter shots are in.",
+            "Lobs and slices can be aimed wider.",
+            "Smashes off their timing narrow from mid-court.",
+            "Computer players react to lobs and special serves.",
+            "Some characters' shots fly differently.",
+        ],
+        _ => Vec::new(),
+    }
+}
+
+/// M171: the host's side: what a guest whose disc's manifest is `peer` needs of this app's disc to play the host's
+/// match (`hst_data::crossplay::Patch`, encoded for the wire); `None` when it can't be read.
+pub fn patch_for(peer: &hst_data::digest::Manifest) -> Option<Vec<u8>> {
+    let path = disc()?;
+    let mut iso = hst_data::iso::Iso::open_own(&path).ok()?;
+    let p = hst_data::crossplay::patch_for(|f| iso.read_unlogged(f).ok(), peer).map_err(|e| eprintln!("hst: no crossplay data: {e}")).ok()?;
+    Some(p.encode())
+}
+
+/// M171: a guest's side: the host's data (`bytes`, from `patch_for`) laid over this app's disc and checked to play as
+/// the host's digest `host`; `Ok` and installed until `end_crossplay`.
+pub fn take_patch(bytes: &[u8], host: u64) -> Result<(), String> {
+    let path = disc().ok_or("no disc")?;
+    let p = hst_data::crossplay::Patch::decode(bytes).ok_or("the host's game data came damaged")?;
+    hst_data::crossplay::verify(&path, p, host)
+}
+
+/// M171: leaving the host's lobby: this app's disc plays as itself again.
+pub fn end_crossplay() {
+    if let Some(path) = disc() {
+        hst_data::crossplay::remove(path);
+    }
 }
 
 /// A pack hash as a release's name, for messages ("SCPS-15113 Japan 1.00"), else the hash.
@@ -108,7 +217,8 @@ fn disc_name(pack: Option<u64>) -> String {
 impl Handshake {
     /// This app's.
     pub fn here() -> Handshake {
-        Handshake { build: build().into(), pack: pack(), tables: Some(tables()), sim: sim() }
+        let survey = survey();
+        Handshake { build: build().into(), pack: pack(), tables: Some(tables()), sim: survey.as_ref().map(|s| s.0), manifest: survey.map(|s| s.1) }
     }
 
     /// A joining peer's handshake (`self`) against the host's: `Ok` to play, else why not, in words for the player.
@@ -118,7 +228,8 @@ impl Handshake {
         }
         // M163b: discs that play the same match meet, whatever release or import they are
         if let (Some(a), Some(b)) = (self.sim, host.sim) {
-            if a != b {
+            // M171: crossplay: a peer that says what its disc plays gets the host's data for what differs
+            if a != b && self.manifest.is_none() {
                 return Err(format!(
                     "your disc ({}) plays differently from the host's ({}): its game data differs (digest {a:016x}, host {b:016x}), so you can't play together.",
                     disc_name(self.pack),
@@ -141,6 +252,12 @@ impl Handshake {
         }
         Ok(())
     }
+
+    /// M171: a joining peer (`self`) whose disc plays differently from the host's, let in to play on the host's data
+    /// (`check` passed): the host sends it what differs (`patch_for`).
+    pub fn needs_data(&self, host: &Handshake) -> bool {
+        matches!((self.sim, host.sim), (Some(a), Some(b)) if a != b) && self.manifest.is_some()
+    }
 }
 
 /// A mod's gameplay data (what feeds the simulation: donor, hand, TParam row and overrides, AI row, §6 build) as a 64-bit
@@ -158,7 +275,7 @@ mod tests {
 
     #[test]
     fn same_build_and_disc_join_and_differences_are_refused() {
-        let h = Handshake { build: build().into(), pack: Some(7), tables: Some(tables()), sim: None };
+        let h = Handshake { build: build().into(), pack: Some(7), tables: Some(tables()), sim: None, manifest: None };
         assert_eq!(h.check(&h), Ok(()));
         // an ISO (no pack hash) is taken on its disc ID, on either side
         assert_eq!(Handshake { pack: None, ..h.clone() }.check(&h), Ok(()));
@@ -179,7 +296,7 @@ mod tests {
     #[test]
     fn discs_that_play_alike_meet_whatever_release() {
         let [us, jp] = [0, 2].map(|i| Some(hst_data::iso::KNOWN_PACKS[i].0));
-        let h = Handshake { build: build().into(), pack: us, tables: Some(tables()), sim: Some(1) };
+        let h = Handshake { build: build().into(), pack: us, tables: Some(tables()), sim: Some(1), manifest: None };
         // M163b: another release (or a modified import) with the same gameplay digest is let in
         assert_eq!(Handshake { pack: jp, ..h.clone() }.check(&h), Ok(()));
         assert_eq!(Handshake { pack: Some(8), ..h.clone() }.check(&h), Ok(()));
@@ -190,6 +307,26 @@ mod tests {
         // without a digest on one side, the packs decide as before
         assert!(Handshake { pack: jp, sim: None, ..h.clone() }.check(&h).unwrap_err().contains("Re-import"));
         assert_eq!(Handshake { sim: None, ..h.clone() }.check(&h), Ok(()));
+        // M171: a different digest with its manifest is let in, and the host sends it its data; the same one isn't sent any
+        let m = Some(hst_data::digest::Manifest::default());
+        let peer = Handshake { pack: jp, sim: Some(2), manifest: m.clone(), ..h.clone() };
+        assert_eq!(peer.check(&h), Ok(()));
+        assert!(peer.needs_data(&h));
+        assert!(!Handshake { manifest: m, ..h.clone() }.needs_data(&h));
+        assert!(!Handshake { sim: Some(2), ..h.clone() }.needs_data(&h));
+    }
+
+    /// M171: a disc's rules from its `SYSTEM.CNF`, their names, and how the other release's play differently.
+    #[test]
+    fn rules_and_how_they_differ() {
+        assert_eq!(rules_of(b"BOOT2 = cdrom0:\\SCUS_976.10;1\r\nVER = 1.00"), "us");
+        assert_eq!(rules_of(b"BOOT2 = cdrom0:\\SCPS_151.13;1"), "jp");
+        assert_eq!(rules_of(b"BOOT2 = cdrom0:\\SCES_545.48;1"), "eu");
+        assert_eq!(rules_of(b"BOOT2 = cdrom0:\\SLUS_000.00;1"), "");
+        assert_eq!(["us", "jp", "eu", ""].map(rules_name), ["US", "Japanese", "European", ""]);
+        assert!(["us", "jp", "eu", ""].iter().all(|r| rules_differ(r, r).is_empty()) && rules_differ("us", "eu").is_empty() && rules_differ("", "jp").is_empty());
+        let (jp, us) = (rules_differ("jp", "us"), rules_differ("us", "jp"));
+        assert!(jp.len() > 3 && us.len() > 3 && jp != us);
     }
 
     #[test]

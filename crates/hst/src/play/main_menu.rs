@@ -79,6 +79,7 @@ mod assign_drag;
 mod assign_shake;
 mod previews;
 mod roster;
+mod rules_note;
 mod slide;
 mod splash;
 mod takeover;
@@ -1535,6 +1536,10 @@ impl Menu {
         }
         // B484: the other side's mod asked about over the select / the confirm (drawn over everything)
         if self.mod_ask_step(k, &mut out) {
+            return out;
+        }
+        // M171: the note on a lobby's other rules, over the lobby's screens
+        if self.rules_note_step(k, &mut out) {
             return out;
         }
         if self.switch_step(k, &mut out) || self.reset_step(k, &mut out) {
@@ -3271,6 +3276,7 @@ fn drawn<'a>(m: &Menu, text: &'a Text, bind: &Bindings, pads: &[Entity], control
     mods_screen::transfers_layout(&mut d, m);
     mods_screen::ask_layout(&mut d, m, hand_x);
     online::draw_ask_over(&mut d, m);
+    rules_note::draw_rules_over(&mut d, m);
     takeover::layout(&mut d, m, hand_x);
     // B221: the screens with no Back row show the title tab's Back (B449: the confirm screen has its own)
     if (matches!(m.screen, Screen::Main | Screen::Mode | Screen::Assign | Screen::Chars) || m.local_roster()) && m.picking.is_none() && m.add.ask.is_none() && m.stale.0.is_none() && m.update_ask.is_none() {
