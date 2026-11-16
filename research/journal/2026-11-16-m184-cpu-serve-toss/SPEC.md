@@ -87,9 +87,8 @@ What the hit message does to each computer player on a toss:
 - Slot 5's first toss (four computer players, doubles) therefore draws 4 × 15 = **60 values from the AI
   generator**, in player order, all on the release tick. This matches `rng_s05.bin` exactly: the AI generator
   moves 60 and the shared generator 2 on recorded tick 169, and nothing else on that tick. On a later point the
-  record still names the previous point's last hitter. Then the usual team branches run for that player
-  (opponent's shot recorded, reaction/pace/guess draws for the other team), exactly as after a real hit by them,
-  with the shot count 0.
+  record still names the previous point's last hitter, and the AIs hear that player's last real stroke again
+  (section 5).
 - **What it decides.** The redraw replaces, for every computer player including the **server**, the timing errors
   and picks drawn at the point's start. The server's serve then uses the toss-time values: its quick-serve pick
   (the contact pick takes a rising ball only on a quick serve), its serve timing error (the countdown press rule
@@ -125,8 +124,24 @@ was read from the ball's previous-position copy and in that test's alignment. Th
 The contact itself is play's (last hitter = server, shot count + 1, aim, launch with its shared draws). The
 difference in M183a1 (the recorded ball rises, play's dips, so play's point 1 is a fault) comes from the inputs
 going in: play aims with the point-start serve level and serve error, the original with the toss-time ones (section
-2). The four shared draws at the contact match once the AI generator is aligned. No change to the serve aim or
-launch math.
+2). The four shared draws at the contact match once the AI generator is aligned. No change to the serve launch math.
+
+What goes into the serve launch (the port's 1e-4 question):
+
+- **Start point: the ball's own live position on the contact tick.** The launch never reads the server's body,
+  hand or racket, so the server's height (the game's server is in the air at contact, y −0.167) doesn't enter the
+  served ball at all. Play keeping the server on the ground is harmless here.
+- **Power: always full.** The serve launch passes the top speed class every time; there is no power input to
+  differ.
+- **Target: the serve's aim point, fixed once, on the swing-press tick**, and not touched again before the contact.
+  It is built from the server's position *as it stands on that tick*, the chosen serve direction and level, and the
+  aim's own draws (the two aim draws come on the press tick, which is why the AI generator is still from the press
+  to the contact). The served ball flies from the ball's position toward that point.
+- So of the three candidates only the target can differ: play aims on the countdown's second-last frame, a tick
+  or more before the press, from the server's position then. Any step the server takes between that frame and the
+  press moves the aim point, and a miss of this size fits a slightly shifted aim. The fix is to aim on the press
+  tick from the server's position on that tick. If a difference remains after that, the next suspect is the
+  ball's position on the contact tick (play's toss samples are a tick ahead; section 1's hold).
 
 ## Order on the release tick (server's tick)
 
@@ -136,25 +151,71 @@ launch math.
    message to every AI (each runs its redraw, in player order).
 4. The ball reads the hand point this tick (its live position). The ball update moves it from the next tick on.
 
+
+## 5. A later point's toss: the AIs hear the last real stroke again
+
+The hit message itself carries nothing. Every AI that hears it reads the match's single **"last stroke" record**,
+which only a real stroke writes, just before its own launch: who hit, the swing kind (serve, ground stroke,
+volley, dive, smash), the stroke class and its flags, where the hitter stood at that stroke, the stroke's aim
+point and the ball velocity it was given. The toss launch doesn't write it, and nothing else does: it is cleared
+once when the match is built and never at point set-up. The last-hitter record (section 2) is set by the same real
+strokes.
+
+So on any toss after the first point's first contact, each computer player hears **the previous real stroke over
+again**, exactly as it was noted then: the same hitter, swing kind, velocity, aim point and the hitter's position
+*at that stroke* (not where anyone stands now, and nothing about the toss). It runs its usual hit work on it:
+
+- **The hitter is on the other team** (singles and doubles): if the noted kind is a serve, the serve history shifts
+  (the latest serve becomes the one before, the record becomes the latest serve). Then, always, the last shot
+  becomes the shot before and the record becomes the last shot. Singles: a dive kind starts the net/all-court
+  player's dash if it isn't already dashing, as after a real dive. Doubles: the "opponent's shot heard" mark is
+  set. Then the redraw takes its opponent's-hit path (reaction, pace and guess draws, as after a real hit).
+- **The hitter is on its own team**: the record becomes its team's last shot and the "no shot yet this point" mark
+  clears. Doubles then runs the formation repick with the record's hitter and **the position stored in the record**,
+  i.e. where that partner stood when they hit the last real stroke. Then the redraw takes its own-team path.
+- The doubles rally re-entry still doesn't run (shot count 0).
+
+The AI's shot memory starts the toss from what point set-up left: set-up clears the last shot and shot before to
+"none" (and, when it resets fully, the serve history). The re-heard stroke is therefore the only shot noted when the
+point's first real shot arrives.
+
+Consequence worth matching: after a fault, the second serve's toss re-notes the **faulted first serve** (kind
+serve), so the receivers' serve history holds that serve twice, and the redraw sees the opponent's serve kind.
+
+## 6. The match phase at the swing press
+
+Starting the serve's swing (the press, whiffed or not) both starts the swing motion and **asks the match to go to
+rally**. The request is ignored if a serve request is already pending. A whiffed swing asks the same way: it
+depends only on the swing starting.
+
+The match applies a pending phase at the **start of the next frame, before any player moves**. That is why the
+recordings show rally on the sample after the press. Applying it, in order:
+
+1. Leaving serve: every player clears its "serve set-up done" mark (only the next set-up reads it).
+2. The phase becomes rally and the phase tick counter restarts from 0.
+3. Entering rally: the match clears its "no rally yet since the game began" mark (the next doubles serve set-up
+   reads it).
+4. The rally's per-frame work runs from this frame: with more than one player a side it asks the rally referee
+   whether the point is decided (still nothing to decide before the contact).
+
+What reads "rally" between the press and the contact, and so changes from press + 1:
+
+- **The ball's bounces.** Before rally a bounce plays no bounce effect and sends no first-bounce event to the
+  referee. From press + 1 it does both. For a hit serve this changes nothing (the toss doesn't bounce in four to six
+  ticks). For a whiff it is what makes the dropped toss bounce audibly and get judged.
+- **The match's own hit handling** records the last hitter and tells the referee about a hit only in rally (and
+  with no point-over pending). So the serve's contact counts and the toss (still in the serve phase) doesn't.
+- **Doubles stamina-like counters**: in doubles rally, every 60 movement ticks each player's counter drops by 1
+  within its limits, and the doubles run-frame estimates clamp in rally. Counted from the phase tick, they start at
+  press + 1.
+- **Singles stroke helpers** treat "not rally" as serve: before rally the side-of-ball test answers "neither" and
+  the shot pick returns the serve swing. From press + 1 they take their rally answers.
+- Per-player event logs are kept only in rally, stamped with the phase tick.
+- **The AIs don't change**: they only tell "point over" apart from "serve or rally".
+
+Play turning the phase at the contact must move to press + 1 (from the press, whiffed or not), with the counter
+restarting there.
+
 ## Open questions
 
-Raised by the port phase (journal `3-PORT-PART.md`). The match's first toss (last hitter nobody) is ported and
-proven. Each question below names what the port couldn't do from this spec.
-
-1. **A toss on a later point (the last-hitter record still names someone).** Section 2 says each computer player
-   then runs "the usual team branches … exactly as after a real hit by them, with the shot count 0". A real hit's
-   message carries the shot it notes: the hitter's swing kind (serve, ground stroke, volley, dive, smash) and the
-   ball's velocity. Those feed the opponent's shot record, the pace and serve-pace error draws, the fast-ball
-   reaction, the reaction and guess draws (serve or not, lob or not), and on the own team, whether the hitter dove.
-   What do these read on a toss? Is it the ball's toss velocity, the last hitter's last stroke kind, or something
-   else? For doubles, which hitter position does the team branch's repick use? Until this is answered, play
-   announces a later point's toss to no AI. Only the predictor and doubles message side run.
-2. **The match phase at the serve's swing press.** In both recordings the match phase turns to rally on the sample
-   after the swing press (US 216, EU 135), four and six ticks before the contact. Play turns it at the contact. What
-   does the swing press set (the phase, and anything that keys off it: the line calls, the AI phases, the doubles
-   path record), and does it do the same for a whiffed swing?
-3. **The served ball's launch is about 1e-4 off.** All three generators match through the contact (US,
-   `rng_s05.bin`), the toss is bit for bit at the contact tick, and the contact tick is right in both builds. But
-   the first step of the served ball differs by 8.6e-5 (US) and 6.2e-5 (EU) in position. Which input to the serve's
-   aim or launch differs? Candidates: the contact point (the server is airborne at contact in the game, y −0.167,
-   and on the ground in play), the aim target, the power.
+none
