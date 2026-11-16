@@ -44,4 +44,7 @@ Sim untouched: the change is in drawing (UV offsets of parts, the same index for
 The work is done (hst-base tests pass), but `tools/done.sh`'s full suite failed for reasons outside this task:
 `discs::tests::finds_the_other_releases` (a prototype EU ISO another task put into the shared `fixtures/discs/` at
 11:06, filed as B712), and once `net::tests::a_crossplay_guest_rejoins_on_the_hosts_data` (flaky in the full suite,
-passes alone 3/3, filed as B711). So it is committed as blocked: tick it once B712 lands and done.sh passes.
+passes alone 3/3, filed as B711). So it was committed as blocked until B712 landed.
+
+Reopened after B712 (dropped: fixed by T25, prototypes skipped by the overlay check): the fix (37d4aab4) is already
+on main, nothing new to change; this round only reruns done.sh's full suite to tick it.
