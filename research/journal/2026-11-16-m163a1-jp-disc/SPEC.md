@@ -30,6 +30,17 @@ US play must stay bit-exact. Every rule below is a per-release switch that is of
   at match start uses the same rule as the US.
 - Values differ from the US. That is data.
 - With those two columns gone, the lob and special-serve reaction times don't exist. See 4.
+- Confirmed from the Japanese loader itself, not only the header:
+  - The file is read the same way as the US one: a line counts when its first cell is a row number 0..167, the
+    rest is skipped.
+  - Each cell is read in the same way (integers, slash-separated sub-fields, the game's own decimal reader for the
+    metre/degree cells). The only change is that the Japanese row has two fewer integer cells in the stretch of
+    plain integers after the reaction-to-ball-speed cell.
+  - Which two are missing follows from the CPU code. The Japanese CPU reads its body-shot and low-shot rates from
+    the record entries that, in the US record, hold the lob and special-serve reactions. So the record keeps the US
+    order with those two entries taken out: the body-shot rate (US 25) is Japanese 23, low-shot rate (26) is 24,
+    strong-side rate (27) is 25, strong-side reach (28) is 26, and so on to the end.
+  - The Japanese header names agree with this column for column.
 
 ### Program data (already read per release by the disc layer)
 These are tables inside the Japanese program. Read them from the Japanese program, not the US one, and use them as
@@ -125,13 +136,27 @@ Two differences in the per-shot aim, both affecting where every rally shot lands
   winner" in Japan (there is no counter).
 - A point the US would name "counter winner" is not named. The other names follow the same rules.
 
-### Ball path on a hit
-- When a shot is hit during the rally, the path/prediction manager sets a flag. In solo play it also sets a
-  30-frame count.
-  - In the US that happens only if one of these holds: solo play and not practice mode 3, or more than one player
-    and not the serve (shots this rally > 1).
-  - **Japan sets it on every rally hit**, without that condition.
-- What reads the flag isn't yet tied to our code. See *Open questions*.
+### The red landing marker on a hit (the path manager's flag)
+- The flag set on a hit is the "show" switch of the **red landing marker**: the red blob with pulsing rings that
+  sits on the court at the shot's aim point. While it is on (and no replay is playing), the marker is animated and
+  drawn each frame. Nothing else reads it.
+- The 30-frame count belongs to one-player practice only. Once the ball has bounced it counts down and hides the
+  marker. The app has no practice mode.
+- When a shot is launched:
+  - US: the marker shows when there is one player (outside practice mode 3), or from the serve return on (more than
+    one player and not the serve).
+  - **Japan: the marker shows on every launch, the serve included**, in every mode. With one player, the 30-frame
+    count is always set (practice mode 3 included).
+  - Hiding is the same: at the next strike, and when the next point is set up.
+- So in a Japanese match the red marker also appears at the serve's aim point, from the moment the serve is hit.
+- **This is presentation only.** The marker doesn't feed the path prediction, the yellow smash marker, the CPU or
+  the RNG.
+  - The CPU's after-hit positioning reads the hitter's own stored shot target. That target is set the same way in
+    both releases.
+  - So the CPU must see the same target in Japan as in the US: showing the marker on the serve must not change
+    what a singles CPU positions from.
+  - In our app the shown marker's position is also handed to the singles CPU, falling back to the opponent's spot
+    when there is none. The port must keep that input as it is today and change only the display.
 
 ## 6. Ball speed in km/h
 
@@ -170,20 +195,79 @@ On a Japanese disc:
 - fall back or hide the rest gracefully, without panicking
 
 Presentation differences in the program (effects colours, hit sound priorities, cutaway/replay picks, the
-scoreboard) only have to feel right. They were not examined in detail.
+scoreboard) only have to feel right. §9 lists what each one is and why it doesn't touch play.
+
+## 9. Other differences, classified (none changes play)
+Each remaining differing routine was classified by what it does and by whether it draws from a random generator
+the match depends on. The match's generators work as in the US:
+- the shared one is reseeded from `rand()` at every new point
+- the AI's is seeded once per AI object from a shared draw at match setup
+- the court's and the sound manager's only drive presentation
+
+Practice mode:
+- The one-player practice objects (feeder, coach, drills) differ, including how many shared draws one of them makes.
+- They exist only in one-player practice. The app has no practice mode, so nothing to port.
+
+Match setup's gallery-sound pick:
+- The US picks the court's gallery sound bank with one shared draw. This comes after the player objects (voice
+  banks and AI seeds) are made.
+- Japan has no such pick (its sounds are organised differently) and makes no draw there.
+- No shared draw follows it before the first point reseeds the shared generator. So the draw changes nothing in
+  play. The port just leaves it out for Japan (or makes it; the next reseed overwrites it either way).
+
+Voice-bank pick:
+- The same shared draw, with the same 70/30 split and the same exceptions, at the same point in setup.
+- Only the file names differ: Japan keeps its voices inside the motion archives, and the disc layer already
+  handles that.
+
+Cutaway director:
+- At each hit it records the hitter and the ball's km/h for its cut-away and replay choice.
+- Japan computes that speed inline with its own km/h formula (§6). It makes no draws.
+- Presentation only: it only steers the camera cut-aways and replays.
+
+Cut-away camera in all-CPU matches:
+- The US skips one camera switch after a point when every player is a CPU. Japan makes it.
+- It is a camera choice with no draws: presentation only.
+
+Court life (spectators, walkers, ball-overlap reactions):
+- One background figure in the US plays an extra sound 40% of the time, drawn from the court generator every tick
+  while visible. Japan has no draw and no extra sound; it keeps only the sound every 25 ticks.
+- Other figures differ only in the ball-speed threshold arithmetic (§6), animation and sound choices.
+- All of this is on the court generator, which is reseeded every point and feeds nothing in play.
+
+CPU reaction draws:
+- The only differences in which random draws the CPU routines make are the lob and special-serve reaction draws
+  already in §4.
+- The other mismatches between the builds' CPU routines are routines identical in both that the comparison
+  couldn't tell apart.
+
+Scoreboard, point readouts, result screen:
+- Layout positions, the number of history entries kept for display, and the speed readout (Japan's km/h, §6) differ.
+- The point-show and game/set/tiebreak show timings (fade, roll and settle counts) are the same as the US, so the
+  post-point timeline and match timing are unchanged.
+
+Pause screen:
+- The pause screen's settings snapshot stores some settings as list positions rather than raw values.
+- Front-end only.
+
+Rendering and effects:
+- Lens/field-of-view setup, a material upload, the smash-bounce material effect (its 85 km/h check uses §6) and
+  hit-effect colours differ.
+- Rendering only.
+
+Boot program helpers (pad/seat handling, a menu record reader, file helpers):
+- Front-end, or differ only in string and table addresses.
+- The two CSV row readers are covered in §1.
+
+## Verification (port phase)
+- No Japanese PCSX2 recording exists yet. The port must be checked against one before `Release::playable` accepts
+  Japan: a bot match on the Japanese disc (save state from a JP bot match), compared frame by frame with the
+  existing replay/recording tools.
+- In particular, check:
+  - serve grades on the rally table
+  - the missing reaction draws (the AI generator stays in step)
+  - the aim narrowing (landing spots)
+  - the red marker on the serve (by eye)
 
 ## Open questions
-- **Ball-path hit flag (5):** which of our path/AI parts reads it, and what it changes in play. The port session
-  should find the matching flag in our path/AI code and confirm against a Japanese recording.
-- **Not examined in detail** (differences seen, kind not yet classified). Most look like presentation:
-  - the practice mode routines
-  - a cutaway/replay chooser that uses ball speed
-  - court-life/NPC routines (box-overlap reactions)
-  - the scoreboard
-  - a few boot-program CSV helpers and the voice loader (Japan keeps voices inside the motion archives; the disc
-    layer already handles that)
-  - A Japanese PCSX2 recording would show whether any of them touch the sim.
-- **Where AIParam's parser lives in Japan** wasn't confirmed directly. The column map above comes from the CSV
-  header and the record layout. It should be verified by reading the Japanese CSV with the US parser's types.
-- **No Japanese PCSX2 recording exists yet.** The port must be verified against one, a bot match on the Japanese
-  disc, before `Release::playable` accepts Japan.
+none

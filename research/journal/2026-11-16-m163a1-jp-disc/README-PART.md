@@ -16,6 +16,23 @@ wrote `SPEC.md`: the rule differences in plain words, for the port session (whic
   Japanese shot record is 0xe8 bytes, against the US's 0x118).
 - The real differences are in `SPEC.md` §1–§6.
 
+## Spec round 2: the open questions answered
+- **Ball-path hit flag:** it switches on the red landing marker at the aim point. Japan shows it on the serve too.
+  It's presentation only: the CPU positions from its own shot target, not the marker. SPEC §5.
+- **AIParam parser:** found in both builds by the file name string. The two row readers read cells the same way;
+  Japan's row has two fewer plain-integer cells.
+  - Which two: Japan's CPU reads its body-shot and low-shot rates from the record entries where the US keeps its
+    lob and special-serve reactions. So exactly those two are missing, as the header said. SPEC §1.
+- **The rest of the differing routines** are classified in SPEC §9. None changes play.
+  - The check: compare, for every differing pair, the sequence of calls that reach `rand()` or the MT draw
+    (`scripts/rngcmp.py`, call graph to depth 5, Japanese callees mapped back through the exact matches).
+  - Only these sequences differ:
+    - the already-specced serve coin and CPU reaction draws
+    - the setup gallery-sound pick, which a reseed overwrites before it matters
+    - a court-generator sound roll (presentation)
+    - practice-only objects
+  - The point-show timings are unchanged.
+
 ## Port phase (next session)
 Implement SPEC.md as a per-release path (US unchanged and bit-exact):
 - the CSV column maps
@@ -25,7 +42,7 @@ Implement SPEC.md as a per-release path (US unchanged and bit-exact):
 - the Japanese aim narrowing, with no 90° shots
 - no CPU lob or special-serve reaction draws
 - the CPU smash search without its baseline check
-- the path hit flag
+- the red landing marker on the serve (display only)
 - the km/h formula
 - front-end fallbacks for the missing menu entries
 
@@ -36,13 +53,7 @@ Japan.
 - **Nothing was ported. Japan stays refused.** This was the spec phase (PLAN.md *Clean-room ports*).
 - **No PCSX2 run of the Japanese disc.** The spec comes from the decompile alone, so none of it is checked against
   the running game.
-- **Not examined in detail** (listed under SPEC.md *Open questions*):
-  - practice-mode routines
-  - a cutaway/replay chooser
-  - court-life/NPC routines
-  - the scoreboard
-  - some boot-program CSV helpers
-  - the voice loader
-- **The ball-path hit flag's effect** isn't tied to our code yet.
-- **The Japanese AIParam parser** wasn't located. Its column map rests on the CSV header and the record layout.
+- **§9's classification is static.** It is based on which routines can reach a random draw and on reading the
+  diffs, not on a run. Sim-touching paths were followed, presentation ones were not read line by line.
+- **The red marker on the serve** comes from the decompile; nobody has seen it on a Japanese disc.
 - **Presentation differences** (effect colours, sound priorities) only have to feel right, and weren't specced.
