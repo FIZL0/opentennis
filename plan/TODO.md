@@ -46,7 +46,6 @@ index out of bounds: the len is 0 but the index is 0"
 ### Follow-ups
 
 - [ ] **M169a1** (follow-up, normal) **EU 50 Hz: port + verify** (from M169a's SPEC.md, decompile locked): the 50 Hz switches in hst-sim beside `build.rs` (US rules at 50 Hz; 60 Hz stays bit-exact), the EU disc's data for it (TRAJ, SAITOU/TRAJ, GAME.BIN shot parameters at EU offsets — share M174's reader — and the motion ticks/frame rescale with its exception list), proven against the EU recordings (M177's fixtures): bit-exact bot match at 50 Hz | files: crates/hst-sim/src/build.rs, crates/hst-data/src/ani.rs, crates/hst-data/src/exe.rs, crates/hst-play/src/play/build_rules.rs — M176 landed the plumbing: flip hst_base::match_speed::FIFTY_HZ_SIM when the sim plays 50 Hz (shows Settings → Match Speed); read the rate from match_speed::current()/MatchHz; a 50 Hz match reads the EU disc's raw TRAJ, not M170's regen
-- [ ] **T24** (follow-up, normal) (follow-up, flaky) `net::tests::a_crossplay_guest_rejoins_on_the_hosts_data` (M178) fails under the full hst-base suite and passes alone: it points the global `handshake` disc at its own link, and any other net test leaving a lobby through `join()` runs `handshake::end_crossplay()`, which removes the overlay on that link mid-test (seen in M174's done.sh: `assert!(crossplay::remove(&link))` at net.rs ~4789). Give the test its own disc path the other tests' end_crossplay can't reach, or key end_crossplay to the lobby that installed it | t: `net::tests::a_crossplay_guest_rejoins_on_the_hosts_data` · crates/hst-base/src/net.rs · handshake.rs
 
 
 
