@@ -293,6 +293,8 @@ pub struct Settings {
     voice_language: u8,
     /// Split screen's halves stacked (Horizontal) instead of side by side (`split_view::STACKED`).
     split_stacked: bool,
+    /// M172: controllers rumble on hits, hard serves' landings and the ball hitting the player (`play::rumble::ON`).
+    match_rumble: bool,
     graphics: Graphics,
     volumes: Volumes,
     /// A `widescreen::ASPECTS` index.
@@ -366,6 +368,7 @@ impl Default for Settings {
             emote_voices: true,
             voice_language: 0,
             split_stacked: false,
+            match_rumble: false,
             graphics: Graphics::default(),
             volumes: Volumes::default(),
             aspect: default_aspect(),
@@ -386,7 +389,7 @@ impl Default for Settings {
 impl Settings {
     /// The on/off switches by their settings.txt names, in the file's order. Their rows are on the Settings screen's
     /// pages (`options.rs`).
-    fn switches(&mut self) -> [(&'static str, &mut bool); 10] {
+    fn switches(&mut self) -> [(&'static str, &mut bool); 11] {
         [
             ("upscaled_textures", &mut self.upscaled_textures),
             ("menu_music", &mut self.menu_music),
@@ -398,6 +401,7 @@ impl Settings {
             ("update_check", &mut self.update_check),
             ("emote_voices", &mut self.emote_voices),
             ("split_stacked", &mut self.split_stacked),
+            ("match_rumble", &mut self.match_rumble),
         ]
     }
 
@@ -462,6 +466,7 @@ impl Settings {
         crate::update::CHECK.store(s.update_check, std::sync::atomic::Ordering::Relaxed);
         crate::update::ALWAYS.store(s.updates_always, std::sync::atomic::Ordering::Relaxed);
         crate::audio::EMOTE_VOICES.store(s.emote_voices, std::sync::atomic::Ordering::Relaxed);
+        crate::play::rumble::ON.store(s.match_rumble, std::sync::atomic::Ordering::Relaxed);
         s.voice_language = crate::voices::parse_setting(text);
         crate::voices::choose(s.voice_language);
         s

@@ -106,7 +106,7 @@ fn setup(
 }
 
 /// After the simulation and the balloons' ageing: raise, drop and age the pop-ups.
-fn tick(mut g: ResMut<Game>, mut pops: ResMut<Pops>) {
+pub(super) fn tick(mut g: ResMut<Game>, mut pops: ResMut<Pops>) {
     let Pops(list, was_over, skull) = &mut *pops;
     let clean = |b: Option<(Balloon, u32)>| matches!(b, Some((Balloon::Note | Balloon::Sweet, _)));
     // the death lob: the skull the tick after a framed hit's balloon was dropped (the list's one pending slot)
