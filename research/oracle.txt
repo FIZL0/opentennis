@@ -91,3 +91,9 @@ timing_error_read 35b640
 # km/h of the ball's last move (a0 ball, move at +0x150) and of the vector at +0x130: hst_sim::build::Build::Japan
 jp_ball_kmh 3763e0
 jp_vec_kmh 376380
+# M163a1a1: the Japanese aim from its base point (a0 out vec4, a1 player, a2 base vec4, a3 stick vec4, t0 deep button,
+# t1 drop; f12 width, f13 half): shot::aim_from / aim with Build::Japan. Player fields as tests/japan.rs writes them.
+jp_aim_from 34d880
+# the Japanese timing-table setup (a0 player: counts +0x1318.., grades +0x14e0, length +0x151c, bias +0x13f0)
+jp_timing_tables 352800
+jp_memset 11e4e0
