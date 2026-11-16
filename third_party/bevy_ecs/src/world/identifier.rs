@@ -30,6 +30,7 @@ impl WorldId {
     ///
     /// Please note that the [`WorldId`]s created from this method are unique across
     /// time - if a given [`WorldId`] is [`Drop`]ped its value still cannot be reused
+    #[allow(deprecated)] // HST (P141): `fetch_update` is deprecated on our toolchain; tools/webcheck.sh fails on it
     pub fn new() -> Option<Self> {
         MAX_WORLD_ID
             // We use `Relaxed` here since this atomic only needs to be consistent with itself
