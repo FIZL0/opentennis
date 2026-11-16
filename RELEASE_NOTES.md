@@ -10,3 +10,4 @@
 - Voice Language now also applies to add-on characters and umpires that bring their lines in other languages; a line they don't have in your language is heard in their own
 - Phones and tablets: the touch controls' Vibration setting moved to a new Gameplay page in Settings (it was the Mobile page)
 - Online, players with the US and Japanese discs can now play each other: the match plays by the host's disc's rules (the host sends what your disc plays differently, just for that match), the lobby list shows whose rules a lobby plays, and joining one with other rules shows how they differ from yours. Everyone keeps their own voices and text
+- Desktop computers with many cores: the game uses noticeably less CPU during a match and frame pacing is steadier

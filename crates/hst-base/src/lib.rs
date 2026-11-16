@@ -64,6 +64,7 @@ pub mod textures;
 pub mod twin_view;
 pub mod ui_census;
 pub mod scene_census;
+pub mod sched;
 pub mod ui_pool;
 pub mod vertex_patch;
 /// added3: Settings → Sound → Voice Language, other releases' voices.

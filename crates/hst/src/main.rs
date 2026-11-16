@@ -456,7 +456,7 @@ fn start(argv: Vec<String>) {
         // ARM Linux (M154): GL ES compiles one at a time behind wgpu's context lock, and pool threads queued on it timed out
         synchronous_pipeline_compilation: std::env::var_os("HST_SYNC_PIPELINES").is_some() || cfg!(all(target_os = "linux", target_arch = "aarch64")),
         ..default()
-    }).set(WindowPlugin { primary_window: Some(widescreen::phone_window(Window { title: title.into(), name: Some("opentennis".into()), present_mode, mode, resolution, ..default() })), ..default() });
+    }).set(sched::task_pool()).set(WindowPlugin { primary_window: Some(widescreen::phone_window(Window { title: title.into(), name: Some("opentennis".into()), present_mode, mode, resolution, ..default() })), ..default() });
     // iOS: the log goes to Documents/hst-log.txt too (`ios.rs`); winit logs every redraw at info there, a line a frame,
     // and warns of each event it hands over while redrawing (P49: 14.5k of a 4-minute log's 15.8k lines)
     #[cfg(target_os = "ios")]
@@ -608,6 +608,8 @@ fn start(argv: Vec<String>) {
     if args.shot.is_some() && std::env::var_os("HST_CLIP").is_some() {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
     }
+    // P140: compute threads / single-threaded schedules (`HST_COMPUTE`, `HST_EXECUTOR`)
+    sched::apply(&mut app);
     app.insert_resource(args).insert_resource(ClearColor(Color::srgb(0.25, 0.3, 0.35))).add_systems(Update, (orbit, auto_shot, clouds))
         .add_systems(PostUpdate, (fixed_eye, follow, backdrops, hide_inside.in_set(hst_base::shadow::EyePasses)).chain().before(bevy::transform::TransformSystems::Propagate).before(hst_base::twin_view::sync)).run();
 }
