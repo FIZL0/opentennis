@@ -87,3 +87,7 @@ special_effect_check 37e240
 # launch (a0 player; a1, a2, a3 out side, depth, blend): swing::timing_error / smash_scatter, timing_launch (P117)
 timing_error_setup 35b030
 timing_error_read 35b640
+# M163a1a (crates/hst-oracle/tests/japan.rs): the Japanese release (SCPS-15113), run on fixtures/ram/jp-match.bin.
+# km/h of the ball's last move (a0 ball, move at +0x150) and of the vector at +0x130: hst_sim::build::Build::Japan
+jp_ball_kmh 3763e0
+jp_vec_kmh 376380

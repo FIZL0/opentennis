@@ -129,7 +129,7 @@ pub(super) const POOL_HERE: usize = 2600;
 /// B293: the pause screen's venue caption, from `message0.dat` as the confirm screen names them: the match's court
 /// (`--court`/`--stage` 1–11, none for a viewer court) and its umpire (`--umpire`), e.g. "Umpire Anna".
 pub(in crate::play) fn venue(iso: &mut Iso, court: usize, umpire: u8) -> (String, String) {
-    let msg = super::messages(&sheet(iso, "MENU/MENU00B.XB0", "/message0.dat"));
+    let msg = super::disc_text::messages(iso);
     let at = |i: usize| msg.get(i).map_or("", String::as_str).trim();
     let court = if (1..=11).contains(&court) { format!("{} {}", at(276 + 2 * (court - 1)), at(277 + 2 * (court - 1))).trim().to_string() } else { String::new() };
     (court, umpire_caption(at(669 + 2 * umpire as usize)))
@@ -160,7 +160,7 @@ fn setup(mut commands: Commands, args: Res<Args>, mut images: ResMut<Assets<Imag
     }
     // `Tex::Pill` is the last sheet, as in the main menu
     art.push(super::super::menu_art::pill_layers(&mut images));
-    let msg = super::messages(&sheet(&mut iso, "MENU/MENU00B.XB0", "/message0.dat"));
+    let msg = super::disc_text::messages(&mut iso);
     // M124: the characters' grades, play styles and hands for the assignment's cards, as the select reads them
     let grades = match (iso.read("SYSTEM.CNF"), iso.read("ZZBIN/MENU.BIN")) {
         (Ok(cnf), Ok(bin)) => hst_data::exe::Menu::new(&cnf, &bin).map_or([[0; 5]; 14], |m| m.grades()),

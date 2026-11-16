@@ -56,6 +56,9 @@ The menus (B516) open on a press-start splash: the device that presses ✕ / Sta
 alone drives 1P's player; the keyboard still pauses and works the menus. `HST_MENU=main` (scripts, `HST_KEYS`) skips it.
 Behind it the courts cycle: the disc's court photos, blurred (B524's baked backdrops were removed).
 
+The Japanese disc (Minna no Tennis, SCPS-15113) plays too, by its own build's rules (`hst_sim::build`, M163a1/M163a1a);
+its menus show our own English where it has no text table. In PCSX2: `HST_ISO=fixtures/discs/SCPS-15113.iso tools/pcsx2-hst.sh`.
+
 Without the ISO (M13): `hst --import "Hot Shots Tennis (USA).iso"` once (or plain `hst`, which asks for the ISO in a
 file dialog on first start) copies the 171 MB the remaster reads into `~/.local/share/hst/disc.pack`
 (`%APPDATA%\hst` on Windows); after that `hst [flags]` runs from the pack (settings.txt, controls.txt, mods/ beside it)

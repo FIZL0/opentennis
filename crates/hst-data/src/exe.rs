@@ -106,16 +106,12 @@ impl Release {
         Err(Error("unsupported disc: Hot Shots Tennis USA (SCUS-97610) is the one the game plays".into()))
     }
 
-    /// Whether a match can be played from it. The Japanese release reads (its tables, files and pack are known) but
-    /// doesn't play yet: it is an earlier build whose rules differ from the US game's (no strong and weak serve
-    /// tosses, no missed-serve table, fewer CPU reaction times; its character tables have fewer columns), and the
-    /// remaster's match is the US game (task M163a1).
+    /// Whether a match can be played from it. Both releases play: the Japanese one by its own earlier build's rules
+    /// (`hst_sim::build`, task M163a1), checked against a bot match on that disc (M163a1a). An `Err` names why a
+    /// release can't play; none do today.
     pub fn playable(self) -> Result<(), Error> {
         match self {
-            Release::Us => Ok(()),
-            Release::Japan => Err(Error(
-                "Minna no Tennis (Japan, SCPS-15113) isn't playable yet: it's an earlier version of the game with different rules. Use the US disc (SCUS-97610)".into(),
-            )),
+            Release::Us | Release::Japan => Ok(()),
         }
     }
 

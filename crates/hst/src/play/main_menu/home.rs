@@ -217,11 +217,11 @@ pub(super) fn version() -> String {
 /// The main screen.
 pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f32) {
     d.frame(0, super::WALL);
-    // the header's right: pads and disc (only SCUS-97610 gets this far, `exe`), B302's build version and commit
+    // the header's right: pads and disc (the US or, M163a1a, the Japanese release: `exe`), B302's build version and commit
     // under it (`+` if built with local changes; the font has no `·`); `Sides` pins each side of 320 to its own
     // edge, so neither line may reach the middle
     d.anchor = super::Anchor::Sides;
-    let head = format!("{pads} pad{}  -  Disc: SCUS-97610", if pads == 1 { "" } else { "s" });
+    let head = format!("{pads} pad{}  -  Disc: {}", if pads == 1 { "" } else { "s" }, super::disc_text::serial());
     // B695: shrunk to stay clear of the title tab on a narrow view at a big Menu Size
     let room = 640.0 + 2.0 * m.grid.extra - 16.0 - (d.width(super::TITLES[0].0, 30.0) + 92.0);
     let size = |d: &Draw, s: &str, size: f32| size * (room / d.width(s, size).max(1.0)).min(1.0);

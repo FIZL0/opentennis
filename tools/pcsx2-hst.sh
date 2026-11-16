@@ -7,8 +7,10 @@
 # HST_PCSX2=N (parallel runs, set by agent-runner, runner.toml slot_env): copy N of the user's PCSX2 config,
 # $(agent-runner home slots)/pcsx2/sN (own PINE slot 28011+N, save states, memory cards), seeing only virtual pad N.
 # Unset: the user's own PCSX2 config, which never sees the parallel pads.
+# HST_ISO=path: boot another disc (e.g. fixtures/discs/SCPS-15113.iso, the Japanese release); default the US ISO.
 set -e
 T=$(dirname "$(realpath "$0")")
+ISO=$(realpath "${HST_ISO:-$T/../Hot Shots Tennis (USA).iso}")
 N=${HST_PCSX2:-}
 PID=${XDG_RUNTIME_DIR:-/tmp}/hst-pcsx2$N.pid  # pcsx2-qt hides its environment (file caps), so track it by pid
 PAD=${XDG_RUNTIME_DIR:-/tmp}/hst-vpad$N.fifo.lock  # held by copy N's vpad.py serve (started below)
@@ -40,9 +42,9 @@ if [ -n "$N" ]; then
     [ "${HST_AUDIO:-}" = 1 ] && sed -i 's/^OutputMuted = true/OutputMuted = false/' "$INI"
     echo "$speed" >"${PID%.pid}.speed"
 fi
-[ -z "$N" ] && { echo $$ >"$PID"; exec pcsx2-qt "$@" -- "$T/../Hot Shots Tennis (USA).iso"; }  # exec keeps the pid
+[ -z "$N" ] && { echo $$ >"$PID"; exec pcsx2-qt "$@" -- "$ISO"; }  # exec keeps the pid
 # a copy's pad goes with it, however PCSX2 ends (stop, kill, crash). Detached, so the launch returns at once
 # (an agent ran it under tools/pcsx2.sh, which held the copy's lock until PCSX2 closed: B92, 2026-10-11)
-setsid pcsx2-qt "$@" -- "$T/../Hot Shots Tennis (USA).iso" >/dev/null 2>&1 </dev/null & echo $! >"$PID"
+setsid pcsx2-qt "$@" -- "$ISO" >/dev/null 2>&1 </dev/null & echo $! >"$PID"
 setsid bash -c 'while kill -0 '$!' 2>/dev/null; do sleep 2; done; fuser -k -TERM "$1" >/dev/null 2>&1' _ "$PAD" \
     >/dev/null 2>&1 </dev/null &
