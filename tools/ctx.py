@@ -346,7 +346,10 @@ if __name__ == '__main__':
     if args[:1] == ['add'] and len(args) > 2:
         text, _, where = ' '.join(args[2:]).partition(' @ ')
         w = where.split(maxsplit=1) or ['top']
-        sys.exit(print(f'added {add(todo, done, args[1], text, w[0], (w[1:] or [None])[0])}'))
+        new = add(todo, done, args[1], text, w[0], (w[1:] or [None])[0])
+        if args[1][-1].isdigit() or args[1][-1].islower():  # a child id: it queues behind its family
+            print(f'note: {new} waits for {args[1]}\'s family; if it could start now, use a fresh number (AGENT.md *Plan*)', file=sys.stderr)
+        sys.exit(print(f'added {new}'))
     if args[:1] == ['note'] and len(args) > 2:
         note(todo, args[1], ' '.join(args[2:]))
         sys.exit(print(f'noted {args[1]}'))

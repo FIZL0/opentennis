@@ -55,6 +55,7 @@ its TODO/DONE line) · `"when blocked"` (a section) · `-f FILE <name>` (any mar
 Work that needs another task to land first is that task's subtask: `add B646 TEXT` gives `B646a`, then `B646b`
 (`add B646a …` → `B646a1`). The runner never runs one family (B646, B646a, B646b) side by side, so they go one at a
 time; a fresh number (`add B …`) starts in parallel at once, whatever its line says it follows.
+Make a subtask only when it can't start before its parent lands (it needs the parent's code, data or verdict); "same topic" or "came out of that task" is no reason. Everything else gets a fresh number so the runner runs it in parallel (user 2026-11-16: a family of unrelated work queues one at a time). Splitting a request into several tasks: one fresh number per piece that can start now, children only under the piece each one waits for.
 
 ## Concept branches
 A task marked **concept** (user 2026-10-21) is an experiment the user wants to try before it reaches main: its code
