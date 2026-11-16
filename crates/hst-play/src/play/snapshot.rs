@@ -445,6 +445,12 @@ mod tests {
                     returned = true;
                     break;
                 }
+                if person && !back && !rally && !serve {
+                    // the point ended before the hand-over (1P's own side won it): give the seat back, another point
+                    app.world_mut().resource_mut::<Pads>().autoplay = true;
+                    (person, t) = (false, 0);
+                    continue;
+                }
                 if back && !rally && !serve {
                     // the other side's error (a fault, say): 1P had nothing to play, another point
                     if app.world().resource::<Game>().post_winner == 0 {

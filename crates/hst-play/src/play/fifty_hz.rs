@@ -301,8 +301,8 @@ mod tests {
 
     /// After `serve_to_contact`: the served ball flies the recorded curve bit for bit through its bounce in the
     /// receivers' court up to the return's contact `ret` (play level with the recording, as from the toss on), and
-    /// every player stands where the recording has them through `stand` (the returner's slide into the return after
-    /// it isn't matched yet: M186).
+    /// every player stands where the recording has them through `stand` (the EU match: through the returner's slide
+    /// into the return, the contact IK's body step, to the tick before the return reaches the server's side).
     fn serve_to_return(name: &str, want: &[Tick], got: &[Tick], contact: usize, stand: usize, ret: usize) {
         for k in contact + 1..=ret {
             assert_eq!(want[k].2.map(f32::to_bits), got[k].2.map(f32::to_bits), "{name} tick {k}: the served ball");
@@ -359,7 +359,7 @@ mod tests {
     fn the_european_first_serve_set_up_plays_as_recorded() {
         let Some((want, got)) = european(Some(300), 0) else { return };
         serve_to_contact("eu", &want, &got, 8, (114, 134, 141));
-        serve_to_return("eu", &want, &got, 141, 228, 230);
+        serve_to_return("eu", &want, &got, 141, 248, 230);
     }
 
     /// Probe, not a proof yet (M183a1): the whole European bot match in play from the original's match seed, beside the
@@ -420,6 +420,12 @@ mod tests {
         let Some((want, got, rngs)) = us(Some(320), 240, 0) else { return };
         serve_to_contact("us", &want, &got, 9, (169, 215, 219));
         serve_to_return("us", &want, &got, 219, 290, 298);
+        // the returner's slide into the return (the contact IK's body step, 8 ticks from 291): the game solves it for
+        // its own predicted contact point, a few millionths off the ball play predicts, so it lands within 1e-5
+        for k in 291..=298 {
+            let (w, g) = (want[k].1[1], got[k + 1].1[1]);
+            assert!(w[2] == g[2] && (w[0] - g[0]).abs() < 1e-5, "us tick {k}: the returner's slide {w:?} vs {g:?}");
+        }
         let Ok(d) = hst_data::fixture::read("fixtures/p3b/rng_s05.bin") else { return };
         let size = 4 + 8 + 4 * 0x9d0;
         let rec = |k: u32| {

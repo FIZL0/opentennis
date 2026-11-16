@@ -2883,7 +2883,7 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
                 let pos = [p.pos[0], p.pos[1], p.pos[2], 1.0];
                 // the side scale is +1 on the −z end (`end`); the second size factor is 1 in normal play
                 let solve =
-                    contact_solve(&t, a - motion::id::FORE_TOPSPIN as usize, [b[0], -b[1], b[2], 1.0], pos, [p.end, 1.0]);
+                    contact_solve(&t, a - motion::id::FORE_TOPSPIN as usize, [b[0], b[1], b[2], 1.0], pos, [p.end, 1.0]);
                 p.ik = Some(ArmIk::new(solve, c.frames as i32, pos));
             }
         } else if let Some(d) = find_dive(g, i) {

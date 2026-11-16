@@ -23,3 +23,4 @@
 - Computer players now settle how they'll serve as the ball is tossed, like the original, so their serves are timed and placed as they are there
 - Computer players' serves now fly exactly as the original's do, and their play from the toss of each later point follows the original's too
 - When a serve swing misses the toss, the dropped ball now bounces with its sound, as in the original
+- Players no longer slide too far sideways as they step into a ground stroke or volley: the step toward the ball is now as small as in the original, so rallies play out as they did there
