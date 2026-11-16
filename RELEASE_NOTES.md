@@ -19,3 +19,4 @@
 - The European disc now plays exactly like the US game when your US disc image is in the same folder (any file name): the game reads the US disc's match data and keeps the European menus, text and voices. The main menu shows it beside the disc name, and online you meet US players
 - Settings → Gameplay → Rules now appears when another release's disc is in the same folder as yours (it stayed hidden before), so you can play the US or Japanese game from either disc
 - Players' faces in the match no longer go blank after choosing another release under Settings → Gameplay → Rules
+- New Settings → Gameplay → Base Disc on computers (shown when you have more than one release's disc): choose whether the game runs from the US, Japanese or European disc, for its menus, text and default rules. The game asks, then restarts on that disc; the others stay beside it, so Rules and Voice Language still offer them
