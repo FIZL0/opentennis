@@ -10,7 +10,7 @@ use super::{Dev, Effect, Menu, Press, Screen};
 
 /// A Settings tab (`options.rs`).
 pub(super) fn page(s: Screen) -> bool {
-    matches!(s, Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::Controls | Screen::ModSettings | Screen::Mobile)
+    matches!(s, Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::Controls | Screen::ModSettings | Screen::Gameplay)
 }
 
 /// Screens running a lobby underneath (online), the ones the pages open over.

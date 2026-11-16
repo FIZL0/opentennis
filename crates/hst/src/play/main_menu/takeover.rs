@@ -52,7 +52,7 @@ impl Menu {
     pub(super) fn takeover_here(&self) -> bool {
         let screens = matches!(
             self.screen,
-            Screen::Main | Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::Controls | Screen::ModSettings | Screen::Mobile | Screen::Mode | Screen::Mods | Screen::Extras | Screen::Online | Screen::Lobbies | Screen::Code
+            Screen::Main | Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::Controls | Screen::ModSettings | Screen::Gameplay | Screen::Mode | Screen::Mods | Screen::Extras | Screen::Online | Screen::Lobbies | Screen::Code
         );
         // online, the code typed on the keyboard seats it as 1P: a pad with no open seat to join may still take it over
         let online = matches!(self.screen, Screen::Lobby | Screen::Chars) && self.online() && self.lobby_join_seat().is_none();

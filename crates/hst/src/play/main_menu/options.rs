@@ -76,18 +76,18 @@ pub(super) enum Opt {
 }
 use Opt::*;
 
-/// The Settings tabs, in order, and the pages they open; Mobile (B118) only on a touch screen (`tabs_shown`).
+/// The Settings tabs, in order, and the pages they open; Gameplay (M167) only while it has a row (`tabs_shown`).
 pub(super) const TABS: [(&str, Screen); 6] = [
     ("Display", Screen::Display),
     ("Graphics", Screen::Graphics),
     ("Sound", Screen::Sound),
     ("Controls", Screen::Controls),
     ("Online & Mods", Screen::ModSettings),
-    ("Mobile", Screen::Mobile),
+    ("Gameplay", Screen::Gameplay),
 ];
-/// The tabs on show: Mobile's phone-only options on a touch screen.
+/// The tabs on show: Gameplay (last, so the rest stay `TABS`' own order) only where it has a row to show.
 pub(super) fn tabs_shown() -> &'static [(&'static str, Screen)] {
-    if super::touch_page() { &TABS } else { &TABS[..5] }
+    if gameplay().is_empty() { &TABS[..5] } else { &TABS }
 }
 /// `page`'s tab (B411: Advanced's is Graphics).
 pub(super) fn tab(page: Screen) -> usize {
@@ -111,8 +111,13 @@ const ADVANCED: &[Opt] = &[Mesh, FewerShadows, Cull, CourtLife];
 /// M165: Add Voices under Voice Language, but in the browser (it can't keep a disc's voices).
 const SOUND: &[Opt] = if cfg!(target_arch = "wasm32") { &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices, VoiceLanguage] } else { &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices, VoiceLanguage, AddVoices] };
 const MODS: &[Opt] = if cfg!(target_arch = "wasm32") { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat] } else { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat, UpdateCheck] };
-/// B118: phone-only options (later: control size and opacity).
-const MOBILE: &[Opt] = &[Vibration];
+/// M167: Gameplay's rows: how a match plays (offline Rules, match rumble go before Vibration), then the on-screen
+/// pad's Vibration (B118, was the Mobile tab's), last since only a touch screen shows it (`gameplay`).
+const GAMEPLAY: &[Opt] = &[Vibration];
+/// Gameplay's rows on this device: Vibration only on a touch screen.
+fn gameplay() -> &'static [Opt] {
+    if super::touch_page() { GAMEPLAY } else { &GAMEPLAY[..GAMEPLAY.len() - 1] }
+}
 /// B289: Online Mod Downloads' values.
 const ASK_VALUES: [(Ask, &str); 3] = [(Ask::Each, "Ask"), (Ask::Always, "Always"), (Ask::Never, "Never")];
 
@@ -124,7 +129,7 @@ pub(super) fn page(s: Screen) -> &'static [Opt] {
         Screen::Advanced => ADVANCED,
         Screen::Sound => SOUND,
         Screen::ModSettings => MODS,
-        Screen::Mobile => MOBILE,
+        Screen::Gameplay => gameplay(),
         _ => &[],
     }
 }
@@ -804,7 +809,7 @@ fn band(s: Screen) -> [f32; 3] {
         Screen::Sound => 0xe0404c,
         Screen::Controls => 0xe8862e,
         Screen::ModSettings => 0x3aa45a,
-        Screen::Mobile => 0x1f9fae,
+        Screen::Gameplay => 0x1f9fae,
         _ => look::BLUE,
     })
 }
@@ -1959,7 +1964,7 @@ mod tests {
     fn short_pages_scroll() {
         let mut scrolled = false;
         for a in [4.0, 21.0 / 9.0, 16.0 / 9.0, 9.0 / 16.0, 0.4] {
-            for s in TABS.map(|t| t.1).into_iter().chain([Screen::Advanced]).filter(|&s| s != Screen::Controls) {
+            for s in tabs_shown().iter().map(|t| t.1).chain([Screen::Advanced]).filter(|&s| s != Screen::Controls) {
                 let n = page(s).len();
                 let mut m = Menu { screen: s, grid: Grid::fit(a), ..default() };
                 for _ in 1..n {
@@ -1991,7 +1996,7 @@ mod tests {
             let last = tb.row(tb.shown - 1);
             assert!(tb.shown >= 3 && last[1] + last[3] <= tb.panel[1] + tb.panel[3] - 24.0 * PY && last[3] >= 40.0 * PY, "{a} {last:?} {:?}", tb.panel);
             assert!(tb.cells(last).1[1][0] + tb.cells(last).1[1][2] <= last[0] + last[2], "{a}");
-            for s in TABS.map(|t| t.1).into_iter().chain([Screen::Advanced]) {
+            for s in tabs_shown().iter().map(|t| t.1).chain([Screen::Advanced]) {
                 let n = if s == Screen::Controls { controls::action_names().count() + 1 } else { page(s).len() };
                 let (list, side) = boxes(&grid, n);
                 assert!(side[2] >= 150.0 && side[3] >= 150.0 && list[0] + list[2] <= side[0] + side[2], "{a}: {list:?} {side:?}");
@@ -2045,7 +2050,7 @@ mod tests {
     /// too, which no native page shows) lands on each of its choices once and on nothing else.
     #[test]
     fn choices_are_each_rows_own_values() {
-        let all = [DISPLAY, &[Display, Renderer], GRAPHICS, ADVANCED, SOUND, MODS, MOBILE].concat();
+        let all = [DISPLAY, &[Display, Renderer], GRAPHICS, ADVANCED, SOUND, MODS, GAMEPLAY].concat();
         for o in all.into_iter().filter(|o| !matches!(o, Volume(_) | Preset | Advanced | AddVoices)) {
             let mut s = Settings::default();
             let want = choices(o);
