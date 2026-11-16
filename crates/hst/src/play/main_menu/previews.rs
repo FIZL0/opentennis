@@ -285,7 +285,19 @@ fn mod_png(dir: &Path, k: usize, stamp: &str) -> PathBuf {
 
 /// The cache folder's name: the disc's boot file and [`RENDER`].
 fn cache_name(iso: &str) -> String {
-    let boot = Iso::open(iso).ok().as_mut().and_then(boot_file).unwrap_or_else(|| "disc".into());
+    // the disc's boot name as first read: Rules laying another release over it (its SYSTEM.CNF too) mid-run would
+    // send the match's face icons to that release's (empty) folder
+    static BOOT: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
+    let mut first = BOOT.lock().unwrap();
+    let boot = match first.as_ref().filter(|(i, _)| i == iso) {
+        Some((_, b)) => b.clone(),
+        None => {
+            let b = Iso::open(iso).ok().as_mut().and_then(boot_file).unwrap_or_else(|| "disc".into());
+            *first = Some((iso.to_string(), b.clone()));
+            b
+        }
+    };
+    drop(first);
     let size = sizes().0;
     if size == BAKE { format!("{boot}-r{RENDER}") } else { format!("{boot}-r{RENDER}-{}", size.y) }
 }

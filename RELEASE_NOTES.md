@@ -18,3 +18,4 @@
 - Desktop computers with many cores: the game uses noticeably less CPU during a match and frame pacing is steadier
 - The European disc now plays exactly like the US game when your US disc image is in the same folder (any file name): the game reads the US disc's match data and keeps the European menus, text and voices. The main menu shows it beside the disc name, and online you meet US players
 - Settings → Gameplay → Rules now appears when another release's disc is in the same folder as yours (it stayed hidden before), so you can play the US or Japanese game from either disc
+- Players' faces in the match no longer go blank after choosing another release under Settings → Gameplay → Rules
