@@ -354,12 +354,13 @@ pub fn plugin<Match: Resource>(app: &mut App) {
     app.add_plugins(crate::calm::plugin);
     if let Some(r) = app.get_sub_app_mut(bevy::render::RenderApp) {
         use bevy::render::renderer::{RenderGraph, RenderGraphSystems as G};
-        r.add_systems(RenderGraph, (mark::<4>.in_set(G::Begin), mark::<5>.in_set(G::Render).after(bevy::core_pipeline::schedule::camera_driver)))
-            .add_systems(bevy::render::Render, mark::<6>.in_set(bevy::render::RenderSystems::Cleanup));
+        r.add_systems(RenderGraph, (mark::<4>.in_set(G::Begin).before(G::Render), mark::<5>.in_set(G::Render).after(bevy::core_pipeline::schedule::camera_driver)))
+            .add_systems(bevy::render::Render, mark::<6>.in_set(bevy::render::RenderSystems::Cleanup).after(bevy::render::RenderSystems::Render));
         // the swapchain acquire: waits there while the GPU is still busy with earlier frames (P28)
         use bevy::render::{RenderSystems as R, view::prepare_windows};
         r.add_systems(bevy::render::Render, (mark::<7>.in_set(R::PrepareViews).before(prepare_windows), mark::<8>.in_set(R::PrepareViews).after(prepare_windows)));
-        r.add_systems(RenderGraph, limit_present.in_set(G::Finish));
+        // after the submit: it touches no ECS data, so 0.20's weak set ordering alone doesn't hold it there (P143)
+        r.add_systems(RenderGraph, limit_present.in_set(G::Finish).after(G::Submit));
         #[cfg(target_os = "ios")]
         r.add_systems(RenderGraph, (gpu_time::<false>.in_set(G::Begin), gpu_time::<true>.after(G::Render).before(G::Submit)));
     }

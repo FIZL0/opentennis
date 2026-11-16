@@ -1,7 +1,7 @@
 //! Scene and HUD blended the way the PS2's GS blends: on the gamma-encoded values, not in linear light.
 //!
 //! The 3D cameras draw HDR (float, nothing encoded) into `scene` (raw `Rgba8Unorm`), and every 3D shader outputs
-//! encoded colour: `gs.wgsl` as it computes it, Bevy's PBR shader (`StandardMaterial`) through a patched
+//! encoded colour: `gs.wesl` as it computes it, Bevy's PBR shader (`StandardMaterial`) through a patched
 //! `main_pass_post_lighting_processing` that encodes its result; the clear colour follows `ClearColor` encoded. So
 //! translucent and `@add` draws blend on encoded values as the GS does (grass blue 0x33 + 0x4c is 0x7f, not the
 //! 0x98 a linear-light add gives).
@@ -128,7 +128,7 @@ fn clear(colour: Res<ClearColor>, mut q: Query<&mut Camera, With<Scene>>, added:
     }
 }
 
-/// Bevy's PBR fragment (every `StandardMaterial`) ends with the encoded colour, as `gs.wgsl` does.
+/// Bevy's PBR fragment (every `StandardMaterial`) ends with the encoded colour, as `gs.wesl` does.
 fn encode_pbr_output(mut events: MessageReader<AssetEvent<Shader>>, mut shaders: ResMut<Assets<Shader>>) {
     const AT: &str = "    @if(PREMULTIPLY_ALPHA)\n    output_color = premultiply_alpha(pbr_input.material.flags, output_color);\n    return output_color;";
     const ENC: &str = "    output_color = vec4(select(1.055 * pow(output_color.rgb, vec3(1.0 / 2.4)) - 0.055, output_color.rgb * 12.92, output_color.rgb <= vec3(0.0031308)), output_color.a);\n";

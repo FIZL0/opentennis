@@ -15,12 +15,12 @@
 //!   model's material header (mdl.rs). Q = 1/w (VU1), so a pixel's level is ⌊log2(view depth m) + K + ½⌋ clamped
 //!   to 0..MXL.
 //! - Colour = texture × vertex colour × material colour × light in 8-bit PS2 units (0x80 = 1.0), clamped, in gamma
-//!   space. VU1 lights each vertex with two directional lights and an ambient (gs.wgsl's vertex stage: a
+//!   space. VU1 lights each vertex with two directional lights and an ambient (gs.wesl's vertex stage: a
 //!   skinned vertex with its bones' pre-weighted normals summed, not normalised); its specular term,
 //!   scaled by header +0x14, goes out as the vertex alpha, which HIGHLIGHT2 adds to the colour (untextured: added to
 //!   the colour directly). The specular exponent is max(1, 128·(header +0x10)^1.65).
 //!
-//! - Shadows (see shadow.rs): caster draws go into the sun's shadow map through `gs_prepass.wgsl`, which keeps the
+//! - Shadows (see shadow.rs): caster draws go into the sun's shadow map through `gs_prepass.wesl`, which keeps the
 //!   alpha test; receiver draws (`shadow` > 0) multiply their colour by 1 − `shadow` where the sun is blocked.
 //!
 //! ponytail: textured MODULATE draws keep vertex × material alpha; on VU1 their vertex alpha is the highlight too.
@@ -93,10 +93,10 @@ pub struct GsKey {
     /// Drawn through a mirrored matrix (a left-hander's x scale −1): the winding flips, so the faces kept flip too.
     pub mirror: bool,
     /// A court model other than the hole model: VU1 drops every triangle with a vertex outside its guard band
-    /// (gs.wgsl, `GS_GUARD`).
+    /// (gs.wesl, `GS_GUARD`).
     pub guard: bool,
     /// M129: a court mod's court and gimmicks, not drawn where a piece is a big blocker right in front of the eye or
-    /// the eye is inside it (gs.wgsl, `GS_CLEAR`). Stock courts never.
+    /// the eye is inside it (gs.wesl, `GS_CLEAR`). Stock courts never.
     pub clear: bool,
 }
 
@@ -454,7 +454,7 @@ impl GsMaterial {
     }
 }
 
-/// Which triangles of a hole batch's two draws ([`GsMaterial::for_court_batch`]) can draw a pixel. By gs.wgsl's maths
+/// Which triangles of a hole batch's two draws ([`GsMaterial::for_court_batch`]) can draw a pixel. By gs.wesl's maths
 /// the alpha tested is ⌊At·Af / 0x80⌋, At the sampled texel alpha (0..0x80: texel byte · 0x80/0xff, rounded) and Af
 /// the vertex alpha (vertex × material colour, cut to 8 bits, interpolated); filtering and interpolation only mix
 /// values between those of the texels and vertices around. So the blended `Test::Lt80` draw has nothing in a triangle
@@ -530,7 +530,7 @@ impl SeeThrough {
 /// the material colour's alpha. `texture` `None`: untextured (At = 0x80). Where `Test::Lt80` can't, every pixel passes
 /// `Test::Ge80`.
 pub fn hole_triangles(test: Test, indices: &[u32], alpha: &[f32], uv: &[[f32; 2]], colour_a: f32, texture: Option<&SeeThrough>) -> Vec<bool> {
-    // gs.wgsl's vertex stage: the colour × material colour, FTOI to 8 bits
+    // gs.wesl's vertex stage: the colour × material colour, FTOI to 8 bits
     let af = |i: u32| ((alpha.get(i as usize).copied().unwrap_or(1.0) * colour_a * 128.0).min(255.0) + 1e-3).floor();
     let lt = test == Test::Lt80;
     indices
@@ -628,7 +628,7 @@ impl Material for GsMaterial {
         if k.clear && *CLEAR {
             defs.push("GS_CLEAR".into());
         }
-        // only the previews read the target's alpha (inspect.wgsl): a blended draw over their −1 clear leaves 2a − 1,
+        // only the previews read the target's alpha (inspect.wesl): a blended draw over their −1 clear leaves 2a − 1,
         // so a part drawn only blended (a mod's BLEND cloth, M1k) still shows; over an opaque draw it stays ≥ 0
         let keep_alpha = BlendComponent { src_factor: BlendFactor::One, dst_factor: BlendFactor::OneMinusSrcAlpha, operation: BlendOperation::Add };
         let color = |dst_factor, operation| BlendComponent { src_factor: BlendFactor::SrcAlpha, dst_factor, operation };

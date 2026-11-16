@@ -1328,7 +1328,7 @@ fn gs_models_anim(
             let texture = mat.texture.map(|i| {
                 let mut img = image(tex(i));
                 img.texture_descriptor.format = TextureFormat::Rgba8Unorm;
-                // the mip levels TEX1 MXL lets the GS use; gs.wgsl picks one from the view depth
+                // the mip levels TEX1 MXL lets the GS use; gs.wesl picks one from the view depth
                 let t = tex(i);
                 if !t.mips.is_empty() && !t.rgba.is_empty() {
                     img.texture_descriptor.mip_level_count = 1 + t.mips.len() as u32;
@@ -1426,7 +1426,7 @@ fn shift_colours(parts: &[(Handle<Mesh>, Handle<gs::GsMaterial>)], meshes: &mut 
 
 /// B161: a see-through texture the GS samples at its top level only (no MXL levels), such as Academy Grounds'
 /// chain-link fence (1-texel wires): its own mip chain, colour weighted by alpha, so wires thinner than a pixel fade
-/// out evenly instead of popping in and out as the camera moves (gs.wgsl `screen_lod`). `None` for opaque textures
+/// out evenly instead of popping in and out as the camera moves (gs.wesl `screen_lod`). `None` for opaque textures
 /// and ones that have levels.
 /// ponytail: only for draws that blend their see-through texels (an averaged alpha just reads as fainter); a pure
 /// cut-out (TEST 10..19, the trees' leaves) would thin out, so those keep the GS's single level
