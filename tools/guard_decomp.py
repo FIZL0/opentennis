@@ -55,7 +55,7 @@ if t.get('tool_name') == 'Bash' and SWEEP.search(cmd):
     if git_dirs(cmd)[0] == MAIN_GIT:
         sys.exit(print('Main checkout is shared with other sessions: stage and commit only your own paths '
                        '(git add <paths>; git commit -m ... -- <paths>), never add -A/./-u or commit -a. '
-                       'Bigger work: git worktree add ../opentennis-<slug>.', file=sys.stderr) or 2)
+                       'Bigger work: git worktree add "$(agent-runner home)/wt/<slug>".', file=sys.stderr) or 2)
 upd = {}
 if t.get('tool_name') == 'Bash' and TESTS.search(cmd) and not i.get('run_in_background'):
     upd['timeout'] = 3600000
