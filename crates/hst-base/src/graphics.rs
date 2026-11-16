@@ -67,6 +67,22 @@ pub static SHADING: AtomicBool = AtomicBool::new(true);
 /// Set for `--shot` and unattended (HST_BG) runs: their fixed-size window never goes fullscreen (`main.rs`).
 pub static KEEP_WINDOWED: AtomicBool = AtomicBool::new(false);
 
+/// P137: an iOS or Android build (not a phone's browser, which paces itself).
+pub const PHONE_OS: bool = cfg!(any(target_os = "ios", target_os = "android"));
+
+/// P137: High's and Default's frame limit: uncapped, but 60 on a phone, where no preset or default goes above 60 (an
+/// iPhone 17 Pro at 120 fps drained 5% every 4 minutes and ran hot); only the player's own pick goes higher there.
+const PHONE_FPS: u32 = if PHONE_OS { 60 } else { 0 };
+
+/// P137: the phone's Low Power Mode / battery saver is on (`ios.rs`, `android.rs` keep it in step): the frame limit
+/// drawn is at most 60 then ([`Graphics::fps_drawn`]), whatever the setting says.
+pub static LOW_POWER: AtomicBool = AtomicBool::new(false);
+
+/// P137: under Frame Limit on a phone, for a limit above 60 (or Uncapped).
+pub fn battery_note(fps: u32) -> Option<&'static str> {
+    (PHONE_OS && (fps == 0 || fps > 60)).then_some("Smoother, but uses about twice the battery and runs the phone warmer.")
+}
+
 /// P44: 240/360/480 for high-refresh monitors (the sim stays 60 Hz; drawing interpolates between ticks).
 /// 90 for the OLED Steam Deck's 90 Hz screen.
 pub const FPS: [u32; 9] = [30, 60, 90, 120, 144, 240, 360, 480, 0];
@@ -86,8 +102,8 @@ impl Default for Graphics {
 
 impl Graphics {
     /// High's picture with the speed-ups (Fewer Shadows, Skip Off-Screen) on, uncapped behind vsync (on by default:
-    /// uncapped without it ran a MacBook at 260+ fps, user 2026-11-14).
-    pub const DEFAULT: Graphics = Graphics { fps: 0, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, scenery: true, auto: false };
+    /// uncapped without it ran a MacBook at 260+ fps, user 2026-11-14). P137: 60 on a phone ([`PHONE_FPS`]).
+    pub const DEFAULT: Graphics = Graphics { fps: PHONE_FPS, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: FEWER_SHADOWS, cull: true, mesh: 100, shading: true, scenery: true, auto: false };
     /// The Steam Deck's (picked on a Deck's first run, without Auto): Default, at its native 1280×800 (P63: the Deck
     /// holds it). Its own preset until vsync went on by default, the one thing that set it apart.
     pub const STEAM_DECK: Graphics = Self::DEFAULT;
@@ -106,8 +122,8 @@ impl Graphics {
     /// triangles, every speed-up on. 60, like every preset: 30 is unplayable (user 2026-10-15), never a default.
     pub const LOWEST: Graphics = Graphics { fps: 60, vsync: true, scale: 50, shadows: Shadows::Off, msaa: 1, original: false, windowed: false, show_fps: 0, fewer_shadows: true, cull: true, mesh: 25, shading: false, scenery: true, auto: false };
     /// B412: the best look, with every speed-up off (Fewer Shadows, Skip Off-Screen; full meshes). Default is the
-    /// balanced one: the same picture with the speed-ups on.
-    pub const HIGH: Graphics = Graphics { fps: 0, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: false, cull: false, mesh: 100, shading: true, scenery: true, auto: false };
+    /// balanced one: the same picture with the speed-ups on. P137: 60 on a phone ([`PHONE_FPS`]).
+    pub const HIGH: Graphics = Graphics { fps: PHONE_FPS, vsync: true, scale: 100, shadows: Shadows::High, msaa: 4, original: false, windowed: false, show_fps: 0, fewer_shadows: false, cull: false, mesh: 100, shading: true, scenery: true, auto: false };
     /// M157: below Lowest, for framebuffer handhelds (a Mali G31 CPU-bound at ~27 fps on Lowest): Lowest without Court
     /// Life (a lower scale gained nothing there: the CPU, not the GPU, sets its frame rate).
     pub const POTATO: Graphics = Graphics { scenery: false, ..Self::LOWEST };
@@ -200,8 +216,18 @@ impl Graphics {
 
     /// Settings read from an older build's settings.txt, brought up to date: the old Steam Deck preset becomes the
     /// current one (P63).
+    /// P137: on a phone, High or Default saved uncapped (as they were before) comes back at their 60.
     pub fn upgrade(self) -> Graphics {
-        if self.keep(Self::STEAM_DECK_OLD) == self { self.keep(Self::STEAM_DECK) } else { self }
+        if self.keep(Self::STEAM_DECK_OLD) == self {
+            return self.keep(Self::STEAM_DECK);
+        }
+        let capped = Graphics { fps: PHONE_FPS, ..self };
+        if self.fps == 0 && PHONE_OS && matches!(capped.preset(), "High" | "Default") { capped } else { self }
+    }
+
+    /// P137: the frame limit drawn: the setting, at most 60 while the phone's Low Power Mode / battery saver is on.
+    pub fn fps_drawn(&self) -> u32 {
+        if LOW_POWER.load(Ordering::Relaxed) && (self.fps == 0 || self.fps > 60) { 60 } else { self.fps }
     }
 
     /// Preset `p` with this one's settings that no preset sets (the window, Show FPS, Auto).
@@ -314,7 +340,18 @@ pub fn plugin<Match: Resource>(app: &mut App) {
         .add_systems(Last, mark::<3>.before(limit));
     // P49: ProMotion's refresh rate follows the frame limit (`ios::frame_rate`)
     #[cfg(target_os = "ios")]
-    app.add_systems(PostUpdate, |g: Res<Graphics>| if g.is_changed() { crate::ios::frame_rate(g.fps) });
+    app.add_systems(PostUpdate, |g: Res<Graphics>, mut was: Local<Option<u32>>| {
+        // P137: and again when Low Power Mode comes or goes
+        if *was != Some(g.fps_drawn()) {
+            *was = Some(g.fps_drawn());
+            crate::ios::frame_rate(g.fps_drawn());
+        }
+    });
+    // P137: battery saver, read every few seconds (`android::power_save`)
+    #[cfg(target_os = "android")]
+    app.add_systems(Last, crate::android::watch_power_save);
+    // P137: the menus and the pause screen draw only while something moves
+    app.add_plugins(crate::calm::plugin);
     if let Some(r) = app.get_sub_app_mut(bevy::render::RenderApp) {
         use bevy::render::renderer::{RenderGraph, RenderGraphSystems as G};
         r.add_systems(RenderGraph, (mark::<4>.in_set(G::Begin), mark::<5>.in_set(G::Render).after(bevy::core_pipeline::schedule::camera_driver)))
@@ -811,7 +848,8 @@ fn fps_counter(
 fn limit(g: Res<Graphics>, monitors: Query<&bevy::window::Monitor>, mut next: Local<Option<Instant>>) {
     // VSync by Mailbox doesn't wait for the display: at most its refresh rate here instead
     let hz = monitors.iter().filter_map(|m| m.refresh_rate_millihertz).max().map_or(60, |m| (m + 500) / 1000);
-    let fps = if MAILBOX_VSYNC && g.vsync && std::env::var_os("HST_PRESENT").is_none() { if g.fps == 0 { hz } else { g.fps.min(hz) } } else { g.fps };
+    let fps = g.fps_drawn();
+    let fps = if MAILBOX_VSYNC && g.vsync && std::env::var_os("HST_PRESENT").is_none() { if fps == 0 { hz } else { fps.min(hz) } } else { fps };
     LIMIT.store(fps, Ordering::Relaxed);
     // the browser paces frames itself (and can't sleep)
     if fps == 0 || cfg!(target_arch = "wasm32") || !PACE_MAIN.load(Ordering::Relaxed) {
@@ -1369,5 +1407,23 @@ mod tests {
         let mut w = vec![1.0 / 60.0; 95];
         w.extend([0.2; 5]);
         assert!((held_fps(&mut w) - 60.0).abs() < 0.01);
+    }
+
+    /// P137: a phone's presets and default stop at 60 (desktop's stay uncapped), a saved uncapped High/Default comes
+    /// back at 60 there, and Low Power Mode caps what's drawn at 60 without touching the setting.
+    #[test]
+    fn phones_stay_at_60() {
+        let top = if PHONE_OS { 60 } else { 0 };
+        assert_eq!((Graphics::DEFAULT.fps, Graphics::HIGH.fps, Graphics::default().fps), (top, top, top));
+        assert!(Graphics::PRESETS.iter().all(|(_, p)| !PHONE_OS || (1..=60).contains(&p.fps)));
+        let old = Graphics { fps: 0, ..Graphics::HIGH };
+        assert_eq!(old.upgrade().fps, top);
+        let mine = Graphics { fps: 120, ..Graphics::HIGH };
+        assert_eq!((mine.upgrade().fps, battery_note(120).is_some(), battery_note(60)), (120, PHONE_OS, None));
+        LOW_POWER.store(true, Ordering::Relaxed);
+        let drawn = [mine.fps_drawn(), Graphics { fps: 0, ..mine }.fps_drawn(), Graphics { fps: 30, ..mine }.fps_drawn()];
+        LOW_POWER.store(false, Ordering::Relaxed);
+        assert_eq!(drawn, [60, 60, 30]);
+        assert_eq!(mine.fps_drawn(), 120);
     }
 }

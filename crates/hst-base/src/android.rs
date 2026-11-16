@@ -286,6 +286,31 @@ pub(crate) fn restart() {
     call("restart", "()V");
 }
 
+/// P137: battery saver into `graphics::LOW_POWER` (the frame limit at most 60 while it's on), read every 3 s
+/// (`PowerManager.isPowerSaveMode`: a JNI call of a few microseconds, on whichever pool thread runs this).
+pub fn watch_power_save(time: Res<Time<Real>>, mut next: Local<f32>) {
+    if time.elapsed_secs() < *next {
+        return;
+    }
+    *next = time.elapsed_secs() + 3.0;
+    let Some(on) = power_save() else { return };
+    let was = crate::graphics::LOW_POWER.swap(on, std::sync::atomic::Ordering::Relaxed);
+    if was != on {
+        info!("battery saver {}", if on { "on: frame limit at most 60" } else { "off" });
+    }
+}
+
+fn power_save() -> Option<bool> {
+    with_env(|env, activity| {
+        let name = env.new_string("power")?;
+        let pm = env.call_method(activity, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;", &[JValue::Object(&name)])?.l()?;
+        if pm.is_null() {
+            return Ok(false);
+        }
+        env.call_method(&pm, "isPowerSaveMode", "()Z", &[])?.z()
+    })
+}
+
 // M102: safe area and haptics
 
 

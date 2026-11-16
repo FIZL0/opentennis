@@ -19,6 +19,7 @@ pub fn log_to_documents(docs: &std::path::Path) {
     eprintln!("start: {}", memory());
     watch_memory_warnings();
     watch_focus();
+    watch_low_power();
     play_on_silent();
     // a close with no log line and no crash report says nothing: these say which kind of end it was
     // SAFETY: the handlers are `extern "C"` functions that live for the process; on_signal makes only
@@ -164,6 +165,32 @@ fn watch_memory_warnings() {
         let center: *mut AnyObject = objc2::msg_send![objc2::class!(NSNotificationCenter), defaultCenter];
         let observer: *mut AnyObject = objc2::msg_send![center, addObserverForName: &*name, object: std::ptr::null_mut::<AnyObject>(), queue: std::ptr::null_mut::<AnyObject>(), usingBlock: &*block];
         // kept for the process: the center holds the observer, the observer the block
+        let _: *mut AnyObject = objc2::msg_send![observer, retain];
+    });
+}
+
+/// P137: Low Power Mode into `graphics::LOW_POWER` (the frame limit at most 60 while it's on), now and on each change
+/// iOS announces (NSProcessInfoPowerStateDidChangeNotification, on whichever thread changed it).
+fn watch_low_power() {
+    use objc2::runtime::AnyObject;
+    fn read() {
+        // SAFETY: NSProcessInfo's shared instance and its isLowPowerModeEnabled property (iOS 9+)
+        let on: bool = unsafe {
+            let info: *mut AnyObject = objc2::msg_send![objc2::class!(NSProcessInfo), processInfo];
+            objc2::msg_send![info, isLowPowerModeEnabled]
+        };
+        let was = crate::graphics::LOW_POWER.swap(on, std::sync::atomic::Ordering::Relaxed);
+        if was != on {
+            eprintln!("iOS Low Power Mode {}", if on { "on: frame limit at most 60" } else { "off" });
+        }
+    }
+    read();
+    // SAFETY: as watch_memory_warnings
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let name = objc2_foundation::NSString::from_str("NSProcessInfoPowerStateDidChangeNotification");
+        let block = block2::RcBlock::new(|_: std::ptr::NonNull<AnyObject>| read());
+        let center: *mut AnyObject = objc2::msg_send![objc2::class!(NSNotificationCenter), defaultCenter];
+        let observer: *mut AnyObject = objc2::msg_send![center, addObserverForName: &*name, object: std::ptr::null_mut::<AnyObject>(), queue: std::ptr::null_mut::<AnyObject>(), usingBlock: &*block];
         let _: *mut AnyObject = objc2::msg_send![observer, retain];
     });
 }

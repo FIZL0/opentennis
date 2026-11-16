@@ -9,6 +9,7 @@ pub mod audio;
 pub mod character;
 pub mod court_anim;
 pub mod cpu_morph;
+pub mod calm;
 pub mod cull;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod disc;
