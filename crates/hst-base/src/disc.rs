@@ -5,8 +5,10 @@
 //! `hst [flags]` runs from the pack (importing first if there is none: a file dialog asks for the ISO);
 //! `hst --import <iso> [flags]` (re)imports; `hst <iso or pack> [flags]` runs straight from that file, as before.
 
+use hst_data::discs::Edition;
 use hst_data::iso::Iso;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// The game's files (`crate::store`, M143): on Windows and Linux beside the game ([`beside_game`], B668), else (and
 /// where that folder won't take files) [`app_data_dir`].
@@ -134,16 +136,7 @@ pub fn resolve(argv: &mut Vec<String>) {
 }
 
 fn import_iso(iso: &Path, pack: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(pack.parent().unwrap())?;
-    let mut disc = Iso::open(iso)?;
-    disc.playable()?;
-    let mut last = 0;
-    let hash = disc.write_pack(pack, |i, n| {
-        if i * 10 / n != last {
-            last = i * 10 / n;
-            eprintln!("importing the disc: {}%", last * 10);
-        }
-    })?;
+    let hash = write_pack(iso, pack)?;
     // the settings beside the old ISO come along (mods/ stay where they are: they can be large)
     let (old, new) = (iso.with_file_name("settings.txt"), pack.with_file_name("settings.txt"));
     if old.exists() && !new.exists() {
@@ -157,6 +150,154 @@ fn import_iso(iso: &Path, pack: &Path) -> std::io::Result<()> {
         mb(iso)
     ));
     Ok(())
+}
+
+/// `iso` into a new pack at `pack` (written beside it as a `.part` until complete), checked playable: the pack's hash.
+fn write_pack(iso: &Path, pack: &Path) -> std::io::Result<u64> {
+    std::fs::create_dir_all(pack.parent().unwrap())?;
+    // the disc alone: no other release's data laid over it (Rules, M175; a European disc's borrowed US data, M174)
+    let mut disc = Iso::open_own(iso)?;
+    disc.playable()?;
+    let mut last = 0;
+    disc.write_pack(pack, |i, n| {
+        if i * 10 / n != last {
+            last = i * 10 / n;
+            eprintln!("importing the disc: {}%", last * 10);
+        }
+    })
+}
+
+/// M180: whether Base Disc can switch on this build: the desktop ones, which restart themselves (the phones' and the
+/// browser's disc stays the one they start with).
+pub const CAN_SWITCH: bool = cfg!(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")));
+
+/// M180: the releases Settings → Gameplay → Base Disc offers (`releases::have`: the main disc's and the discs beside
+/// it), US, Japanese, European; none with fewer than two, or where the game can't switch ([`CAN_SWITCH`]).
+pub fn bases() -> Vec<Edition> {
+    if !CAN_SWITCH {
+        return Vec::new();
+    }
+    let have = crate::releases::have();
+    let list: Vec<Edition> = Edition::ALL.into_iter().filter(|e| have.iter().any(|h| h.edition == *e)).collect();
+    if list.len() < 2 { Vec::new() } else { list }
+}
+
+/// M180: the release the game runs from (the main disc's), once known.
+pub fn base() -> Option<Edition> {
+    crate::releases::have().into_iter().find(|h| h.main).map(|h| h.edition)
+}
+
+/// M180: where a Base Disc switch is.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Switch {
+    Idle,
+    /// Copying the disc in, or restarting.
+    Busy,
+    /// It couldn't (why): the game carries on on the disc it has.
+    Failed(String),
+}
+
+static SWITCH: Mutex<Switch> = Mutex::new(Switch::Idle);
+
+/// M180: where the last [`switch_base`] is.
+pub fn switching() -> Switch {
+    SWITCH.lock().unwrap().clone()
+}
+
+/// M180: Base Disc picks release `to`: the game restarts on its disc, off the frame (an image is copied into a pack
+/// first, some seconds). The imported pack (`disc.pack`) the game runs from takes the new disc's place and the one it
+/// had stays beside it as `disc-<serial>.pack`, so it is still found (`releases`, Rules, Voice Language) and switching
+/// back is a rename; a disc named on the command line is replaced on the restarted one's. Nothing for the main disc's
+/// own release, a release not here, or while a switch is under way.
+pub fn switch_base(to: Edition) {
+    let (Some(main), Some(target)) = (crate::releases::have().into_iter().find(|h| h.main), crate::releases::get(to)) else { return };
+    if main.edition == to || !CAN_SWITCH {
+        return;
+    }
+    {
+        let mut s = SWITCH.lock().unwrap();
+        if *s == Switch::Busy {
+            return;
+        }
+        *s = Switch::Busy;
+    }
+    std::thread::spawn(move || {
+        let pack = pack_path();
+        let started = match swap(&pack, &main.path, main.edition, &target.path) {
+            Ok(disc) => {
+                eprintln!("hst: base disc now {}: {}", to.name(), disc.display());
+                let args = restart_args(std::env::args_os().skip(1).collect(), &main.path, &disc, &pack);
+                restart_with(args)
+            }
+            Err(e) => e.to_string(),
+        };
+        eprintln!("hst: couldn't switch the base disc to {}: {started}", to.name());
+        *SWITCH.lock().unwrap() = Switch::Failed(started);
+    });
+}
+
+/// [`switch_base`]'s files: the game runs from `main` (release `edition`) and is to run from the disc at `to`; `pack`
+/// is the imported pack's place. Running from the pack, `to` takes its place (a pack moved in, an image imported) and
+/// the old one stays beside it under its serial; else nothing moves. The disc to restart on.
+fn swap(pack: &Path, main: &Path, edition: Edition, to: &Path) -> std::io::Result<PathBuf> {
+    let same = |a: &Path, b: &Path| a.canonicalize().ok().is_some_and(|a| b.canonicalize().is_ok_and(|b| a == b));
+    if !same(main, pack) {
+        return Ok(to.to_path_buf());
+    }
+    let dir = pack.parent().unwrap_or(Path::new("."));
+    let serial = edition.name().split_whitespace().next().unwrap_or("disc");
+    let park = (1..).map(|n| dir.join(if n == 1 { format!("disc-{serial}.pack") } else { format!("disc-{serial}-{n}.pack") })).find(|p| !p.exists()).unwrap();
+    // an image is imported first, so a failed import leaves everything as it was
+    let next = if to.extension().is_some_and(|x| x.eq_ignore_ascii_case("pack")) {
+        to.to_path_buf()
+    } else {
+        let next = dir.join("disc-next.pack");
+        write_pack(to, &next)?;
+        next
+    };
+    std::fs::rename(pack, &park)?;
+    if let Err(e) = std::fs::rename(&next, pack) {
+        let _ = std::fs::rename(&park, pack);
+        return Err(e);
+    }
+    Ok(pack.to_path_buf())
+}
+
+/// The arguments to restart with on `disc` after running from `main` with `args` (this run's, the program left out):
+/// an import's `--import [iso]` dropped (it would import again); a disc named in them (`main`) becomes `disc`; with
+/// none named, `disc` goes first unless it is the pack (which a run with no disc starts from).
+fn restart_args(mut args: Vec<std::ffi::OsString>, main: &Path, disc: &Path, pack: &Path) -> Vec<std::ffi::OsString> {
+    if args.first().is_some_and(|a| a == "--import") {
+        args.remove(0);
+        if args.first().is_some_and(|a| !a.to_string_lossy().starts_with("--")) {
+            args.remove(0);
+        }
+    }
+    let named = args.first().filter(|a| !a.to_string_lossy().starts_with("--")).is_some_and(|a| Path::new(a) == main || Path::new(a) == pack);
+    if named {
+        args[0] = disc.into();
+    } else if disc != pack {
+        args.insert(0, disc.into());
+    }
+    args
+}
+
+/// Runs this game again in this process's place with `args`; returns only when it couldn't (why).
+fn restart_with(args: Vec<std::ffi::OsString>) -> String {
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => return e.to_string(),
+    };
+    #[cfg(all(unix, not(target_os = "ios"), not(target_os = "android")))]
+    {
+        use std::os::unix::process::CommandExt;
+        std::process::Command::new(exe).args(args).exec().to_string()
+    }
+    #[cfg(not(all(unix, not(target_os = "ios"), not(target_os = "android"))))]
+    match std::process::Command::new(exe).args(args).spawn() {
+        Ok(_) => std::process::exit(0),
+        Err(e) => e.to_string(),
+    }
 }
 
 /// Runs this game again in this process's place, with the same arguments but `--import` (it would ask again) (Unix);
@@ -207,4 +348,88 @@ fn tell(msg: &str) {
 fn fail(msg: &str) -> ! {
     tell(msg);
     std::process::exit(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    /// A scratch folder of its own, gone after the test.
+    struct Tmp(PathBuf);
+    impl Tmp {
+        fn new(tag: &str) -> Tmp {
+            let d = std::env::temp_dir().join(format!("hst-base-disc-{}-{tag}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            Tmp(d)
+        }
+    }
+    impl Drop for Tmp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// M180: running from the pack, a pack beside it takes its place and the old one stays beside under its serial;
+    /// switching back swaps them again; a disc named on the command line moves nothing.
+    #[test]
+    fn base_disc_swaps_the_packs() {
+        let t = Tmp::new("swap");
+        let (pack, jp) = (t.0.join("disc.pack"), t.0.join("minna.pack"));
+        std::fs::write(&pack, b"us").unwrap();
+        std::fs::write(&jp, b"jp").unwrap();
+        assert_eq!(swap(&pack, &pack, Edition::Us, &jp).unwrap(), pack);
+        let us = t.0.join("disc-SCUS-97610.pack");
+        assert_eq!((std::fs::read(&pack).unwrap(), std::fs::read(&us).unwrap()), (b"jp".to_vec(), b"us".to_vec()));
+        assert!(!jp.exists());
+        assert_eq!(swap(&pack, &pack, Edition::Japan, &us).unwrap(), pack);
+        assert_eq!(std::fs::read(&pack).unwrap(), b"us");
+        assert_eq!(std::fs::read(t.0.join("disc-SCPS-15113.pack")).unwrap(), b"jp");
+        assert!(!us.exists());
+        // run from an image named on the command line: nothing moves, the restart names the other disc
+        let iso = t.0.join("us.iso");
+        std::fs::write(&iso, b"us").unwrap();
+        let other = t.0.join("disc-SCPS-15113.pack");
+        assert_eq!(swap(&pack, &iso, Edition::Us, &other).unwrap(), other);
+        assert!(other.exists() && pack.exists());
+        // a failed import (not a disc) leaves the pack as it was
+        let bad = t.0.join("bad.iso");
+        std::fs::write(&bad, b"nope").unwrap();
+        assert!(swap(&pack, &pack, Edition::Us, &bad).is_err());
+        assert_eq!(std::fs::read(&pack).unwrap(), b"us");
+        assert!(!t.0.join("disc-SCUS-97610.pack").exists());
+    }
+
+    /// M180: the restart's arguments: the disc named in place of the old one, an import's dropped, the flags kept.
+    #[test]
+    fn base_disc_restart_args() {
+        let a = |v: &[&str]| v.iter().map(OsString::from).collect::<Vec<_>>();
+        let (pack, iso, jp) = (Path::new("/d/disc.pack"), Path::new("/x/us.iso"), Path::new("/x/jp.iso"));
+        assert_eq!(restart_args(a(&["--windowed"]), pack, pack, pack), a(&["--windowed"]));
+        assert_eq!(restart_args(a(&["--import", "/x/us.iso", "--windowed"]), pack, pack, pack), a(&["--windowed"]));
+        assert_eq!(restart_args(a(&["--import"]), pack, pack, pack), a(&[]));
+        assert_eq!(restart_args(a(&["/x/us.iso", "--windowed"]), iso, jp, pack), a(&["/x/jp.iso", "--windowed"]));
+        assert_eq!(restart_args(a(&["/d/disc.pack"]), pack, pack, pack), a(&["/d/disc.pack"]));
+        assert_eq!(restart_args(a(&[]), pack, jp, pack), a(&["/x/jp.iso"]));
+    }
+
+    /// M180: the Japanese disc image (`fixtures/discs/`, skipped without it) imported in the US pack's place: the pack
+    /// is then the Japanese release, the US one beside it. A few seconds (one import).
+    #[test]
+    fn base_disc_imports_an_image() {
+        use hst_data::fixture;
+        let jp = fixture::path("fixtures/discs/SCPS-15113.iso");
+        if !jp.exists() {
+            return fixture::skip("the Japanese disc (fixtures/discs/SCPS-15113.iso)");
+        }
+        let t = Tmp::new("import");
+        let pack = t.0.join("disc.pack");
+        std::fs::write(&pack, b"us").unwrap();
+        assert_eq!(swap(&pack, &pack, Edition::Us, &jp).unwrap(), pack);
+        assert_eq!(Iso::open(&pack).ok().and_then(|mut i| Edition::of(&mut i)), Some(Edition::Japan));
+        assert_eq!(std::fs::read(t.0.join("disc-SCUS-97610.pack")).unwrap(), b"us");
+        assert!(!t.0.join("disc-next.pack").exists() && !t.0.join("disc-next.part").exists());
+        assert!(jp.exists(), "the image stays");
+    }
 }

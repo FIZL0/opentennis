@@ -67,6 +67,8 @@ pub(super) enum Opt {
     Rules,
     /// M176: a match's ticks a second, 60 or the European original's 50 (`match_speed`).
     MatchSpeed,
+    /// M180: which release's disc the game runs from (`disc::switch_base`); ✕ asks, then the game restarts on it.
+    BaseDisc,
     /// B343: the speed-up switch (`Graphics::fewer_shadows`).
     FewerShadows,
     /// B364: the characters' share of triangles (`Graphics::mesh`, `lod.rs`).
@@ -123,9 +125,18 @@ const MODS: &[Opt] = if cfg!(target_arch = "wasm32") { &[Downloads, AtOnce, Onli
 const GAMEPLAY: &[Opt] = &[Rules, MatchSpeed, MatchRumble, Vibration];
 /// M176: Gameplay's rows where 60 Hz is the only speed.
 const GAMEPLAY_60: &[Opt] = &[Rules, MatchRumble, Vibration];
-/// Gameplay's rows on this device: Match Speed only with a choice to make, Vibration only on a touch screen.
+/// M180: [`GAMEPLAY`] and [`GAMEPLAY_60`] with Base Disc first, where 2+ releases' discs are here (`disc::bases`).
+const GAMEPLAY_BASE: &[Opt] = &[BaseDisc, Rules, MatchSpeed, MatchRumble, Vibration];
+const GAMEPLAY_60_BASE: &[Opt] = &[BaseDisc, Rules, MatchRumble, Vibration];
+/// Gameplay's rows on this device: Base Disc only with another release's disc here (M180), Match Speed only with a
+/// choice to make, Vibration only on a touch screen.
 fn gameplay() -> &'static [Opt] {
-    let rows = if crate::match_speed::available().len() > 1 { GAMEPLAY } else { GAMEPLAY_60 };
+    let rows = match (!base_disc::bases().is_empty(), crate::match_speed::available().len() > 1) {
+        (false, true) => GAMEPLAY,
+        (false, false) => GAMEPLAY_60,
+        (true, true) => GAMEPLAY_BASE,
+        (true, false) => GAMEPLAY_60_BASE,
+    };
     if super::touch_page() { rows } else { &rows[..rows.len() - 1] }
 }
 /// B289: Online Mod Downloads' values.
@@ -186,6 +197,7 @@ fn label(o: Opt) -> &'static str {
         MatchRumble => "Match Rumble",
         Rules => "Rules",
         MatchSpeed => "Match Speed",
+        BaseDisc => "Base Disc",
         UpdateCheck => "Updates",
         FewerShadows => "Fewer Shadows",
         Mesh => "Mesh",
@@ -242,6 +254,7 @@ fn about(o: Opt) -> &'static str {
         Vibration => vibration_about(),
         MatchRumble => "Controllers rumble in a match: hard on a mistimed or framed hit, a short crisp tick on a sweet-spot hit, a thump when a hard serve lands (the receiver's, and softer the server's) and when the ball hits you. Your own controller only; never in replays.",
         MatchSpeed => "How many times a second the match moves on. 60 Hz is the US and Japanese game. 50 Hz is the European original (Everybody's Tennis), retimed by its makers for 50 Hz television: the same game at its own timing, from the European disc's data, so it shows once that disc is here (the game's own, or beside it). Online, the lobby always plays its host's speed.",
+        BaseDisc => "Which release's disc the game runs from: its menus and their text, its pictures, and the game Rules plays by default. The other releases' discs stay beside it, so Rules and Voice Language still offer them. A change asks first, then the game restarts on that disc (a disc image is copied in first, which takes a few seconds).",
         Rules => "Which release's game a match plays: the US one (Hot Shots Tennis) or the Japanese one (Minna no Tennis), an earlier build with a few rules of its own (no counters or special serves, a mistimed hard toss never strays, a different aim on lobs and smashes). A release shows once its disc is here: the game's own, or another release's disc in the same folder. Online, the lobby always plays its host's rules.",
         UpdateCheck => "Look for a newer version while the game runs. Ask: the main menu asks Update? the first time it finds one. Always: it installs by itself where it can (a phone's installer still asks you to confirm). Never: no looking.",
         FewerShadows => "At Low shadows, only the players, the umpire and what shades the court cast: fewer draws. Off: Low casts as many as High.",
@@ -292,6 +305,53 @@ fn vibration_about() -> &'static str {
         _ => "This browser can't vibrate, so this does nothing here.",
     }
 }
+
+/// M180: Base Disc's side of `disc` (a desktop's; the browser build has no `disc` and never shows the row).
+#[cfg(not(target_arch = "wasm32"))]
+use crate::disc as base_disc;
+#[cfg(target_arch = "wasm32")]
+mod base_disc {
+    use hst_data::discs::Edition;
+    #[derive(Clone, Debug, PartialEq)]
+    #[allow(dead_code)]
+    pub enum Switch {
+        Idle,
+        Busy,
+        Failed(String),
+    }
+    pub fn bases() -> Vec<Edition> {
+        Vec::new()
+    }
+    pub fn base() -> Option<Edition> {
+        None
+    }
+    pub fn switching() -> Switch {
+        Switch::Idle
+    }
+    pub fn switch_base(_: Edition) {}
+}
+
+/// M180: a release's name on the Base Disc row.
+fn base_name(e: hst_data::discs::Edition) -> &'static str {
+    use hst_data::discs::Edition;
+    match e {
+        Edition::Us => "US (Hot Shots Tennis)",
+        Edition::Japan => "Japanese (Minna no Tennis)",
+        Edition::Europe => "European (Everybody's Tennis)",
+    }
+}
+
+/// M180: the Base Disc row's value: the disc the game runs from, or how a switch is going.
+fn base_value() -> String {
+    match base_disc::switching() {
+        base_disc::Switch::Busy => "Switching…".into(),
+        base_disc::Switch::Failed(_) => "Couldn't switch".into(),
+        base_disc::Switch::Idle => base_disc::base().map_or("", base_name).into(),
+    }
+}
+
+/// M180: a `Menu::switch` for the Base Disc row: this bit, with the release's index in `Edition::ALL`.
+pub(super) const BASE_SWITCH: u8 = 0x40;
 
 /// M165: the Add Voices row's value: what ✕ does, or how far a disc is.
 fn add_voices_value() -> String {
@@ -363,6 +423,7 @@ fn choices(o: Opt) -> Vec<String> {
         VoiceLanguage => crate::voices::available().into_iter().map(|l| crate::voices::LANGS[l as usize].name.to_string()).collect(),
         Rules => crate::rules_choice::available().into_iter().map(|r| crate::rules_choice::name(r).to_string()).collect(),
         MatchSpeed => crate::match_speed::available().into_iter().map(|hz| crate::match_speed::name(hz).to_string()).collect(),
+        BaseDisc => base_disc::bases().into_iter().map(|e| base_name(e).to_string()).collect(),
         Advanced | AddVoices => Vec::new(),
         _ => words(&["Off", "On"]),
     }
@@ -505,7 +566,8 @@ impl Settings {
             }
             FewerShadows => g.fewer_shadows = !g.fewer_shadows,
             Mesh => g.mesh = cycle(&MESHES, g.mesh, d),
-            Advanced | AddVoices => {}
+            // M180: changes only through its confirm popup (`Menu::switch_step`): the game restarts on the disc
+            Advanced | AddVoices | BaseDisc => {}
         }
     }
 
@@ -581,6 +643,7 @@ impl Settings {
             MatchRumble => on_off(self.match_rumble),
             Rules => crate::rules_choice::name(crate::rules_choice::chosen()).into(),
             MatchSpeed => crate::match_speed::name(crate::match_speed::chosen()).into(),
+            BaseDisc => base_value(),
             UpdateCheck => ASK_VALUES.iter().find(|(a, _)| *a == self.updates()).unwrap().1.into(),
             FewerShadows => on_off(g.fewer_shadows),
             Advanced => ">".into(),
@@ -598,7 +661,7 @@ impl Menu {
     pub(super) fn step_page(&mut self, k: Press, out: &mut Vec<Effect>) {
         let o = page(self.screen).get(self.sel).copied().filter(|&o| !locked(o));
         // B411: Advanced is never picked (it opens its page); M165: nor Add Voices (it opens the file picker)
-        if matches!(o, Some(Advanced | AddVoices)) {
+        if matches!(o, Some(Advanced | AddVoices | BaseDisc)) {
             self.editing = None;
         }
         if let Some(j) = self.listing {
@@ -645,6 +708,18 @@ impl Menu {
             if !crate::voices::adding_busy() {
                 crate::voices::add_disc();
                 out.push(Effect::Sound(2));
+            }
+            return;
+        }
+        // M180: Base Disc asks before it switches (the game restarts on the disc): with two releases ✕ asks for the
+        // other one, with three it opens the list; ◀ ▶ do nothing; nothing while a switch is under way
+        if o == Some(BaseDisc) && (k.left || k.right || k.ok && (!listed(BaseDisc) || base_disc::switching() == base_disc::Switch::Busy)) {
+            if k.ok && base_disc::switching() != base_disc::Switch::Busy {
+                let other = base_disc::bases().into_iter().find(|&e| Some(e) != base_disc::base());
+                if let Some(i) = other.and_then(|e| hst_data::discs::Edition::ALL.iter().position(|&a| a == e)) {
+                    self.switch = Some((BASE_SWITCH | i as u8, 0));
+                    out.push(Effect::Sound(2));
+                }
             }
             return;
         }
@@ -699,6 +774,14 @@ impl Menu {
         if k.up || k.down {
             self.listing = Some((j + if k.down { 1 } else { n - 1 }) % n);
             out.push(Effect::Sound(0));
+        } else if k.ok && o == BaseDisc {
+            // M180: another release asks first (the game restarts on it); the one running just closes the list
+            (self.listing, self.editing) = (None, None);
+            let picked = base_disc::bases().get(j).copied().filter(|&e| Some(e) != base_disc::base());
+            if let Some(i) = picked.and_then(|e| hst_data::discs::Edition::ALL.iter().position(|&a| a == e)) {
+                self.switch = Some((BASE_SWITCH | i as u8, 0));
+            }
+            out.push(Effect::Sound(2));
         } else if k.ok && o == Renderer {
             // B327: a different renderer asks first (the page reloads into it); the one in use just closes the list
             (self.listing, self.editing) = (None, None);
@@ -728,6 +811,13 @@ impl Menu {
         if k.up || k.down {
             self.switch = Some((r, 1 - c));
             out.push(Effect::Sound(0));
+        } else if k.ok && c == 0 && r & (MODE_SWITCH | BASE_SWITCH) == BASE_SWITCH {
+            // M180: the game copies the disc in if it must, then restarts on it (`disc::switch_base`)
+            self.switch = None;
+            if let Some(&e) = hst_data::discs::Edition::ALL.get((r & !BASE_SWITCH) as usize) {
+                base_disc::switch_base(e);
+            }
+            out.push(Effect::Sound(2));
         } else if k.ok && c == 0 {
             if r & MODE_SWITCH != 0 {
                 self.settings.software = r & 1 != 0;
@@ -1124,7 +1214,7 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
             value = format!("{value} ({running})");
         }
         let editing = on && m.editing.is_some() && !locked(o);
-        if matches!(o, Advanced | Rendering | AddVoices) {
+        if matches!(o, Advanced | Rendering | AddVoices) || o == BaseDisc && !listed(o) {
             // (a way in, not a value: no arrows; B707: Rendering's ✕ asks, ◀ ▶ do nothing)
             look::steps(d, vb, false, &value, size, false, [false; 2]);
         } else if listed(o) {
@@ -1175,6 +1265,12 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         // M165: how adding a disc went, in full (the row has room for a word or two)
         let added = if o == AddVoices { add_voices_note() } else { None };
         let note = added.as_deref().unwrap_or(note);
+        // M180: why a Base Disc switch didn't happen
+        let failed = match base_disc::switching() {
+            base_disc::Switch::Failed(why) if o == BaseDisc => Some(format!("Couldn't switch: {why}")),
+            _ => None,
+        };
+        let note = failed.as_deref().unwrap_or(note);
         let now = m.settings.value(o);
         side_panel(d, side, strip(list, opts.len()), label(o), about(o), "Choices", &choices(o), Some(&now), note);
     }
@@ -1309,6 +1405,13 @@ const SWITCH_TOP: f32 = 226.0;
 /// B327: the Renderer switch's confirm popup: the renderer picked, Switch and Cancel.
 fn switch_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
     let Some((r, c)) = m.switch else { return };
+    if r & (MODE_SWITCH | BASE_SWITCH) == BASE_SWITCH {
+        // M180: Base Disc's
+        let name = hst_data::discs::Edition::ALL.get((r & !BASE_SWITCH) as usize).map_or("", |&e| base_name(e));
+        let short = name.split(" (").next().unwrap_or(name);
+        confirm(d, &format!("Run from the {short} disc?"), "The game restarts on it.", "Switch", c, hand_x);
+        return;
+    }
     if r & MODE_SWITCH != 0 {
         // B707: Rendering's
         let line = if cfg!(target_arch = "wasm32") {
@@ -2190,7 +2293,8 @@ mod tests {
     /// release here it is that one alone and ◀ ▶ leave it be (saved as the default).
     #[test]
     fn rules_row() {
-        assert_eq!(page(Screen::Gameplay)[0], Rules);
+        // (M180: after Base Disc, where another release's disc is here)
+        assert_eq!(page(Screen::Gameplay).iter().find(|&&o| o != BaseDisc), Some(&Rules));
         assert!(tabs_shown().iter().any(|t| t.1 == Screen::Gameplay));
         let own = crate::rules_choice::own();
         let mut s = Settings::default();
@@ -2223,6 +2327,30 @@ mod tests {
             s.step(MatchSpeed, 1);
             assert_eq!(s.match_speed, 60);
         }
+    }
+
+    /// M180: Base Disc's popup (the Japanese disc picked): drawn at any aspect ratio, ○ cancels, Switch closes it and
+    /// hands the release to `disc::switch_base` (no settings change: the disc is the pack, not a setting; with no main
+    /// disc registered here it does nothing). The row hides without two releases' discs.
+    #[test]
+    fn base_disc_asks_first() {
+        if base_disc::bases().is_empty() {
+            assert!(!page(Screen::Gameplay).contains(&BaseDisc));
+        }
+        assert_eq!(base_name(hst_data::discs::Edition::Japan), "Japanese (Minna no Tennis)");
+        let jp = BASE_SWITCH | hst_data::discs::Edition::ALL.iter().position(|&e| e == hst_data::discs::Edition::Japan).unwrap() as u8;
+        let mut m = Menu { screen: Screen::Gameplay, sel: 0, switch: Some((jp, 0)), ..default() };
+        let fx = m.step(Dev::Keys, press(|k| &mut k.back));
+        assert_eq!((m.switch, m.settings, fx), (None, Settings::default(), vec![Effect::Sound(1)]));
+        m.switch = Some((jp, 0));
+        let t = super::super::pointer::tests::text_with_mods(0);
+        for a in [16.0 / 9.0, 4.0 / 3.0, 9.0 / 16.0, 21.0 / 9.0] {
+            m.grid = Grid::fit(a);
+            let out = super::super::drawn(&m, &t, &controls::Bindings::default(), &[], 0, 0.0).out;
+            assert!(out.iter().any(|q| q.tex == Tex::Cursor));
+        }
+        let fx = m.step(Dev::Keys, press(|k| &mut k.ok));
+        assert_eq!((m.switch, m.settings, fx), (None, Settings::default(), vec![Effect::Sound(2)]));
     }
 
     /// (settings.txt's `rendering`, which a fresh parse reads back) for the next start.
