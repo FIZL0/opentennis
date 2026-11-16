@@ -19,6 +19,11 @@ pub enum Release {
     /// Minna no Tennis, Japan (SCPS-15113): the same game an update earlier, with its own tuning in a few tables
     /// (shot blends, rain odds, AI and trajectory files) and no strong-toss serve error table.
     Japan,
+    /// Everybody's Tennis, Europe (SCES-54535): the US game rebuilt for 50 Hz. Its program data is the US data with
+    /// the per-frame shot amounts ×1.2 ([`Game::shot_params`] gives them back as the US values) and its trajectory
+    /// tables re-solved for 50 Hz. Alone, the remaster plays it at 60 Hz on tables regenerated from them
+    /// (`hst_sim::shot::powered::regen`): close to the US game, not the original.
+    Europe,
 }
 
 /// Where one release keeps what this module reads.
@@ -91,34 +96,57 @@ const JAPAN: Layout = Layout {
     japanese_umpire_only: true,
 };
 
+/// The releases, in the order they are recognised.
+const RELEASES: [Release; 3] = [Release::Us, Release::Japan, Release::Europe];
+
+/// The European release: the US data shifted as a whole (its program loads elsewhere), the per-frame shot amounts
+/// scaled for 50 Hz ([`Game::shot_params`]). Its boot program's tables sit in two runs.
+const EUROPE: Layout = Layout {
+    name: "SCES-54535 Europe 1.00",
+    boot: "SCES_545.35",
+    boot_size: 949_968,
+    boot_shift: &[(0, 0x7100), (0x1c_e970, 0x1_4d00)],
+    game_size: 0x10_0400,
+    game_load: 0x33_7a00,
+    game_shift: &[(0, Some(0x180))],
+    menu_size: 0x7_2780,
+    menu_load: 0x33_7a00,
+    grades: 0x3a_2970,
+    japanese_umpire_only: false,
+};
+
 impl Release {
-    /// The release whose `SYSTEM.CNF` this is. The European release is known but refused: it runs at 50 Hz, its
-    /// shot trajectory tables are timed for that, and the remaster's match runs the 60 Hz game.
+    /// The release whose `SYSTEM.CNF` this is.
     pub fn of(system_cnf: &[u8]) -> Result<Self, Error> {
         let cnf = String::from_utf8_lossy(system_cnf);
         let boot = cnf.lines().find(|l| l.trim_start().starts_with("BOOT2")).unwrap_or_default();
-        if let Some(r) = [Release::Us, Release::Japan].into_iter().find(|r| boot.contains(r.layout().boot)) {
+        if let Some(r) = RELEASES.into_iter().find(|r| boot.contains(r.layout().boot)) {
             return Ok(r);
-        }
-        if boot.contains("SCES_545.35") {
-            return Err(Error("Everybody's Tennis (Europe, SCES-54535) isn't supported yet: it runs at 50 Hz and its shots are timed for that. Use the US disc (SCUS-97610)".into()));
         }
         Err(Error("unsupported disc: Hot Shots Tennis USA (SCUS-97610) is the one the game plays".into()))
     }
 
-    /// Whether a match can be played from it. Both releases play: the Japanese one by its own earlier build's rules
-    /// (`hst_sim::build`, task M163a1), checked against a bot match on that disc (M163a1a). An `Err` names why a
-    /// release can't play; none do today.
+    /// Whether a match can be played from it. All three play: the Japanese one by its own earlier build's rules
+    /// (`hst_sim::build`, task M163a1), checked against a bot match on that disc (M163a1a); the European one at 60 Hz
+    /// on regenerated trajectory tables ([`Release::regenerated_shots`]: close, not exact; online its digest meets
+    /// only other European discs). An `Err` names why a release can't play; none do today.
     pub fn playable(self) -> Result<(), Error> {
         match self {
-            Release::Us | Release::Japan => Ok(()),
+            Release::Us | Release::Japan | Release::Europe => Ok(()),
         }
+    }
+
+    /// Its trajectory tables are timed for another tick rate: a 60 Hz match on it regenerates them, so it plays
+    /// close to the original, not exactly (the European disc, 50 Hz).
+    pub fn regenerated_shots(self) -> bool {
+        self == Release::Europe
     }
 
     fn layout(self) -> &'static Layout {
         match self {
             Release::Us => &US,
             Release::Japan => &JAPAN,
+            Release::Europe => &EUROPE,
         }
     }
 
@@ -135,10 +163,21 @@ impl Release {
     /// The release whose main program this is (by its size and load segment).
     fn of_boot(elf: &[u8]) -> Result<Self, Error> {
         let elf_ok = elf.get(..4) == Some(b"\x7fELF") && elf.get(0x3c..0x40) == Some(&0x10_0000u32.to_le_bytes());
-        [Release::Us, Release::Japan]
+        RELEASES
             .into_iter()
             .find(|r| elf_ok && elf.len() == r.layout().boot_size)
-            .ok_or_else(|| Error("the main program does not match a supported release (SCUS_976.10 US 1.00, SCPS_151.13 Japan 1.00)".into()))
+            .ok_or_else(|| Error("the main program does not match a supported release (SCUS_976.10 US 1.00, SCPS_151.13 Japan 1.00, SCES_545.35 Europe)".into()))
+    }
+}
+
+/// The 50 Hz program's shot records back at 60 Hz: the per-frame amounts (record fields 0 and 1, the launch's
+/// per-frame speeds, 7 the launch spin and 9 the first-bounce spin, every one that isn't zero) are the US values
+/// ×1.2, which ÷1.2 and rounded to six significant digits gives back exactly (all 151 of them, `tests/releases.rs`).
+fn sixty_hz(base: &mut [f32]) {
+    for (i, v) in base.iter_mut().enumerate() {
+        if matches!(i % 13, 0 | 1 | 7 | 9) && *v != 0.0 {
+            *v = format!("{:.5e}", *v as f64 / 1.2).parse::<f64>().unwrap() as f32;
+        }
     }
 }
 
@@ -205,9 +244,13 @@ impl<'a> Game<'a> {
 
     /// Shot parameter source data (see `hst_sim::params`).
     pub fn shot_params(&self) -> ShotParamSource {
+        let mut base = self.f32s(0x40_4810, 4 * 0x451);
+        if self.release == Release::Europe {
+            sixty_hz(&mut base);
+        }
         ShotParamSource {
             // per shot class: 0x451 floats = up to 5 kinds × 0xdd floats = 17 records × 13 floats
-            base: self.f32s(0x40_4810, 4 * 0x451),
+            base,
             kinds: self.at(0x40_3b90, 16).as_chunks::<4>().0.iter().map(|&c| i32::from_le_bytes(c)).collect(),
             // 17 rows of 0x7c bytes; rows 3..16 (= character + 3) hold the blend weights
             weights: (0..17).flat_map(|r| self.f32s(0x40_3f60 + r * 0x7c, 0x7c / 4)).collect(),
