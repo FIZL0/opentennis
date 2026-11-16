@@ -8,7 +8,8 @@
 use crate::vertex_patch::{self, Patched, Queued};
 use bevy::mesh::morph::MorphWeights;
 use bevy::prelude::*;
-use std::collections::HashMap;
+// P138: foldhash, not SipHash: `shared` is asked for drawn parts every frame
+use bevy::platform::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Whether mod faces morph here: as `debug.txt`'s `mod_morph` says (B693, `mod_debug`), else `HST_CPU_MORPH` (1/0),
