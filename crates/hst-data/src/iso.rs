@@ -49,18 +49,24 @@ pub const KNOWN_PACKS: &[(u64, &str)] = &[
     (0xd89b_5d23_0259_faef, "SCUS-97610 US 1.00"),
     // character face pictures blanked (`blanked`)
     (0x3010_8488_3532_83da, "SCUS-97610 US 1.00"),
+    // the Redump "Minna no Tennis (Japan, Asia)" image, faces blanked
+    (0x0d38_064f_5be1_fdd5, "SCPS-15113 Japan 1.00"),
 ];
+
+/// The release a known pack hash is a copy of (`"SCPS-15113 Japan 1.00"`).
+pub fn release_name(hash: u64) -> Option<&'static str> {
+    KNOWN_PACKS.iter().find(|&&(k, _)| k == hash).map(|&(_, n)| n)
+}
 
 /// Two pack hashes are the same disc: equal, or known copies of the same release (an older import and a newer one).
 pub fn same_disc(a: u64, b: u64) -> bool {
-    let name = |h| KNOWN_PACKS.iter().find(|&&(k, _)| k == h).map(|&(_, n)| n);
-    a == b || name(a).is_some_and(|n| name(b) == Some(n))
+    a == b || release_name(a).is_some_and(|n| release_name(b) == Some(n))
 }
 
 /// Archive entries a pack holds as zeros: the original's character face pictures, which the remaster never draws (it
 /// bakes its own). The archive keeps its layout; only those entries' bytes are left out.
 fn blanked(path: &str, name: &str) -> bool {
-    path == "AZUMA/INPANE/INPANE.XB0" && name.to_ascii_lowercase().replace('\\', "/").contains("/face/face_")
+    matches!(path, "AZUMA/INPANE/INPANE.XB0" | "AZUMA/INPANE/INPANE.XB") && name.to_ascii_lowercase().replace('\\', "/").contains("/face/face_")
 }
 
 /// `data` (packed file `path`) with its [`blanked`] entries zeroed, each up to the next entry's start.
@@ -137,8 +143,8 @@ impl Iso {
         Ok(())
     }
 
-    /// Copy every file the remaster can read (`packed`) into a pack at `out`, after checking this is the supported
-    /// disc (SCUS-97610, US 1.00). Written to `out` + `.part` and renamed when complete. Returns the pack's hash.
+    /// Copy every file the remaster can read (`packed`) into a pack at `out`, after checking this is a supported
+    /// release (`exe::Release`) and a known copy of it (`KNOWN_PACKS`). Written to `out` + `.part` and renamed when complete. Returns the pack's hash.
     pub fn write_pack(&mut self, out: &Path, progress: impl FnMut(usize, usize)) -> io::Result<u64> {
         let part = out.with_extension("part");
         let mut w = BufWriter::new(File::create(&part)?);
@@ -236,9 +242,11 @@ impl Iso {
         Ok(())
     }
 
-    /// Read a file by path; case-insensitive, `/` or `\` separators, leading separator optional.
+    /// Read a file by path; case-insensitive, `/` or `\` separators, leading separator optional. Paths are the US
+    /// disc's: on another release a name it spells differently ([`Iso::alias`]) reads that release's file.
     pub fn read(&mut self, path: &str) -> io::Result<Vec<u8>> {
         let key = path.replace('\\', "/").trim_start_matches('/').to_ascii_uppercase();
+        let key = if self.files.contains_key(&key) { key } else { self.alias(&key).unwrap_or(key) };
         let &(off, size) = self
             .files
             .get(&key)
@@ -246,6 +254,43 @@ impl Iso {
         let data = self.read_at(off, size as usize)?;
         crate::uselog::disc(&key, &data);
         Ok(data)
+    }
+}
+
+impl Iso {
+    /// Whether a match can be played from this disc or pack (`exe::Release::playable`), as an `InvalidData` error
+    /// that says why not.
+    pub fn playable(&mut self) -> io::Result<()> {
+        let bad = |e: crate::xb::Error| io::Error::new(io::ErrorKind::InvalidData, e.to_string());
+        let cnf = self.read("SYSTEM.CNF")?;
+        crate::exe::Release::of(&cnf).and_then(|r| r.playable()).map_err(bad)
+    }
+
+    /// This disc's name for the US disc's file `key` (upper case, `/`), when it has one under another name: the
+    /// Japanese disc's archives drop the US language digit (`MENU00B.XB0` is `MENU00B.XB`), keep each character's
+    /// voice sets in copies of its motions archive (`PCANI/PC03ANI5.XB` for `SND/VOICE/PC/PC03VCE5.XB0` and,
+    /// set 0, `PCANI/PC03ANI.XB`), and every release names its main program after its own serial (`SCUS_976.10`).
+    fn alias(&mut self, key: &str) -> Option<String> {
+        let found = |k: String| self.files.contains_key(&k).then_some(k);
+        // JP keeps each character's voice set `k` in a copy of its motions archive, `PCANI/PCnnANIk.XB`
+        if let Some(rest) = key.strip_prefix("SND/VOICE/PC/PC").and_then(|r| r.strip_suffix(".XB0"))
+            && let Some((c, k)) = rest.split_once("VCE")
+        {
+            return found(format!("PCANI/PC{c}ANI{k}.XB"));
+        }
+        if let Some(c) = key.strip_prefix("PCANI/PC").and_then(|r| r.strip_suffix("ANI.XB")) {
+            return found(format!("PCANI/PC{c}ANI0.XB"));
+        }
+        if let Some(stem) = key.strip_suffix(".XB0") {
+            let bare = format!("{stem}.XB");
+            return self.files.contains_key(&bare).then_some(bare);
+        }
+        if key == crate::exe::Release::Us.boot() {
+            let cnf = self.read("SYSTEM.CNF").ok()?;
+            let boot = crate::exe::Release::of(&cnf).ok()?.boot();
+            return self.files.contains_key(boot).then(|| boot.to_string());
+        }
+        None
     }
 }
 

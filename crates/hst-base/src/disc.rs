@@ -102,7 +102,11 @@ pub fn resolve(argv: &mut Vec<String>) {
     if !import && argv.first().is_some_and(|a| !a.starts_with("--")) {
         // B94: a path that won't open (a launcher's placeholder) used to panic in the startup systems with the window
         // already up; fall back to the pack / picker instead
-        if Iso::open(&argv[0]).is_ok() {
+        if let Ok(mut iso) = Iso::open(&argv[0]) {
+            // M163a: a disc the game can read but not play (the Japanese release) says so before the window opens
+            if let Err(e) = iso.playable() {
+                fail(&format!("Can't play {}: {e}", argv[0]));
+            }
             return;
         }
         eprintln!("Couldn't open the disc image {}: using the imported disc", argv.remove(0));
@@ -131,6 +135,7 @@ pub fn resolve(argv: &mut Vec<String>) {
 fn import_iso(iso: &Path, pack: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(pack.parent().unwrap())?;
     let mut disc = Iso::open(iso)?;
+    disc.playable()?;
     let mut last = 0;
     let hash = disc.write_pack(pack, |i, n| {
         if i * 10 / n != last {
