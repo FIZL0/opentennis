@@ -307,6 +307,7 @@ fn body(e: &[u8]) -> Body {
         mark: e[0x4d6],
         target: quad(e, 0x4f0),
         opp_lefty: e[0x521] != 0,
+        ..Default::default()
     }
 }
 

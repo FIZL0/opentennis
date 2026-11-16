@@ -420,6 +420,9 @@ pub struct AimStats {
     pub body: [i32; 2],
     pub rising: i32,
     pub under: f32,
+    /// The rules' build: the smash narrowing and the 90° shots (`crate::build::Build`).
+    #[serde(default)]
+    pub build: crate::build::Build,
 }
 
 impl AimStats {
@@ -538,10 +541,12 @@ pub fn aim_from(h: &Hitter, s: &AimStats, stick: [f32; 2], four: bool, button: b
         _ => AimStats::VOLLEY,
     }] as f32;
     if plain_smash && h.offset.abs() > 1 {
-        let z = h.from[1].abs().clamp(3.0, BASELINE);
-        a *= F(1.0).msub(0.4, (F(z) - 3.0) / 8.885);
+        let (near, span, most) = s.build.smash_narrowing();
+        let z = h.from[1].abs().clamp(near, BASELINE);
+        a *= F(1.0).msub(most, (F(z) - near) / span);
     }
-    if (b == branch::GROUND && (h.kind == kind::SLICE || h.kind == kind::LOB)) || rally_kind(kind::LOB) {
+    let wide = (b == branch::GROUND && (h.kind == kind::SLICE || h.kind == kind::LOB)) || rally_kind(kind::LOB);
+    if wide && s.build.wide_lobs() {
         a = F(90.0);
     } else {
         if incoming.is_none() {

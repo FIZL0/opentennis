@@ -92,7 +92,8 @@ impl<'a> Archive<'a> {
             return err(format!("{}: decoded {} bytes, expected {}", e.name, out.len(), e.size));
         }
         crate::uselog::entry(self.data, &e.name, &out);
-        Ok(out)
+        // an earlier release's character data in the layout every reader expects
+        Ok(crate::columns::us_layout(&e.name, out))
     }
 }
 

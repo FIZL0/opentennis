@@ -285,7 +285,7 @@ fn age(g: Res<Game>, mut hits: ResMut<Hits>) {
     }
     if g.body_hit.is_some() && !hits.made {
         hits.made = true;
-        hits.pop = Some(Popup::new(g.flight.ball.pos, hst_sim::sound::kmh(g.flight.ball.vel)));
+        hits.pop = Some(Popup::new(g.flight.ball.pos, g.build.kmh(g.flight.ball.vel)));
     }
     let practice = g.players.len() < 2;
     hits.alpha = hits.pop.map_or(0.0, |p| p.alpha);

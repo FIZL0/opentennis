@@ -72,7 +72,10 @@ fn setup(
     let arc = Archive::parse(&data).expect("xb archive");
     let tex = [Popup::Bang, Popup::Sweat, Popup::Dots, Popup::Swirl, Popup::Skull].map(|p| {
         let name = p.texture().to_ascii_lowercase();
-        let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&name)).expect("pop-up texture");
+        // the Japanese disc has no skull
+        let Some(e) = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&name)) else {
+            return super::release_art::blank(&mut images);
+        };
         let bytes = arc.read(e).expect("pop-up bytes");
         let pic = tim2::decode(&bytes).expect("TIM2").remove(0);
         let h = images.add(Image::new(

@@ -252,6 +252,8 @@ pub struct Body {
     /// Singles: its shot's target (the net dash's stand spot after a hit); the opponent plays left-handed.
     pub target: [f32; 4],
     pub opp_lefty: bool,
+    /// The rules' build: whether the smash search refuses a stand spot behind the baseline (`Build::smash_baseline`).
+    pub build: crate::build::Build,
 }
 
 /// The rally AI state (doubles, or singles with `singles`).
@@ -623,7 +625,7 @@ impl Rally {
                 continue;
             }
             let (sx, sz) = (off_x(x), off_z(z));
-            if !(abs(sz) < BASELINE) {
+            if b.build.smash_baseline() && !(abs(sz) < BASELINE) {
                 continue;
             }
             let score = abs((F(y) - ideal).0);

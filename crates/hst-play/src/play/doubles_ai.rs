@@ -135,6 +135,7 @@ fn frame(g: &mut Game, i: usize, phase: u8, mark: bool) -> (Body, World) {
         mark: mark as u8,
         target: if singles { g.doubles_ai.targets[i] } else { [0.0; 4] },
         opp_lefty: g.players[opp[0]].hand < 0.0,
+        build: g.build,
     };
     let mut w = World {
         frame: g.doubles_ai.frame,

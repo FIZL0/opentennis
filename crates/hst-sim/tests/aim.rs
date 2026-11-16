@@ -36,6 +36,7 @@ fn human_aims() {
                 body: [i32_at(x, 0x60), i32_at(x, 0x64)],
                 rising: i32_at(x, 0x68),
                 under: cur.player_f32(0, 0x13b4),
+                ..Default::default()
             };
             let branch = pre.player_f32(0, 0x3ec0).to_bits().to_le_bytes()[1];
             let kind = match pi(0x3ee4) {
@@ -135,7 +136,7 @@ fn human_serve_aims() {
             hand_under: [0.0; 4],
             racket_over: [[0.0; 4]; 4],
             racket_under: [[0.0; 4]; 4],
-            miss: miss_of(rows, character),
+            miss: Some(miss_of(rows, character)),
             strong_bias: Vec::new(),
             weak_bias: Vec::new(),
             reach: [0; 2],

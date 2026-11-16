@@ -47,8 +47,10 @@ pub struct ServeData {
     pub hand_under: [f32; 4],
     pub racket_over: M4,
     pub racket_under: M4,
-    /// Strong-toss mistiming error (cm): depth, along the stick, random sideways (per skill level).
-    pub miss: [i32; 3],
+    /// Strong-toss mistiming error (cm): depth, along the stick, random sideways (per skill level). `None` in a
+    /// build without it (`crate::build::Build::strong_toss_miss`): a mistimed strong toss throws in no miss, and
+    /// draws no random side.
+    pub miss: Option<[i32; 3]>,
     /// Depth bias (tenths of a metre, + deep) by frames from the swing press, beside the timing tables.
     pub strong_bias: Vec<i32>,
     pub weak_bias: Vec<i32>,
@@ -276,17 +278,17 @@ pub fn target(
         0
     };
     let mut miss = Miss { side: 0.0, depth: 0.0, nudge };
-    if strong && (grade == grade::OFF || grade == grade::SLOW) {
+    if let Some(table) = d.miss.filter(|_| strong && (grade == grade::OFF || grade == grade::SLOW)) {
         let sign = if offset < 1 { -1 } else { 1 };
-        miss.depth = (F::ZERO + 0.0).madd(0.01, (sign * d.miss[0]) as f32).0;
+        miss.depth = (F::ZERO + 0.0).madd(0.01, (sign * table[0]) as f32).0;
         let full = (F(stick[1]) * stick[1]).madd(stick[0], stick[0]).sqrt().0;
         if full > 0.0 {
             let inv = (F(1.0) / full).0;
-            let along = |acc: f32, s: f32| (F::ZERO + acc).madd(F(s) * inv * facing * (d.miss[1] as f32), 0.01).0;
+            let along = |acc: f32, s: f32| (F::ZERO + acc).madd(F(s) * inv * facing * (table[1] as f32), 0.01).0;
             miss.side = along(0.0, stick[0]);
             miss.depth = along(miss.depth, stick[1]);
         } else {
-            miss.side = (F::ZERO + 0.0).madd(0.01, ((if rand() { -1 } else { 1 }) * d.miss[2]) as f32).0;
+            miss.side = (F::ZERO + 0.0).madd(0.01, ((if rand() { -1 } else { 1 }) * table[2]) as f32).0;
         }
         miss.side = (F(miss.side) * 0.6666667).0;
         miss.depth = (F(miss.depth) * 0.6666667).0;
@@ -652,7 +654,7 @@ mod tests {
             hand_under: [0.0156, -0.7736, 0.2711, 1.0],
             racket_over: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [-0.0206, -1.5629, 0.1513, 1.0]],
             racket_under: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, -0.5, 0.3, 1.0]],
-            miss: [50, 30, 100],
+            miss: Some([50, 30, 100]),
             strong_bias: vec![-8, -6, -4, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 4, 6, 8, 10, 12, 14, 16],
             weak_bias: vec![-8, -6, -4, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 4, 6, 8, 10, 12, 14, 16],
             reach: [40, 20],

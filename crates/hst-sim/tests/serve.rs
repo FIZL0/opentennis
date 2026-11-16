@@ -90,7 +90,7 @@ fn ram_data(ram: &[u8], p: usize, fr: Frame) -> ServeData {
         hand_under: v4(0x1850),
         racket_over: std::array::from_fn(|r| v4(0x1860 + 16 * r)),
         racket_under: std::array::from_fn(|r| v4(0x18a0 + 16 * r)),
-        miss: [50, 30, 100],
+        miss: Some([50, 30, 100]),
         strong_bias: bias(0x1554, 0x1680),
         weak_bias: bias(0x1684, 0x17b0),
         reach: [ri(0x1364), ri(0x1368)],

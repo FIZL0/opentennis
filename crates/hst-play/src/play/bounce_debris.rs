@@ -17,7 +17,7 @@ pub(super) fn set_up(fx: Option<ResMut<BallBounce>>, g: Res<Game>, w: Option<Res
 pub(super) fn throw(fx: Option<ResMut<BallBounce>>, mut g: ResMut<Game>) {
     let Some(mut fx) = fx else { return };
     let f = &g.flight;
-    let smash = g.smashed && hst_sim::sound::kmh(f.ball.vel) >= 85.0;
+    let smash = g.smashed && g.build.kmh(f.ball.vel) >= 85.0;
     let ball = f.ball.pos;
     let mt = &mut g.rng.sound;
     fx.debris(ball, smash, &mut || mt.next());

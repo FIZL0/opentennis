@@ -1,6 +1,7 @@
 //! Gameplay simulation, ported for bit-faithful behaviour. Units: metres, 60 Hz frames, game space is Y-down.
 
 pub mod ball;
+pub mod build;
 pub mod params;
 pub mod ps2;
 pub mod rng;

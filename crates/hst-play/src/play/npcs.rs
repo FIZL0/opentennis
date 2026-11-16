@@ -370,7 +370,7 @@ fn step(
     // its speed from its last move, kept while it stands
     // (the original's obstacles run before the ball and players move: what they see then is this, after this tick's
     // moves, and their strike message's step off them comes before the ball's next own step either way)
-    npcs.near.kmh = npc::ball_kmh(g.flight.last);
+    npcs.near.kmh = g.build.ball_kmh(g.flight.last);
     npcs.near.boxes = g.players.iter().map(player).chain([ball]).collect();
     let (motion, over, players, serve) = (g.umpire.motion, g.umpire.over, g.rules.players as u32, g.phase == Phase::Serve);
     let ends = matches!(g.phase, Phase::ChangeEnds(_));
@@ -727,6 +727,7 @@ fn figures(
         // the players, the AI and the path object hear 0x14 in `hear`; the landing markers hide
         if t.struck {
             (g.marks.red, g.marks.smash) = (None, None);
+            g.marks.serve_red = None;
             let (shot, material) = (g.shot, g.world.1[0]);
             g.flight.step_plane(&shot, &hst_sim::ball::COURTS[g.court], material);
             g.doubles_ai.record.stop();

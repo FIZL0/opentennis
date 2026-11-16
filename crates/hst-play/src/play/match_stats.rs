@@ -468,11 +468,8 @@ fn setup(
         let data = iso.read(xb).expect("archive on disc");
         let arc = Archive::parse(&data).expect("xb archive");
         for name in names {
-            let e = arc
-                .entries
-                .iter()
-                .find(|e| e.name.to_ascii_lowercase().replace('\\', "/").ends_with(name))
-                .unwrap_or_else(|| panic!("{name} in {xb}"));
+            // the Japanese disc keeps the info sheet in another folder
+            let e = super::release_art::entry(&arc, name).unwrap_or_else(|| panic!("{name} in {xb}"));
             art.push(super::menu_art::image(&mut images, &arc.read(e).expect("archive bytes"), name));
         }
         if xb.contains("PRIZE") {
@@ -522,7 +519,7 @@ fn tick(mut g: ResMut<Game>, mut serving: ResMut<Serving>) {
     }
     *serving = serve;
     if g.shots == 1 && g.phase == Phase::Rally {
-        g.match_stats.serve_speed(hst_sim::sound::kmh(g.flight.ball.vel));
+        g.match_stats.serve_speed(g.build.kmh(g.flight.ball.vel));
     }
 }
 

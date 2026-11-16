@@ -48,6 +48,8 @@ use snapshot::Const;
 #[cfg(any(target_os = "android", test))]
 pub mod background;
 mod ball_shadow;
+mod build_rules;
+mod release_art;
 mod bounce_debris;
 mod smash_marker;
 mod bodyhit;
@@ -325,6 +327,9 @@ enum Phase {
 #[derive(Resource, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Game {
     pub rules: Rules,
+    /// The game build whose rules the match plays by (the disc's release; `build_rules`).
+    #[serde(default)]
+    pub build: hst_sim::build::Build,
     /// Serve trajectory tables, kinds 0..3 (topspin, slice, flat, underhand).
     /// Per player: the character's serve trajectory tables with their launch spin, [strong/underhand, weak toss]
     /// by kind (topspin, slice, flat, underhand; the weak toss's `dw1` tables have no underhand).
@@ -484,6 +489,10 @@ pub struct Game {
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct Marks {
     red: Option<[f32; 2]>,
+    /// A build that shows the red marker on the serve too (`Build::marker_on_serve`): where it shows when `red`
+    /// doesn't. Drawn only: the singles CPU still positions from `red`.
+    #[serde(default)]
+    serve_red: Option<[f32; 2]>,
     /// The smash search, its path so far (y up) and the predictor's flight at the path's end.
     smash: Option<(SmashSearch, Vec<PathEntry>, Flight)>,
     /// The search found its first point this frame (the yellow marker's play starts).
@@ -881,6 +890,7 @@ fn aim_of(row: &[String]) -> hst_sim::shot::AimStats {
         body: [cell(23), cell(24)],
         rising: cell(26),
         under: hst_sim::ps2::div(cell(62) as f32, 100.0),
+        ..Default::default()
     }
 }
 
@@ -963,7 +973,7 @@ fn serve_data(row: &[String], data: &CharacterData) -> ServeData {
         hand_under,
         racket_over,
         racket_under,
-        miss: [50, 30, 100],
+        miss: Some([50, 30, 100]),
         strong_bias,
         weak_bias,
         reach: [cell(34), cell(35)],
@@ -1359,6 +1369,7 @@ pub fn setup(
         let look = (c, outfit, game.players[i].body.handicap, game.players[i].hand < 0.0);
         handicap::wear(&mut commands, &mut iso, f, &data, look, &mut meshes, &mut materials, &mut images);
     }
+    build_rules::apply(&mut game, build_rules::of(&mut iso));
     match_sounds(&mut commands, &mut iso, &args, &mut game, &mut voices, &mut gallery_used);
     // the match starts (the sound manager's reseed), then its first point
     reseed_sound(&mut game);
@@ -1398,6 +1409,7 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
     let reach = reach(iso);
     let mut game = Game {
         rules,
+        build: default(),
         serve_tables: default(),
         specials: default(),
         smash_tables: default(),
@@ -2035,7 +2047,7 @@ fn strike(
         // the sound generator's bit is drawn only for an unclean stroke (not a smash or drop)
         random_bit: branch != branch::SMASH && kind != kind::DROP && !swing::grade::clean(grade) && g.rng.sound.bit(),
         framed: framed.is_some(),
-        dull: miss.is_some_and(|m| m.dull),
+        dull: miss.is_some_and(|m| m.dull) && g.build.dull_flag(),
     };
     g.sounds
         .extend(sound::hit_sounds(&hit).into_iter().map(|p| (p, at)));
@@ -2076,6 +2088,7 @@ fn strike(
     ai_heard_hit(g, who, branch, vel);
     // ponytail: practice's (one player) side pick between candidates and its red-marker timeout aren't ported
     g.marks.red = (g.rules.players == 1 || g.shots > 1).then_some([target[0], target[2]]);
+    g.marks.serve_red = g.marks.red.xor(g.build.marker_on_serve().then_some([target[0], target[2]]));
     // each receiving human with its own character's heights; not on the serve (the game sets the search up from
     // the serve return on, or in practice); a lob onto bots too (B507, ours)
     let heights = smash_marker::receivers(g, who, class == class::STROKE && kind == kind::LOB);
@@ -3311,6 +3324,8 @@ fn ai_heard_hit(g: &mut Game, who: usize, branch: u8, vel: V3) {
 /// shot-choice draws: it stands for the reaction frames (a guess runs for its move frames instead).
 fn ai_draw_guess(g: &mut Game, i: usize, kind: i32, lob: bool) {
     let special_serve = g.special_serve;
+    // a build without the lob reaction adds (and draws) nothing for a lob
+    let lob = lob && g.build.lob_reaction();
     let beside_human = g.players.len() == 4 && g.humans.get(i ^ 2) == Some(&true);
     let rng = &mut g.rng.ai;
     let mut roll = || rng.next();
@@ -3864,7 +3879,7 @@ fn simulate(mut g: ResMut<Game>) {
             instant_replay::bounce(g, at, g.flight.ball.vel);
         }
     }
-    let smash = g.smashed.then(|| sound::kmh(g.flight.ball.vel));
+    let smash = g.smashed.then(|| g.build.kmh(g.flight.ball.vel));
     g.sounds
         .extend(g.bounces.frame(bounce, smash).into_iter().map(|p| (p, at)));
     g.whistle.0 &= n == 0;
@@ -4164,7 +4179,7 @@ fn start_effects(
 ) {
     smash_frame(&mut g);
     let up = landing_shown(&g);
-    marks.red_at = g.marks.red.filter(|_| up);
+    marks.red_at = g.marks.red.or(g.marks.serve_red).filter(|_| up);
     marks.smash_at = g.marks.smash.as_ref().and_then(|(s, _, _)| s.at()).filter(|_| up);
     marks.tick(g.marks.start);
     let hit = g.hit_effect.take();
@@ -4186,7 +4201,7 @@ fn start_effects(
         &mut commands,
     );
     let f = &g.flight;
-    let smash = g.smashed && sound::kmh(f.ball.vel) >= 85.0;
+    let smash = g.smashed && g.build.kmh(f.ball.vel) >= 85.0;
     bounce.frame(
         f.bounces,
         f.landing.0,
@@ -4436,8 +4451,8 @@ impl Bgm {
 fn flight_sound(g: &mut Game, who: usize, h: &sound::Hit, class: u8, vel: V3) {
     let special = hst_sim::shot::special(class, h.kind, h.strong_toss, h.grade, h.offset);
     let c = g.chars[who];
-    g.flight_sound = sound::Flight::start(h, c, special, sound::kmh(vel));
-    g.special_serve = class == class::SERVE && h.strong_toss && h.offset.abs() < 2 && matches!((h.kind, c), (kind::TOPSPIN, 11 | 12) | (kind::SLICE, 10));
+    g.flight_sound = sound::Flight::start(h, c, special, g.build.kmh(vel));
+    g.special_serve = g.build.special_serve() && class == class::SERVE && h.strong_toss && h.offset.abs() < 2 && matches!((h.kind, c), (kind::TOPSPIN, 11 | 12) | (kind::SLICE, 10));
 }
 
 /// Plays the sounds due on the court's bank, each once however often its tick runs (`heard`).
@@ -4486,7 +4501,7 @@ fn play_sounds(
     if let (true, true, Some(f)) = (g.whistle.0, heard.whistle.1 != tick, &mut g.flight_sound) {
         let (angle, dist) = sound::place(ball);
         let volume = sound::falloff(f.play(ball[1]).volume, dist);
-        let (p, q) = f.frame(ball[1], sound::kmh(g.flight.ball.vel), volume);
+        let (p, q) = f.frame(ball[1], g.build.kmh(g.flight.ball.vel), volume);
         g.whistle.0 &= q != Some(0);
         step = Some((p, q, angle));
     }
@@ -4567,6 +4582,6 @@ fn serve_character(iso: &mut Iso, n: usize, aim: hst_sim::shot::AimStats, d: &mu
         iso.read("SYSTEM.CNF").expect("SYSTEM.CNF"),
         iso.read("ZZBIN/GAME.BIN").expect("GAME.BIN"),
     );
-    d.miss = serve::miss_of(hst_data::exe::Game::new(&cnf, &bin).expect("supported disc").serve_miss(), n);
+    d.miss = Some(serve::miss_of(hst_data::exe::Game::new(&cnf, &bin).expect("supported disc").serve_miss(), n));
     d.max_angle = aim.con[2] as f32;
 }

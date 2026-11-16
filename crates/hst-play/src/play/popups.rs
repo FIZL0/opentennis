@@ -1168,6 +1168,9 @@ pub(super) struct Finish {
     pub strong: bool,
     /// The Set / Match Point jingle due, at its play speed.
     pub jingle: Option<f32>,
+    /// The build has no counter (`hst_sim::build::Build::counter`): no strike is one, so none is named either.
+    #[serde(default)]
+    pub no_counter: bool,
 }
 
 /// A character's stroke and volley power from its TParam.csv row (the parser skips the empty Special POW cell).
@@ -1194,7 +1197,7 @@ impl Finish {
         let gap = col.filter(|_| {
             offset.abs() < 2 && flat_or_top(kind) && (1..=3).contains(&prev_branch) && flat_or_top(prev_kind)
         });
-        let gap = gap.and_then(|c| {
+        let gap = gap.filter(|_| !self.no_counter).and_then(|c| {
             let (mine, theirs) = (self.power.get(who)?[c], self.power.get(prev)?[c]);
             (mine < theirs).then_some(theirs - mine)
         });
@@ -1404,13 +1407,10 @@ fn setup_banners(mut commands: Commands, args: Res<Args>, mut images: ResMut<Ass
     let mut iso = Iso::open(&args.iso).expect("open iso");
     let data = iso.read("AZUMA/INPANE/INPANE.XB0").expect("INPANE archive on disc");
     let arc = Archive::parse(&data).expect("xb archive");
-    let art = BANNER_ART.map(|name| {
-        let e = arc
-            .entries
-            .iter()
-            .find(|e| e.name.to_ascii_lowercase().replace('\\', "/").ends_with(name))
-            .unwrap_or_else(|| panic!("{name} in INPANE"));
-        super::menu_art::image(&mut images, &arc.read(e).expect("INPANE bytes"), name)
+    // the Japanese disc has no counter banner (it has no counter either)
+    let art = BANNER_ART.map(|name| match super::release_art::entry(&arc, name) {
+        Some(e) => super::menu_art::image(&mut images, &arc.read(e).expect("INPANE bytes"), name),
+        None => super::release_art::blank(&mut images),
     });
     commands.insert_resource(BannerArt(art));
     let bank = crate::audio::SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd");
@@ -1719,7 +1719,7 @@ fn tick_speed(g: Res<Game>, speed: Option<ResMut<Speed>>) {
         && matches!(g.finish.prev.1, 0 | 4)
     {
         let right = g.players[g.last_hitter as usize].pos[0] < 0.0;
-        s.start(hst_sim::sound::kmh(g.flight.ball.vel), right);
+        s.start(g.build.kmh(g.flight.ball.vel), right);
     }
 }
 
