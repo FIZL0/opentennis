@@ -27,8 +27,8 @@ out=$(cargo clippy -q --locked --workspace --all-targets --message-format=short 
   echo "CLIPPY FAILED (same as CI's: cargo clippy --workspace --all-targets -- -D warnings)"; exit 1; }
 # B618: the browser build too (web-only breaks and warnings: a cfg'd-out user, a field only the web side names)
 tools/webcheck.sh || exit 1
-export HST_CTX_NOCOMMIT=1  # the tick goes into the commit below
-if [ $# = 4 ]; then tools/ctx.py block "$1" "$4"; else tools/ctx.py tick "$1"; fi || exit 1
+export AGENT_RUNNER_NOCOMMIT=1  # the tick goes into the commit below
+if [ $# = 4 ]; then agent-runner plan block "$1" "$4"; else agent-runner plan tick "$1"; fi || exit 1
 # T6: a done task's probes (research/<id>_*.py) move into its journal's scripts/ (the main checkout commits only <paths>)
 [ $# = 2 ] && [ -z "$main" ] && { tools/probes.py "$1" || exit 1; }
 # R10: a ticked task's own journal ends -FINAL: its newest state file, if -READY/-PART, is renamed (AGENT.md, Research)

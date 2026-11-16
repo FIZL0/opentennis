@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Add a plan/TODO.md task from a plain sentence, cheaply: one `claude -p` with ~2k tokens of context (code map, source
 # file names, two example lines, open task subjects; no tools, no CLAUDE.md) turns it into a task line with its files,
-# then `ctx.py add` puts it on top as the next free B id. If the note also asks to change existing tasks ("drop the
+# then `agent-runner plan add` puts it on top as the next free B id. If the note also asks to change existing tasks ("drop the
 # cursor todo", "B319 should also…"), the model emits DROP/NOTE lines for those IDs: DROP ticks it into DONE.md marked
 # dropped, NOTE appends to it. A note that only changes old tasks adds nothing new. Commits plan/TODO.md + DONE.md. Safe while a runner works: no merge in
 # progress → its own commit; otherwise it stays uncommitted and the runner stashes it around its merges.
@@ -9,7 +9,7 @@
 #   tools/todo.sh the umpire label should just say the name     (or no args: it asks, so quotes/apostrophes are fine)
 #   HST_TODO_RAW=1 tools/todo.sh …                             skip the model, add the sentence as written
 set -u
-export HST_CTX_NOCOMMIT=1  # ctx.py edits go into this script's own commit
+export AGENT_RUNNER_NOCOMMIT=1  # plan edits go into this script's own commit
 root=$(cd "$(dirname "$(realpath "$0")")/.." && pwd)
 cd "$root" || exit 1
 text="$*"
@@ -43,14 +43,14 @@ Never put requests about existing tasks into the ADD line." \
 fi
 while read -r op tid rest; do
   if [ "$op" = DROP ]; then
-    tools/ctx.py note "$tid" "dropped (user $day): $rest" >/dev/null && tools/ctx.py tick "$tid" >/dev/null && echo "dropped $tid: $rest"
+    agent-runner plan note "$tid" "dropped (user $day): $rest" >/dev/null && agent-runner plan tick "$tid" >/dev/null && echo "dropped $tid: $rest"
   else
-    tools/ctx.py note "$tid" "$rest (user $day)" >/dev/null && echo "noted $tid: $rest"
+    agent-runner plan note "$tid" "$rest (user $day)" >/dev/null && echo "noted $tid: $rest"
   fi
 done < "${edits:-/dev/null}"
 [ -n "${edits:-}" ] && [ -s "$edits" ] && [ -z "$line" ] && { [ -e .git/MERGE_HEAD ] || git commit -q -m "TODO: edit ${text:0:60}" -- plan/TODO.md plan/DONE.md 2>/dev/null || echo "(left uncommitted)"; exit 0; }
 [ -z "$line" ] && line="$text (user $day)"
-out=$(tools/ctx.py add B "$line") || exit 1
+out=$(agent-runner plan add B "$line") || exit 1
 id=${out#added }
 [ -e .git/MERGE_HEAD ] || git commit -q -m "TODO: $id ${text:0:60}" -- plan/TODO.md plan/DONE.md 2>/dev/null || echo "(left uncommitted)"
 echo "$id: $line"

@@ -1,13 +1,13 @@
 # PLAN — Hot Shots Tennis remaster
 
 The rules. Tasks are in `plan/TODO.md` (open) and `plan/DONE.md` (archive): read this, then **only** the task's own
-file (`tools/ctx.py <ID>`) and the files listed on its line.
+file (`agent-runner plan <ID>`) and the files listed on its line.
 Don't grep the repo to find where things live — the code map below says. Re-read files rather than remember;
 other sessions change them.
 
 ## Continue
 
-"continue" = take the first open task (`tools/ctx.py next`), read `tools/ctx.py brief <ID>` (its line, plan file,
+"continue" = take the first open task (`agent-runner plan next`), read `agent-runner plan brief <ID>` (its line, plan file,
 journal and files in one go; the runners paste it into your prompt already), carry it out completely, write the journal
 entry, then `tools/done.sh <ID> "<commit message>"` (tests → tick → commit in one call), stop and report. One task per
 iteration; don't merge or skip ahead. Too big → split it into sub-tasks (new `plan/tasks/<ID>.md` files + lines in `plan/TODO.md`) first.
@@ -70,9 +70,9 @@ code as guesses. Don't touch PCSX2 while `pgrep -f record_p2m2` runs.
 
 ## Tasks
 
-Open tasks: `plan/TODO.md` (index: `tools/ctx.py`, next: `tools/ctx.py next`). Finished ones are archived in
-`plan/DONE.md` (`tools/ctx.py <ID>` finds either). Never edit their checkboxes by hand: `tools/ctx.py tick <ID>` /
-`tools/ctx.py block <ID> <why + what unblocks>` / `tools/ctx.py unblock <ID> [note]`.
+Open tasks: `plan/TODO.md` (index: `agent-runner plan`, next: `agent-runner plan next`). Finished ones are archived in
+`plan/DONE.md` (`agent-runner plan <ID>` finds either). Never edit their checkboxes by hand: `agent-runner plan tick <ID>` /
+`agent-runner plan block <ID> <why + what unblocks>` / `agent-runner plan unblock <ID> [note]`.
 
 ## Code map
 

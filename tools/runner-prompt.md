@@ -8,8 +8,8 @@ In the task's journal entry, list under 'Not verified / not 1:1' everything you 
 
 Finish with `tools/done.sh {tid} "<msg>"` (tests, tick, commit), or `tools/done.sh {tid} "<msg>" --spec` for a clean-room spec phase. If stuck (AGENT.md 'If you get stuck'): `tools/done.sh {tid} "<msg>" --blocked "<why + what unblocks>"`, then stop. A usage limit is not stuck: commit what's solid, but don't mark the task [~] or stop PCSX2; the session waits for the reset and continues.
 
-The task list is a tool: `tools/ctx.py`, `tools/ctx.py <ID>`, `tools/ctx.py add <PREFIX> "<text>"` for a follow-up you must not do now. Never hand-edit a checkbox.
+The task list is a tool: `agent-runner plan`, `agent-runner plan <ID>`, `agent-runner plan add <PREFIX> "<text>"` for a follow-up you must not do now. Never hand-edit a checkbox.
 
-The task's brief (`tools/ctx.py brief {tid}`) follows, so don't gather it again.
+The task's brief (`agent-runner plan brief {tid}`) follows, so don't gather it again.
 
 {brief}

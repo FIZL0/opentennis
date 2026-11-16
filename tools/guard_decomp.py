@@ -16,7 +16,7 @@ cmd = i.get('command', '')
 if t.get('tool_name') == 'Bash' and DUMP.search(cmd) and not re.search(
         r'fn\.sh|xref\.py|\|\s*(head|tail|wc|sed -n)|\bgrep\b[^|]*\s-[a-zA-Z]*[mcl]|\bwc\b|\bsed -n', cmd):
     sys.exit(print(HOW, file=sys.stderr) or 2)
-# clean-room port phase (PLAN.md): tools/ctx.py brief wrote .cleanroom because the task's journal has a SPEC.md; the
+# clean-room port phase (PLAN.md): tools/cleanroom.py (the brief's [plan] brief_extra) wrote .cleanroom because the task's journal has a SPEC.md; the
 # session ports from the spec and the tests, so everything that shows the decompile is refused until done.sh clears it
 ROOT = __file__.rsplit('/tools/', 1)[0]
 LOCKED = re.compile(r'context/(decomp|ghidra)|fn\.sh|xref\.py|ghidra|objdump')

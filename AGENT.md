@@ -48,10 +48,10 @@ copied into `fixtures/<task>/` (`cp --reflink`) when the test lands; tests never
 
 ## Plan
 `PLAN.md` holds the rules and a code map; the ordered open tasks are in `plan/TODO.md` (each line names the files to
-open), finished ones in `plan/DONE.md`. "continue" means: `tools/ctx.py next`, read `tools/ctx.py brief <ID>` (line, plan file,
+open), finished ones in `plan/DONE.md`. "continue" means: `agent-runner plan next`, read `agent-runner plan brief <ID>` (line, plan file,
 journal, files), port + verify, `tools/done.sh <ID> "<msg>"` (tests, tick into DONE.md, commit). Don't grep the repo for where things live — the code map says. Background (game
-control, done list, known gaps): `plan/REFERENCE.md`. `tools/ctx.py` (index) · `next` · `N1e` (plan/N1e.md, else
-its TODO/DONE line) · `"when blocked"` (a section) · `-f FILE <name>` (any markdown) · `tick <ID>` · `block <ID> <why>` · `unblock <ID> [note]` · `move <ID> top|before ID|after ID|in SECTION` · `add <PREFIX> TEXT [@ WHERE]` (next free id) · `note <ID> TEXT` · `newid <PREFIX>`. Use these for reprioritising and new tasks instead of reading/editing TODO.md.
+control, done list, known gaps): `plan/REFERENCE.md`. `agent-runner plan` (index) · `next` · `N1e` (plan/tasks/N1e.md, else
+its TODO/DONE line) · `"when blocked"` (a section) · `-f FILE <name>` (any markdown) · `tick <ID>` · `block <ID> <why>` · `unblock <ID> [note]` · `move <ID> top|before ID|after ID|in SECTION` · `add <PREFIX> TEXT [@ WHERE]` (next free id) · `note <ID> TEXT` · `newid <PREFIX>` · `drop <ID> WHY` (`agent-runner plan --help`: the rest). `tools/ctx.py` is a shim for it, kept only for agents started before 2026-11-16. Use these for reprioritising and new tasks instead of reading/editing TODO.md.
 Work that needs another task to land first is that task's subtask: `add B646 TEXT` gives `B646a`, then `B646b`
 (`add B646a …` → `B646a1`). The runner never runs one family (B646, B646a, B646b) side by side, so they go one at a
 time; a fresh number (`add B …`) starts in parallel at once, whatever its line says it follows.
@@ -128,5 +128,5 @@ edits in main touch the files it changes. Never use a runner slot (`$(agent-runn
 ## If you get stuck, move on
 Never wait or loop on one obstacle. If a tool hangs, PCSX2 won't cooperate, the same fix fails twice, something
 needs the human, or ~20 minutes go by without progress: write what happened and what you tried in the prompt's
-journal, `tools/ctx.py block <ID> <one-line reason>`, commit what's solid, and start the next open
+journal, `agent-runner plan block <ID> <one-line reason>`, commit what's solid, and start the next open
 prompt. Don't touch PCSX2 while a capture (`pgrep -f record_p2m2`) is running.
