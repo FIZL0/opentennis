@@ -834,7 +834,7 @@ fn sounds(court: Res<MatchCourt>, args: Res<crate::Args>, music: Option<ResMut<M
     let c = &court.0;
     let read = |l: &crate::mods_court::Loop, rms| crate::modfs::read(&l.path).ok().and_then(|d| Track::read(&d, l.at, rms)).map(Arc::new);
     if let Some(track) = c.bgm.as_ref().and_then(|l| read(l, Track::BGM_RMS)) {
-        let b = Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: Some(track) });
+        let b = Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: Some(track), language: None });
         *BGM.lock().unwrap() = Some(b.clone());
         if args.music {
             music.bgm = Some((b, Vec::new()));
@@ -847,7 +847,7 @@ fn sounds(court: Res<MatchCourt>, args: Res<crate::Args>, music: Option<ResMut<M
     if let Some(b) = &bank.0 {
         let mut wav = b.wav.clone();
         wav.insert(7, vec![(Arc::from([0i16]), 48_000)]);
-        bank.0 = Some(Arc::new(SoundBank { hd: b.hd.clone(), bd: b.bd.clone(), wav, takes: b.takes.clone(), stream: None }));
+        bank.0 = Some(Arc::new(SoundBank { hd: b.hd.clone(), bd: b.bd.clone(), wav, takes: b.takes.clone(), stream: None, language: None }));
     }
     // M111: all the layers together at a stock court's ambience (`Track::AMBIENCE_RMS`), under the crowd and SFX
     let level = 1.0 / (layers.len() as f32).sqrt();

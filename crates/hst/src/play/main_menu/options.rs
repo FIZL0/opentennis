@@ -43,6 +43,8 @@ pub(super) enum Opt {
     MatchMusic,
     /// B474: the emotes' voice lines.
     EmoteVoices,
+    /// added3: whose voices: the disc's or another release's (`voices`).
+    VoiceLanguage,
     Downloads,
     /// B339: how many store downloads run at once.
     AtOnce,
@@ -104,7 +106,7 @@ pub(super) const MODE_SWITCH: u8 = 0x80;
 const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Shading, Upscaled, Rendering, Advanced];
 /// B411: Graphics → Advanced, the speed-up switches for a slow device.
 const ADVANCED: &[Opt] = &[Mesh, FewerShadows, Cull, CourtLife];
-const SOUND: &[Opt] = &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices];
+const SOUND: &[Opt] = &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices, VoiceLanguage];
 const MODS: &[Opt] = if cfg!(target_arch = "wasm32") { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat] } else { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat, UpdateCheck] };
 /// B118: phone-only options (later: control size and opacity).
 const MOBILE: &[Opt] = &[Vibration];
@@ -153,6 +155,7 @@ fn label(o: Opt) -> &'static str {
         MenuMusic => "Menu Music",
         MatchMusic => "Match Music",
         EmoteVoices => "Emote Voices",
+        VoiceLanguage => "Voice Language",
         Downloads => "Upscaled Downloads",
         AtOnce => "Downloads at Once",
         OnlineMods => "Online Mod Downloads",
@@ -203,6 +206,8 @@ fn about(o: Opt) -> &'static str {
         MenuMusic => "Play music in the menus.",
         MatchMusic => "Play each court's music during a match.",
         EmoteVoices => "Hear the players' voice lines when they emote. Off mutes them on this device only; the emote itself still plays.",
+        VoiceLanguage if cfg!(target_arch = "wasm32") => "The players', the umpire's and the crowd's voices in another release's language: the desktop and phone apps can take them from the European or Japanese disc.",
+        VoiceLanguage => "The players', the umpire's and the crowd's voices in another release's language, from the next match. To add languages, put the European (Everybody's Tennis: English, French, Italian, German, Spanish, Japanese) or Japanese (Minna no Tennis) disc image in the voices folder beside your settings and start the game again; it copies their voices and the image can go. Only you hear it: the match plays exactly the same, online too.",
         Downloads => "Download mods' upscaled textures from the mod store (most of a mod's size).",
         AtOnce => "How many mods the mod store downloads side by side (Download all, or several installs). Auto: 3 on a computer, 2 in a browser, 1 on a phone; a browser keeps each one in memory until it's saved, so it allows fewer.",
         OnlineMods => "When another player online picks a mod you don't have: ask each time, always download it, or never (you'll see the character it's based on instead).",
@@ -276,6 +281,11 @@ const SHADOW_NAMES: [&str; 4] = ["Off", "Low", "High", "Original"];
 const MSAA_NAMES: [&str; 3] = ["Off", "2x", "4x"];
 
 /// B294: every value `o` can take, in order, as [`Settings::value`] words it (the side panel's choices).
+/// added3: a row with only one choice to show (Voice Language with only the disc's voices): ◀ ▶ leave it be.
+pub(super) fn fixed(o: Opt) -> bool {
+    o == VoiceLanguage && choices(o).len() < 2
+}
+
 fn choices(o: Opt) -> Vec<String> {
     let words = |v: &[&str]| v.iter().map(|w| w.to_string()).collect();
     match o {
@@ -298,6 +308,7 @@ fn choices(o: Opt) -> Vec<String> {
         Volume(_) => (0..=10).map(|v| v.to_string()).collect(),
         OnlineMods | KeepDownloads | UpdateCheck => ASK_VALUES.iter().map(|(_, n)| n.to_string()).collect(),
         AtOnce => (0..=super::max_downloads()).map(at_once_name).collect(),
+        VoiceLanguage => crate::voices::available().into_iter().map(|l| crate::voices::LANGS[l as usize].name.to_string()).collect(),
         Advanced => Vec::new(),
         _ => words(&["Off", "On"]),
     }
@@ -399,6 +410,10 @@ impl Settings {
                 self.emote_voices = !self.emote_voices;
                 crate::audio::EMOTE_VOICES.store(self.emote_voices, std::sync::atomic::Ordering::Relaxed);
             }
+            VoiceLanguage => {
+                self.voice_language = cycle(&crate::voices::available(), self.voice_language, d);
+                crate::voices::choose(self.voice_language);
+            }
             Downloads => self.upscaled_downloads = !self.upscaled_downloads,
             AtOnce => self.downloads = (self.downloads as isize + d).rem_euclid(super::max_downloads() as isize + 1) as u8,
             KeepDownloads => self.keep_downloads = cycle(&ASK_VALUES.map(|(a, _)| a), self.keep_downloads, d),
@@ -484,6 +499,7 @@ impl Settings {
             MenuMusic => on_off(self.menu_music),
             MatchMusic => on_off(self.music),
             EmoteVoices => on_off(self.emote_voices),
+            VoiceLanguage => crate::voices::LANGS[self.voice_language as usize].name.into(),
             KeepDownloads => ASK_VALUES.iter().find(|(a, _)| *a == self.keep_downloads).unwrap().1.into(),
             Downloads => on_off(self.upscaled_downloads),
             AtOnce => at_once_name(self.downloads as usize),
@@ -535,6 +551,7 @@ impl Menu {
                     self.settings = was;
                     crate::chat::HIDDEN.store(!was.chat, std::sync::atomic::Ordering::Relaxed);
                     crate::audio::EMOTE_VOICES.store(was.emote_voices, std::sync::atomic::Ordering::Relaxed);
+                    crate::voices::choose(was.voice_language);
                     out.push(Effect::SaveSettings);
                 }
                 out.push(Effect::Sound(1));
@@ -1670,6 +1687,10 @@ mod tests {
             if o == Rendering {
                 continue;
             }
+            // (added3: Voice Language with only the disc's voices has nothing to change to: `voice_language_row`)
+            if fixed(o) {
+                continue;
+            }
             let was = m.settings;
             if listed(o) {
                 list_row(m, o);
@@ -1981,6 +2002,22 @@ mod tests {
     }
 
     /// B707: Rendering is on every build's Graphics page; ✕ on it asks first (◀ ▶ do nothing, as on Renderer), Cancel leaves it, Switch saves it
+    /// added3: the Sound page's Voice Language row: the disc's voices (English) until another release's are added, so ◀ ▶
+    /// with nothing else there leave it be; its word is the language's name.
+    #[test]
+    fn voice_language_row() {
+        assert!(SOUND.contains(&VoiceLanguage));
+        let mut s = Settings::default();
+        assert_eq!(s.value(VoiceLanguage), "English");
+        if crate::voices::available() == [0] {
+            assert_eq!(choices(VoiceLanguage), ["English"]);
+            s.step(VoiceLanguage, 1);
+            assert_eq!(s.voice_language, 0);
+        }
+        s.voice_language = 6;
+        assert_eq!(s.value(VoiceLanguage), "Japanese");
+    }
+
     /// (settings.txt's `rendering`, which a fresh parse reads back) for the next start.
     #[test]
     fn rendering_asks_first() {

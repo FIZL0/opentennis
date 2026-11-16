@@ -53,7 +53,11 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
                 v.extend([(Act::UpDown, "Move"), (Act::Ok, "Select"), (Act::Back, "Close")]);
             } else if m.editing.is_some() && open && m.listing.is_none() && options::page(m.screen).get(s) != Some(&options::Opt::Advanced) {
                 // B326: the row picked: ◀ ▶ change it, ✕ sets it, ○ puts it back
-                v.extend([(Act::LeftRight, "Change"), (Act::Ok, "Select"), (Act::Back, "Cancel")]);
+                // (added3: not ◀ ▶ on a row with nothing to change to)
+                if !options::page(m.screen).get(s).is_some_and(|o| options::fixed(*o)) {
+                    v.push((Act::LeftRight, "Change"));
+                }
+                v.extend([(Act::Ok, "Select"), (Act::Back, "Cancel")]);
             } else {
                 v.push((Act::UpDown, "Option"));
                 if listed {

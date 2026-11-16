@@ -50,6 +50,9 @@ pub struct SoundBank {
     pub takes: std::collections::HashMap<(usize, usize), (Arc<[i16]>, u32)>,
     /// M8f6: a court mod's BGM, a looping wav stream played in the BGM's place (`Sound::music`); `None` on disc banks.
     pub stream: Option<Arc<Track>>,
+    /// added3: the chosen voice language's take of this bank (`voices::dub`), heard in its place by every play; the
+    /// match's timing (`centre_frames`, `take_ticks`) still plays this one. `None`: the disc's own voices.
+    pub language: Option<Arc<SoundBank>>,
 }
 
 /// M8f6: a looping PCM16 stream (a court mod's BGM or ambience layer): interleaved samples, `channels` a frame, its
@@ -97,7 +100,7 @@ impl SoundBank {
         let data = iso.read(xb).ok()?;
         let arc = Archive::parse(&data).ok()?;
         let read = |name: &str| arc.read(arc.entries.iter().find(|e| e.name.replace('\\', "/").ends_with(name))?).ok();
-        Some(Self { hd: read(hd)?, bd: read(&hd.replace(".hd", ".bd"))?, wav: Default::default(), takes: Default::default(), stream: None })
+        Some(Self { hd: read(hd)?, bd: read(&hd.replace(".hd", ".bd"))?, wav: Default::default(), takes: Default::default(), stream: None, language: None })
     }
 
     /// A BGM: bank `data/sound/BGM/<dir>/<name>.hd` and the MIDI file beside it in `SND/BGM/<NAME>.XB`.
@@ -119,7 +122,7 @@ impl SoundBank {
             }
         }
         let wav: std::collections::HashMap<_, _> = wav.into_iter().map(|(p, mut ks)| { ks.sort_by_key(|k| k.0); (p, ks.into_iter().map(|k| k.1).collect()) }).collect();
-        (!wav.is_empty()).then(|| Self { hd: Vec::new(), bd: Vec::new(), wav, takes: Default::default(), stream: None })
+        (!wav.is_empty()).then(|| Self { hd: Vec::new(), bd: Vec::new(), wav, takes: Default::default(), stream: None, language: None })
     }
 
     /// M8f3: `self` (a disc umpire's bank) with an umpire mod's calls `dir/<program>_<key>.wav` as its [`takes`],
@@ -487,7 +490,7 @@ impl Sound {
     /// and the play and channel pans (`pan[0..2]`); the tone and velocity parts come from the sequence.
     /// Returns the play's id for `update` and `stop` (0 if the bank has no such sequence).
     pub fn play(&self, bank: &Arc<SoundBank>, program: usize, key: usize, level: Level, scale: u32) -> u64 {
-        self.play_as(bank, program, key, level, scale, Group::Sfx)
+        self.play_as(dubbed(bank), program, key, level, scale, Group::Sfx)
     }
 
     /// `play` in volume group `group`.
@@ -643,7 +646,7 @@ impl Sound {
     pub fn endless(&self) -> u64 {
         let mut m = self.0.lock().unwrap();
         let id = m.id();
-        let bank = Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: None });
+        let bank = Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: None, language: None });
         m.playing.push(Playing { id, bank, events: vec![KeyOn { frame: u32::MAX, channel: 0, note: 0, velocity: 0, set: 0 }], next: 0, frame: 0, level: default(), scale: 0x1000 });
         id
     }
@@ -663,6 +666,8 @@ impl Sound {
         if let Some((w, rate)) = bank.takes.get(&(program, key)).filter(|_| takes) {
             return self.play_take(bank, w, *rate, level, scale, Group::of_play(&p));
         }
+        // added3: the voice language's take is heard; the timing (`takes` false) plays the disc's
+        let bank = if takes { dubbed(bank) } else { bank };
         self.play_as(bank, program, key, level, scale, Group::of_play(&p))
     }
 
@@ -721,6 +726,12 @@ impl Sound {
 
     /// How many plays have started (the BGM counts 16), for tests.
     #[cfg(any(test, feature = "testing"))]
+    /// added3: the bank play `id`'s sequence is playing from (tests).
+    #[cfg(test)]
+    pub(crate) fn bank_of(&self, id: u64) -> Option<Arc<SoundBank>> {
+        self.0.lock().unwrap().playing.iter().find(|q| q.id == id).map(|q| q.bank.clone())
+    }
+
     pub fn plays(&self) -> u64 {
         self.0.lock().unwrap().ids
     }
@@ -804,7 +815,7 @@ impl Sound {
     /// tables, the bank volume of the play's slot and its play speed.
     pub fn play_at(&self, bank: &Arc<SoundBank>, p: sound::Play, pos: [f32; 3]) -> u64 {
         let level = self.0.lock().unwrap().level(p, pos);
-        self.play_as(bank, p.program as usize, p.key as usize, level, sound::speed_word(p.speed), Group::of_play(&p))
+        self.play_as(dubbed(bank), p.program as usize, p.key as usize, level, sound::speed_word(p.speed), Group::of_play(&p))
     }
 
     /// The play `id` (a `play_toward` one) turned to `angle`: its voices re-panned at sequence volume `volume`.
@@ -827,8 +838,13 @@ impl Sound {
             let seq = sound::stereo(p.volume, heard(angle), &m.stereo).map(|x| x as u32);
             Level { seq, bank: m.bank_volumes[p.slot as usize], pan: [0x40; 3], ..default() }
         };
-        self.play_as(bank, p.program as usize, p.key as usize, level, sound::speed_word(p.speed), Group::of_play(&p))
+        self.play_as(dubbed(bank), p.program as usize, p.key as usize, level, sound::speed_word(p.speed), Group::of_play(&p))
     }
+}
+
+/// added3: what a play of `bank` is heard from: its voice language's take (`SoundBank::language`), else itself.
+fn dubbed(bank: &Arc<SoundBank>) -> &Arc<SoundBank> {
+    bank.language.as_ref().unwrap_or(bank)
 }
 
 #[derive(Asset, TypePath)]
@@ -902,7 +918,13 @@ fn start(mut commands: Commands, args: Res<Args>, mut streams: ResMut<Assets<Str
     let sound = Sound(Arc::new(Mutex::new(mix(&mut iso))));
     // B235: the saved volumes (the menu's Sound screen sets them again as they change)
     let settings = crate::store::settings(&args.iso);
-    sound.set_volumes(crate::store::read_to_string(settings).map_or_else(|_| Volumes::default(), |t| Volumes::parse(&t)));
+    let text = crate::store::read_to_string(settings).unwrap_or_default();
+    sound.set_volumes(Volumes::parse(&text));
+    // added3: the voice language, and the other releases' voices waiting in `voices/` read in the background
+    crate::voices::set_dir(crate::store::path(&args.iso, "voices"));
+    crate::voices::choose(crate::voices::parse_setting(&text));
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(crate::voices::import_waiting);
     commands.spawn(AudioPlayer(streams.add(Stream(sound.0.clone()))));
     if let Some((xb, hd, program, key)) = &args.sound {
         let bank = Arc::new(SoundBank::load(&mut iso, xb, hd).expect("sound bank on disc"));
@@ -927,7 +949,8 @@ pub fn court_bank(iso: &mut Iso, n: usize) -> CourtBank {
 pub fn gallery_bank(iso: &mut Iso, n: usize, pick: usize) -> Option<SoundBank> {
     let (xb, set) = if pick < 2 { ('A', "sg") } else { ('B', "dv") };
     let crowd = if pick & 1 == 0 { 'a' } else { 'b' };
-    SoundBank::load(iso, &format!("SND/COURT/C_SND{n:02}{xb}.XB0"), &format!("data/sound/VOICE/GALLERY/gal{set}{n:02}{crowd}.hd"))
+    let hd = format!("data/sound/VOICE/GALLERY/gal{set}{n:02}{crowd}.hd");
+    SoundBank::load(iso, &format!("SND/COURT/C_SND{n:02}{xb}.XB0"), &hd).map(|b| crate::voices::dub(b, &hd))
 }
 
 /// The players' voice banks (slots 1 and up), from `play.rs`'s line-up.
@@ -940,7 +963,8 @@ pub fn voice_bank(iso: &mut Iso, c: usize, players: usize, court: u32, b: bool) 
     let (n, set, tag) = if players < 3 { (0, "SGL", "sgv") } else { (4, "DBL", "dvv") };
     let k = b as usize + if court == 7 { 2 } else { 0 };
     let v = (b'a' + k as u8) as char;
-    SoundBank::load(iso, &format!("SND/VOICE/PC/PC{c:02}VCE{}.XB0", n + k), &format!("data/sound/VOICE/{set}/{tag}_vc{c:02}{v}.hd"))
+    let hd = format!("data/sound/VOICE/{set}/{tag}_vc{c:02}{v}.hd");
+    SoundBank::load(iso, &format!("SND/VOICE/PC/PC{c:02}VCE{}.XB0", n + k), &hd).map(|b| crate::voices::dub(b, &hd))
 }
 
 /// The gallery's bank.
@@ -950,7 +974,8 @@ pub struct GalleryBank(pub Option<Arc<SoundBank>>);
 /// The umpire's voice bank (slot 5): umpire `n`'s set `v` (0..3 = a..d).
 pub fn umpire_bank(iso: &mut Iso, n: u8, v: u8) -> Option<SoundBank> {
     let (big, small) = ((b'A' + v) as char, (b'a' + v) as char);
-    SoundBank::load(iso, &format!("SND/UMP/UV{n:02}{big}.XB0"), &format!("data/sound/UMPIRE/gag_vc{n:02}{small}.hd"))
+    let hd = format!("data/sound/UMPIRE/gag_vc{n:02}{small}.hd");
+    SoundBank::load(iso, &format!("SND/UMP/UV{n:02}{big}.XB0"), &hd).map(|b| crate::voices::dub(b, &hd))
 }
 
 /// The jingle bank (slot 8) and the BGM's bank and MIDI file.
@@ -1365,7 +1390,7 @@ mod tests {
         assert!(frames == 6 && peak > 0.1 && peak < 1.0);
         // with the donor's disc bank beside the wavs (`mod_match::apply`), a program the mod lacks plays the disc's
         let disc = voice_bank(&mut iso, 0, 2, 1, false).unwrap();
-        let both = Arc::new(SoundBank { hd: disc.hd, bd: disc.bd, wav: bank.wav.clone(), takes: Default::default(), stream: None });
+        let both = Arc::new(SoundBank { hd: disc.hd, bd: disc.bd, wav: bank.wav.clone(), takes: Default::default(), stream: None, language: None });
         assert_ne!(sound.play(&both, 2, 0, Level { seq: [127; 2], bank: 127, pan: [0x40; 3], ..default() }, 0x1000), 0);
     }
 
@@ -1533,7 +1558,7 @@ mod tests {
         let frames: Vec<[i16; 2]> = (0..24_000).map(|i| if i >= 19_200 { [i16::MAX; 2] } else if (i / 50) % 2 == 0 { [8000, -8000] } else { [-8000, 8000] }).collect();
         let track = Arc::new(Track::read(&wav(&frames, 48_000), [4800, 19_200], Track::BGM_RMS).unwrap());
         assert_eq!((track.channels, track.rate, track.at), (2, 48_000, [4800, 19_200]));
-        let bank = Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: Some(track.clone()) });
+        let bank = Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: Some(track.clone()), language: None });
         let mix = Mix { pitch: Vec::new(), pan: Vec::new(), gain: Vec::new(), stereo: Default::default(), bank_volumes: Vec::new(), voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new(), emotes: [0; 4] };
         let sound = Sound(Arc::new(Mutex::new(mix)));
         let render = |n: usize| {
