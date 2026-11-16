@@ -47,7 +47,6 @@ index out of bounds: the len is 0 but the index is 0"
 ### Follow-ups
 
 - [~] **M169a1** (follow-up, normal) **EU 50 Hz: port + verify** (from M169a's SPEC.md, decompile locked): the 50 Hz switches in hst-sim beside `build.rs` (US rules at 50 Hz; 60 Hz stays bit-exact), the EU disc's data for it (TRAJ, SAITOU/TRAJ, GAME.BIN shot parameters at EU offsets — share M174's reader — and the motion ticks/frame rescale with its exception list), proven against the EU recordings (M177's fixtures): bit-exact bot match at 50 Hz | files: crates/hst-sim/src/build.rs, crates/hst-data/src/ani.rs, crates/hst-data/src/exe.rs, crates/hst-play/src/play/build_rules.rs — M176 landed the plumbing: flip hst_base::match_speed::FIFTY_HZ_SIM when the sim plays 50 Hz (shows Settings → Match Speed); read the rate from match_speed::current()/MatchHz; a 50 Hz match reads the EU disc's raw TRAJ, not M170's regen BLOCKED: (after M169a) M169a (spec) not done: no SPEC.md in research/journal/2026-11-16-m169-eu-50hz/. Unblock once M169a lands its spec
-- [ ] **B711** (follow-up, normal) Flaky test (seen in P138's done.sh, 2026-11-16): net::tests::a_crossplay_guest_rejoins_on_the_hosts_data failed in the full hst-base suite (assertion crossplay::remove(&link), net.rs) but passes alone 3/3; likely shared global crossplay state with another test running in parallel; make it independent → crates/hst-base/src/net.rs
 
 
 
