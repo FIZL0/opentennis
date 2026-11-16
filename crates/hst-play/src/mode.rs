@@ -352,7 +352,7 @@ fn switch(world: &mut World) {
     let next = world.resource_mut::<Next>().0.take().expect("checked");
     if !world.contains_resource::<Base>() {
         let entities = world.iter_entities().map(|e| e.id()).collect();
-        let resources = world.iter_resources().map(|(i, _)| i.id()).collect();
+        let resources = world.iter_resources().map(|(id, _, _)| id).collect();
         let clear = world.get_resource::<ClearColor>().cloned().unwrap_or_default();
         world.insert_resource(Base { entities, resources, clear });
         let id = world.component_id::<Base>().expect("just inserted");
@@ -757,7 +757,7 @@ fn teardown(world: &mut World) {
     }
     // the game's crates' only: Bevy inserts some of its own as they're first used (`AssetChanges`); names need Bevy's
     // `debug`
-    let ours: Vec<ComponentId> = world.iter_resources().filter(|(i, _)| !base.resources.contains(&i.id()) && OURS.iter().any(|c| i.name().to_string().starts_with(c))).map(|(i, _)| i.id()).collect();
+    let ours: Vec<ComponentId> = world.iter_resources().filter(|(id, i, _)| !base.resources.contains(id) && OURS.iter().any(|c| i.name().to_string().starts_with(c))).map(|(id, _, _)| id).collect();
     for id in ours {
         world.remove_resource_by_id(id);
     }

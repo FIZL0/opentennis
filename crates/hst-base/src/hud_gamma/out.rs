@@ -14,7 +14,8 @@ use bevy::render::render_resource::binding_types::{sampler, texture_2d, uniform_
 use bevy::render::render_resource::*;
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
 use bevy::render::texture::GpuImage;
-use bevy::render::view::{ExtractedWindows, ViewTargetAttachments};
+use bevy::render::view::{ExtractedWindow, ViewTargetAttachments};
+use bevy::window::PrimaryWindow;
 use bevy::render::{GpuResourceAppExt, Render, RenderApp, RenderSystems};
 
 /// The window camera's render schedule.
@@ -23,6 +24,7 @@ pub struct Out;
 
 /// What `draw` puts on the window this frame, set by `hud_gamma::persist`.
 #[derive(Resource, Clone, ExtractResource)]
+#[extract_app(RenderApp)]
 pub struct Frame {
     pub scene: Handle<Image>,
     pub hud: Handle<Image>,
@@ -86,7 +88,7 @@ impl FromWorld for Pipeline {
         let glow = BindGroupLayoutDescriptor::new("hst_glow", &BindGroupLayoutEntries::sequential(ShaderStages::FRAGMENT, (tex(), sampler(SamplerBindingType::Filtering))));
         let buffer = |label, size| world.resource::<RenderDevice>().create_buffer(&BufferDescriptor { label: Some(label), size, usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST, mapped_at_creation: false });
         let (weight, picture) = (buffer("hst_persist_weight", 16), buffer("hst_composite_picture", 32));
-        let shader = world.resource::<AssetServer>().load("embedded://hst_base/hud_gamma.wgsl");
+        let shader = world.resource::<AssetServer>().load("embedded://hst_base/hud_gamma.wesl");
         Pipeline { mix, composite, glow, weight, picture, fullscreen: world.resource::<FullscreenShader>().clone(), shader }
     }
 }
@@ -121,6 +123,7 @@ impl SpecializedRenderPipeline for Pipeline {
                 shader_defs: defs,
                 entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState { format, blend: None, write_mask: ColorWrites::ALL })],
+                constants: vec![],
             }),
             ..default()
         }
@@ -137,7 +140,7 @@ struct Ids {
 
 fn prepare(
     frame: Option<Res<Frame>>,
-    windows: Res<ExtractedWindows>,
+    windows: Query<&ExtractedWindow, With<PrimaryWindow>>,
     pipeline: Res<Pipeline>,
     cache: Res<PipelineCache>,
     queue: Res<RenderQueue>,
@@ -148,7 +151,7 @@ fn prepare(
         ids.mix = Some(pipelines.specialize(&cache, &pipeline, (TextureFormat::Rgba8Unorm, Pass::Mix)));
         ids.glow = Some(pipelines.specialize(&cache, &pipeline, (TextureFormat::Rgba8Unorm, Pass::Glow)));
     }
-    let format = windows.primary.and_then(|w| windows.windows.get(&w)).and_then(|w| w.swap_chain_texture_view_format);
+    let format = windows.single().ok().and_then(|w| w.swap_chain_texture_view_format);
     if let Some(format) = format
         && ids.composite.is_none_or(|(f, _)| f != format)
     {

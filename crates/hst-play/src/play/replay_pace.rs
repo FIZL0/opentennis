@@ -111,17 +111,23 @@ pub(super) fn pace(g: Res<Game>, mut p: ResMut<Pace>, mut virt: ResMut<Time<Virt
     let tick = g.instant.ticks;
     if tick + 1 < shown(shots) {
         // ponytail: a frame's worth of real time runs a thousand ticks; the skip is a few hundred
-        virt.set_max_delta(Duration::from_secs(1));
         virt.set_relative_speed(1000.0);
+        clamp_real(&mut virt, Duration::from_secs(1));
         return;
     }
     if tick + 1 == shown(shots) {
         // the skip's last tick: the rest of the frame's time is thrown away, the picture shows from here
-        virt.set_max_delta(Duration::from_millis(250));
         let over = fixed.overstep();
         fixed.discard_overstep(over);
     }
     virt.set_relative_speed(1.0 / (between(shots, tick) + 1) as f32);
+    clamp_real(&mut virt, Duration::from_millis(250));
+}
+
+/// A frame runs at most `real` of real time, at whatever speed the clock runs. Bevy 0.20 caps the sped-up or slowed
+/// delta instead of the real one, so the cap scales with the speed (P143); at speed 1 it is plain `max_delta`.
+pub(super) fn clamp_real(virt: &mut Time<Virtual>, real: Duration) {
+    virt.set_max_delta(real.mul_f64(virt.relative_speed_f64()));
 }
 
 /// The skip, then the slow motion observed on slot 5's match point (the original's ticks there: shown from 313,

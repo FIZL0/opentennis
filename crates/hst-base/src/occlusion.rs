@@ -1,11 +1,11 @@
 //! Character Shading (Graphics, ours: the PS2 has none): soft contact shade under a chin, a skirt, an arm, baked
-//! once per model into its vertex colours, so the GS colour path (`gs.wgsl`) darkens every light by it.
+//! once per model into its vertex colours, so the GS colour path (`gs.wesl`) darkens every light by it.
 //!
 //! Each vertex casts cosine-weighted rays over its normal's hemisphere against every triangle of the model in its
 //! bind pose (all parts together: a skirt shades the legs); the share that reaches 20 cm is its visibility. A ray
 //! whose nearest hit is a face's back has gone into another part (a leg inside its shoe): it counts as open, and a
 //! vertex most of whose rays do that is hidden inside, so it stays unshaded (its black would bleed up the triangle).
-//! A face's side comes from its vertices' normals (normal + tangent slots, `gs.wgsl`'s skinned normal), not its
+//! A face's side comes from its vertices' normals (normal + tangent slots, `gs.wesl`'s skinned normal), not its
 //! winding. A hit shades less the further it is, so a cap's brim dims a face softly instead of in blotches; then
 //! vertices at one spot (seams, part joins) share one value and a few passes smooth it over the mesh's edges. The
 //! rays walk a bounding-volume tree of the triangles, so a mod's 50k-triangle model bakes in a blink.

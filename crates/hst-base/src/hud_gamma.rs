@@ -1,7 +1,7 @@
 //! Scene and HUD blended the way the PS2's GS blends: on the gamma-encoded values, not in linear light.
 //!
 //! The 3D cameras draw HDR (float, nothing encoded) into `scene` (raw `Rgba8Unorm`), and every 3D shader outputs
-//! encoded colour: `gs.wgsl` as it computes it, Bevy's PBR shader (`StandardMaterial`) through a patched
+//! encoded colour: `gs.wesl` as it computes it, Bevy's PBR shader (`StandardMaterial`) through a patched
 //! `main_pass_post_lighting_processing` that encodes its result; the clear colour follows `ClearColor` encoded. So
 //! translucent and `@add` draws blend on encoded values as the GS does (grass blue 0x33 + 0x4c is 0x7f, not the
 //! 0x98 a linear-light add gives).
@@ -29,7 +29,7 @@ use bevy::window::PrimaryWindow;
 mod out;
 
 pub fn plugin(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "hud_gamma.wgsl");
+    bevy::asset::embedded_asset!(app, "hud_gamma.wesl");
     out::plugin(app);
     app.add_systems(Startup, setup)
         .add_systems(Update, (encode_pbr_output, two_channel_letters))
@@ -128,20 +128,20 @@ fn clear(colour: Res<ClearColor>, mut q: Query<&mut Camera, With<Scene>>, added:
     }
 }
 
-/// Bevy's PBR fragment (every `StandardMaterial`) ends with the encoded colour, as `gs.wgsl` does.
+/// Bevy's PBR fragment (every `StandardMaterial`) ends with the encoded colour, as `gs.wesl` does.
 fn encode_pbr_output(mut events: MessageReader<AssetEvent<Shader>>, mut shaders: ResMut<Assets<Shader>>) {
-    const AT: &str = "#ifdef PREMULTIPLY_ALPHA\n    output_color = premultiply_alpha(pbr_input.material.flags, output_color);\n#endif\n    return output_color;";
+    const AT: &str = "    @if(PREMULTIPLY_ALPHA)\n    output_color = premultiply_alpha(pbr_input.material.flags, output_color);\n    return output_color;";
     const ENC: &str = "    output_color = vec4(select(1.055 * pow(output_color.rgb, vec3(1.0 / 2.4)) - 0.055, output_color.rgb * 12.92, output_color.rgb <= vec3(0.0031308)), output_color.a);\n";
     for e in events.read() {
         let AssetEvent::Added { id } = e else { continue };
         let Some(shader) = shaders.get(*id) else { continue };
-        if !shader.path.ends_with("bevy_pbr/render/pbr_functions.wgsl") {
+        if !shader.path.ends_with("bevy_pbr/render/pbr_functions.wesl") {
             continue;
         }
-        let bevy::shader::Source::Wgsl(src) = &shader.source else { continue };
-        assert_eq!(src.matches(AT).count(), 1, "Bevy's pbr_functions.wgsl changed: re-find where its forward output ends");
+        let bevy::shader::Source::Wesl(src) = &shader.source else { continue };
+        assert_eq!(src.matches(AT).count(), 1, "Bevy's pbr_functions.wesl changed: re-find where its forward output ends");
         let patched = src.replace(AT, &format!("{ENC}{AT}"));
-        shaders.get_mut(*id).unwrap().source = bevy::shader::Source::Wgsl(patched.into());
+        shaders.get_mut(*id).unwrap().source = bevy::shader::Source::Wesl(patched.into());
     }
 }
 
@@ -173,14 +173,14 @@ fn two_channel_letters(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool
     if *done {
         return;
     }
-    let Some((id, has)) = shaders.iter().find(|(_, s)| s.path.ends_with("bevy_ui_render/ui.wgsl")).map(|(id, s)| (id, matches!(&s.source, bevy::shader::Source::Wgsl(w) if w.contains(AT)))) else { return };
+    let Some((id, has)) = shaders.iter().find(|(_, s)| s.path.ends_with("bevy_ui_render/ui.wesl")).map(|(id, s)| (id, matches!(&s.source, bevy::shader::Source::Wesl(w) if w.contains(AT)))) else { return };
     *done = true;
     if !has {
         error!("UI shader: no `{AT}`: the menus' letters won't draw");
         return;
     }
     if let Some(mut s) = shaders.get_mut(id)
-        && let bevy::shader::Source::Wgsl(w) = &mut s.source
+        && let bevy::shader::Source::Wesl(w) = &mut s.source
     {
         *w = w.replace(AT, &letters_wgsl(AT)).into();
     }

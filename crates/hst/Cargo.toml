@@ -21,7 +21,7 @@ hst-base = { path = "../hst-base" }
 hst-play = { path = "../hst-play" }
 # `debug`: type names, which `mode.rs` tells its resources by; `bevy_debug_stepping`: its executor's skip list, which
 # `mode.rs` runs a mode's start a slice a frame with (P50)
-bevy = { version = "0.19.1", features = ["debug", "bevy_debug_stepping"] }
+bevy = { version = "0.20.1", features = ["debug", "bevy_debug_stepping"] }
 serde_json = "1"
 # `SystemTime` that also works in the browser (std's panics on wasm32-unknown-unknown)
 web-time = "1"
@@ -40,7 +40,7 @@ sha2 = "0.11"
 
 # copy/paste of join codes through the OS clipboard (arboard: none on iOS/Android, where it stays in-app)
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
-bevy = { version = "0.19.1", features = ["system_clipboard"] }
+bevy = { version = "0.20.1", features = ["system_clipboard"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

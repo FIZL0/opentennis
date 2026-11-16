@@ -1625,7 +1625,7 @@ pub fn load_with(
             let mut nodes: Vec<usize> = v.joints.iter().zip(&v.weights).flat_map(|(j, w)| (0..4).filter(|&k| w[k] > 0.0).map(|k| j[k] as usize)).collect();
             let moved = moved(&v, first, deformers.len(), &joints);
             // VU1's per-bone normals from one glTF normal: the first joint's share in the normal slot, the rest in the
-            // tangent slot, which gs.wgsl turns by the other joints' weight blend
+            // tangent slot, which gs.wesl turns by the other joints' weight blend
             // a swaying part stays readable: each rig sways its own copy (`noise`)
             // B691: so does a face morphed on the CPU (`cpu_morph`)
             // B693: or none at all (`mod_debug`'s `mod_morph = off`)

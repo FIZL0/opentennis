@@ -28,7 +28,7 @@ fn sharpen_ui(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
     if *done {
         return;
     }
-    let found = shaders.iter().find(|(_, s)| s.path.ends_with("bevy_ui_render/ui.wgsl")).map(|(id, s)| (id, matches!(&s.source, Source::Wgsl(w) if w.contains(SAMPLE))));
+    let found = shaders.iter().find(|(_, s)| s.path.ends_with("bevy_ui_render/ui.wesl")).map(|(id, s)| (id, matches!(&s.source, Source::Wesl(w) if w.contains(SAMPLE))));
     let Some((id, has)) = found else { return };
     *done = true;
     if !has {
@@ -36,7 +36,7 @@ fn sharpen_ui(mut shaders: ResMut<Assets<Shader>>, mut done: Local<bool>) {
         return;
     }
     if let Some(mut s) = shaders.get_mut(id)
-        && let Source::Wgsl(w) = &mut s.source
+        && let Source::Wesl(w) = &mut s.source
     {
         *w = w.replace(SAMPLE, &format!("textureSampleBias(sprite_texture, sprite_sampler, in.uv, {BIAS:?})")).into();
     }

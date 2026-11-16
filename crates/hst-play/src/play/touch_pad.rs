@@ -630,7 +630,7 @@ fn spawn(commands: &mut Commands, bubble: Handle<Image>, syms: [Handle<Image>; F
             Camera2d,
             Camera { order: 60, clear_color: ClearColorConfig::Custom(Color::NONE), output_mode: out, is_active: false, ..default() },
             bevy::camera::Hdr,
-            bevy::core_pipeline::tonemapping::Tonemapping::None,
+            bevy::core_pipeline::tonemapping::Tonemapping::Linear, // P143: 0.19's None (0.20's None also drops dither and the clamp)
             Msaa::Off,
             bevy::camera::visibility::RenderLayers::none(),
         ))
