@@ -9,6 +9,7 @@ pub mod bmp;
 pub mod columns;
 pub mod crossplay;
 pub mod digest;
+pub mod discs;
 pub mod mdl;
 pub mod mor;
 pub mod mtl;
