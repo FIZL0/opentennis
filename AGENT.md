@@ -101,7 +101,7 @@ merge into main as a normal task. Mode-off and the replay tests stay exact on th
 - Wrap-up is one call, no subagent: `tools/done.sh <ID> "<msg>"` (tests, tick, commit) or `… --blocked "<why>"`.
   In the main checkout (shared with other sessions) add `-- <paths you changed>`; it commits only those + plan/.
   A hook blocks `git add -A/./-u` and `git commit -a` there: stage and commit your own paths
-  (`git commit -m … -- <paths>`). Bigger ad-hoc work: `git worktree add ../opentennis-<slug>`, merge when done.
+  (`git commit -m … -- <paths>`). Bigger ad-hoc work: `git worktree add "$(agent-runner home)/wt/<slug>"`, merge when done.
   The `chore` subagent is only for bigger mechanical jobs (checking a capture, reformatting).
 
 ## Controlling the game
@@ -121,7 +121,7 @@ Other sessions and the runners' merges work in this same checkout at the same ti
 changed: `git commit -m "…" -- <paths>`, never `git commit -a` or `git add -A`/`.` (they sweep up other sessions'
 half-done edits). Commit as soon as a change is solid; uncommitted work can end up stashed or in someone else's
 commit. `.git/MERGE_HEAD` exists → a merge is under way: wait for it, don't commit or touch the index. Anything bigger
-than a quick edit while runners are going: work in your own worktree (`git worktree add ../opentennis-<slug>`) and
+than a quick edit while runners are going: work in your own worktree (`git worktree add "$(agent-runner home)/wt/<slug>"`) and
 merge it into main when done. `tools/done.sh` (`git add -A`) is for the runners' task worktrees, not this checkout.
 Interactive session (the user's) that moves from adding TODOs to code work: switch into a worktree first (EnterWorktree,
 or start it with `claude -w <slug>`), commit there, merge into main when done; a runner merge waits while uncommitted

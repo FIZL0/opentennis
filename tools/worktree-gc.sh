@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Remove leftover ../opentennis-<slug> worktrees (concept branches, finished ad-hoc work): runner.toml's on_exit runs it
+# Remove leftover ad-hoc worktrees ($(agent-runner home)/wt/<slug>, or anywhere but the runner's slots) (concept branches, finished ad-hoc work): runner.toml's on_exit runs it
 # after every slot session. A worktree goes only when nothing is lost and nobody is in it:
 #   - no process has its cwd inside it (a live session, a build);
 #   - no live Claude session (but the one closing, whose hook this is) names it in its transcript: a session runs
@@ -19,7 +19,7 @@ live=(); for f in ~/.claude/sessions/*.json; do
 done
 git worktree list --porcelain | awk '/^worktree /{w=$2} /^branch /{print w, $2} /^detached/{print w, "-"}' |
 while read -r w ref; do
-  [[ $w == "$main" || $w == "$slots"/* || ! -d $w ]] && continue
+  [[ $w == "$main" || ($w == "$slots"/* && $w != "$slots"/wt/*) || ! -d $w ]] && continue
   busy=; for p in /proc/[0-9]*/cwd; do [[ $(readlink "$p" 2>/dev/null)/ == "$w"/* ]] && { busy=1; break; }; done
   [ "$busy" ] && continue
   for t in "${live[@]}"; do grep -qF "${w##*/}" "$t" && { busy=1; break; }; done
