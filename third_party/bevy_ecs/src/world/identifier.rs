@@ -32,8 +32,9 @@ impl WorldId {
     /// time - if a given [`WorldId`] is [`Drop`]ped its value still cannot be reused
     pub fn new() -> Option<Self> {
         MAX_WORLD_ID
+            // HST (B711): `try_update`, the pinned compiler's name for `fetch_update` (its deprecation warning failed tools/webcheck.sh)
             // We use `Relaxed` here since this atomic only needs to be consistent with itself
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |val| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |val| {
                 val.checked_add(1)
             })
             .map(WorldId)
