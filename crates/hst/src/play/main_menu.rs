@@ -583,8 +583,8 @@ enum Screen {
     Controls,
     /// Online & Mods: what the mod store and online lobbies download.
     ModSettings,
-    /// B118: phone-only options (on a touch screen).
-    Mobile,
+    /// M167: how matches play (offline Rules, match rumble) and the touch pad's Vibration (was Mobile, B118).
+    Gameplay,
     Mode,
     Assign,
     Chars,
@@ -1559,7 +1559,7 @@ impl Menu {
         let screen = if self.screen == Screen::Confirm && !self.online() && !self.drives_foot(dev) { Screen::Chars } else { self.screen };
         match screen {
             Screen::Main => self.main_step(dev, k, &mut out),
-            Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::ModSettings | Screen::Mobile => {
+            Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::ModSettings | Screen::Gameplay => {
                 if self.editing.is_none() {
                     step_rows(k, options::page(self.screen).len(), &mut self.sel, &mut out);
                 }
@@ -2595,7 +2595,7 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         "advanced" => Screen::Advanced,
         "sound" | "sound-edit" => Screen::Sound,
         "mod-settings" => Screen::ModSettings,
-        "mobile" => Screen::Mobile,
+        "gameplay" | "mobile" => Screen::Gameplay,
         "controls" | "controls-keys" | "controls-bind" | "controls-last" | "controls-reset" | "controls-ask" => Screen::Controls,
         "mode" => Screen::Mode,
         "assign" | "assign-moved" | "assign-drag" => Screen::Assign,
@@ -3238,7 +3238,7 @@ fn drawn<'a>(m: &Menu, text: &'a Text, bind: &Bindings, pads: &[Entity], control
     match m.screen {
         Screen::Press => splash::layout(&mut d, m, pads, controllers),
         Screen::Main => home::layout(&mut d, m, text, controllers, hand_x),
-        Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::ModSettings | Screen::Mobile => options::page_layout(&mut d, m, hand_x),
+        Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::ModSettings | Screen::Gameplay => options::page_layout(&mut d, m, hand_x),
         Screen::Controls => options::controls_layout(&mut d, m, bind, hand_x),
         Screen::Mode => {
             d.frame(2, WALL);
@@ -4006,7 +4006,7 @@ impl Screen {
     fn bgm(self) -> Option<usize> {
         match self {
             Screen::Press => Some(0),
-            Screen::Main | Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::Controls | Screen::ModSettings | Screen::Mobile => Some(1),
+            Screen::Main | Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::Controls | Screen::ModSettings | Screen::Gameplay => Some(1),
             Screen::Mode | Screen::Assign | Screen::Chars => Some(2),
             Screen::Confirm => Some(3),
             Screen::Online | Screen::Lobbies | Screen::Lobby | Screen::Code => Some(1),

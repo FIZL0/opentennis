@@ -131,7 +131,7 @@ pub(in crate::play::main_menu) fn sample(m: &mut Menu) {
 fn calm(m: &Menu) -> bool {
     let v = &m.add;
     use Screen::*;
-    let screen = matches!(m.screen, Main | Mode | Mods | Extras | Online | Lobbies | Code | Display | Graphics | Advanced | Sound | ModSettings | Mobile | Controls);
+    let screen = matches!(m.screen, Main | Mode | Mods | Extras | Online | Lobbies | Code | Display | Graphics | Advanced | Sound | ModSettings | Gameplay | Controls);
     screen
         && !m.paused
         && m.net.room.is_none()

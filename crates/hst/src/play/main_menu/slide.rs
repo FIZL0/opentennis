@@ -65,9 +65,9 @@ impl Slide {
     }
 }
 
-/// The Settings tabs' pages (`Display..=Mobile`).
+/// The Settings tabs' pages (`Display..=Gameplay`).
 fn settings(s: Screen) -> bool {
-    (Screen::Display as u8..=Screen::Mobile as u8).contains(&(s as u8))
+    (Screen::Display as u8..=Screen::Gameplay as u8).contains(&(s as u8))
 }
 
 fn ease(x: f32) -> f32 {

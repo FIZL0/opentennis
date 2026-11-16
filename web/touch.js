@@ -54,7 +54,7 @@ const B = { cross: 0, circle: 1, square: 2, triangle: 3, l1: 4, r1: 5, select: 8
 const realPads = navigator.getGamepads?.bind(navigator) ?? (() => []);
 const anyReal = () => [...realPads()].some(g => g && g.connected);
 let shown = false;
-// B118: the press buzz (Settings → Mobile)
+// B118: the press buzz (Settings → Gameplay)
 let buzz = true;
 // B329: the buzz. Android's browsers have `navigator.vibrate` (Chrome skips it while the phone's ringer is on Silent, and
 // only after the page's first tap); 8 ms was too short for many phones' motors to be felt at all. iOS Safari has no
