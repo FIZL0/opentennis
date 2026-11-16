@@ -1384,6 +1384,41 @@ pub(super) fn reset_button(g: &Grid) -> [f32; 4] {
     [right - W * PX, y + (look::RIM + (look::STRIP - look::PILL) / 2.0) * PY, W * PX, look::PILL * PY]
 }
 
+/// M164: the Swap pill left of Reset on the Controls panel's strip.
+pub(super) fn swap_button(g: &Grid) -> [f32; 4] {
+    const W: f32 = 168.0;
+    let [x, y, _, h] = reset_button(g);
+    [x - (W + 8.0) * PX, y, W * PX, h]
+}
+
+/// M164: the Swap pill (chosen at `sel` one past Reset): "Swap", the bottom and right face buttons as they work now
+/// (✕ ○, or ○ ✕ once swapped) and On / Off; ✕ or a tap flips it.
+fn swap_pill(d: &mut Draw, m: &Menu, bind: &controls::Bindings, size: f32) {
+    let n = controls::action_names().count();
+    let b @ [x, y, w, h] = swap_button(&m.grid);
+    let on = m.sel == n + 1;
+    look::button(d, b, on);
+    let ink = if on { look::c(look::INK) } else { WHITE };
+    let style = legend::pad_style_shown();
+    let icons: Vec<u8> = [bevy::prelude::GamepadButton::South, bevy::prelude::GamepadButton::East].into_iter().filter_map(legend::button_glyph).collect();
+    let gh = h - 6.0 * PY;
+    let gap = 4.0 * PX;
+    let (head, tail) = ("Swap", if bind.swapped() { "On" } else { "Off" });
+    let gws: Vec<f32> = icons.iter().map(|&i| gh * legend::glyph_aspect(style, i)).collect();
+    let total = d.width(head, size) + d.width(tail, size) + gws.iter().map(|g| g + gap).sum::<f32>() + 2.0 * gap;
+    let k = ((w - 16.0 * PX) / total).min(1.0);
+    let mut cx = x + (w - total * k) / 2.0;
+    let ty = y + (h - size * k) / 2.0;
+    d.text(head, cx, ty, size * k, ink);
+    cx += (d.width(head, size) + 2.0 * gap) * k;
+    for (&i, gw) in icons.iter().zip(gws) {
+        d.q(Tex::Glyph(style, i), [0.0; 4], [cx, y + (h - gh * k) / 2.0, gw * k, gh * k], WHITE, 128.0);
+        cx += (gw + gap) * k;
+    }
+    d.text(tail, cx + gap * k, ty, size * k, ink);
+    d.hit(b, pointer::Act::Row(controls_cell(n + 1, false), pointer::OK));
+}
+
 /// B609: the Controls table's first action on view: where it was, moved just enough to show the chosen row.
 pub(super) fn controls_top(m: &Menu) -> usize {
     let n = controls::action_names().count();
@@ -1396,7 +1431,8 @@ pub(super) fn controls_top(m: &Menu) -> usize {
 /// mouse cell; past every action, the Reset button.
 pub(super) fn controls_cell(a: usize, keys: bool) -> usize {
     let n = controls::action_names().count();
-    if a < n { 2 * a + usize::from(keys) } else { 2 * n }
+    // M164: the Swap pill one past Reset
+    if a < n { 2 * a + usize::from(keys) } else if a == n + 1 { 2 * n + 1 } else { 2 * n }
 }
 
 impl Menu {
@@ -1404,7 +1440,8 @@ impl Menu {
     /// cell that was chosen.
     pub(super) fn controls_choose(&mut self, i: usize) -> usize {
         let was = controls_cell(self.sel, self.keys_tab);
-        self.sel = i / 2;
+        let n = controls::action_names().count();
+        self.sel = if i == controls_cell(n + 1, false) { n + 1 } else { i / 2 };
         if i < controls_cell(usize::MAX, false) {
             self.keys_tab = i % 2 == 1;
         }
@@ -1449,6 +1486,7 @@ pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings,
     let rs = 16.0 * PY;
     d.label("Reset", reset[0] + (reset[2] + gw) / 2.0 + 3.0 * PX, reset[1] + (reset[3] - rs) / 2.0, rs, reset[2] - gw - 20.0 * PX, if m.sel == n { look::c(look::INK) } else { WHITE });
     d.hit(reset, pointer::Act::Row(controls_cell(n, false), pointer::OK));
+    swap_pill(d, m, bind, rs);
     // the column headings under the strip, over the label and each cell
     let (label, cells) = t.cells(t.row(0));
     let hs = 13.0 * PY;
@@ -1503,7 +1541,9 @@ pub(super) fn controls_layout(d: &mut Draw, m: &Menu, bind: &controls::Bindings,
     if n > shown {
         look::scroll_bar(d, t.bar, look::c(look::BLUE), shown, n, top, n - shown);
     }
-    let foot = if m.sel >= n {
+    let foot = if m.sel == n + 1 {
+        "Swaps every controller's Cross and Circle (A and B): OK / Back in the menus, Topspin / Slice in a match. Saved to controls.txt."
+    } else if m.sel >= n {
         "Reset: puts every key and button back as it was first."
     } else if waiting && m.keys_tab {
         "Press the new key for it (Escape cancels). It replaces the action's keys; its controller buttons stay."
@@ -1650,11 +1690,22 @@ mod tests {
         m.step(Dev::Keys, press(|k| &mut k.ok));
         assert_eq!((m.rebinding, m.keys_tab, m.screen), (Some(4), true, Screen::Controls));
         m.rebinding = None;
-        // Reset over the first row; ←→ there do nothing
+        // Reset over the first row; M164: ← there the Swap pill beside it (✕ flips it), → back, ↓ the first row
         m.sel = 0;
         m.step(Dev::Keys, press(|k| &mut k.up));
         assert_eq!(m.sel, n);
-        assert!(m.step(Dev::Keys, press(|k| &mut k.left)).is_empty() && m.keys_tab);
+        assert_eq!(m.step(Dev::Keys, press(|k| &mut k.left)), [Effect::Sound(0)]);
+        assert_eq!((m.sel, m.keys_tab), (n + 1, true));
+        assert!(m.step(Dev::Keys, press(|k| &mut k.left)).is_empty());
+        assert_eq!(m.step(Dev::Keys, press(|k| &mut k.ok)), [Effect::SwapCrossCircle, Effect::Sound(2)]);
+        assert_eq!(m.rebinding, None);
+        m.step(Dev::Keys, press(|k| &mut k.down));
+        assert_eq!(m.sel, 0);
+        m.step(Dev::Keys, press(|k| &mut k.up));
+        m.step(Dev::Keys, press(|k| &mut k.left));
+        m.step(Dev::Keys, press(|k| &mut k.right));
+        assert_eq!(m.sel, n);
+        assert!(m.step(Dev::Keys, press(|k| &mut k.right)).is_empty());
         assert!(m.step(Dev::Keys, press(|k| &mut k.ok)).contains(&Effect::AskResetControls));
         m.step(Dev::Keys, press(|k| &mut k.up));
         assert_eq!(m.sel, n - 1);
@@ -1683,6 +1734,9 @@ mod tests {
         m.rebinding = None;
         let [x, y, w, h] = reset_button(&m.grid);
         assert!(tap_at(&mut m, x + w / 2.0, y + h / 2.0).contains(&Effect::AskResetControls));
+        let [x, y, w, h] = swap_button(&m.grid);
+        assert!(tap_at(&mut m, x + w / 2.0, y + h / 2.0).contains(&Effect::SwapCrossCircle));
+        assert_eq!(m.sel, n + 1);
         assert_eq!(key_name(KeyCode::ArrowLeft), "Left");
         assert_eq!(key_name(KeyCode::Numpad4), "Num 4");
         assert_eq!(key_name(KeyCode::ShiftLeft), "L Shift");
