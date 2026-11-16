@@ -115,7 +115,7 @@ impl Iso {
             None => Self::from_source(Box::new(File::open(path)?)),
         }?;
         iso.overlay = overlay;
-        iso.lent = lent;
+        iso.lent = lent.filter(|_| !own_rate());
         Ok(iso)
     }
 
@@ -383,9 +383,25 @@ pub fn set_retime(f: Retime) {
     let _ = RETIME.set(f);
 }
 
+/// M183: the match plays at the disc's own tick rate (the European disc at 50 Hz, its own program): [`Iso::open`] lends
+/// it no other release's data (`crossplay::lend`) and [`Iso::read`] gives its trajectory archives as they are, never
+/// regenerated for 60 Hz ([`set_retime`]). A lobby host's data is still read over it. Set with the match's rate
+/// (`hst_base::match_speed::set_current`); no effect on a disc that is neither lent to nor regenerated.
+static OWN_RATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// From now on the match plays at the disc's own tick rate, or not ([`OWN_RATE`]).
+pub fn set_own_rate(on: bool) {
+    OWN_RATE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the match plays at the disc's own tick rate ([`set_own_rate`]).
+pub fn own_rate() -> bool {
+    OWN_RATE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 impl Iso {
     fn retimed(&mut self, key: &str, data: Vec<u8>) -> Vec<u8> {
-        let Some(f) = RETIME.get().filter(|_| key.starts_with("TRAJ/")) else { return data };
+        let Some(f) = RETIME.get().filter(|_| key.starts_with("TRAJ/") && !own_rate()) else { return data };
         let regenerated = self.read_unlogged("SYSTEM.CNF").ok().and_then(|cnf| crate::exe::Release::of(&cnf).ok()).is_some_and(|r| r.regenerated_shots());
         if regenerated { f(self, key, data) } else { data }
     }

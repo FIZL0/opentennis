@@ -6,7 +6,6 @@
 use bevy::prelude::*;
 use hst_sim::camera::{Scene, View, swing, swing_weight};
 use hst_sim::cutaway::{IDENTITY, Shot};
-use hst_sim::flow::CHANGE_ENDS;
 
 use super::{Game, Phase};
 use crate::character::Motion;
@@ -30,7 +29,7 @@ pub(super) fn step(mut g: ResMut<Game>, mut s: ResMut<Swing>, d: Option<Res<supe
         s.last = Some(g.cam.view);
         return;
     };
-    if n == CHANGE_ENDS {
+    if n == hst_sim::flow::change_ends(g.build) {
         // the end view: the match camera cut to the new set-up (its cut is pending from the placement)
         let mut cam = g.cam;
         let players: Vec<[f32; 3]> = g.players.iter().map(|p| p.pos).collect();
@@ -96,7 +95,7 @@ pub(super) fn idle(g: &Game, i: usize) -> bool {
 /// motion command carries, so the next point's first command (the placement resets them) takes over as before.
 pub(super) fn hold_idle(g: &Game, m: &mut Motion) {
     let stand = hst_sim::motion::id::STAND as usize;
-    if m.id != stand && g.phase == Phase::ChangeEnds(CHANGE_ENDS) {
+    if m.id != stand && g.phase == Phase::ChangeEnds(hst_sim::flow::change_ends(g.build)) {
         // not looping: a cut, no crossfade
         m.set(stand, 1.0, false, None, m.serial);
     }

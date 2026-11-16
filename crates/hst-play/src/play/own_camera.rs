@@ -197,7 +197,7 @@ fn glide(g: &Game, owner: usize, d: Option<&super::cutaway::Director>) -> Option
     cam.step(&Scene { players: &players, ball: g.flight.ball.pos });
     let to = cam.view;
     let (from, pivot) = start(g, &to, d, to);
-    let prev = if n >= hst_sim::flow::CHANGE_ENDS { from } else { at(&from, &to, pivot, n + 1) };
+    let prev = if n >= hst_sim::flow::change_ends(g.build) { from } else { at(&from, &to, pivot, n + 1) };
     Some((prev, at(&from, &to, pivot, n)))
 }
 

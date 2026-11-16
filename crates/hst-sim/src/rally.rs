@@ -376,11 +376,11 @@ impl Body {
             moving::STANDING | moving::STOPPED => (0, self.stamina),
             moving::RUNNING => (
                 self.run + 1,
-                player::drain(&self.stats, self.stamina, self.tick, w.players, w.phase == phase::RALLY, w.floor).0,
+                player::drain_in(&self.stats, self.stamina, self.tick, w.players, w.phase == phase::RALLY, w.floor, self.build).0,
             ),
             _ => (self.run, self.stamina),
         };
-        player::run_speed(&self.stats, run, st, self.size)
+        player::run_speed_in(&self.stats, run, st, self.size, self.build)
     }
 
     /// The walk toward `out`: leaves the unit direction there (zero when there, or within ⅔ of a step unless
@@ -629,7 +629,7 @@ impl Rally {
                 continue;
             }
             let score = abs((F(y) - ideal).0);
-            let frames = runner.frames_to([sx, sz]);
+            let frames = runner.frames_to_in([sx, sz], b.build);
             if (at as i32 - self.first) < frames {
                 continue;
             }
@@ -1279,7 +1279,7 @@ impl Rally {
                     true
                 } else if f4 < 2.5 {
                     false
-                } else if t.wrapping_sub(m).wrapping_abs() < 30 {
+                } else if t.wrapping_sub(m).wrapping_abs() < b.build.frames(30) {
                     (F(f3) + 1.0).0 < f4
                 } else {
                     t < m
@@ -1365,7 +1365,7 @@ impl Rally {
                     s[0] = if (F(dz) * dz).madd(dl, dl).0 <= (F(dz) * dz).madd(dr, dr).0 { l } else { rr };
                     let score = abs((F(p[1]) - vh).0);
                     s[2] = (p[2] - F(b.depth) * b.side / 2.0).0;
-                    let frames = runner.frames_to([s[0], s[2]]);
+                    let frames = runner.frames_to_in([s[0], s[2]], b.build);
                     if at - self.first < frames {
                         break 'c;
                     }
@@ -1500,7 +1500,7 @@ impl Rally {
             }
             if self.ours {
                 self.tick += 1;
-                if self.tick >= 30 {
+                if self.tick > b.build.frames(29) {
                     self.tick = 0;
                     let at = [b.mate[0], b.mate[2]];
                     self.repick(b, w, if w.hitter == slot { Cue::Me(at) } else { Cue::Other(at) }, roll);
@@ -1871,7 +1871,7 @@ impl Rally {
                     }
                 } else {
                     self.back.wait += 1;
-                    if self.back.wait >= 60 {
+                    if self.back.wait >= b.build.frames(60) {
                         self.back.wait = 0;
                         self.back.going = chance(roll, self.rate);
                     }

@@ -20,7 +20,7 @@ use hst_sim::ball::{Ball, COURTS, Flight, Material, Shot, V3, rows4};
 use hst_sim::camera::{Camera, Scene, View};
 use hst_sim::court;
 use hst_sim::effect::{PathEntry, SmashSearch};
-use hst_sim::flow::{CHANGE_ENDS, Next, PostPoint, serve_placement};
+use hst_sim::flow::{Next, PostPoint, serve_placement};
 use hst_sim::judge::{BallState, Lines, Rally};
 use hst_sim::mesh::World;
 use hst_sim::motion;
@@ -115,6 +115,7 @@ mod phase_code;
 mod court_load;
 mod carts;
 mod serve_retime;
+mod fifty_hz;
 pub use hst_base::widescreen;
 
 /// The original's default exhibition: one set to 4 games, deuce on.
@@ -965,7 +966,7 @@ fn serve_data(row: &[String], data: &CharacterData) -> ServeData {
     let (strong_grades, strong_bias) = serve::timing(counts(30), counts(31), &stroke);
     let (weak_grades, weak_bias) = serve::timing(counts(32), counts(33), &stroke);
     let toss = |k: usize| {
-        serve::toss_setup(&data.skeleton, &data.motions[&k], &data.motions[&(k + 2)])
+        serve::toss_setup(&data.skeleton, &fifty_hz::file_rate(&data.motions[&k]), &data.motions[&(k + 2)])
     };
     let ((hand_over, racket_over), (hand_under, racket_under)) = (toss(motion::id::TOSS as usize), toss(motion::id::TOSS_UNDER as usize));
     ServeData {
@@ -1168,7 +1169,7 @@ fn disc(
         iso.read("ZZBIN/GAME.BIN").expect("GAME.BIN"),
     );
     let game = hst_data::exe::Game::new(&cnf, &bin).expect("supported disc");
-    let src = game.shot_params();
+    let src = game.shot_params_at(build_rules::of(iso).hz());
     let params = ShotParams::build(&src.base, &src.kinds, &src.weights, src.middle_mix);
     // umpire `umpire_n` (`Args::umpire`), voice set a, English; off a stage her chair and the collision world (net, posts,
     // fences) are court 10's
@@ -1329,6 +1330,8 @@ pub fn setup(
     let art = balloon_art(&mut iso, &mut images);
     let (mut game, shot_params) = new_game(&mut iso, &args, match_rng.as_deref());
     let n = game.players.len();
+    // M183: the characters' motions play at the build's rate (the European program's 50 Hz rescale)
+    let build = build_rules::of(&mut iso);
 
     let Ok(root) = root.single() else { return };
     // the characters on court, from the disc (each loaded once)
@@ -1343,7 +1346,13 @@ pub fn setup(
         let modded = match_mod.as_deref().and_then(|m| m.get(i));
         let c = modded.map_or(c, |m| m.donor);
         let mod_data = modded.map(|m| mod_match::load(&mut iso, m, outfit, &mut meshes, &mut materials, &mut images, &mut bindposes));
-        let data = mod_data.unwrap_or_else(|| disc_character(&mut loaded, &mut iso, c, outfit, &mut meshes, &mut materials, &mut images, &mut bindposes));
+        let mod_data = mod_data.map(|mut d| {
+            if let Some(d) = std::sync::Arc::get_mut(&mut d) {
+                fifty_hz::retime(d, build);
+            }
+            d
+        });
+        let data = mod_data.unwrap_or_else(|| disc_character(&mut loaded, &mut iso, c, outfit, build, &mut meshes, &mut materials, &mut images, &mut bindposes));
         load_player(&mut game, &mut iso, &shot_params, i, c, outfit, &data);
         // the a/b voice pick: 70/30 at random, players of one character kept apart (`rng::voice_bank`)
         let line_up: Vec<u32> = (0..n).map(|k| args.chars.get(k).copied().unwrap_or([6, 1, 2, 3][k]) as u32).collect();
@@ -1539,6 +1548,7 @@ fn disc_character(
     iso: &mut Iso,
     c: usize,
     outfit: usize,
+    build: hst_sim::build::Build,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     images: &mut Assets<Image>,
@@ -1547,9 +1557,9 @@ fn disc_character(
     if let Some(d) = loaded.get(&(c, outfit)) {
         return d.clone();
     }
-    let d = std::sync::Arc::new(
-        crate::preload::load_disc(iso, c, outfit, meshes, materials, images, bindposes).unwrap_or_else(|e| panic!("character {c}: {e}")),
-    );
+    let mut d = crate::preload::load_disc(iso, c, outfit, meshes, materials, images, bindposes).unwrap_or_else(|e| panic!("character {c}: {e}"));
+    fifty_hz::retime(&mut d, build);
+    let d = std::sync::Arc::new(d);
     loaded.insert((c, outfit), d.clone());
     d
 }
@@ -1777,7 +1787,7 @@ fn reset_positions(g: &mut Game) {
         );
         let end = at.facing;
         // stamina is full again every point
-        let body = loco::Body { handicap: g.players[i].body.handicap, ..loco::Body::new(at.pos, end, &stats) };
+        let body = loco::Body { handicap: g.players[i].body.handicap, build: g.build, ..loco::Body::new(at.pos, end, &stats) };
         // the AI keeps its row and whether its team has hit yet across points
         let ai = (g.players[i].ai, g.players[i].ai_hit);
         let mind = g.players[i].ai_mind;
@@ -2164,7 +2174,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             };
             let doubles = g.rules.players > 2;
             let p = &mut g.players[i];
-            let (x, m) = loco::serve_walk(pos[0], [walk.x, walk.y], end, g.score.side, doubles, p.hand);
+            let (x, m) = loco::serve_walk_in(pos[0], [walk.x, walk.y], end, g.score.side, doubles, p.hand, g.build);
             p.stride += (x - pos[0]).abs() * 9.0;
             p.pos[0] = x;
             set_motion(p, m, 1.0, true, None);
@@ -2179,7 +2189,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
     if !s.tossed {
         g.serving = s;
         // released TOSS_RELEASE ticks after the press tick (`s.t` counts it as 1), as the original
-        if s.t <= serve::TOSS_RELEASE {
+        if s.t as f32 <= g.build.toss_release() {
             hold_ball(g);
         } else {
             let (hand, apex) = serve::toss_points(&g.serve_data[i], toss, &player_matrix(&g.players[i]));
@@ -2187,7 +2197,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             g.flight = Flight::new(
                 Ball {
                     pos: hand,
-                    vel: serve::toss_velocity(hand, apex),
+                    vel: serve::toss_velocity_in(hand, apex, g.build.toss_gravity()),
                     spin: 0.1,
                 },
                 rows4([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
@@ -2201,7 +2211,7 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
             g.serving.tossed = true;
             toss_draws(g);
         }
-        g.players[i].serve_anim = Some(0.35 * (s.t as f32 / serve::TOSS_RELEASE as f32).min(1.0));
+        g.players[i].serve_anim = Some(0.35 * (s.t as f32 / g.build.toss_release()).min(1.0));
         return;
     }
     match s.swing {
@@ -2596,13 +2606,13 @@ fn approach(g: &Game, i: usize) -> Option<(usize, Vec2)> {
     let mate = (g.players.len() == 4).then(|| g.players[i ^ 2].pos);
     let (s, n, size) = (p.stats, g.players.len() as i32, p.body.size());
     let (mut run, mut stamina, mut tick) = (if p.body.running { p.body.run } else { 0 }, p.body.stamina, p.body.stamina_tick);
-    let (end, y) = (p.end, p.pos[1]);
+    let (end, y, build) = (p.end, p.pos[1], g.build);
     swing::approach(r, &path, p.pos, p.end, |at, d| {
-        let speed = loco::run_speed(&s, run, stamina, size);
+        let speed = loco::run_speed_in(&s, run, stamina, size, build);
         let delta = [hst_sim::ps2::mul(d[0], speed), 0.0, hst_sim::ps2::mul(d[1], speed)];
         let to = loco::mover([at[0], y, at[1]], delta, end, mate, false);
         run += 1;
-        (stamina, tick) = loco::drain(&s, stamina, tick, n, true, 0);
+        (stamina, tick) = loco::drain_in(&s, stamina, tick, n, true, 0, build);
         let free = to[0] == hst_sim::ps2::add(at[0], delta[0]) && to[2] == hst_sim::ps2::add(at[1], delta[2]);
         free.then_some([to[0], to[2]])
     })
@@ -2912,7 +2922,7 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
                 c.grade
             );
             let rally = g.phase == Phase::Rally && g.players.len() > 1;
-            let v = g.flight.ball.vel;
+            let (v, build) = (g.flight.ball.vel, g.build);
             let p = &mut g.players[i];
             let branch = branch_code(c.swing.branch);
             if rally {
@@ -2921,12 +2931,13 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
             }
             // a slow ball off a ground stroke: the soft follow-through from next frame (`forehand` is already
             // mirrored for left-handers)
-            p.follow = motion::soft_follow(
+            p.follow = motion::soft_follow_in(
                 branch,
                 c.swing.anim as i32,
                 v,
                 if c.swing.forehand { 1 } else { 2 },
                 1.0,
+                build,
             );
             p.contact = None;
             p.swung = true;
@@ -3472,9 +3483,10 @@ fn ai_wait(g: &mut Game, i: usize) -> Option<V3> {
         pl.ai_shot = g.shots;
     }
     let ours = g.last_hitter >= 0 && g.last_hitter & 1 == i as i32 & 1;
+    let build = g.build;
     let hit = std::mem::replace(&mut pl.ai_shot, g.shots) != g.shots;
     pl.ai_tick = if hit { 0 } else { pl.ai_tick + 1 };
-    if ours && (hit || pl.ai_tick >= 30) {
+    if ours && (hit || pl.ai_tick as i32 > build.frames(29)) {
         pl.ai_tick = 0;
         let cue = if g.last_hitter == i as i32 { Cue::Me(at(&m)) } else { Cue::Other(at(&g.players[g.last_hitter as usize])) };
         let ball_z = g.flight.ball.pos[2];
@@ -3553,10 +3565,11 @@ fn ai_wait_singles(g: &mut Game, i: usize) -> Option<V3> {
 fn bot_serve(g: &mut Game, i: usize) {
     if g.serving.bot_due.is_none() {
         let (end, ad, doubles) = (g.players[i].end, g.score.side == hst_sim::score::AD_COURT, g.players.len() == 4);
+        let build = g.build;
         let mut roll = ai_roll(&mut g.rng);
         let level0 = g.players[i].ai_picks.serve_level == 0;
         let spot = hst_sim::ai::serve_spot(level0, doubles, end, ad, &mut roll);
-        let wait = hst_sim::ai::serve_wait(&mut roll);
+        let wait = hst_sim::ai::serve_wait_in(&mut roll, build);
         drop(roll);
         g.players[i].ai_serve = (spot, wait);
         g.players[i].ai_serve_swing = None;
@@ -3571,7 +3584,7 @@ fn bot_serve(g: &mut Game, i: usize) {
     let press = if s.toss.is_none() {
         let (spot, wait) = g.players[i].ai_serve;
         let d = spot - g.players[i].pos[0];
-        if d.abs() >= serve::WALK {
+        if d.abs() >= g.build.serve_walk() {
             stick.x = d.signum();
             None
         } else if wait > 0 {
@@ -3843,7 +3856,7 @@ fn simulate(mut g: ResMut<Game>) {
                     // the change-ends tune, cued as the phase is entered
                     g.jingle = Some(0);
                     change_ends_placement(g);
-                    return g.phase = Phase::ChangeEnds(CHANGE_ENDS);
+                    return g.phase = Phase::ChangeEnds(hst_sim::flow::change_ends(g.build));
                 }
                 Some(Next::MatchOver) => {
                     // ponytail: the match-over phase isn't played: the next match starts once her match call is over
@@ -3918,7 +3931,7 @@ fn simulate(mut g: ResMut<Game>) {
             format!("{why} - serve again")
         };
         info!("no point: {why} after {} frames", g.since_hit);
-        g.post = Some(PostPoint::called(None, verdict.call, &g.board));
+        g.post = Some(PostPoint::called(None, verdict.call, &g.board).in_build(g.build));
         g.phase = Phase::Post;
         return;
     };
@@ -3975,7 +3988,8 @@ fn simulate(mut g: ResMut<Game>) {
         Some(event.expect("match in progress")),
         verdict.call,
         &g.board,
-    );
+    )
+    .in_build(g.build);
     post.before = Some(before);
     g.post = Some(post);
     g.phase = Phase::Post;
@@ -4268,7 +4282,7 @@ fn motions(mut g: ResMut<Game>, mut q: Query<(&Figure, &mut Motion)>) {
             let stance = if (motion::id::SERVE_STANCE as usize..=motion::id::SERVE_RIGHT as usize).contains(&p.cmd.id) { p.cmd.id } else { motion::id::SERVE_STANCE as usize };
             // the change of ends' first tick: the server jumps to the new end, so the stance cuts in instead of
             // crossfading from the last point's pose (a dive drawn lying at the new end), as the idle players do
-            if g.phase == Phase::ChangeEnds(CHANGE_ENDS) && s.toss.is_none() {
+            if g.phase == Phase::ChangeEnds(hst_sim::flow::change_ends(g.build)) && s.toss.is_none() {
                 let serial = m.serial;
                 m.set(stance, 1.0, false, None, serial);
             }
@@ -4565,7 +4579,7 @@ fn play_sounds(
             played.umpire = sound.play_centre(&b, p);
         }
         g.umpire_voice = (played.umpire != 0) as u64;
-        heard.voice_left = sound.centre_frames(&b, p) + hst_sim::umpire::VOICE_LAG;
+        heard.voice_left = fifty_hz::voice_ticks(sound.centre_frames(&b, p), g.build) + hst_sim::umpire::VOICE_LAG;
     }
     // timed in ticks, not by the audio thread, so the post-point timeline is the same on every machine (netplay)
     if g.umpire_voice != 0 {

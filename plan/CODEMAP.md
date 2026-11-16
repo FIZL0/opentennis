@@ -97,7 +97,8 @@ the front-end into its `play` module (`mod play { pub use hst_play::play::*; pub
 - `lib.rs` · `play.rs` the match: setup, input, strike/serve/locomote/advance_stroke, bot, simulate, react/next_point,
   camera, draw, motions, balloons, hud · `play/` match parts, netplay (+ `OnlineNotice`, `CHOICES`)/rollback/snapshot,
   `word_label.rs` word.tm2 labels (`FONT`), `legend.rs` the key legend's types and drawing, `front_end.rs` the hooks
-  above · `mode.rs` mode switches/teardown · `preload.rs` · `stage.rs` court models/layout/sky (from main.rs)
+  above · `play/fifty_hz.rs` the European disc at 50 Hz: motions/paths retimed to `Build::motion_rate`, umpire
+  voice ticks, the 50 Hz bot-match test (`EU_DISC` lock for European-disc tests) · `mode.rs` mode switches/teardown · `preload.rs` · `stage.rs` court models/layout/sky (from main.rs)
 
 
 ## hst

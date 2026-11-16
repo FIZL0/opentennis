@@ -439,6 +439,16 @@ impl Path {
         Some(Path { ticks_per_frame: anim.ticks_per_frame as f32, keys: Keys::position(&t.position) })
     }
 
+    /// The same path played at `ticks_per_frame` (its keys keep their ticks: `crate::build::Build::motion_rate`).
+    pub fn at_rate(&self, ticks_per_frame: f32) -> Path {
+        Path { ticks_per_frame, keys: self.keys.clone() }
+    }
+
+    /// The ticks per frame it plays at.
+    pub fn ticks_per_frame(&self) -> f32 {
+        self.ticks_per_frame
+    }
+
     /// The path point at `t` frames.
     pub fn at(&self, t: f32) -> [f32; 4] {
         if self.keys.tick.is_empty() {

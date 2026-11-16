@@ -589,7 +589,7 @@ fn tick_calls(mut g: ResMut<Game>, calls: Option<ResMut<Calls>>) {
         return;
     }
     let (model, start, alpha) =match (&g.phase, g.post.as_ref().and_then(|p| p.call().map(|c| (c, p.tick == 0)))) {
-        (Phase::ChangeEnds(n), _) => (Some(CHANGE_SIDES), *n == hst_sim::flow::CHANGE_ENDS, 1.0),
+        (Phase::ChangeEnds(n), _) => (Some(CHANGE_SIDES), *n == hst_sim::flow::change_ends(g.build), 1.0),
         (_, Some((c, fresh))) => (Some(CALL_MODEL[c.call as usize]), fresh, c.alpha),
         _ => (None, false, 1.0),
     };

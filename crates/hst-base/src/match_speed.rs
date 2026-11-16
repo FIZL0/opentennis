@@ -69,6 +69,27 @@ pub fn current() -> u32 {
 /// A match's flags were read: it runs at `hz` (`--match-hz`; 60 without one).
 pub fn set_current(hz: u32) {
     MATCH.store(valid(hz), Relaxed);
+    hst_data::iso::set_own_rate(sim_hz() == 50);
+}
+
+/// M183: the rate the sim's timing plays a test at before [`FIFTY_HZ_SIM`] is on (0: none, [`sim_hz`]).
+static SIM_TEST: AtomicU32 = AtomicU32::new(0);
+
+/// The tick rate whose timing the sim plays the match by (`hst_sim::build::Build::Europe` at 50 on the European
+/// disc): the match's own rate once [`FIFTY_HZ_SIM`] is on, 60 until then (but under [`test_sim_hz`]). At 50 the
+/// disc's data is read at its own rate too (`hst_data::iso::set_own_rate`: the European disc's raw tables, no lending).
+pub fn sim_hz() -> u32 {
+    match SIM_TEST.load(Relaxed) {
+        0 if FIFTY_HZ_SIM => current(),
+        0 => 60,
+        hz => hz,
+    }
+}
+
+/// Tests: the next matches play the sim's timing at `hz` (and run their clock at it), `FIFTY_HZ_SIM` or not; 0 ends it.
+pub fn test_sim_hz(hz: u32) {
+    SIM_TEST.store(if hz == 0 { 0 } else { valid(hz) }, Relaxed);
+    set_current(if hz == 0 { 60 } else { hz });
 }
 
 /// The flags that start a match at `hz` (none at the default 60).

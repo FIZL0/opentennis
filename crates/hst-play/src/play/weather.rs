@@ -77,7 +77,7 @@ fn fade(g: Res<Game>, w: Option<Res<Weather>>, f: Option<ResMut<crate::weather::
     let (Some(w), Some(mut f)) = (w, f) else { return };
     let game = g.score.games_played as usize;
     let mix = match g.phase {
-        Phase::ChangeEnds(n) => Some((Weather { game, ..w.clone() }.today().weather, weight(n))),
+        Phase::ChangeEnds(n) => Some((Weather { game, ..w.clone() }.today().weather, weight(n * CHANGE_ENDS / hst_sim::flow::change_ends(g.build)))),
         // the change of ends is over but its point hasn't been set up yet
         _ if w.game != game => f.0.map(|(to, _)| (to, 1.0)),
         _ => None,

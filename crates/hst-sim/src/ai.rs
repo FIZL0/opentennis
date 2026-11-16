@@ -110,6 +110,10 @@ pub struct AiParams {
     pub serve_kind: [i32; 3],
     /// Guessing (ヤマ張り): chance %, move frames, stuck frames when wrong.
     pub guess: [i32; 3],
+    /// The game build whose timing the AI plays by (not in the table: the match sets it): its km/h test and run
+    /// estimate at 50 Hz (`crate::build::Build`; the US one by default).
+    #[serde(default)]
+    pub build: crate::build::Build,
 }
 
 /// The game's `atoi`: optional sign after spaces, digits, stops at anything else.
@@ -218,6 +222,7 @@ impl AiParams {
             kind_lock: split(c),
             serve_kind: split(c),
             guess: split(c),
+            build: crate::build::Build::Us,
         })
     }
 
@@ -421,7 +426,7 @@ impl AiParams {
             if !first
                 && chance(roll, self.react_speed[2])
                 && (s.last.kind != SERVE || receiver)
-                && 3600.0 * (60.0 * F(speed(s.last.vel))) / 1000.0 > self.react_speed[0] as f32
+                && 3600.0 * (F(self.build.hz() as f32) * speed(s.last.vel)) / 1000.0 > self.react_speed[0] as f32
             {
                 t.fast_ball = self.react_speed[1];
                 t.reacted = true;
@@ -836,6 +841,13 @@ impl Runner {
     /// Frames the AI's run to `to` (x, z) takes, as the game estimates it: speeding up frame by frame until full
     /// speed, draining stamina every 60 frames on the way. 9999 for a spot off its half of the court.
     pub fn frames_to(&self, to: [f32; 2]) -> i32 {
+        self.frames_to_in(to, crate::build::Build::Us)
+    }
+
+    /// `frames_to` under `build`: its run speed (`crate::build::Build::run`) and its stamina second of
+    /// `Build::frames(60)` frames.
+    pub fn frames_to_in(&self, to: [f32; 2], build: crate::build::Build) -> i32 {
+        let stamina_frames = build.frames(STAMINA_FRAMES);
         let sign = |v: f32| if v < 0.0 { -1 } else { 1 };
         let [x, z] = to;
         if sign(self.side) == sign(z) || !(abs(x) <= RUN_WIDTH) || abs(z) < NET_GAP || !(abs(z) <= RUN_DEPTH) {
@@ -847,8 +859,8 @@ impl Runner {
             return 0; // ponytail: the game runs on with its speed register unset; standing on the spot is rare
         }
         let s = &self.stats;
-        let drain = |st, tick| crate::player::drain(s, st, tick, self.players, self.rally, self.floor);
-        let speed = |st, run| crate::player::run_speed(s, run, st, self.size);
+        let drain = |st, tick| crate::player::drain_in(s, st, tick, self.players, self.rally, self.floor, build);
+        let speed = |st, run| crate::player::run_speed_in(s, run, st, self.size, build);
         let fit = |dist: F, v: f32| {
             let q = (dist / v).0;
             let k = q as i32;
@@ -875,16 +887,16 @@ impl Runner {
         }
         if st >= TIRED {
             // the frames left before it tires, in one go
-            let n = (STAMINA_FRAMES - 1 - tick) + (st - TIRED) * STAMINA_FRAMES;
+            let n = (stamina_frames - 1 - tick) + (st - TIRED) * stamina_frames;
             let fresh = F(v) * n as f32;
             if dist <= fresh {
                 return frames + fit(dist, v);
             }
             dist -= fresh;
-            (frames, tick, st) = (frames + n, STAMINA_FRAMES - 1, TIRED);
+            (frames, tick, st) = (frames + n, stamina_frames - 1, TIRED);
         }
         while !(dist <= 0.0) {
-            let drained = tick + 1 >= STAMINA_FRAMES;
+            let drained = tick + 1 >= stamina_frames;
             (st, tick) = drain(st, tick);
             if drained {
                 v = speed(st, run);
@@ -1061,7 +1073,7 @@ impl Searcher<'_> {
                     if best[k].is_some_and(|(_, s, _)| !better(sc, s)) {
                         continue;
                     }
-                    let frames = rn.frames_to([sx, sz]);
+                    let frames = rn.frames_to_in([sx, sz], self.row.build);
                     if at as i32 - (self.first as i32) < frames {
                         continue;
                     }

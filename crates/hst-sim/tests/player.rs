@@ -354,6 +354,7 @@ fn human_pad_replay() {
                 target: p_v4(a, 0, 0x3dc0),
                 face: Facing { dir: p_v4(a, 0, 0x3d60), turned: p_u8(a, 0, 0x3dd1) != 0, reversed: p_u8(a, 0, 0x3dd0) != 0, way: p_i32(a, 0, 0x3dd4), cross: p_v4(a, 0, 0x3de0) },
                 handicap: 0,
+                ..Body::default()
             });
             // player 0 updates first: the hitter of this frame (a later player) hasn't changed the ball yet
             let (old, new) = (a.global(0x423058), fr.global(0x423058));

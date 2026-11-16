@@ -13,8 +13,7 @@ use hst_sim::build::Build;
 /// The build of the disc's release (US for anything that isn't the Japanese release).
 pub(super) fn of(iso: &mut Iso) -> Build {
     let release = iso.read("SYSTEM.CNF").ok().and_then(|cnf| Release::of(&cnf).ok());
-    let hz = if hst_base::match_speed::FIFTY_HZ_SIM { hst_base::match_speed::current() } else { 60 };
-    build_at(release, hz)
+    build_at(release, hst_base::match_speed::sim_hz())
 }
 
 /// The build of `release` for a match at `hz`: the European program only at 50 Hz on the European disc.
@@ -38,6 +37,13 @@ pub(super) fn apply(g: &mut Game, build: Build) {
         }
     }
     g.finish.no_counter = !build.counter();
+    // M183: the timing the sim plays by (the European program's 50 Hz one): every relaunch keeps the flight's build
+    g.flight.build = build;
+    g.hit_flight.build = build;
+    for p in &mut g.players {
+        p.body.build = build;
+        p.ai.build = build;
+    }
 }
 
 #[cfg(test)]
@@ -130,6 +136,7 @@ mod europe {
             // not the user's disc: skipped even under HST_REQUIRE_DISC
             return eprintln!("skipped: no fixtures/discs/SCES-54535.iso");
         }
+        let _turn = super::super::fifty_hz::EU_DISC.lock().unwrap_or_else(|e| e.into_inner());
         crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()));
@@ -187,6 +194,7 @@ mod europe_lent {
             // not the user's disc: skipped even under HST_REQUIRE_DISC
             return eprintln!("skipped: no fixtures/discs/SCES-54535.iso");
         }
+        let _turn = super::super::fifty_hz::EU_DISC.lock().unwrap_or_else(|e| e.into_inner());
         if !hst_data::fixture::has_iso() {
             return;
         }

@@ -299,8 +299,13 @@ pub fn run_velocity(dir: [f32; 3], speed: f32) -> [f32; 3] {
 /// The stamina drain while running: every `STAMINA_FRAMES` frames one point, during the rally of a
 /// game with more than one player; clamped to [`floor`, the character's stamina]. Returns (stamina, counter).
 pub fn drain(s: &Stats, stamina: i32, counter: i32, players: i32, rally: bool, floor: i32) -> (i32, i32) {
+    drain_in(s, stamina, counter, players, rally, floor, crate::build::Build::Us)
+}
+
+/// `drain` under `build`: a stamina point every `Build::frames(STAMINA_FRAMES)` frames (50 at 50 Hz).
+pub fn drain_in(s: &Stats, stamina: i32, counter: i32, players: i32, rally: bool, floor: i32, build: crate::build::Build) -> (i32, i32) {
     let c = counter + 1;
-    if c < STAMINA_FRAMES {
+    if c < build.frames(STAMINA_FRAMES) {
         return (stamina, c);
     }
     if players < 2 || !rally {
@@ -777,6 +782,9 @@ pub struct Body {
     /// The match's handicap for this player (0 none, 1 or 2 weights, [`handicap_size`]), fixed for the match.
     #[serde(default)]
     pub handicap: u8,
+    /// The game build whose timing the body runs by: its run speed and stamina second (`crate::build::Build`).
+    #[serde(default)]
+    pub build: crate::build::Build,
 }
 
 /// The run-speed size percentage a handicap gives (`run_speed`'s `size`): none 100, one weight 80, two 70;
@@ -809,7 +817,7 @@ impl Body {
         let len = (iz * iz).madd(ix, ix).sqrt();
         if self.running {
             self.run += 1;
-            (self.stamina, self.stamina_tick) = drain(s, self.stamina, self.stamina_tick, sc.players, sc.phase == phase::RALLY, 0);
+            (self.stamina, self.stamina_tick) = drain_in(s, self.stamina, self.stamina_tick, sc.players, sc.phase == phase::RALLY, 0, self.build);
         }
         if 0.0 < len {
             if !self.running {
@@ -850,11 +858,11 @@ impl Body {
         let inv = 1.0 / len;
         let dir = f32s([x * inv, z * inv]);
         let (run, stamina) = if self.running {
-            (self.run + 1, drain(s, self.stamina, self.stamina_tick, players, phase == phase::RALLY, 0).0)
+            (self.run + 1, drain_in(s, self.stamina, self.stamina_tick, players, phase == phase::RALLY, 0, self.build).0)
         } else {
             (0, self.stamina)
         };
-        let step = run_speed(s, run, stamina, self.size());
+        let step = run_speed_in(s, run, stamina, self.size(), self.build);
         if !keep && len <= f(2.0) * step / 3.0 {
             return ([0.0, 0.0], true);
         }
@@ -899,7 +907,7 @@ impl Body {
         } else {
             dir
         };
-        self.vel = run_velocity([dir[0], dir[1], dir[2]], run_speed(s, self.run, self.stamina, self.size()));
+        self.vel = run_velocity([dir[0], dir[1], dir[2]], run_speed_in(s, self.run, self.stamina, self.size(), self.build));
         self.pos = mover(self.pos, self.vel, sc.forward, sc.mate, sc.short);
         let t = [self.target[0], self.target[1], self.target[2]];
         if !self.face.turned && !(angle(t, sc.forward, sc.hand).abs() < THREE_QUARTERS) && current == id::TURN_BACK {
