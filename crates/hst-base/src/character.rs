@@ -2235,12 +2235,20 @@ pub fn uv_offsets(
         }
         let offset = crate::inspect::part_uv(d, m.face, m.uv_clock.sampled);
         for (mesh, mat) in parts.iter_many(children.iter_descendants(root)) {
-            let o = d.parts.iter().position(|p| p.0.id() == crate::cpu_morph::shared(mesh.0.id())).map_or(Vec2::ZERO, |k| offset[k]);
+            let o = part_of(d, mesh.0.id()).map_or(Vec2::ZERO, |k| offset[k]);
             if gs.get(&mat.0).is_some_and(|g| g.uniform.uv_offset != o) {
                 gs.get_mut(&mat.0).unwrap().uniform.uv_offset = o;
             }
         }
     }
+}
+
+/// The index in `d.parts` of the part a drawn mesh shows: the part itself, else the shared face a rig's CPU-morphed
+/// copy was made from. P138: only meshes that aren't parts ask the morph registry (a lock and a hash every part,
+/// every frame, was most of `uv_offsets`' time with mod characters).
+fn part_of(d: &CharacterData, mesh: AssetId<Mesh>) -> Option<usize> {
+    let find = |id: AssetId<Mesh>| d.parts.iter().position(|p| p.0.id() == id);
+    find(mesh).or_else(|| Some(crate::cpu_morph::shared(mesh)).filter(|&s| s != mesh).and_then(find))
 }
 
 /// Advance every motion by one game frame, as the game's motion player.
