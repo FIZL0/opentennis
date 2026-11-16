@@ -194,8 +194,12 @@ fn pace(g: Option<Res<Game>>, mut virt: ResMut<Time<Virtual>>) {
         return;
     }
     let s = speed(&g);
-    if virt.relative_speed() != s {
+    let was = virt.relative_speed_f64();
+    if was as f32 != s {
         virt.set_relative_speed(s);
+        // the frame's cap stays the same real time (Bevy 0.20 caps the scaled delta: `replay_pace::clamp_real`)
+        let cap = virt.max_delta().mul_f64(s as f64 / was);
+        virt.set_max_delta(cap);
     }
 }
 
