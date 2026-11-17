@@ -125,34 +125,51 @@ pub fn plugin(app: &mut App) {
     app.add_systems(Update, (attach, draw.after(crate::character::animate))).add_systems(FixedUpdate, step.after(crate::character::tick));
 }
 
-/// A new rig with a costume deformer swaps its swaying parts for copies of its own.
-pub fn attach(mut commands: Commands, g: Option<Res<crate::graphics::Graphics>>, rigs: Query<(Entity, &Rig, &Children), Added<Rig>>, mut parts: Query<&mut Mesh3d>, mut meshes: ResMut<Assets<Mesh>>) {
-    // M157: Court Life off sways nothing
-    if g.is_some_and(|g| !g.scenery) {
-        return;
-    }
-    for (root, rig, children) in &rigs {
+/// A new rig with a costume deformer swaps its swaying parts for copies of its own. Court Life (M157) off sways
+/// nothing: switched off, each rig gets its shared parts back; switched on, each rig gets its copies, mid-match too.
+pub fn attach(mut commands: Commands, g: Option<Res<crate::graphics::Graphics>>, rigs: Query<(Entity, Ref<Rig>, Option<&Sway>)>, kids: Query<&Children>, mut parts: Query<&mut Mesh3d>, mut meshes: ResMut<Assets<Mesh>>) {
+    let on = g.as_ref().is_none_or(|g| g.scenery);
+    let toggled = g.as_ref().is_some_and(|g| g.is_changed());
+    for (root, rig, sway) in &rigs {
+        if !toggled && !rig.is_added() {
+            continue;
+        }
         let Some(c) = &rig.data.noise else { continue };
-        let mut own = Vec::new();
-        for (part, _) in &c.parts {
-            let shared = rig.data.parts[*part].0.clone();
-            let Some(copy) = meshes.get(&shared).cloned() else { continue };
-            let patched = Patched::new(&copy);
-            let copy = meshes.add(copy);
-            let patched = patched.map(|p| p.of(copy.id()));
-            for &child in children {
-                if let Ok(mut m) = parts.get_mut(child)
-                    && m.0 == shared
+        // every draw of the part under the rig (a second GS draw is a sibling with the same mesh, `shade`)
+        let mut swap = |from: &Handle<Mesh>, to: &Handle<Mesh>| {
+            for e in kids.iter_descendants(root) {
+                if let Ok(mut m) = parts.get_mut(e)
+                    && m.0 == *from
                 {
-                    m.0 = copy.clone();
+                    m.0 = to.clone();
                 }
             }
-            own.push((copy, patched));
+        };
+        match (on, sway) {
+            (false, Some(s)) => {
+                for ((part, _), (copy, _)) in c.parts.iter().zip(&s.meshes) {
+                    swap(copy, &rig.data.parts[*part].0);
+                }
+                commands.entity(root).try_remove::<Sway>();
+            }
+            (true, None) => {
+                let mut own = Vec::new();
+                for (part, _) in &c.parts {
+                    let shared = rig.data.parts[*part].0.clone();
+                    let Some(copy) = meshes.get(&shared).cloned() else { continue };
+                    let patched = Patched::new(&copy);
+                    let copy = meshes.add(copy);
+                    let patched = patched.map(|p| p.of(copy.id()));
+                    swap(&shared, &copy);
+                    own.push((copy, patched));
+                }
+                let noise = c.deformers.iter().map(|d| Noise::new(d.period)).collect();
+                // the select may have despawned a preview rig in the same frame (B84)
+                let (slots, distinct) = distinct(c);
+                commands.entity(root).try_insert(Sway { noise, meshes: own, sets: None, slots, distinct, offsets: Vec::new(), offsets_at: Vec::new(), stale: true });
+            }
+            _ => {}
         }
-        let noise = c.deformers.iter().map(|d| Noise::new(d.period)).collect();
-        // the select may have despawned a preview rig in the same frame (B84)
-        let (slots, distinct) = distinct(c);
-        commands.entity(root).try_insert(Sway { noise, meshes: own, sets: None, slots, distinct, offsets: Vec::new(), offsets_at: Vec::new(), stale: true });
     }
 }
 
@@ -246,5 +263,39 @@ pub fn draw(mut rigs: Query<(&Rig, Ref<Motion>, &mut Sway)>, joints: Query<&Tran
             changed.sort_unstable();
             vertex_patch::send(patched, &changed, &mut queued);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graphics::Graphics;
+    use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
+
+    /// Court Life switched mid-match: off gives a swaying rig its shared parts back, on gives it its own copies again.
+    #[test]
+    fn court_life_switches_the_sway_live() {
+        let Ok(mut iso) = hst_data::fixture::iso() else { return };
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>().insert_resource(Graphics::DEFAULT).add_systems(Update, attach);
+        let (mut t, mut i, mut b) = (Assets::<StandardMaterial>::default(), Assets::<Image>::default(), Assets::<SkinnedMeshInverseBindposes>::default());
+        let data = (0..10).find_map(|n| {
+            let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
+            crate::character::load_disc_with(&mut iso, n, 0, &mut *meshes, &mut t, &mut i, &mut b, Some(&[])).ok().filter(|c| c.noise.is_some())
+        });
+        let Some(data) = data.map(Arc::new) else { return eprintln!("no swaying costume, skipped") };
+        let swaying = data.noise.as_ref().unwrap().parts.len();
+        let root = app.world_mut().spawn(Rig { data: data.clone(), joints: Vec::new() }).id();
+        let parts: Vec<Entity> = data.parts.iter().map(|(m, ..)| app.world_mut().spawn((Mesh3d(m.clone()), ChildOf(root))).id()).collect();
+        // the parts drawn with a mesh of the rig's own
+        let own = |app: &App| parts.iter().filter(|&&e| !data.parts.iter().any(|p| p.0 == app.world().get::<Mesh3d>(e).unwrap().0)).count();
+        let mut check = |on: bool| {
+            app.world_mut().resource_mut::<Graphics>().scenery = on;
+            app.update();
+            assert_eq!((app.world().get::<Sway>(root).is_some(), own(&app)), (on, if on { swaying } else { 0 }), "Court Life {on}");
+        };
+        check(true);
+        check(false);
+        check(true);
     }
 }

@@ -231,7 +231,7 @@ fn about(o: Opt) -> &'static str {
         Downloads if locked(o) => "Upscaled textures aren't available in the browser.",
         Upscaled if cfg!(target_arch = "wasm32") => "Draw the installed texture packs' textures in place of the disc's (from the next match).",
         Upscaled => "Draw the installed texture packs' textures and the ones in mods/texture-replacements in place of the disc's (from the next match), and mods' upscaled textures.",
-        CourtLife => "Draw the crowd, the other figures around the court, the small props and the costumes' sway. Off runs faster on a weak device; the match plays the same. The sway comes back from the next match.",
+        CourtLife => "Draw the crowd, the other figures around the court, the small props and the costumes' sway. Off runs faster on a weak device; the match plays the same.",
         Cull => "Don't draw players, figures and effects that are out of view (or their shadows out of the light's). Looks the same; turn it off if it makes this device slower.",
         Volume(0) => "The volume of everything.",
         Volume(1) => "The menu and match music and the jingles.",

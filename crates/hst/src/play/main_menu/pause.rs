@@ -288,7 +288,7 @@ pub(in crate::play) fn cursor_point(window: &Query<&Window, With<PrimaryWindow>>
 }
 
 /// Back on the Settings screen leaves for the main menu's first screen: here, the pause menu. And the settings the
-/// match can take live: widescreen and the court's music (the graphics and controls `super::step` sets already).
+/// match can take live: widescreen, the button icons and the court's music (the graphics and controls `super::step` sets already).
 fn after(
     mut ps: ResMut<PauseSettings>,
     menu: Res<Menu>,
@@ -316,10 +316,13 @@ fn after(
         return;
     }
     let match_music = menu.settings.music;
-    widescreen::ASPECT.store(menu.settings.aspect, std::sync::atomic::Ordering::Relaxed);
+    // the original mode's picture is 4:3 whatever the Aspect Ratio (as a match started in it, `main.rs`), switched mid-match too
+    let aspect = if menu.settings.graphics.original { 1 } else { menu.settings.aspect };
+    widescreen::ASPECT.store(aspect, std::sync::atomic::Ordering::Relaxed);
     widescreen::MARGIN.store(menu.settings.safe_area, std::sync::atomic::Ordering::Relaxed);
     super::super::key_hints::ON.store(menu.settings.key_hints, std::sync::atomic::Ordering::Relaxed);
     super::super::split_view::STACKED.store(menu.settings.split_stacked, std::sync::atomic::Ordering::Relaxed);
+    super::legend::LAYOUT.store(menu.settings.button_icons, std::sync::atomic::Ordering::Relaxed);
     if match_music != args.music
         && let (Some(game), Some(sound), Some(mut music)) = (game, sound, music)
     {
