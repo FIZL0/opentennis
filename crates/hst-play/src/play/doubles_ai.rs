@@ -308,6 +308,7 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
         g.whooshes.push((0, i, hst_sim::sound::call_out(i, bit)));
     }
     let x_kind = x.kind;
+    let held_out = holds_out_stick(x, mind.phase, received, b.swing);
     let (net, net_rate, net_left, aim) = (x.mind.net, x.mind.net_rate, x.mind.net_left, x.stick);
     (me.lost, me.lost_log) = (b.lost, b.lost_log);
     g.doubles_ai.records = w.records;
@@ -333,8 +334,20 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
         g.players[i].ai_press = Some((Vec2::new(aim[0], aim[2]), button as u8));
         press(g, i, button_kind(button as u8));
     }
+    if held_out && let Some((stick, _)) = g.players[i].ai_press.as_mut() {
+        *stick = Vec2::new(aim[0], aim[2]);
+    }
     advance_stroke(g, i, |g| ai_contact_stick(g, i));
     true
+}
+
+/// Whether the routine held its own stick out this frame: every routine does in its swing state one frame before
+/// the contact, and that is the stick the contact aims with (`ai_contact_stick`), not the one it pressed with. The
+/// receive's guess-walk push (×1.5 or ×2, cut to unit length) lands there: the pushed returns of a slowed slot-5
+/// match land where the pushed stick aims, metres from the pressed one (M189's journal).
+fn holds_out_stick(x: &Rally, phase: Ai, received: bool, swing: i32) -> bool {
+    let state = if phase == Ai::Receive && !received { x.state } else { x.sub };
+    swing == 1 && state == step::SWING
 }
 
 /// Computer player `i`'s AI state this frame, where `step` doesn't run (the point's start, its serve): the

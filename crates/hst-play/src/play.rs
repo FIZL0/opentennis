@@ -3759,7 +3759,8 @@ fn button_kind(b: u8) -> i32 {
     }
 }
 
-/// The stick a computer player holds at its contact: the one aimed at its press (a fresh aim if it has none),
+/// The stick a computer player holds at its contact: the one aimed at its press, as its routine held it out the frame
+/// before (`doubles_ai::holds_out_stick`: the receive's push lands there; a fresh aim if it has none),
 /// bent by the singles kind lock off a flat or drop shot the button didn't ask for. The aim reads it as the pad
 /// state the AI wrote, in steps of 1/127 (`ai_stick`), as the serve's: both bot matches' returns land as recorded
 /// only with it.

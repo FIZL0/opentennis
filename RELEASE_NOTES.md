@@ -26,3 +26,4 @@
 - Players no longer slide too far sideways as they step into a ground stroke or volley: the step toward the ball is now as small as in the original, so rallies play out as they did there
 - Computer players' returns and rally shots now aim exactly where the original's do (they landed a few millimetres off)
 - Doubles: computer players now start every point from the court position the original gives them, so after the first shot they cover the same side and move back as in the original game
+- A computer player that guessed where the serve was going and ran for it now aims its return as far as the original game does, instead of falling short of the line it picked
