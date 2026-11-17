@@ -340,6 +340,11 @@ mod tests {
 
     /// The European bot match (doubles, characters 0/1/1/0, court 6, 1 set of 4 games; M177's recording) in play.
     fn european(n: Option<usize>, toss_ai: usize) -> Option<(Vec<Tick>, Vec<Tick>)> {
+        european_rngs(n, toss_ai, 0).map(|(w, g, _)| (w, g))
+    }
+
+    /// [`european`] with the match's generators after each of the first `keep` ticks.
+    fn european_rngs(n: Option<usize>, toss_ai: usize, keep: usize) -> Option<(Vec<Tick>, Vec<Tick>, Vec<hst_sim::rng::Rngs>)> {
         let iso = hst_data::fixture::path(EU);
         let Ok(data) = std::fs::read(hst_data::fixture::path("fixtures/m169/eu-bot-match.bin")) else {
             eprintln!("skipped: no eu-bot-match.bin");
@@ -355,8 +360,8 @@ mod tests {
         let args = Args { iso: iso.to_string_lossy().into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 6, stage: Some(6), play: true, singles: false, chars: vec![0, 1, 1, 0], outfits: vec![], viewer: None, sound: None, music: false, umpire: 0, sets: 1, games: 4, pads: None };
         let want = recorded_ticks(&data);
         // the match seed: the 81 875th `rand()` output from boot (`eu_match_seed_search`)
-        let (got, _) = played_ticks_rng(args, hst_sim::rng::Seed::after(81_874), n.unwrap_or(want.len() + 10), 0, toss_ai);
-        Some((want, got))
+        let (got, rngs) = played_ticks_rng(args, hst_sim::rng::Seed::after(81_874), n.unwrap_or(want.len() + 10), keep, toss_ai);
+        Some((want, got, rngs))
     }
 
     /// The European match's first serve in play from the original's seed, beside the recording (M184's tick table):
@@ -389,6 +394,56 @@ mod tests {
                 eprintln!("eu dump {k}: want {} {:?} {:?} | got {} {:?} {:?}", want[k].0, want[k].1[0], want[k].2, got[k + 1].0, got[k + 1].1[0], got[k + 1].2);
             }
         }
+    }
+
+    /// M183a1: the European match's generators in play beside the ones recorded from `eu-bot-start.p2s`
+    /// (`fixtures/m169/eu-rng.bin`, `eu_rng_rec.py` in the journal: vsync, then the shared, AI and court generators):
+    /// for each played tick, the recorded tick (from the first serve set-up) each generator equals, and the AI draws a
+    /// tick around the return (`--nocapture`); asserts the AI generator follows the recording through the return's
+    /// contact.
+    #[test]
+    fn the_european_generators_play_as_recorded() {
+        use hst_sim::rng::Mt;
+        let Ok(d) = std::fs::read(hst_data::fixture::path("fixtures/m169/eu-rng.bin")) else {
+            eprintln!("skipped: no fixtures/m169/eu-rng.bin");
+            return;
+        };
+        let Ok(m) = std::fs::read(hst_data::fixture::path("fixtures/m169/eu-bot-match.bin")) else { return };
+        let frames = hst_sim::replay::frames_live(&m);
+        let start = frames.iter().find(|f| f.gm()[0x55] == 2).unwrap().vsync() as i64;
+        let rec: Vec<(i64, Mt, Mt, Mt)> = d
+            .as_chunks::<{ 4 + 3 * 0x9d0 }>()
+            .0
+            .iter()
+            .map(|s| (u32::from_le_bytes(s[..4].try_into().unwrap()) as i64 - start, Mt::from_ram(&s[4..]), Mt::from_ram(&s[4 + 0x9d0..]), Mt::from_ram(&s[4 + 2 * 0x9d0..])))
+            .collect();
+        let Some((_, _, rngs)) = european_rngs(Some(330), 0, 330) else { return };
+        let mut last = None;
+        for (k, r) in rngs.iter().enumerate() {
+            let at = |f: &dyn Fn(&(i64, Mt, Mt, Mt)) -> bool| rec.iter().find(|x| f(x)).map(|x| x.0);
+            let got = (at(&|x| x.1 == r.shared), at(&|x| x.2 == r.ai), at(&|x| x.3 == r.court));
+            if Some(got) != last {
+                eprintln!("eu rng tick {k}: shared at {:?}, ai at {:?}, court at {:?}", got.0, got.1, got.2);
+                last = Some(got);
+            }
+        }
+        // draws a tick around the return: the recording's and play's (a tick later)
+        let steps = |a: &Mt, b: &Mt| {
+            let mut g = a.clone();
+            (0..3000).find(|_| {
+                let hit = g == *b;
+                g.next();
+                hit
+            })
+        };
+        for k in 225usize..256 {
+            let (Some(x0), Some(x1)) = (rec.iter().find(|x| x.0 == k as i64 - 1), rec.iter().find(|x| x.0 == k as i64)) else { continue };
+            eprintln!("eu ai draws at recorded {k}: game {:?}, play {:?}", steps(&x0.2, &x1.2), steps(&rngs[k].ai, &rngs[k + 1].ai));
+        }
+        // the AI generator as recorded every tick through the return's contact (play a tick later), but at the
+        // set-up's first sample and the serve's contact (140), where play's draws land a tick apart from the game's
+        let off: Vec<usize> = (2..=229).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
+        assert!(off.is_empty(), "the AI generator leaves the recording at {off:?}");
     }
 
     /// Slot 5's bot match (`fixtures/match_s05.bin`: doubles, characters 0/2/1/5, court 10, umpire 4, 1 set of 4
