@@ -399,8 +399,8 @@ mod tests {
     /// M183a1: the European match's generators in play beside the ones recorded from `eu-bot-start.p2s`
     /// (`fixtures/m169/eu-rng.bin`, `eu_rng_rec.py` in the journal: vsync, then the shared, AI and court generators):
     /// for each played tick, the recorded tick (from the first serve set-up) each generator equals, and the AI draws a
-    /// tick around the return (`--nocapture`); asserts the AI generator follows the recording through the return's
-    /// contact.
+    /// tick around the return (`--nocapture`); asserts the AI generator follows the recording through player 2's
+    /// first step after the return.
     #[test]
     fn the_european_generators_play_as_recorded() {
         use hst_sim::rng::Mt;
@@ -440,9 +440,9 @@ mod tests {
             let (Some(x0), Some(x1)) = (rec.iter().find(|x| x.0 == k as i64 - 1), rec.iter().find(|x| x.0 == k as i64)) else { continue };
             eprintln!("eu ai draws at recorded {k}: game {:?}, play {:?}", steps(&x0.2, &x1.2), steps(&rngs[k].ai, &rngs[k + 1].ai));
         }
-        // the AI generator as recorded every tick through the return's contact (play a tick later), but at the
-        // set-up's first sample and the serve's contact (140), where play's draws land a tick apart from the game's
-        let off: Vec<usize> = (2..=229).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
+        // the AI generator as recorded every tick through player 2's first step after the return (250; play a tick
+        // later), but at the set-up's first sample and the serve's contact (140), where play's draws land a tick apart from the game's
+        let off: Vec<usize> = (2..=250).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
         assert!(off.is_empty(), "the AI generator leaves the recording at {off:?}");
     }
 

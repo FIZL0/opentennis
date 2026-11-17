@@ -68,7 +68,8 @@ struct Mine {
     /// A creature struck the ball or a new path began (`msg::STRIKE`, `msg::NEW_PATH`) since its last step: back to the start of
     /// its state.
     struck: bool,
-    /// Singles: the point set-up ran (cleared by the serve message).
+    /// The point set-up ran (singles: the centre spot; doubles: the formation, `set_up_doubles`; cleared by the serve
+    /// message).
     #[serde(default)]
     set_up: bool,
     /// Its swing turned into its miss motion since its last step (`missed`): the next step tells the partner.
@@ -188,6 +189,7 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
     if !matches!(g.players.len(), 2 | 4) || !matches!(mind.phase, Ai::Receive | Ai::Rally) {
         return false;
     }
+    set_up_doubles(g, i);
     let d = &mut g.doubles_ai;
     if d.stepped & 1 << i != 0 {
         (d.frame, d.stepped) = (d.frame + 1, 0);
@@ -371,6 +373,23 @@ pub(super) fn heard_nobody(g: &mut Game, i: usize) {
     }
 }
 
+/// Doubles (M190): computer player `i`'s formation for the point (lane, front, spot), set once a point before its
+/// first step or message: a server or receiver back in lane 1 on the deuce court (2 on the ad), its partner forward
+/// in the other lane (`Formation::start`). The serve message clears `set_up` for the next point.
+fn set_up_doubles(g: &mut Game, i: usize) {
+    if g.players.len() != 4 || g.doubles_ai.me[i].set_up {
+        return;
+    }
+    let p = &g.players[i];
+    let t = hst_sim::position::Team { side: p.end, formation: p.formation, lean: 0 };
+    let starts = g.score.server == i as i32 || g.score.receiver == i as i32;
+    let f = hst_sim::position::Formation::start(&t, starts, g.score.side == hst_sim::score::AD_COURT);
+    let me = &mut g.doubles_ai.me[i];
+    me.set_up = true;
+    let x = &mut me.rally;
+    (x.lane, x.front, x.spot[0], x.spot[2]) = (f.lane, f.front, f.spot[0], f.spot[1]);
+}
+
 /// Doubles: a message's work on computer player `i`'s AI routine (`f`), at the message, with its body and world as
 /// they are now and the app's net pick in; the net pick and the shot records it writes go back.
 fn at_message(g: &mut Game, i: usize, f: impl FnOnce(&mut Rally, &Body, &mut World, &mut dyn FnMut() -> u32)) {
@@ -381,6 +400,7 @@ fn at_message(g: &mut Game, i: usize, f: impl FnOnce(&mut Rally, &Body, &mut Wor
         Phase::ChangeEnds(_) => return,
     };
     let Some(mut m) = g.players[i].ai_mind else { return };
+    set_up_doubles(g, i);
     let mark = g.doubles_ai.me[i].mark;
     let (b, mut w) = frame(g, i, phase, mark);
     let x = &mut g.doubles_ai.me[i].rally;
