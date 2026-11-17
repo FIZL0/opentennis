@@ -42,6 +42,12 @@ Taken from the remaster running on a retail disc (the art comes from the disc; n
 | ![Character selection with mod characters](docs/screenshots/menu-chars.jpg) | ![Court selection with mod courts](docs/screenshots/menu-courts.jpg) |
 | ![Umpire selection with mod umpires](docs/screenshots/menu-umpires.jpg) | ![Online lobby](docs/screenshots/menu-lobby.jpg) |
 | ![Mod store](docs/screenshots/menu-browsemods.jpg) | ![A mod court](docs/screenshots/mod-amusement.jpg) |
+| ![On the beach court](docs/screenshots/closeup-beach.jpg) | ![On the indoor court](docs/screenshots/closeup-indoor.jpg) |
+| ![On the autumn court](docs/screenshots/closeup-autumn.jpg) | ![The stock cast and two mod characters](docs/screenshots/cast.jpg) |
+| ![Anya celebrating](docs/screenshots/celebrate-anya.jpg) | ![Carol celebrating](docs/screenshots/celebrate-carol.jpg) |
+| ![Cody celebrating](docs/screenshots/celebrate-cody.jpg) | ![Sophie celebrating](docs/screenshots/celebrate-sophie.jpg) |
+| ![Will celebrating](docs/screenshots/celebrate-will.jpg) | ![Doubles on a clay court on a PortMaster handheld](docs/screenshots/portmaster.png) |
+| ![On a phone](docs/screenshots/phone.jpg) | |
 
 ## You must provide the game disc
 
