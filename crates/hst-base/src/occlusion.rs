@@ -12,11 +12,18 @@
 //! Rest pose only: the shade doesn't follow the motion. A face (a part with morph targets: face, teeth, tongue)
 //! doesn't shade itself: its lips' and eyelids' crease shade would smear across it as the expression changes; the
 //! cap, hair and collar still shade it.
+//!
+//! The setting takes effect at once on models already loaded: every model is baked whatever the setting, and each
+//! part's unshaded mesh is kept (the main world drops it once drawn, `RenderAssetUsages::RENDER_WORLD`) so [`follow`]
+//! can put it back with or without the shade when the setting flips. A rig's own copy of a part (a swaying
+//! costume's, a CPU-morphed face's) is copied again from the new mesh when [`generation`] moves on.
 
 use crate::character::Store;
 use bevy::mesh::{Indices, VertexAttributeValues as V};
 use bevy::prelude::*;
-use std::sync::atomic::Ordering;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 const RAYS: usize = 32;
 /// How far a crease shades, in metres.
@@ -37,11 +44,43 @@ struct Tri {
     face: bool,
 }
 
-/// Shade `parts`' vertex colours when Character Shading is on (`graphics::SHADING`).
+/// A baked part: its vertices' visibility and its unshaded colours; its whole mesh as built once [`snapshot`] has
+/// seen it in the world (with the unshaded colours), and whether the mesh in the world is shaded.
+struct Baked {
+    ao: Vec<f32>,
+    colours: Vec<[f32; 4]>,
+    mesh: Option<Mesh>,
+    shaded: bool,
+}
+
+type Registry = HashMap<AssetId<Mesh>, Baked>;
+
+fn registry() -> MutexGuard<'static, Registry> {
+    static R: OnceLock<Mutex<Registry>> = OnceLock::new();
+    R.get_or_init(Mutex::default).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+static GENERATION: AtomicU32 = AtomicU32::new(0);
+/// Parts baked that [`snapshot`] hasn't kept yet.
+static WAITING: AtomicBool = AtomicBool::new(false);
+
+/// Moves on whenever baked meshes in the world were rebuilt with or without their shade: a rig's own copies of them
+/// are to be copied again.
+pub fn generation() -> u32 {
+    GENERATION.load(Ordering::Relaxed)
+}
+
+fn shading() -> bool {
+    crate::graphics::SHADING.load(Ordering::Relaxed)
+}
+
+/// Bake `parts`' shade, and shade their vertex colours when Character Shading is on (`graphics::SHADING`).
 pub fn bake<'a>(meshes: &mut impl Store<Mesh>, parts: impl IntoIterator<Item = &'a Handle<Mesh>>) {
-    if !crate::graphics::SHADING.load(Ordering::Relaxed) {
-        return;
-    }
+    bake_into(&mut registry(), meshes, parts, shading());
+    WAITING.store(true, Ordering::Relaxed);
+}
+
+fn bake_into<'a>(reg: &mut Registry, meshes: &mut impl Store<Mesh>, parts: impl IntoIterator<Item = &'a Handle<Mesh>>, on: bool) {
     let parts: Vec<_> = parts.into_iter().collect();
     // every part's vertices (position, normal) and triangles, in the model's space
     let mut verts = Vec::new();
@@ -75,15 +114,101 @@ pub fn bake<'a>(meshes: &mut impl Store<Mesh>, parts: impl IntoIterator<Item = &
     for h in parts {
         let Some(m) = meshes.get_mut(h) else { continue };
         let count = m.count_vertices();
+        let ao = &ao[at..at + count];
+        at += count;
         if let Some(V::Float32x4(col)) = m.attribute_mut(Mesh::ATTRIBUTE_COLOR) {
-            for (c, k) in col.iter_mut().zip(&ao[at..at + count]) {
-                c[0] *= k;
-                c[1] *= k;
-                c[2] *= k;
+            reg.insert(h.id(), Baked { ao: ao.to_vec(), colours: col.clone(), mesh: None, shaded: on });
+            if on {
+                shade(col, ao);
             }
         }
-        at += count;
     }
+}
+
+fn shade(col: &mut [[f32; 4]], ao: &[f32]) {
+    for (c, k) in col.iter_mut().zip(ao) {
+        c[0] *= k;
+        c[1] *= k;
+        c[2] *= k;
+    }
+}
+
+/// Puts `id`'s mesh as built back in the world, shaded or not, with the usage the world's has (a swaying part's
+/// stays readable). True if it did.
+fn rebuild(id: AssetId<Mesh>, b: &mut Baked, on: bool, meshes: &mut Assets<Mesh>) -> bool {
+    let Some(mut m) = b.mesh.clone() else { return false };
+    if let Some(now) = meshes.get(id) {
+        m.asset_usage = now.asset_usage;
+    }
+    if on && let Some(V::Float32x4(col)) = m.attribute_mut(Mesh::ATTRIBUTE_COLOR) {
+        shade(col, &b.ao);
+    }
+    b.shaded = on;
+    meshes.insert(id, m).is_ok()
+}
+
+/// Each frame's end, before the render world takes the new meshes' data: keeps each part baked since, unshaded, and
+/// puts the setting right on one baked before it flipped.
+pub fn snapshot(meshes: Option<ResMut<Assets<Mesh>>>) {
+    let Some(mut meshes) = meshes else { return };
+    if !WAITING.swap(false, Ordering::Relaxed) {
+        return;
+    }
+    let mut reg = registry();
+    if snapshot_in(&mut reg, &mut meshes, shading()) {
+        GENERATION.fetch_add(1, Ordering::Relaxed);
+    }
+    if reg.values().any(|b| b.mesh.is_none()) {
+        WAITING.store(true, Ordering::Relaxed);
+    }
+}
+
+/// True if a mesh in the world was rebuilt.
+fn snapshot_in(reg: &mut Registry, meshes: &mut Assets<Mesh>, on: bool) -> bool {
+    // forget the meshes gone (an unloaded character's) and the ones the render world took before they were kept;
+    // one not in the world yet (a load still staged) waits
+    reg.retain(|id, b| match (&b.mesh, meshes.get(*id)) {
+        (Some(_), now) => now.is_some(),
+        (None, Some(now)) => now.try_attribute_option(Mesh::ATTRIBUTE_POSITION).is_ok(),
+        (None, None) => true,
+    });
+    let mut any = false;
+    for (&id, b) in reg.iter_mut().filter(|(_, b)| b.mesh.is_none()) {
+        let Some(m) = meshes.get(id) else { continue };
+        let mut m = m.clone();
+        if let Some(V::Float32x4(col)) = m.attribute_mut(Mesh::ATTRIBUTE_COLOR) {
+            col.clone_from(&b.colours);
+        }
+        b.colours = Vec::new();
+        b.mesh = Some(m);
+        if b.shaded != on {
+            any |= rebuild(id, b, on, meshes);
+        }
+    }
+    any
+}
+
+/// After `graphics::mesh_detail`: when Character Shading flips, every kept part in the world is rebuilt with or
+/// without its shade.
+pub fn follow(meshes: Option<ResMut<Assets<Mesh>>>, mut last: Local<Option<bool>>) {
+    let Some(mut meshes) = meshes else { return };
+    let on = shading();
+    if last.replace(on) == Some(on) {
+        return;
+    }
+    if follow_in(&mut registry(), &mut meshes, on) {
+        GENERATION.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// True if a mesh in the world was rebuilt.
+fn follow_in(reg: &mut Registry, meshes: &mut Assets<Mesh>, on: bool) -> bool {
+    reg.retain(|id, b| b.mesh.is_none() || meshes.contains(*id));
+    let mut any = false;
+    for (&id, b) in reg.iter_mut().filter(|(_, b)| b.mesh.is_some() && b.shaded != on) {
+        any |= rebuild(id, b, on, meshes);
+    }
+    any
 }
 
 /// Welds vertices at one spot (to 0.1 mm) to their mean, then averages each with its edge neighbours.
@@ -230,6 +355,41 @@ mod tests {
     fn tri(a: [f32; 3], b: [f32; 3], c: [f32; 3], up: Vec3) -> Tri {
         let (a, b, c) = (Vec3::from(a), Vec3::from(b), Vec3::from(c));
         Tri { a, e1: b - a, e2: c - a, n: up * 3.0, lo: a.min(b).min(c), hi: a.max(b).max(c), face: false }
+    }
+
+    #[test]
+    fn setting_flips_on_a_loaded_model() {
+        // a floor with a low roof over its middle, drawn-only (RENDER_WORLD) like a character's part
+        use bevy::asset::RenderAssetUsages as U;
+        let mut meshes = Assets::<Mesh>::default();
+        let colours = vec![[0.25, 0.5, 0.75, 1.0]; 6];
+        let floor = Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, U::RENDER_WORLD)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[-0.01, 0.0, -0.01], [0.01, 0.0, -0.01], [0.0, 0.0, 0.01], [-1.0, 0.03, -1.0], [0.0, 0.03, 1.0], [1.0, 0.03, -1.0]])
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, -1.0, 0.0], [0.0, -1.0, 0.0], [0.0, -1.0, 0.0]])
+            .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colours.clone())
+            .with_inserted_indices(Indices::U32(vec![0, 1, 2, 3, 4, 5]));
+        let h = meshes.add(floor);
+        let col = |meshes: &Assets<Mesh>| match meshes.get(&h).unwrap().attribute(Mesh::ATTRIBUTE_COLOR) {
+            Some(V::Float32x4(c)) => c.clone(),
+            _ => panic!("no colours"),
+        };
+        let mut reg = Registry::new();
+        // baked with the setting on, flipped off before the frame's end, then on and off again
+        bake_into(&mut reg, &mut meshes, [&h], true);
+        let shaded = col(&meshes);
+        assert!(shaded[0][0] < colours[0][0], "under the roof: {shaded:?}");
+        assert!(snapshot_in(&mut reg, &mut meshes, false));
+        assert_eq!(col(&meshes), colours);
+        assert_eq!(meshes.get(&h).unwrap().asset_usage, U::RENDER_WORLD);
+        assert!(!follow_in(&mut reg, &mut meshes, false), "nothing to do");
+        assert!(follow_in(&mut reg, &mut meshes, true));
+        assert_eq!(col(&meshes), shaded);
+        assert!(follow_in(&mut reg, &mut meshes, false));
+        assert_eq!(col(&meshes), colours, "the colours as loaded, exactly");
+        // gone from the world: forgotten
+        meshes.remove(&h);
+        assert!(!follow_in(&mut reg, &mut meshes, true));
+        assert!(reg.is_empty());
     }
 
     #[test]

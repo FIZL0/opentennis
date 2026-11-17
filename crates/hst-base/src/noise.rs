@@ -122,7 +122,7 @@ fn distinct(c: &Costume) -> (Vec<Vec<u32>>, Vec<(usize, [f32; 3], f32)>) {
 }
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Update, (attach, draw.after(crate::character::animate))).add_systems(FixedUpdate, step.after(crate::character::tick));
+    app.add_systems(Update, (attach, recopy.after(attach).before(draw), draw.after(crate::character::animate))).add_systems(FixedUpdate, step.after(crate::character::tick));
 }
 
 /// A new rig with a costume deformer swaps its swaying parts for copies of its own.
@@ -153,6 +153,34 @@ pub fn attach(mut commands: Commands, g: Option<Res<crate::graphics::Graphics>>,
         // the select may have despawned a preview rig in the same frame (B84)
         let (slots, distinct) = distinct(c);
         commands.entity(root).try_insert(Sway { noise, meshes: own, sets: None, slots, distinct, offsets: Vec::new(), offsets_at: Vec::new(), stale: true });
+    }
+}
+
+/// Character Shading flipped (`occlusion::generation`): each rig copies its swaying parts again from the rebuilt
+/// shared meshes.
+fn recopy(mut seen: Local<u32>, mut rigs: Query<(&Rig, &Children, &mut Sway)>, mut parts: Query<&mut Mesh3d>, mut meshes: ResMut<Assets<Mesh>>) {
+    let generation = crate::occlusion::generation();
+    if std::mem::replace(&mut *seen, generation) == generation {
+        return;
+    }
+    for (rig, children, mut s) in &mut rigs {
+        let Some(c) = &rig.data.noise else { continue };
+        let s = &mut *s;
+        for ((part, _), (copy, patched)) in c.parts.iter().zip(&mut s.meshes) {
+            let Some(mesh) = meshes.get(&rig.data.parts[*part].0).cloned() else { continue };
+            let p = Patched::new(&mesh);
+            let new = meshes.add(mesh);
+            for &child in children {
+                if let Ok(mut m) = parts.get_mut(child)
+                    && m.0 == *copy
+                {
+                    m.0 = new.clone();
+                }
+            }
+            *patched = p.map(|p| p.of(new.id()));
+            *copy = new;
+        }
+        s.stale = true;
     }
 }
 
