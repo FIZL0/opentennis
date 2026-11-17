@@ -1580,7 +1580,8 @@ impl Menu {
         match screen {
             Screen::Main => self.main_step(dev, k, &mut out),
             Screen::Display | Screen::Graphics | Screen::Advanced | Screen::Sound | Screen::ModSettings | Screen::Gameplay => {
-                if self.editing.is_none() {
+                // (an open dropdown takes ↑ ↓ even on a row that's never picked: Base Disc)
+                if self.editing.is_none() && self.listing.is_none() {
                     step_rows(k, options::page(self.screen).len(), &mut self.sel, &mut out);
                 }
                 self.step_page(k, &mut out);

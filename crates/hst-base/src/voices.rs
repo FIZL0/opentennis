@@ -6,7 +6,7 @@
 //!
 //! A player adds a release by putting its ISO in `voices/` beside the settings (desktop, phones' Files folder): the
 //! next start copies its voice banks into `voices/<disc id>.pack` (about 25 MB a language) and the ISO can go; or
-//! Settings → Sound → Add Voices picks the ISO and reads it in at once ([`add_disc`], M165). Each
+//! Settings → Gameplay → Add Disc picks the ISO and reads it in at once ([`add_disc`], M165). Each
 //! release's archives hold the same banks under the same names as the US disc's (the European one once per language,
 //! told apart by the archive's last letter; the Japanese one keeps its player voices inside the motion archives), so a
 //! bank is looked up by its name. A bank whose sequences don't line up with the main disc's (a different take count
@@ -354,7 +354,7 @@ pub fn import_disc(path: &Path, dir: &Path) -> bool {
     }
 }
 
-/// M165: Settings → Sound → Add Voices: where reading a disc in from the menu is.
+/// M165: Settings → Gameplay → Add Disc: where reading a disc in from the menu is.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Adding {
     Idle,

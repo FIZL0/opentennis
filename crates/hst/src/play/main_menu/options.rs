@@ -116,18 +116,19 @@ pub(super) const MODE_SWITCH: u8 = 0x80;
 const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, Shading, Upscaled, Rendering, Advanced];
 /// B411: Graphics → Advanced, the speed-up switches for a slow device.
 const ADVANCED: &[Opt] = &[Mesh, FewerShadows, Cull, CourtLife];
-/// M165: Add Voices under Voice Language, but in the browser (it can't keep a disc's voices).
-const SOUND: &[Opt] = if cfg!(target_arch = "wasm32") { &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices, VoiceLanguage] } else { &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices, VoiceLanguage, AddVoices] };
+const SOUND: &[Opt] = &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices, VoiceLanguage];
 const MODS: &[Opt] = if cfg!(target_arch = "wasm32") { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat] } else { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat, UpdateCheck] };
 /// M167: Gameplay's rows: how a match plays (offline Rules, match rumble go before Vibration), then the on-screen
 /// pad's Vibration (B118, was the Mobile tab's), last since only a touch screen shows it (`gameplay`).
 /// M176: Match Speed after Rules, shown only where a match can run at 50 Hz (`gameplay`).
-const GAMEPLAY: &[Opt] = &[Rules, MatchSpeed, MatchRumble, Vibration];
+/// M165: Add Disc (the AddVoices row) first, but in the browser (it can't keep another disc).
+const GAMEPLAY: &[Opt] = if cfg!(target_arch = "wasm32") { &[Rules, MatchSpeed, MatchRumble, Vibration] } else { &[AddVoices, Rules, MatchSpeed, MatchRumble, Vibration] };
 /// M176: Gameplay's rows where 60 Hz is the only speed.
-const GAMEPLAY_60: &[Opt] = &[Rules, MatchRumble, Vibration];
-/// M180: [`GAMEPLAY`] and [`GAMEPLAY_60`] with Base Disc first, where 2+ releases' discs are here (`disc::bases`).
-const GAMEPLAY_BASE: &[Opt] = &[BaseDisc, Rules, MatchSpeed, MatchRumble, Vibration];
-const GAMEPLAY_60_BASE: &[Opt] = &[BaseDisc, Rules, MatchRumble, Vibration];
+const GAMEPLAY_60: &[Opt] = if cfg!(target_arch = "wasm32") { &[Rules, MatchRumble, Vibration] } else { &[AddVoices, Rules, MatchRumble, Vibration] };
+/// M180: [`GAMEPLAY`] and [`GAMEPLAY_60`] with Base Disc first, where 2+ releases' discs are here (`disc::bases`:
+/// never in the browser).
+const GAMEPLAY_BASE: &[Opt] = &[BaseDisc, AddVoices, Rules, MatchSpeed, MatchRumble, Vibration];
+const GAMEPLAY_60_BASE: &[Opt] = &[BaseDisc, AddVoices, Rules, MatchRumble, Vibration];
 /// Gameplay's rows on this device: Base Disc only with another release's disc here (M180), Match Speed only with a
 /// choice to make, Vibration only on a touch screen.
 fn gameplay() -> &'static [Opt] {
@@ -185,7 +186,7 @@ fn label(o: Opt) -> &'static str {
         MatchMusic => "Match Music",
         EmoteVoices => "Emote Voices",
         VoiceLanguage => "Voice Language",
-        AddVoices => "Add Voices",
+        AddVoices => "Add Disc",
         Downloads => "Upscaled Downloads",
         AtOnce => "Downloads at Once",
         OnlineMods => "Online Mod Downloads",
@@ -241,7 +242,7 @@ fn about(o: Opt) -> &'static str {
         MatchMusic => "Play each court's music during a match.",
         EmoteVoices => "Hear the players' voice lines when they emote. Off mutes them on this device only; the emote itself still plays.",
         VoiceLanguage if cfg!(target_arch = "wasm32") => "The players', the umpire's and the crowd's voices in another release's language: the desktop and phone apps can take them from the European or Japanese disc.",
-        VoiceLanguage => "The players', the umpire's and the crowd's voices in another release's language, from the next match. Add Voices, below, brings the languages in. Only you hear it: the match plays exactly the same, online too.",
+        VoiceLanguage => "The players', the umpire's and the crowd's voices in another release's language, from the next match. Gameplay → Add Disc brings the languages in. Only you hear it: the match plays exactly the same, online too.",
         AddVoices if cfg!(target_os = "ios") => "Copies another release's voices into the game, then they're on Voice Language. In the Files app, put the European (Everybody's Tennis: English, French, Italian, German, Spanish, Japanese) or Japanese (Minna no Tennis) disc image in Hot Shots Tennis → voices, then choose Add Voices here. It takes a few seconds; afterwards the image can go.",
         AddVoices => "Choose the European (Everybody's Tennis: English, French, Italian, German, Spanish, Japanese) or Japanese (Minna no Tennis) disc image: the game copies its voices (about 25 MB a language) and they're on Voice Language. It takes a few seconds; afterwards the image can go.",
         Downloads => "Download mods' upscaled textures from the mod store (most of a mod's size).",
@@ -373,7 +374,7 @@ fn add_voices_note() -> Option<String> {
         Adding::Idle => None,
         Adding::Picking => Some("Choose the disc image in the file picker.".into()),
         Adding::Reading(_) => Some("Copying the disc's voices. You can leave this page; it carries on.".into()),
-        Adding::Added(langs) => Some(format!("Added: {}. Choose one under Voice Language.", langs.iter().map(|&l| LANGS[l as usize].name).collect::<Vec<_>>().join(", "))),
+        Adding::Added(langs) => Some(format!("Added: {}. Choose one under Sound → Voice Language.", langs.iter().map(|&l| LANGS[l as usize].name).collect::<Vec<_>>().join(", "))),
         Adding::Failed(why) => Some(why),
     }
 }
@@ -1265,6 +1266,9 @@ pub(super) fn page_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
         // M165: how adding a disc went, in full (the row has room for a word or two)
         let added = if o == AddVoices { add_voices_note() } else { None };
         let note = added.as_deref().unwrap_or(note);
+        // the other discs' languages, where they aren't all here yet (not the browser: it can't add one)
+        let more = !cfg!(target_arch = "wasm32") && o == VoiceLanguage && crate::voices::available().len() < crate::voices::LANGS.len();
+        let note = if more { "More languages: add the European or Japanese disc under Gameplay → Add Disc." } else { note };
         // M180: why a Base Disc switch didn't happen
         let failed = match base_disc::switching() {
             base_disc::Switch::Failed(why) if o == BaseDisc => Some(format!("Couldn't switch: {why}")),
@@ -2248,17 +2252,28 @@ mod tests {
         assert_eq!(m.reset_ask, None);
     }
 
+    /// An open dropdown on a row that's never picked (Base Disc: no `editing`) keeps ↓ ↓ in the list, off the rows.
+    #[test]
+    fn open_list_holds_rows() {
+        let i = MODS.iter().position(|&o| o == AtOnce).unwrap();
+        let mut m = Menu { screen: Screen::ModSettings, sel: i, listing: Some(0), ..default() };
+        for _ in 0..2 {
+            m.step(Dev::Keys, press(|k| &mut k.down));
+        }
+        assert_eq!((m.sel, m.listing), (i, Some(2)));
+    }
+
     /// B707: Rendering is on every build's Graphics page; ✕ on it asks first (◀ ▶ do nothing, as on Renderer), Cancel leaves it, Switch saves it
-    /// M165: the Sound page's Add Voices row, under Voice Language (not in the browser): a way in, never picked or
+    /// M165: Gameplay's Add Disc row, after Base Disc where it's shown (not in the browser): a way in, never picked or
     /// changed with ◀ ▶; ✕ starts the picker (none in tests: nothing picked, back to Choose disc) with a click.
     #[test]
     fn add_voices_row() {
-        let i = SOUND.iter().position(|&o| o == AddVoices).unwrap();
-        assert_eq!(SOUND[i - 1], VoiceLanguage);
+        let i = page(Screen::Gameplay).iter().position(|&o| o == AddVoices).unwrap();
+        assert!(i == 0 || page(Screen::Gameplay)[i - 1] == BaseDisc);
         assert!(choices(AddVoices).is_empty() && !listed(AddVoices) && !fixed(AddVoices));
         // (an empty folder: no packs, as without one)
         crate::voices::set_dir(std::env::temp_dir().join(format!("hst-no-voices-{}", std::process::id())));
-        let mut m = Menu { screen: Screen::Sound, sel: i, ..default() };
+        let mut m = Menu { screen: Screen::Gameplay, sel: i, ..default() };
         let was = m.settings;
         for k in [Press { right: true, ..default() }, Press { left: true, ..default() }] {
             assert!(m.step(Dev::Keys, k).is_empty() && m.settings == was);
@@ -2293,8 +2308,8 @@ mod tests {
     /// release here it is that one alone and ◀ ▶ leave it be (saved as the default).
     #[test]
     fn rules_row() {
-        // (M180: after Base Disc, where another release's disc is here)
-        assert_eq!(page(Screen::Gameplay).iter().find(|&&o| o != BaseDisc), Some(&Rules));
+        // (M180: after Base Disc, where another release's disc is here, and Add Disc)
+        assert_eq!(page(Screen::Gameplay).iter().find(|&&o| !matches!(o, BaseDisc | AddVoices)), Some(&Rules));
         assert!(tabs_shown().iter().any(|t| t.1 == Screen::Gameplay));
         let own = crate::rules_choice::own();
         let mut s = Settings::default();
@@ -2311,7 +2326,8 @@ mod tests {
     /// 50 Hz timing), after Rules; with 60 Hz alone it is hidden and a match starts with no `--match-hz`.
     #[test]
     fn match_speed_row() {
-        assert_eq!(&GAMEPLAY[..2], [Rules, MatchSpeed]);
+        let at = GAMEPLAY.iter().position(|&o| o == Rules).unwrap();
+        assert_eq!(GAMEPLAY[at + 1], MatchSpeed);
         let mut s = Settings::default();
         assert_eq!(s.match_speed, 60);
         if crate::match_speed::available() == [60] {
@@ -2321,7 +2337,8 @@ mod tests {
             assert_eq!(s.match_speed, 60);
             assert_eq!(crate::match_speed::flags(crate::match_speed::chosen()), Vec::<String>::new());
         } else {
-            assert_eq!(page(Screen::Gameplay)[1], MatchSpeed);
+            let rows = page(Screen::Gameplay);
+            assert_eq!(rows[rows.iter().position(|&o| o == Rules).unwrap() + 1], MatchSpeed);
             s.step(MatchSpeed, 1);
             assert_eq!((s.match_speed, s.value(MatchSpeed).as_str()), (50, "50 Hz (European original)"));
             s.step(MatchSpeed, 1);
