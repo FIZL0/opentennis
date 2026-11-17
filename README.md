@@ -9,8 +9,6 @@
 
 A from-scratch rewrite of the PlayStation 2 game **Hot Shots Tennis** (US, 2007), known as **Everybody's Tennis**
 in Europe and **Minna no Tennis** (みんなのテニス) in Japan, in Rust with the [Bevy](https://bevyengine.org) engine.
-The goal is the same game: the same ball physics, rules, timing and AI, ported from the original and checked
-frame by frame against the real game, with better rendering on top.
 
 **Play in your browser: <https://opentennis.dev>** (you pick your own ISO; nothing is uploaded).
 
@@ -24,8 +22,7 @@ System Settings → Privacy & Security → Open Anyway.
 `https://fizl0.github.io/apps/source.json` under Sources. You sign it
 with your own certificate, and updates arrive through the app.
 
-Work in progress. Building from source, modding by hand and development: [docs/DEVELOPING.md](docs/DEVELOPING.md); how
-it's made and what it's built on: [CREDITS.md](CREDITS.md).
+Work in progress. Building from source, modding by hand and development: [docs/DEVELOPING.md](docs/DEVELOPING.md).
 
 ## Screenshots
 
