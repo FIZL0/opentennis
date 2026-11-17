@@ -229,8 +229,8 @@ fn about(o: Opt) -> &'static str {
         Shading => "Soft shade in the players' and figures' creases (under the chin, skirt and arms), worked out once as each loads. Off in Original Mode. Applies to characters loaded after a change (the next match).",
         Original => "Draw at the PS2's 640x448, 4:3, with the disc's textures, scaled up unfiltered.",
         Downloads if locked(o) => "Upscaled textures aren't available in the browser.",
-        Upscaled if cfg!(target_arch = "wasm32") => "Draw the installed texture packs' textures in place of the disc's (from the next match).",
-        Upscaled => "Draw the installed texture packs' textures and the ones in mods/texture-replacements in place of the disc's (from the next match), and mods' upscaled textures.",
+        Upscaled if cfg!(target_arch = "wasm32") => "Draw the installed texture packs' textures in place of the disc's.",
+        Upscaled => "Draw the installed texture packs' textures and the ones in mods/texture-replacements in place of the disc's, and mods' upscaled textures (those from the next match).",
         CourtLife => "Draw the crowd, the other figures around the court, the small props and the costumes' sway. Off runs faster on a weak device; the match plays the same. The sway comes back from the next match.",
         Cull => "Don't draw players, figures and effects that are out of view (or their shadows out of the light's). Looks the same; turn it off if it makes this device slower.",
         Volume(0) => "The volume of everything.",
@@ -517,6 +517,8 @@ impl Settings {
             Upscaled => {
                 self.upscaled_textures = !self.upscaled_textures;
                 self.upscaled_downloads = self.upscaled_textures;
+                // the textures on screen swap at once; Original Mode keeps the disc's (B222)
+                crate::textures::switch(self.upscaled_textures && !self.graphics.original);
             }
             Volume(i) => {
                 let v = &mut self.volumes.0[i];
@@ -686,11 +688,15 @@ impl Menu {
             } else if k.back {
                 self.editing = None;
                 if self.settings != was {
+                    let upscaled = self.settings.upscaled_textures;
                     self.settings = was;
                     crate::chat::HIDDEN.store(!was.chat, std::sync::atomic::Ordering::Relaxed);
                     crate::audio::EMOTE_VOICES.store(was.emote_voices, std::sync::atomic::Ordering::Relaxed);
                     crate::play::rumble::ON.store(was.match_rumble, std::sync::atomic::Ordering::Relaxed);
                     crate::voices::choose(was.voice_language);
+                    if upscaled != was.upscaled_textures {
+                        crate::textures::switch(was.upscaled_textures && !was.graphics.original);
+                    }
                     crate::rules_choice::choose_soon(was.rules);
                     crate::match_speed::choose(was.match_speed);
                     out.push(Effect::SaveSettings);

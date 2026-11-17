@@ -1,6 +1,8 @@
 //! Replaced textures: the texture packs switched on (M5a, `mods_textures.rs`; the first in their order wins), then
 //! `mods/texture-replacements/` beside the ISO (key-named files over a PCSX2 pack's), over the disc. The Texture
-//! Replacements setting switches all of it. The folders are read once; with `HST_TEXTURE_RELOAD=1`
+//! Replacements setting switches all of it, at once ([`switch`]): every image made here is remembered while it lives
+//! (its key, and while it shows a replacement the disc's image), so turning the setting on or off, or changing the
+//! packs, swaps the textures already on screen. The folders are read once; with `HST_TEXTURE_RELOAD=1`
 //! `texture-replacements/` files are re-read when they change while running.
 
 use bevy::prelude::*;
@@ -9,7 +11,7 @@ use bevy::tasks::{IoTaskPool, Task, futures::check_ready};
 use crate::character::Store;
 use hst_data::texhash::{self, Overrides, TEXA};
 use hst_data::{mtl, tim2};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -18,14 +20,36 @@ struct State {
     /// The packs' textures, the first pack's of a key (M5a), and the packs' folders, top first.
     packs: HashMap<String, PathBuf>,
     pack_dirs: Vec<PathBuf>,
-    /// key -> (PCSX2 names, the images made from it)
-    used: HashMap<String, (Vec<String>, Vec<AssetId<Image>>)>,
     /// replaced images: replacement size / disc size, for the UI's pixel rects
     scale: HashMap<AssetId<Image>, Vec2>,
 }
 
 // ponytail: global, so the loaders that only hold `Assets<Image>` can use it without new system params
+// (locked before `MADE` wherever both are)
 static STATE: Mutex<Option<State>> = Mutex::new(None);
+
+/// An image made through [`add`], while it lives: its key and PCSX2 names, and while it shows a replacement, the disc's
+/// image to go back to (only those: the rest need nothing until a replacement comes).
+struct Made {
+    key: String,
+    names: Vec<String>,
+    disc: Option<Image>,
+}
+
+type MadeMap = HashMap<AssetId<Image>, Made>;
+
+/// Every [`Made`] image, whatever the setting (it can be turned on later).
+static MADE: Mutex<Option<MadeMap>> = Mutex::new(None);
+
+/// The disc image the setting is for ([`init`], [`set`], [`disc`]): what [`switch`] reads the folders of.
+static ISO: Mutex<Option<String>> = Mutex::new(None);
+
+/// [`switch`]'s setting, until `follow` applies it.
+static WANT: Mutex<Option<bool>> = Mutex::new(None);
+
+/// Images swapped since `touch_materials` last looked: the materials drawing them are re-bound (a replacement of
+/// another size is a new GPU texture, which a material's bind group doesn't see on its own).
+static SWAPPED: Mutex<Vec<AssetId<Image>>> = Mutex::new(Vec::new());
 
 /// The menus' own rebuilt sheets (`play/menu_art.rs`): their size / the disc's, whatever the replacement setting.
 static OURS: Mutex<Option<HashMap<AssetId<Image>, Vec2>>> = Mutex::new(None);
@@ -40,6 +64,7 @@ fn root(iso: &str) -> PathBuf {
 }
 
 pub fn init(iso: &str) {
+    disc(iso);
     let root = &root(iso);
     // B227: the browser has no texture-replacements folder (its files are the mods' in OPFS), only packs
     let o = if cfg!(target_arch = "wasm32") { Overrides { root: root.into(), ..default() } } else { Overrides { root: root.into(), ..Overrides::scan(replacements_root(root)) } };
@@ -55,9 +80,13 @@ pub fn init(iso: &str) {
         o,
         packs,
         pack_dirs,
-        used: HashMap::new(),
         scale: HashMap::new(),
     });
+}
+
+/// The disc image [`switch`] reads the replacement folders for, when the setting starts off.
+pub fn disc(iso: &str) {
+    *ISO.lock().unwrap() = Some(iso.into());
 }
 
 /// B668: where `mods/texture-replacements` is read from: `root`, else the per-user folder the game's files were in
@@ -87,8 +116,9 @@ fn packs_in(root: &Path, order: &crate::mods_textures::Order) -> (HashMap<String
 
 /// Replacements on or off (the menu's "texture replacements" setting, per match); on keeps what an earlier `init`
 /// read but re-reads the texture packs, whose order or set may have changed since (it applies to what's added from
-/// then on: the next match's textures).
+/// then on: the next match's textures; [`switch`] swaps the ones already made too).
 pub fn set(iso: &str, on: bool) {
+    disc(iso);
     if !on {
         *STATE.lock().unwrap() = None;
     } else if STATE.lock().unwrap().is_none() {
@@ -103,35 +133,133 @@ pub fn set(iso: &str, on: bool) {
 
 /// M5d: the texture packs read again (one was installed or its order changed) and every texture already made whose
 /// pack file changed, or comes from the pack in `fresh` (an update's files keep their names), swapped for it at once:
-/// the menu's sheets show a new pack without a restart. A texture a pack no longer covers keeps its picture until the
-/// next start (the disc's pixels aren't kept). How many images it swapped; none while the setting is off.
+/// the menu's sheets show a new pack without a restart; one a pack no longer covers goes back to
+/// `texture-replacements/`'s or the disc's. How many images it swapped; none while the setting is off.
 pub fn repack(images: &mut Assets<Image>, fresh: Option<&Path>) -> usize {
     // (decoded under the lock: it's a menu's handful of sheets, once per install)
-    STATE.lock().unwrap().as_mut().map_or(0, |s| s.repack(images, fresh, &crate::mods_textures::order()))
+    let mut s = STATE.lock().unwrap();
+    let Some(s) = s.as_mut() else { return 0 };
+    let ids = s.repack(MADE.lock().unwrap().get_or_insert_default(), images, fresh, &crate::mods_textures::order());
+    let n = ids.len();
+    SWAPPED.lock().unwrap().extend(ids);
+    n
 }
 
 impl State {
-    fn repack(&mut self, images: &mut Assets<Image>, fresh: Option<&Path>, order: &crate::mods_textures::Order) -> usize {
+    fn repack(&mut self, made: &mut MadeMap, images: &mut Assets<Image>, fresh: Option<&Path>, order: &crate::mods_textures::Order) -> Vec<AssetId<Image>> {
         let (packs, dirs) = packs_in(&self.o.root, order);
         let new_from = |f: &PathBuf| fresh.is_some_and(|d| f.starts_with(d));
-        let keys: Vec<String> = self.used.keys().filter(|k| packs.get(*k).is_some_and(|f| self.packs.get(*k) != Some(f) || new_from(f))).cloned().collect();
+        let keys: HashSet<String> = made.values().map(|m| &m.key).filter(|k| packs.get(*k) != self.packs.get(*k) || packs.get(*k).is_some_and(new_from)).cloned().collect();
         (self.packs, self.pack_dirs) = (packs, dirs);
-        let want: Vec<Files> = keys.iter().map(|k| self.files(k, &self.used[k].0)).collect();
-        let got = parallel(&want, Files::load);
-        let mut n = 0;
-        for (k, r) in keys.iter().zip(got) {
-            let Some(r) = r else { continue };
-            for &id in &self.used[k].1 {
-                if let Some(mut img) = images.get_mut(id) {
-                    let disc = img.size_f32() / self.scale.get(&id).copied().unwrap_or(Vec2::ONE);
-                    apply(&mut img, r.clone());
-                    self.scale.insert(id, img.size_f32() / disc);
-                    n += 1;
+        show(Some(self), made, images, |k| keys.contains(k))
+    }
+}
+
+/// The Texture Replacements setting changed: on or off from the next frame, and every texture already made swapped to
+/// its replacement or back to the disc's pixels then (`follow`, which has the images).
+pub fn switch(on: bool) {
+    *WANT.lock().unwrap() = Some(on);
+}
+
+/// [`switch`] applied: the setting as asked, and the textures made so far shown as it says.
+fn follow(mut images: ResMut<Assets<Image>>) {
+    let Some(on) = WANT.lock().unwrap().take() else { return };
+    let Some(iso) = ISO.lock().unwrap().clone() else { return };
+    if on == replacing() {
+        return;
+    }
+    set(&iso, on);
+    let mut s = STATE.lock().unwrap();
+    let ids = show(s.as_mut(), MADE.lock().unwrap().get_or_insert_default(), &mut images, |_| true);
+    info!("textures: replacements {}, {} textures swapped", if on { "on" } else { "off" }, ids.len());
+    SWAPPED.lock().unwrap().extend(ids);
+}
+
+/// The made images whose key `redo` picks shown as `s` has them now: the replacement (the disc's image kept the first
+/// time), else the disc's image back (nothing to do for one that never had a replacement). The images changed.
+fn show(mut s: Option<&mut State>, made: &mut MadeMap, images: &mut Assets<Image>, redo: impl Fn(&str) -> bool) -> Vec<AssetId<Image>> {
+    let mut keys: HashMap<&str, &[String]> = HashMap::new();
+    for m in made.values().filter(|m| redo(&m.key)) {
+        keys.entry(&m.key).or_insert(&m.names);
+    }
+    let (keys, want): (Vec<String>, Vec<Option<Files>>) = keys.into_iter().map(|(k, n)| (k.to_string(), s.as_ref().map(|s| s.files(k, n)))).unzip();
+    let got: HashMap<String, Option<Pixels>> = keys.into_iter().zip(parallel(&want, |f| f.as_ref().and_then(Files::load))).collect();
+    let mut changed = vec![];
+    for (&id, m) in made.iter_mut() {
+        let Some(px) = got.get(&m.key) else { continue };
+        if px.is_none() && m.disc.is_none() {
+            continue;
+        }
+        let Some(mut img) = images.get_mut(id) else { continue };
+        match (px, m.disc.take()) {
+            (Some(px), disc) => {
+                let disc = disc.unwrap_or_else(|| Image::clone(&img));
+                apply(&mut img, px.clone());
+                if let Some(s) = s.as_deref_mut() {
+                    s.scale.insert(id, img.size_f32() / disc.size_f32());
+                }
+                m.disc = Some(disc);
+            }
+            (None, Some(disc)) => {
+                *img = disc;
+                if let Some(s) = s.as_deref_mut() {
+                    s.scale.remove(&id);
                 }
             }
+            (None, None) => unreachable!("skipped above"),
         }
-        n
+        changed.push(id);
     }
+    changed
+}
+
+/// The images gone from `Assets` forgotten (their disc copies freed).
+fn forget(mut events: MessageReader<AssetEvent<Image>>) {
+    let gone: Vec<AssetId<Image>> = events.read().filter_map(|e| if let AssetEvent::Removed { id } = e { Some(*id) } else { None }).collect();
+    if gone.is_empty() {
+        return;
+    }
+    let mut s = STATE.lock().unwrap();
+    let mut made = MADE.lock().unwrap();
+    for id in gone {
+        if let Some(m) = made.as_mut() {
+            m.remove(&id);
+        }
+        if let Some(s) = s.as_mut() {
+            s.scale.remove(&id);
+        }
+    }
+}
+
+/// Bevy re-binds a material only when the material changes: each one drawing a swapped image is marked changed.
+fn touch_materials(
+    mut gs: Option<ResMut<Assets<crate::gs::GsMaterial>>>,
+    mut std: Option<ResMut<Assets<StandardMaterial>>>,
+    mut fx: Option<ResMut<Assets<crate::effects::Fx>>>,
+    mut on_top: Option<ResMut<Assets<crate::effects::OnTop>>>,
+) {
+    let ids: HashSet<AssetId<Image>> = std::mem::take(&mut *SWAPPED.lock().unwrap()).into_iter().collect();
+    if ids.is_empty() {
+        return;
+    }
+    if let Some(gs) = gs.as_mut() {
+        let hit: Vec<_> = gs.iter().filter(|(_, m)| m.texture.as_ref().is_some_and(|h| ids.contains(&h.id()))).map(|(id, _)| id).collect();
+        hit.into_iter().for_each(|id| _ = gs.get_mut(id));
+    }
+    if let Some(m) = std.as_mut() {
+        touch_std(m, &ids);
+    }
+    if let Some(m) = fx.as_mut() {
+        touch_std(m, &ids);
+    }
+    if let Some(m) = on_top.as_mut() {
+        touch_std(m, &ids);
+    }
+}
+
+fn touch_std<M: crate::effects::EffectMaterial>(materials: &mut Assets<M>, ids: &HashSet<AssetId<Image>>) {
+    let hit: Vec<_> = materials.iter().filter(|(_, m)| m.std_ref().base_color_texture.as_ref().is_some_and(|h| ids.contains(&h.id()))).map(|(id, _)| id).collect();
+    hit.into_iter().for_each(|id| _ = materials.get_mut(id));
 }
 
 /// Whether the "texture replacements" setting is on outside the browser (mods read their `textures/upscaled/` then;
@@ -146,7 +274,7 @@ pub fn packs_in_use() -> Vec<PathBuf> {
 }
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(PostUpdate, ui_rects);
+    app.add_systems(PostUpdate, ui_rects).add_systems(Last, (follow, forget, touch_materials).chain());
     // B83: a full re-walk every second stutters on slow storage (microSD), so live reload is for texture authors only
     if std::env::var_os("HST_TEXTURE_RELOAD").is_some() {
         app.add_systems(Update, reload);
@@ -165,27 +293,31 @@ pub fn add(
     let Some(files) = STATE.lock().unwrap().as_ref().map(|s| s.files(&key, &names)) else {
         let h = images.add(img);
         crate::asset_use::made(h.id(), &key);
+        MADE.lock().unwrap().get_or_insert_default().insert(h.id(), Made { key, names, disc: None });
         return h;
     };
-    let disc = img.size_f32();
+    let size0 = img.size_f32();
     let r = READY.lock().unwrap().as_ref().and_then(|r| r.get(&key).cloned()).or_else(|| files.load());
-    let replaced = r.map(|r| {
-        debug!("textures: replaced {key} ({disc} -> {}x{})", r.0, r.1);
+    // the disc's image kept while it shows a replacement, to go back to when the setting goes off
+    let disc = r.map(|r| {
+        debug!("textures: replaced {key} ({size0} -> {}x{})", r.0, r.1);
+        let disc = img.clone();
         apply(&mut img, r);
+        disc
     });
     let size = img.size_f32();
     let h = images.add(img);
     crate::asset_use::made(h.id(), &key);
-    if let (Some(_), Some(f)) = (&replaced, &files.pack) {
+    if let (Some(_), Some(f)) = (&disc, &files.pack) {
         hst_data::uselog::note("tex-pack", || crate::modfs::key(f));
     }
     let mut s = STATE.lock().unwrap();
-    // switched off meanwhile: nothing to track
-    let Some(s) = s.as_mut() else { return h };
-    if replaced.is_some() {
-        s.scale.insert(h.id(), size / disc);
+    if let Some(s) = s.as_mut()
+        && disc.is_some()
+    {
+        s.scale.insert(h.id(), size / size0);
     }
-    s.used.entry(key).or_insert((names, vec![])).1.push(h.id());
+    MADE.lock().unwrap().get_or_insert_default().insert(h.id(), Made { key, names, disc });
     h
 }
 
@@ -412,7 +544,6 @@ type Scan = HashMap<String, (std::path::PathBuf, std::time::SystemTime)>;
 
 /// `HST_TEXTURE_RELOAD` only: once a second, re-read mod files that are new or changed since the last look. The folder walk runs on the IO pool
 /// (it's a big folder: tens of ms on the main thread).
-// ponytail: a deleted mod file keeps its image until restart (the disc pixels aren't kept around)
 fn reload(time: Res<Time>, mut next: Local<f32>, mut scan: Local<Option<Task<Scan>>>, mut images: ResMut<Assets<Image>>) {
     let Some(mods) = scan.as_mut().and_then(check_ready) else {
         if scan.is_none() && time.elapsed_secs() >= *next {
@@ -425,28 +556,22 @@ fn reload(time: Res<Time>, mut next: Local<f32>, mut scan: Local<Option<Task<Sca
     *scan = None;
     let mut s = STATE.lock().unwrap();
     let Some(s) = s.as_mut() else { return };
-    let changed: Vec<String> = mods
+    // new, changed or deleted (a deleted one goes back to the PCSX2 pack's or the disc's)
+    let changed: HashSet<String> = mods
         .iter()
-        .filter(|(k, v)| s.o.mods.get(*k) != Some(v) && !s.packs.contains_key(*k))
-        .map(|(k, _)| k.clone())
+        .filter(|(k, v)| s.o.mods.get(*k) != Some(v))
+        .map(|(k, _)| k)
+        .chain(s.o.mods.keys().filter(|k| !mods.contains_key(*k)))
+        .filter(|k| !s.packs.contains_key(*k))
+        .cloned()
         .collect();
     s.o.mods = mods;
-    for key in changed {
-        let Some((names, ids)) = s.used.get(&key) else {
-            continue;
-        };
-        let Some(r) = s.o.load(&key, names) else {
-            continue;
-        };
-        info!("textures: reloaded {}", s.o.mods[&key].0.display());
-        for &id in ids {
-            if let Some(img) = images.get_mut(id) {
-                let disc = img.size_f32() / s.scale.get(&id).copied().unwrap_or(Vec2::ONE);
-                apply(img, r.clone());
-                s.scale.insert(id, img.size_f32() / disc);
-            }
-        }
+    if changed.is_empty() {
+        return;
     }
+    let ids = show(Some(s), MADE.lock().unwrap().get_or_insert_default(), &mut images, |k| changed.contains(k));
+    info!("textures: reloaded {} files, {} textures", changed.len(), ids.len());
+    SWAPPED.lock().unwrap().extend(ids);
 }
 
 /// A UI rect as its system set it (disc pixels) and as scaled to the replacement.
@@ -460,10 +585,12 @@ struct Scaled {
 fn ui_rects(mut commands: Commands, mut q: Query<(Entity, &mut ImageNode, Option<&mut Scaled>)>) {
     let s = STATE.lock().unwrap();
     let ours = OURS.lock().unwrap();
-    if s.is_none() && ours.is_none() {
-        return;
-    }
+    // off with nothing of ours: only the rects scaled while it was on go back to the disc's
+    let off = s.is_none() && ours.is_none();
     for (e, mut img, scaled) in &mut q {
+        if off && scaled.is_none() {
+            continue;
+        }
         let Some(rect) = img.rect else { continue };
         // a rect we wrote is still the scaled disc rect (scale may have changed since: hot reload)
         let disc = match &scaled {
@@ -530,7 +657,7 @@ mod tests {
         }
         let state = |o: &Order| {
             let (packs, pack_dirs) = packs_in(&root, o);
-            State { o: Overrides::scan(&root), packs, pack_dirs, used: HashMap::new(), scale: HashMap::new() }
+            State { o: Overrides::scan(&root), packs, pack_dirs, scale: HashMap::new() }
         };
         let px = |s: &State, k: &str| s.files(k, &[]).load().map(|p| p.2[0]);
         let s = state(&Order { order: vec!["hi".into(), "lo".into()], off: vec![] });
@@ -544,24 +671,42 @@ mod tests {
         let mut s = state(&Order { order: vec![], off: vec!["hi".into()] });
         let mut images = Assets::<Image>::default();
         let blank = || Image::new_fill(Extent3d { width: 1, height: 1, depth_or_array_layers: 1 }, bevy::render::render_resource::TextureDimension::D2, &[0; 4], bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb, bevy::asset::RenderAssetUsages::all());
-        let (a, b) = (images.add(blank()).id(), images.add(blank()).id());
-        s.used.insert("0000000000000001".into(), (vec![], vec![a]));
-        s.used.insert("0000000000000002".into(), (vec![], vec![b]));
+        let (a, b, c) = (images.add(blank()).id(), images.add(blank()).id(), images.add(blank()).id());
+        let mut made = MadeMap::new();
+        for (id, k) in [(a, 1), (b, 2), (c, 4)] {
+            made.insert(id, Made { key: format!("{k:016x}"), names: vec![], disc: None });
+        }
         let top = Order { order: vec!["hi".into(), "lo".into()], off: vec![] };
-        assert_eq!(s.repack(&mut images, None, &top), 1, "only the texture whose pack changed");
+        assert_eq!(s.repack(&mut made, &mut images, None, &top), [a], "only the texture whose pack changed");
         let img = images.get(a).unwrap();
         assert_eq!((img.width(), img.data.as_ref().unwrap()[0], s.scale[&a]), (2, 10, Vec2::new(2.0, 1.0)));
         assert_eq!(images.get(b).unwrap().width(), 1);
-        assert_eq!(s.repack(&mut images, None, &top), 0, "nothing new");
-        assert_eq!(s.repack(&mut images, Some(&root.join("mods/lo")), &top), 1, "an updated pack's own");
+        assert_eq!(s.repack(&mut made, &mut images, None, &top), Vec::<AssetId<Image>>::new(), "nothing new");
+        assert_eq!(s.repack(&mut made, &mut images, Some(&root.join("mods/lo")), &top), [b], "an updated pack's own");
         assert_eq!(images.get(b).unwrap().data.as_ref().unwrap()[0], 20);
+        let px_of = |images: &Assets<Image>, id| images.get(id).map(|i| (i.width(), i.data.as_ref().unwrap()[0])).unwrap();
+        // the setting off: the replaced ones show the disc's pixels again, the one never replaced is left alone
+        let mut ids = show(None, &mut made, &mut images, |_| true);
+        ids.sort();
+        let mut want = vec![a, b];
+        want.sort();
+        assert_eq!(ids, want);
+        assert_eq!([a, b, c].map(|id| px_of(&images, id)), [(1, 0), (1, 0), (1, 0)]);
+        assert!(made.values().all(|m| m.disc.is_none()), "no disc copy kept while nothing is replaced");
+        // and on again: back to the packs'
+        s.scale.clear();
+        assert_eq!(show(Some(&mut s), &mut made, &mut images, |_| true).len(), 2);
+        assert_eq!([a, b, c].map(|id| px_of(&images, id)), [(2, 10), (2, 20), (1, 0)]);
+        // both packs off: the texture-replacements/ file under each
+        assert_eq!(s.repack(&mut made, &mut images, None, &Order { order: vec![], off: vec!["hi".into(), "lo".into()] }).len(), 2);
+        assert_eq!([a, b].map(|id| px_of(&images, id)), [(2, 30), (2, 30)]);
         // a browser pack: its files only in memory
         let mem = Path::new("t_texlayers/mods/web");
         crate::modfs::add(&mem.join("mod.json"), br#"{"standard": 1, "kind": "textures", "id": "web", "name": "Web"}"#.to_vec().into());
         write_png(&root.join("web.png"), 1, 1, &[40; 4]).unwrap();
         crate::modfs::add(&mem.join("textures/x.0-0000000000000004.png"), std::fs::read(root.join("web.png")).unwrap().into());
         let (packs, _) = packs_in(Path::new("t_texlayers"), &Order::default());
-        let s = State { o: Overrides::default(), packs, pack_dirs: vec![], used: HashMap::new(), scale: HashMap::new() };
+        let s = State { o: Overrides::default(), packs, pack_dirs: vec![], scale: HashMap::new() };
         assert_eq!(s.files("0000000000000004", &[]).load(), Some((1, 1, vec![40; 4])));
         crate::modfs::remove(Path::new("t_texlayers"));
         std::fs::remove_dir_all(&root).ok();
