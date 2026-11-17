@@ -28,23 +28,25 @@ Work in progress. Building from source, modding by hand and development: [docs/D
 
 Taken from the remaster running on a retail disc (the art comes from the disc; none of it is in this repository).
 
-![A player celebrating a point](docs/screenshots/hero.jpg)
+<p align="center">
+  <img src="docs/screenshots/rally-grass.jpg" alt="A rally on a grass court" width="32%">
+  <img src="docs/screenshots/menu-chars.jpg" alt="Character selection with mod characters" width="32%">
+  <img src="docs/screenshots/menu-lobby.jpg" alt="Online lobby" width="32%">
+</p>
+
+<details>
+<summary><b>More screenshots</b></summary>
 
 | | |
 |---|---|
-| ![A rally on a grass court](docs/screenshots/rally-grass.jpg) | ![A rally on an autumn court](docs/screenshots/rally-autumn.jpg) |
-| ![Serving in doubles, with the score panel up](docs/screenshots/serve.jpg) | ![Celebrating at sunset on the river court](docs/screenshots/closeup-sunset.jpg) |
+| ![A player celebrating a point](docs/screenshots/hero.jpg) | ![Serving in doubles, with the score panel up](docs/screenshots/serve.jpg) |
+| ![A rally on an autumn court](docs/screenshots/rally-autumn.jpg) | ![Celebrating at sunset on the river court](docs/screenshots/closeup-sunset.jpg) |
 | ![A mod character on a mod court](docs/screenshots/mod-castle.jpg) | ![A mod character](docs/screenshots/mod-character.jpg) |
+| ![A mod court](docs/screenshots/mod-amusement.jpg) | ![Court selection with mod courts](docs/screenshots/menu-courts.jpg) |
 | ![Title screen](docs/screenshots/menu-title.jpg) | ![Main menu](docs/screenshots/menu-main.jpg) |
-| ![Character selection with mod characters](docs/screenshots/menu-chars.jpg) | ![Court selection with mod courts](docs/screenshots/menu-courts.jpg) |
-| ![Umpire selection with mod umpires](docs/screenshots/menu-umpires.jpg) | ![Online lobby](docs/screenshots/menu-lobby.jpg) |
-| ![Mod store](docs/screenshots/menu-browsemods.jpg) | ![A mod court](docs/screenshots/mod-amusement.jpg) |
-| ![On the beach court](docs/screenshots/closeup-beach.jpg) | ![On the indoor court](docs/screenshots/closeup-indoor.jpg) |
-| ![On the autumn court](docs/screenshots/closeup-autumn.jpg) | ![The stock cast and two mod characters](docs/screenshots/cast.jpg) |
-| ![Anya celebrating](docs/screenshots/celebrate-anya.jpg) | ![Carol celebrating](docs/screenshots/celebrate-carol.jpg) |
-| ![Cody celebrating](docs/screenshots/celebrate-cody.jpg) | ![Sophie celebrating](docs/screenshots/celebrate-sophie.jpg) |
-| ![Will celebrating](docs/screenshots/celebrate-will.jpg) | ![Doubles on a clay court on a PortMaster handheld](docs/screenshots/portmaster.png) |
-| ![On a phone](docs/screenshots/phone.jpg) | |
+| ![Umpire selection with mod umpires](docs/screenshots/menu-umpires.jpg) | ![Mod store](docs/screenshots/menu-browsemods.jpg) |
+
+</details>
 
 ## You must provide the game disc
 
