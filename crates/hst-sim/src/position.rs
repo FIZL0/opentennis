@@ -8,6 +8,7 @@
 #![deny(clippy::float_arithmetic)]
 
 use crate::ai::{formation::STAGGERED, style};
+use crate::build::Build;
 use crate::lines::{BASELINE, DOUBLES_SIDELINE, SERVICE_LINE, SINGLES_SIDELINE};
 use crate::ps2::{self, F, f32s};
 use crate::rng::{TWO_POW_M32, r15};
@@ -182,6 +183,9 @@ impl Formation {
     }
 }
 
+/// Frames (at 60 Hz) between the walk back's re-rolls after a failed roll.
+const RE_ROLL: i32 = 60;
+
 /// The walk back to the spot (or to the centre in singles).
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Return {
@@ -204,14 +208,28 @@ impl Return {
         Return { wait: 0, going: chance(roll, rate), there: false }
     }
 
-    /// One waiting frame: whether to walk toward `spot` now. A failed roll is re-rolled every 60 frames.
+    /// One waiting frame at 60 Hz: [`Return::step_in`] with the US build.
     pub fn step(&mut self, rate: i32, radius: f32, spot: [f32; 2], pos: [f32; 2], roll: &mut impl FnMut() -> u32) -> bool {
+        self.step_in(rate, radius, spot, pos, Build::Us, roll)
+    }
+
+    /// One waiting frame: whether to walk toward `spot` now. A failed roll is re-rolled every 60 frames (every 50
+    /// at 50 Hz: one of the European program's retimed AI waits).
+    pub fn step_in(
+        &mut self,
+        rate: i32,
+        radius: f32,
+        spot: [f32; 2],
+        pos: [f32; 2],
+        build: Build,
+        roll: &mut impl FnMut() -> u32,
+    ) -> bool {
         if self.there {
             return false;
         }
         if !self.going {
             self.wait += 1;
-            if self.wait >= 60 {
+            if self.wait >= build.frames(RE_ROLL) {
                 self.wait = 0;
                 self.going = chance(roll, rate);
             }
@@ -361,9 +379,38 @@ impl Single {
 
     /// One waiting frame: where to walk, if anywhere (a baseliner dashes to the middle at the reach depth).
     pub fn step(&mut self, c: &Court, me: [f32; 2], roll: &mut impl FnMut() -> u32) -> Option<[f32; 2]> {
+        self.step_in(c, me, Build::Us, roll)
+    }
+
+    /// [`Single::step`] in `build`'s timing (its walk back re-rolls on [`Return::step_in`]'s clock).
+    pub fn step_in(&mut self, c: &Court, me: [f32; 2], build: Build, roll: &mut impl FnMut() -> u32) -> Option<[f32; 2]> {
         if let Some(d) = self.dash {
             return Some(if self.net { d } else { self.net_spot(c, false) });
         }
-        self.back.step(c.rate, c.radius, self.spot, me, roll).then_some(self.spot)
+        self.back.step_in(c.rate, c.radius, self.spot, me, build, roll).then_some(self.spot)
+    }
+}
+
+#[cfg(test)]
+mod fifty_hz {
+    use super::*;
+
+    /// Frames until a walk back whose first roll failed rolls again (a passing roll), in `build`.
+    fn re_roll_after(build: Build) -> i32 {
+        let mut back = Return::new(50, &mut || 99 << 16);
+        assert!(!back.going);
+        (1..200)
+            .find(|_| {
+                back.step_in(50, 0.5, [0.0, 10.0], [0.0, 0.0], build, &mut || 0);
+                back.going
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn fifty_hz_walk_back_re_rolls_every_50_frames() {
+        assert_eq!(re_roll_after(Build::Us), 60);
+        assert_eq!(re_roll_after(Build::Europe), 50);
+        assert_eq!(re_roll_after(Build::Japan), 60);
     }
 }

@@ -3581,7 +3581,7 @@ fn ai_wait(g: &mut Game, i: usize) -> Option<V3> {
     }
     let pl = &mut g.players[i];
     let spot = pl.ai_form.spot;
-    let go = pl.ai_back.step(rate, radius, spot, at(&p), &mut roll);
+    let go = pl.ai_back.step_in(rate, radius, spot, at(&p), build, &mut roll);
     Some(if go { [spot[0], 0.0, spot[1]] } else { p.pos })
 }
 
@@ -3635,7 +3635,7 @@ fn ai_wait_singles(g: &mut Game, i: usize) -> Option<V3> {
         }
     }
     s.passed(at(&p), ball);
-    let go = s.step(&c, at(&p), &mut roll);
+    let go = s.step_in(&c, at(&p), g.build, &mut roll);
     g.players[i].ai_single = Some(s);
     Some(go.map_or(p.pos, |d| [d[0], 0.0, d[1]]))
 }

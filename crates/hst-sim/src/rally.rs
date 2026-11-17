@@ -89,8 +89,6 @@ const FALLBACK_ENTRY: i32 = 11;
 const WALK_SNAP: f32 = f32::from_bits(0x3a83_126f); // 0.001
 /// The ball's height (y down) the net check measures against: a net ball above this on the hitter's half isn't read.
 const NET_BALL: f32 = f32::from_bits(0xbf68_f5c3); // -0.91
-/// Gravity's share in one step of the landing's fly-on (about 9.8 / 60², the game's bits).
-const GRAVITY_STEP: f32 = f32::from_bits(0x3b32_6750);
 /// The dive check's height band, as multiples of the stroke height.
 const DIVE_LOW: f32 = 0.2;
 const DIVE_HIGH: f32 = 1.8;
@@ -546,7 +544,7 @@ impl Rally {
             while !(out[1] <= 0.0) {
                 let s = (F(v[1]) * v[1]).madd(v[0], v[0]).madd(v[2], v[2]).sqrt().0;
                 v = v.map(|c| (F::ZERO + c).msub(F(c) * s, w.drag).0);
-                v[1] = (F::ZERO + v[1]).msub(GRAVITY_STEP, w.gravity).0;
+                v[1] = (F::ZERO + v[1]).msub(b.build.gravity(), w.gravity).0;
                 for k in 0..4 {
                     out[k] = (F(out[k]) + v[k]).0;
                 }
@@ -1192,7 +1190,7 @@ impl Rally {
 
     /// The walk back to the spot: true when it walks this frame (`out` then heads there).
     fn walk_back(&mut self, b: &Body, w: &World, out: &mut Out, roll: &mut impl FnMut() -> u32) {
-        if self.back.step(self.rate, self.radius, [self.spot[0], self.spot[2]], [b.pos[0], b.pos[2]], roll) {
+        if self.back.step_in(self.rate, self.radius, [self.spot[0], self.spot[2]], [b.pos[0], b.pos[2]], b.build, roll) {
             out.stick = self.spot;
             b.walk(w, &mut out.stick, false);
         }
