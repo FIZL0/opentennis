@@ -24,7 +24,8 @@ System Settings → Privacy & Security → Open Anyway.
 `https://fizl0.github.io/apps/source.json` under Sources. You sign it
 with your own certificate, and updates arrive through the app.
 
-Work in progress. Building from source, modding by hand and development: [docs/DEVELOPING.md](docs/DEVELOPING.md).
+Work in progress. Building from source, modding by hand and development: [docs/DEVELOPING.md](docs/DEVELOPING.md); how
+it's made and what it's built on: [CREDITS.md](CREDITS.md).
 
 ## Screenshots
 
@@ -52,33 +53,16 @@ What you need:
 
 | | |
 |---|---|
-| **Disc** | Hot Shots Tennis, **US release, version 1.00, serial SCUS-97610** (PS2) |
+| **Disc** | Any region, version 1.00 (PS2): **Hot Shots Tennis** (US, SCUS-97610), **Everybody's Tennis** (Europe, SCES-54535) or **Minna no Tennis** (Japan, SCPS-15113) |
 | **Format** | A disc image (`.iso`) you made from **a disc you own** |
 | **Where** | Anywhere; the game asks for it the first time (the browser keeps it in private storage, nothing is uploaded) |
 
-- **Other regions don't work.** Everybody's Tennis (Europe), Minna no Tennis (Japan) and other versions have
-  different program data. The game checks the disc (`SYSTEM.CNF` boot file `SCUS_976.10` and the size and header of
-  `ZZBIN/GAME.BIN`) and refuses anything else with `unsupported disc`.
+- **Any region plays.** The game checks the disc and refuses other games or versions with `unsupported disc`.
+- **Have more than one?** Keep them in the same folder: Settings → Base Disc picks which one the game runs from,
+  Rules picks the US or Japanese game, and Voice Language offers every disc's voices.
 - **Don't ask for, share or commit disc images or anything extracted from them.** Nobody here can provide one.
 - **You don't need a PS2 BIOS, an emulator or any other files** to play. Those are only for the research tools
   (see [docs/DEVELOPING.md](docs/DEVELOPING.md)).
-
-## What works, what's missing
-
-**Plays like the original** (checked against recordings of the real game, frame for frame): ball flight, spin,
-bounces and the court, net, walls and props it hits; every shot (topspin, slice, lob, flat, drop, smash, serve),
-timing grades and each character's own shot data, reach and dives; the CPU players in singles and doubles; line
-calls, scoring, change of ends and the timing between points; weather and the courts' moving creatures.
-
-**Ours, made to look and feel right:** rendering (any resolution and aspect ratio, uncapped frame rate, upscaled
-texture packs), menus, settings, online play with rollback, touch controls, character/court/umpire/texture mods.
-
-**Not there yet:**
-- The original's second match camera, Set Handicap and Offbeat Rules.
-- Let serves aren't proven against the real game yet.
-- Shadows are sharper than the PS2's in the "Original" look.
-
-The open list is [plan/TODO.md](plan/TODO.md); how it's made and what it's built on: [CREDITS.md](CREDITS.md).
 
 ## Controls
 
