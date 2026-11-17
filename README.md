@@ -29,9 +29,9 @@ Work in progress. Building from source, modding by hand and development: [docs/D
 Taken from the remaster running on a retail disc (the art comes from the disc; none of it is in this repository).
 
 <p align="center">
-  <img src="docs/screenshots/rally-grass.jpg" alt="A rally on a grass court" width="32%">
-  <img src="docs/screenshots/menu-chars.jpg" alt="Character selection with mod characters" width="32%">
-  <img src="docs/screenshots/menu-lobby.jpg" alt="Online lobby" width="32%">
+  <img src="docs/screenshots/hero.jpg" alt="A player celebrating a point" width="32%">
+  <img src="docs/screenshots/serve.jpg" alt="Serving in doubles, with the score panel up" width="32%">
+  <img src="docs/screenshots/mod-castle.jpg" alt="A mod character on a mod court" width="32%">
 </p>
 
 <details>
@@ -39,9 +39,9 @@ Taken from the remaster running on a retail disc (the art comes from the disc; n
 
 | | |
 |---|---|
-| ![A player celebrating a point](docs/screenshots/hero.jpg) | ![Serving in doubles, with the score panel up](docs/screenshots/serve.jpg) |
+| ![A rally on a grass court](docs/screenshots/rally-grass.jpg) | ![Character selection with mod characters](docs/screenshots/menu-chars.jpg) |
 | ![A rally on an autumn court](docs/screenshots/rally-autumn.jpg) | ![Celebrating at sunset on the river court](docs/screenshots/closeup-sunset.jpg) |
-| ![A mod character on a mod court](docs/screenshots/mod-castle.jpg) | ![A mod character](docs/screenshots/mod-character.jpg) |
+| ![Online lobby](docs/screenshots/menu-lobby.jpg) | ![A mod character](docs/screenshots/mod-character.jpg) |
 | ![A mod court](docs/screenshots/mod-amusement.jpg) | ![Court selection with mod courts](docs/screenshots/menu-courts.jpg) |
 | ![Title screen](docs/screenshots/menu-title.jpg) | ![Main menu](docs/screenshots/menu-main.jpg) |
 | ![Umpire selection with mod umpires](docs/screenshots/menu-umpires.jpg) | ![The stock players and two mod characters, close up](docs/screenshots/cast.jpg) |
