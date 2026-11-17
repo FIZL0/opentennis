@@ -92,7 +92,7 @@ fn voiced(key: &str) -> bool {
 /// The chosen language (a [`LANGS`] index; 0 the main disc's voices).
 static CHOSEN: AtomicU8 = AtomicU8::new(0);
 
-/// The language banks load in from now on (the next match; the menus' previews too).
+/// The language every voice bank is heard in from now on, mid-match too ([`Dub`]).
 pub fn choose(lang: u8) {
     CHOSEN.store(lang.min(LANGS.len() as u8 - 1), Ordering::Relaxed);
 }
@@ -235,16 +235,39 @@ pub fn dub(bank: SoundBank, hd: &str) -> SoundBank {
 }
 
 /// [`dub`] in language `lang`.
+/// [`dub`] in language `lang`: that one's take is read now, the others the first time they're heard.
 pub fn dub_in(mut bank: SoundBank, hd: &str, lang: u8) -> SoundBank {
     let k = key(hd);
-    if lang == 0 || !voiced(&k) {
-        return bank;
-    }
-    if let Some((lhd, lbd)) = find(lang, &k).filter(|(lhd, _)| same_cues(&bank.hd, lhd)) {
-        bank.language = Some(Arc::new(SoundBank { hd: lhd, bd: lbd, wav: Default::default(), takes: Default::default(), stream: None, language: None }));
-        bevy::log::info!("voices: {k} in {}", LANGS[lang as usize].name);
+    if voiced(&k) {
+        bank.language.key = k;
+        bank.language.take(&bank.hd, lang);
     }
     bank
+}
+
+/// A main-disc voice bank's takes in the other languages (`SoundBank::language`), each read from the packs the first
+/// time it's asked for, so a Voice Language change is heard at once, mid-match too.
+#[derive(Default)]
+pub struct Dub {
+    /// The bank's [`key`]; empty on a bank with no other languages.
+    key: String,
+    takes: [std::sync::OnceLock<Option<Arc<SoundBank>>>; LANGS.len()],
+}
+
+impl Dub {
+    /// Language `lang`'s take of the bank whose header is `hd`, where a pack has it and it plays the same cues.
+    pub fn take(&self, hd: &[u8], lang: u8) -> Option<&Arc<SoundBank>> {
+        if lang == 0 || self.key.is_empty() {
+            return None;
+        }
+        self.takes[lang as usize]
+            .get_or_init(|| {
+                let (lhd, lbd) = find(lang, &self.key).filter(|(lhd, _)| same_cues(hd, lhd))?;
+                bevy::log::info!("voices: {} in {}", self.key, LANGS[lang as usize].name);
+                Some(Arc::new(SoundBank { hd: lhd, bd: lbd, wav: Default::default(), takes: Default::default(), stream: None, language: Default::default() }))
+            })
+            .as_ref()
+    }
 }
 
 /// Reads the voice banks off release `iso` into `out` (a [`MAGIC`] pack); the languages it brought. A disc this
@@ -563,14 +586,14 @@ mod tests {
                     let v = (b'a' + b as u8 + if court == 7 { 2 } else { 0 }) as char;
                     let dubbed = dub_in(bank, &format!("data/sound/VOICE/{set}_vc{c:02}{v}.hd"), lang);
                     assert_eq!(dubbed.hd, main_hd, "the main bank stays");
-                    if dubbed.language.is_none() {
+                    if dubbed.language.take(&dubbed.hd, lang).is_none() {
                         misses.push(format!("{} voice {c} {players}p court {court} {v}", LANGS[lang as usize].code));
                     }
                 }
             }
             for n in 0..5u8 {
-                let bank = umpire_bank(&mut us, n, 0).unwrap();
-                if dub_in(bank, &format!("data/sound/UMPIRE/gag_vc{n:02}a.hd"), lang).language.is_none() {
+                let bank = dub_in(umpire_bank(&mut us, n, 0).unwrap(), &format!("data/sound/UMPIRE/gag_vc{n:02}a.hd"), lang);
+                if bank.language.take(&bank.hd, lang).is_none() {
                     misses.push(format!("{} umpire {n}", LANGS[lang as usize].code));
                 }
             }
@@ -582,7 +605,9 @@ mod tests {
         let sound = Sound::test(&mut us);
         let main = Arc::new(umpire_bank(&mut us, 0, 0).unwrap());
         let de = Arc::new(dub_in(umpire_bank(&mut us, 0, 0).unwrap(), "data/sound/UMPIRE/gag_vc00a.hd", 4));
-        let german = de.language.clone().unwrap();
+        let german = de.language.take(&de.hd, 4).unwrap().clone();
+        // (heard in the chosen language: German for these plays)
+        choose(4);
         let call = |key| sound::Play { slot: 5, program: 0, key, volume: 0x80, speed: 1.0 };
         let mut differ = 0;
         for key in 0..14 {
@@ -592,8 +617,12 @@ mod tests {
         assert!(differ > 0, "the German takes are other lengths, so the timing test means something");
         let id = sound.play_centre(&de, call(0));
         assert!(sound.bank_of(id).is_some_and(|b| Arc::ptr_eq(&b, &german)), "the call is heard in German");
+        // back to the disc's English: heard at once, no bank loaded again
+        choose(0);
+        let id = sound.play_centre(&de, call(0));
+        assert!(sound.bank_of(id).is_some_and(|b| Arc::ptr_eq(&b, &de)), "the disc's again");
         let id = sound.play_centre(&main, call(0));
-        assert!(sound.bank_of(id).is_some_and(|b| Arc::ptr_eq(&b, &main)), "undubbed: the disc's");
+        assert!(sound.bank_of(id).is_some_and(|b| Arc::ptr_eq(&b, &main)), "the disc's");
     }
 
     /// M165: Add Voices' reading: the game's own disc is turned away with words for the player; the Japanese disc

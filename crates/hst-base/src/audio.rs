@@ -50,9 +50,9 @@ pub struct SoundBank {
     pub takes: std::collections::HashMap<(usize, usize), (Arc<[i16]>, u32)>,
     /// M8f6: a court mod's BGM, a looping wav stream played in the BGM's place (`Sound::music`); `None` on disc banks.
     pub stream: Option<Arc<Track>>,
-    /// added3: the chosen voice language's take of this bank (`voices::dub`), heard in its place by every play; the
-    /// match's timing (`centre_frames`, `take_ticks`) still plays this one. `None`: the disc's own voices.
-    pub language: Option<Arc<SoundBank>>,
+    /// added3: this bank's takes in the other voice languages (`voices::dub`): the chosen one's is heard in its place
+    /// by every play; the match's timing (`centre_frames`, `take_ticks`) still plays this one.
+    pub language: crate::voices::Dub,
 }
 
 /// M8f6: a looping PCM16 stream (a court mod's BGM or ambience layer): interleaved samples, `channels` a frame, its
@@ -100,7 +100,7 @@ impl SoundBank {
         let data = iso.read(xb).ok()?;
         let arc = Archive::parse(&data).ok()?;
         let read = |name: &str| arc.read(arc.entries.iter().find(|e| e.name.replace('\\', "/").ends_with(name))?).ok();
-        Some(Self { hd: read(hd)?, bd: read(&hd.replace(".hd", ".bd"))?, wav: Default::default(), takes: Default::default(), stream: None, language: None })
+        Some(Self { hd: read(hd)?, bd: read(&hd.replace(".hd", ".bd"))?, wav: Default::default(), takes: Default::default(), stream: None, language: Default::default() })
     }
 
     /// A BGM: bank `data/sound/BGM/<dir>/<name>.hd` and the MIDI file beside it in `SND/BGM/<NAME>.XB`.
@@ -122,7 +122,7 @@ impl SoundBank {
             }
         }
         let wav: std::collections::HashMap<_, _> = wav.into_iter().map(|(p, mut ks)| { ks.sort_by_key(|k| k.0); (p, ks.into_iter().map(|k| k.1).collect()) }).collect();
-        (!wav.is_empty()).then(|| Self { hd: Vec::new(), bd: Vec::new(), wav, takes: Default::default(), stream: None, language: None })
+        (!wav.is_empty()).then(|| Self { hd: Vec::new(), bd: Vec::new(), wav, takes: Default::default(), stream: None, language: Default::default() })
     }
 
     /// M8f3: `self` (a disc umpire's bank) with an umpire mod's calls `dir/<program>_<key>.wav` as its [`takes`],
@@ -646,7 +646,7 @@ impl Sound {
     pub fn endless(&self) -> u64 {
         let mut m = self.0.lock().unwrap();
         let id = m.id();
-        let bank = Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: None, language: None });
+        let bank = Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: None, language: Default::default() });
         m.playing.push(Playing { id, bank, events: vec![KeyOn { frame: u32::MAX, channel: 0, note: 0, velocity: 0, set: 0 }], next: 0, frame: 0, level: default(), scale: 0x1000 });
         id
     }
@@ -844,7 +844,7 @@ impl Sound {
 
 /// added3: what a play of `bank` is heard from: its voice language's take (`SoundBank::language`), else itself.
 fn dubbed(bank: &Arc<SoundBank>) -> &Arc<SoundBank> {
-    bank.language.as_ref().unwrap_or(bank)
+    bank.language.take(&bank.hd, crate::voices::chosen()).unwrap_or(bank)
 }
 
 #[derive(Asset, TypePath)]
@@ -1390,7 +1390,7 @@ mod tests {
         assert!(frames == 6 && peak > 0.1 && peak < 1.0);
         // with the donor's disc bank beside the wavs (`mod_match::apply`), a program the mod lacks plays the disc's
         let disc = voice_bank(&mut iso, 0, 2, 1, false).unwrap();
-        let both = Arc::new(SoundBank { hd: disc.hd, bd: disc.bd, wav: bank.wav.clone(), takes: Default::default(), stream: None, language: None });
+        let both = Arc::new(SoundBank { hd: disc.hd, bd: disc.bd, wav: bank.wav.clone(), takes: Default::default(), stream: None, language: Default::default() });
         assert_ne!(sound.play(&both, 2, 0, Level { seq: [127; 2], bank: 127, pan: [0x40; 3], ..default() }, 0x1000), 0);
     }
 
@@ -1558,7 +1558,7 @@ mod tests {
         let frames: Vec<[i16; 2]> = (0..24_000).map(|i| if i >= 19_200 { [i16::MAX; 2] } else if (i / 50) % 2 == 0 { [8000, -8000] } else { [-8000, 8000] }).collect();
         let track = Arc::new(Track::read(&wav(&frames, 48_000), [4800, 19_200], Track::BGM_RMS).unwrap());
         assert_eq!((track.channels, track.rate, track.at), (2, 48_000, [4800, 19_200]));
-        let bank = Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: Some(track.clone()), language: None });
+        let bank = Arc::new(SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: Some(track.clone()), language: Default::default() });
         let mix = Mix { pitch: Vec::new(), pan: Vec::new(), gain: Vec::new(), stereo: Default::default(), bank_volumes: Vec::new(), voices: Vec::new(), playing: Vec::new(), music: None, ids: 0, tags: Tags::default(), followed: Vec::new(), vol: Vol::default(), menu: [0; 2], loops: Vec::new(), emotes: [0; 4] };
         let sound = Sound(Arc::new(Mutex::new(mix)));
         let render = |n: usize| {

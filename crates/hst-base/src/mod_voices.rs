@@ -106,7 +106,7 @@ pub fn bank(default: &Path, lang: Option<&Path>) -> Option<SoundBank> {
             (p, ks.into_iter().map(|k| k.1).collect())
         })
         .collect();
-    (!wav.is_empty()).then(|| SoundBank { hd: Vec::new(), bd: Vec::new(), wav, takes: Default::default(), stream: None, language: None })
+    (!wav.is_empty()).then(|| SoundBank { hd: Vec::new(), bd: Vec::new(), wav, takes: Default::default(), stream: None, language: Default::default() })
 }
 
 /// An umpire mod's calls over its donor's bank: `bank`'s [`SoundBank::takes`] with every call the default folder
@@ -195,7 +195,7 @@ mod tests {
         let none = bank(&d.join("voice"), Some(&d.join("voice-de"))).unwrap();
         assert_eq!(first(&none, 7), vec![1, 2]);
 
-        let mut ump = SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: None, language: None }.with_takes(&d.join("voice")).0;
+        let mut ump = SoundBank { hd: Vec::new(), bd: Vec::new(), wav: Default::default(), takes: Default::default(), stream: None, language: Default::default() }.with_takes(&d.join("voice")).0;
         assert_eq!(over_takes(&mut ump, &d.join("voice"), &d.join("voice-fr")), 2);
         let mut calls: Vec<_> = ump.takes.iter().map(|(k, v)| (*k, v.0[0])).collect();
         calls.sort();

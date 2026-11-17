@@ -242,7 +242,7 @@ fn about(o: Opt) -> &'static str {
         MatchMusic => "Play each court's music during a match.",
         EmoteVoices => "Hear the players' voice lines when they emote. Off mutes them on this device only; the emote itself still plays.",
         VoiceLanguage if cfg!(target_arch = "wasm32") => "The players', the umpire's and the crowd's voices in another release's language: the desktop and phone apps can take them from the European or Japanese disc.",
-        VoiceLanguage => "The players', the umpire's and the crowd's voices in another release's language, from the next match. Gameplay → Add Disc brings the languages in. Only you hear it: the match plays exactly the same, online too.",
+        VoiceLanguage => "The players', the umpire's and the crowd's voices in another release's language, heard at once. Gameplay → Add Disc brings the languages in. Only you hear it: the match plays exactly the same, online too.",
         AddVoices if cfg!(target_os = "ios") => "Copies another release's voices into the game, then they're on Voice Language. In the Files app, put the European (Everybody's Tennis: English, French, Italian, German, Spanish, Japanese) or Japanese (Minna no Tennis) disc image in Hot Shots Tennis → voices, then choose Add Voices here. It takes a few seconds; afterwards the image can go.",
         AddVoices => "Choose the European (Everybody's Tennis: English, French, Italian, German, Spanish, Japanese) or Japanese (Minna no Tennis) disc image: the game copies its voices (about 25 MB a language) and they're on Voice Language. It takes a few seconds; afterwards the image can go.",
         Downloads => "Download mods' upscaled textures from the mod store (most of a mod's size).",
