@@ -359,7 +359,8 @@ pub fn log_layer(_: &mut App) -> Option<BoxedLayer> {
 /// No disc yet: the page that says where the ISO goes (`Startup` of the app's wait for one; the menu follows it).
 pub fn no_disc(mut commands: Commands) {
     eprintln!("no disc image in Documents");
-    commands.spawn((Camera2d, Camera { clear_color: ClearColorConfig::Custom(Color::srgb(0.05, 0.12, 0.2)), ..default() }));
+    // Msaa::Off: the default 4x color texture met a 1x depth texture in the 2D pass, a validation error that quit the app
+    commands.spawn((Camera2d, Camera { clear_color: ClearColorConfig::Custom(Color::srgb(0.05, 0.12, 0.2)), ..default() }, Msaa::Off));
     commands
         .spawn(Node { width: percent(100), height: percent(100), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() })
         .with_child((
