@@ -1,19 +1,1 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
-- The Japanese disc (Minna no Tennis) can now be played: matches follow that version's own rules (serves timed like ground strokes, no special serve or counter shots, the red landing marker on serves too), and the menus show plain English where that disc has no English text
-- The European disc (SCES-54535) now plays offline at 60 Hz. On its own its shots are worked out again for 60 Hz, very close to the original but not exact (the main menu says so); with your US disc image in the same folder it plays exactly like the US game while keeping the European menus, text and voices
-- New Settings → Gameplay → Rules: when another release's disc is in the same folder as yours, choose whether matches play the US game or the Japanese one. Online, the lobby always plays its host's choice
-- New Settings → Gameplay → Base Disc on computers (when you have more than one release's disc): choose which disc the game runs from for its menus, text and default rules; the game restarts on it and the others stay available for Rules and Voice Language
-- New Voice Language setting (Settings → Sound): players, umpire and crowd can speak English (Europe), French, Italian, German, Spanish or Japanese from the European or Japanese disc. Add a disc with Settings → Sound → Add Voices, or just keep its image in the same folder as your game disc (on phones and tablets, the game's folder) and it's found at start. Add-on characters and umpires with lines in other languages follow it too. Only you hear it and the match plays the same
-- Online, US and Japanese disc players can now play each other: the match plays by the host's disc's rules, the lobby list shows whose rules a lobby plays, and joining one with other rules shows how they differ. Everyone keeps their own voices and text, and a player who drops out can rejoin
-- Online, discs are now checked by whether they play the same game as the host's rather than being byte-identical copies, so disc images are checked too, and a disc that plays differently is turned away with a message naming both discs
-- New Settings → Controls → Swap: trades Cross and Circle (A and B) everywhere, in matches and menus; the on-screen button icons follow
-- New Settings → Gameplay → Match Rumble (off by default): your controller rumbles on a mistimed or framed hit, ticks on a sweet-spot hit, and thumps when a hard serve lands or the ball hits you
-- Phones and tablets: the touch controls' Vibration setting moved to the new Gameplay page in Settings
-- The game uses far less CPU during matches, especially on many-core desktops, with steadier frame pacing; menus and the pause screen draw less while nothing moves
-- Phones use less battery and run cooler: graphics presets stop at 60 fps on iPhone and Android (90 or 120 only if you pick them), and Low Power Mode / battery saver holds the game to 60
-- Computer players now play more exactly like the original: they settle their serve as the ball is tossed, their serves fly as the original's do, their returns and rally shots aim exactly where the original's do, and a player who guessed the serve's direction aims its return as far as the original does
-- Players no longer slide too far sideways stepping into a ground stroke or volley
-- Doubles: computer players start every point from the original's court positions, so they cover the same side and move back as in the original game
-- When a serve swing misses the toss, the dropped ball now bounces with its sound
-- iPhone/iPad: the game no longer crashes on first launch before a disc image has been added
-- Players' faces no longer go blank after choosing another release under Rules
