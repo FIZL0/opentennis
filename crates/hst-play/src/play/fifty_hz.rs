@@ -488,11 +488,11 @@ mod tests {
         serve_to_return("us", &want, &got, 219, 290, 298);
         // to the tick before the server's side strikes it back (players part at 318 first: M185)
         return_flight("us", &want, &got, 298, 370);
-        // the returner's slide into the return (the contact IK's body step, 8 ticks from 291): the game solves it for
-        // its own predicted contact point, a few millionths off the ball play predicts, so it lands within 1e-5
+        // the returner's slide into the return (the contact IK's body step, 8 ticks from 291): solved for the path
+        // record's contact, a few millionths off the ball that arrives, bit for bit
         for k in 291..=298 {
             let (w, g) = (want[k].1[1], got[k + 1].1[1]);
-            assert!(w[2] == g[2] && (w[0] - g[0]).abs() < 1e-5, "us tick {k}: the returner's slide {w:?} vs {g:?}");
+            assert!(w[2] == g[2] && w[0] == g[0], "us tick {k}: the returner's slide {w:?} vs {g:?}");
         }
         let Ok(d) = hst_data::fixture::read("fixtures/p3b/rng_s05.bin") else { return };
         let size = 4 + 8 + 4 * 0x9d0;

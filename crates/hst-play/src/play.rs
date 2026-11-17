@@ -2652,6 +2652,20 @@ fn predicted_path(g: &Game, frames: usize) -> Vec<PathPoint> {
     path
 }
 
+/// The path the contact searches read (the press, dive, auto-approach and whiff): the match's path record
+/// (`doubles_ai::record`, made at the launch and grown since) from this frame's entry on, at most `frames` entries,
+/// shorter where the record ends and empty when it's stopped. Its predictor bounces off the flat court where the
+/// live ball bounces off the court mesh, so after the first bounce it is a few ulps from the ball that arrives, and
+/// the searches aim at it, not at the live ball. Heights come back down (the record keeps them up).
+fn recorded_path(g: &Game, frames: usize) -> Vec<PathPoint> {
+    let window = g.doubles_ai.record.window();
+    window
+        .iter()
+        .take(frames)
+        .map(|b| PathPoint { pos: [b.pos[0], -b.pos[1], b.pos[2]], bounces: b.bounces })
+        .collect()
+}
+
 /// Whether `i`'s ball is the other team's and in play. As the original's search, nothing about `i`'s partner: a
 /// teammate may lock onto a ball its partner is swinging or diving at (a dive falling short of it, B479); the
 /// first strike cancels every other lock (`cancel_locks`), so there is never a second stroke.
@@ -2666,7 +2680,7 @@ fn find_contact(g: &Game, i: usize) -> Option<Contact> {
         return None;
     }
     let p = &g.players[i];
-    let path = predicted_path(g, g.reaches[i].grades.len());
+    let path = recorded_path(g, swing::whiff_horizon(&g.reaches[i]));
     let s = swing::search(&g.reaches[i], &path, p.pos, p.end, p.kind)?;
     let (grade, offset) = offbeat::sweet(g, g.reaches[i].grades[s.frame], s.frame as i32 - SWEET_FRAME);
     Some(Contact { frames: s.frame as u32, swing: s, grade, offset, cancelled: false })
@@ -2678,7 +2692,11 @@ fn find_contact(g: &Game, i: usize) -> Option<Contact> {
 fn approach(g: &Game, i: usize) -> Option<(usize, Vec2)> {
     let p = &g.players[i];
     let r = &g.reaches[i];
-    let path = predicted_path(g, r.grades.len() + 20);
+    let path = recorded_path(g, r.grades.len() + 20);
+    // an empty record (stopped): no approach
+    if path.is_empty() {
+        return None;
+    }
     let mate = (g.players.len() == 4).then(|| g.players[i ^ 2].pos);
     let (s, n, size) = (p.stats, g.players.len() as i32, p.body.size());
     let (mut run, mut stamina, mut tick) = (if p.body.running { p.body.run } else { 0 }, p.body.stamina, p.body.stamina_tick);
@@ -2702,7 +2720,8 @@ fn find_dive(g: &Game, i: usize) -> Option<swing::Dive> {
     if !theirs(g, i) || !p.dive_run {
         return None;
     }
-    let path = predicted_path(g, swing::DIVE_HORIZON);
+    // the press's window (at least 16 entries); the dive looks at entries 5 up to 16 of it
+    let path = recorded_path(g, swing::whiff_horizon(&g.reaches[i]));
     let f = p.body.face.dir;
     swing::dive(
         &g.reaches[i],
@@ -3200,7 +3219,7 @@ fn input_off(g: &Game) -> bool {
 fn whiff(g: &mut Game, i: usize, miss: bool, quiet: bool) {
     // the hitter's own search horizon, at least 16 frames (only a mod's grade table is shorter)
     let path = if miss {
-        predicted_path(g, swing::whiff_horizon(&g.reaches[i]))
+        recorded_path(g, swing::whiff_horizon(&g.reaches[i]))
     } else {
         Vec::new()
     };
