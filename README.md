@@ -44,7 +44,7 @@ Taken from the remaster running on a retail disc (the art comes from the disc; n
 | ![A mod character on a mod court](docs/screenshots/mod-castle.jpg) | ![A mod character](docs/screenshots/mod-character.jpg) |
 | ![A mod court](docs/screenshots/mod-amusement.jpg) | ![Court selection with mod courts](docs/screenshots/menu-courts.jpg) |
 | ![Title screen](docs/screenshots/menu-title.jpg) | ![Main menu](docs/screenshots/menu-main.jpg) |
-| ![Umpire selection with mod umpires](docs/screenshots/menu-umpires.jpg) | ![Mod store](docs/screenshots/menu-browsemods.jpg) |
+| ![Umpire selection with mod umpires](docs/screenshots/menu-umpires.jpg) | ![The stock players and two mod characters, close up](docs/screenshots/cast.jpg) |
 
 </details>
 
