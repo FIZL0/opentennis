@@ -416,6 +416,7 @@ fn start(argv: Vec<String>) {
     if let Ok(t) = store::read_to_string(play::main_menu::Settings::path(&args.iso)) {
         t.lines().filter_map(|l| l.split('#').next()?.split_once('=')).for_each(|(k, v)| _ = mods_textures::setting(k, v));
     }
+    textures::disc(&args.iso);
     if upscale && !gfx.original {
         textures::init(&args.iso);
     }
@@ -712,6 +713,7 @@ fn no_disc_mode(app: &mut App) {
         eprintln!("disc image found: {}", iso.display());
         args.iso = iso.to_string_lossy().into_owned();
         handshake::set_disc(&args.iso);
+        textures::disc(&args.iso);
         releases::start(&args.iso, store::path(&args.iso, "voices"));
         next.0 = Some(mode::Mode::new(menu_mode));
     };
