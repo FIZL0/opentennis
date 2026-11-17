@@ -320,7 +320,7 @@ pub fn plugin<Match: Resource>(app: &mut App) {
     }
     app.init_resource::<Graphics>()
         .add_systems(PreStartup, mesh_detail)
-        .add_systems(First, mesh_detail)
+        .add_systems(First, (mesh_detail, crate::lod::live).chain())
         .add_systems(PostUpdate, (window, lights, msaa.after(bevy::camera::CameraUpdateSystems), fps_counter, software_gpu))
         // B707: a Software start that gets going
         .add_systems(Last, crate::render_mode::confirm)

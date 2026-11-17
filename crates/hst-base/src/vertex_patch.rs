@@ -135,6 +135,14 @@ pub fn send(p: &Patched, changed: &[usize], queued: &mut Queued) {
     }
 }
 
+/// Queues every vertex of `p`: its mesh went back to the GPU as its asset holds it (`lod::live`).
+pub fn send_all(p: &Patched, queued: &mut Queued) {
+    let n = p.packed.len() / p.stride.max(1);
+    if n > 0 {
+        p.queue(0, n - 1, queued);
+    }
+}
+
 /// The main world's queued writes, moved to the render world.
 fn extract(mut main: ResMut<MainWorld>, mut queued: ResMut<Queued>) {
     queued.append(&mut main.resource_mut::<Queued>());

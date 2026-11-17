@@ -117,9 +117,9 @@ pub fn load(
                 .with_inserted_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, VertexAttributeValues::Uint16x4(v.joints))
                 .with_inserted_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, v.weights)
                 .with_inserted_indices(Indices::U32(v.idx));
-            crate::lod::detail(&mut mesh, &[]);
+            let kept = crate::lod::detail(&mut mesh, &[]);
             crate::cull::bound(&mut mesh, std::iter::empty::<&[[f32; 3]]>());
-            parts.push((meshes.add(mesh), handles[p.material().index().unwrap_or(handles.len() - 1)].clone(), false));
+            parts.push((crate::lod::keep(meshes, mesh, kept), handles[p.material().index().unwrap_or(handles.len() - 1)].clone(), false));
         }
     }
     let motions = clips(&doc, &blob, &skeleton).map_err(ctx)?;

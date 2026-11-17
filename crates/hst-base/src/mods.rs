@@ -1643,7 +1643,7 @@ pub fn load_with(
                 .with_inserted_indices(Indices::U32(v.idx));
             // B364: fewer triangles at Graphics → Mesh below 100 %, the morphing (face) vertices kept
             let moving: Vec<bool> = (0..count).map(|i| v.morph.iter().any(|t| t.1.get(i).is_some_and(|d| *d != [0.0; 3]))).collect();
-            crate::lod::detail(&mut mesh, &moving);
+            let kept = crate::lod::detail(&mut mesh, &moving);
             let mut cpu_targets = None;
             if cpu_face {
                 let zero = vec![[0.0; 3]; count];
@@ -1665,7 +1665,7 @@ pub fn load_with(
             nodes.sort();
             nodes.dedup();
             part_nodes.push((nodes, false));
-            let mesh = meshes.add(mesh);
+            let mesh = crate::lod::keep(meshes, mesh, kept);
             crate::mod_debug::part(mesh.id(), part_name, count, if cpu_face { "cpu" } else if morphed { "gpu" } else { "none" });
             if let Some(t) = cpu_targets {
                 crate::cpu_morph::keep(mesh.id(), t);
@@ -1782,8 +1782,8 @@ fn rigid(
                 .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, v.uv)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, v.col)
                 .with_inserted_indices(Indices::U32(v.idx));
-            crate::lod::detail(&mut mesh, &[]);
-            out.push((meshes.add(mesh), rh[p.material().index().unwrap_or(rh.len() - 1)].clone()));
+            let kept = crate::lod::detail(&mut mesh, &[]);
+            out.push((crate::lod::keep(meshes, mesh, kept), rh[p.material().index().unwrap_or(rh.len() - 1)].clone()));
         }
     }
     Ok(out)

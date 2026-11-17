@@ -1002,16 +1002,14 @@ fn parts_at<M: Asset>(model: &mdl::Model, handles: &[Handle<M>], meshes: &mut im
             .with_inserted_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, bevy::mesh::VertexAttributeValues::Uint16x4(joint))
             .with_inserted_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, weight)
             .with_inserted_indices(Indices::U32(idx));
-        if detail {
-            crate::lod::detail(&mut mesh, &moving);
-        }
+        let kept = if detail { crate::lod::detail(&mut mesh, &moving) } else { None };
         let morphed = morph.iter().flatten().any(|d| *d != [0.0; 3]);
         if morphed {
             let attrs = morph.iter().flat_map(|t| (0..n).map(|v| bevy::mesh::morph::MorphAttributes::new(Vec3::from(t.get(v).copied().unwrap_or_default()), Vec3::ZERO, Vec3::ZERO)));
             mesh.set_morph_targets(attrs.collect());
         }
         crate::cull::bound(&mut mesh, morph.iter().map(|t| &t[..]));
-        parts.push((meshes.add(mesh), handles.get(m).cloned().unwrap_or_default(), morphed));
+        parts.push((crate::lod::keep(meshes, mesh, kept), handles.get(m).cloned().unwrap_or_default(), morphed));
     }
     parts
 
@@ -1380,8 +1378,8 @@ pub fn disc_racket(
                 .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, col)
                 .with_inserted_indices(Indices::U32(idx));
-            crate::lod::detail(&mut mesh, &[]);
-            racket.push((meshes.add(mesh), rh.get(mi).cloned().unwrap_or_default()));
+            let kept = crate::lod::detail(&mut mesh, &[]);
+            racket.push((crate::lod::keep(meshes, mesh, kept), rh.get(mi).cloned().unwrap_or_default()));
         }
     }
 
@@ -1431,8 +1429,8 @@ pub fn worn(
             .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
             .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, col)
             .with_inserted_indices(Indices::U32(idx));
-        crate::lod::detail(&mut mesh, &[]);
-        out.push((meshes.add(mesh), h.clone(), WornGs(draws)));
+        let kept = crate::lod::detail(&mut mesh, &[]);
+        out.push((crate::lod::keep(meshes, mesh, kept), h.clone(), WornGs(draws)));
     }
     Ok(out)
 }

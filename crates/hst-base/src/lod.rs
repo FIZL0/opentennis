@@ -4,26 +4,123 @@
 //! `noise.rs`'s moved-vertex indices) stays as it is and every kept vertex keeps its own attributes exactly.
 //! Vertices on an open border (a material's edge), on a seam (one position, several vertices: UV or normal splits)
 //! or that a morph target moves (faces) never move, so parts don't crack apart and faces keep their shapes.
-//! At 100 % (the default) nothing runs: the meshes are the disc's or the mod's own.
+//! At 100 % (the default) nothing runs: the meshes are the disc's or the mod's own. A change to the setting
+//! reduces the loaded meshes again from their full triangle lists, in place under the same handles ([`live`]).
 
 use bevy::mesh::{Indices, VertexAttributeValues};
+use bevy::prelude::{AssetEvent, AssetId, Assets, Handle, Local, MessageReader, Real, Res, ResMut, Time};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 
-/// `mesh` (a triangle list) at the Mesh setting (`graphics::MESH`); `locked` as in [`reduce`].
-pub fn detail(mesh: &mut bevy::mesh::Mesh, locked: &[bool]) {
-    let pc = crate::graphics::MESH.load(std::sync::atomic::Ordering::Relaxed);
-    if pc >= 100 {
+/// `mesh` (a triangle list) at the Mesh setting (`graphics::MESH`); `locked` as in [`reduce`]. Returns what [`keep`]
+/// needs to follow the setting once the mesh is an asset (None for a mesh without positions or indices); the mesh's
+/// data stays in the main world so its triangles can be rewritten there.
+pub fn detail(mesh: &mut bevy::mesh::Mesh, locked: &[bool]) -> Option<Arc<Source>> {
+    let pc = crate::graphics::MESH.load(Ordering::Relaxed);
+    let idx: Vec<u32> = mesh.indices()?.iter().map(|i| i as u32).collect();
+    mesh.attribute(bevy::mesh::Mesh::ATTRIBUTE_POSITION)?;
+    mesh.asset_usage |= bevy::asset::RenderAssetUsages::MAIN_WORLD;
+    let src = Arc::new(Source { idx, same: keys(mesh), locked: locked.to_vec(), at: pc });
+    if pc < 100 {
+        src.apply(mesh, pc);
+    }
+    Some(src)
+}
+
+/// What a mesh [`detail`] built needs to be reduced again at another setting: its full triangle list, the vertices
+/// that count as one and those that never move (as they were when it was built), and the setting it was built at.
+pub struct Source {
+    idx: Vec<u32>,
+    same: Vec<u64>,
+    locked: Vec<bool>,
+    at: u32,
+}
+
+impl Source {
+    /// `mesh`'s triangles at `pc` % of the full list. Positions, UVs and skins are read from the mesh: none of them
+    /// change once it's built (a part's joints are renumbered, but one for one, which keeps which skins match).
+    fn apply(&self, mesh: &mut bevy::mesh::Mesh, pc: u32) {
+        let out = match (mesh.try_attribute_option(bevy::mesh::Mesh::ATTRIBUTE_POSITION), pc < 100) {
+            (Ok(Some(VertexAttributeValues::Float32x3(pos))), true) => {
+                let uv = match mesh.attribute(bevy::mesh::Mesh::ATTRIBUTE_UV_0) {
+                    Some(VertexAttributeValues::Float32x2(uv)) => &uv[..],
+                    _ => &[],
+                };
+                reduce(pos, &self.idx, &Extra { same: &self.same, skin: &skins(mesh), uv, locked: &self.locked }, pc)
+            }
+            (Ok(_), false) => self.idx.clone(),
+            _ => return,
+        };
+        mesh.insert_indices(Indices::U32(out));
+    }
+}
+
+/// Every mesh asset [`detail`] built, and the rigs' copies of them (`noise`, `cpu_morph`), with the setting each is
+/// drawn at now.
+#[allow(clippy::type_complexity)]
+static LIVE: LazyLock<Mutex<HashMap<AssetId<bevy::mesh::Mesh>, (Arc<Source>, u32)>>> = LazyLock::new(Default::default);
+
+/// `mesh`, built by [`detail`] (`src`, its return), added to `meshes`: it follows the Mesh setting from now on.
+pub fn keep(meshes: &mut impl crate::character::Store<bevy::mesh::Mesh>, mesh: bevy::mesh::Mesh, src: Option<Arc<Source>>) -> Handle<bevy::mesh::Mesh> {
+    let h = meshes.add(mesh);
+    if let Some(src) = src {
+        let at = src.at;
+        LIVE.lock().unwrap().insert(h.id(), (src, at));
+    }
+    h
+}
+
+/// `copy`, a clone of the asset `of`, follows the setting with it.
+pub fn copied(of: AssetId<bevy::mesh::Mesh>, copy: AssetId<bevy::mesh::Mesh>) {
+    let mut live = LIVE.lock().unwrap();
+    if let Some(e) = live.get(&of).cloned() {
+        live.insert(copy, e);
+    }
+}
+
+/// Bumped each time [`live`] rewrites meshes: a rewritten mesh goes back to the GPU as its asset holds it, so a
+/// copy whose vertices are written straight into the vertex buffer (`vertex_patch`) writes them all again.
+pub static REBUILT: AtomicU32 = AtomicU32::new(0);
+
+/// How long the setting has to stay put before the meshes follow it (a held arrow steps through several values).
+const SETTLE: f64 = 0.25;
+
+/// A change to the Mesh setting takes effect at once on the meshes already loaded: each one's triangle list is
+/// reduced again from its full one, in place under the same handle (vertices, shade and morphs stay as they are).
+pub fn live(mut meshes: ResMut<Assets<bevy::mesh::Mesh>>, mut events: MessageReader<AssetEvent<bevy::mesh::Mesh>>, time: Res<Time<Real>>, mut seen: Local<Option<(u32, f64)>>) {
+    let gone: Vec<_> = events.read().filter_map(|e| match e {
+        AssetEvent::Removed { id } => Some(*id),
+        _ => None,
+    }).collect();
+    let pc = crate::graphics::MESH.load(Ordering::Relaxed);
+    let now = time.elapsed_secs_f64();
+    let since = match *seen {
+        Some((p, t)) if p == pc => t,
+        _ => {
+            *seen = Some((pc, now));
+            now
+        }
+    };
+    let mut live = LIVE.lock().unwrap();
+    for id in gone {
+        live.remove(&id);
+    }
+    if now - since < SETTLE {
         return;
     }
-    let (Some(VertexAttributeValues::Float32x3(pos)), Some(idx)) = (mesh.attribute(bevy::mesh::Mesh::ATTRIBUTE_POSITION), mesh.indices()) else { return };
-    let idx: Vec<u32> = idx.iter().map(|i| i as u32).collect();
-    let uv = match mesh.attribute(bevy::mesh::Mesh::ATTRIBUTE_UV_0) {
-        Some(VertexAttributeValues::Float32x2(uv)) => &uv[..],
-        _ => &[],
-    };
-    let out = reduce(pos, &idx, &Extra { same: &keys(mesh), skin: &skins(mesh), uv, locked }, pc);
-    mesh.insert_indices(Indices::U32(out));
+    let mut any = false;
+    for (id, (src, at)) in live.iter_mut().filter(|(_, (_, at))| *at != pc) {
+        // a mesh staged off the main thread may not be in yet: tried again next frame
+        let Some(mut mesh) = meshes.get_mut(*id) else { continue };
+        src.apply(&mut mesh, pc);
+        *at = pc;
+        any = true;
+    }
+    if any {
+        REBUILT.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 /// Per vertex, a hash of every attribute it has but its position: the disc's packets repeat a vertex where they
@@ -399,6 +496,29 @@ mod tests {
             }
         }
         e
+    }
+
+    /// A built mesh follows a change of setting from its full list, down and back up, as `detail` would build it
+    /// at that setting; its data stays in the main world to be rewritten.
+    #[test]
+    fn a_built_mesh_follows_the_setting() {
+        let (pos, idx) = sphere(16, 24);
+        let mut mesh = bevy::mesh::Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::RENDER_WORLD)
+            .with_inserted_attribute(bevy::mesh::Mesh::ATTRIBUTE_POSITION, pos.clone())
+            .with_inserted_indices(Indices::U32(idx.clone()));
+        let src = Source { idx: idx.clone(), same: keys(&mesh), locked: Vec::new(), at: 100 };
+        let tris = |m: &bevy::mesh::Mesh| m.indices().unwrap().len();
+        src.apply(&mut mesh, 50);
+        let half = reduce(&pos, &idx, &Extra { same: &src.same, ..Default::default() }, 50);
+        assert_eq!(tris(&mesh), half.len());
+        assert!(half.len() < idx.len());
+        src.apply(&mut mesh, 25);
+        assert!(tris(&mesh) < half.len());
+        src.apply(&mut mesh, 100);
+        assert_eq!(mesh.indices().unwrap().iter().map(|i| i as u32).collect::<Vec<_>>(), idx);
+        let mut built = mesh.clone();
+        assert!(detail(&mut built, &[]).is_some());
+        assert!(built.asset_usage.contains(bevy::asset::RenderAssetUsages::MAIN_WORLD));
     }
 
     /// 100 % changes nothing; lower keeps about that share, the sphere stays closed (every edge on two triangles),

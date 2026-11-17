@@ -93,11 +93,13 @@ pub struct Face {
     /// The rig's own copy (kept alive), its unmorphed positions and its vertices as the GPU holds them.
     copy: Option<(Handle<Mesh>, Vec<Vec3>, Patched)>,
     last: Vec<f32>,
+    /// `lod::REBUILT` when the copy's vertices were last all written.
+    rebuilt: u32,
 }
 
 impl Face {
     pub fn new(root: Entity, shared: AssetId<Mesh>, targets: Arc<Targets>) -> Face {
-        Face { root, shared, targets, copy: None, last: Vec::new() }
+        Face { root, shared, targets, copy: None, last: Vec::new(), rebuilt: crate::lod::REBUILT.load(std::sync::atomic::Ordering::Relaxed) }
     }
 }
 
@@ -116,6 +118,7 @@ fn draw(mut faces: Query<&mut Face>, weights: Query<&MorphWeights>, children: Qu
             let base = mesh.attribute(Mesh::ATTRIBUTE_POSITION).and_then(|p| p.as_float3()).unwrap_or_default().iter().map(|p| Vec3::from(*p)).collect();
             let Some(patched) = Patched::new(&mesh) else { continue };
             let h = meshes.add(mesh);
+            crate::lod::copied(f.shared, h.id());
             let mut r = registry();
             // forget the meshes gone since (an unloaded mod's, a despawned rig's copy)
             r.faces.retain(|id, _| meshes.contains(*id));
@@ -135,6 +138,12 @@ fn draw(mut faces: Query<&mut Face>, weights: Query<&MorphWeights>, children: Qu
             {
                 m.0 = copy.clone();
             }
+        }
+        // Graphics → Mesh rewrote the copy (`lod::live`): the GPU holds its unmorphed vertices again
+        let rebuilt = crate::lod::REBUILT.load(std::sync::atomic::Ordering::Relaxed);
+        if f.rebuilt != rebuilt {
+            f.rebuilt = rebuilt;
+            vertex_patch::send_all(patched, &mut queued);
         }
         let Ok(w) = weights.get(f.root) else { continue };
         if f.last == w.weights() {

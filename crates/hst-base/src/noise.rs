@@ -104,6 +104,8 @@ pub struct Sway {
     /// only move with the pose through the blend of a vertex's skin, under a millimetre over one tick's
     /// interpolation.
     stale: bool,
+    /// `lod::REBUILT` when the copies' vertices were last all written.
+    rebuilt: u32,
 }
 
 /// The costume's distinct entries, and per swaying part its moved vertices' entries' indices into them.
@@ -139,6 +141,7 @@ pub fn attach(mut commands: Commands, g: Option<Res<crate::graphics::Graphics>>,
             let Some(copy) = meshes.get(&shared).cloned() else { continue };
             let patched = Patched::new(&copy);
             let copy = meshes.add(copy);
+            crate::lod::copied(shared.id(), copy.id());
             let patched = patched.map(|p| p.of(copy.id()));
             for &child in children {
                 if let Ok(mut m) = parts.get_mut(child)
@@ -152,7 +155,7 @@ pub fn attach(mut commands: Commands, g: Option<Res<crate::graphics::Graphics>>,
         let noise = c.deformers.iter().map(|d| Noise::new(d.period)).collect();
         // the select may have despawned a preview rig in the same frame (B84)
         let (slots, distinct) = distinct(c);
-        commands.entity(root).try_insert(Sway { noise, meshes: own, sets: None, slots, distinct, offsets: Vec::new(), offsets_at: Vec::new(), stale: true });
+        commands.entity(root).try_insert(Sway { noise, meshes: own, sets: None, slots, distinct, offsets: Vec::new(), offsets_at: Vec::new(), stale: true, rebuilt: crate::lod::REBUILT.load(std::sync::atomic::Ordering::Relaxed) });
     }
 }
 
@@ -179,6 +182,12 @@ pub fn draw(mut rigs: Query<(&Rig, Ref<Motion>, &mut Sway)>, joints: Query<&Tran
     let mut changed = Vec::new();
     for (rig, motion, mut s) in &mut rigs {
         let Some(c) = &rig.data.noise else { continue };
+        // Graphics → Mesh rewrote the copies (`lod::live`): the GPU holds their unswayed vertices again
+        let rebuilt = crate::lod::REBUILT.load(std::sync::atomic::Ordering::Relaxed);
+        if s.rebuilt != rebuilt {
+            s.rebuilt = rebuilt;
+            s.meshes.iter().filter_map(|m| m.1.as_ref()).for_each(|p| vertex_patch::send_all(p, &mut queued));
+        }
         if motion.is_changed() {
             s.stale = true;
         }
