@@ -208,7 +208,13 @@ fn light(
         lit.1 = Some(key);
         let of = |look: &crate::weather::CourtLook, w: u8| {
             let l = look.looks.get(w as usize).map_or(hst_sim::weather::Look::CLEAR, |r| hst_sim::weather::look(w, *r));
-            let light = if player { gs::player_light(&look.envir, &l, look.players) } else { gs::model_light(&look.envir, &l) };
+            let light = if player {
+                gs::player_light(&look.envir, &l, look.players)
+            } else if ball {
+                gs::ball_light(&look.envir, &l)
+            } else {
+                gs::model_light(&look.envir, &l)
+            };
             (light, gs::court_fog(&look.envir, &l))
         };
         let court = look.as_deref().zip(w).map(|(look, w)| {
@@ -230,6 +236,9 @@ fn light(
             m.key.mirror = mirrored(&lit.2, h, &placed).unwrap_or(mirror);
             (m.uniform.light_dir, m.uniform.light_color, m.uniform.ambient) = (dir, (colour.truncate() * s).extend(1.0), ambient);
             (m.uniform.light2_dir, m.uniform.light2_color, m.uniform.glare) = (dir2, second, !rain as u8 as f32);
+            // the game draws the ball on VU1's unlit path (its draw record's object flag bit 1, set at load): evenly
+            // lit at ambient + light, no sun side
+            m.uniform.unlit = ball as u8 as f32;
             if let Some((_, Some((mut main, _, _, fog)))) = court {
                 // the players' fog is the court's with their own near F (`exe::Game::player_light`[3])
                 if player {

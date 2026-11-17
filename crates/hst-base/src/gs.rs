@@ -181,6 +181,13 @@ pub fn model_light(envir: &[u8], w: &Look) -> Option<(Vec4, Vec4, Vec4)> {
     Some((k(0x1c, 0x10)?, k(0x18, 0xc)?, k(0x20, 0x14)?))
 }
 
+/// The ball's light: the light row's RGB × its own factors (ambient 0.832, light 0.5824, no second), read from the
+/// ball's light block in the original's RAM (the same in slots 3, 4 and 5); drawn unlit, so it shows ambient + light.
+pub fn ball_light(envir: &[u8], w: &Look) -> Option<(Vec4, Vec4, Vec4)> {
+    let (rgb, _) = light_rgb(envir, w)?;
+    Some(((rgb * 0.5824).extend(1.0), (rgb * 0.832).extend(1.0), Vec4::ZERO))
+}
+
 /// The light VU1 has for the match's players: (colour, ambient) = the light row's RGB × the court's own player factors
 /// (`exe::Game::player_light`: [ambient, light, second, fog near F]), not the row's model factors and not × the
 /// weather's scale: (colour, ambient, second). The second light shines along the court towards the player's end:
