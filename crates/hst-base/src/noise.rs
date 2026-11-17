@@ -124,7 +124,7 @@ fn distinct(c: &Costume) -> (Vec<Vec<u32>>, Vec<(usize, [f32; 3], f32)>) {
 }
 
 pub fn plugin(app: &mut App) {
-    app.add_systems(Update, (attach, draw.after(crate::character::animate))).add_systems(FixedUpdate, step.after(crate::character::tick));
+    app.add_systems(Update, (attach, recopy.after(attach).before(draw), draw.after(crate::character::animate))).add_systems(FixedUpdate, step.after(crate::character::tick));
 }
 
 /// A new rig with a costume deformer swaps its swaying parts for copies of its own. Court Life (M157) off sways
@@ -173,6 +173,35 @@ pub fn attach(mut commands: Commands, g: Option<Res<crate::graphics::Graphics>>,
             }
             _ => {}
         }
+    }
+}
+
+/// Character Shading flipped (`occlusion::generation`): each rig copies its swaying parts again from the rebuilt
+/// shared meshes.
+fn recopy(mut seen: Local<u32>, mut rigs: Query<(Entity, &Rig, &mut Sway)>, kids: Query<&Children>, mut parts: Query<&mut Mesh3d>, mut meshes: ResMut<Assets<Mesh>>) {
+    let generation = crate::occlusion::generation();
+    if std::mem::replace(&mut *seen, generation) == generation {
+        return;
+    }
+    for (root, rig, mut s) in &mut rigs {
+        let Some(c) = &rig.data.noise else { continue };
+        let s = &mut *s;
+        for ((part, _), (copy, patched)) in c.parts.iter().zip(&mut s.meshes) {
+            let Some(mesh) = meshes.get(&rig.data.parts[*part].0).cloned() else { continue };
+            let p = Patched::new(&mesh);
+            let new = meshes.add(mesh);
+            crate::lod::copied(rig.data.parts[*part].0.id(), new.id());
+            for e in kids.iter_descendants(root) {
+                if let Ok(mut m) = parts.get_mut(e)
+                    && m.0 == *copy
+                {
+                    m.0 = new.clone();
+                }
+            }
+            *patched = p.map(|p| p.of(new.id()));
+            *copy = new;
+        }
+        s.stale = true;
     }
 }
 

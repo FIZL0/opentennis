@@ -108,11 +108,21 @@ pub fn plugin(app: &mut App) {
 }
 
 /// Give each face its rig's own copy (on every draw of it: the GS's second draws are siblings with the same mesh),
-/// then write the moving vertices when the weights changed.
-fn draw(mut faces: Query<&mut Face>, weights: Query<&MorphWeights>, children: Query<&Children>, mut parts: Query<&mut Mesh3d>, mut meshes: ResMut<Assets<Mesh>>, queued: Option<ResMut<Queued>>) {
+/// then write the moving vertices when the weights changed. Character Shading flipped (`occlusion::generation`):
+/// copied again from the rebuilt shared mesh.
+#[allow(clippy::too_many_arguments)]
+fn draw(mut faces: Query<&mut Face>, weights: Query<&MorphWeights>, children: Query<&Children>, mut parts: Query<&mut Mesh3d>, mut meshes: ResMut<Assets<Mesh>>, queued: Option<ResMut<Queued>>, mut seen: Local<u32>) {
     let Some(mut queued) = queued else { return };
     let mut changed = Vec::new();
+    let generation = crate::occlusion::generation();
+    let recopy = std::mem::replace(&mut *seen, generation) != generation;
     for mut f in &mut faces {
+        let old = if recopy {
+            f.last.clear();
+            f.copy.take().map(|c| c.0.id())
+        } else {
+            None
+        };
         if f.copy.is_none() {
             let Some(mesh) = meshes.get(f.shared).cloned() else { continue };
             let base = mesh.attribute(Mesh::ATTRIBUTE_POSITION).and_then(|p| p.as_float3()).unwrap_or_default().iter().map(|p| Vec3::from(*p)).collect();
@@ -133,7 +143,7 @@ fn draw(mut faces: Query<&mut Face>, weights: Query<&MorphWeights>, children: Qu
         let f = &mut *f;
         let Some((copy, base, patched)) = &mut f.copy else { continue };
         for &c in children.get(f.root).into_iter().flatten() {
-            if parts.get(c).is_ok_and(|m| m.0.id() == f.shared)
+            if parts.get(c).is_ok_and(|m| m.0.id() == f.shared || Some(m.0.id()) == old)
                 && let Ok(mut m) = parts.get_mut(c)
             {
                 m.0 = copy.clone();

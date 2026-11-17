@@ -509,7 +509,10 @@ impl Settings {
             Msaa => g.msaa = cycle(&MSAA, g.msaa, d),
             Fps => g.fps = cycle(&FPS, g.fps, d),
             Vsync => g.vsync = !g.vsync,
-            Original => g.original = !g.original,
+            Original => {
+                g.original = !g.original;
+                crate::textures::switch(self.upscaled_textures && !g.original);
+            }
             Cull => g.cull = !g.cull,
             CourtLife => g.scenery = !g.scenery,
             Shading => g.shading = !g.shading,
@@ -688,13 +691,13 @@ impl Menu {
             } else if k.back {
                 self.editing = None;
                 if self.settings != was {
-                    let upscaled = self.settings.upscaled_textures;
+                    let shown = self.settings.upscaled_textures && !self.settings.graphics.original;
                     self.settings = was;
                     crate::chat::HIDDEN.store(!was.chat, std::sync::atomic::Ordering::Relaxed);
                     crate::audio::EMOTE_VOICES.store(was.emote_voices, std::sync::atomic::Ordering::Relaxed);
                     crate::play::rumble::ON.store(was.match_rumble, std::sync::atomic::Ordering::Relaxed);
                     crate::voices::choose(was.voice_language);
-                    if upscaled != was.upscaled_textures {
+                    if shown != (was.upscaled_textures && !was.graphics.original) {
                         crate::textures::switch(was.upscaled_textures && !was.graphics.original);
                     }
                     crate::rules_choice::choose_soon(was.rules);
