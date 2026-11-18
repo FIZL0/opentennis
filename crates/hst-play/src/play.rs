@@ -1857,6 +1857,8 @@ fn reset_positions(g: &mut Game) {
         // and its character's strong-toss chance on a second serve
         let second = g.players[i].ai_second;
         let formation = g.players[i].formation;
+        // a doubles AI keeps its serve history across points (its point set-up decides, `doubles_ai::point_setup`)
+        let serves = g.players[i].ai_serves;
         // the placement ends an emote still playing from the point before, and cuts its line
         if g.players[i].emote > 0 {
             g.lines.push(emote::Line::Cut(i));
@@ -1878,6 +1880,9 @@ fn reset_positions(g: &mut Game) {
         g.players[i].ai_mind = mind;
         g.players[i].ai_second = second;
         g.players[i].formation = formation;
+        if g.players.len() == 4 {
+            g.players[i].ai_serves = serves;
+        }
     }
     // with more than one human the camera keeps its end through changes of ends; only solo games turn it
     if g.humans.iter().filter(|&&h| h).count() <= 1 {
@@ -2501,23 +2506,18 @@ fn toss_released(g: &Game, t: u32) -> bool {
 }
 
 /// The toss is announced as a hit: the predicted path starts from it and every computer player hears the match's
-/// hit message, which tells of the match's last real stroke (`Game::last_stroke`; the toss doesn't change it).
+/// hit message. Its team tests read the match's last hitter, which the next-point step sets to nobody (after a won
+/// point, a fault and a let alike), so every toss is heard as a hit by nobody's team: no shot to note or react to,
+/// only the redraw.
 fn toss_heard(g: &mut Game) {
     g.hit_flight = g.flight;
     g.since_hit = 0;
-    match g.last_stroke {
-        // a later point: the last real stroke, heard over again as it was played
-        Some(stroke) => ai_heard_stroke(g, stroke),
-        // nobody has hit yet this match: nobody's team, so no shot to note or react to, only the redraw
-        None => {
-            for i in 0..g.players.len() {
-                if g.humans.get(i) == Some(&true) {
-                    continue;
-                }
-                doubles_ai::heard_nobody(g, i);
-                ai_redraw(g, i);
-            }
+    for i in 0..g.players.len() {
+        if g.humans.get(i) == Some(&true) {
+            continue;
         }
+        doubles_ai::heard_nobody(g, i);
+        ai_redraw(g, i);
     }
     doubles_ai::heard(g, msg::HIT);
 }
@@ -3894,6 +3894,7 @@ fn ai_update(g: &mut Game, i: usize) -> hst_sim::ai::Mind {
     let mut m = g.players[i].ai_mind.unwrap_or_default();
     if heard == 0 {
         m.reset(g.players[i].ai_mind.is_none(), partner_bot, &mut ai_roll(&mut g.rng));
+        doubles_ai::point_setup(g, i, g.players[i].ai_mind.is_none(), partner_bot);
         g.players[i].ai_heard = 1;
         ai_draw(g, i, None);
         m.count(&mut ai_roll(&mut g.rng));

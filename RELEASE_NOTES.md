@@ -8,3 +8,4 @@
 - A diving player's arm and racket now turn exactly as far toward the ball as in the original.
 - A diving player keeps their arm and racket stretched toward the ball through the whole dive instead of dropping them halfway, as in the original.
 - Players reach for the ball with their arm and step into it when they smash, as in the original.
+- In doubles, computer players read each serve after the first point the way the original does, so their returns and timing match the original from point to point.

@@ -412,7 +412,24 @@ pub(super) fn heard_hit(g: &mut Game, i: usize, who: usize, at: V3) -> bool {
     false
 }
 
-/// `heard_hit` for a hit by nobody (the match's first toss): no team's shot, only the rally state's part.
+/// Doubles: computer player `i`'s point set-up, full or partial. `full` while the match has had no rally yet (its
+/// first serve set-up; a replayed point would take the partial form, but play replays none). The full form, beside
+/// a partner with an AI object, forgets the serve history and marks its team as not having hit yet; beside none it
+/// leaves both. Every later set-up keeps the serve history and counts its team as having hit, whether it did or not.
+pub(super) fn point_setup(g: &mut Game, i: usize, full: bool, partner_bot: bool) {
+    if g.players.len() != 4 {
+        return;
+    }
+    let p = &mut g.players[i];
+    if !full {
+        p.ai_hit = true;
+    } else if partner_bot {
+        p.ai_serves = [None; 2];
+        p.ai_hit = false;
+    }
+}
+
+/// `heard_hit` for a hit by nobody (every toss): no team's shot, only the rally state's part.
 pub(super) fn heard_nobody(g: &mut Game, i: usize) {
     let mind = g.players[i].ai_mind;
     let rally = mind.is_some_and(|m| m.phase == Ai::Rally);

@@ -612,11 +612,12 @@ mod tests {
         // parts: B722)
         // M183a1: point 2's set-up too (the flare draws before the point's logic, the reaction stops the players
         // and the AI routines from the scoreboard's pause end), and every player on the ground from the first serve
-        // to point 2's serve (its rally parts: the AI draws at its start, 4 more than the game's)
+        // to point 2's serve
         assert!(compare("us", &want, &got) >= 4, "the first point's and point 2's set-up phases");
         let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
         // (but at the point-over phase's last tick, where play, a tick behind, has already placed them for the set-up)
-        assert_eq!((219..1270).filter(|&k| k != 1084).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before point 2's serve");
+        // B727: and on through point 2's serve and rally (the toss heard as a hit by nobody, the serve history kept)
+        assert_eq!((219..2354).filter(|&k| k != 1084).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before tick 2354");
         first_point_part("us", &want, &got, 219);
         part_from("us", &want, &got);
         // B720: after the server's partner's dive every player stands where the recording has them and the ball flies
@@ -685,6 +686,14 @@ mod tests {
             assert_eq!(off, [218], "the AI generator leaves the recording at {off:?}");
             let lost = (2..end - 2).filter(|&k| k != 218).find(|&k| !rec.iter().any(|x| x.3 == rngs[k + 1].ai));
             assert_eq!(lost, None, "play's AI generator is off the recording's draws");
+            // B727: point 2's toss heard as a hit by nobody (the next-point step clears the last hitter) and the doubles
+            // set-up keeping the serve history after the match's first: play's AI generator stays on the recording's
+            // draws through point 2's set-up, serve and rally to where the recording ends (its last few ticks are
+            // ones play, a few ticks ahead here, has passed), but at the two serves' contacts (their aim draws a tick
+            // early) and point 1's point-over tick 1086
+            let last = rec.last().unwrap().0 as usize - 7566;
+            let lost: Vec<usize> = (2..last - 6).filter(|&k| !rec.iter().any(|x| x.3 == rngs[k + 1].ai)).collect();
+            assert_eq!(lost, [218, 1086, 1269], "play's AI generator is off the recording's draws through point 2");
             // `HST_M183A1_SHARED=from,to`: for each played tick, how many shared draws play's generator is from the
             // recorded one at the vsync rand puts it at (+: play ahead)
             if let Some(v) = std::env::var("HST_M183A1_SHARED").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 2) {
