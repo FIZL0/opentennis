@@ -21,6 +21,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 index out of bounds: the len is 0 but the index is 0"
 
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
+- [ ] **B731** Rollback input delay follows the ping (user 2026-11-18: two far-apart players see lag): rollback always uses the fixed 2-tick input delay, so at a 200 ms round trip ~4 ticks of the peer's pads are guessed and every wrong guess warps the other player. Use the host's measured Room::delay (already sent to every peer in Start) as ggrs' input delay in rollback too, capped at 4 ticks (67 ms) so local controls stay responsive; every peer uses the same value. Keep the synctest/existing rollback tests passing (update the DELAY<=2 assumption where it means the default), and add a test that a room with delay 4 runs rollback with input delay 4 and stays in sync over a lagged link. Release-notes line (smoother online play over long distances) | files: crates/hst-play/src/play/rollback.rs, crates/hst-play/src/play/netplay.rs | test: rollback_delay_follows_room
 
 ### Match basics
 
