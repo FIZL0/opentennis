@@ -42,6 +42,10 @@ pub fn plugin(app: &mut App) {
             mark::<2>.in_set(R::PrepareViews).before(prepare_windows),
             mark::<3>.in_set(R::PrepareViews).after(prepare_windows),
             mark::<4>.in_set(R::Prepare).after(R::PrepareBindGroups),
+            // P146: queue+prepare split, to name the stage a phone's frame blocks in while pipelines compile
+            mark::<6>.after(R::Queue).before(R::PhaseSort),
+            mark::<7>.after(R::PhaseSort).before(R::Prepare),
+            mark::<8>.in_set(R::Prepare).after(R::PrepareResourcesFlush).before(R::PrepareBindGroups),
             render_end.in_set(R::Cleanup).after(R::Render),
             held.in_set(R::Cleanup).after(R::Render),
         ),
@@ -75,7 +79,7 @@ fn held(images: Res<RenderAssets<bevy::render::texture::GpuImage>>, mut next: Lo
 }
 
 /// The render frame's stage marks (`plugin`'s order).
-static MARKS: Mutex<[Option<Instant>; 6]> = Mutex::new([None; 6]);
+static MARKS: Mutex<[Option<Instant>; 9]> = Mutex::new([None; 9]);
 
 fn mark<const I: usize>() {
     MARKS.lock().unwrap()[I] = Some(Instant::now());
@@ -113,7 +117,7 @@ fn render_end(images: Res<RenderAssets<bevy::render::texture::GpuImage>>, meshes
     if now.ready > last.ready {
         *LAST_READY.lock().unwrap() = (Some(end), now.ready - last.ready);
     }
-    let [Some(t0), Some(t1), Some(t2), Some(t3), Some(t4), Some(t5)] = m else {
+    let [Some(t0), Some(t1), Some(t2), Some(t3), Some(t4), Some(t5), q, s, b] = m else {
         *last = now;
         return;
     };
@@ -124,8 +128,12 @@ fn render_end(images: Res<RenderAssets<bevy::render::texture::GpuImage>>, meshes
         diag!("pipelines ready +{} ({} in all, compiling {creating}) at {:.2} s", now.ready - last.ready, now.ready, since_start());
     }
     if ms(t0, end) > STALL || watched {
+        let split = match (q, s, b) {
+            (Some(q), Some(s), Some(b)) => format!(" (views+queue {:.1} sort {:.1} resources {:.1} bind groups {:.1})", ms(t3, q), ms(q, s), ms(s, b), ms(b, t4)),
+            _ => String::new(),
+        };
         diag!(
-            "render{} {:.1} ms: assets {:.1} (images +{} {:.1} MB, meshes +{}) specialize {:.1} acquire {:.1} queue+prepare {:.1} pipeline queue {:.1} (ready +{}, compiling {creating}) graph+submit {:.1} at {:.2} s",
+            "render{} {:.1} ms: assets {:.1} (images +{} {:.1} MB, meshes +{}) specialize {:.1} acquire {:.1} queue+prepare {:.1}{split} pipeline queue {:.1} (ready +{}, compiling {creating}) graph+submit {:.1} at {:.2} s",
             if watched { "" } else { " stall" },
             ms(t0, end),
             ms(t0, t1),
