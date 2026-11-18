@@ -49,3 +49,10 @@ Title screen renders as before (shot checked).
 - The in-place blit compile still takes the shader-cache mutex, so it can wait for one pool task's shader-module
   step (not for whole queued compiles).
 - Rendering/performance only; no gameplay, sim RNG or match timing touched.
+
+## Confirmed on the iPhone 18 Pro (hst-log 8, beta with this fix, fresh install, 0 pipelines recorded)
+
+Before (hst-log 7, beta without it): render frames of 275 / 1179 ms at boot, 392 ms menu load, 343 ms match load,
+all in `resources`. After: one 67 ms frame at boot (resources 50.9, under the cover), nothing at menu load, match load
+only the game's own 80 ms build under the cover. The match then holds 60 fps; its first 10 s have one 28.7 ms and one
+32.4 ms frame, then p99.9 ≤ 17.8 ms.
