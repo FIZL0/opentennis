@@ -20,8 +20,9 @@ pub(super) fn start(g: &mut Game, i: usize, d: &hst_sim::swing::Dive) {
     let Some(ball) = g.doubles_ai.record.window().get(d.frame).copied() else { return };
     let rig = dive_rig(&data.skeleton, clip);
     let p = &g.players[i];
+    // the window holds the ball y up; the solve takes it in game space, y down (B721: the game's recorded dive)
     let (b, v) = (ball.pos, ball.vel);
-    let solve = dive_solve(&rig, p.pos, d.dir, g.reaches[i].hand, d.slide, [b[0], b[1], b[2]], [v[0], v[1], v[2]]);
+    let solve = dive_solve(&rig, p.pos, d.dir, g.reaches[i].hand, d.slide, [b[0], -b[1], b[2]], [v[0], -v[1], v[2]]);
     let p = &mut g.players[i];
     p.ik = None;
     p.dive_ik = Some(DiveIk::new(solve, rig.racket, d.frame as i32));
