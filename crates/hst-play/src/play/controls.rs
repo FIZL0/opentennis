@@ -25,8 +25,8 @@ pub enum Action {
     Cut,
     /// △: lob.
     Lob,
-    /// □: the menus' delete / swap; in a match nothing (B655: never a serve or a shot; the instant replay it will ask
-    /// for is parked, B72). There's no serve action: the shot buttons serve,
+    /// □: the menus' delete / swap; in a match the post-point's instant replay (`instant_replay`), never a serve or a
+    /// shot (B655). There's no serve action: the shot buttons serve,
     /// as the original (B119; an older file's `serve = …` line is ignored).
     Replay,
     /// Select: swap the character's hand at character select; in a match with one human, switch to the behind-the-player

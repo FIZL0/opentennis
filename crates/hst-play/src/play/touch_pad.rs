@@ -68,11 +68,9 @@ const KEYS: [GamepadButton; 8] = [
 const FACE: usize = 4;
 
 /// B662: the words on the buttons (`KEYS` order): what each does on the screen as it stands, blank where it does
-/// nothing, and whether a match is being played (□ is hidden then: it does nothing in a match). `relabel` sets them;
+/// nothing, and whether a match is being played. `relabel` sets them;
 /// the browser's pad (`web/touch.js`) gets the same ones.
 static LABELS: Mutex<(bool, [String; 8])> = Mutex::new((false, [const { String::new() }; 8]));
-/// □'s index in `KEYS`.
-const SQUARE: usize = 2;
 
 /// B662: the buttons' words: in a match (`play`: no menu over it) the pad's bindings, L1 / R1 the emotes (B271) and
 /// Select the camera where it switches one (`camera`); else what the menu's legend lists for the touch player (`items`).
@@ -88,6 +86,7 @@ fn labels(items: &[Item], play: bool, camera: bool, bind: &Bindings) -> [String;
             Some(Action::Normal) => "Topspin",
             Some(Action::Cut) => "Slice",
             Some(Action::Lob) => "Lob",
+            Some(Action::Replay) => "Replay",
             Some(Action::Camera) if camera => "Camera",
             Some(Action::Pause) => "Pause",
             _ => "",
@@ -567,10 +566,6 @@ fn draw(
     };
     for (k, mut n, mut bg) in &mut keys {
         place(&mut n, l.keys[k.0]);
-        let display = if k.0 == SQUARE && LABELS.lock().unwrap().0 { Display::None } else { Display::Flex };
-        if n.display != display {
-            n.display = display;
-        }
         let r = if k.0 < FACE { BorderRadius::MAX } else { BorderRadius::all(px(l.u * 0.3)) };
         if n.border_radius != r {
             n.border_radius = r;
@@ -735,7 +730,7 @@ mod tests {
         let bind = Bindings::default();
         let menu = [item(Act::Move, "Move", &[]), item(Act::Ok, "Choose", &[]), item(Act::Back, "Back", &[]), item(Act::Costume, "Page", &[])];
         assert_eq!(labels(&menu, false, false, &bind), ["Choose", "Back", "", "", "Page", "Page", "", ""]);
-        assert_eq!(labels(&[], true, false, &bind), ["Topspin", "Slice", "", "Lob", "Emote", "Emote", "", "Pause"]);
+        assert_eq!(labels(&[], true, false, &bind), ["Topspin", "Slice", "Replay", "Lob", "Emote", "Emote", "", "Pause"]);
         assert_eq!(labels(&[], true, true, &bind)[6], "Camera");
         // rebound: the words follow
         let (b, _) = Bindings::parse("topspin = PadEast\nslice = PadSouth\n");
