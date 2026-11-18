@@ -333,6 +333,13 @@ mod tests {
         let player = (contact..end).find(|&k| ground(&want[k]) != ground(&got[k + 1]));
         let ball = (contact + 1..end).find(|&k| want[k].2 != got[k].2);
         eprintln!("{name} point 1 (rally to {end}): a player parts at {player:?}, the ball at {ball:?}");
+        // `HST_M183A1_PLAYER=i,from,to`: player i's ground position tick by tick, recorded beside played
+        if let Some(v) = std::env::var("HST_M183A1_PLAYER").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 3) {
+            for k in v[1]..v[2].min(want.len() - 1) {
+                let (w, g) = (want[k].1[v[0]], got[k + 1].1[v[0]]);
+                eprintln!("{name} player {} tick {k}: want [{}, {}] got [{}, {}]", v[0], w[0], w[2], g[0], g[2]);
+            }
+        }
         for k in player.into_iter().chain(ball).flat_map(|t| t.saturating_sub(1)..(t + 4).min(end)) {
             let off = (0..4).map(|i| (0..3).map(|a| (want[k].1[i][a] - got[k + 1].1[i][a]).abs()).fold(0f32, f32::max)).collect::<Vec<_>>();
             let b = (0..3).map(|a| (want[k].2[a] - got[k].2[a]).abs()).fold(0f32, f32::max);
@@ -375,8 +382,10 @@ mod tests {
     fn the_european_first_serve_set_up_plays_as_recorded() {
         let Some((want, got)) = european(Some(310), 0) else { return };
         serve_to_contact("eu", &want, &got, 8, (114, 134, 141));
-        serve_to_return("eu", &want, &got, 141, 249, 230);
-        // to the tick before the server's side strikes it back (its partner moves off at 250: M185's kind)
+        // every player through the server's partner's six steps after the return (250-255), to the tick the game
+        // stops it where play walks it on (B719's kind)
+        serve_to_return("eu", &want, &got, 141, 255, 230);
+        // to the tick before the server's side strikes it back
         return_flight("eu", &want, &got, 230, 303);
     }
 
@@ -402,7 +411,7 @@ mod tests {
     /// (`fixtures/m169/eu-rng.bin`, `eu_rng_rec.py` in the journal: vsync, then the shared, AI and court generators):
     /// for each played tick, the recorded tick (from the first serve set-up) each generator equals, and the AI draws a
     /// tick around the return (`--nocapture`); asserts the AI generator follows the recording through player 2's
-    /// first step after the return.
+    /// steps after the return and the ticks after it stops (recorded 260).
     #[test]
     fn the_european_generators_play_as_recorded() {
         use hst_sim::rng::Mt;
@@ -438,13 +447,13 @@ mod tests {
                 hit
             })
         };
-        for k in 225usize..256 {
+        for k in 225usize..266 {
             let (Some(x0), Some(x1)) = (rec.iter().find(|x| x.0 == k as i64 - 1), rec.iter().find(|x| x.0 == k as i64)) else { continue };
             eprintln!("eu ai draws at recorded {k}: game {:?}, play {:?}", steps(&x0.2, &x1.2), steps(&rngs[k].ai, &rngs[k + 1].ai));
         }
-        // the AI generator as recorded every tick through player 2's first step after the return (250; play a tick
-        // later), but at the set-up's first sample and the serve's contact (140), where play's draws land a tick apart from the game's
-        let off: Vec<usize> = (2..=250).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
+        // the AI generator as recorded every tick through player 2's steps after the return and the ticks after it
+        // stops (250-260; play a tick later; play walks it on from 256 with the same draws), but at the set-up's first sample and the serve's contact (140), where play's draws land a tick apart from the game's
+        let off: Vec<usize> = (2..=260).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
         assert!(off.is_empty(), "the AI generator leaves the recording at {off:?}");
     }
 
