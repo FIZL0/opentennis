@@ -42,6 +42,7 @@
   <a class="btn main" id="feather">Add to Feather</a>
   <a class="btn" id="altstore">Add to AltStore</a>
   <a class="btn" id="sidestore">Add to SideStore</a>
+  <a class="btn" id="ifizbox">Open the IPA in iFizBox</a>
   <a class="btn" href="https://github.com/FIZL0/opentennis/releases/latest/download/opentennis-ios.ipa" download>Download the IPA (sign it yourself)</a>
   <button class="btn" id="copy" type="button">Copy source URL</button>
   <code id="url"></code>
@@ -62,6 +63,19 @@
   const src = 'https://fizl0.github.io/apps/source.json';
   const q = encodeURIComponent(src);
   document.getElementById('url').textContent = src;
+  // iFizBox signs and installs an IPA from ifizbox://install. Not installed: Safari stays in front (after its
+  // "address is invalid" alert), so after 1.5 s send them to ifizbox.com, which offers to install it.
+  const ipa = 'https://github.com/FIZL0/opentennis/releases/latest/download/opentennis-ios.ipa';
+  const fiz = document.getElementById('ifizbox');
+  fiz.href = 'https://ifizbox.com/?install';
+  fiz.onclick = (e) => {
+    e.preventDefault();
+    let left = false;
+    addEventListener('pagehide', () => { left = true; }, { once: true });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) left = true; }, { once: true });
+    location.href = 'ifizbox://install?url=' + encodeURIComponent(ipa) + '&name=OpenTennis';
+    setTimeout(() => { if (!left && !document.hidden) location.href = fiz.href; }, 1500);
+  };
   document.getElementById('feather').href = 'feather://source/' + src;
   document.getElementById('altstore').href = 'altstore://source?url=' + q;
   document.getElementById('sidestore').href = 'sidestore://source?url=' + q;
