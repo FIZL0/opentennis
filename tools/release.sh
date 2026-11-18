@@ -109,7 +109,7 @@ env -u HST_SITE HST_COMMIT=$HST_COMMIT tools/web.sh
 tar -czf "$out/web.tar.gz" -C web .
 (cd "$out" && sha256sum opentennis-* opentennis.zip > SHA256SUMS)
 # M140: the AltStore / SideStore / Feather source, at a URL that always serves the latest release's copy (web/ios.html)
-tools/ios-source.sh "$version" "$out/opentennis-ios.ipa" >/dev/null
+NOTES=$notes tools/ios-source.sh "$version" "$out/opentennis-ios.ipa" >/dev/null
 printf %s "$pw" | minisign -S -s "$key" -m "$out/SHA256SUMS" -x "$out/SHA256SUMS.sig" -t "OpenTennis $tag"
 # the game checks against the key built into it (update.rs): refuse a release it would turn down
 minisign -V -P "$(sed -n 's/^pub const PUBLIC_KEY: &str = "\(.*\)";/\1/p' crates/hst/src/update.rs)" -m "$out/SHA256SUMS" -x "$out/SHA256SUMS.sig" -q \

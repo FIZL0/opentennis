@@ -2,6 +2,8 @@
 # from pages.yml (`ci` job), whose beta and site deploy only go out when it passes.
 # - tests: hst-sim and hst-data, the ones that run without the disc (CI has no ISO; the disc tests skip themselves through hst_data::fixture)
 # - clippy, warnings are errors: the whole workspace, the same command tools/done.sh runs before a task lands
+# - ios-source: tools/ios-source.sh builds the AltStore source from the GitHub releases and tools/ios-source-check.sh
+#   checks it (versions[] newest first, no duplicates, top-level fields = versions[0])
 # - cargo-deny (deny.toml): licences, bans, sources; RustSec advisories only warn (advisories.yml watches them daily)
 # No `cargo fmt --check` yet: the code isn't rustfmt-formatted and a repo-wide reformat waits for the user (plan/HUMAN.md).
 name: ci
@@ -24,6 +26,17 @@ jobs:
       # the Bevy crates' system libraries (alsa, udev; wayland/xkbcommon headers for winit), as in Bevy's linux setup
       - run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+  ios-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      # the latest release as if it were being built (a stand-in IPA): it's in the API too, so this also checks it's listed once
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head -c 1024 /dev/zero > ci.ipa
+          tools/ios-source.sh "$(gh release view -R FIZL0/opentennis --json tagName -q .tagName)" ci.ipa ci-source.json
+          tools/ios-source-check.sh ci-source.json
   deny:
     runs-on: ubuntu-latest
     steps:
