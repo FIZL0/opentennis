@@ -8,9 +8,10 @@
 //! Each recorded shader carries a hash of its source and everything it imports (P136): a pipeline whose shader changed
 //! since (a new build that moved its bindings) is left out, never compiled against its stale layout, which fails
 //! validation and quits the app.
-//! A Mac with no record of its own starts from [`SEED`], one recorded on an M3, so even the first match doesn't
-//! compile in play (pipelines compile in the frame there, [`IN_PLACE`]). Refresh it from a Mac's `pipelines.json` after
-//! a few matches on different courts: entries this build no longer asks for only cost a compile in the menu.
+//! An Apple device (iOS, macOS) with no record of its own starts from [`SEED`], one recorded on an iPhone, so even the
+//! first menu and match don't compile under the loading screen. Refresh it from a phone's or Mac's `pipelines.json`
+//! (iOS: Documents, beside settings.txt) after a few matches on different courts: entries this build no longer asks for
+//! only cost a compile in the menu.
 //! `HST_PREWARM=0` turns it off (neither recorded nor warmed).
 
 use bevy::platform::time::Instant;
@@ -32,9 +33,11 @@ use std::sync::{Arc, Mutex};
 /// Elsewhere they compile on the async pool and the whole record goes at once.
 pub const IN_PLACE: bool = cfg!(any(target_arch = "wasm32", target_os = "macos"));
 
-/// The record a Mac starts from when it has none of its own (any Apple GPU: every Mac renders through Metal).
-/// P143: none until one is recorded on a Mac with Bevy 0.20 (the 0.19 one named `.wgsl` shaders that are gone);
-/// put it back as `Some(include_str!("pipelines-macos.json"))` for macOS and tests.
+/// The record an iPhone, iPad or Mac starts from when it has none of its own (any Apple GPU: all render through Metal,
+/// and [`collect`] re-tags it with this device). P145: recorded on an iPhone 18 Pro (Bevy 0.20, WESL shaders).
+#[cfg(any(target_os = "ios", target_os = "macos", test))]
+const SEED: Option<&str> = Some(include_str!("pipelines-apple.json"));
+#[cfg(not(any(target_os = "ios", target_os = "macos", test)))]
 const SEED: Option<&str> = None;
 
 /// Matches a recorded pipeline is kept for without one asking for it.
@@ -532,9 +535,8 @@ mod tests {
     /// matches is left out of the saved record, with the tables only it used.
     #[test]
     fn the_seed_is_this_format() {
-        let Some(seed) = SEED else { return };
-        let seed: Record = serde_json::from_str(seed).expect("pipelines-macos.json parses");
-        assert_eq!(seed.version, VERSION, "re-record pipelines-macos.json on a Mac after a format change");
+        let seed: Record = serde_json::from_str(SEED.unwrap()).expect("pipelines-apple.json parses");
+        assert_eq!(seed.version, VERSION, "re-record pipelines-apple.json on an iPhone or Mac after a format change");
         assert!(seed.pipelines.len() > 50);
     }
 
