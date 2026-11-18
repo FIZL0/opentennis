@@ -75,7 +75,8 @@ mod tests {
     }
 
     /// A bot match: at every strike, the search `strike` sets up for the receiver (as if human) over the ball's own
-    /// flight places a point for each lob and for no other shot (B12's report: a lob's marker on the next hit).
+    /// flight places a point for each lob (ground stroke or volley) and for no other shot (B12's report: a lob's
+    /// marker on the next hit).
     #[test]
     fn lob_places_its_own_marker() {
         if !hst_data::fixture::has_iso() {
@@ -104,7 +105,8 @@ mod tests {
             }
             let mut s = SmashSearch::new(&[g.smash_heights[(g.last_hitter as usize + 1) & 1]]);
             s.search(&path);
-            let lob = g.shot.class == class::STROKE && g.shot.kind == kind::LOB;
+            // a volley's lob too (the bots' rallies reach one)
+            let lob = (g.shot.class == class::STROKE || g.shot.class == class::VOLLEY) && g.shot.kind == kind::LOB;
             assert_eq!(s.at().is_some(), lob, "shot {shots} (class {}, kind {}) marker {:?}", g.shot.class, g.shot.kind, s.at());
             lobs += lob as u32;
         }

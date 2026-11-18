@@ -382,9 +382,9 @@ mod tests {
     fn the_european_first_serve_set_up_plays_as_recorded() {
         let Some((want, got)) = european(Some(310), 0) else { return };
         serve_to_contact("eu", &want, &got, 8, (114, 134, 141));
-        // every player through the server's partner's six steps after the return (250-255), to the tick the game
-        // stops it where play walks it on (B719's kind)
-        serve_to_return("eu", &want, &got, 141, 255, 230);
+        // every player through the server's partner's six steps after the return (250-255) and its stand after them
+        // (the walk back's singles-column roll, B719), to the tick before the server's side strikes the return back
+        serve_to_return("eu", &want, &got, 141, 302, 230);
         // to the tick before the server's side strikes it back
         return_flight("eu", &want, &got, 230, 303);
     }
@@ -452,8 +452,10 @@ mod tests {
             eprintln!("eu ai draws at recorded {k}: game {:?}, play {:?}", steps(&x0.2, &x1.2), steps(&rngs[k].ai, &rngs[k + 1].ai));
         }
         // the AI generator as recorded every tick through player 2's steps after the return and the ticks after it
-        // stops (250-260; play a tick later; play walks it on from 256 with the same draws), but at the set-up's first sample and the serve's contact (140), where play's draws land a tick apart from the game's
-        let off: Vec<usize> = (2..=260).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
+        // stops (250-260; play a tick later) and its stand to the tick before the server's side strikes the return
+        // back (301), but at the set-up's first sample and the serve's contact (140), where play's draws land a tick
+        // apart from the game's
+        let off: Vec<usize> = (2..=301).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
         assert!(off.is_empty(), "the AI generator leaves the recording at {off:?}");
     }
 
@@ -496,8 +498,9 @@ mod tests {
     fn the_us_first_serve_set_up_plays_as_recorded() {
         let Some((want, got, rngs)) = us(Some(380), 240, 0) else { return };
         serve_to_contact("us", &want, &got, 9, (169, 215, 219));
-        serve_to_return("us", &want, &got, 219, 290, 298);
-        // to the tick before the server's side strikes it back (players part at 331 first: B719)
+        serve_to_return("us", &want, &got, 219, 370, 298);
+        // to the tick before the server's side strikes it back; every player stands where the recording has them to
+        // there (they part at 417 first: the server's partner's dive recovery, below)
         return_flight("us", &want, &got, 298, 370);
         // the returner's slide into the return (the contact IK's body step, 8 ticks from 291): solved for the path
         // record's contact, a few millionths off the ball that arrives, bit for bit
@@ -524,7 +527,7 @@ mod tests {
     #[ignore]
     fn the_us_bot_match_plays_as_recorded() {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
-        let Some((want, got, rngs)) = us(None, 440, toss_ai) else { return };
+        let Some((want, got, rngs)) = us(None, 720, toss_ai) else { return };
         compare("us", &want, &got);
         first_point_part("us", &want, &got, 219);
         if std::env::var_os("HST_M183A1_DUMP").is_some() {
@@ -575,12 +578,13 @@ mod tests {
                 eprintln!("us ai play tick {k}: {:?} draws past 124", draws(&r.ai));
             }
             // M185: the AI generator as recorded every tick through point 1's return and the server's partner's stand
-            // searches (which read the previous player's racket, `doubles_ai::scratch`) up to where the players part
-            // (331; play a tick later), but at the serve's contact (218, two draws early, as before) and 329 (a tick
-            // late); after that, on the recording's draws through 426, some landing a few ticks apart
-            let off: Vec<usize> = (2..=330).filter(|&k| rec.iter().find(|x| x.0 == 7566 + k as u32).is_some_and(|x| x.3 != rngs[k + 1].ai)).collect();
-            assert_eq!(off, [218, 329], "the AI generator leaves the recording at {off:?}");
-            let lost = (2..=426).filter(|&k| k != 218).find(|&k| !rec.iter().any(|x| x.3 == rngs[k + 1].ai));
+            // searches (which read the previous player's racket, `doubles_ai::scratch`) and the stands and walks
+            // back after the return (B719) through 386, but at the serve's contact (218, two draws early, as before);
+            // then the server's partner's walk-back draws land 5 ticks early (387-391, 417-421: its stroke flag
+            // clears 5 ticks sooner after its dive than the game's), and through 695 on the recording's draws
+            let off: Vec<usize> = (2..=386).filter(|&k| rec.iter().find(|x| x.0 == 7566 + k as u32).is_some_and(|x| x.3 != rngs[k + 1].ai)).collect();
+            assert_eq!(off, [218], "the AI generator leaves the recording at {off:?}");
+            let lost = (2..=695).filter(|&k| k != 218).find(|&k| !rec.iter().any(|x| x.3 == rngs[k + 1].ai));
             assert_eq!(lost, None, "play's AI generator is off the recording's draws");
             for (k, r) in rngs.iter().enumerate() {
                 let at = |f: &dyn Fn(&(u32, u64, Mt, Mt)) -> bool| rec.iter().find(|x| f(x)).map(|x| x.0 as i64 - 7566);
