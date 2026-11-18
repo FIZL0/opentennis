@@ -152,6 +152,11 @@ impl Posed {
         Some(&self.0.get(i)?.as_ref()?.1.local)
     }
 
+    /// Player `i`'s nodes as posed (the held values a crossfade mixes from included).
+    pub(super) fn nodes(&self, i: usize) -> Option<&Nodes> {
+        Some(&self.0.get(i)?.as_ref()?.1)
+    }
+
     /// Player `i`'s nodes, for the head look to turn the head in.
     pub(super) fn nodes_mut(&mut self, i: usize) -> Option<&mut Nodes> {
         Some(&mut self.0.get_mut(i)?.as_mut()?.1)
@@ -166,14 +171,14 @@ pub(super) struct Bones(Vec<Option<(usize, Seen)>>);
 /// One skeleton's `Bones::SEEN` (`None`: not in it) and the nodes on their chains up to the root.
 #[derive(Clone)]
 pub(super) struct Seen {
-    pub at: [Option<usize>; 7],
+    pub at: [Option<usize>; 8],
     keep: Vec<bool>,
 }
 
 impl Bones {
     /// Every bone a sim system takes from `Posed`: the body hit's head, neck and spine, the footsteps' toes, pelvis,
-    /// spine and head. A new reader adds its bone here.
-    pub const SEEN: [&str; 7] = ["Bip01Head", "Bip01Neck", "Bip01Spine", "Bip01Spine1", "Bip01Pelvis", "Bip01RToe0", "Bip01LToe0"];
+    /// spine and head, the doubles stand test's racket (`doubles_ai::scratch`). A new reader adds its bone here.
+    pub const SEEN: [&str; 8] = ["Bip01Head", "Bip01Neck", "Bip01Spine", "Bip01Spine1", "Bip01Pelvis", "Bip01RToe0", "Bip01LToe0", "Racket"];
 
     fn update(&mut self, i: usize, data: &std::sync::Arc<CharacterData>) -> &Seen {
         if self.0.len() <= i {

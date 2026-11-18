@@ -108,7 +108,8 @@ mod tests {
         app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
         app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
         app.add_systems(Startup, setup);
-        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, played_out, held_ball).chain());
+        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, played_out, held_ball, crate::play::bodyhit::pose, crate::play::doubles_ai::scratch::after_pose).chain());
+        app.init_resource::<crate::play::bodyhit::Posed>().init_resource::<crate::play::bodyhit::Bones>();
         app.update();
         {
             let g = app.world().resource::<Game>();
@@ -213,7 +214,8 @@ mod tests {
         app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
         app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
         app.add_systems(Startup, setup);
-        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, played_out, held_ball, flare_tick).chain());
+        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, played_out, held_ball, crate::play::bodyhit::pose, crate::play::doubles_ai::scratch::after_pose, flare_tick).chain());
+        app.init_resource::<crate::play::bodyhit::Posed>().init_resource::<crate::play::bodyhit::Bones>();
         app.update();
         let code = |p: &Phase| match p {
             Phase::Serve => 2,
@@ -486,7 +488,7 @@ mod tests {
         let Some((want, got, rngs)) = us(Some(380), 240, 0) else { return };
         serve_to_contact("us", &want, &got, 9, (169, 215, 219));
         serve_to_return("us", &want, &got, 219, 290, 298);
-        // to the tick before the server's side strikes it back (players part at 318 first: M185)
+        // to the tick before the server's side strikes it back (players part at 331 first: B719)
         return_flight("us", &want, &got, 298, 370);
         // the returner's slide into the return (the contact IK's body step, 8 ticks from 291): solved for the path
         // record's contact, a few millionths off the ball that arrives, bit for bit
@@ -513,7 +515,7 @@ mod tests {
     #[ignore]
     fn the_us_bot_match_plays_as_recorded() {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
-        let Some((want, got, rngs)) = us(None, 400, toss_ai) else { return };
+        let Some((want, got, rngs)) = us(None, 440, toss_ai) else { return };
         compare("us", &want, &got);
         first_point_part("us", &want, &got, 219);
         if std::env::var_os("HST_M183A1_DUMP").is_some() {
@@ -563,6 +565,14 @@ mod tests {
             for (k, r) in rngs.iter().enumerate().take(230).skip(214) {
                 eprintln!("us ai play tick {k}: {:?} draws past 124", draws(&r.ai));
             }
+            // M185: the AI generator as recorded every tick through point 1's return and the server's partner's stand
+            // searches (which read the previous player's racket, `doubles_ai::scratch`) up to where the players part
+            // (331; play a tick later), but at the serve's contact (218, two draws early, as before) and 329 (a tick
+            // late); after that, on the recording's draws through 426, some landing a few ticks apart
+            let off: Vec<usize> = (2..=330).filter(|&k| rec.iter().find(|x| x.0 == 7566 + k as u32).is_some_and(|x| x.3 != rngs[k + 1].ai)).collect();
+            assert_eq!(off, [218, 329], "the AI generator leaves the recording at {off:?}");
+            let lost = (2..=426).filter(|&k| k != 218).find(|&k| !rec.iter().any(|x| x.3 == rngs[k + 1].ai));
+            assert_eq!(lost, None, "play's AI generator is off the recording's draws");
             for (k, r) in rngs.iter().enumerate() {
                 let at = |f: &dyn Fn(&(u32, u64, Mt, Mt)) -> bool| rec.iter().find(|x| f(x)).map(|x| x.0 as i64 - 7566);
                 let (rand, shared, ai) = (at(&|x| x.1 == r.rand.0), at(&|x| x.2 == r.shared), at(&|x| x.3 == r.ai));

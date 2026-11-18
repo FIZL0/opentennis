@@ -28,6 +28,9 @@ pub(super) struct Shared {
     /// Each player's shot target: the aimed point of its latest shot (`aimed`), kept until its next aim.
     #[serde(default)]
     targets: [[f32; 4]; 4],
+    /// M185: what each player's update leaves for the next one's stand test (`scratch`).
+    #[serde(default)]
+    pub(super) left: scratch::Left,
 }
 
 /// Worked out again after a snapshot load, so left out of the state text (`snapshot::state_text`) too.
@@ -211,6 +214,7 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
     let mate = if singles { i } else { i ^ 2 };
     let human_mate = !singles && g.humans.get(mate) == Some(&true);
     let row = p.ai;
+    let scratch_z = scratch::z(g, i);
     let me = &mut g.doubles_ai.me[i];
     if singles && !std::mem::replace(&mut me.set_up, true) {
         // B15: the singles AI's point set-up: the spot it walks back to (the middle, 10 back for the NET style, else
@@ -296,6 +300,8 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
         if singles {
             x.singles_rally(net, &row, &mut b, &w, c, seen, &mut out, &mut roll);
         } else {
+            // M185: the stand test's leftover quad is the previous player's, not its own last target
+            x.stash = [0.0, 0.0, scratch_z, 0.0];
             x.rally(net, &row, &mut b, &mut w, c, seen, &mut out, &mut roll);
         }
     }
@@ -695,6 +701,8 @@ pub(super) fn formations(g: &mut Game, draws: &[u32]) {
         (p.pos, p.prev, p.home, p.body.pos) = (at.pos, at.pos, at.pos, at.pos);
     }
 }
+
+pub(super) mod scratch;
 
 #[cfg(test)]
 mod handover;

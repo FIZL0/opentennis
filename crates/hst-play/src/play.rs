@@ -724,6 +724,7 @@ pub fn plugin(app: &mut App) {
                 .chain(),
         );
     app.add_systems(FixedUpdate, flare_tick.after(play_sounds));
+    app.add_systems(FixedUpdate, doubles_ai::scratch::after_pose.after(bodyhit::pose).after(play_sounds));
     app.add_systems(FixedUpdate, (bounce_debris::set_up.after(simulate).before(start_effects), bounce_debris::throw.after(start_effects).after(foot_fx::tick)));
     app.add_systems(Update, emote::hide_ball.after(draw));
     app.add_systems(Update, emote::own_facing.before(character::animate));
