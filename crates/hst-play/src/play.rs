@@ -49,6 +49,7 @@ use snapshot::Const;
 pub mod background;
 mod ball_shadow;
 mod build_rules;
+mod dive_ik;
 mod release_art;
 mod bounce_debris;
 mod smash_marker;
@@ -267,6 +268,9 @@ pub struct Player {
     arm: Option<([[f32; 4]; 4], f32)>,
     /// A dive under way (the press found no stroke while running).
     dive: Option<swing::Dive>,
+    /// A contact dive's arm solve (`dive_ik`), and this tick's turned `Racket` local, if turned.
+    dive_ik: Option<hst_sim::pose::DiveIk>,
+    racket: Option<[[f32; 4]; 4]>,
     /// Ticks left of a right-stick emote (`emote`, ours): no run, no stroke until it's out.
     emote: u32,
 }
@@ -2939,6 +2943,7 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
             p.facing = yaw(dir);
             p.vel = Vec2::ZERO;
             set_motion(p, motion::id::RECEIVE, 1.0, false, None);
+            dive_ik::start(g, i, &d);
         } else {
             g.players[i].pending = None;
             let quiet = g.players[i].whiff_quiet;
@@ -2973,6 +2978,7 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
         p.prev = p.pos;
         p.pos = [pos[0], pos[1], pos[2]];
     }
+    dive_ik::tick(&mut g.players[i]);
     if let Some(c) = g.players[i].contact {
         let p = &mut g.players[i];
         if p.ik.is_none() {
@@ -4396,6 +4402,7 @@ fn motions(mut g: ResMut<Game>, mut q: Query<(&Figure, &mut Motion)>) {
         let i = f.0;
         let p = &g.players[i];
         m.arm = p.arm;
+        m.racket = p.racket;
         // a whiffed serve's miss motion plays on through the fault's call, until the players react (B270: a
         // double fault's reaction takes the server too)
         let serving = (g.phase == Phase::Serve || serve_swinging(&g) || g.serving.whiffed && !g.post.as_ref().is_some_and(|p| p.reacted))

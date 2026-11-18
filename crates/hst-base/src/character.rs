@@ -819,6 +819,8 @@ pub struct Motion {
     pub serial: u32,
     /// The contact IK's turn of right hand, right forearm, right upper arm and left upper arm, and its weight.
     pub arm: Option<([[f32; 4]; 4], f32)>,
+    /// A contact dive's turned `Racket` local (its rotation rows, the game's row matrix) this tick, if turned.
+    pub racket: Option<[[f32; 4]; 4]>,
     /// The face playing (`CharacterData::faces`) and its clock.
     pub face: usize,
     pub face_clock: Clock,
@@ -840,7 +842,7 @@ pub struct Motion {
 impl Default for Motion {
     fn default() -> Self {
         let clock = Clock::start(1.0, true, None);
-        Motion { id: 0, clock, prev: 0.0, serial: 0, arm: None, face: 0, face_clock: clock, uv_clock: clock, fade: Fade::default(), mix: None, sets: 0, drawn: clock, drawn_prev: 0.0 }
+        Motion { id: 0, clock, prev: 0.0, serial: 0, arm: None, racket: None, face: 0, face_clock: clock, uv_clock: clock, fade: Fade::default(), mix: None, sets: 0, drawn: clock, drawn_prev: 0.0 }
     }
 }
 
@@ -862,7 +864,7 @@ impl Motion {
         fade.start(frames, id as i32, hold.is_some(), self.id as i32, true, &self.clock);
         let face_clock = Clock::start(speed, looping, None);
         let clock = Clock::start(speed, looping, hold);
-        *self = Motion { id, clock, prev: 0.0, serial, arm: self.arm, face, face_clock, uv_clock: face_clock, fade, mix: None, sets: self.sets.wrapping_add(1), drawn: clock, drawn_prev: 0.0 };
+        *self = Motion { id, clock, prev: 0.0, serial, arm: self.arm, racket: self.racket, face, face_clock, uv_clock: face_clock, fade, mix: None, sets: self.sets.wrapping_add(1), drawn: clock, drawn_prev: 0.0 };
     }
 
     /// Switch to motion `id` from its start (keeps going if it already plays).
@@ -1780,6 +1782,7 @@ pub fn animate(
             let now = c.arm.as_ref().filter(|_| motion.arm.is_some()).map_or(Vec::new(), |a| a.1.clone());
             c.arm_then = std::mem::replace(&mut c.arm_now, now);
             c.arm_at = time.elapsed_secs_f64();
+            c.racket_then = std::mem::replace(&mut c.racket_now, motion.racket.map(drawn_turn));
         }
         let g = time.overstep_fraction();
         // B701: the serve's contact IK, held through its follow-through (which the ready stance covers) and let go
@@ -1797,6 +1800,7 @@ pub fn animate(
             }
         };
         let (pa, pb) = (&c.poses[k[0]].1, &c.poses[k[1]].1);
+        let racket_joint = rig.data.joint("Racket");
         let mut drawn = std::mem::take(&mut c.drawn);
         drawn.clear();
         for (j, (&(qa, va), &(qb, vb))) in pa.iter().zip(pb).enumerate().take(rig.data.joints.len()) {
@@ -1804,6 +1808,13 @@ pub fn animate(
             // the contact IK turns the arm joints in their parents' frames (the game's local·Q, rows; translation kept)
             if let Some(q) = turn(j) {
                 rotation = (q * rotation).normalize();
+            }
+            // a contact dive's racket turn replaces the racket's rotation (drawn between the two ticks')
+            if Some(j) == racket_joint && !serve_arm {
+                match (c.racket_then, c.racket_now) {
+                    (None, None) => {}
+                    (a, b) => rotation = a.unwrap_or(rotation).slerp(b.unwrap_or(rotation), g).normalize(),
+                }
             }
             drawn.push((rotation, if f == 0.0 { va } else { va.lerp(vb, f) }));
         }
@@ -1983,6 +1994,9 @@ pub struct Posing {
     arm_then: Vec<(usize, Quat)>,
     arm_now: Vec<(usize, Quat)>,
     arm_at: f64,
+    /// A dive's turned racket the tick before this one and this one's (`Motion::racket`, as drawn rotations).
+    racket_then: Option<Quat>,
+    racket_now: Option<Quat>,
     mix_then: Option<(f32, f32, bool)>,
     mix_at: f64,
     mix_sets: u32,
@@ -2054,6 +2068,12 @@ const HEAD_EASE: f32 = 0.15;
 /// swing until the racket would have come round behind the back.
 // ponytail: picked by eye on Carol's serve
 const SERVE_READY: (f32, f32) = (22.0, 44.0);
+
+/// A game row-matrix rotation as the drawn joint rotation (a rotation key is the conjugate of the joint's).
+fn drawn_turn(m: [[f32; 4]; 4]) -> Quat {
+    let [x, y, z, w] = hst_sim::quat::from_matrix(&m);
+    Quat::from_xyzw(-x, -y, -z, w).normalize()
+}
 
 /// `clip` at time `t` into `out` (each joint's rotation and translation): unkeyed joints at rest.
 pub(crate) fn pose_at(joints: &[Joint], clip: &Clip, t: f32, out: &mut Vec<(Quat, Vec3)>) {

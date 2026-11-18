@@ -26,7 +26,7 @@ pub(in crate::play) struct Left {
 }
 
 /// Player `i`'s racket direction z: its `Racket` node's world x axis (the chain under its placement, with the
-/// contact arm turn it holds now), z, times its hand.
+/// contact or dive arm turn and a dive's racket turn it holds now), z, times its hand.
 fn racket(g: &Game, i: usize) -> Option<f32> {
     let chain = g.doubles_ai.left.chain.get(i).filter(|c| !c.is_empty())?;
     let (p, sk) = (&g.players[i], &g.data.get(i)?.skeleton);
@@ -37,7 +37,9 @@ fn racket(g: &Game, i: usize) -> Option<f32> {
         m[3] = local[3];
         m
     };
-    let mut m = turned(chain[0].0, &chain[0].1);
+    // a contact dive turns the racket's own local first (B716), keeping its translation
+    let racket = p.racket.map_or(chain[0].1, |r| [r[0], r[1], r[2], chain[0].1[3]]);
+    let mut m = turned(chain[0].0, &racket);
     for (n, local) in &chain[1..] {
         m = vmul(&m, &turned(*n, local));
     }
