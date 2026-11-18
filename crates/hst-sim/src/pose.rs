@@ -1040,9 +1040,9 @@ fn turn_of(m: &M4) -> M4 {
     [m[0], m[1], m[2], [0.0, 0.0, 0.0, 1.0]]
 }
 
-/// `v` scaled to unit length (FPU: one reciprocal of the root, then three products).
+/// `v` scaled to unit length (FPU: the squares summed y, x, z, one reciprocal of the root, then three products).
 fn unit3(v: [F; 3]) -> [F; 3] {
-    let inv = F::ONE / (v[2] * v[2]).madd(v[1], v[1]).madd(v[0], v[0]).sqrt();
+    let inv = F::ONE / (v[1] * v[1]).madd(v[0], v[0]).madd(v[2], v[2]).sqrt();
     v.map(|c| c * inv)
 }
 
@@ -1057,7 +1057,9 @@ pub struct DiveSolve {
 /// The contact dive's arm solve at the dive's start: the upper arm turns so the racket point's direction from the
 /// shoulder lines up with the ball's from where the slide ends, and the racket's angle about its y that lines its
 /// face up against the ball's flattened incoming direction. `pos` the player, `dir` the dive's facing (x, z),
-/// `hand` the mirror factor, `slide` the slide length, `ball` and `vel` the chosen path frame's ball (y up).
+/// `hand` the mirror factor, `slide` the slide length, `ball` and `vel` the chosen path frame's ball in game space
+/// (y down, as the live ball holds it: the height goes in negative, so the arm aims at the ball mirrored in the
+/// ground, as the game's does; B721) and the path's velocity there (before any hit).
 pub fn dive_solve(rig: &DiveRig, pos: [f32; 3], dir: [f32; 2], hand: f32, slide: f32, ball: [f32; 3], vel: [f32; 3]) -> DiveSolve {
     use crate::vu0::transform;
     let side = [(F(dir[1]) * hand).0, (F::ZERO * hand).0, ((F::ZERO - dir[0]) * hand).0, (F(hand) * 0.0).0];
@@ -1070,13 +1072,13 @@ pub fn dive_solve(rig: &DiveRig, pos: [f32; 3], dir: [f32; 2], hand: f32, slide:
     let a = unit3(std::array::from_fn(|k| F(ball[k]) - end[k] - s[k]));
     let b = unit3(std::array::from_fn(|k| F(tip[k]) - s[k]));
     let axis = unit3([(b[1] * a[2]).msub(b[2], a[1]), (b[2] * a[0]).msub(b[0], a[2]), (b[0] * a[1]).msub(b[1], a[0])]);
-    let c = (a[2] * b[2]).madd(a[1], b[1]).madd(a[0], b[0]).clamp(-1.0, 1.0);
+    let c = (a[1] * b[1]).madd(a[0], b[0]).madd(a[2], b[2]).clamp(-1.0, 1.0);
     let r = axis_cos(c.0, 1.0, f32s(axis));
     let solved = turn_of(&vmul(&vmul(&turn_of(&shoulder_m), &r), &transpose3(&vmul(&rig.above, &place))));
     let upper = crate::quat::from_matrix(&vmul(&transpose3(&rig.upper), &solved));
     let world = [rig.hand, rig.forearm, solved, rig.above, place].iter().fold(rig.racket, |m, x| vmul(&m, x));
     let d = [-F(vel[0]), -F(vel[1].abs()), -F(vel[2])];
-    let e = |r: &[f32; 4]| (d[2] * r[2]).madd(d[1], r[1]).madd(d[0], r[0]);
+    let e = |r: &[f32; 4]| (d[1] * r[1]).madd(d[0], r[0]).madd(d[2], r[2]);
     let (ex, ez) = (e(&world[0]), e(&world[2]));
     let inv = F::ONE / (ez * ez).madd(ex, ex).sqrt();
     let (nx, nz) = (ex * inv, ez * inv);

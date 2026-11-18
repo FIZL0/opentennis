@@ -109,3 +109,116 @@ fn dive_solve_points_the_arm_at_the_ball() {
     }
     assert_eq!(n, 4);
 }
+
+/// B721: the contact dive's arm solve against the game's posed nodes, from research/journal/2026-11-17-b721-dive-arm-check/scripts/b721_dive_nodes.py (P1 dives on
+/// purpose; `<file>.nodes` holds P1's node array on each dive frame: vsync, base, 64 nodes of 0x120 bytes, each its
+/// world rows, its local rows at +0x80, its held rotation +0xe0, its node index +0x10c). On every tick the solve's
+/// weight w isn't 0 (ramping up and down) the Racket local's rotation is Y(angle · w) · Lr whatever the dive motion
+/// does, and the right upper arm's local is its animated rows (the held rotation's) times the solved turn slerped by
+/// w: both bit for bit from `dive_solve` on the recorded start (position, facing, slide, hand) and the path's ball at
+/// the contact frame in game space (y down, so the height goes in negative) with its pre-hit velocity there (the
+/// recorded ball one frame earlier, flown one frame: the live ball's velocity at the contact frame is already the
+/// return's). `<file>.dump` (P1's object at the dive's start), if there, has the game's own turn and angle: equal too.
+#[test]
+fn dive_solve_as_recorded() {
+    use hst_data::{ani, xb::Archive};
+    use hst_sim::ball::{Ball, Params};
+    use hst_sim::pose::{Clip, M4, Skeleton, dive_rig, dive_solve, q_matrix, vmul};
+    use hst_sim::quat;
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
+    // Ashley (character 0) as P1, a singles match from the copy's Challenge slot
+    let file = "b721_dive_c00";
+    let (Ok(data), Ok(nodes)) = (fixture::read(format!("{dir}/{file}.bin")), fixture::read(format!("{dir}/{file}.bin.nodes"))) else {
+        return fixture::skip(format_args!("{file} absent, skipped"));
+    };
+    let Ok(mut iso) = fixture::iso() else {
+        return fixture::skip(format_args!("disc absent, skipped"));
+    };
+    const NODE: usize = 0x120;
+    let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+    let u = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+    let rows = |b: &[u8], o: usize| -> M4 { std::array::from_fn(|r| std::array::from_fn(|c| f(b, o + 16 * r + 4 * c))) };
+    let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
+    let node_frames: Vec<&[u8]> = nodes.as_chunks::<{ 8 + 64 * NODE }>().0.iter().map(|c| &c[..]).collect();
+    // model node `i` of P1 on the frame of vsync `v`
+    let node = |v: u32, i: usize| -> &[u8] {
+        let n = node_frames.iter().find(|n| u(n, 0) == v).unwrap_or_else(|| panic!("no nodes at vsync {v}"));
+        (0..64).map(|q| &n[8 + q * NODE..8 + (q + 1) * NODE]).find(|nd| u(nd, 0x10c) as usize == i).unwrap()
+    };
+    let bits = |m: &M4| m.map(|r| r.map(f32::to_bits));
+    // P1's object at each contact dive's start (vsync, object), if caught
+    let dumps = fixture::read(format!("{dir}/{file}.bin.dump")).unwrap_or_default();
+    let dumps: Vec<&[u8]> = dumps.as_chunks::<{ 8 + 0x8000 }>().0.iter().map(|c| &c[..]).collect();
+    let frames = frames_live(&data);
+    let mut dives = 0;
+    for k in 1..frames.len() {
+        let (a, fr) = (frames[k - 1], frames[k]);
+        if p_u8(fr, 0, 0x3f58) != 1 || p_u8(a, 0, 0x3f58) != 0 || p_i32(fr, 0, 0x3ec4) < 0 {
+            continue;
+        }
+        let contact = (p_i32(fr, 0, 0x3f84) - 50) as usize;
+        let at = format!("{file} vsync {}", fr.vsync());
+        assert!(frames.len() > k + contact, "{at}: recording ends mid-dive");
+        for j in 0..=5 {
+            assert_eq!(frames[k + j].vsync(), fr.vsync() + j as u32, "{at}: a frame missed in the ramp");
+        }
+        let pos = [0x3f60, 0x3f64, 0x3f68].map(|o| fr.player_f32(0, o));
+        let face = [fr.player_f32(0, 0x3e60), fr.player_f32(0, 0x3e68)];
+        let slide = fr.player_f32(0, 0x3f80);
+        let side = [fr.player_f32(0, 0x3d40), fr.player_f32(0, 0x3d48)];
+        let hand = if side[0] * face[1] - side[1] * face[0] < 0.0 { -1.0 } else { 1.0 };
+        let before = frames[k + contact - 1].live_ball();
+        let mut ball = Ball { pos: v3(before, 0xe0), vel: v3(before, 0x130), spin: f(before, 0x1a4) };
+        ball.fly(&Params::default());
+        assert_eq!(ball.pos.map(f32::to_bits), v3(frames[k + contact].live_ball(), 0xe0).map(f32::to_bits), "{at}: the ball flown to the contact frame");
+        // the character's skeletons (a costume may differ) and receive motion
+        let c = 0;
+        let xb = iso.read(&format!("PCANI/PC{c:02}ANI.XB")).unwrap();
+        let arc = Archive::parse(&xb).unwrap();
+        let stem = ani::motion_name(0x1e, c).unwrap().to_ascii_lowercase();
+        let e = arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&format!("{stem}.ani2"))).unwrap();
+        let receive = ani::parse(&arc.read(e).unwrap()).unwrap();
+        // the game's own solve, caught at the dive's start: the upper arm's turn and the racket angle
+        let caught = dumps.iter().find(|d| u(d, 0) == fr.vsync()).map(|d| ([0, 4, 8, 12].map(|o| u(d, 8 + 0x4030 + o)), u(d, 8 + 0x400c)));
+        let mut matched = None;
+        for costume in 0..10 {
+            let Ok(md) = iso.read(&format!("PC/PC{c:02}C{costume:02}.XB")) else { continue };
+            let marc = Archive::parse(&md).unwrap();
+            let Some(e) = marc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(".mdl")) else { continue };
+            let m = hst_data::mdl::parse(&marc.read(e).unwrap()).unwrap();
+            let sk = Skeleton { names: m.node_names.clone(), parent: m.node_parent.clone(), rest: m.node_local.clone() };
+            let at_node = |n: &str| sk.names.iter().position(|x| x == n).unwrap();
+            let (racket, upper) = (at_node("Racket"), at_node("Bip01RUpperArm"));
+            let rig = dive_rig(&sk, &Clip::new(&sk, &receive));
+            let s = dive_solve(&rig, pos, face, hand, slide, ball.pos, ball.vel);
+            let mut ik = DiveIk::new(s, rig.racket, contact as i32);
+            let mut ok = true;
+            // every tick the solve turns the arm (weight > 0) but the first (weight 0)
+            for j in 0.. {
+                let Some(w) = ik.tick() else { break };
+                if w == 0.0 {
+                    continue;
+                }
+                let v = fr.vsync() + j as u32;
+                let got = rows(node(v, racket), 0x80);
+                ok &= bits(&ik.racket_local(w, &got))[..3] == bits(&got)[..3];
+                // the upper arm: its animated rows (the held rotation's) times the turn at weight w
+                let nd = node(v, upper);
+                let got = rows(nd, 0x80);
+                let anim = q_matrix([0xe0, 0xe4, 0xe8, 0xec].map(|o| f(nd, o)));
+                let want = vmul(&anim, &quat::to_matrix(quat::slerp([0.0, 0.0, 0.0, 1.0], s.upper, w)));
+                ok &= bits(&want)[..3] == bits(&got)[..3];
+            }
+            if ok {
+                if let Some((q, angle)) = caught {
+                    assert_eq!((s.upper.map(f32::to_bits), s.angle.to_bits()), (q, angle), "{at}: the game's caught solve");
+                }
+                matched = Some(costume);
+                break;
+            }
+        }
+        assert!(matched.is_some(), "{at}: no costume's racket turn matches the game's");
+        dives += 1;
+    }
+    assert!(dives >= 1, "{file}: no contact dive");
+}
