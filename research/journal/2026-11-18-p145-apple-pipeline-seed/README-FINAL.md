@@ -1,7 +1,7 @@
 # P145: Apple first-run pipeline seed
 
 `crates/hst-base/src/pipelines-apple.json` is the user's iPhone 18 Pro record (beta build 5067, fresh install, menu +
-one match on court 6, Phone preset: 67 % scale, shadows low, MSAA 2x): 94 pipelines, 19 shaders, format 4, only
+one match on court 6 (refreshed after a second on court 10: 96), Phone preset: 67 % scale, shadows low, MSAA 2x): 94 pipelines, 19 shaders, format 4, only
 `embedded://` shader paths (no device paths). It's the `SEED` on every Apple target (iOS and macOS, any Apple GPU,
 all Metal; `collect` re-tags it with the device's own name) and in tests.
 
@@ -16,3 +16,9 @@ so a stale seed never fails validation.
 
 Not yet verified on the device with the seed in: needs a fresh install of a beta built from this commit (expect no
 render frame over ~50 ms at boot, menu or match load, and `pipelines: 94 recorded for this GPU` at start).
+
+## Verified (hst-log 9, beta build 5070, fresh install)
+
+`pipelines: 94 recorded for this GPU`, the record fed with 0 skipped; match load cover down after 6 frames (99 without
+the seed, hst-log 8). In play: no frame over 19.7 ms (hst-log 8's 28.7 / 32.4 ms early frames gone). The seed was
+then refreshed from that run's pipelines.json (courts 6 + 10, 96 pipelines).
