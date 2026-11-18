@@ -48,8 +48,8 @@ match's **"no rally yet" mark**:
   M184 section 6).
 
 In a normal match the mark is therefore set only for the match's first serve set-up: every later set-up (a new
-point, a second serve after a fault, a let) comes after at least one swing press. One match-wide mode switch, off in
-slot 5's match, forces the partial form every time (see Open questions).
+point, a second serve after a fault, a let) comes after at least one swing press. The "replaying a point" switch
+(section 4) forces the partial form whenever it is on; it is off in every point that is played live.
 
 **Both forms**, every set-up:
 
@@ -95,10 +95,36 @@ stands where `match_s05.bin` has them up to tick 2354 (they parted at 1270 befor
   sends the serve set-up message to the AIs (where the full/partial set-up runs).
 - The toss's hit message, on the release tick, inside the server's tick, after the ball is placed (M184).
 
+## 4. The switch that forces the partial form: a point being replayed
+
+- The switch is the match's **"this point is a replay"** flag. The game can replay a finished point by rewinding to
+  that point's start and playing it through again from its stored snapshot: its own instant-replay pick at the
+  point-over phase (P0b4d), and a second request path driven from the replay controls (not used by slot 5's match).
+- Both are a request made during the point-over phase. The request is acted on when the serve phase is next entered:
+  - **No request** (every live point): the match takes a fresh snapshot of the score state for this point (the "no
+    rally yet" mark included) and **turns the switch off**.
+  - **A request**: the match restores the score state from the point's snapshot (the "no rally yet" mark goes back
+    to what it was at that point's start), **turns the switch on**, and clears the request.
+- Leaving the match-over phase for the next match turns the switch off (and drops any request).
+- The match object hears the serve phase's entry before the players do (same message level, the match first, then
+  its players in creation order), so the switch the players' set-up reads is already this point's: on for the
+  replayed point, off again for the next live point.
+- So a replay of the match's first point runs the partial set-up even though its restored mark says "no rally yet":
+  serve history kept, "team hasn't hit yet" cleared, no net pick draw.
+- For the port: play has no rewound point replays (they're not supported yet), so the switch is always off and only
+  the mark decides. When point replays land, a replayed point must take the partial form.
+
+## 5. The next-point step after a fault and a let
+
+- The step clears the last-hitter record (and the ball-out side) **before** it looks at "second serve pending" and
+  "let"; those two only decide whether server, receiver and side move on. So the record is "nobody" after a fault
+  and a let as after a won point.
+- A fault and a let both go through the point-over phase (the umpire's call plays there), and the step runs as that
+  phase is left with the match not over, so every toss, a second serve's included, follows the step.
+- This is from the game's code, not a recording: no fault or let lies inside the span `rng_s05.bin` covers (it ends
+  around tick 1464). `match_s05.bin` has faults later in the match; the port's bot-match test reaching them is the
+  check.
+
 ## Open questions
 
-- Which match modes turn on the switch that forces the partial form is not identified. It is off in slot 5's
-  bot match (the full form ran at its first point: the net pick draw and the serve history clear are both seen).
-  Until it is known, the port can treat it as always off.
-- That the next-point step also runs after a fault and a let comes from the step itself handling "second serve
-  pending" and "let". No fault or let point has been compared against a recording yet.
+none
