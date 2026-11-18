@@ -62,6 +62,8 @@ B719 and B720 landed. I ran both whole-match probes again:
 - `the_european_generators_play_as_recorded`: the AI generator as recorded every tick through 435 (was 301). Still
   leaves out the set-up's first sample and the serve's contact. New option `HST_M183A1_DRAWS=from,to` prints the
   draws a tick for another span.
+- `serve_check::a_faulted_serve_cant_be_returned` plays a bot match until the bots' first fault. With these AI
+  changes the first fault comes at tick 12944 (was 9497), so its search limit went from 12000 to 16000 ticks.
 - Probe commands:
   - `tools/check.sh -p hst-play the_european_bot_match -- --ignored --nocapture`
   - the same with `the_us_bot_match`
