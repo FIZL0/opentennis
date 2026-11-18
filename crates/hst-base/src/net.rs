@@ -853,6 +853,12 @@ pub fn delay_for(rtt: Duration) -> u32 {
     delay_at(rtt, 60)
 }
 
+/// B732: a peer's round trip for the input delay: the lowest of its recent samples (ms), so one slow probe (a
+/// retransmit, a moment still on the relay) doesn't raise the delay for the whole match; 250 ms if none came back.
+fn best_rtt(recent: Option<&std::collections::VecDeque<u32>>) -> Duration {
+    recent.and_then(|r| r.iter().min()).map_or(Duration::from_millis(250), |&ms| Duration::from_millis(ms as u64))
+}
+
 /// M176: [`delay_for`] in ticks of a match at `hz` ticks a second.
 pub fn delay_at(rtt: Duration, hz: u32) -> u32 {
     ((rtt.as_secs_f64() / 2.0 * hz as f64).ceil() as u32 + 1).clamp(2, 15)
@@ -2171,8 +2177,9 @@ impl Hosted {
         if let Some((waiting, until)) = &self.starting
             && (waiting.is_empty() || n0_future::time::Instant::now() >= *until)
         {
-            // ponytail: no probe answer in time counts as 250 ms; a slower peer just stalls the match more
-            let worst = self.joined.iter().map(|(p, ..)| self.rtt.get(p).copied().unwrap_or(Duration::from_millis(250))).max().unwrap_or_default();
+            // B732: each peer's best recent round trip (no answer in time counts as 250 ms); a slower peer just stalls
+            // the match more
+            let worst = self.joined.iter().map(|(p, ..)| best_rtt(self.recent.get(p))).max().unwrap_or_default();
             self.room.delay = delay_at(worst, self.room.match_hz());
             self.room.lockstep = std::env::var_os("HST_NET_LOCKSTEP").is_some();
             self.room.seed = (SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos()) as u32) | 1;
@@ -3801,6 +3808,17 @@ fn code_ticket(ep: &Endpoint, home: Option<&RelayUrl>) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn delay_from_best_rtt() {
+        let low: std::collections::VecDeque<u32> = [40, 42, 38, 41].into();
+        let spiky: std::collections::VecDeque<u32> = [40, 42, 900, 38, 41].into();
+        assert_eq!(best_rtt(Some(&spiky)), Duration::from_millis(38));
+        assert_eq!(delay_at(best_rtt(Some(&spiky)), 60), delay_at(best_rtt(Some(&low)), 60));
+        assert!(delay_at(best_rtt(Some(&spiky)), 60) < delay_at(Duration::from_millis(900), 60));
+        assert_eq!(best_rtt(None), Duration::from_millis(250));
+        assert_eq!(best_rtt(Some(&Default::default())), Duration::from_millis(250));
+    }
+
     use super::*;
 
     fn room(doubles: bool) -> Room {

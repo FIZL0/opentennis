@@ -21,7 +21,6 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 index out of bounds: the len is 0 but the index is 0"
 
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
-- [ ] **B732** Input delay from the best recent ping, not one sample (user 2026-11-18): the host sets Room::delay from the last single Pong when the match starts (net.rs start), so one slow sample (a reliable-stream retransmit, or a moment still on the relay) inflates the delay for the whole match. Use the lowest of the peer's recent round trips (the recent queue, last 5) instead, falling back to the current 250 ms default when none came back; unit test that a spike among low samples doesn't raise the delay | files: crates/hst-base/src/net.rs | test: delay_from_best_rtt
 - [ ] **B733** Show Direct / Relayed next to each player's ping online (user 2026-11-18): when hole punching fails iroh sends everything through a relay, which can add a lot of round trip, and players can't tell. Read the connection's current path from iroh (direct vs relay) per peer, carry it with the ping the lobby already shows, and show it in the lobby's player rows (and the in-match network notice if one shows ping); layout at any aspect ratio. Test: a relay-only test connection (the existing no-direct-UDP testing switch) reports Relayed, a LAN one Direct. Release-notes line | files: crates/hst-base/src/net.rs, crates/hst/src/play/main_menu/online.rs | test: path_kind_reported
 
 ### Match basics

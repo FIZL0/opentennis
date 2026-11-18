@@ -12,3 +12,4 @@
 - Ground strokes hit above the height of a rising ball now go where they would in the original instead of being pulled toward the middle.
 - A player caught deep behind the baseline when a point ends now steps forward to where the original puts them for the celebration.
 - Online matches between players far apart play more smoothly: the other player's moves jump around much less on long-distance connections.
+- Online, one slow ping just before the match starts no longer makes the controls lag for the whole match.
