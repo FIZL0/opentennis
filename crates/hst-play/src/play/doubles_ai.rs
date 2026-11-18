@@ -119,7 +119,7 @@ fn frame(g: &mut Game, i: usize, phase: u8, mark: bool) -> (Body, World) {
         control: CPU,
         formation: p.formation,
         swing: p.contact.map_or(-1, |c| c.frames as i32),
-        stroke: busy as u8,
+        stroke: (busy && !recovered(&p)) as u8,
         lost: g.doubles_ai.me[i].lost,
         lost_log: std::mem::take(&mut g.doubles_ai.me[i].lost_log),
         reach: loco::ReachStats {
@@ -167,6 +167,14 @@ fn frame(g: &mut Game, i: usize, phase: u8, mark: bool) -> (Body, World) {
         w.path = r.window().to_vec();
     }
     (b, w)
+}
+
+/// B719: whether the player's stroke is over as the routines see it (their stroke flag), though its follow-through
+/// motion may still play: the flag clears `recover` frames after the contact (the frame the swing countdown first
+/// reads done is the first), one frame before a stick or press may break the motion off. Slot 5's recording shows
+/// it on every stroke of the match (30 frames, 15 after a slice).
+fn recovered(p: &Player) -> bool {
+    p.contact.is_none() && p.pending.is_none() && p.whiff.is_none() && p.dive.is_none() && p.after.is_some_and(|a| a > p.recover)
 }
 
 /// One frame of computer player `i` in the receive or rally: false (nothing done) outside them and between ends.
@@ -227,7 +235,9 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
     (x.level, x.mate, x.first, x.window, x.singles) = (3, human_mate as i32, 2, PATH_MAX as i32, singles);
     // B15: the net reach (the dashes' depth) its level gives it; unset it was 0 and every dash ran into the net
     x.reach = hst_sim::ai::Choice::new(0, 0, false).reach;
-    (x.rate, x.radius) = if singles {
+    // B719: the walk back's rate and radius are the row's doubles centre numbers only beside a human partner; in
+    // singles and beside a computer partner, the singles ones (as the formation's, `ai_wait`)
+    (x.rate, x.radius) = if singles || !human_mate {
         (row.singles_center_rate, row.singles_center_radius)
     } else {
         (row.doubles_center_rate, row.doubles_center_radius)

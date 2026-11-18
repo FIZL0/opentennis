@@ -62,7 +62,8 @@ fn a_server_enters_its_rally_return_roll_first() {
             mind.net_left = 0;
             g.players[s].ai_mind = Some(mind);
             let row = g.players[s].ai;
-            let rate = if singles { row.singles_center_rate } else { row.doubles_center_rate };
+            // every player a computer: the singles column's rate in doubles too (B719)
+            let rate = row.singles_center_rate;
             let before = g.rng.ai.clone();
             let (mut r, mut want) = (before.clone(), mind);
             let back = hst_sim::position::Return::new(rate, &mut || r.next());

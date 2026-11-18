@@ -1384,3 +1384,81 @@ fn strike_and_new_path_match_the_game() {
     let Some((_, strike, _)) = glue_replay("ai_strike_s05.bin") else { return };
     assert!(strike.get(&0x14).is_some_and(|&k| k >= 40) && strike.get(&0x16).is_some_and(|&k| k >= 20), "{strike:?}");
 }
+
+/// Probe (B719): the game's NET/BASE calls of one AI object (`HST_B719_AI`, default slot 1's 0xca8ca0) over a vsync
+/// range (`HST_B719_V=from,to`, default 7890,7902) of `ai_net_s05.bin`, decoded: the AI block, the player, the
+/// match (path left out), the stick before and after, the draws. Asserts nothing.
+#[test]
+#[ignore]
+fn b719_game_stand_calls() {
+    let Ok(nd) = fixture::read(format!("{}/fixtures/ai_net_s05.bin", root())) else { return };
+    let ai = std::env::var("HST_B719_AI").ok().and_then(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()).unwrap_or(0xca8ca0);
+    let v: Vec<u32> = std::env::var("HST_B719_V").ok().map(|v| v.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or(vec![7890, 7902]);
+    for (vs, _, e, x) in calls(&nd, &[2, 3]) {
+        if u32_at(e, 0x10) != ai || !(v[0]..=v[1]).contains(&vs) {
+            continue;
+        }
+        let r = rally(e, false);
+        let b = body(e);
+        let mut w = world(e);
+        let n = w.path.len();
+        w.path.clear();
+        eprintln!("b719 v{vs} tag {} frame {} draws {}", u32_at(e, 0), i32_at(e, 0x34), u32_at(x, 0xc) - u32_at(e, 0xc));
+        eprintln!("b719   rally {r:?}");
+        eprintln!("b719   body pos {:?} facing {:?} vel {:?} side {} team {} mate {:?} opp {:?} swing {} stroke {} mark {} moving {} run {} lost {}", b.pos, b.facing, b.vel, b.side, b.team, b.mate, b.opp, b.swing, b.stroke, b.mark, b.moving, b.run, b.lost);
+        eprintln!("b719   world {w:?} path {n} copy stamp {} count {}", i32_at(e, 0x70), i32_at(e, 0x74));
+        eprintln!("b719   stick {:?} -> {:?}, button {} -> {}", quad(e, 0x20), quad(x, 0x20), u32_at(e, 0x30), u32_at(x, 0x30));
+        eprintln!("b719   exit {:?}", rally(x, false));
+        if let Some(t) = table() {
+            let k = ((u32_at(e, A + 0xc) - TABLE) / RECORD) as usize;
+            let row = &t[k];
+            eprintln!("b719   row {k} style {} singles {} {} doubles {} {}", row.style, row.singles_center_rate, row.singles_center_radius, row.doubles_center_rate, row.doubles_center_radius);
+        }
+    }
+}
+
+/// Probe (B719): per fixture, every (row, the AI block's walk-back rate and radius, the row's singles and doubles
+/// columns) its calls show. Asserts nothing.
+#[test]
+#[ignore]
+fn b719_walk_back_columns() {
+    let Some(t) = table() else { return };
+    for (name, singles) in [("ai_net_s05.bin", false), ("ai_rally_s05_weak.bin", false), ("ai_rally_singles.bin", true), ("ai_rally_singles_rows.bin", true), ("ai_rally_singles_base.bin", true), ("ai_rally_singles_spec.bin", true)] {
+        let Ok(d) = fixture::read(format!("{}/fixtures/{name}", root())) else { continue };
+        let mut seen = std::collections::BTreeSet::new();
+        for (_, _, e, _) in calls(&d, &[1, 2, 3]) {
+            let k = ((u32_at(e, A + 0xc) - TABLE) / RECORD) as usize;
+            let r = rally(e, singles);
+            let row = &t[k];
+            seen.insert(format!("row {k}: block {} {} | singles {} {} doubles {} {}", r.rate, r.radius, row.singles_center_rate, row.singles_center_radius, row.doubles_center_rate, row.doubles_center_radius));
+        }
+        for s in seen {
+            eprintln!("b719c {name} {s}");
+        }
+    }
+}
+
+/// Probe (B719): per AI object of `ai_net_s05.bin` (and `ai_rally_s05_all.bin`'s receive calls), each stroke's
+/// frames from its contact (the player's swing countdown going to -1) to the stroke flag clearing. Asserts nothing.
+#[test]
+#[ignore]
+fn b719_stroke_lengths() {
+    for name in ["ai_net_s05.bin", "ai_rally_s05_all.bin"] {
+        let Ok(d) = fixture::read(format!("{}/fixtures/{name}", root())) else { continue };
+        let mut per: std::collections::BTreeMap<u32, Vec<(i32, i32, u8)>> = Default::default();
+        for (_, _, e, _) in calls(&d, &[1, 2, 3]) {
+            let b = body(e);
+            per.entry(u32_at(e, 0x10)).or_default().push((i32_at(e, 0x34), b.swing, b.stroke));
+        }
+        for (ai, v) in per {
+            let mut out = Vec::new();
+            for k in 1..v.len() {
+                if v[k].1 < 0 && v[k - 1].1 >= 0 && v[k].2 != 0 && v[k].0 == v[k - 1].0 + 1 {
+                    let end = v[k..].iter().find(|c| c.2 == 0).map(|c| c.0 - v[k].0);
+                    out.push(format!("{}:{:?}(last swing {})", v[k].0, end, v[k - 1].1));
+                }
+            }
+            eprintln!("b719s {name} ai {ai:#x}: {}", out.join(" "));
+        }
+    }
+}
