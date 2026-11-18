@@ -325,6 +325,8 @@ const side = index => {
       if (on) [base, knob].forEach(centre);
     },
     label: (words, play) => layout.forEach(([k, , cls], i) => {
+      // □ does nothing in a match: hidden there
+      if (k === 'square') root.querySelector('[data-b="square"]').hidden = play;
       const el = root.querySelector(`[data-b="${k}"] i`);
       const word = words[i] ?? '';
       if (el.textContent === word) return;
