@@ -427,16 +427,37 @@ impl PipelineCache {
 
     /// Wait for a render pipeline to finish compiling.
     #[inline]
+    ///
+    /// opentennis P146: only this pipeline is compiled, here on the calling thread, ahead of the queue. Bevy's own
+    /// version ran a whole queue pass first, which spawned every other queued pipeline onto the async pool ahead of
+    /// this one, then waited for its turn: the compiles take the shader cache one at a time, so the render thread
+    /// sat through all of them (iOS: 440-560 ms frames when a match or menu loaded with a dozen new pipelines).
     pub fn block_on_render_pipeline(&mut self, id: CachedRenderPipelineId) {
         if self.pipelines.len() <= id.id() {
-            self.process_queue();
+            self.take_new_pipelines();
         }
 
-        // opentennis P47: the queue pass may have left it queued for a later frame (its compile budget)
+        // still waiting on the pool behind other compiles: dropping the task cancels it if it hasn't started, and
+        // the shader modules it may have made stay in the shader cache for the compile below
+        let pending = match &mut self.pipelines[id.id()].state {
+            CachedPipelineState::Creating(task) => bevy_tasks::futures::check_ready(task),
+            _ => None,
+        };
+        if let Some(done) = pending {
+            self.pipelines[id.id()].state = match done {
+                Ok(p) => CachedPipelineState::Ok(p),
+                Err(e) => CachedPipelineState::Err(e),
+            };
+        } else if matches!(self.pipelines[id.id()].state, CachedPipelineState::Creating(_)) {
+            self.pipelines[id.id()].state = CachedPipelineState::Queued;
+        }
+
         if matches!(self.pipelines[id.id()].state, CachedPipelineState::Queued) {
             if let PipelineDescriptor::RenderPipelineDescriptor(descriptor) = &self.pipelines[id.id()].descriptor {
                 let descriptor = *descriptor.clone();
+                let sync = mem::replace(&mut self.synchronous_pipeline_compilation, true);
                 self.pipelines[id.id()].state = self.start_create_render_pipeline(id.id(), descriptor);
+                self.synchronous_pipeline_compilation = sync;
             }
         }
 
@@ -954,6 +975,18 @@ impl PipelineCache {
             self.synchronous_pipeline_compilation,
         )
     }
+    /// opentennis P146: moves the pipelines queued since the last pass into the cache, waiting, without starting any.
+    fn take_new_pipelines(&mut self) {
+        let mut new_pipelines = self
+            .new_pipelines
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for new_pipeline in new_pipelines.drain(..) {
+            self.waiting_pipelines.insert(self.pipelines.len());
+            self.pipelines.push(new_pipeline);
+        }
+    }
+
     /// Process the pipeline queue and create all pending pipelines if possible.
     ///
     /// This is generally called automatically during the [`RenderSystems::Render`] step, but can
