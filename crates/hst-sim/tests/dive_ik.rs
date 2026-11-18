@@ -193,9 +193,11 @@ fn dive_solve_as_recorded() {
             let s = dive_solve(&rig, pos, face, hand, slide, ball.pos, ball.vel);
             let mut ik = DiveIk::new(s, rig.racket, contact as i32);
             let mut ok = true;
-            // every tick the solve turns the arm (weight > 0) but the first (weight 0)
+            // every tick the solve turns the arm (weight > 0) but the first (weight 0); B724: on the hold between the
+            // ramps (weight 0 after the ramp-up) the pose is frozen at the full turn
             for j in 0.. {
                 let Some(w) = ik.tick() else { break };
+                let w = if w == 0.0 && j > DiveIk::RAMP { 1.0 } else { w };
                 if w == 0.0 {
                     continue;
                 }
@@ -221,4 +223,51 @@ fn dive_solve_as_recorded() {
         dives += 1;
     }
     assert!(dives >= 1, "{file}: no contact dive");
+}
+
+/// B724: the dive's hold. On every recorded dive of P1 in research/journal/2026-11-17-b721-dive-arm-check/scripts/b721_dive_nodes.py's
+/// `<file>.nodes` (contact or miss), every node's local rows and held rotation are left exactly as the tick before
+/// on dive ticks 6 to the contact frame, the ticks `DiveIk` weighs 0 between its ramps, and on no other tick of the
+/// dive: the dive motion pauses and nothing re-poses the nodes (only the placement moves with the slide), so a
+/// contact dive's arm and racket stay at the full turn the ramp-up ended on (`dive_solve_as_recorded` checks those
+/// locals).
+#[test]
+fn dive_hold_freezes_the_pose() {
+    let dir = std::env::var("HST_FIXTURES").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures").into());
+    let file = "b721_dive_c00";
+    let (Ok(data), Ok(nodes)) = (fixture::read(format!("{dir}/{file}.bin")), fixture::read(format!("{dir}/{file}.bin.nodes"))) else {
+        return fixture::skip(format_args!("{file} absent, skipped"));
+    };
+    const NODE: usize = 0x120;
+    let node_frames: Vec<&[u8]> = nodes.as_chunks::<{ 8 + 64 * NODE }>().0.iter().map(|c| &c[..]).collect();
+    // P1's node array on the frame of vsync `v`: each node's local rows (+0x80) and held rotation (+0xe0)
+    let pose = |v: u32| -> Vec<(&[u8], &[u8])> {
+        let n = node_frames.iter().find(|n| u32::from_le_bytes(n[..4].try_into().unwrap()) == v).unwrap_or_else(|| panic!("no nodes at vsync {v}"));
+        (0..64).map(|q| &n[8 + q * NODE..]).map(|nd| (&nd[0x80..0xc0], &nd[0xe0..0xf0])).collect()
+    };
+    let frames = frames_live(&data);
+    let (mut contacts, mut misses) = (0, 0);
+    for k in 1..frames.len() {
+        let (a, fr) = (frames[k - 1], frames[k]);
+        if p_u8(fr, 0, 0x3f58) != 1 || p_u8(a, 0, 0x3f58) != 0 {
+            continue;
+        }
+        let contact = p_i32(fr, 0, 0x3f84) - 50;
+        let at = format!("{file} vsync {}", fr.vsync());
+        // tick j of the dive is frame k + j; the tick after the ramp-down's first is past the contact frame
+        let mut ik = DiveIk::new(DiveSolve { upper: [0.0, 0.0, 0.0, 1.0], angle: 0.0 }, [[0.0; 4]; 4], contact);
+        for j in 0..=contact as usize + 2 {
+            let held = ik.tick() == Some(0.0) && j > DiveIk::RAMP as usize;
+            assert_eq!(held, (6..=contact as usize).contains(&j), "{at} tick {j}: the hold's ticks");
+            if j == 0 {
+                continue;
+            }
+            let v = fr.vsync() + j as u32;
+            assert_eq!(frames[k + j].vsync(), v, "{at}: a frame missed");
+            assert_eq!(pose(v) == pose(v - 1), held, "{at} tick {j}: the pose frozen");
+        }
+        if p_i32(fr, 0, 0x3ec4) < 0 { misses += 1 } else { contacts += 1 }
+    }
+    eprintln!("{contacts} contact dives, {misses} miss dives");
+    assert!(contacts >= 1 && misses >= 1, "{file}: the recording's contact and miss dives");
 }

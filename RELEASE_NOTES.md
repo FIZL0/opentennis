@@ -6,3 +6,4 @@
 - A player diving for a ball they can reach now stretches their arm and turns their racket toward it, as in the original, and in doubles the computer partner reacts to that racket as the original does.
 - Computer players take as long as in the original to recover from a missed swing, and a computer server's partner holds its spot until the server's shot is hit, as in the original.
 - A diving player's arm and racket now turn exactly as far toward the ball as in the original.
+- A diving player keeps their arm and racket stretched toward the ball through the whole dive instead of dropping them halfway, as in the original.
