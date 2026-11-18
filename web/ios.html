@@ -31,6 +31,9 @@
          border: 2px solid var(--muted); font-size: .85em; }
   ol { padding-left: 1.3em; }
   a { color: inherit; }
+  dialog { border: 3px solid var(--ink); border-radius: 18px; padding: 20px; width: min(340px, calc(100% - 32px));
+           box-sizing: border-box; background: var(--paper); color: var(--ink); text-align: center; }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
 </style>
 </head>
 <body>
@@ -59,23 +62,32 @@
   </ol>
   <p class="muted"><a href="./">Back to opentennis.dev</a></p>
 </main>
+<dialog id="nofiz">
+  <b>Don't have iFizBox?</b>
+  <p class="muted">Install it, then tap Open the IPA in iFizBox again.</p>
+  <a class="btn main" href="https://ifizbox.com/?install">Install iFizBox</a>
+  <button class="btn" id="nofiz-no" type="button">Not Now</button>
+</dialog>
 <script>
   const src = 'https://fizl0.github.io/apps/source.json';
   const q = encodeURIComponent(src);
   document.getElementById('url').textContent = src;
-  // iFizBox signs and installs an IPA from ifizbox://install. Not installed: Safari stays in front (after its
-  // "address is invalid" alert), so after 1.5 s send them to ifizbox.com, which offers to install it.
+  // iFizBox signs and installs an IPA from ifizbox://install. Still in front after a few seconds (iFizBox missing,
+  // or iOS's "Open in iFizBox?" cancelled): offer to install it. Never navigate on a timer: iOS's prompt can outlast
+  // it, and Safari would redirect behind the app.
   const ipa = 'https://github.com/FIZL0/opentennis/releases/latest/download/opentennis-ios.ipa';
-  const fiz = document.getElementById('ifizbox');
+  const fiz = document.getElementById('ifizbox'), dlg = document.getElementById('nofiz');
+  const away = () => { if (dlg.open) dlg.close(); clearTimeout(away.t); };
+  addEventListener('pagehide', away);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) away(); });
   fiz.href = 'https://ifizbox.com/?install';
   fiz.onclick = (e) => {
     e.preventDefault();
-    let left = false;
-    addEventListener('pagehide', () => { left = true; }, { once: true });
-    document.addEventListener('visibilitychange', () => { if (document.hidden) left = true; }, { once: true });
     location.href = 'ifizbox://install?url=' + encodeURIComponent(ipa) + '&name=OpenTennis';
-    setTimeout(() => { if (!left && !document.hidden) location.href = fiz.href; }, 1500);
+    clearTimeout(away.t);
+    away.t = setTimeout(() => { if (!document.hidden) dlg.showModal(); }, 2500);
   };
+  document.getElementById('nofiz-no').onclick = () => dlg.close();
   document.getElementById('feather').href = 'feather://source/' + src;
   document.getElementById('altstore').href = 'altstore://source?url=' + q;
   document.getElementById('sidestore').href = 'sidestore://source?url=' + q;
