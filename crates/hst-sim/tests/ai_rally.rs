@@ -1462,3 +1462,55 @@ fn b719_stroke_lengths() {
         }
     }
 }
+
+/// Probe (B720): per AI object of `ai_net_s05.bin`, each call's (vsync, frame, swing, stroke, moving, tag) over
+/// frames `HST_B720_F=from,to` (default 310,400). Asserts nothing.
+#[test]
+#[ignore]
+fn b720_dive_flags() {
+    let Ok(d) = fixture::read(format!("{}/fixtures/ai_net_s05.bin", root())) else { return };
+    let f: Vec<i32> = std::env::var("HST_B720_F").ok().map(|v| v.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or(vec![310, 400]);
+    for (vs, _, e, _) in calls(&d, &[1, 2, 3]) {
+        let fr = i32_at(e, 0x34);
+        if !(f[0]..=f[1]).contains(&fr) {
+            continue;
+        }
+        let b = body(e);
+        eprintln!("b720 ai {:#x} v{vs} f{fr} tag {} swing {} stroke {} moving {} run {}", u32_at(e, 0x10), u32_at(e, 0), b.swing, b.stroke, b.moving, b.run);
+    }
+}
+
+/// Probe (B720): in every slot-5 AI fixture, each AI object's runs of swing countdown -3 (a dive) and the frames
+/// from the run's start to the stroke flag clearing. Asserts nothing.
+#[test]
+#[ignore]
+fn b720_dive_lengths() {
+    let Ok(dir) = std::fs::read_dir(format!("{}/fixtures", root())) else { return };
+    for f in dir.flatten() {
+        let name = f.file_name().to_string_lossy().to_string();
+        if !name.starts_with("ai_") || !name.ends_with(".bin") {
+            continue;
+        }
+        let Ok(d) = fixture::read(format!("{}/fixtures/{name}", root())) else { continue };
+        let Some(cs) = std::panic::catch_unwind(|| calls(&d, &[1, 2, 3]).into_iter().map(|(v, _, e, _)| (v, u32_at(e, 0x10), i32_at(e, 0x34), body(e).swing, body(e).stroke, body(e).moving)).collect::<Vec<_>>()).ok() else { continue };
+        type Call = (u32, i32, i32, u8, u8);
+        let mut per: std::collections::BTreeMap<u32, Vec<Call>> = Default::default();
+        for (v, ai, fr, sw, st, mv) in cs {
+            per.entry(ai).or_default().push((v, fr, sw, st, mv));
+        }
+        for (ai, c) in per {
+            for k in 1..c.len() {
+                if c[k].2 == -3 && c[k - 1].2 != -3 {
+                    let n3 = c[k..].iter().take_while(|x| x.2 == -3).count();
+                    let run: Vec<String> = c[k..].iter().take(80).map(|x| format!("{}:{}/{}/{}", x.1, x.2, x.3, x.4)).collect();
+                    if std::env::var_os("HST_B720_RUN").is_some() {
+                        eprintln!("b720r {name} {ai:#x} {}", run.join(" "));
+                    }
+                    let end = c[k..].iter().position(|x| x.3 == 0);
+                    let span = end.map(|e| c[k + e].1 - c[k].1);
+                    eprintln!("b720d {name} ai {ai:#x} v{} f{}: -3 for {n3} calls, stroke clears {span:?} frames on (prev swing {} stroke {})", c[k].0, c[k].1, c[k - 1].2, c[k - 1].3);
+                }
+            }
+        }
+    }
+}
