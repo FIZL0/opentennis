@@ -380,13 +380,14 @@ mod tests {
     /// to the contact.
     #[test]
     fn the_european_first_serve_set_up_plays_as_recorded() {
-        let Some((want, got)) = european(Some(310), 0) else { return };
+        let Some((want, got)) = european(Some(450), 0) else { return };
         serve_to_contact("eu", &want, &got, 8, (114, 134, 141));
-        // every player through the server's partner's six steps after the return (250-255) and its stand after them
-        // (the walk back's singles-column roll, B719), to the tick before the server's side strikes the return back
-        serve_to_return("eu", &want, &got, 141, 302, 230);
-        // to the tick before the server's side strikes it back
-        return_flight("eu", &want, &got, 230, 303);
+        // every player through the server's partner's six steps after the return (250-255), its stand after them
+        // (the walk back's singles-column roll, B719) and its partner's next contact (its frame stamp, M183a1), to
+        // the receiver's whiff and the rally's end (its miss motion's 31-frame release, M183a1)
+        serve_to_return("eu", &want, &got, 141, 437, 230);
+        // the whole rally after the return: the server's return back, the whiff, the ball to the end of the rally
+        return_flight("eu", &want, &got, 230, 437);
     }
 
     /// Probe, not a proof yet (M183a1): the whole European bot match in play from the original's match seed, beside the
@@ -410,8 +411,8 @@ mod tests {
     /// M183a1: the European match's generators in play beside the ones recorded from `eu-bot-start.p2s`
     /// (`fixtures/m169/eu-rng.bin`, `eu_rng_rec.py` in the journal: vsync, then the shared, AI and court generators):
     /// for each played tick, the recorded tick (from the first serve set-up) each generator equals, and the AI draws a
-    /// tick around the return (`--nocapture`); asserts the AI generator follows the recording through player 2's
-    /// steps after the return and the ticks after it stops (recorded 260).
+    /// tick around the return (`--nocapture`; `HST_M183A1_DRAWS=from,to`: another span); asserts the AI generator
+    /// follows the recording through the first point's rally, to the tick before play ends it (recorded 435).
     #[test]
     fn the_european_generators_play_as_recorded() {
         use hst_sim::rng::Mt;
@@ -428,7 +429,7 @@ mod tests {
             .iter()
             .map(|s| (u32::from_le_bytes(s[..4].try_into().unwrap()) as i64 - start, Mt::from_ram(&s[4..]), Mt::from_ram(&s[4 + 0x9d0..]), Mt::from_ram(&s[4 + 2 * 0x9d0..])))
             .collect();
-        let Some((_, _, rngs)) = european_rngs(Some(330), 0, 330) else { return };
+        let Some((_, _, rngs)) = european_rngs(Some(450), 0, 450) else { return };
         let mut last = None;
         for (k, r) in rngs.iter().enumerate() {
             let at = |f: &dyn Fn(&(i64, Mt, Mt, Mt)) -> bool| rec.iter().find(|x| f(x)).map(|x| x.0);
@@ -447,15 +448,17 @@ mod tests {
                 hit
             })
         };
-        for k in 225usize..266 {
+        // `HST_M183A1_DRAWS=from,to`: another span of recorded ticks
+        let span = std::env::var("HST_M183A1_DRAWS").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 2).unwrap_or(vec![225, 266]);
+        for k in span[0]..span[1].min(rngs.len() - 1) {
             let (Some(x0), Some(x1)) = (rec.iter().find(|x| x.0 == k as i64 - 1), rec.iter().find(|x| x.0 == k as i64)) else { continue };
             eprintln!("eu ai draws at recorded {k}: game {:?}, play {:?}", steps(&x0.2, &x1.2), steps(&rngs[k].ai, &rngs[k + 1].ai));
         }
         // the AI generator as recorded every tick through player 2's steps after the return and the ticks after it
-        // stops (250-260; play a tick later) and its stand to the tick before the server's side strikes the return
-        // back (301), but at the set-up's first sample and the serve's contact (140), where play's draws land a tick
-        // apart from the game's
-        let off: Vec<usize> = (2..=301).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
+        // stops (250-260; play a tick later), its stand to the server's return back (303), the receiver's whiff and
+        // its release (407, M183a1) to the tick before play ends the rally (436, two ticks before the game), but at
+        // the set-up's first sample and the serve's contact (140), where play's draws land a tick apart from the game's
+        let off: Vec<usize> = (2..=435).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
         assert!(off.is_empty(), "the AI generator leaves the recording at {off:?}");
     }
 

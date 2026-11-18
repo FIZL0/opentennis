@@ -9,7 +9,10 @@ use hst_sim::rally::{guess, msg, phase, record, step, Body, Human, Out, CPU, PAT
 /// The doubles AI state the players share (the path copy and the shot records) and each one's own.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(super) struct Shared {
-    /// Bumped once a tick (when a player steps a second time): the path copy's stamp; who stepped since.
+    /// Bumped once a tick, by the tick's first player to step (one at or after a player that already stepped: they
+    /// step in seat order): the path copy's and the shot records' stamp; who stepped since. M183a1: a server that
+    /// starts stepping late (after its serve) shares its partners' frame, so its shot record's contact frame is the
+    /// one they see (the European bot match's server's partner held its spot to the contact, a frame longer).
     frame: i32,
     stepped: u8,
     path: PathCopy,
@@ -172,6 +175,14 @@ fn frame(g: &mut Game, i: usize, phase: u8, mark: bool) -> (Body, World) {
     (b, w)
 }
 
+/// M183a1: the stick a computer player's whiff sees: held from the frame after its recovery ends, so the whiff lets
+/// go `WHIFF_RECOVERY` + 1 frames after its miss pose. In both builds' motion captures (slot 5's and the European bot
+/// match's) a computer player's miss motion runs 32 frames from its pose to the run with no stance between, and the
+/// European match's AI draws (the wait entry, then the search) come a frame after play's 30-frame release.
+fn whiff_stick(p: &Player) -> bool {
+    p.whiff.and_then(|w| w.since()).is_some_and(|s| s >= hst_sim::motion::WHIFF_RECOVERY)
+}
+
 /// B719: whether the player's stroke is over as the routines see it (their stroke flag), though its follow-through
 /// motion may still play: the flag clears `recover` frames after the contact (the frame the swing countdown first
 /// reads done is the first), one frame before a stick or press may break the motion off. Slot 5's recording shows
@@ -209,7 +220,7 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
     }
     set_up_doubles(g, i);
     let d = &mut g.doubles_ai;
-    if d.stepped & 1 << i != 0 {
+    if d.stepped >> i != 0 {
         (d.frame, d.stepped) = (d.frame + 1, 0);
     }
     d.stepped |= 1 << i;
@@ -218,7 +229,7 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
     // the stand-in's preamble: the recovery, the whiff, the press's approach run
     if routine {
         follow_through(&mut g.players[i], true);
-        whiff_frame(g, i, true);
+        whiff_frame(g, i, whiff_stick(&g.players[i]));
         if let Some(dir) = g.players[i].approach {
             locomote(g, i, dir);
         }
@@ -629,7 +640,7 @@ pub(super) fn human(g: &mut Game, i: usize) {
         return;
     }
     let d = &mut g.doubles_ai;
-    if d.stepped & 1 << i != 0 {
+    if d.stepped >> i != 0 {
         (d.frame, d.stepped) = (d.frame + 1, 0);
     }
     d.stepped |= 1 << i;
