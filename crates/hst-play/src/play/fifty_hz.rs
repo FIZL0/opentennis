@@ -156,18 +156,33 @@ mod tests {
     /// of ends), the players' positions and the ball's (game space, Y down).
     type Tick = (u8, [[f32; 3]; 4], [f32; 3]);
 
-    /// A recorded bot match (`frames_live`) tick by tick from its first serve set-up, one entry a vsync (a missing
-    /// vsync repeats the sample before it).
+    /// A recorded bot match (`frames_live`) tick by tick from its first serve set-up, one entry a game tick (the
+    /// phase's tick count, gm+0x58), as play counts them: the game stalls a few vsyncs while it loads (B723: three
+    /// in the point-over phase as the scoreboard's pause ends, three as it leaves for the next serve) with every
+    /// object frozen, and those vsyncs aren't ticks. A tick that ran unsampled repeats the sample before it, or at a
+    /// phase's start (the next serve's first tick runs in the stall) the phase's first sample.
     fn recorded_ticks(data: &[u8]) -> Vec<Tick> {
         let frames = hst_sim::replay::frames_live(data);
         let first = frames.iter().position(|f| f.gm()[0x55] == 2).unwrap();
-        let mut out = Vec::new();
-        for w in frames[first..].windows(2) {
-            let b = w[0].live_ball();
+        let tick = |f: &hst_sim::replay::Frame| u32::from_le_bytes(f.gm()[0x58..0x5c].try_into().unwrap());
+        let sample = |f: &hst_sim::replay::Frame| -> Tick {
+            let b = f.live_ball();
             // the live position (+0x120 is the copy each flight step saves first: a tick behind in flight)
             let ball = [0, 4, 8].map(|o| f32::from_le_bytes(b[0xe0 + o..0xe4 + o].try_into().unwrap()));
-            let t = (w[0].gm()[0x55], std::array::from_fn(|i| w[0].player_pos(i)), ball);
-            out.extend(std::iter::repeat_n(t, (w[1].vsync() - w[0].vsync()) as usize));
+            (f.gm()[0x55], std::array::from_fn(|i| f.player_pos(i)), ball)
+        };
+        let mut out = vec![sample(&frames[first])];
+        for w in frames[first..].windows(2) {
+            let (a, b) = (sample(&w[0]), sample(&w[1]));
+            if a.0 == b.0 {
+                let n = tick(&w[1]).saturating_sub(tick(&w[0])) as usize;
+                if n > 0 {
+                    out.extend(std::iter::repeat_n(a, n - 1));
+                    out.push(b);
+                }
+            } else {
+                out.extend(std::iter::repeat_n(b, tick(&w[1]).max(1) as usize));
+            }
         }
         out
     }
@@ -390,19 +405,60 @@ mod tests {
         return_flight("eu", &want, &got, 230, 437);
     }
 
+    /// B723: the European match's first point ends as the game ends it: the rally phase runs two ticks past the ball's
+    /// deciding bounce (the game's check reads the ball a tick late, and the point-over phase starts the tick after
+    /// it), the point-over phase runs its 134 ticks and the next serve is set up on the game's tick (the recording
+    /// counted in game ticks: its loading stalls freeze everything and aren't ticks). Players stand where the
+    /// recording has them through the scoreboard's pause (463: they part at the reaction after it), the ball flies
+    /// as recorded to 470 (it meets the stage there in the game, not in play).
+    #[test]
+    fn the_european_first_point_ends_as_recorded() {
+        let Some((want, got)) = european(Some(600), 0) else { return };
+        let (w, g) = (phases(&want), phases(&got[..600]));
+        let kinds = |p: &[(u8, u32, [[f32; 3]; 4])]| p.iter().take(3).map(|p| (p.0, p.1)).collect::<Vec<_>>();
+        assert_eq!(kinds(&w), [(2, 135), (3, 303), (4, 134)], "the recording's phases");
+        assert_eq!(kinds(&g), kinds(&w), "the phases in play");
+        let next = |t: &[Tick]| (438..t.len()).find(|&k| t[k].0 == 2);
+        assert_eq!(next(&got), next(&want), "the next serve's set-up");
+        let ground = |t: &Tick| t.1.map(|p| [p[0].to_bits(), p[2].to_bits()]);
+        for k in 437..=463 {
+            assert_eq!(ground(&want[k]), ground(&got[k + 1]), "eu tick {k}: the players");
+        }
+        for k in (437..=470).filter(|&k| k != 464) {
+            assert_eq!(want[k].2.map(f32::to_bits), got[k].2.map(f32::to_bits), "eu tick {k}: the ball");
+        }
+    }
+
     /// Probe, not a proof yet (M183a1): the whole European bot match in play from the original's match seed, beside the
-    /// recording phase by phase and tick by tick. Asserts nothing. Run by hand:
+    /// recording phase by phase and tick by tick. Asserts only that the first point's phases match (B723). Run by hand:
     /// `tools/check.sh -p hst-play bot_match_plays_as_recorded -- --ignored --nocapture` (`HST_M183A1_TOSS_AI=n`: n
-    /// AI draws at each toss, `HST_M183A1_DUMP`: the first 240 ticks of the server and the ball).
+    /// AI draws at each toss, `HST_M183A1_DUMP`: the first 240 ticks of the server and the ball, `=from,to` others).
     #[test]
     #[ignore]
     fn the_european_bot_match_plays_as_recorded() {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
         let Some((want, got)) = european(None, toss_ai) else { return };
-        compare("eu", &want, &got);
+        assert!(compare("eu", &want, &got) >= 3, "the first point's phases (B723)");
         first_point_part("eu", &want, &got, 141);
-        if std::env::var_os("HST_M183A1_DUMP").is_some() {
-            for k in 0..240.min(want.len()) {
+        // B723: after the point's rally, the first tick a player (on the ground, play a tick behind) or the ball parts
+        let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
+        let player = (437..want.len() - 1).find(|&k| ground(&want[k]) != ground(&got[k + 1]));
+        let ball = (437..want.len() - 1).find(|&k| want[k].2 != got[k].2);
+        eprintln!("eu after point 1: players part at {player:?}, the ball at {ball:?}");
+        // past the stall's unsampled tick (recorded 464 repeats 463)
+        let ball2 = (465..want.len() - 1).find(|&k| want[k].2 != got[k].2);
+        eprintln!("eu after the stall: the ball parts at {ball2:?}");
+        for k in ball.into_iter().chain(ball2).flat_map(|p| p.saturating_sub(1)..p + 2) {
+            eprintln!("eu   ball {k}: want {:?} got {:?}", want[k].2, got[k].2);
+        }
+        for k in player.into_iter().flat_map(|p| p.saturating_sub(1)..p + 2) {
+            eprintln!("eu   tick {k}: want {:?} {:?}\neu             got  {:?} {:?}", want[k].0, want[k].1, got[k + 1].0, got[k + 1].1);
+        }
+        if let Some(v) = std::env::var_os("HST_M183A1_DUMP") {
+            // `from,to`: another span of recorded ticks
+            let span: Vec<usize> = v.to_string_lossy().split(',').filter_map(|x| x.parse().ok()).collect();
+            let (from, to) = if span.len() == 2 { (span[0], span[1]) } else { (0, 240) };
+            for k in from..to.min(want.len()) {
                 eprintln!("eu dump {k}: want {} {:?} {:?} | got {} {:?} {:?}", want[k].0, want[k].1[0], want[k].2, got[k + 1].0, got[k + 1].1[0], got[k + 1].2);
             }
         }
@@ -412,7 +468,7 @@ mod tests {
     /// (`fixtures/m169/eu-rng.bin`, `eu_rng_rec.py` in the journal: vsync, then the shared, AI and court generators):
     /// for each played tick, the recorded tick (from the first serve set-up) each generator equals, and the AI draws a
     /// tick around the return (`--nocapture`; `HST_M183A1_DRAWS=from,to`: another span); asserts the AI generator
-    /// follows the recording through the first point's rally, to the tick before play ends it (recorded 435).
+    /// follows the recording through the first point's rally and into its point-over phase (recorded 463).
     #[test]
     fn the_european_generators_play_as_recorded() {
         use hst_sim::rng::Mt;
@@ -429,7 +485,7 @@ mod tests {
             .iter()
             .map(|s| (u32::from_le_bytes(s[..4].try_into().unwrap()) as i64 - start, Mt::from_ram(&s[4..]), Mt::from_ram(&s[4 + 0x9d0..]), Mt::from_ram(&s[4 + 2 * 0x9d0..])))
             .collect();
-        let Some((_, _, rngs)) = european_rngs(Some(450), 0, 450) else { return };
+        let Some((_, _, rngs)) = european_rngs(Some(470), 0, 470) else { return };
         let mut last = None;
         for (k, r) in rngs.iter().enumerate() {
             let at = |f: &dyn Fn(&(i64, Mt, Mt, Mt)) -> bool| rec.iter().find(|x| f(x)).map(|x| x.0);
@@ -456,9 +512,10 @@ mod tests {
         }
         // the AI generator as recorded every tick through player 2's steps after the return and the ticks after it
         // stops (250-260; play a tick later), its stand to the server's return back (303), the receiver's whiff and
-        // its release (407, M183a1) to the tick before play ends the rally (436, two ticks before the game), but at
+        // its release (407, M183a1), the rally's end (the point decided two ticks after the deciding bounce, B723) and
+        // the point-over phase to the scoreboard's pause end (463, before the game's first loading stall), but at
         // the set-up's first sample and the serve's contact (140), where play's draws land a tick apart from the game's
-        let off: Vec<usize> = (2..=435).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
+        let off: Vec<usize> = (2..=463).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
         assert!(off.is_empty(), "the AI generator leaves the recording at {off:?}");
     }
 
@@ -531,7 +588,9 @@ mod tests {
     fn the_us_bot_match_plays_as_recorded() {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
         let Some((want, got, rngs)) = us(None, 960, toss_ai) else { return };
-        compare("us", &want, &got);
+        // B723: the first point's serve set-up, rally and point-over phase as long as the game's (point 2's set-up
+        // parts: B722)
+        assert!(compare("us", &want, &got) >= 3, "the first point's phases");
         first_point_part("us", &want, &got, 219);
         // B720: after the server's partner's dive every player stands where the recording has them and the ball flies
         // as recorded through the point (B722: player 1's smash at 856 steps it sideways, the smash's contact IK)

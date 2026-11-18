@@ -403,6 +403,10 @@ pub struct Game {
     /// How far inside the lines a rally shot's aim is pulled, from the game program.
     margins: hst_sim::shot::Margins,
     post: Option<PostPoint>,
+    /// The rally check has ended the point (B723): ticks until it is scored and the point-over phase starts, and the
+    /// body hit it was judged with.
+    #[serde(default)]
+    deciding: Option<(u8, Option<i32>)>,
     /// A human pressed a face button while the point is over (`post_press`), for the next simulation tick.
     post_press: bool,
     board: ScoreboardTiming,
@@ -1501,6 +1505,7 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
         line_margin,
         margins,
         post: None,
+        deciding: None,
         post_press: false,
         board,
         world: world.0.into(),
@@ -4047,13 +4052,8 @@ fn simulate(mut g: ResMut<Game>) {
         stopped: f.at_rest,
         pos: f.ball.pos,
     };
-    if !g
-        .rally
-        .check(&view, g.shots, g.last_hitter, g.score.server, g.body_hit, true)
-    {
-        return;
-    }
-    let verdict = g.rally.judge(g.body_hit);
+    let Some(body) = deciding(g, &view) else { return };
+    let verdict = g.rally.judge(body);
     match_stats::point(g, verdict.call, verdict.winner);
     g.finish.point_over(&g.rally, verdict.call, g.players.len() > 2);
     let why = CALLS[verdict.call as usize];
@@ -4128,6 +4128,29 @@ fn simulate(mut g: ResMut<Game>) {
     post.before = Some(before);
     g.post = Some(post);
     g.phase = Phase::Post;
+}
+
+/// B723: the game's rally check reads the ball a tick after it moved (its verdict lands the tick after the ball's
+/// deciding bounce or stop), and the point-over phase starts the tick after that, scored then. So the rally phase
+/// runs two ticks past the tick play's ball decides the point; the rally check stays shut in between. Returns the
+/// body hit to judge with on the tick the point is scored.
+fn deciding(g: &mut Game, view: &BallState) -> Option<Option<i32>> {
+    match g.deciding {
+        Some((1, body)) => {
+            g.deciding = None;
+            Some(body)
+        }
+        Some((n, body)) => {
+            g.deciding = Some((n - 1, body));
+            None
+        }
+        None => {
+            if g.rally.check(view, g.shots, g.last_hitter, g.score.server, g.body_hit, true) {
+                g.deciding = Some((2, g.body_hit));
+            }
+            None
+        }
+    }
 }
 
 /// Every player's reaction to the point (`hst_sim::motion::reaction`): winners `gu`, losers `di` (`_set` when the
@@ -4206,6 +4229,7 @@ fn next_point(g: &mut Game, fresh: bool) {
     g.score.next_point(&g.rules);
     g.rally.next_point();
     g.rally.new_point();
+    g.deciding = None;
     instant_replay::new_point(g);
     g.shots = 0;
     g.last_hitter = -1;
