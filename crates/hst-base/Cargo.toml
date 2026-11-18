@@ -107,6 +107,8 @@ testing = []
 [dev-dependencies]
 # the disc and fixtures/ recordings for this crate's tests (`hst_data::fixture`)
 hst-data = { path = "../hst-data", features = ["testing"] }
+# B733: a local relay server for the relay-only path test (`net.rs` path_kind_reported)
+iroh = { version = "1.3", features = ["test-utils"] }
 
 [lints.clippy]
 # Bevy systems take each query and resource as its own parameter, and queries spell out their filters: clippy's

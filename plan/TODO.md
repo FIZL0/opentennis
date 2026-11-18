@@ -21,7 +21,6 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 index out of bounds: the len is 0 but the index is 0"
 
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
-- [ ] **B733** Show Direct / Relayed next to each player's ping online (user 2026-11-18): when hole punching fails iroh sends everything through a relay, which can add a lot of round trip, and players can't tell. Read the connection's current path from iroh (direct vs relay) per peer, carry it with the ping the lobby already shows, and show it in the lobby's player rows (and the in-match network notice if one shows ping); layout at any aspect ratio. Test: a relay-only test connection (the existing no-direct-UDP testing switch) reports Relayed, a LAN one Direct. Release-notes line | files: crates/hst-base/src/net.rs, crates/hst/src/play/main_menu/online.rs | test: path_kind_reported
 
 ### Match basics
 

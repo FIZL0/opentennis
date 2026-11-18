@@ -13,3 +13,4 @@
 - A player caught deep behind the baseline when a point ends now steps forward to where the original puts them for the celebration.
 - Online matches between players far apart play more smoothly: the other player's moves jump around much less on long-distance connections.
 - Online, one slow ping just before the match starts no longer makes the controls lag for the whole match.
+- Online, each player's card in the lobby now says whether their connection is Direct or Relayed next to their ping, so you can tell when it's going through a relay server and adding delay.

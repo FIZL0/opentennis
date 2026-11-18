@@ -315,6 +315,10 @@ pub struct Room {
     /// B370: each guest's last round trip to the host (ms, by peer), for the lobby's cards.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub ping: std::collections::BTreeMap<String, u32>,
+    /// B733: how each guest's connection to the host goes (direct, or through a relay when hole punching failed),
+    /// beside its `ping` on the lobby's cards.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub path: std::collections::BTreeMap<String, PathKind>,
     /// B450: each peer's installed court mods (ids, its Hello's): the host's court picker offers only those every
     /// peer has.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -891,6 +895,41 @@ impl Conn {
             Conn::Quic(c) => c.close(0u32.into(), why),
             #[cfg(target_arch = "wasm32")]
             Conn::Rtc(p) => p.close(),
+        }
+    }
+}
+
+impl Conn {
+    /// B733: the path the connection's packets take now (`None` before iroh has picked one).
+    fn path_kind(&self) -> Option<PathKind> {
+        match self {
+            Conn::Quic(c) => quic_path(c),
+            // the browser's LAN link is a WebRTC peer connection, no relay in between
+            #[cfg(target_arch = "wasm32")]
+            Conn::Rtc(_) => Some(PathKind::Direct),
+        }
+    }
+}
+
+/// B733: a QUIC connection's selected path: an IP one is direct, the relay's is relayed.
+fn quic_path(c: &Connection) -> Option<PathKind> {
+    c.paths().iter().find(|p| p.is_selected()).map(|p| if p.is_relay() { PathKind::Relayed } else { PathKind::Direct })
+}
+
+/// B733: how a peer's connection goes: straight between the two machines, or through a relay server (hole punching
+/// failed), which can add a lot of round trip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PathKind {
+    Direct,
+    Relayed,
+}
+
+impl PathKind {
+    /// The word the lobby shows next to the ping.
+    pub fn label(self) -> &'static str {
+        match self {
+            PathKind::Direct => "Direct",
+            PathKind::Relayed => "Relayed",
         }
     }
 }
@@ -2365,8 +2404,12 @@ impl Hosted {
         // moves 10 ms or a guest comes or goes: a Room sent each small wobble queued the next probe behind it
         let ms: std::collections::BTreeMap<String, u32> = self.joined.iter().filter_map(|(p, ..)| Some((p.clone(), self.recent.get(p)?.iter().min()?.div_ceil(5) * 5))).collect();
         let moved = ms.len() != self.room.ping.len() || ms.iter().any(|(p, v)| self.room.ping.get(p).is_none_or(|o| v.abs_diff(*o) >= 10));
+        // B733: and each guest's path (a relayed link turning direct once hole punching gets through, or back)
+        let paths: std::collections::BTreeMap<String, PathKind> = self.joined.iter().filter_map(|(p, _, c)| Some((p.clone(), c.path_kind()?))).collect();
+        let moved = moved || paths != self.room.path;
         if self.starting.is_none() && moved {
             self.room.ping = ms;
+            self.room.path = paths;
             broadcast(&self.joined, &Msg::Room(self.room.clone()));
             cx.say(Event::Room(self.room.clone()));
         }
@@ -4554,6 +4597,56 @@ mod tests {
 
     /// LAN play with relays off and no DHT: a host's lobby heard by mDNS, then joined by bare ID (mDNS lookup) and
     /// by its code (whose direct addresses need no lookup at all).
+    /// B733: a guest on the LAN reaches the host directly; one with no direct UDP (`HST_RELAY_ONLY`'s setting) goes
+    /// through the relay, and the lobby says which.
+    #[test]
+    fn path_kind_reported() {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let (map, url, _relay) = iroh::test_utils::run_relay_server().await.unwrap();
+            let insecure = || iroh::tls::CaTlsConfig::insecure_skip_verify();
+            let builder = || Endpoint::builder(presets::Minimal).alpns(vec![ALPN.to_vec()]).relay_mode(RelayMode::Custom(map.clone())).ca_tls_config(insecure());
+            let host = builder().bind().await.unwrap();
+            let accept = tokio::spawn({
+                let host = host.clone();
+                async move {
+                    for _ in 0..2 {
+                        let c = host.accept().await.unwrap().await.unwrap();
+                        tokio::spawn(async move { c.closed().await });
+                    }
+                }
+            });
+            // waits for the selected path to show up (iroh picks it right after the handshake)
+            async fn path(c: &Connection) -> Option<PathKind> {
+                let t = tokio::time::Instant::now();
+                while Conn::Quic(c.clone()).path_kind().is_none() && t.elapsed() < Duration::from_secs(5) {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                Conn::Quic(c.clone()).path_kind()
+            }
+            let lan = Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Disabled).bind().await.unwrap();
+            let t = tokio::time::Instant::now();
+            while host.addr().ip_addrs().next().is_none() && t.elapsed() < Duration::from_secs(5) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let addrs = EndpointAddr::from_parts(host.id(), host.addr().ip_addrs().map(|a| iroh::TransportAddr::Ip(*a)));
+            let c = lan.connect(addrs, ALPN).await.unwrap();
+            assert_eq!(path(&c).await, Some(PathKind::Direct));
+            c.close(0u32.into(), b"");
+            let relayed = builder().clear_ip_transports().bind().await.unwrap();
+            let via = EndpointAddr::from_parts(host.id(), [iroh::TransportAddr::Relay(url.clone())]);
+            let c = tokio::time::timeout(Duration::from_secs(20), relayed.connect(via, ALPN)).await.expect("relay connect timed out").unwrap();
+            assert_eq!(path(&c).await, Some(PathKind::Relayed));
+            // the lobby's room carries it beside the ping, and a room from an older build (no paths) still reads
+            let mut r = room(false);
+            r.path.insert("guest".into(), PathKind::Relayed);
+            let back: Room = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+            assert_eq!(back.path.get("guest"), Some(&PathKind::Relayed));
+            assert!(!serde_json::to_string(&room(false)).unwrap().contains("path"));
+            c.close(0u32.into(), b"");
+            accept.abort();
+        });
+    }
+
     #[test]
     fn lan_lobby_by_mdns() {
         let rt = tokio::runtime::Runtime::new().unwrap();

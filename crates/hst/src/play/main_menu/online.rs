@@ -126,12 +126,20 @@ pub struct View {
 pub(super) struct Facts {
     pub owner: String,
     pub ping: Option<u32>,
+    /// B733: how its machine's link to the host goes (Direct / Relayed), shown with the ping.
+    pub path: Option<hst_base::net::PathKind>,
     pub state: &'static str,
     pub rank: Option<String>,
     /// M95: a human's platform and input.
     pub device: Option<crate::device::Device>,
     /// M122: its machine still downloading a mod's looks, this far (percent).
     pub fetching: Option<u8>,
+}
+
+/// B733: a seat card's ping line: the round trip, and whether its link is direct or through a relay ("Online" while
+/// the host hasn't seen the path yet, or from an older host's room).
+pub(super) fn ping_line(ms: u32, path: Option<hst_base::net::PathKind>) -> String {
+    format!("{} - {ms} ms", path.map_or("Online", |p| p.label()))
 }
 
 /// What an Online press asks of the app.
@@ -757,17 +765,18 @@ impl Menu {
         if !st.human() {
             let rank = super::com_rank(&text.ranks, st.pick.char, st.pick.costume, r.doubles);
             let rank = super::RANK_NAMES.get(rank).copied().unwrap_or("COM").trim_start_matches("Tennis ");
-            return Some(Facts { owner: "Computer".into(), ping: None, state: "Ready", rank: Some(rank.to_string()), device: None, fetching: None });
+            return Some(Facts { owner: "Computer".into(), ping: None, path: None, state: "Ready", rank: Some(rank.to_string()), device: None, fetching: None });
         }
         let me = if self.net.hosting { "host" } else { self.net.me.as_str() };
         let ping = if st.peer == "host" { r.ping.get(me) } else { r.ping.get(&st.peer) }.copied();
+        let path = if st.peer == "host" { r.path.get(me) } else { r.path.get(&st.peer) }.copied();
         let state = match lobby::state(r, p) {
             lobby::State::Picking => "Picking...",
             lobby::State::Waiting => "Not ready",
             lobby::State::Open | lobby::State::Ready => "Ready",
         };
         let fetching = r.fetching.get(&st.peer).copied();
-        Some(Facts { owner: seat_name(self, r, p, &st.peer), ping, state, rank: None, device: r.devices.get(&st.peer).copied(), fetching })
+        Some(Facts { owner: seat_name(self, r, p, &st.peer), ping, path, state, rank: None, device: r.devices.get(&st.peer).copied(), fetching })
     }
 
     /// B201: lobby seat `p` when another peer's player or the computer has it (this machine's players are in their
@@ -3000,6 +3009,8 @@ pub(super) fn sample(m: &mut Menu) {
     if menu.starts_with("lobby") && !matches!(menu.as_str(), "lobby-hosting" | "lobby-joining" | "lobby-failed") {
         let r = m.net.room.as_mut().unwrap();
         r.ping = [(peers[0].to_string(), 35), (peers[1].to_string(), 165)].into();
+        // B733: the far one through a relay
+        r.path = [(peers[0].to_string(), hst_base::net::PathKind::Direct), (peers[1].to_string(), hst_base::net::PathKind::Relayed)].into();
         if menu == "lobby" {
             let w = Wire { emotes: vec![], voices: vec![], shots: [None; 4], stats: None, power: [1.0; 4], arc: [1.0; 4], swing: 1.0, run: 1.0, disc: false, scale: 1.0, id: "golf".into(), name: "Golf".into(), donor: 1, hand: 1.0, base: 1, overrides: vec![], ai_row: 1, names: vec![], parent: vec![], rest: vec![], looks: 9, dir: None };
             r.seats[1].as_mut().unwrap().pick.r#mod = Some(Box::new(w));
@@ -3498,6 +3509,15 @@ mod tests {
         g.online_ready(&mut out);
         assert!(g.net.early && out.is_empty() && g.screen == Screen::Chars);
         assert_eq!(reach(&g.net), Reach::Connecting);
+    }
+
+    /// B733: a seat card's ping says whether the link is direct or relayed.
+    #[test]
+    fn ping_line_shows_the_path() {
+        use hst_base::net::PathKind;
+        assert_eq!(ping_line(35, Some(PathKind::Direct)), "Direct - 35 ms");
+        assert_eq!(ping_line(165, Some(PathKind::Relayed)), "Relayed - 165 ms");
+        assert_eq!(ping_line(80, None), "Online - 80 ms");
     }
 
     #[test]

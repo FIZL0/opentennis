@@ -587,7 +587,7 @@ fn column(d: &mut Draw, m: &Menu, text: &Text, bind: &Bindings, pads: &[Entity],
         let owner = if com { "Computer".to_string() } else { dev_name(m.seats[p], pads) };
         let rank = com.then(|| com_line(m, text, p).trim_start_matches("COM - ").to_string());
         let device = (online && !com).then(|| *crate::device::CURRENT.lock().unwrap_or_else(|e| e.into_inner()));
-        let f = super::online::Facts { owner, ping: None, state: "Ready", rank, device, fetching: None };
+        let f = super::online::Facts { owner, ping: None, path: None, state: "Ready", rank, device, fetching: None };
         return compact_card(d, m, text, &s, at.card, p, f, mine);
     }
     let active = is_active(m, n, p);
@@ -861,7 +861,7 @@ fn compact_card(d: &mut Draw, m: &Menu, text: &Text, s: &Seat, card: [f32; 4], p
         Who::Disc(ch) => m.remote_mod_name(p).unwrap_or(CHAR_NAMES[ch]).to_string(),
     };
     let sub = match f.ping {
-        Some(ms) => format!("Online - {ms} ms"),
+        Some(ms) => super::online::ping_line(ms, f.path),
         None if com => "Computer".into(),
         None if m.online() => "Online".into(),
         None => "This machine".into(),
