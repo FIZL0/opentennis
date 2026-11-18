@@ -337,7 +337,7 @@ mod tests {
         if let Some(v) = std::env::var("HST_M183A1_PLAYER").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 3) {
             for k in v[1]..v[2].min(want.len() - 1) {
                 let (w, g) = (want[k].1[v[0]], got[k + 1].1[v[0]]);
-                eprintln!("{name} player {} tick {k}: want [{}, {}] got [{}, {}]", v[0], w[0], w[2], g[0], g[2]);
+                eprintln!("{name} player {} tick {k}: want [{}, {}, {}] got [{}, {}, {}]", v[0], w[0], w[1], w[2], g[0], g[1], g[2]);
             }
         }
         for k in player.into_iter().chain(ball).flat_map(|t| t.saturating_sub(1)..(t + 4).min(end)) {
@@ -530,14 +530,14 @@ mod tests {
     #[ignore]
     fn the_us_bot_match_plays_as_recorded() {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
-        let Some((want, got, rngs)) = us(None, 900, toss_ai) else { return };
+        let Some((want, got, rngs)) = us(None, 960, toss_ai) else { return };
         compare("us", &want, &got);
         first_point_part("us", &want, &got, 219);
-        // B720: after the server's partner's dive every player stands where the recording has them to 854 and the
-        // ball flies as recorded through the point (player 1 leaves at 855: B722)
+        // B720: after the server's partner's dive every player stands where the recording has them and the ball flies
+        // as recorded through the point (B722: player 1's smash at 856 steps it sideways, the smash's contact IK)
         let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
         let end = want.iter().skip(219).position(|t| t.0 != 3).map_or(want.len(), |n| n + 219);
-        assert_eq!((219..end).find(|&k| ground(&want[k]) != ground(&got[k + 1])), Some(855), "the players part");
+        assert_eq!((219..end).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part");
         assert_eq!((220..end).find(|&k| want[k].2 != got[k].2), None, "the ball parts");
         if std::env::var_os("HST_M183A1_DUMP").is_some() {
             for k in 0..240.min(want.len()) {
@@ -589,11 +589,12 @@ mod tests {
             // M185: the AI generator as recorded every tick through point 1's return and the server's partner's stand
             // searches (which read the previous player's racket, `doubles_ai::scratch`) and the stands and walks
             // back after the return (B719), the server's partner's walk-back wait and re-roll after its dive (its
-            // stroke flag held 5 ticks past the dive, B720) and the rest of the rally through 869, but at the serve's
+            // stroke flag held 5 ticks past the dive, B720) and the rest of the rally (player 1's smash step, B722) to
+            // the two ticks before the recording ends it (play ends the rally two ticks early: B723), but at the serve's
             // contact (218, two draws early, as before)
-            let off: Vec<usize> = (2..=869).filter(|&k| rec.iter().find(|x| x.0 == 7566 + k as u32).is_some_and(|x| x.3 != rngs[k + 1].ai)).collect();
+            let off: Vec<usize> = (2..end - 2).filter(|&k| rec.iter().find(|x| x.0 == 7566 + k as u32).is_some_and(|x| x.3 != rngs[k + 1].ai)).collect();
             assert_eq!(off, [218], "the AI generator leaves the recording at {off:?}");
-            let lost = (2..=869).filter(|&k| k != 218).find(|&k| !rec.iter().any(|x| x.3 == rngs[k + 1].ai));
+            let lost = (2..end - 2).filter(|&k| k != 218).find(|&k| !rec.iter().any(|x| x.3 == rngs[k + 1].ai));
             assert_eq!(lost, None, "play's AI generator is off the recording's draws");
             for (k, r) in rngs.iter().enumerate() {
                 let at = |f: &dyn Fn(&(u32, u64, Mt, Mt)) -> bool| rec.iter().find(|x| f(x)).map(|x| x.0 as i64 - 7566);

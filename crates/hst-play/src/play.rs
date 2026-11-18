@@ -100,6 +100,7 @@ mod surprise;
 pub mod rumble;
 pub(crate) mod snapshot;
 mod serve_check;
+mod smash_ik;
 mod partner_ball;
 pub mod tick_input;
 mod timing;
@@ -2909,6 +2910,8 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
                 let solve =
                     contact_solve(&t, a - motion::id::FORE_TOPSPIN as usize, [b[0], b[1], b[2], 1.0], pos, [p.end, 1.0]);
                 p.ik = Some(ArmIk::new(solve, c.frames as i32, pos));
+            } else if a == motion::id::SMASH as usize {
+                smash_ik::start(g, i, c.swing.ball, c.frames as i32);
             }
         } else if let Some(d) = find_dive(g, i) {
             let p = &mut g.players[i];
