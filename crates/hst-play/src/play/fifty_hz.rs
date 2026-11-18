@@ -229,7 +229,8 @@ mod tests {
         app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
         app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
         app.add_systems(Startup, setup);
-        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, played_out, held_ball, crate::play::bodyhit::pose, crate::play::doubles_ai::scratch::after_pose, flare_tick).chain());
+        app.add_systems(FixedUpdate, (remember, flare_tick, effects::tick, react_first, control, reaction_roots, simulate, start_effects, motions, character::tick, played_out, held_ball, crate::play::bodyhit::pose, crate::play::doubles_ai::scratch::after_pose).chain());
+        app.init_resource::<ReactionRoots>();
         app.init_resource::<crate::play::bodyhit::Posed>().init_resource::<crate::play::bodyhit::Bones>();
         app.update();
         let code = |p: &Phase| match p {
@@ -362,6 +363,21 @@ mod tests {
         }
     }
 
+    /// Probe (`HST_M183A1_FROM=k`): from recorded tick `k` on, the first tick the phase or a player (on the ground,
+    /// play a tick behind) or the ball (play level) leaves the recording, with a few ticks around it.
+    fn part_from(name: &str, want: &[Tick], got: &[Tick]) {
+        let Some(from) = std::env::var("HST_M183A1_FROM").ok().and_then(|v| v.parse::<usize>().ok()) else { return };
+        let end = want.len().min(got.len() - 1);
+        let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
+        let phase = (from..end).find(|&k| want[k].0 != got[k + 1].0);
+        let player = (from..end).find(|&k| ground(&want[k]) != ground(&got[k + 1]));
+        let ball = (from..end).find(|&k| want[k].2 != got[k].2);
+        eprintln!("{name} from {from}: the phase parts at {phase:?}, a player at {player:?}, the ball at {ball:?}");
+        for k in ball.into_iter().chain(player).flat_map(|t| t.saturating_sub(1)..(t + 3).min(end)) {
+            eprintln!("{name}   tick {k}: want {} {:?} {:?}\n{name}             got  {} {:?} {:?} (ball {:?})", want[k].0, ground(&want[k]), want[k].2, got[k + 1].0, ground(&got[k + 1]), got[k + 1].2, got[k].2);
+        }
+    }
+
     /// The European bot match (doubles, characters 0/1/1/0, court 6, 1 set of 4 games; M177's recording) in play.
     fn european(n: Option<usize>, toss_ai: usize) -> Option<(Vec<Tick>, Vec<Tick>)> {
         european_rngs(n, toss_ai, 0).map(|(w, g, _)| (w, g))
@@ -440,6 +456,7 @@ mod tests {
         let Some((want, got)) = european(None, toss_ai) else { return };
         assert!(compare("eu", &want, &got) >= 3, "the first point's phases (B723)");
         first_point_part("eu", &want, &got, 141);
+        part_from("eu", &want, &got);
         // B723: after the point's rally, the first tick a player (on the ground, play a tick behind) or the ball parts
         let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
         let player = (437..want.len() - 1).find(|&k| ground(&want[k]) != ground(&got[k + 1]));
@@ -485,7 +502,9 @@ mod tests {
             .iter()
             .map(|s| (u32::from_le_bytes(s[..4].try_into().unwrap()) as i64 - start, Mt::from_ram(&s[4..]), Mt::from_ram(&s[4 + 0x9d0..]), Mt::from_ram(&s[4 + 2 * 0x9d0..])))
             .collect();
-        let Some((_, _, rngs)) = european_rngs(Some(470), 0, 470) else { return };
+        // `HST_M183A1_KEEP=n`: play n ticks (the probes below reach past the asserted span)
+        let keep = std::env::var("HST_M183A1_KEEP").ok().and_then(|v| v.parse().ok()).unwrap_or(470);
+        let Some((_, _, rngs)) = european_rngs(Some(keep), 0, keep) else { return };
         let mut last = None;
         for (k, r) in rngs.iter().enumerate() {
             let at = |f: &dyn Fn(&(i64, Mt, Mt, Mt)) -> bool| rec.iter().find(|x| f(x)).map(|x| x.0);
@@ -585,22 +604,33 @@ mod tests {
     /// the US match wrong too; with the generators beside slot 5's recorded ones.
     #[test]
     #[ignore]
+    #[allow(clippy::needless_range_loop)]
     fn the_us_bot_match_plays_as_recorded() {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
-        let Some((want, got, rngs)) = us(None, 960, toss_ai) else { return };
+        let Some((want, got, rngs)) = us(None, 1500, toss_ai) else { return };
         // B723: the first point's serve set-up, rally and point-over phase as long as the game's (point 2's set-up
         // parts: B722)
-        assert!(compare("us", &want, &got) >= 3, "the first point's phases");
+        // M183a1: point 2's set-up too (the flare draws before the point's logic, the reaction stops the players
+        // and the AI routines from the scoreboard's pause end), and every player on the ground from the first serve
+        // to point 2's serve (its rally parts: the AI draws at its start, 4 more than the game's)
+        assert!(compare("us", &want, &got) >= 4, "the first point's and point 2's set-up phases");
+        let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
+        // (but at the point-over phase's last tick, where play, a tick behind, has already placed them for the set-up)
+        assert_eq!((219..1270).filter(|&k| k != 1084).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before point 2's serve");
         first_point_part("us", &want, &got, 219);
+        part_from("us", &want, &got);
         // B720: after the server's partner's dive every player stands where the recording has them and the ball flies
         // as recorded through the point (B722: player 1's smash at 856 steps it sideways, the smash's contact IK)
         let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
         let end = want.iter().skip(219).position(|t| t.0 != 3).map_or(want.len(), |n| n + 219);
         assert_eq!((219..end).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part");
         assert_eq!((220..end).find(|&k| want[k].2 != got[k].2), None, "the ball parts");
-        if std::env::var_os("HST_M183A1_DUMP").is_some() {
-            for k in 0..240.min(want.len()) {
-                eprintln!("us dump {k}: want {} {:?} | got {} {:?}", want[k].0, want[k].2, got[k + 1].0, got[k + 1].2);
+        if let Some(v) = std::env::var_os("HST_M183A1_DUMP") {
+            // `from,to`: another span of recorded ticks
+            let span: Vec<usize> = v.to_string_lossy().split(',').filter_map(|x| x.parse().ok()).collect();
+            let (from, to) = if span.len() == 2 { (span[0], span[1]) } else { (0, 240) };
+            for k in from..to.min(want.len()) {
+                eprintln!("us dump {k}: want {} {:?} {:?} | got {} {:?} {:?}", want[k].0, want[k].1[0], want[k].2, got[k + 1].0, got[k + 1].1[0], got[k + 1].2);
             }
         }
         // the generators beside slot 5's recorded ones (`fixtures/p3b/rng_s05.bin`, vsyncs 7533..9032; the serve
@@ -655,10 +685,66 @@ mod tests {
             assert_eq!(off, [218], "the AI generator leaves the recording at {off:?}");
             let lost = (2..end - 2).filter(|&k| k != 218).find(|&k| !rec.iter().any(|x| x.3 == rngs[k + 1].ai));
             assert_eq!(lost, None, "play's AI generator is off the recording's draws");
+            // `HST_M183A1_SHARED=from,to`: for each played tick, how many shared draws play's generator is from the
+            // recorded one at the vsync rand puts it at (+: play ahead)
+            if let Some(v) = std::env::var("HST_M183A1_SHARED").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 2) {
+                for k in v[0]..v[1].min(rngs.len()) {
+                    let Some(x) = rec.iter().find(|x| x.1 == rngs[k].rand.0) else { continue };
+                    let ahead = |from: &Mt, to: &Mt| {
+                        let mut g = from.clone();
+                        (0..3000).find(|_| {
+                            let hit = g == *to;
+                            g.next();
+                            hit
+                        })
+                    };
+                    let (a, b) = (ahead(&x.2, &rngs[k].shared), ahead(&rngs[k].shared, &x.2));
+                    let (c, d) = (ahead(&x.3, &rngs[k].ai), ahead(&rngs[k].ai, &x.3));
+                    eprintln!("us shared tick {k} (vsync {}): play ahead {a:?} behind {b:?}; ai ahead {c:?} behind {d:?}", x.0 as i64 - 7566);
+                }
+            }
+            // `HST_M183A1_SEED=k`: which `rand()` output (draws before play's tick k's rand) seeds play's and the
+            // recording's shared generator at tick k, and how many draws it has made since
+            if let Some(k) = std::env::var("HST_M183A1_SEED").ok().and_then(|v| v.parse::<usize>().ok()) {
+                let x = rec.iter().find(|x| x.1 == rngs[k].rand.0).unwrap();
+                for (who, target) in [("play", &rngs[k].shared), ("recorded", &x.2)] {
+                    let mut r = hst_sim::rng::Rand(rand_back(rngs[k].rand.0, 3000));
+                    let hit = (0..3000).find_map(|n| {
+                        let o = r.next();
+                        let mut g = Mt::new(o);
+                        (0..60).find(|_| {
+                            let hit = g == *target;
+                            g.next();
+                            hit
+                        }).map(|d| (3000 - n, d))
+                    });
+                    eprintln!("us seed tick {k}: {who}'s shared is the output {:?} (draws before, then draws made)", hit);
+                }
+            }
+            // `HST_M183A1_AIDRAWS=from,to`: the AI generator's draws since recorded vsync `from` − 10, for play's ticks
+            // (beside the vsync rand puts them at) and the recorded vsyncs
+            if let Some(v) = std::env::var("HST_M183A1_AIDRAWS").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 2) {
+                let base = rec.iter().find(|x| x.0 == 7566 + v[0] as u32 - 10).unwrap().3.clone();
+                let count = |to: &Mt| {
+                    let mut g = base.clone();
+                    (0..2000).find(|_| {
+                        let hit = g == *to;
+                        g.next();
+                        hit
+                    })
+                };
+                for k in v[0]..v[1].min(rngs.len()) {
+                    let x = rec.iter().find(|x| x.1 == rngs[k].rand.0);
+                    let r = rec.iter().find(|x| x.0 == 7566 + k as u32);
+                    eprintln!("us aidraws play tick {k} (at vsync {:?}): {:?} | recorded vsync {k}: {:?}", x.map(|x| x.0 as i64 - 7566), count(&rngs[k].ai), r.and_then(|r| count(&r.3)));
+                }
+            }
             for (k, r) in rngs.iter().enumerate() {
                 let at = |f: &dyn Fn(&(u32, u64, Mt, Mt)) -> bool| rec.iter().find(|x| f(x)).map(|x| x.0 as i64 - 7566);
                 let (rand, shared, ai) = (at(&|x| x.1 == r.rand.0), at(&|x| x.2 == r.shared), at(&|x| x.3 == r.ai));
-                if k < 12 || k % 20 == 0 || (205..226).contains(&k) {
+                // `HST_M183A1_RNG=from,to`: every played tick of another span
+                let span = std::env::var("HST_M183A1_RNG").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 2);
+                if k < 12 || k % 20 == 0 || (205..226).contains(&k) || span.is_some_and(|v| (v[0]..v[1]).contains(&k)) {
                     eprintln!("us rng tick {k}: rand at {rand:?}, shared at {shared:?}, ai at {ai:?}");
                 }
             }

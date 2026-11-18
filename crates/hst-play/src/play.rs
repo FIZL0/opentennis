@@ -732,12 +732,41 @@ pub fn plugin(app: &mut App) {
             )
                 .chain(),
         );
-    app.add_systems(FixedUpdate, flare_tick.after(play_sounds));
+    app.add_systems(FixedUpdate, flare_tick.after(remember).before(control));
+    app.init_resource::<ReactionRoots>().add_systems(FixedUpdate, (react_first.after(effects::tick).before(control), reaction_roots.after(control).before(simulate)));
     app.add_systems(FixedUpdate, doubles_ai::scratch::after_pose.after(bodyhit::pose).after(play_sounds));
     app.add_systems(FixedUpdate, (bounce_debris::set_up.after(simulate).before(start_effects), bounce_debris::throw.after(start_effects).after(foot_fx::tick)));
     app.add_systems(Update, emote::hide_ball.after(draw));
     app.add_systems(Update, emote::own_facing.before(character::animate));
     app.add_systems(FixedUpdate, emote::play_lines.after(play_sounds));
+}
+
+/// The players' reaction to the point reaches them at the start of the tick the scoreboard's pause ends, before
+/// anyone moves (the game sends it ahead of its players' update): a player still running after the point stops on
+/// that tick instead of taking one more step, and the reaction's root motion moves them from the next tick on (its
+/// roots wait in [`ReactionRoots`] through this tick's `control`). Whether the post-point step flips `reacted` is
+/// checked on copies, so `simulate`'s own step finds it set and doesn't react again.
+fn react_first(mut game: ResMut<Game>, mut held: ResMut<ReactionRoots>) {
+    let g = &mut *game;
+    let Some(post) = g.post.as_ref().filter(|p| !p.reacted && p.event.is_some()) else { return };
+    let (mut next, mut score, mut rally) = (post.clone(), g.score.clone(), g.rally);
+    next.step_with(&mut score, &mut rally, &g.board, false, false);
+    if next.reacted {
+        let event = post.event.expect("a point to react to");
+        g.post.as_mut().expect("post-point state").reacted = true;
+        react(g, event);
+        held.0 = g.players.iter_mut().map(|p| p.root.take()).collect();
+    }
+}
+
+/// The reaction's roots [`react_first`] held back through its tick's `control`, given back.
+#[derive(Resource, Default)]
+struct ReactionRoots(Vec<Option<Root>>);
+
+fn reaction_roots(mut game: ResMut<Game>, mut held: ResMut<ReactionRoots>) {
+    for (p, r) in game.players.iter_mut().zip(std::mem::take(&mut held.0)) {
+        p.root = r;
+    }
 }
 
 /// The sun's lens flare's `rand()` draws each tick it shows (clear or cloudy).
@@ -2419,7 +2448,8 @@ fn serve_whiff(g: &mut Game, i: usize) -> bool {
         let shout = g.voices[i].shout(i, sound::WHIFF_SHOUT, g.players.len() as u32, r);
         g.whooshes.push((0, i, shout));
     }
-    if g.flight.bounces > 0 {
+    // once the fault is called the point is over: the toss lying on the court doesn't call it again
+    if g.flight.bounces > 0 && matches!(g.phase, Phase::Serve | Phase::Rally) {
         g.flight.call = hst_sim::judge::Call::Out;
         g.phase = Phase::Rally;
     }
@@ -3539,6 +3569,10 @@ fn bot(g: &mut Game, i: usize) {
     }
     if was == Some(hst_sim::ai::Phase::Serve) && mind.phase == hst_sim::ai::Phase::Rally && doubles_ai::hand_over(g, i, &mind) {
         return ai_served(g, i);
+    }
+    // reacting to the point: the reaction plays out and the AI's routines don't step (nor draw) until the next point
+    if g.post.as_ref().is_some_and(|p| p.reacted) {
+        return locomote(g, i, Vec2::ZERO);
     }
     // the rally step's stick decides the break-off of a serve's follow-through (`ai_serve_step`)
     if doubles_ai::step(g, i, &mind) {
