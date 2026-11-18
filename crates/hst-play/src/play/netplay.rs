@@ -1423,9 +1423,13 @@ mod tests {
         /// `play_rollback`, the guest frozen for the rounds in `hitch` (a hiccup: nothing runs, sent or heard), and
         /// `each(round, apps)` after every round. A round is a tick of time by ggrs' clock (B494), so the outcome
         /// doesn't depend on how long it really takes (a loaded machine).
-        fn play_rollback_with(lag: u32, limit: u32, bad: bool, hitch: std::ops::Range<u32>, mut each: impl FnMut(u32, &mut [App; 2])) -> [App; 2] {
+        fn play_rollback_with(lag: u32, limit: u32, bad: bool, hitch: std::ops::Range<u32>, each: impl FnMut(u32, &mut [App; 2])) -> [App; 2] {
+            play_rollback_in(room(0), lag, limit, bad, hitch, each)
+        }
+
+        /// B731: `play_rollback_with` on `room` (its delay is the sessions' input delay).
+        fn play_rollback_in(room: Room, lag: u32, limit: u32, bad: bool, hitch: std::ops::Range<u32>, mut each: impl FnMut(u32, &mut [App; 2])) -> [App; 2] {
             ggrs::clock::drive(true);
-            let room = room(0);
             let mut apps = ["host", "g"].map(|me| {
                 let mut a = app(&room, me);
                 let f = if bad && me == "g" { nudged } else { step };
@@ -1484,6 +1488,8 @@ mod tests {
             if !hst_data::fixture::has_iso() {
                 return;
             }
+            // a room with no measured round trip: the default delay
+            assert_eq!(rollback::input_delay(&room(0)), rollback::DELAY);
             const { assert!(rollback::DELAY <= 2) };
             let t0 = std::time::Instant::now();
             REPLAYS.set(!to_the_end);
@@ -1505,6 +1511,35 @@ mod tests {
             let replays = apps[0].world().resource::<Game>().instant.replays;
             assert!(to_the_end || replays > 1, "{replays} instant replays");
             eprintln!("in sync over {n} ticks, {reruns:?} ticks re-run, {replays} instant replays, {:.0?}", t0.elapsed());
+        }
+
+        /// B731: a room whose host measured a long round trip (200 ms: 7 ticks) runs rollback with the capped input
+        /// delay, 4 ticks, on both machines, and over a link that slow (6 ticks each way) both run the same pads and
+        /// ggrs' checksums agree, with fewer ticks re-run than at the default delay.
+        #[test]
+        fn rollback_delay_follows_room() {
+            assert_eq!(rollback::input_delay(&room(crate::net::delay_for(std::time::Duration::from_millis(200)))), rollback::MAX_DELAY);
+            assert_eq!(rollback::input_delay(&room(3)), 3);
+            if !hst_data::fixture::has_iso() {
+                return;
+            }
+            REPLAYS.set(true);
+            let run = |delay| {
+                let apps = play_rollback_in(room(delay), 6, 600, false, 0..0, |_, _| {});
+                for a in &apps {
+                    assert_eq!(a.world().resource::<Netplay>().end, None);
+                    assert_eq!(a.world().resource::<Rollback>().delay, rollback::input_delay(&room(delay)));
+                }
+                let [a, b] = apps.each_ref().map(|a| a.world().resource::<Netplay>());
+                let n = a.lock.log.len().min(b.lock.log.len()) - rollback::WINDOW;
+                assert_eq!(a.lock.log[..n], b.lock.log[..n]);
+                let checked = a.state.0.min(b.state.0);
+                assert!(checked >= (n as u32).saturating_sub(120), "the checksums stopped at tick {checked} of {n}");
+                apps.each_ref().map(|a| a.world().resource::<Rollback>().reruns).iter().sum::<u64>()
+            };
+            let (long, short) = (run(4), run(0));
+            assert!(long < short, "re-run ticks at delay 4: {long}, at 2: {short}");
+            eprintln!("re-run ticks at delay 4: {long}, at 2: {short}");
         }
 
         /// B162: the guest's frame loop stops (a hidden browser tab, a minimised window) at tick 300 for `away` of real

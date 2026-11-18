@@ -1,5 +1,5 @@
 //! Rollback netplay (M2h) with `ggrs`: each machine runs the next tick at once on its own seats' pads (sent
-//! [`DELAY`] ticks ahead) and a guess for the others' (their last pads held); when a peer's real pads for a guessed
+//! [`input_delay`] ticks ahead) and a guess for the others' (their last pads held); when a peer's real pads for a guessed
 //! tick arrive and differ, the match goes back to that tick (`snapshot::restore`) and runs the ticks since again on
 //! the real ones, all before the next frame is drawn. M2d keeps the re-run ticks' sounds from playing twice.
 //!
@@ -17,8 +17,18 @@ use bevy::prelude::*;
 use ggrs::{Config, DesyncDetection, GgrsError, GgrsEvent, GgrsRequest, Message, NonBlockingSocket, P2PSession, PlayerType, SessionBuilder, SessionState};
 use std::sync::{Arc, Mutex};
 
-/// The local input delay, ticks.
+/// The local input delay, ticks: the least and the default (a room with no measured round trip).
 pub const DELAY: usize = 2;
+/// B731: the most local input delay, ticks (67 ms at 60): past it local controls feel slow, so a longer round trip is
+/// guessed and rolled back instead.
+pub const MAX_DELAY: usize = 4;
+
+/// B731: the input delay every peer of `room` runs rollback with: the host's measured `Room::delay` (from the slowest
+/// guest's round trip, the same on every machine since it comes in Start), kept to [`DELAY`]..=[`MAX_DELAY`], so at
+/// a long round trip fewer of the others' pads are guesses that warp them when wrong.
+pub fn input_delay(room: &Room) -> usize {
+    (room.delay as usize).clamp(DELAY, MAX_DELAY)
+}
 /// How many ticks a machine may run on guessed pads before it waits (ggrs' prediction window). B197: 80 (1.3 s), so
 /// the others play on through a peer's 1 s hitch instead of stalling (ggrs' input queue holds 128). A re-run of the
 /// whole window is `WINDOW + 1` ticks and as many saves in one frame (~45 ms here, `tick_cost`, journal
@@ -99,6 +109,8 @@ pub struct Rollback {
     pub wires: Wires,
     /// ggrs player `h` is seat `seats[h]`.
     seats: Vec<usize>,
+    /// B731: the local input delay, ticks ([`input_delay`]).
+    pub delay: usize,
     /// The next tick a run gives its pads to (where the last restore put the match, then counting).
     frame: usize,
     /// Gate calls since this machine last sat out a tick (time sync).
@@ -176,9 +188,10 @@ impl Rollback {
     /// `room`'s session for peer `me`: a ggrs player per taken seat, in seat order.
     pub fn new(room: &Room, me: &str, step: fn(&mut World)) -> Result<Self, GgrsError> {
         let seats: Vec<usize> = (0..room.seats.len()).filter(|&s| room.seats[s].as_ref().is_some_and(crate::net::Seat::human)).collect();
+        let delay = input_delay(room);
         let mut b = SessionBuilder::<Cfg>::new()
             .with_num_players(seats.len())?
-            .with_input_delay(DELAY)
+            .with_input_delay(delay)
             .with_max_prediction_window(WINDOW)
             // M176: its clock runs at the match's ticks a second (the host's Match Speed)
             .with_fps(room.match_hz() as usize)?
@@ -192,11 +205,11 @@ impl Rollback {
         }
         let sync = std::env::var("HST_NET_SYNCTEST").ok().and_then(|v| v.parse().ok()).filter(|_| seats.iter().all(|&s| room.seats[s].as_ref().unwrap().peer == me));
         let sync = match sync {
-            Some(n) => Some(SessionBuilder::<Cfg>::new().with_num_players(seats.len())?.with_max_prediction_window(WINDOW).with_check_distance(n).with_input_delay(DELAY).start_synctest_session()?),
+            Some(n) => Some(SessionBuilder::<Cfg>::new().with_num_players(seats.len())?.with_max_prediction_window(WINDOW).with_check_distance(n).with_input_delay(delay).start_synctest_session()?),
             None => None,
         };
         let wires = Wires::default();
-        Ok(Rollback { sess: b.start_p2p_session(wires.clone())?, wires, seats, sync, texts: Default::default(), frame: 0, since: 0, owed: 0, shift: 0, step, reruns: 0, skipped: 0, held: 0, logged: (0.0, 0, 0), trace: Trace::new(), cells: vec![None; WINDOW + 1], base: 0, round: 0, moved: (0, ggrs::clock::now()), resent: 0 })
+        Ok(Rollback { delay, sess: b.start_p2p_session(wires.clone())?, wires, seats, sync, texts: Default::default(), frame: 0, since: 0, owed: 0, shift: 0, step, reruns: 0, skipped: 0, held: 0, logged: (0.0, 0, 0), trace: Trace::new(), cells: vec![None; WINDOW + 1], base: 0, round: 0, moved: (0, ggrs::clock::now()), resent: 0 })
     }
 
     /// The tick the next run is.
@@ -288,12 +301,13 @@ fn stats(w: &mut World) {
         .collect();
     let ticks = rb.frame - rb.logged.2.min(rb.frame);
     info!(
-        "rollback at tick {}: {}; last {ticks} ticks: {} re-run, {} sat out, {} held (delay {DELAY}, window {WINDOW})",
+        "rollback at tick {}: {}; last {ticks} ticks: {} re-run, {} sat out, {} held (delay {delay}, window {WINDOW})",
         rb.frame,
         peers.join(", "),
         rb.reruns - rb.logged.1,
         rb.skipped,
-        rb.held
+        rb.held,
+        delay = rb.delay
     );
     rb.logged = (now, rb.reruns, rb.frame);
     (rb.skipped, rb.held) = (0, 0);
