@@ -1007,8 +1007,156 @@ pub fn untwist_thigh(local: &M4, rest: &M4, s: f32) -> M4 {
     [row(turn(v(&rest[0]))), blend(1), blend(2), local[3]]
 }
 
+/// What a contact dive's arm solve starts from, measured at player load on the receive motion
+/// (`motion::id::RECEIVE`) at time 5: the locals of the racket, right hand, right forearm and right upper arm, the
+/// model matrix of the upper arm's parent, and the dive arm (`dive_arm`: the racket's and upper arm's model
+/// matrices).
+#[derive(Clone, Copy, Debug)]
+pub struct DiveRig {
+    pub racket: M4,
+    pub hand: M4,
+    pub forearm: M4,
+    pub upper: M4,
+    pub above: M4,
+    pub arm: [M4; 2],
+}
+
+/// The dive rig of skeleton `sk` from the receive motion's `clip`.
+pub fn dive_rig(sk: &Skeleton, clip: &Clip) -> DiveRig {
+    let at = |n: &str| sk.names.iter().position(|x| x == n).unwrap_or_else(|| panic!("no node {n}"));
+    let [racket, hand, forearm, upper] = [ARM_NODES[0], ARM_NODES[1], ARM_NODES[2], ARM_NODES[3]].map(at);
+    let local = clip.locals(sk, clip.wrap(5.0, false));
+    let mut above: M4 = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+    let mut p = sk.parent[upper];
+    while let Some(i) = p {
+        above = vmul(&above, &local[i]);
+        p = sk.parent[i];
+    }
+    DiveRig { racket: local[racket], hand: local[hand], forearm: local[forearm], upper: local[upper], above, arm: dive_arm(sk, clip) }
+}
+
+/// Rows 0–2 of `m` with the translation row zeroed.
+fn turn_of(m: &M4) -> M4 {
+    [m[0], m[1], m[2], [0.0, 0.0, 0.0, 1.0]]
+}
+
+/// `v` scaled to unit length (FPU: one reciprocal of the root, then three products).
+fn unit3(v: [F; 3]) -> [F; 3] {
+    let inv = F::ONE / (v[2] * v[2]).madd(v[1], v[1]).madd(v[0], v[0]).sqrt();
+    v.map(|c| c * inv)
+}
+
+/// What a contact dive's solve leaves: the right upper arm's turn (the hand, forearm and left arm stay as
+/// animated) and the angle the racket turns about its own y.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DiveSolve {
+    pub upper: [f32; 4],
+    pub angle: f32,
+}
+
+/// The contact dive's arm solve at the dive's start: the upper arm turns so the racket point's direction from the
+/// shoulder lines up with the ball's from where the slide ends, and the racket's angle about its y that lines its
+/// face up against the ball's flattened incoming direction. `pos` the player, `dir` the dive's facing (x, z),
+/// `hand` the mirror factor, `slide` the slide length, `ball` and `vel` the chosen path frame's ball (y up).
+pub fn dive_solve(rig: &DiveRig, pos: [f32; 3], dir: [f32; 2], hand: f32, slide: f32, ball: [f32; 3], vel: [f32; 3]) -> DiveSolve {
+    use crate::vu0::transform;
+    let side = [(F(dir[1]) * hand).0, (F::ZERO * hand).0, ((F::ZERO - dir[0]) * hand).0, (F(hand) * 0.0).0];
+    let place: M4 = [side, [0.0, 1.0, 0.0, 0.0], [dir[0], 0.0, dir[1], 0.0], [pos[0], pos[1], pos[2], 1.0]];
+    let turn = turn_of(&place);
+    let tip = transform(&vmul(&rig.arm[0], &turn), TIP);
+    let shoulder_m = vmul(&rig.arm[1], &turn);
+    let s = shoulder_m[3];
+    let end = [F(pos[0]).madd(dir[0], slide), F(pos[1]), F(pos[2]).madd(dir[1], slide)];
+    let a = unit3(std::array::from_fn(|k| F(ball[k]) - end[k] - s[k]));
+    let b = unit3(std::array::from_fn(|k| F(tip[k]) - s[k]));
+    let axis = unit3([(b[1] * a[2]).msub(b[2], a[1]), (b[2] * a[0]).msub(b[0], a[2]), (b[0] * a[1]).msub(b[1], a[0])]);
+    let c = (a[2] * b[2]).madd(a[1], b[1]).madd(a[0], b[0]).clamp(-1.0, 1.0);
+    let r = axis_cos(c.0, 1.0, f32s(axis));
+    let solved = turn_of(&vmul(&vmul(&turn_of(&shoulder_m), &r), &transpose3(&vmul(&rig.above, &place))));
+    let upper = crate::quat::from_matrix(&vmul(&transpose3(&rig.upper), &solved));
+    let world = [rig.hand, rig.forearm, solved, rig.above, place].iter().fold(rig.racket, |m, x| vmul(&m, x));
+    let d = [-F(vel[0]), -F(vel[1].abs()), -F(vel[2])];
+    let e = |r: &[f32; 4]| (d[2] * r[2]).madd(d[1], r[1]).madd(d[0], r[0]);
+    let (ex, ez) = (e(&world[0]), e(&world[2]));
+    let inv = F::ONE / (ez * ez).madd(ex, ex).sqrt();
+    let (nx, nz) = (ex * inv, ez * inv);
+    let mut angle = libm::acosf(nz.clamp(-1.0, 1.0).0);
+    if angle >= std::f32::consts::FRAC_PI_2 {
+        angle = (F(angle) - std::f32::consts::PI).0;
+    }
+    DiveSolve { upper, angle: if nx.0 < 0.0 { (F(angle) * -1.0).0 } else { angle } }
+}
+
+/// The dive's arm solve as the play state runs it each tick after the dive starts: the weight ramps up over 5
+/// ticks, drops to 0 until the contact frame, then ramps down from 0.8 over 4 more ticks.
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub struct DiveIk {
+    pub solve: DiveSolve,
+    /// the load-time racket local the racket turn starts from
+    pub racket: M4,
+    /// the dive's contact frame
+    pub contact: i32,
+    pub n: i32,
+}
+
+impl DiveIk {
+    pub const RAMP: i32 = 5;
+
+    pub fn new(solve: DiveSolve, racket: M4, contact: i32) -> Self {
+        DiveIk { solve, racket, contact, n: 0 }
+    }
+
+    /// One tick: this tick's weight, or `None` once the ramp has run out (the solve ends).
+    pub fn tick(&mut self) -> Option<f32> {
+        let (n, k) = (self.n, self.contact);
+        let w = if n <= Self::RAMP {
+            (F(n as f32) + 0.0) / Self::RAMP as f32
+        } else if n <= k {
+            F::ZERO
+        } else {
+            let w = F(1.0) - (F(n as f32) - k as f32) / Self::RAMP as f32;
+            if w <= 0.0 {
+                return None;
+            }
+            w
+        };
+        self.n += 1;
+        Some(w.0)
+    }
+
+    /// The arm turns at weight 1 in the contact solve's order (right hand, right forearm, right upper arm, left
+    /// upper arm): only the upper arm's isn't the identity.
+    pub fn quats(&self) -> [[f32; 4]; 4] {
+        let one = [0.0, 0.0, 0.0, 1.0];
+        [one, one, self.solve.upper, one]
+    }
+
+    /// The racket's local at weight `w` (> 0): the load-time racket turned about its own y by the angle × `w`,
+    /// keeping `local`'s translation.
+    pub fn racket_local(&self, w: f32, local: &M4) -> M4 {
+        keep_row3(vmul(&axis_angle((F(self.solve.angle) * w).0, [0.0, 1.0, 0.0]), &self.racket), local)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dive_ramp_holds_then_drops() {
+        use super::*;
+        let solve = DiveSolve { upper: [0.0, 0.0, 0.0, 1.0], angle: 0.5 };
+        let weights = |k: i32| {
+            let mut ik = DiveIk::new(solve, [[0.0; 4]; 4], k);
+            std::iter::from_fn(|| ik.tick()).collect::<Vec<_>>()
+        };
+        let k9 = weights(9);
+        assert_eq!(&k9[..6], &[0.0, 0.2, 0.4, 0.6, 0.8, 1.0]);
+        assert_eq!(&k9[6..10], &[0.0; 4]);
+        assert_eq!(k9[10..], [0.8, 0.6, 0.39999998, 0.19999999], "{k9:?}");
+        let k5 = weights(5);
+        assert_eq!(k5.len(), 10);
+        assert_eq!(k5[5..7], [1.0, 0.8]);
+    }
+
     #[test]
     fn constant_bits() {
         use super::*;
