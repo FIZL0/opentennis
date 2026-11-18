@@ -3,7 +3,8 @@
 //! spawned. The render side, per render frame: asset upload (`PrepareAssets`), specialisation, the swapchain
 //! acquire, queue and prepare, the pipeline queue, graph + encode + submit; with the textures and meshes uploaded
 //! and the pipelines finished that frame. Pipeline compiles run on the async pool off the render thread (not on
-//! macOS or the web), so a compile shows as `ready +N`, not as render time, unless it holds a lock the frame needs.
+//! macOS or the web), so a compile shows as `ready +N`, not as render time, unless it holds a lock the frame needs
+//! or a system waits on one (P146: the upscaling blit for a new view, now compiled alone, ahead of the queue).
 
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
