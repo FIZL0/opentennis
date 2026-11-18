@@ -1,16 +1,12 @@
 <!-- What's new since the last release, for players, in plain English: one "- " line per change. tools/release.sh puts this in the release and empties it. -->
 
-- Computer doubles players no longer always rush back into position after a shot: like the original, they sometimes hold their spot a little longer first.
-- Computer players take as long as in the original to get back into the rally after a dive.
-- iPhone: the screen that tells you where to put your disc image shows again on first launch instead of the app closing.
-- A player diving for a ball they can reach now stretches their arm and turns their racket toward it, as in the original, and in doubles the computer partner reacts to that racket as the original does.
-- Computer players take as long as in the original to recover from a missed swing, and a computer server's partner holds its spot until the server's shot is hit, as in the original.
-- A diving player's arm and racket now turn exactly as far toward the ball as in the original.
-- A diving player keeps their arm and racket stretched toward the ball through the whole dive instead of dropping them halfway, as in the original.
-- Players reach for the ball with their arm and step into it when they smash, as in the original.
-- In doubles, computer players read each serve after the first point the way the original does, so their returns and timing match the original from point to point.
-- Ground strokes hit above the height of a rising ball now go where they would in the original instead of being pulled toward the middle.
-- A player caught deep behind the baseline when a point ends now steps forward to where the original puts them for the celebration.
 - Online matches between players far apart play more smoothly: the other player's moves jump around much less on long-distance connections.
 - Online, one slow ping just before the match starts no longer makes the controls lag for the whole match.
-- Online, each player's card in the lobby now says whether their connection is Direct or Relayed next to their ping, so you can tell when it's going through a relay server and adding delay.
+- Online, each player's lobby card now says whether their connection is Direct or Relayed next to their ping, so you can tell when it's going through a relay server and adding delay.
+- iPhone: the screen that tells you where to put your disc image shows again on first launch instead of the app closing.
+- Diving players stretch their arm and turn their racket toward the ball exactly as far as in the original, and hold it through the whole dive; in doubles the computer partner reacts to that racket as the original does.
+- Players reach for the ball with their arm and step into it when they smash, as in the original.
+- Computer players take as long as in the original to recover from a dive or a missed swing, and doubles players sometimes hold their spot a little longer after a shot instead of always rushing back.
+- A computer server's partner holds their spot until the serve is hit, and in doubles computer players read each serve after the first point the way the original does.
+- Ground strokes hit above the height of a rising ball now go where they would in the original instead of being pulled toward the middle.
+- A player caught deep behind the baseline when a point ends steps forward to where the original puts them for the celebration.
