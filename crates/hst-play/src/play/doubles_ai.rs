@@ -71,6 +71,9 @@ struct Mine {
     /// A creature struck the ball or a new path began (`msg::STRIKE`, `msg::NEW_PATH`) since its last step: back to the start of
     /// its state.
     struck: bool,
+    /// B720: ticks its stroke flag stays set for after its dive (`DIVE_HOLD`, counted down in its step).
+    #[serde(default)]
+    dive_left: u8,
     /// The point set-up ran (singles: the centre spot; doubles: the formation, `set_up_doubles`; cleared by the serve
     /// message).
     #[serde(default)]
@@ -119,7 +122,7 @@ fn frame(g: &mut Game, i: usize, phase: u8, mark: bool) -> (Body, World) {
         control: CPU,
         formation: p.formation,
         swing: p.contact.map_or(-1, |c| c.frames as i32),
-        stroke: (busy && !recovered(&p)) as u8,
+        stroke: (busy && !recovered(&p) || g.doubles_ai.me[i].dive_left > 0) as u8,
         lost: g.doubles_ai.me[i].lost,
         lost_log: std::mem::take(&mut g.doubles_ai.me[i].lost_log),
         reach: loco::ReachStats {
@@ -177,6 +180,10 @@ fn recovered(p: &Player) -> bool {
     p.contact.is_none() && p.pending.is_none() && p.whiff.is_none() && p.dive.is_none() && p.after.is_some_and(|a| a > p.recover)
 }
 
+/// B720: ticks the routines' stroke flag stays set after a dive's lock ends (`Dive::lock_frames`): the game holds it
+/// 5 ticks longer, so 71 after a 15-frame dive (slot 5's recordings: doubles and singles dives alike).
+const DIVE_HOLD: u8 = 5;
+
 /// One frame of computer player `i` in the receive or rally: false (nothing done) outside them and between ends.
 pub(super) fn step(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> bool {
     run(g, i, mind, true)
@@ -216,6 +223,8 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
             locomote(g, i, dir);
         }
     }
+    let left = &mut g.doubles_ai.me[i].dive_left;
+    *left = if g.players[i].dive.is_some() { DIVE_HOLD + 1 } else { left.saturating_sub(1) };
     let (mut b, mut w) = frame(g, i, phase, mark);
     let p = g.players[i];
     let busy = p.contact.is_some() || p.pending.is_some() || p.swing.is_some() || p.whiff.is_some() || p.dive.is_some();
