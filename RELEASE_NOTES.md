@@ -9,3 +9,5 @@
 - A diving player keeps their arm and racket stretched toward the ball through the whole dive instead of dropping them halfway, as in the original.
 - Players reach for the ball with their arm and step into it when they smash, as in the original.
 - In doubles, computer players read each serve after the first point the way the original does, so their returns and timing match the original from point to point.
+- Ground strokes hit above the height of a rising ball now go where they would in the original instead of being pulled toward the middle.
+- A player caught deep behind the baseline when a point ends now steps forward to where the original puts them for the celebration.

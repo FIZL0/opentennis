@@ -3030,7 +3030,8 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
             let branch = branch_code(c.swing.branch);
             let kind =
                 hst_sim::shot::stick_kind(branch, g.players[i].kind, [stick.x, stick.y], end);
-            let target = aim_target(g, i, stick, branch, kind, c.offset, c.swing.body, c.swing.ball[1]);
+            // the contact height above the court (game space is y-down)
+            let target = aim_target(g, i, stick, branch, kind, c.offset, c.swing.body, -c.swing.ball[1]);
             // a smash has its own class and kinds: △ (the lob button) smashes kind 1, the others kind 0
             let (class, kind) = if branch == branch::SMASH {
                 (class::SMASH, (kind == kind::LOB) as i32)
@@ -4188,6 +4189,17 @@ fn deciding(g: &mut Game, view: &BallState) -> Option<Option<i32>> {
     }
 }
 
+/// How deep behind the net a player reacts to a point: 4 m behind the baseline. The reaction pulls a player standing
+/// deeper (the run back after a lob can take them to the mover's 17.885 m) forward to it, keeping their x (M183a1,
+/// from slot 5's recording).
+const REACTION_DEPTH: f32 = 15.885;
+
+fn reaction_depth(pos: &mut [f32; 3]) {
+    if pos[2].abs() > REACTION_DEPTH {
+        pos[2] = REACTION_DEPTH.copysign(pos[2]);
+    }
+}
+
 /// Every player's reaction to the point (`hst_sim::motion::reaction`): winners `gu`, losers `di` (`_set` when the
 /// point ends a game), in doubles sometimes a team reaction instead, each player's own pick.
 /// The team pick draws from the shared generator.
@@ -4221,6 +4233,7 @@ fn react(g: &mut Game, event: Event) {
         g.lines.push(emote::Line::Cut(i));
         let p = &mut g.players[i];
         p.vel = Vec2::ZERO;
+        reaction_depth(&mut p.pos);
         (p.whiff, p.pending, p.approach) = (None, None, None);
         // the reaction ends an emote (B278)
         p.emote = 0;

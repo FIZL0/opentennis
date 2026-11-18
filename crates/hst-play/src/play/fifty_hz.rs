@@ -205,6 +205,13 @@ mod tests {
     /// each of the first `keep` ticks. `toss_ai` AI draws stand in at
     /// every toss for the ones play doesn't make yet (the game's AI generator draws 60 there; M183a1's journal), so
     /// what parts after them shows.
+    type ShotProbe = (hst_sim::ball::Ball, u8, i32, f32, f32, [f32; 3], [f32; 3], [[f32; 2]; 4]);
+    thread_local! {
+        /// M183a1 probe: after each played tick, the live ball (position, velocity, spin) and the shot's class,
+        /// kind, curve, bend and side (`HST_M183A1_SHOT`).
+        static SHOTS: std::cell::RefCell<Vec<ShotProbe>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
     fn played_ticks_rng(args: Args, seed: hst_sim::rng::Seed, n: usize, keep: usize, toss_ai: usize) -> (Vec<Tick>, Vec<hst_sim::rng::Rngs>) {
         crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
         let mut app = App::new();
@@ -250,6 +257,10 @@ mod tests {
                 (0..toss_ai).for_each(|_| _ = g.rng.ai.next());
             }
             out.push(tick(app.world().resource::<Game>()));
+            SHOTS.with_borrow_mut(|v| {
+                let g = app.world().resource::<Game>();
+                v.push((g.flight.ball, g.shot.class, g.shot.kind, g.shot.curve, g.shot.bend, g.shot.side, g.aim.target, std::array::from_fn(|i| g.players.get(i).map_or([0.0; 2], |p| p.aim_from))));
+            });
             if k < keep {
                 rngs.push(app.world().resource::<Game>().rng.clone());
             }
@@ -378,6 +389,35 @@ mod tests {
         }
     }
 
+    /// Probe (`HST_M183A1_SHOT=from,to`): for each recorded tick, the recorded live ball's velocity, spin, shot class,
+    /// kind, curve, bend and side (the frame whose ball sits where the tick's does) beside play's (level).
+    #[allow(clippy::needless_range_loop)]
+    fn shot_probe(name: &str, file: &str, want: &[Tick]) {
+        let Some(v) = std::env::var("HST_M183A1_SHOT").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 2) else { return };
+        let Ok(data) = hst_data::fixture::read(file) else { return };
+        let frames = hst_sim::replay::frames_live(&data);
+        let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+        let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
+        let shots = SHOTS.with_borrow(|s| s.clone());
+        for k in v[0]..v[1].min(want.len()) {
+            if let Some(fr) = frames.iter().find(|fr| v3(fr.live_ball(), 0xe0) == want[k].2) {
+                let b = fr.live_ball();
+                eprintln!("{name} shot {k} want: vel {:?} spin {} class {} kind {} curve {} bend {} side {:?}", v3(b, 0x130), f(b, 0x1a4), b[0x58], i32::from_le_bytes(b[0x5c..0x60].try_into().unwrap()), f(b, 0x254), f(b, 0x250), v3(b, 0x90));
+                // each player's aim result and swing-start point (+0x3e90, +0x3ef0: M187)
+                let aims: Vec<_> = (0..4).map(|i| ([fr.player_f32(i, 0x3e90), fr.player_f32(i, 0x3e98)], [fr.player_f32(i, 0x3ef0), fr.player_f32(i, 0x3ef8)])).collect();
+                eprintln!("{name} shot {k} want aims {aims:?}");
+                let pi = |i: usize, o: usize| fr.player_f32(i, o).to_bits() as i32;
+                let hit: Vec<_> = (0..4).map(|i| (fr.player_f32(i, 0x3ec0).to_bits().to_le_bytes()[1], pi(i, 0x3ee4), pi(i, 0x3fa0), pi(i, 0x3f50) & 4 != 0, fr.player_f32(i, 0x3f44))).collect();
+                eprintln!("{name} shot {k} want hitters (branch, kind flags, offset, body, height) {hit:?}");
+            }
+            // shots[j] is played tick j + 1
+            if let Some((ball, class, kind, curve, bend, side, aim, from)) = k.checked_sub(1).and_then(|j| shots.get(j)) {
+                eprintln!("{name} shot {k} got:  vel {:?} spin {} class {class} kind {kind} curve {curve} bend {bend} side {side:?}", ball.vel, ball.spin);
+                eprintln!("{name} shot {k} got aim {:?} from {from:?}", [aim[0], aim[2]]);
+            }
+        }
+    }
+
     /// The European bot match (doubles, characters 0/1/1/0, court 6, 1 set of 4 games; M177's recording) in play.
     fn european(n: Option<usize>, toss_ai: usize) -> Option<(Vec<Tick>, Vec<Tick>)> {
         european_rngs(n, toss_ai, 0).map(|(w, g, _)| (w, g))
@@ -489,7 +529,9 @@ mod tests {
     #[test]
     fn the_european_generators_play_as_recorded() {
         use hst_sim::rng::Mt;
-        let Ok(d) = std::fs::read(hst_data::fixture::path("fixtures/m169/eu-rng.bin")) else {
+        // the longer recording (7000 ticks from the same start, the first 1300 the same as eu-rng.bin) when it's there
+        let long = std::fs::read(hst_data::fixture::path("fixtures/m183a1/eu-rng-long.bin"));
+        let Ok(d) = long.or_else(|_| std::fs::read(hst_data::fixture::path("fixtures/m169/eu-rng.bin"))) else {
             eprintln!("skipped: no fixtures/m169/eu-rng.bin");
             return;
         };
@@ -618,8 +660,17 @@ mod tests {
         // (but at the point-over phase's last tick, where play, a tick behind, has already placed them for the set-up)
         // B727: and on through point 2's serve and rally (the toss heard as a hit by nobody, the serve history kept)
         assert_eq!((219..2354).filter(|&k| k != 1084).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before tick 2354");
+        // M183a1: the contact height read up, and the reaction pulling a deep player to 4 m behind the baseline: the
+        // phases through point 4's point-over, and every player on to point 5's rally (but each point-over's last tick)
+        assert!(compare("us", &want, &got) >= 12, "the phases through point 4's point-over");
+        assert_eq!((219..3596).filter(|&k| ![1084, 2354, 3190].contains(&k)).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before tick 3596");
+        if std::env::var_os("HST_M183A1_OFF").is_some() {
+            let off: Vec<usize> = (219..want.len().min(got.len() - 1)).filter(|&k| ground(&want[k]) != ground(&got[k + 1])).take(40).collect();
+            eprintln!("us players off at {off:?}");
+        }
         first_point_part("us", &want, &got, 219);
         part_from("us", &want, &got);
+        shot_probe("us", "fixtures/match_s05.bin", &want);
         // B720: after the server's partner's dive every player stands where the recording has them and the ball flies
         // as recorded through the point (B722: player 1's smash at 856 steps it sideways, the smash's contact IK)
         let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
