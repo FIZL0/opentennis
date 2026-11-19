@@ -486,6 +486,8 @@ impl Menu {
         // concept: whoever picks Online is 1P there (the keyboard too, over a pad's 1P)
         (self.seats, self.p1) = ([Some(dev), None, None, None], Some(dev));
         self.net.status.clear();
+        // M199: no saved match waits for a lobby (Continue's Open lobby sets it after this)
+        self.net.host_save = false;
         out.push(Effect::Online(super::online::Fx::Load));
         self.go(Screen::Online, out);
     }

@@ -5,3 +5,4 @@
 - The main menu has a Continue card that picks up a saved match where you left it, showing the score and who's serving; with several matches saved, a Continue screen lists them to resume or delete.
 - The browser version can save matches too: Save and Quit and Continue keep up to five matches in the browser's storage between visits.
 - Online: if a player drops out of a match and everyone goes back to the lobby, the host can resume the unfinished match from the start of the point once the same players are back in their seats, or pick New match instead.
+- Online: a match the host saved with Save and Quit (or that ended in a drop) can be hosted again from Continue; the new lobby offers to resume it with the same court and rules, keeps each player's seat until they join again, and starts once everyone is back.

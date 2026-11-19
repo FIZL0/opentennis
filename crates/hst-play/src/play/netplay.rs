@@ -725,6 +725,20 @@ pub use super::recover::offer;
 /// M197: the match the host saved going back to the lobby after a drop, and its line-up (the lobby offers it).
 pub static SAVED: Mutex<Option<(std::sync::Arc<super::save_game::MatchSave>, Room)>> = Mutex::new(None);
 
+/// M199: host the online save `save` again (Continue's Open lobby): its lobby (seats, court, rules, the players' ids)
+/// back with it, for the lobby to offer (`saved_offer`) and a resumed match to start from, as after a drop. False for
+/// a save that kept no lobby.
+pub fn host_again(save: super::save_game::MatchSave) -> bool {
+    let Some(room) = save.head.setup.lobby.as_ref().map(super::save_game::Lobby::room) else { return false };
+    *SAVED.lock().unwrap() = Some((std::sync::Arc::new(save), room));
+    true
+}
+
+/// M199: the lobby's offer of the match the host keeps (`SAVED`).
+pub fn saved_offer() -> Option<crate::net::Resume> {
+    SAVED.lock().unwrap().as_ref().map(|(save, room)| offer(save, room))
+}
+
 /// M197: the save a resumed match starts from (the host's lobby sets it at Start).
 pub static RESUME: Mutex<Option<std::sync::Arc<super::save_game::MatchSave>>> = Mutex::new(None);
 
@@ -2297,6 +2311,12 @@ mod tests {
             assert!(np.recover.lobby.is_some(), "back to the lobby: {:?}", np.end);
             let (save, saved) = np.recover.saved.clone().expect("the match saved going back to the lobby");
             assert_eq!(saved.seats, room(0).seats, "the line-up as the match had it");
+            // M199: the save on disk keeps its lobby: the rest goes from the save as read back, as Continue's Open
+            // lobby hosts it again
+            let disk = super::super::super::save_game::MatchSave::from_bytes(&save.to_bytes()).unwrap();
+            let saved = disk.head.setup.lobby.as_ref().map(super::super::super::save_game::Lobby::room).expect("its lobby kept");
+            assert_eq!((&saved.seats, &saved.names, disk.state == save.state), (&room(0).seats, &np.room.names, true));
+            let save = std::sync::Arc::new(disk);
             // the save's state, as a fresh match takes it
             let mut room = saved.clone();
             room.rejoined("g", "g2", "g");

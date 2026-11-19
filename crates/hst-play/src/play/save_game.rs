@@ -122,6 +122,31 @@ pub struct Setup {
     pub hz: u32,
     /// The flags the match was started with (the menus' match start), when the caller gave them.
     pub flags: Vec<String>,
+    /// M199: an online match's lobby as it played (the host's lobby offers the save again from it).
+    pub lobby: Option<Lobby>,
+}
+
+/// M199: an online match's lobby as it played: its seats (who sat where, with which pick), court, rules and names, and
+/// each guest's player id by peer (`net::player`), which a lobby kept only in memory: a player coming back on a new
+/// connection is known by it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct Lobby {
+    pub room: crate::net::Room,
+    pub ids: std::collections::BTreeMap<String, String>,
+}
+
+impl Lobby {
+    /// The lobby `room` as kept: its line-up and settings, without what only mattered live (an offer, pings, places).
+    pub fn of(room: &crate::net::Room) -> Self {
+        let room = crate::net::Room { resume: None, live: Default::default(), ping: Default::default(), ..room.clone() };
+        Lobby { ids: room.ids.clone(), room }
+    }
+
+    /// The lobby again, its players' ids back in it.
+    pub fn room(&self) -> crate::net::Room {
+        crate::net::Room { ids: self.ids.clone(), ..self.room.clone() }
+    }
 }
 
 impl Setup {
@@ -155,6 +180,7 @@ impl Setup {
             rules: crate::rules_choice::chosen(),
             hz: w.get_resource::<crate::match_speed::MatchHz>().map_or(60, |h| h.0),
             flags,
+            lobby: None,
         })
     }
 
@@ -355,7 +381,11 @@ fn split(b: &[u8]) -> Result<(&[u8], &[u8]), String> {
 /// The match in `w` as a save: its setup and the state at the current point's start. `None` with no match, before
 /// its first point is set up, or once it's over.
 pub fn capture(w: &mut World, mode: Mode, flags: Vec<String>) -> Option<MatchSave> {
-    let setup = Setup::of(w, flags)?;
+    let mut setup = Setup::of(w, flags)?;
+    // M199: an online match keeps its lobby, for the host's lobby to offer it again
+    if mode == Mode::Online {
+        setup.lobby = w.get_resource::<super::netplay::Netplay>().map(|np| Lobby::of(&np.room));
+    }
     if w.resource::<Game>().score.match_over {
         return None;
     }
@@ -586,6 +616,24 @@ mod tests {
         saves.write(&MatchSave { head: online, state: vec![] }).unwrap();
         assert_eq!(saves.list().iter().filter(|e| e.head.setup.chars == [6, 1]).count(), 2);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// M199: an online save's lobby comes back from the file with its players' ids (a lobby never sends them).
+    #[test]
+    fn an_online_save_keeps_its_lobby() {
+        let mut room = crate::net::Room { doubles: true, court: 4, names: [("host".into(), "Ann".into()), ("g".into(), "Gil".into())].into(), ..Default::default() };
+        room.ids.insert("g".into(), "id-g".into());
+        room.ping.insert("g".into(), 40);
+        let mut h = head(vec![6, 1, 2, 3], 1);
+        h.mode = Mode::Online;
+        h.setup.lobby = Some(Lobby::of(&room));
+        let back = MatchSave::from_bytes(&MatchSave { head: h, state: vec![7] }.to_bytes()).unwrap();
+        let r = back.head.setup.lobby.unwrap().room();
+        assert_eq!((r.court, r.doubles, r.names, r.ids.get("g").map(String::as_str)), (4, true, room.names, Some("id-g")));
+        assert!(r.ping.is_empty() && r.resume.is_none());
+        // a save from before M199 reads with none
+        let old = serde_json::to_string(&head(vec![6, 1], 1)).unwrap().replace(",\"lobby\":null", "");
+        assert!(serde_json::from_str::<Head>(&old).unwrap().setup.lobby.is_none());
     }
 
     /// M198: the browser's saves as text come back byte for byte, every tail length.

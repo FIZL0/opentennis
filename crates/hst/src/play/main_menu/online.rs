@@ -119,6 +119,9 @@ pub struct View {
     pub early: bool,
     /// M126: joining to rejoin the match a refresh or crash left (`linked`): the seat this player had there.
     pub rejoin: Option<u8>,
+    /// M199: a saved online match chosen to host again (Continue's Open lobby, `netplay::host_again`): the next lobby
+    /// hosted skips the select and offers it once it's open (`poll`).
+    pub host_save: bool,
 }
 
 /// M120: another machine's seat on the select's compact card: its player's name and ping (none for the computer's),
@@ -1156,6 +1159,13 @@ impl Menu {
             Go::Find | Go::Code => Cmd::Join(self.net.paste.clone(), self.picks()),
         };
         out.push(Effect::Online(Fx::Net(cmd)));
+        // M199: hosting a saved match again: its picks are the save's, so straight to the lobby (it offers the save
+        // once it's open, `poll`)
+        self.net.host_save &= go == Go::Host;
+        if self.net.host_save {
+            self.go(Screen::Lobby, out);
+            out.push(Effect::Online(Fx::Net(Cmd::Picks(self.picks()))));
+        }
     }
 
     /// Every one of this machine's players ready on the lobby's character select: their picks into the held seats.
@@ -2827,6 +2837,13 @@ pub(super) fn poll(
                 (menu.screen, menu.sel) = (Screen::Lobby, 0);
                 net.send(Cmd::Picks(menu.picks()));
             }
+        }
+        // M199: the host's lobby open: the saved match chosen to host again on offer (Resume / New match)
+        if menu.net.host_save && menu.net.hosting && menu.net.room.is_some() && !menu.net.started {
+            menu.net.host_save = false;
+            let Some(r) = crate::play::netplay::saved_offer() else { return super::over::back(&mut menu, held) };
+            menu.sel = menu.items().iter().position(|it| *it == Item::Button("Match")).unwrap_or(menu.sel);
+            net.send(Cmd::Resume(Some(r)));
         }
         if let Some(p) = menu.vanilla_repick() {
             net.send(Cmd::Picks(p));

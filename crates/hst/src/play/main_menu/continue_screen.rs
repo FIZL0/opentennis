@@ -38,7 +38,9 @@ impl Card {
         let refusal = match head.check() {
             Err(r) => Some(r.to_string()),
             // the menus' match start gives the flags; a save without them can't be set up again
-            Ok(()) if head.setup.flags.is_empty() => Some("Saved without its setup".into()),
+            // M199: an online one is hosted again from its lobby
+            Ok(()) if head.mode == Mode::Online && head.setup.lobby.is_none() => Some("Saved without its lobby".into()),
+            Ok(()) if head.mode == Mode::Local && head.setup.flags.is_empty() => Some("Saved without its setup".into()),
             Ok(()) => None,
         };
         Card { path, head, refusal }
@@ -94,9 +96,17 @@ impl Menu {
             return;
         }
         if c.online() {
+            // M199: its lobby goes with it, the next lobby hosted offers it (Resume / New match)
+            let read = Saves::user().read(&c.path).inspect_err(|e| bevy::log::warn!("{}: {e}", c.path.display()));
+            if !read.is_ok_and(crate::play::netplay::host_again) {
+                self.saved.list[i].refusal = Some("Can't read it".into());
+                out.push(Effect::Sound(1));
+                return;
+            }
             let doubles = !c.head.setup.singles;
             self.saved.open = false;
             self.go_online(dev, out);
+            self.net.host_save = true;
             (self.doubles, self.sel) = (doubles, 1);
             return;
         }
@@ -598,6 +608,8 @@ pub(super) fn sample(m: &mut Menu, screen: &str) {
         let pads = if singles { "k,-" } else { "k,-,-,-" };
         let setup = Setup { singles, outfits: vec![0; chars.len()], chars, humans: [true, false, false, false], court: 4, umpire: 2, sets: 2, games: 6, flags: vec!["--play".into(), "--pads".into(), pads.into()], rules: crate::rules_choice::chosen(), hz: crate::match_speed::MatchHz::now().0, ..Default::default() };
         let summary = Summary { games, points, server, set_games: sets, ..Default::default() };
+        // M199: an online save keeps its lobby
+        let setup = Setup { lobby: (mode == Mode::Online).then(Default::default), ..setup };
         Head { build: crate::handshake::build().into(), mode, saved: t.saturating_sub(ago), setup, summary }
     };
     let heads = [
@@ -689,12 +701,36 @@ pub(super) mod tests {
         fx.clear();
         m.continue_step(Dev::Keys, Press { ok: true, ..Default::default() }, &mut fx);
         assert_eq!((m.screen, m.saved.list[0].refusal.as_deref()), (Screen::Main, Some("Can't read it")));
-        // online: Host
+        // online, unreadable: it stays
         let mut m = with_saves(3);
         m.continue_chosen(Dev::Keys, &mut fx);
         m.sel = 2;
         m.continue_step(Dev::Keys, Press { ok: true, ..Default::default() }, &mut fx);
+        assert_eq!((m.screen, m.saved.list[2].refusal.as_deref()), (Screen::Main, Some("Can't read it")));
+        // M199: online with its lobby: Host, and the next lobby hosted offers it
+        let dir = std::env::temp_dir().join(format!("hst-continue-online-{}", std::process::id()));
+        let mut h = head(Mode::Online, 998);
+        let mut room = crate::net::Room { doubles: false, seats: vec![None, None], ..Default::default() };
+        room.ids.insert("g1".into(), "id-g".into());
+        h.setup.lobby = Some(crate::play::save_game::Lobby::of(&room));
+        let path = crate::play::save_game::Saves::new(&dir).write(&crate::play::save_game::MatchSave { head: h, state: vec![1, 2, 3] }).unwrap();
+        let mut m = with_saves(3);
+        m.saved.list[2].path = path;
+        m.continue_chosen(Dev::Keys, &mut fx);
+        m.sel = 2;
+        m.continue_step(Dev::Keys, Press { ok: true, ..Default::default() }, &mut fx);
         assert_eq!((m.screen, m.sel, m.saved.open), (Screen::Online, 1, false));
+        let offer = crate::play::netplay::saved_offer().expect("offered");
+        *crate::play::netplay::SAVED.lock().unwrap() = None;
+        assert_eq!((offer.score.as_str(), offer.on, offer.saved.ids.get("g1").map(String::as_str)), ("4-2", true, Some("id-g")));
+        // Host: straight to the lobby, the save's picks
+        assert!(m.net.host_save);
+        m.net.go = Some(super::super::online::Go::Host);
+        fx.clear();
+        m.online_open(&mut fx);
+        assert_eq!(m.screen, Screen::Lobby);
+        assert!(fx.iter().any(|e| matches!(e, Effect::Online(super::super::online::Fx::Net(crate::net::Cmd::Host(_))))));
+        let _ = std::fs::remove_dir_all(&dir);
         // one save: straight in (here unreadable, so it stays)
         let mut m = with_saves(1);
         m.continue_chosen(Dev::Keys, &mut fx);

@@ -933,7 +933,9 @@ fn save_match(w: &mut World) {
             let played = (s.head.summary.sets[0] + s.head.summary.sets[1]).clamp(0, sc.set_games[0].len() as i32) as usize;
             let past: Vec<[i32; 2]> = (0..played).map(|c| [sc.set_games[0][c], sc.set_games[1][c]]).collect();
             let score = score_line(&who.join(" & "), &past, &s.head.summary);
-            vec!["Match saved".into(), score, "Continue it from the main menu;".into(), "it picks up at the start of this point.".into()]
+            // M199: an online one is hosted again (its lobby offers it to the same players)
+            let how = if mode == Mode::Online { "Host it again from Continue;" } else { "Continue it from the main menu;" };
+            vec!["Match saved".into(), score, how.into(), "it picks up at the start of this point.".into()]
         }
         Err(e) => {
             warn!("pause: the match wasn't saved: {e}");
