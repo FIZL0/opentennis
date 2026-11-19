@@ -55,6 +55,8 @@ pub(super) enum Opt {
     KeepDownloads,
     /// M20: online chat shown.
     Chat,
+    /// B737: this machine's own online input delay (`netplay::choose_delay`): Auto or 1–4 ticks.
+    NetDelay,
     /// B273: the browser build's renderer.
     Renderer,
     /// B707: Hardware or Software drawing (`render_mode`), every build.
@@ -117,7 +119,7 @@ const GRAPHICS: &[Opt] = &[Preset, Scale, Shadows, Msaa, Fps, Vsync, Original, S
 /// B411: Graphics → Advanced, the speed-up switches for a slow device.
 const ADVANCED: &[Opt] = &[Mesh, FewerShadows, Cull, CourtLife];
 const SOUND: &[Opt] = &[Volume(0), Volume(1), Volume(2), Volume(3), Volume(4), MenuMusic, MatchMusic, EmoteVoices, VoiceLanguage];
-const MODS: &[Opt] = if cfg!(target_arch = "wasm32") { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat] } else { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat, UpdateCheck] };
+const MODS: &[Opt] = if cfg!(target_arch = "wasm32") { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat, NetDelay] } else { &[Downloads, AtOnce, OnlineMods, KeepDownloads, Chat, NetDelay, UpdateCheck] };
 /// M167: Gameplay's rows: how a match plays (offline Rules, match rumble go before Vibration), then the on-screen
 /// pad's Vibration (B118, was the Mobile tab's), last since only a touch screen shows it (`gameplay`).
 /// M176: Match Speed after Rules, shown only where a match can run at 50 Hz (`gameplay`).
@@ -192,6 +194,7 @@ fn label(o: Opt) -> &'static str {
         OnlineMods => "Online Mod Downloads",
         KeepDownloads => "Keep Online Downloads",
         Chat => "Chat",
+        NetDelay => "Netplay Delay",
         Renderer => "Renderer",
         Rendering => "Rendering",
         Vibration => "Vibration",
@@ -250,6 +253,7 @@ fn about(o: Opt) -> &'static str {
         OnlineMods => "When another player online picks a mod you don't have: ask each time, always download it, or never (you'll see the character it's based on instead).",
         KeepDownloads => "After an online match, the mods you downloaded for it: ask whether to add them to your mods, always add them, or never.",
         Chat => "Show the online lobby's and match's text chat (T, or R2/L2 on a pad), or hide it.",
+        NetDelay => "How long your own presses wait before they count in an online match, so they reach the other players in time. Higher: the other players warp (jump when your game corrects a guess) less often, but your controls feel later. Lower: quicker controls, more warping on a slow connection. A tick is 1/60 s. Auto is 2 ticks. Each player sets their own.",
         Renderer => "Auto: WebGPU when the browser has it, else WebGL2; the one in use shows in brackets, with Hardware (drawn by the graphics card) or Software (drawn by the CPU, much slower: turn on the browser's hardware acceleration). A change asks first: the page reloads into it.",
         Rendering => rendering_about(),
         Vibration => vibration_about(),
@@ -421,6 +425,7 @@ fn choices(o: Opt) -> Vec<String> {
         Volume(_) => (0..=10).map(|v| v.to_string()).collect(),
         OnlineMods | KeepDownloads | UpdateCheck => ASK_VALUES.iter().map(|(_, n)| n.to_string()).collect(),
         AtOnce => (0..=super::max_downloads()).map(at_once_name).collect(),
+        NetDelay => (0..=crate::play::netplay::MOST_DELAY).map(net_delay_name).collect(),
         VoiceLanguage => crate::voices::available().into_iter().map(|l| crate::voices::LANGS[l as usize].name.to_string()).collect(),
         Rules => crate::rules_choice::available().into_iter().map(|r| crate::rules_choice::name(r).to_string()).collect(),
         MatchSpeed => crate::match_speed::available().into_iter().map(|hz| crate::match_speed::name(hz).to_string()).collect(),
@@ -450,9 +455,20 @@ fn hint(o: Opt, c: &str) -> &'static str {
         (Preset, "Phone") => "for phones and tablets",
         (Preset, AUTO) => "picks and tunes itself",
         (Preset, "Custom") => "your own mix",
+        (NetDelay, "1 tick") => "quickest controls, most warping",
+        (NetDelay, "4 ticks") => "fewest warps, latest controls",
         // P137: a phone's frame limits above 60
         (Fps, c) if crate::graphics::battery_note(FPS.into_iter().find(|&f| fps_name(f) == c).unwrap_or(60)).is_some() => "smoother, ~2x battery, warmer",
         _ => "",
+    }
+}
+
+/// B737: a Netplay Delay value's words (0 Auto, else ticks).
+pub(super) fn net_delay_name(n: usize) -> String {
+    match n {
+        0 => format!("Auto ({} ticks)", crate::play::netplay::AUTO_DELAY),
+        1 => "1 tick".into(),
+        n => format!("{n} ticks"),
     }
 }
 
@@ -541,6 +557,10 @@ impl Settings {
             AtOnce => self.downloads = (self.downloads as isize + d).rem_euclid(super::max_downloads() as isize + 1) as u8,
             KeepDownloads => self.keep_downloads = cycle(&ASK_VALUES.map(|(a, _)| a), self.keep_downloads, d),
             OnlineMods => self.online_mods = cycle(&ASK_VALUES.map(|(a, _)| a), self.online_mods, d),
+            NetDelay => {
+                self.net_delay = (self.net_delay as isize + d).rem_euclid(crate::play::netplay::MOST_DELAY as isize + 1) as u8;
+                crate::play::netplay::choose_delay(self.net_delay as usize);
+            }
             Chat => {
                 self.chat = !self.chat;
                 crate::chat::HIDDEN.store(!self.chat, std::sync::atomic::Ordering::Relaxed);
@@ -643,6 +663,7 @@ impl Settings {
             AtOnce => at_once_name(self.downloads as usize),
             OnlineMods => ASK_VALUES.iter().find(|(a, _)| *a == self.online_mods).unwrap().1.into(),
             Chat => on_off(self.chat),
+            NetDelay => net_delay_name(self.net_delay as usize),
             Renderer => RENDERERS[self.renderer as usize].1.into(),
             Rendering => crate::render_mode::MODES[self.software as usize].1.into(),
             Vibration => on_off(self.vibration),
@@ -2259,6 +2280,26 @@ mod tests {
         m.reset_ask = Some(0);
         assert_eq!(m.step(Dev::Keys, press(|k| &mut k.ok)), vec![Effect::Sound(2), Effect::ResetControls]);
         assert_eq!(m.reset_ask, None);
+    }
+
+    /// B737: Online & Mods' Netplay Delay: Auto (2 ticks) by default, steps through 1–4 and back, picks from its
+    /// dropdown, saves and loads, and sets this machine's rollback input delay.
+    #[test]
+    fn net_delay_row() {
+        use crate::play::netplay::{chosen_delay, MOST_DELAY};
+        assert!(MODS.contains(&NetDelay) && listed(NetDelay));
+        let mut s = Settings::default();
+        assert_eq!((s.net_delay, s.value(NetDelay).as_str()), (0, "Auto (2 ticks)"));
+        assert_eq!(choices(NetDelay), ["Auto (2 ticks)", "1 tick", "2 ticks", "3 ticks", "4 ticks"]);
+        s.step(NetDelay, 1);
+        assert_eq!((s.value(NetDelay).as_str(), chosen_delay()), ("1 tick", 1));
+        s.pick(NetDelay, MOST_DELAY);
+        assert_eq!((s.net_delay, chosen_delay()), (4, 4));
+        assert_eq!(Settings::parse(&s.text()).net_delay, 4);
+        s.step(NetDelay, 1);
+        assert_eq!((s.net_delay, chosen_delay()), (0, 0));
+        assert_eq!((Settings::parse("netplay_delay = 9\n").net_delay, Settings::parse("netplay_delay = 3\n").net_delay), (0, 3));
+        crate::play::netplay::choose_delay(0);
     }
 
     /// An open dropdown on a row that's never picked (Base Disc: no `editing`) keeps ↓ ↓ in the list, off the rows.

@@ -313,6 +313,8 @@ pub struct Settings {
     menu_size: u8,
     /// Downloads at Once: 0 Auto ([`Settings::downloads_at_once`]).
     downloads: u8,
+    /// B737: Settings → Online & Mods → Netplay Delay: 0 Auto, else this machine's input delay in ticks (1..=4).
+    net_delay: u8,
     /// A `legend::LAYOUTS` index, 0 Auto.
     button_icons: u8,
     keep_downloads: Ask,
@@ -385,6 +387,7 @@ impl Default for Settings {
             umpire: UMPIRES as u8,
             menu_size: 0,
             downloads: 0,
+            net_delay: 0,
             button_icons: 0,
             keep_downloads: Ask::Each,
             updates_always: false,
@@ -481,13 +484,15 @@ impl Settings {
         crate::rules_choice::choose(s.rules);
         s.match_speed = crate::match_speed::parse_setting(text);
         crate::match_speed::choose(s.match_speed);
+        s.net_delay = net_delay_setting(text);
+        crate::play::netplay::choose_delay(s.net_delay as usize);
         s
     }
 
     fn text(&self) -> String {
         let mut s = *self;
         let on: String = s.switches().iter().map(|(n, on)| format!("{n} = {}\n", if **on { "on" } else { "off" })).collect();
-        format!("aspect = {}\n", super::widescreen::ASPECTS[self.aspect as usize]) + &on + &format!("online_mods = {}\n", self.online_mods.word()) + &format!("keep_downloads = {}\n", self.keep_downloads.word()) + &self.graphics.text() + &self.volumes.text() + &self.renderer_line() + &crate::render_mode::line(self.software) + &format!("umpire = {}\n", self.umpire) + &format!("menu_size = {}\n", if self.menu_size == 0 { "auto".into() } else { format!("{}", self.menu_size as u32 * 10) }) + &format!("safe_area = {}\n", safe_area_name(self.safe_area).to_lowercase()) + &format!("downloads_at_once = {}\n", if self.downloads == 0 { "auto".into() } else { self.downloads.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.button_icons as usize].1) + &crate::mods_textures::settings_text() + &crate::update::settings_line(self.update_check, self.updates_always) + &crate::voices::setting_line(self.voice_language) + &crate::rules_choice::setting_line(self.rules) + &crate::match_speed::setting_line(self.match_speed)
+        format!("aspect = {}\n", super::widescreen::ASPECTS[self.aspect as usize]) + &on + &format!("online_mods = {}\n", self.online_mods.word()) + &format!("keep_downloads = {}\n", self.keep_downloads.word()) + &self.graphics.text() + &self.volumes.text() + &self.renderer_line() + &crate::render_mode::line(self.software) + &format!("umpire = {}\n", self.umpire) + &format!("menu_size = {}\n", if self.menu_size == 0 { "auto".into() } else { format!("{}", self.menu_size as u32 * 10) }) + &format!("safe_area = {}\n", safe_area_name(self.safe_area).to_lowercase()) + &format!("downloads_at_once = {}\n", if self.downloads == 0 { "auto".into() } else { self.downloads.to_string() }) + &format!("button_icons = {}\n", legend::LAYOUTS[self.button_icons as usize].1) + &crate::mods_textures::settings_text() + &crate::update::settings_line(self.update_check, self.updates_always) + &crate::voices::setting_line(self.voice_language) + &crate::rules_choice::setting_line(self.rules) + &crate::match_speed::setting_line(self.match_speed) + &net_delay_line(self.net_delay)
     }
 
     /// B339: how many store installs run at once: the setting, or on Auto 3 on desktop, 2 in a browser, 1 on a
@@ -544,6 +549,17 @@ impl Settings {
         let on = [(!self.upscaled_textures, "--no-upscale"), (self.music, "--music")].into_iter().filter(|(on, _)| *on).map(|(_, f)| f.to_string());
         on.chain(self.graphics.flags()).collect()
     }
+}
+
+/// B737: the settings file's Netplay Delay (`netplay_delay = auto | 1..4`; Auto for anything else).
+fn net_delay_setting(text: &str) -> u8 {
+    let v = text.lines().filter_map(|l| l.split_once('=')).find(|(k, _)| k.trim() == "netplay_delay").map(|(_, v)| v.trim());
+    v.and_then(|v| v.parse::<u8>().ok()).filter(|&n| (1..=crate::play::netplay::MOST_DELAY as u8).contains(&n)).unwrap_or(0)
+}
+
+/// B737: Netplay Delay's line in the settings file.
+fn net_delay_line(n: u8) -> String {
+    format!("netplay_delay = {}\n", if n == 0 { "auto".into() } else { n.to_string() })
 }
 
 // ---------------------------------------------------------------- state

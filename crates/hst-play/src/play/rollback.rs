@@ -15,19 +15,42 @@ use super::{Pads, snapshot};
 use crate::net::Room;
 use bevy::prelude::*;
 use ggrs::{Config, DesyncDetection, GgrsError, GgrsEvent, GgrsRequest, Message, NonBlockingSocket, P2PSession, PlayerType, SessionBuilder, SessionState};
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 
-/// The local input delay, ticks: the least and the default (a room with no measured round trip).
-pub const DELAY: usize = 2;
-/// B731: the most local input delay, ticks. 2 (33 ms at 60), down from B731's 4: at 4 a serve's timing felt late
+/// B731: the input delay on Auto (B737), ticks. 2 (33 ms at 60), down from B731's 4: at 4 a serve's timing felt late
 /// (each press lands 67 ms after it), and a longer round trip is guessed and rolled back instead.
 pub const MAX_DELAY: usize = 2;
 
-/// B731: the input delay every peer of `room` runs rollback with: the host's measured `Room::delay` (from the slowest
-/// guest's round trip, the same on every machine since it comes in Start), kept to [`DELAY`]..=[`MAX_DELAY`], so at
-/// a long round trip fewer of the others' pads are guesses that warp them when wrong.
-pub fn input_delay(room: &Room) -> usize {
-    (room.delay as usize).clamp(DELAY, MAX_DELAY)
+/// B737: Settings → Online → Netplay Delay, this machine's own choice: 0 Auto ([`MAX_DELAY`]), else 1..=[`MOST`]
+/// ticks. Each peer runs its own (ggrs needs no match between peers: a peer's pads simply arrive that much earlier).
+static CHOSEN: AtomicUsize = AtomicUsize::new(0);
+/// B737: the highest Netplay Delay the setting offers, ticks.
+pub const MOST: usize = 4;
+
+/// B737: Netplay Delay picks `ticks` (0 Auto; anything over [`MOST`] is Auto too).
+pub fn choose_delay(ticks: usize) {
+    CHOSEN.store(if ticks <= MOST { ticks } else { 0 }, Relaxed);
+}
+
+/// B737: the Netplay Delay setting as chosen (0 Auto).
+pub fn chosen_delay() -> usize {
+    CHOSEN.load(Relaxed)
+}
+
+/// The input delay this machine runs rollback with: its Netplay Delay, or [`MAX_DELAY`] on Auto. A higher one means
+/// fewer of the others' pads are guesses that warp them when wrong, but this machine's own presses land later.
+/// `room` is unused since B737 (each peer picks its own; lockstep still uses the host's `Room::delay`).
+pub fn input_delay(_room: &Room) -> usize {
+    delay_of(chosen_delay())
+}
+
+/// B737: the input delay, ticks, of Netplay Delay `choice` (0 Auto: [`MAX_DELAY`]).
+pub fn delay_of(choice: usize) -> usize {
+    match choice {
+        0 => MAX_DELAY,
+        n => n.min(MOST),
+    }
 }
 /// How many ticks a machine may run on guessed pads before it waits (ggrs' prediction window). B197: 80 (1.3 s), so
 /// the others play on through a peer's 1 s hitch instead of stalling (ggrs' input queue holds 128). A re-run of the
@@ -187,8 +210,12 @@ impl Trace {
 impl Rollback {
     /// `room`'s session for peer `me`: a ggrs player per taken seat, in seat order.
     pub fn new(room: &Room, me: &str, step: fn(&mut World)) -> Result<Self, GgrsError> {
+        Self::with_delay(room, me, step, input_delay(room))
+    }
+
+    /// B737: [`Rollback::new`] with this machine's input delay `delay` ticks (each peer its own).
+    pub fn with_delay(room: &Room, me: &str, step: fn(&mut World), delay: usize) -> Result<Self, GgrsError> {
         let seats: Vec<usize> = (0..room.seats.len()).filter(|&s| room.seats[s].as_ref().is_some_and(crate::net::Seat::human)).collect();
-        let delay = input_delay(room);
         let mut b = SessionBuilder::<Cfg>::new()
             .with_num_players(seats.len())?
             .with_input_delay(delay)

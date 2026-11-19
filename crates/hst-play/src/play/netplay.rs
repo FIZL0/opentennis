@@ -727,6 +727,9 @@ pub fn mode(game: crate::mode::Mode, net: Net, room: Room, me: String) -> crate:
 /// M197: the lobby's offer of a saved match (`recover::offer`).
 pub use super::recover::offer;
 
+/// B737: Settings → Online → Netplay Delay (this machine's own rollback input delay; 0 Auto).
+pub use super::rollback::{MAX_DELAY as AUTO_DELAY, MOST as MOST_DELAY, choose_delay, chosen_delay};
+
 /// M197: the match the host saved going back to the lobby after a drop, and its line-up (the lobby offers it).
 pub static SAVED: Mutex<Option<(std::sync::Arc<super::save_game::MatchSave>, Room)>> = Mutex::new(None);
 
@@ -1479,12 +1482,20 @@ mod tests {
         }
 
         /// B731: `play_rollback_with` on `room` (its delay is the sessions' input delay).
-        fn play_rollback_in(room: Room, lag: u32, limit: u32, bad: bool, hitch: std::ops::Range<u32>, mut each: impl FnMut(u32, &mut [App; 2])) -> [App; 2] {
+        fn play_rollback_in(room: Room, lag: u32, limit: u32, bad: bool, hitch: std::ops::Range<u32>, each: impl FnMut(u32, &mut [App; 2])) -> [App; 2] {
+            play_rollback_at(room, None, lag, limit, bad, hitch, each)
+        }
+
+        /// B737: `play_rollback_in` with the host's and the guest's own input delays (`None`: the setting's).
+        fn play_rollback_at(room: Room, delays: Option<[usize; 2]>, lag: u32, limit: u32, bad: bool, hitch: std::ops::Range<u32>, mut each: impl FnMut(u32, &mut [App; 2])) -> [App; 2] {
             ggrs::clock::drive(true);
+            let mut i = 0;
             let mut apps = ["host", "g"].map(|me| {
                 let mut a = app(&room, me);
                 let f = if bad && me == "g" { nudged } else { step };
-                a.insert_resource(Rollback::new(&room, me, f as fn(&mut _)).unwrap());
+                let delay = delays.map_or(rollback::input_delay(&room), |d| d[i]);
+                i += 1;
+                a.insert_resource(Rollback::with_delay(&room, me, f as fn(&mut _), delay).unwrap());
                 a
             });
             let mut wire: Vec<(usize, u32, String, Vec<u8>)> = Vec::new();
@@ -1540,8 +1551,8 @@ mod tests {
                 return;
             }
             // a room with no measured round trip: the default delay
-            assert_eq!(rollback::input_delay(&room(0)), rollback::DELAY);
-            const { assert!(rollback::DELAY <= 2) };
+            assert_eq!(rollback::input_delay(&room(0)), rollback::MAX_DELAY);
+            const { assert!(rollback::MAX_DELAY <= 2) };
             let t0 = std::time::Instant::now();
             REPLAYS.set(!to_the_end);
             let apps = play_rollback(5, limit, false);
@@ -1564,24 +1575,25 @@ mod tests {
             eprintln!("in sync over {n} ticks, {reruns:?} ticks re-run, {replays} instant replays, {:.0?}", t0.elapsed());
         }
 
-        /// B731: a room whose host measured a long round trip (200 ms: 7 ticks) runs rollback with the capped input
-        /// delay ([`rollback::MAX_DELAY`]) on both machines, and over a link that slow (6 ticks each way) both run the
-        /// same pads and ggrs' checksums agree.
+        /// B737: Netplay Delay is each machine's own: Auto is [`rollback::MAX_DELAY`] whatever the host measured,
+        /// 1..=4 as picked. Peers on different delays (the host 1 tick, the guest 4) over a slow link (200 ms: 6
+        /// ticks each way) run the same pads and ggrs' checksums agree.
         #[test]
-        fn rollback_delay_follows_room() {
+        fn rollback_peers_with_different_delays_stay_in_sync() {
             let room = room(crate::net::delay_for(std::time::Duration::from_millis(200)));
-            assert_eq!(rollback::input_delay(&room), rollback::MAX_DELAY);
+            assert_eq!((rollback::delay_of(0), rollback::delay_of(1), rollback::delay_of(4), rollback::delay_of(9)), (rollback::MAX_DELAY, 1, 4, 4));
             if !hst_data::fixture::has_iso() {
                 return;
             }
             REPLAYS.set(true);
-            let apps = play_rollback_in(room.clone(), 6, 600, false, 0..0, |_, _| {});
-            for a in &apps {
+            let apps = play_rollback_at(room, Some([1, 4]), 6, 600, false, 0..0, |_, _| {});
+            for (a, d) in apps.iter().zip([1, 4]) {
                 assert_eq!(a.world().resource::<Netplay>().end, None);
-                assert_eq!(a.world().resource::<Rollback>().delay, rollback::input_delay(&room));
+                assert_eq!(a.world().resource::<Rollback>().delay, d);
             }
             let [a, b] = apps.each_ref().map(|a| a.world().resource::<Netplay>());
             let n = a.lock.log.len().min(b.lock.log.len()) - rollback::WINDOW;
+            assert!(n > 300, "only {n} confirmed ticks");
             assert_eq!(a.lock.log[..n], b.lock.log[..n]);
             let checked = a.state.0.min(b.state.0);
             assert!(checked >= (n as u32).saturating_sub(120), "the checksums stopped at tick {checked} of {n}");
@@ -1637,7 +1649,7 @@ mod tests {
                 }
                 if hidden {
                     std::thread::sleep(std::time::Duration::from_millis(16));
-                    assert!(apps[0].world().resource::<Rollback>().frame() <= 300 + rollback::WINDOW + rollback::DELAY + 1, "the host ran on without the guest");
+                    assert!(apps[0].world().resource::<Rollback>().frame() <= 300 + rollback::WINDOW + rollback::MAX_DELAY + 1, "the host ran on without the guest");
                 } else {
                     round += 1;
                 }
@@ -1825,7 +1837,7 @@ mod tests {
             room.seats.iter_mut().for_each(|s| s.as_mut().unwrap().peer = "host".into());
             let mut a = app(&room, "host");
             a.insert_resource(Rollback::new(&room, "host", step as fn(&mut _)).unwrap());
-            let mut sess = ggrs::SessionBuilder::<rollback::Cfg>::new().with_num_players(4).unwrap().with_check_distance(7).with_input_delay(rollback::DELAY).start_synctest_session().unwrap();
+            let mut sess = ggrs::SessionBuilder::<rollback::Cfg>::new().with_num_players(4).unwrap().with_check_distance(7).with_input_delay(rollback::MAX_DELAY).start_synctest_session().unwrap();
             for t in 0.. {
                 let w = a.world_mut();
                 if stop(t, w.resource::<Game>()) {
