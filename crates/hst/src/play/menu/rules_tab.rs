@@ -61,14 +61,12 @@ pub(super) struct Fit {
 }
 
 impl Fit {
-    pub(super) const NONE: Fit = Fit { from: 0.0, to: 0.0, s: 1.0 };
-
-    /// The dialog's box `[top, height]` over a tab `tab_h` tall (none: as it is) on the frame at `frame_top`.
+    /// The dialog's box `[top, height]` over a tab `tab_h` tall on the frame at `frame_top`: lifted, never above the
+    /// top bar's rim, then shrunk to clear it. M194: without a tab it keeps clear of the frame and the rim the same way
+    /// (five rows over a three-set board); a box that already fits stays as it is.
     pub(super) fn new([top, h]: [f32; 2], frame_top: f32, tab_h: Option<f32>) -> Fit {
-        let Some(tab_h) = tab_h else { return Fit::NONE };
-        let floor = frame_top + SINK - tab_h - GAP;
-        let lift = (top + h - floor).max(0.0).min((top - BAR_FLOOR).max(0.0));
-        let to = top - lift;
+        let floor = tab_h.map_or(frame_top, |t| frame_top + SINK - t - GAP);
+        let to = top.min(floor - h).max(BAR_FLOOR);
         Fit { from: top, to, s: ((floor - to) / h).clamp(0.0, 1.0) }
     }
 

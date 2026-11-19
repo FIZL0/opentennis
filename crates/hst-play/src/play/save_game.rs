@@ -356,10 +356,11 @@ impl Saves {
         Saves { dir: dir.into() }
     }
 
-    /// The user's: `saves/` in the game's data folder (the browser has none yet: M198 keeps them in its storage).
+    /// The user's: `saves/` in the game's data folder (the browser has none yet: M198 keeps them in its storage). M194:
+    /// the folder the settings are in (`store`: `HST_DATA` too, as `tools/shot.sh` sets it).
     pub fn user() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
-        return Saves::new(crate::disc::data_dir().join("saves"));
+        return Saves::new(crate::store::file("saves"));
         #[cfg(target_arch = "wasm32")]
         Saves::new("saves")
     }
