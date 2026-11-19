@@ -426,7 +426,11 @@ fn drive(
     let real = gamepads.iter().any(|(e, g)| e != entity && super::controls::readable(g));
     // B656: a seated touch pad stays beside the real one. iOS's no-disc page has none: it comes with the menu, so a
     // finger down as the disc is found never lands on it mid-switch (dead buttons after, user 2026-11-19)
-    let shown = !hst_base::disc::WAITING.load(Ordering::Relaxed) && (!real || pad.connected && hst_base::seats::touch_held());
+    #[cfg(target_os = "ios")]
+    let waiting = hst_base::disc::WAITING.load(Ordering::Relaxed);
+    #[cfg(not(target_os = "ios"))]
+    let waiting = false;
+    let shown = !waiting && (!real || pad.connected && hst_base::seats::touch_held());
     if shown != pad.shown {
         pad.shown = shown;
         pad.fingers.reset();

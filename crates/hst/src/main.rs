@@ -699,6 +699,7 @@ fn cli_mods(mode: mode::Mode, iso: &str, flags: &[String], room: &net::Room) -> 
 /// The main menu as a mode (`mode.rs`).
 pub fn menu_mode(app: &mut App) {
     // iOS: the disc's in (`no_disc_mode`), so the on-screen pad shows from here
+    #[cfg(target_os = "ios")]
     disc::WAITING.store(false, std::sync::atomic::Ordering::Relaxed);
     app.add_systems(Startup, load).add_plugins(play::main_menu::plugin);
 }
