@@ -277,12 +277,9 @@ pub(super) fn ago(saved: u64, now: u64) -> String {
     }
 }
 
-/// The clock now (seconds since 1970); the browser build has no saves.
+/// The clock now (seconds since 1970; M198: the browser's too, it has saves now).
 pub(super) fn now() -> u64 {
-    #[cfg(not(target_arch = "wasm32"))]
-    return std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    #[cfg(target_arch = "wasm32")]
-    0
+    web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 /// The match's flags when a save is being resumed: its own setup's, with `--pads` given to today's devices (the menu's

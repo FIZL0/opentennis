@@ -380,6 +380,7 @@ fn android_main(app: bevy::android::android_activity::AndroidApp) {
 
 /// The app for `argv` = disc, flags (see the module doc).
 fn start(argv: Vec<String>) {
+    let start_flags = play::save_game::StartFlags(match_flags(&argv));
     let Cli { args, mut gfx, upscale, viewer_mod, mod_slot, slot_mods, roster, swap_hands, names, handicaps, offbeat, umpire_mod, court_mod } = parse(argv.into_iter());
     // M142: the disc a lobby's host checks a guest's against (an imported pack's hash; an ISO's ID was checked)
     handshake::set_disc(&args.iso);
@@ -594,6 +595,7 @@ fn start(argv: Vec<String>) {
         let (iso, early) = (args.iso.clone(), lineup(&args, &slot_mods, viewer_mod.is_some().then_some(mod_slot)));
         let early_mods = mod_lineup(&args, &slot_mods, viewer_mod.as_ref().map(|d| (mod_slot, d)));
         let first = mode::Mode::new(move |app| {
+            app.insert_resource(start_flags);
             app.insert_resource(a).insert_resource(swap_hands).insert_resource(names).insert_resource(handicaps).insert_resource(offbeat).add_systems(Startup, load);
             add_match(app, viewer_mod, mod_slot, slot_mods, umpire_mod);
             court_mod::add(app, court_mod);
@@ -720,6 +722,20 @@ fn no_disc_mode(app: &mut App) {
     app.add_systems(Startup, ios::no_disc).add_systems(Update, look);
 }
 
+/// M198: a `--play` command line's match flags as the menu would give them (Save and Quit keeps them): everything
+/// after the disc but the screenshot's own (`--shot`, `--shot-at`), which belong to this run.
+fn match_flags(argv: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut a = argv.iter().skip(1);
+    while let Some(f) = a.next() {
+        match f.as_str() {
+            "--shot" | "--shot-at" => _ = a.next(),
+            _ => out.push(f.clone()),
+        }
+    }
+    out
+}
+
 /// The menu's match in this app: `flags` read as on the command line (the settings' `--no-upscale` and
 /// graphics flags take effect here); its quit comes back to `back`.
 pub fn match_mode(iso: &str, flags: &[String], back: mode::Mode) -> mode::Mode {
@@ -730,8 +746,11 @@ pub fn match_mode(iso: &str, flags: &[String], back: mode::Mode) -> mode::Mode {
     let early_mods = mod_lineup(&args, &slot_mods, viewer_mod.as_ref().map(|d| (mod_slot, d)));
     graphics::MESH.store(gfx.mesh, std::sync::atomic::Ordering::Relaxed);
     graphics::SHADING.store(gfx.shading && !gfx.original, std::sync::atomic::Ordering::Relaxed);
+    // M198: kept for Save and Quit, which starts the match again from them
+    let start = play::save_game::StartFlags(flags.to_vec());
     mode::Mode::new(move |app| {
         app.insert_resource(gfx);
+        app.insert_resource(start.clone());
         // the app's own `--shot` goes on through the match
         let old = app.world().resource::<Args>();
         (args.shot, args.shot_at) = (old.shot.clone(), old.shot_at);
@@ -1884,6 +1903,13 @@ mod tests {
 
     /// M8f3: `--umpire-mod DIR` plays the mod over its donor (the donor in the chair unless `--umpire` says
     /// otherwise, as the menu's and the online room's always do); `--umpire-mod-id` of a mod not installed: none.
+    /// M198: a command line's match flags leave the disc and the screenshot out.
+    #[test]
+    fn match_flags_drop_the_shot() {
+        let v = |f: &[&str]| f.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(match_flags(&v(&["x.iso", "--play", "--shot", "a.png", "--court", "3", "--shot-at", "9"])), v(&["--play", "--court", "3"]));
+    }
+
     #[test]
     fn umpire_mod_flags() {
         let dir = std::env::temp_dir().join(format!("hst-umpire-flag-{}", std::process::id()));

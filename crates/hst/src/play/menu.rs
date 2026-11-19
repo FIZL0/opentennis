@@ -18,8 +18,8 @@
 //! paused match (`main_menu/pause.rs`) to move devices between the human seats.
 //! `HST_PAUSE=<seconds>` opens it after that long (for `--shot`), with `HST_PAUSE_SETTINGS=settings|graphics|controls|assign`
 //! on that Settings screen (or the controller assignment), or with `HST_PAUSE_ASK=1` on the Leave the match? confirm.
-//! M194 (ours): "Save and Quit" before "Return to the Menu" (a local match, or the host's online one; not in the
-//! browser yet) saves the match as its point started (`save_game`) and shows "Match saved" in the dialog's style
+//! M194 (ours): "Save and Quit" before "Return to the Menu" (a local match, or the host's online one; the
+//! browser too, M198) saves the match as its point started (`save_game`) and shows "Match saved" in the dialog's style
 //! (`main_menu/pause.rs` `SavedBox`): the score where it picks up and how to go on; OK fades out to the menu. The Leave
 //! the match? confirm then says it won't be saved. `HST_PAUSE_SAVE=1` (with `HST_PAUSE`) saves at once, for `--shot`.
 
@@ -887,10 +887,10 @@ fn step(
     }
 }
 
-/// M194: whether this machine's pause has "Save and Quit": a local match (`host` none) or the online host's; not in the
-/// browser, which keeps no saves yet.
+/// M194: whether this machine's pause has "Save and Quit": a local match (`host` none) or the online host's (the
+/// browser too since M198: its saves are in the page's storage).
 fn can_save(host: Option<&str>) -> bool {
-    !cfg!(target_arch = "wasm32") && host.is_none_or(|me| me == "host")
+    host.is_none_or(|me| me == "host")
 }
 
 /// M194: the score where a save picks up, from the left team's side: `who`, each set's games (`past` the sets played,
@@ -918,7 +918,9 @@ fn save_match(w: &mut World) {
         return;
     }
     let mode = if w.contains_resource::<super::netplay::Netplay>() { Mode::Online } else { Mode::Local };
-    let save = save_game::capture(w, mode, Vec::new()).ok_or_else(|| "The match has no point to pick up from yet.".to_string());
+    // M198: the flags the match was started with, so Continue can start it again
+    let flags = w.get_resource::<save_game::StartFlags>().map_or_else(Vec::new, |f| f.0.clone());
+    let save = save_game::capture(w, mode, flags).ok_or_else(|| "The match has no point to pick up from yet.".to_string());
     let save = save.and_then(|s| Saves::user().write(&s).map(|_| s));
     let lines = match &save {
         Ok(s) => {

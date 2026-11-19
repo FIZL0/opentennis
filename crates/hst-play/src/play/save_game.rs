@@ -389,7 +389,12 @@ pub fn at_point_start(w: &mut World) {
     }
 }
 
-/// A save on disk.
+/// M198: the flags the running match was started with (the menus' match start, `match_mode`): Save and Quit keeps
+/// them as the save's [`Setup::flags`], so Continue can start the match again from them.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct StartFlags(pub Vec<String>);
+
+/// A save on disk (in the browser: in the page's storage, under the same path).
 #[derive(Clone, Debug)]
 pub struct Entry {
     pub path: PathBuf,
@@ -406,8 +411,8 @@ impl Saves {
         Saves { dir: dir.into() }
     }
 
-    /// The user's: `saves/` in the game's data folder (the browser has none yet: M198 keeps them in its storage). M194:
-    /// the folder the settings are in (`store`: `HST_DATA` too, as `tools/shot.sh` sets it).
+    /// The user's: `saves/` in the game's data folder; in the browser the page's storage (M198). M194: the folder the
+    /// settings are in (`store`: `HST_DATA` too, as `tools/shot.sh` sets it).
     pub fn user() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         return Saves::new(crate::store::file("saves"));
@@ -417,10 +422,8 @@ impl Saves {
 
     /// Writes `s` in place of its line-up's save, then drops all but the newest [`KEEP`].
     pub fn write(&self, s: &MatchSave) -> Result<PathBuf, String> {
-        std::fs::create_dir_all(&self.dir).map_err(|e| format!("can't make {}: {e}", self.dir.display()))?;
         let path = self.dir.join(s.head.file());
-        let part = path.with_extension("part");
-        std::fs::write(&part, s.to_bytes()).and_then(|()| std::fs::rename(&part, &path)).map_err(|e| format!("can't write {}: {e}", path.display()))?;
+        disk::put(&self.dir, &path, &s.to_bytes())?;
         for old in self.list().into_iter().skip(KEEP) {
             self.delete(&old.path);
         }
@@ -429,24 +432,119 @@ impl Saves {
 
     /// The saves, newest first (files that aren't saves left out).
     pub fn list(&self) -> Vec<Entry> {
-        let mut out: Vec<Entry> = std::fs::read_dir(&self.dir)
+        let mut out: Vec<Entry> = disk::names(&self.dir)
             .into_iter()
-            .flatten()
-            .flatten()
-            .map(|e| e.path())
+            .map(|n| self.dir.join(n))
             .filter(|p| p.extension().is_some_and(|x| x == "sav"))
-            .filter_map(|path| Some(Entry { head: MatchSave::head_of(&std::fs::read(&path).ok()?).ok()?, path }))
+            .filter_map(|path| Some(Entry { head: MatchSave::head_of(&disk::get(&path).ok()?).ok()?, path }))
             .collect();
         out.sort_by(|a, b| b.head.saved.cmp(&a.head.saved).then_with(|| a.path.cmp(&b.path)));
         out
     }
 
     pub fn read(&self, path: &Path) -> Result<MatchSave, String> {
-        MatchSave::from_bytes(&std::fs::read(path).map_err(|e| format!("can't read {}: {e}", path.display()))?)
+        MatchSave::from_bytes(&disk::get(path)?)
     }
 
     pub fn delete(&self, path: &Path) {
+        disk::remove(&self.dir, path);
+    }
+}
+
+/// Where save files live: the file system.
+#[cfg(not(target_arch = "wasm32"))]
+mod disk {
+    use std::path::Path;
+
+    pub fn put(dir: &Path, path: &Path, b: &[u8]) -> Result<(), String> {
+        std::fs::create_dir_all(dir).map_err(|e| format!("can't make {}: {e}", dir.display()))?;
+        let part = path.with_extension("part");
+        std::fs::write(&part, b).and_then(|()| std::fs::rename(&part, path)).map_err(|e| format!("can't write {}: {e}", path.display()))
+    }
+
+    pub fn get(path: &Path) -> Result<Vec<u8>, String> {
+        std::fs::read(path).map_err(|e| format!("can't read {}: {e}", path.display()))
+    }
+
+    pub fn names(dir: &Path) -> Vec<String> {
+        std::fs::read_dir(dir).into_iter().flatten().flatten().filter_map(|e| e.file_name().into_string().ok()).collect()
+    }
+
+    pub fn remove(_dir: &Path, path: &Path) {
         let _ = std::fs::remove_file(path);
+    }
+}
+
+/// M198: in the browser, the page's storage (`store`: text only): each save as text under its path, and the
+/// folder's names in an index beside them.
+#[cfg(target_arch = "wasm32")]
+mod disk {
+    use super::text;
+    use std::path::Path;
+
+    fn index(dir: &Path) -> std::path::PathBuf {
+        dir.join("index.txt")
+    }
+
+    pub fn put(dir: &Path, path: &Path, b: &[u8]) -> Result<(), String> {
+        crate::store::write(path, text::encode(b)).map_err(|e| format!("can't keep the save: {e}"))?;
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let mut all = names(dir);
+        if !all.contains(&name) {
+            all.push(name);
+            crate::store::write(index(dir), all.join("\n")).map_err(|e| format!("can't keep the save: {e}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn get(path: &Path) -> Result<Vec<u8>, String> {
+        let t = crate::store::read_to_string(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
+        text::decode(&t).ok_or_else(|| format!("{} is damaged", path.display()))
+    }
+
+    pub fn names(dir: &Path) -> Vec<String> {
+        crate::store::read_to_string(index(dir)).unwrap_or_default().lines().filter(|l| !l.is_empty()).map(str::to_string).collect()
+    }
+
+    /// The page's storage can't drop a key through `store`: emptied (so it takes no room) and out of the index.
+    pub fn remove(dir: &Path, path: &Path) {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let _ = crate::store::write(path, "");
+        let all: Vec<String> = names(dir).into_iter().filter(|n| *n != name).collect();
+        let _ = crate::store::write(index(dir), all.join("\n"));
+    }
+}
+
+/// Bytes as storage-safe text (base64, standard alphabet, padded), for the browser's saves.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+mod text {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    pub fn encode(b: &[u8]) -> String {
+        let mut out = String::with_capacity(b.len().div_ceil(3) * 4);
+        for c in b.chunks(3) {
+            let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+            for k in 0..4 {
+                out.push(if k <= c.len() { ABC[(n >> (18 - 6 * k) & 63) as usize] as char } else { '=' });
+            }
+        }
+        out
+    }
+
+    pub fn decode(t: &str) -> Option<Vec<u8>> {
+        let t = t.trim_end_matches('=').as_bytes();
+        let mut out = Vec::with_capacity(t.len() * 3 / 4);
+        for c in t.chunks(4) {
+            if c.len() == 1 {
+                return None;
+            }
+            let mut n = 0u32;
+            for (k, x) in c.iter().enumerate() {
+                n |= (ABC.iter().position(|a| a == x)? as u32) << (18 - 6 * k);
+            }
+            out.extend_from_slice(&n.to_be_bytes()[1..c.len()]);
+        }
+        Some(out)
     }
 }
 
@@ -488,6 +586,20 @@ mod tests {
         saves.write(&MatchSave { head: online, state: vec![] }).unwrap();
         assert_eq!(saves.list().iter().filter(|e| e.head.setup.chars == [6, 1]).count(), 2);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// M198: the browser's saves as text come back byte for byte, every tail length.
+    #[test]
+    fn save_text_round_trips() {
+        assert_eq!(text::encode(b"Man"), "TWFu");
+        assert_eq!(text::encode(b"Ma"), "TWE=");
+        assert_eq!(text::encode(b"M"), "TQ==");
+        for n in 0..300 {
+            let b: Vec<u8> = (0..n).map(|i| (i * 37 + n) as u8).collect();
+            assert_eq!(text::decode(&text::encode(&b)).as_deref(), Some(&b[..]), "{n} bytes");
+        }
+        assert_eq!(text::decode("T"), None);
+        assert_eq!(text::decode("T!=="), None);
     }
 
     #[test]
