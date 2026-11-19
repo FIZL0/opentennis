@@ -15,6 +15,8 @@ static HOST_REMATCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Row {
+    /// M195: the newest saved match (`continue_screen`), at the head of the list while there's one.
+    Continue,
     Rematch,
     Local,
     Online,
@@ -35,6 +37,9 @@ impl Menu {
     /// none, the phone closes them.
     pub(super) fn main_rows(&self) -> Vec<Row> {
         let mut v = Vec::new();
+        if !self.saved.list.is_empty() {
+            v.push(Row::Continue);
+        }
         if self.rematch {
             v.push(Row::Rematch);
         }
@@ -58,6 +63,7 @@ impl Menu {
 
     /// Back from a match: the main screen on Local, not the Rematch card above it (B440, user 2026-10-15).
     pub(super) fn after_match(&mut self) {
+        self.saved_stale();
         (self.screen, self.sel) = (Screen::Main, self.main_at(Row::Local));
     }
 
@@ -68,6 +74,8 @@ impl Menu {
     pub(super) fn after_result(&mut self, out: &mut Vec<Effect>) {
         use crate::play::match_stats::next::{self, Next};
         use std::sync::atomic::Ordering::Relaxed;
+        // M195: the saved matches, read once the menu is up
+        self.saved_refresh();
         match next::take() {
             Some(Next::Rematch) if self.online() => HOST_REMATCH.store(self.online_rematch(out), Relaxed),
             Some(Next::Rematch) => {
@@ -121,6 +129,9 @@ const RIGHT: f32 = 16.0;
 pub(super) const PILL_H: f32 = 38.0;
 pub(super) const PITCH: f32 = 46.0;
 const CARD_H: f32 = 62.0;
+/// M195: the Continue card, and the Rematch card's slim form under it.
+const CONTINUE_H: f32 = 70.0;
+const SLIM_H: f32 = 36.0;
 /// B317's new-version card.
 const UPDATE_H: f32 = 48.0;
 /// The preview's picture height and the facts' tiles.
@@ -228,6 +239,7 @@ pub(super) const MUTED: [f32; 3] = [45.0, 40.0, 52.0];
 
 fn backdrop(r: Row) -> [f32; 3] {
     match r {
+        Row::Continue => [70.0, 92.0, 120.0],
         Row::Rematch => [118.0, 104.0, 70.0],
         Row::Local => [100.0, 116.0, 96.0],
         Row::Online => [92.0, 108.0, 122.0],
@@ -247,6 +259,10 @@ pub(super) fn version() -> String {
 
 /// The main screen.
 pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f32) {
+    // M195: the Continue screen over it
+    if m.saved.open {
+        return super::continue_screen::layout(d, m, text, hand_x);
+    }
     d.frame(0, super::WALL);
     // the header's right: pads and disc (the US or, M163a1a, the Japanese release: `exe`), B302's build version and commit
     // under it (`+` if built with local changes; the font has no `·`); `Sides` pins each side of 320 to its own
@@ -274,13 +290,15 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
     // B695: a short view (Menu Size past what fills it) closes the pills' gaps up to `MIN_PITCH` (no further than the
     // whole screen does) and then scrolls them over Quit, at its foot, rather than shrink their words
     let whole = pitch(&rows, FOOT - 32.0 - TOP);
+    // M195: Continue, Rematch and both update cards up at once: the pills keep a readable height and the list scrolls
+    let whole = if whole.0 < LEAST_PITCH { (LEAST_PITCH, LEAST_PITCH - 4.0) } else { whole };
     let (pitch, ph) = pitch(&rows, foot - 32.0 - top);
     let (pitch, ph) = if pitch < MIN_PITCH.min(whole.0) { (MIN_PITCH.min(whole.0), whole.1.min(MIN_PITCH - 4.0)) } else { (pitch, ph) };
     let hs: Vec<f32> = rows
         .iter()
         .filter(|r| **r != Row::Quit)
         .map(|r| match r {
-            Row::Rematch => CARD_H + 12.0,
+            Row::Continue | Row::Rematch => card_h(&rows, *r),
             Row::Update | Row::ModUpdates => UPDATE_H + 4.0,
             _ => pitch,
         })
@@ -295,6 +313,32 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, pads: usize, hand_x: f
         };
         let drawn = d.mark();
         let rect = match r {
+            Row::Continue => {
+                // M195: "Continue" big over the newest save's line ("Carol vs Will · 6-4 4-2 · 30-15")
+                let rect = [x, y, LIST_W, CONTINUE_H];
+                d.box3(rect, 12.0, [Some(INK), Some(if on { ON } else { WHITE }), Some(if on { ON } else { CONTINUE_FILL })], 128.0);
+                d.text(name(r), x + 14.0, y + 7.0, 26.0, if on { WHITE } else { INK });
+                if on {
+                    d.text(">", x + LIST_W - 28.0, y + 9.0, 22.0, WHITE);
+                }
+                if let Some(c) = m.newest_save() {
+                    super::frame::dotted(d, &m.save_line(&c.head), x + 14.0, y + 37.0, 13.0, LIST_W - 26.0, if on { WHITE } else { INK }, false);
+                }
+                let more = m.saved.list.len().saturating_sub(1);
+                if more > 0 {
+                    d.text(&format!("+{more} more saved"), x + 14.0, y + 53.0, 10.0, if on { WHITE } else { MUTED });
+                }
+                rect
+            }
+            Row::Rematch if rows.contains(&Row::Continue) => {
+                // M195: slim under the Continue card
+                let rect = [x, y, LIST_W, SLIM_H];
+                d.box3(rect, 10.0, [Some(INK), Some(if on { ON } else { WHITE }), Some(PAPER)], 128.0);
+                let (a, _) = m.rematch_lines(text);
+                d.text("REMATCH", x + 14.0, y + 4.0, 11.0, [90.0, 60.0, 0.0]);
+                fit_text(d, &a, x + 14.0, y + 17.0, 14.0, LIST_W - 26.0, INK);
+                rect
+            }
             Row::Rematch => {
                 let rect = [x, y, LIST_W, CARD_H];
                 d.box3(rect, 12.0, [Some(INK), Some(if on { ON } else { WHITE }), Some(PAPER)], 128.0);
@@ -377,6 +421,22 @@ const STALE_TOP: f32 = 226.0;
 /// with every card up the whole screen closes them up further (`cards_clear_quit`), and a short view no more.
 const MIN_PITCH: f32 = PILL_H + 4.0;
 
+/// M195: the Continue and Rematch cards' room in the list (each with its gap): the Rematch card slim under Continue.
+fn card_h(rows: &[Row], r: Row) -> f32 {
+    match r {
+        Row::Continue => CONTINUE_H + 10.0,
+        Row::Rematch if rows.contains(&Row::Continue) => SLIM_H + 8.0,
+        Row::Rematch => CARD_H + 12.0,
+        _ => 0.0,
+    }
+}
+
+/// M195: the least the pills close up to before the list scrolls instead (every card up at once).
+const LEAST_PITCH: f32 = 32.0;
+
+/// M195: the Continue card's fill, unchosen (the Online row's blue, deeper).
+const CONTINUE_FILL: [f32; 3] = [86.0, 104.0, 124.0];
+
 /// The Mod updates card's fill (the Mods row's backdrop, deeper).
 const MODS_UP: [f32; 3] = [70.0, 104.0, 80.0];
 
@@ -387,12 +447,12 @@ fn pitch(rows: &[Row], room: f32) -> (f32, f32) {
     let cards: f32 = rows
         .iter()
         .map(|r| match r {
-            Row::Rematch => CARD_H + 12.0,
+            Row::Continue | Row::Rematch => card_h(rows, *r),
             Row::Update | Row::ModUpdates => UPDATE_H + 8.0,
             _ => 0.0,
         })
         .sum();
-    let pills = rows.iter().filter(|r| !matches!(r, Row::Rematch | Row::Update | Row::ModUpdates | Row::Quit)).count().max(1);
+    let pills = rows.iter().filter(|r| !matches!(r, Row::Continue | Row::Rematch | Row::Update | Row::ModUpdates | Row::Quit)).count().max(1);
     let pitch = PITCH.min(((room - cards) / pills as f32).floor());
     (pitch, PILL_H.min(pitch - 4.0))
 }
@@ -459,6 +519,7 @@ fn stale_layout(d: &mut Draw, m: &Menu, hand_x: f32) {
 
 fn name(r: Row) -> &'static str {
     match r {
+        Row::Continue => "Continue",
         Row::Rematch => "Rematch",
         Row::Local => "Local",
         Row::Online => "Online",
@@ -514,7 +575,20 @@ pub(super) fn para(d: &mut Draw, s: &str, x: f32, y: f32, w: f32, size: f32, lin
 /// The highlighted row's panel in `[x, y, w, h]`: its picture with its name over the foot, its words, three facts.
 fn preview(d: &mut Draw, m: &Menu, text: &Text, r: Row, pads: usize, [x, y, w, h]: [f32; 4]) {
     d.box3([x, y, w, h], 16.0, [Some(INK), Some(WHITE), Some(PAPER)], 118.0);
+    let save = m.newest_save().map(|c| &c.head);
     let words = match r {
+        Row::Continue => match save {
+            Some(h) => {
+                let more = m.saved.list.len() - 1;
+                let rest = match more {
+                    0 => String::new(),
+                    1 => " One more match is saved: Continue lists both.".into(),
+                    n => format!(" {n} more matches are saved: Continue lists them all."),
+                };
+                format!("Picks up on {}'s serve at {}. The match you left, as it stood: same players, court and umpire.{rest}", m.save_server(h), h.summary.points_line())
+            }
+            None => String::new(),
+        },
         Row::Rematch => "Play the last match again: same players, characters, costumes, court, umpire and length. A random court or umpire is drawn again.".to_string(),
         Row::Local => text.msg(188).to_string(),
         Row::Online => "Play over the internet or on this network: host a lobby, find one, or join by code.".into(),
@@ -534,6 +608,10 @@ fn preview(d: &mut Draw, m: &Menu, text: &Text, r: Row, pads: usize, [x, y, w, h
     };
     let on = |b: bool| if b { "On" } else { "Off" }.to_string();
     let facts: Vec<(&str, String)> = match r {
+        Row::Continue => match save {
+            Some(h) => vec![("Mode", super::continue_screen::mode_words(h)), ("Court", m.court_short(text, m.save_court(h))), ("Saved", super::continue_screen::ago(h.saved, super::continue_screen::now()))],
+            None => vec![],
+        },
         Row::Rematch => {
             let humans = m.seats[..m.players()].iter().filter(|s| s.is_some()).count();
             vec![("Players", format!("{humans} + {} COM", m.players() - humans)), ("Games", m.games.to_string()), ("Umpire", umpire(m, text))]
@@ -616,6 +694,11 @@ fn picture(d: &mut Draw, m: &Menu, r: Row, pads: usize, [x, y, w, h]: [f32; 4]) 
     let ph = h - 20.0;
     let pw = ph * 128.0 / 168.0;
     match r {
+        Row::Continue => {
+            if let Some(c) = m.newest_save() {
+                save_picture(d, m, c, [x, y, w, h]);
+            }
+        }
         Row::Rematch => {
             let n = m.players();
             let step = (pw + 8.0).min((w - 40.0) / n as f32);
@@ -693,6 +776,30 @@ fn picture(d: &mut Draw, m: &Menu, r: Row, pads: usize, [x, y, w, h]: [f32; 4]) 
         }
         Row::Quit => {}
     }
+}
+
+/// M195: the Continue picture: the sides' faces either side of a navy scoreboard, the save's chip over it.
+fn save_picture(d: &mut Draw, m: &Menu, c: &super::continue_screen::Card, [x, y, w, _]: [f32; 4]) {
+    let head = &c.head;
+    let bw = (w * 0.46).min(250.0);
+    let board = [x + (w - bw) / 2.0, y + 40.0, bw, 62.0];
+    super::continue_screen::mini_board(d, m, head, board);
+    let teams = Menu::save_teams(head);
+    let size = if head.setup.singles { 76.0f32 } else { 54.0 }.min((w - bw) / 2.0 - 16.0);
+    for (side, team) in teams.iter().enumerate() {
+        let cx = if side == 0 { x + (w - bw) / 4.0 } else { x + w - (w - bw) / 4.0 };
+        for (k, &p) in team.iter().enumerate() {
+            let dx = if team.len() == 1 { 0.0 } else { (k as f32 - 0.5) * (size * 0.8) };
+            face_frame(d, (Tex::Face(m.save_who(head, p)), [0.0, 0.0, 64.0, 64.0]), cx + dx, y + 71.0, size, WHITE);
+        }
+    }
+    let (words, fill) = match &c.refusal {
+        Some(r) => (r.clone(), [46.0, 50.0, 58.0]),
+        None => ("Ready".to_string(), [23.0, 84.0, 48.0]),
+    };
+    let cw = d.width(&words, 12.0) + 20.0;
+    d.box3([x + (w - cw) / 2.0, y + 14.0, cw, 18.0], 8.0, [Some(INK), None, Some(fill)], 128.0);
+    d.label(&words, x + w / 2.0, y + 16.5, 12.0, cw - 8.0, WHITE);
 }
 
 /// The Settings picture's page pills for `n` pages in a picture `w` × `h`: how many across and how wide (150 at
@@ -877,7 +984,7 @@ fn mod_tiles(d: &mut Draw, m: &Menu, [x, y, w, _]: [f32; 4]) {
 /// Every face the main screen's pictures can show (the Rematch's players, the Mods row's tiles), in the order they
 /// draw: what `previews.rs` bakes and reads first while this screen is up, so they fill in on their own.
 pub(super) fn faces(m: &Menu) -> Vec<Who> {
-    let mut v: Vec<Who> = Vec::new();
+    let mut v: Vec<Who> = m.save_faces();
     if m.rematch {
         v.extend((0..m.players()).map(|p| m.pick(p).0));
     }
@@ -983,6 +1090,26 @@ mod tests {
         m.screen = Screen::Main;
         m.after_result(&mut fx);
         assert_eq!(m.screen, Screen::Main);
+    }
+
+    /// M195: the Continue card at the head with the slim Rematch under it (and every other card too) still clears
+    /// Quit, the pills at their full height while it's only the two.
+    #[test]
+    fn continue_card_clears_quit() {
+        use Row::*;
+        for (rows, full) in [(vec![Continue, Local, Online, Mods, Settings, Extras, Quit], true), (vec![Continue, Rematch, Local, Online, Mods, Settings, Extras, Quit], true), (vec![Continue, Rematch, Local, Online, Mods, Settings, Extras, ModUpdates, Update, Quit], false)] {
+            let (pitch, ph) = pitch(&rows, FOOT - 32.0 - TOP);
+            let cards: f32 = rows.iter().map(|r| card_h(&rows, *r) + if matches!(r, Update | ModUpdates) { UPDATE_H + 8.0 } else { 0.0 }).sum();
+            let end = TOP + 5.0 * pitch + cards;
+            if full {
+                assert!(end <= FOOT - 32.0 && ph == PILL_H, "{rows:?}: {end} {ph}");
+            } else {
+                // every card: the pills at the least pitch, the list scrolls
+                assert!(pitch < LEAST_PITCH, "{rows:?}: {pitch}");
+            }
+        }
+        let m = super::super::continue_screen::tests::with_saves(2);
+        assert_eq!(m.main_rows()[..2], [Continue, Local]);
     }
 
     /// M135: with every card up (Rematch, Update, Mod updates) the pills close up and shrink so the last card still

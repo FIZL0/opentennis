@@ -49,6 +49,8 @@ pub(crate) mod flame;
 pub(crate) mod legend;
 mod child;
 mod confirm;
+/// M195: the main menu's Continue card's saves and the Continue screen.
+mod continue_screen;
 mod extras;
 mod frame;
 mod handicap;
@@ -689,6 +691,8 @@ struct Menu {
     umpire_mods: Vec<crate::mods_umpire::Umpire>,
     /// M8f6: the installed court mods, on the court select after the disc eleven (`court_mods`).
     court_mods: Vec<crate::mods_court::Court>,
+    /// M195: the saved matches (the Continue card and screen).
+    saved: continue_screen::Saved,
     /// B400: their pictures, by the same index (`umpire_mods::load`; None: it ships none).
     umpire_pics: Vec<Option<umpire_mods::Pic>>,
     /// B451: whether each umpire mod ships its own voice preview (Preview Voice's calls), by the same index.
@@ -817,6 +821,7 @@ impl Default for Menu {
             mods: Vec::new(),
             umpire_mods: Vec::new(),
             court_mods: Vec::new(),
+            saved: default(),
             umpire_pics: Vec::new(),
             umpire_voices: Vec::new(),
             umpire_pick: default(),
@@ -1630,6 +1635,10 @@ impl Menu {
     /// The main menu's rows.
     fn main_step(&mut self, dev: Dev, k: Press, out: &mut Vec<Effect>) {
         use Effect::*;
+        // M195: the Continue screen open over it takes every press
+        if self.continue_step(dev, k, out) {
+            return;
+        }
         let main = self.main_rows();
         step_rows(k, main.len(), &mut self.sel, out);
         // B374: ○ on the update notice: not again this run (the row above takes the hand)
@@ -1650,6 +1659,7 @@ impl Menu {
             match main.get(self.sel).copied().unwrap_or(Row::Local) {
                 // M141: new mods waiting and the Reload popup put off: asks first
                 Row::Local | Row::Online if mods_screen::play_ask(self, dev) => out.push(Sound(2)),
+                Row::Continue => self.continue_chosen(dev, out),
                 Row::Rematch => {
                     // the same setup; a random court or umpire is drawn again, as Start does
                     self.roll = std::hash::BuildHasher::hash_one(&std::hash::RandomState::new(), 0u8);
@@ -2663,6 +2673,10 @@ fn setup(mut commands: Commands, args: Res<Args>, kept: Option<Res<Kept>>, mut r
         menu.newest = newest(&menu.mods);
         mods_screen::prime(&mut menu);
     }
+    // M195: `continue*`: saved matches (`continue_screen::sample`)
+    if fresh && screen.starts_with("continue") {
+        continue_screen::sample(&mut menu, &screen);
+    }
     if fresh && screen == "main-mods" {
         menu.sel = menu.main_at(home::Row::Mods);
     }
@@ -3586,6 +3600,8 @@ fn step(
                 k.ok = bind.key_just_pressed(&keys, Action::Normal) || keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]);
                 k.back = bind.key_just_pressed(&keys, Action::Cut) || keys.any_just_pressed([KeyCode::Escape, KeyCode::Backspace]);
                 k.card = bind.key_just_pressed(&keys, Action::Lob);
+                // M195: Del deletes a save on the Continue screen too
+                k.card |= menu.saved.open && keys.just_pressed(KeyCode::Delete);
                 k.prev = keys.any_just_pressed([KeyCode::KeyQ, KeyCode::PageUp]);
                 k.next = keys.any_just_pressed([KeyCode::KeyE, KeyCode::PageDown]);
                 k.page = keys.just_pressed(KeyCode::Tab);
@@ -3724,9 +3740,11 @@ fn step(
                     // called off while it waited (Back on the Starting… button)
                     if menu.screen != Screen::Playing {
                         *baking = None;
+                        continue_screen::cancelled(&mut menu);
                         continue;
                     }
-                    let a = menu.args(&pads);
+                    // M195: a saved match resumed: its own setup
+                    let a = continue_screen::launch_flags(&menu, &pads).unwrap_or_else(|| menu.args(&pads));
                     // every one asked at once (no short-circuit), then tried again next frame
                     if !a.windows(3).filter(|w| w[0] == "--slot-mod").fold(true, |ok, w| crate::modfs::ready(std::path::Path::new(&w[2])) & ok) | !umpire_mods::launch_ready(&a) {
                         *launching = true;
@@ -3745,6 +3763,7 @@ fn step(
                     }
                     *baking = None;
                     info!("starting the match: {}", a.join(" "));
+                    continue_screen::started(&mut menu);
                     crate::rules_choice::settle();
                     // the match in this app; its quit comes back to this menu as it is now
                     // the offbeat rules don't carry over: back from this match (rematch too), they're all off
