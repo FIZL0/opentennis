@@ -245,6 +245,11 @@ impl Rollback {
         self.frame
     }
 
+    /// B735: this machine's own seats (never smoothed on screen).
+    pub fn local_seats(&self) -> Vec<usize> {
+        self.sess.local_player_handles().into_iter().map(|h| self.seats[h]).collect()
+    }
+
     /// The seats on other machines.
     pub fn remote_seats(&self) -> Vec<usize> {
         self.sess.remote_player_handles().into_iter().map(|h| self.seats[h]).collect()
@@ -456,10 +461,15 @@ pub fn handle(w: &mut World, reqs: Vec<GgrsRequest<Cfg>>, every: i32) {
         let rb = w.resource::<Rollback>();
         (rb.seats.clone(), rb.step)
     };
+    let mut seen = None;
     for r in reqs {
         match r {
             GgrsRequest::SaveGameState { cell, frame } => save(w, cell, frame, every),
             GgrsRequest::LoadGameState { cell, frame } => {
+                // B735: what's drawn now, to glide from once the re-runs are back at this tick
+                if seen.is_none() {
+                    seen = w.get_resource::<super::Game>().map(|g| super::smooth::Seen::of(g, w.resource::<Rollback>().frame));
+                }
                 let s = cell.load().expect("a saved state");
                 snapshot::restore(w, &s.0);
                 if let Some(q) = &s.1 {
@@ -495,12 +505,25 @@ pub fn handle(w: &mut World, reqs: Vec<GgrsRequest<Cfg>>, every: i32) {
                 }
                 step(w);
                 w.resource_mut::<Rollback>().frame += 1;
+                if let Some(before) = seen.take_if(|b| b.frame == w.resource::<Rollback>().frame) {
+                    correct(w, &before);
+                }
             }
         }
     }
     if let Some(p) = pads {
         w.insert_resource(p);
     }
+}
+
+/// B735: a rollback's re-runs are back at the tick `before` was drawn at: what moved glides there on screen
+/// (`smooth`), this machine's own seats aside.
+fn correct(w: &mut World, before: &super::smooth::Seen) {
+    let Some(g) = w.get_resource::<super::Game>() else { return };
+    let after = super::smooth::Seen::of(g, before.frame);
+    let own = w.resource::<Rollback>().local_seats();
+    let mut s = w.get_resource_or_init::<super::smooth::Smooth>();
+    super::smooth::correct(&mut s, before, &after, &own);
 }
 
 /// The match's tick gate (`mode::Gate`) with rollback: runs the next tick (and any re-runs) itself, so it always
