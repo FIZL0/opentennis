@@ -1032,6 +1032,36 @@ impl Menu {
         out.push(Effect::Online(Fx::Net(Cmd::Start)));
     }
 
+    /// M196: Rematch on an online match's result screen, back in its lobby: a guest says it's ready; the host waits
+    /// (`host_rematch`) for every seat to be ready, then starts as Start does.
+    pub(super) fn online_rematch(&mut self, out: &mut Vec<Effect>) -> bool {
+        if self.net.hosting {
+            return true;
+        }
+        if !self.net.prepared {
+            self.net.prepared = true;
+            self.net.status.clear();
+            out.push(Effect::Online(Fx::Net(Cmd::Prepared(true))));
+        }
+        false
+    }
+
+    /// M196: the host's Rematch, waiting in the lobby: starts once every seat's ready (nobody picking or gone, no
+    /// countdown or wait already); whether it's still waiting (off the lobby, it's dropped).
+    pub(super) fn host_rematch(&mut self, out: &mut Vec<Effect>) -> bool {
+        if self.screen != Screen::Lobby || !self.net.hosting || self.lobby_asking() {
+            return self.screen == Screen::Lobby && self.net.hosting;
+        }
+        let Some(r) = self.net.room.as_ref() else { return true };
+        // a seat left open (a player gone) waits for the host's own Start
+        let (ready, seats) = lobby::ready_count(r);
+        if ready < seats || self.counting() > 0 || self.held() {
+            return true;
+        }
+        self.start(out);
+        false
+    }
+
     /// B217: a computer player added to open seat `i` starts on Random: a character (disc, or one of this machine's
     /// custom ones unless the lobby is vanilla) with a costume nobody else has, then one of its free costumes, each
     /// at random by `seed` (the host draws; the pick travels as any bot's).
