@@ -444,3 +444,9 @@ pub fn tls() -> rustls::ClientConfig {
     })
     .clone()
 }
+
+/// M192: a match keeps the screen on (`HstActivity.keepAwake`: the window's FLAG_KEEP_SCREEN_ON, which only holds
+/// while the window is in front); off again in the menus.
+pub fn keep_awake(on: bool) {
+    with_env(|env, activity| env.call_method(activity, "keepAwake", "(Z)V", &[JValue::Bool(on.into())]).map(drop));
+}

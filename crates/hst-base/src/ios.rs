@@ -656,3 +656,50 @@ pub fn orientation(mut state: Local<Orientation>, time: Res<Time<Real>>, _main_t
         eprintln!("orientation: held {held:?}");
     });
 }
+
+/// M192: a match keeps the phone awake (`play/front_end.rs`): with nobody touching the screen (paused, or a pad in
+/// hand) iOS's idle timer would dim and lock it. Off again in the menus; the background always lets iOS sleep.
+pub fn keep_awake(on: bool) {
+    AWAKE.store(on, std::sync::atomic::Ordering::Relaxed);
+    // SAFETY: the main queue lives for the process; `apply_awake` takes no context
+    unsafe { dispatch_async_f(&raw const _dispatch_main_q, std::ptr::null_mut(), apply_awake) };
+}
+
+static AWAKE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `UIApplication.idleTimerDisabled` ← `on`, on the main thread.
+fn set_idle_timer_disabled(on: bool) {
+    use objc2::runtime::AnyObject;
+    // SAFETY: on the main thread; the messages as UIApplication declares them
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let app: *mut AnyObject = objc2::msg_send![objc2::class!(UIApplication), sharedApplication];
+        if !app.is_null() {
+            let _: () = objc2::msg_send![app, setIdleTimerDisabled: on];
+        }
+    });
+}
+
+extern "C" fn apply_awake(_: *mut std::ffi::c_void) {
+    use objc2::runtime::AnyObject;
+    use std::sync::atomic::Ordering;
+    thread_local! {
+        // main thread only: the observers go up with the first call and stay
+        static WATCHING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    if !WATCHING.replace(true) {
+        // backgrounded: the idle timer back on; in front again: the match's wish
+        for (name, back) in [("UIApplicationDidEnterBackgroundNotification", true), ("UIApplicationWillEnterForegroundNotification", false)] {
+            // SAFETY: the messages as NSNotificationCenter declares them, on the main queue; the block and observer
+            // are retained for the process
+            objc2::rc::autoreleasepool(|_| unsafe {
+                let ns = objc2_foundation::NSString::from_str(name);
+                let block = block2::RcBlock::new(move |_: std::ptr::NonNull<AnyObject>| set_idle_timer_disabled(!back && AWAKE.load(Ordering::Relaxed)));
+                let center: *mut AnyObject = objc2::msg_send![objc2::class!(NSNotificationCenter), defaultCenter];
+                let main: *mut AnyObject = objc2::msg_send![objc2::class!(NSOperationQueue), mainQueue];
+                let observer: *mut AnyObject = objc2::msg_send![center, addObserverForName: &*ns, object: std::ptr::null_mut::<AnyObject>(), queue: main, usingBlock: &*block];
+                let _: *mut AnyObject = objc2::msg_send![observer, retain];
+            });
+        }
+    }
+    set_idle_timer_disabled(AWAKE.load(Ordering::Relaxed));
+}

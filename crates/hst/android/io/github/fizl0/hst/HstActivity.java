@@ -97,6 +97,17 @@ public class HstActivity extends NativeActivity {
         super.onPause();
     }
 
+    /** M192 (`android.rs` `keep_awake`): the screen stays on during a match, paused or not; the flag only holds
+     *  while the window is in front, so the background still sleeps. */
+    public void keepAwake(final boolean on) {
+        runOnUiThread(new Runnable() {
+            public void run() {
+                if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+        });
+    }
+
     /** Opens the system's document picker (any file: a disc image has no MIME type of its own). */
     public void pick() {
         runOnUiThread(new Runnable() {
