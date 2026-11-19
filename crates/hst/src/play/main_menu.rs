@@ -3655,6 +3655,10 @@ fn step(
         if dev == Dev::Keys && std::mem::take(&mut *launching) {
             fx.push(Effect::Launch);
         }
+        // M196: the result screen's choice, back from the match
+        if dev == Dev::Keys {
+            menu.after_result(&mut fx);
+        }
         // M140: a newer version found: the Update? popup, or (Always) its install
         if dev == Dev::Keys {
             menu.update_offer();

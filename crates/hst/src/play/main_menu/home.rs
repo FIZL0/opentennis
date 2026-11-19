@@ -10,6 +10,9 @@ use super::{
     CARD_FILL, CHAR_NAMES, COURTS, Dev, Draw, Effect, Press, GOLD, INK, Menu, SETS, Screen, Tex, Text, WHITE, Who, face_frame, legend, mods_screen, options, pointer,
 };
 
+/// M196: the host chose Rematch on an online match's result screen and waits in the lobby for every seat to be ready.
+static HOST_REMATCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Row {
     Rematch,
@@ -56,6 +59,34 @@ impl Menu {
     /// Back from a match: the main screen on Local, not the Rematch card above it (B440, user 2026-10-15).
     pub(super) fn after_match(&mut self) {
         (self.screen, self.sel) = (Screen::Main, self.main_at(Row::Local));
+    }
+
+    /// M196: what the match's result screen chose (`match_stats::next`), done once the menu is back: Rematch launches
+    /// the same setup again (the court and umpire it drew too; online, `online_rematch`), New Match opens the select
+    /// with everyone's picks kept, to be readied again; Return to the Menu / Back to Lobby are where it came back.
+    /// Called every frame: the host's online Rematch waits there for the lobby to be ready.
+    pub(super) fn after_result(&mut self, out: &mut Vec<Effect>) {
+        use crate::play::match_stats::next::{self, Next};
+        use std::sync::atomic::Ordering::Relaxed;
+        match next::take() {
+            Some(Next::Rematch) if self.online() => HOST_REMATCH.store(self.online_rematch(out), Relaxed),
+            Some(Next::Rematch) => {
+                self.screen = Screen::Playing;
+                out.push(Effect::Launch);
+            }
+            Some(Next::NewMatch) if !self.online() => {
+                for p in 0..4 {
+                    if !self.bot(p) {
+                        self.unready(p);
+                    }
+                }
+                (self.screen, self.sel) = (Screen::Chars, 0);
+            }
+            _ => {}
+        }
+        if HOST_REMATCH.load(Relaxed) {
+            HOST_REMATCH.store(self.host_rematch(out), Relaxed);
+        }
     }
 
     /// The Rematch card's words: "Singles - Carol vs Kent", "Random Court - 1 set".
@@ -920,6 +951,38 @@ mod tests {
         m.after_match();
         assert_eq!((m.screen, m.main_rows()[m.sel]), (Screen::Main, Row::Local));
         assert_eq!(m.main_rows()[0], Row::Rematch);
+    }
+
+    /// M196: the result screen's Rematch launches the same setup at once; New Match opens the select with the picks
+    /// kept, the humans' to be readied again (the computer's stay); nothing chosen leaves the main screen as it was.
+    #[test]
+    fn result_screen_choice() {
+        use crate::play::match_stats::next::{Next, choose};
+        let played = || {
+            let mut m = Menu { seats: [Some(Dev::Keys), None, None, None], bots: [false, true, false, false], court: 3, rematch: true, ..Default::default() };
+            m.players.iter_mut().for_each(|p| p.ready = true);
+            (m.players[0].cursor, m.players[1].cursor) = (4, 9);
+            m.after_match();
+            m
+        };
+        let mut m = played();
+        let mut fx = Vec::new();
+        m.after_result(&mut fx);
+        assert_eq!((m.screen, fx.len()), (Screen::Main, 0));
+        let before = m.args(&[]);
+        choose(Next::Rematch);
+        m.after_result(&mut fx);
+        assert_eq!((m.screen, fx.as_slice(), m.args(&[])), (Screen::Playing, [Effect::Launch].as_slice(), before));
+        let mut m = played();
+        fx.clear();
+        choose(Next::NewMatch);
+        m.after_result(&mut fx);
+        assert_eq!((m.screen, m.players[0].ready, m.players[1].ready), (Screen::Chars, false, true));
+        assert_eq!((m.players[0].cursor, m.players[1].cursor, m.court), (4, 9, 3));
+        // taken once
+        m.screen = Screen::Main;
+        m.after_result(&mut fx);
+        assert_eq!(m.screen, Screen::Main);
     }
 
     /// M135: with every card up (Rematch, Update, Mod updates) the pills close up and shrink so the last card still

@@ -50,10 +50,15 @@ pub fn sheet(iso: &mut Iso, xb: &str, name: &str) -> Vec<u8> {
 /// `s` in `word.tm2`, white, centred on a 256×32 sheet as one of `i_dialog_01`'s rows (the dialog has no "Settings"),
 /// set again in the remastered font (`menu_art::relabel`) unless `--original`.
 pub fn label(iso: &mut Iso, images: &mut Assets<Image>, s: &str) -> Handle<Image> {
+    label_w(iso, images, s, 256)
+}
+
+/// [`label`] on a sheet `w` px wide (M196: the result screen's one-line notes).
+pub fn label_w(iso: &mut Iso, images: &mut Assets<Image>, s: &str, w: usize) -> Handle<Image> {
     let font = sheet(iso, "MENU/MENU04.XB0", "/word.tm2");
     let glyphs = glyphs(&font);
     let pic = hst_data::tim2::decode_alpha8(&font).expect("TIM2").remove(0);
-    let (w, h) = (256usize, 32usize);
+    let h = 32usize;
     // the glyphs' coverage, then white over a 2-px dark outline as the dialog's own rows are drawn
     let width: f32 = s.chars().map(|c| glyphs.get(&c).map_or(10.0, |g| g.2 + 2.0)).sum::<f32>() - 2.0;
     // B171: words wider than the row are set on a wider one (room for the outline), then shrunk to fit it

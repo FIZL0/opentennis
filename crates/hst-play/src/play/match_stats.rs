@@ -10,11 +10,11 @@
 //! It is the second page of the original's result screen. The first is the match's final board (the result board
 //! with every set settled, 40 up, the winner's stripes under the pulsing highlight and its sets count pulsing in
 //! scale) under the "Game, Set, Match!" model (`i_gameset_00`, `AZUMA/PRIZE/OTHER.XB0`). → / ← slide 40 px a tick
-//! to the other page (✕ too, while the stats page hasn't been seen); from tick 120 ✕ Continue ends it once the
-//! stats page has been seen. Its button prompts are our key legend (M14), not the original's PS2-glyph bar.
+//! to the other page (✕ too, while the stats page hasn't been seen); once the stats page has been seen it moves aside
+//! for the what-next pills ([`next`], M196), and from tick 120 ✕ on one ends the screen. Its button prompts are our key legend (M14), not the original's PS2-glyph bar.
 //!
-//! The match pauses on it; Continue fades to black over 60 ticks and goes back to the menu, as the pause menu's
-//! "Return to the Menu". `HST_STATS=<seconds>` ends the match (as it stands) after
+//! The match pauses on it; a pill fades to black over 60 ticks and goes back to the menu, as the pause menu's
+//! "Return to the Menu" did, which then does what the pill said ([`next::take`]). `HST_STATS=<seconds>` ends the match (as it stands) after
 //! that long, for `--shot`; `HST_STATS_PAGE=1` opens it on the stats page (skipping the ceremony).
 //!
 //! Before it, the original's first state: the winners' ceremony ([`ceremony`]), the banner already up.
@@ -23,6 +23,7 @@ mod ceremony;
 pub(super) use ceremony::END_JINGLE;
 mod dissolve;
 mod hold;
+pub mod next;
 
 use bevy::prelude::*;
 use hst_data::{iso::Iso, xb::Archive};
@@ -59,6 +60,8 @@ enum Tex {
     Team,
     /// Our own pill sheet ([`super::menu_art::pill_layers`]), behind the team's name.
     Pill,
+    /// M196: what-next's words, [`next::LABELS`] then [`next::NOTES`].
+    Own(u8),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -384,6 +387,11 @@ struct Screen {
     held: u8,
     /// Ticks into the fade to black after Continue.
     leaving: Option<i32>,
+    /// M196: ticks into the stats page's move aside for the what-next pills ([`next::ASIDE`] when in), the pill
+    /// chosen, the left stick's last y.
+    aside: i32,
+    sel: usize,
+    stick_y: f32,
 }
 
 impl Screen {
@@ -405,6 +413,8 @@ impl Screen {
                 self.seen |= self.page == 1;
             }
         }
+        // M196: the stats page seen and standing: aside; sliding away or on the board, back
+        self.aside = if self.page == 1 && self.dir == 0 && self.seen { (self.aside + 1).min(next::ASIDE) } else { (self.aside - 4).max(0) };
         self.alpha = self.pulse.step();
         self.scale = self.grow.scale();
         self.timer += 1;
@@ -420,6 +430,11 @@ impl Screen {
         } else {
             None
         }
+    }
+
+    /// M196: the what-next pills are in and take ↑↓ and ✕.
+    fn choosing(&self) -> bool {
+        self.aside == next::ASIDE && self.page == 1 && self.dir == 0
     }
 }
 
@@ -438,18 +453,22 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, ceremony::show.after(crate::character::animate));
 }
 
-/// M14: the result screen's legend: `step`'s ✕ (the next page until the stats page is seen, then Continue once it
-/// shows) and ←→ (the other page).
+/// M14: the result screen's legend: `step`'s ✕ (the next page until the stats page is seen, then (M196) the pills'
+/// ↑↓ and OK once they're in) and ←→ (the other page).
 fn legend(screen: Res<Screen>, dissolve: Res<dissolve::Dissolve>, last: Res<super::legend::Last>, mut out: ResMut<super::legend::Legend>) {
     use super::legend::{Act, item};
     if !screen.open || screen.leaving.is_some() || dissolve.fading() {
         return;
     }
     let mut v = vec![item(Act::LeftRight, "Page", &["A", "D"])];
-    if !screen.seen {
+    if !screen.seen || screen.page == 0 {
         v.push(item(Act::Ok, "Next Page", &["Enter", "J"]));
-    } else if screen.timer >= 120 {
-        v.push(item(Act::Ok, "Continue", &["Enter", "J"]));
+    } else if screen.choosing() {
+        // M196: the pills
+        v.push(item(Act::UpDown, "Choose", &["W", "S"]));
+        if screen.timer >= 120 {
+            v.push(item(Act::Ok, "OK", &["Enter", "J"]));
+        }
     }
     out.one(*last, v);
 }
@@ -485,6 +504,13 @@ fn setup(
         }
     }
     art.push(super::menu_art::pill_layers(&mut images));
+    // M196: the what-next pills' words and notes (`Tex::Own`)
+    for s in next::LABELS {
+        art.push(super::word_label::label(&mut iso, &mut images, s));
+    }
+    for s in next::NOTES {
+        art.push(super::word_label::label_w(&mut iso, &mut images, s, next::NOTE_W));
+    }
     let bank = crate::audio::SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd");
     commands.insert_resource(Art(art, bank.map(std::sync::Arc::new)));
     commands
@@ -538,12 +564,13 @@ fn step(
     mut banner: Option<ResMut<Banner>>,
     sounds: Option<Res<Art>>,
     sound: Option<Res<crate::audio::Sound>>,
-    (gallery, mut exit, mouse, touches, window): (
+    (gallery, mut exit, mouse, touches, window, np): (
         Option<Res<crate::audio::GalleryBank>>,
         MessageWriter<AppExit>,
         Res<ButtonInput<MouseButton>>,
         Res<Touches>,
         Query<&Window, With<bevy::window::PrimaryWindow>>,
+        Option<Res<super::netplay::Netplay>>,
     ),
     mut cer: Option<ResMut<ceremony::Ceremony>>,
     mut dissolve: ResMut<dissolve::Dissolve>,
@@ -603,7 +630,8 @@ fn step(
     }
     let any = |b: GamepadButton| gamepads.iter().filter(|g| super::controls::readable(g)).any(|p| p.just_pressed(b));
     // B221: a click or tap on the left or right quarter slides that way, anywhere else is the confirm button
-    let tap = crate::widescreen::pointer_press(&window, &mouse, &touches).0.map(|p| p.x);
+    let point = crate::widescreen::pointer_press(&window, &mouse, &touches).0;
+    let tap = point.map(|p| p.x);
     let confirm = keys.any_just_pressed([KeyCode::Enter, KeyCode::Space, KeyCode::KeyJ]) || any(GamepadButton::South) || tap.is_some_and(|x| (160.0..480.0).contains(&x));
     // the left stick as a d-pad: a push past half way
     let x = gamepads.iter().filter(|g| super::controls::readable(g)).filter_map(|p| p.get(GamepadAxis::LeftStickX)).find(|x| x.abs() >= 0.5).unwrap_or(0.0);
@@ -620,6 +648,23 @@ fn step(
         s.shot = None;
         s.serve = false;
     }
+    // M196: with the pills in, ↑↓ choose and a press picks; a tap picks the pill under it, and off them does nothing
+    let online = np.is_some();
+    let updown = next::updown(&keys, &gamepads, &mut screen.stick_y);
+    let choosing = screen.choosing() && !dissolve.fading() && screen.leaving.is_none();
+    let hit = point.and_then(|p| next::pill_at(online, p)).filter(|_| choosing);
+    let (confirm, left, right) = if choosing && point.is_some() { (hit.is_some(), false, false) } else { (confirm, left, right) };
+    if let Some(k) = hit {
+        screen.sel = k;
+    }
+    if choosing && updown != 0 {
+        let n = next::pills(online).len();
+        let k = (screen.sel as i32 + updown).clamp(0, n as i32 - 1) as usize;
+        if k != screen.sel {
+            screen.sel = k;
+            play(0);
+        }
+    }
     let mut input = match () {
         _ if confirm && screen.timer >= 120 => 3,
         _ if right => 1,
@@ -633,10 +678,15 @@ fn step(
         input = 0;
     }
     if input == 3 {
-        if screen.seen {
-            play(2);
-            info!("result screen: Continue, back to the menu");
-            screen.leaving = Some(0);
+        if screen.seen && screen.page == 1 {
+            // M196: the pills' choice once they're in (until then a press does nothing on this page)
+            if screen.choosing() {
+                let n = next::pills(online)[screen.sel.min(next::pills(online).len() - 1)];
+                play(2);
+                info!("result screen: {n:?}");
+                next::choose(n);
+                screen.leaving = Some(0);
+            }
             input = 0;
         } else {
             input = 1;
@@ -703,6 +753,7 @@ fn draw(
     (names, mut plates): (Option<Res<super::name_tags::Names>>, ResMut<super::name_tags::Plates>),
     mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility)>,
     mut fade: Query<&mut BackgroundColor, With<Fade>>,
+    np: Option<Res<super::netplay::Netplay>>,
 ) {
     for mut c in &mut fade {
         c.set_if_neq(BackgroundColor(Color::BLACK.with_alpha(screen.leaving.map_or(0.0, |t| (t as f32 / 60.0).min(1.0)))));
@@ -736,7 +787,11 @@ fn draw(
                     rank_rgb: colours.1,
                     pulse: screen.alpha,
                 });
+                // M196: aside for the what-next pills, which come in on its left
+                let t = next::eased(screen.aside);
+                next::shrink(&mut page, t);
                 page.iter_mut().for_each(|q| q.dst[0] += dx as f32);
+                page.extend(next::panel(np.is_some(), screen.sel, t, dx as f32));
                 page
             };
             quads.append(&mut page);
@@ -764,6 +819,7 @@ fn draw(
             Tex::Back => art.0[5].clone(),
             Tex::Team => art.0[7].clone(),
             Tex::Pill => art.0[8].clone(),
+            Tex::Own(k) => art.0[9 + k as usize].clone(),
             Tex::Face(p) => panel_art.0[panel::FACES + p].clone(),
             Tex::Rank => panel_art.0[6].clone(),
             Tex::Slot => panel_art.0[1].clone(),
