@@ -1152,6 +1152,47 @@ mod tests {
             static REPLAYS: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
             /// M171: a peer's own disc (its name, the path) where it isn't the US one (`ISO`).
             static DISCS: std::cell::RefCell<Vec<(String, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+            /// B734: `app_in` seeds the match from the room's seed as `main.rs` does online (the generators, the
+            /// weather schedule, the effects seed), the setup's cloud draws this many (`main.rs` counts them from the
+            /// court's cloud models; the harness has no court).
+            static CLOUDS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+        }
+
+        /// B734: what `play::plugin`'s tick runs beyond the harness's chain (the lens flare's draws, the point's
+        /// reaction, the sounds with the jingles and the umpire's word timing, the scratch after the poses, bounce
+        /// debris, the emotes' lines, the head turns, the carts, the tornado, the offbeat pace, the replay pace, the
+        /// point start kept), in its order, so a saved match's ticks run as a machine ran them.
+        fn real_tick(app: &mut App, args: &Args) {
+            let mut iso = hst_data::iso::Iso::open(&args.iso).unwrap();
+            app.insert_resource(crate::audio::Sound::test(&mut iso));
+            app.init_resource::<ReactionRoots>();
+            app.add_systems(FixedUpdate, (flare_tick.after(remember).before(control), react_first.after(effects::tick).before(control), reaction_roots.after(control).before(simulate)));
+            app.add_systems(FixedUpdate, (effects::tick_trails.after(character::tick).before(played_out), play_sounds.after(held_ball).before(instant_replay::run)));
+            app.add_systems(FixedUpdate, (doubles_ai::scratch::after_pose.after(bodyhit::pose).after(play_sounds), emote::play_lines.after(play_sounds)));
+            app.add_systems(FixedUpdate, (bounce_debris::set_up.after(simulate).before(start_effects), bounce_debris::throw.after(start_effects).after(foot_fx::tick)));
+            app.add_plugins((look::plugin, carts::plugin, tornado::plugin, offbeat::plugin, replay_pace::plugin, super::super::super::save_game::plugin));
+        }
+
+        /// B734: the room's seed into the match as `main.rs`' `match_weather` takes it online: the shared generator
+        /// seeded with it, the weather schedule drawn from it, then the setup's `rand()`s with `clouds` cloud draws.
+        fn seed_match(app: &mut App, room: &Room, args: &Args, clouds: usize) {
+            let mut disc = hst_data::iso::Iso::open(&args.iso).unwrap();
+            let (cnf, bin) = (disc.read("SYSTEM.CNF").unwrap(), disc.read("ZZBIN/GAME.BIN").unwrap());
+            let exe = hst_data::exe::Game::new(&cnf, &bin).unwrap();
+            let n = room.court as u32 + 1;
+            let o = exe.weather_odds(n);
+            let odds = hst_sim::weather::Odds { cloudy: o[0], cloudy_len: [o[1], o[2]], rain: o[3], rain_len: [o[4], o[5]], no_border: o[7] != 0, heavy: o[8] != 0 };
+            let ((directions, speed), (chance, kind)) = (exe.wind(n), exe.gusts(n));
+            let wind = hst_sim::weather::Wind { chance, kind, directions, speed };
+            let seed = hst_sim::rng::Seed::shared(room.seed);
+            let mut mt = hst_sim::weather::Mt::new(seed.shared);
+            let players = if args.singles { 2 } else { 4 };
+            let schedule = hst_sim::weather::schedule(&odds, &wind, args.games, args.sets, players, || mt.next());
+            let mut rngs = hst_sim::rng::Rngs::new(seed.rand, mt);
+            let (effects, _) = rngs.setup_rand(clouds);
+            set_effects_seed(effects);
+            app.insert_resource(MatchRng(rngs));
+            app.insert_resource(crate::weather::Weather { schedule, game: 0, fixed: None });
         }
 
         fn app(room: &Room, me: &str) -> App {
@@ -1168,25 +1209,30 @@ mod tests {
             app.add_plugins((MinimalPlugins, AssetPlugin::default()));
             app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
             app.init_asset::<crate::gs::GsMaterial>();
-            let chars = [0, 2, 1, 3].map(|s| room.seats[s].as_ref().unwrap().pick.char).to_vec();
+            // match order (`flags`'): doubles 1P, 3P, 2P, 4P; singles the two seats
+            let order: &[usize] = if room.doubles { &[0, 2, 1, 3] } else { &[0, 1] };
+            let chars = order.iter().map(|&s| room.seats[s].as_ref().unwrap().pick.char).collect();
             let iso = DISCS.with_borrow(|d| d.iter().find(|(p, _)| p == me).map(|(_, iso)| iso.clone())).unwrap_or_else(|| ISO.into());
-            let mut args = Args { iso, archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles: false, chars, outfits: vec![], viewer: None, sound: None, music: false, umpire: room.umpire, sets: 1, games: room.games, pads: None };
+            let mut args = Args { iso, archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 0, stage: None, play: true, singles: !room.doubles, chars, outfits: vec![], viewer: None, sound: None, music: false, umpire: room.umpire, sets: 1, games: room.games, pads: None };
             if let Some(looks) = looks {
-                let order = [0, 2, 1, 3];
                 (args.court, args.stage) = (room.court + 1, Some(room.court as u32 + 1));
-                args.outfits = order.map(|s| room.seats[s].as_ref().unwrap().pick.costume).to_vec();
+                args.outfits = order.iter().map(|&s| room.seats[s].as_ref().unwrap().pick.costume).collect();
                 args.sets = ([1, 3, 5][room.sets.min(2)] + 1) / 2;
                 let mut mm = crate::mods::MatchMod::default();
-                for (k, s) in order.into_iter().enumerate() {
+                for (k, &s) in order.iter().enumerate() {
                     if let Some(w) = room.seats[s].as_ref().and_then(|x| x.pick.r#mod.as_deref()) {
                         mm.set(k, crate::mods_online::for_match(w, looks(w).as_deref()));
                     }
                 }
                 app.insert_resource(mm);
             }
+            if let Some(clouds) = CLOUDS.get() {
+                seed_match(&mut app, room, &args, clouds);
+                real_tick(&mut app, &args);
+            }
             app.insert_resource(args);
             // the computer plays the seats no person has (B151: started with open seats)
-            let human = std::array::from_fn(|i| room.seats[i].as_ref().is_some_and(Seat::human));
+            let human = std::array::from_fn(|i| room.seats.get(i).and_then(Option::as_ref).is_some_and(Seat::human));
             app.insert_resource(Pads { seats: Some(human), autoplay: false, ..default() });
             app.init_resource::<tick_input::TickPads>();
             app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
@@ -1377,25 +1423,167 @@ mod tests {
         }
 
         /// `HST_DESYNC=desync-….json cargo test -p hst replays_a_desync -- --ignored`: runs the saved inputs again,
-        /// printing the hash every 30 ticks (the machines' `Hash` ticks).
+        /// printing the hash every 30 ticks (the machines' `Hash` ticks). Singles or doubles; the room's mods play
+        /// with the looks from a `mods-online` folder beside the file (as the saving machine received them; else
+        /// the donor stands in, which plays alike, B556). At the saved state's tick it compares this run's state with
+        /// the saving machine's and prints where they first differ (`HST_DESYNC_TEXT=file`: this run's state there;
+        /// `HST_DESYNC_START=file`: its first, the last cloud count tried's). The match is seeded from the room
+        /// with the setup's cloud draws found from the log's tick-0 hash (`HST_DESYNC_CLOUDS=n` sets them) and ticks
+        /// with the real match's systems; `HST_DESYNC_RERUN=n` instead rolls every tick back from `n` guessed ticks
+        /// and panics where that state leaves the straight run's.
         #[test]
         #[ignore]
         fn replays_a_desync() {
-            let path = std::env::var("HST_DESYNC").expect("HST_DESYNC=file");
-            let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            let path = std::path::PathBuf::from(std::env::var("HST_DESYNC").expect("HST_DESYNC=file"));
+            let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
             let room: Room = serde_json::from_value(saved["room"].clone()).unwrap();
             let pads: Vec<[[u8; 6]; 4]> = serde_json::from_value(saved["pads"].clone()).unwrap();
-            let mut a = app(&room, "replay");
+            let at = saved["state_tick"].as_u64().map(|t| t as usize);
+            let theirs = saved["state"].as_str().unwrap_or_default().to_string();
+            let beside = path.parent().unwrap_or(Path::new(".")).join("mods-online");
+            let caches = [beside.join("mods-online"), beside];
+            let looks = |w: &crate::mods_online::Wire| {
+                let got = caches.iter().find_map(|c| crate::mods_online::find(w, 0, &[], c));
+                println!("mod {}: looks {}", w.id, got.as_ref().map_or("(the donor stands in)".into(), |d| d.display().to_string()));
+                got
+            };
+            // the match's start as the saving machine logged it (`rollback tick 0: hash …` in `hst-log.txt` beside
+            // the file): the setup's cloud draws are the count that starts the same (`HST_DESYNC_CLOUDS` sets it)
+            let log = std::fs::read_to_string(path.with_file_name("hst-log.txt")).unwrap_or_default();
+            let logged = |t: usize| log.lines().filter_map(|l| l.split_once(&format!("rollback tick {t}: hash "))).map(|(_, h)| h.trim().to_string()).collect::<Vec<_>>();
+            let start = logged(0).first().and_then(|h| u64::from_str_radix(h, 16).ok());
+            let fixed = std::env::var("HST_DESYNC_CLOUDS").ok().and_then(|c| c.parse().ok());
+            let (mut a, mut found) = (None, None);
+            for clouds in fixed.map_or(0..=64, |c| c..=c) {
+                CLOUDS.set(Some(clouds));
+                let mut b = app_in(&room, "replay", Some(&looks));
+                let text = super::super::snapshot::state_text(b.world_mut());
+                let h = super::super::snapshot::fnv(&text);
+                if let Ok(f) = std::env::var("HST_DESYNC_START") {
+                    std::fs::write(f, &text).unwrap();
+                }
+                if fixed.is_some() || start == Some(h) {
+                    println!("tick 0: {clouds} cloud draws start as the saving machine logged ({h:016x}, logged {start:016x?})");
+                    (a, found) = (Some(b), Some(clouds));
+                    break;
+                }
+            }
+            CLOUDS.set(None);
+            let mut a = a.unwrap_or_else(|| panic!("no cloud count 0..=64 starts at the logged hash {start:016x?}: the setup differs"));
             a.world_mut().remove_resource::<Netplay>();
+            if let Some(n) = std::env::var("HST_DESYNC_RERUN").ok().and_then(|n| n.parse().ok()) {
+                let me = saved["me"].as_str().unwrap_or_default();
+                let remote = std::array::from_fn(|s| room.seats.get(s).and_then(Option::as_ref).is_some_and(|x| x.peer != me));
+                let clouds = found;
+                let make = || {
+                    CLOUDS.set(clouds);
+                    let mut a = app_in(&room, "replay", Some(&looks));
+                    CLOUDS.set(None);
+                    a.world_mut().remove_resource::<Netplay>();
+                    a
+                };
+                return rerun_check(&make, &pads, remote, n);
+            }
             for (t, p) in pads.iter().enumerate() {
+                if t % 1800 == 0 && t > 0 {
+                    println!("tick {t}: {:016x}, logged {:?} (a tick rolled back logs again)", super::super::snapshot::state_hash(a.world_mut()), logged(t));
+                }
                 if t % 30 == 0 {
                     println!("tick {t}: {:016x}", super::super::snapshot::state_hash(a.world_mut()));
+                }
+                if Some(t) == at {
+                    report_state(&super::super::snapshot::state_text(a.world_mut()), &theirs, t);
                 }
                 let last = t.checked_sub(1).map_or([tick_input::IDLE; 4], |l| pads[l].map(unwire));
                 run_on(a.world_mut(), p.map(unwire), last);
                 a.world_mut().run_schedule(FixedUpdate);
             }
             let _ = Lockstep::new;
+        }
+
+        /// B734: `replays_a_desync` with `HST_DESYNC_RERUN=n`: the saved pads run as this machine's rollback ran
+        /// them, every tick first `n` ticks ahead on ggrs' guess (the `remote` seats holding their last pads, this
+        /// machine's its own), then back to the state saved before them (`snapshot`, and an instant replay's queue as
+        /// `rollback::save` keeps it) and the tick on the real pads. Each tick's state must be the one the same pads
+        /// run straight on (a first run of `make`'s match) reach; panics at the first that isn't, with where the
+        /// states part: a state the snapshot misses, or one the guessed ticks leave behind.
+        fn rerun_check(make: &dyn Fn() -> App, pads: &[[[u8; 6]; 4]], remote: [bool; 4], n: usize) {
+            use super::super::snapshot;
+            let pad = |t: usize| pads[t].map(unwire);
+            // a tick as `rollback::handle` runs one: the queue is this tick's pads alone (an instant replay's, left
+            // by a run ahead, goes), or in an instant replay its latches
+            let tick = |w: &mut bevy::ecs::world::World, now: [hst_sim::replay::Pad; 4], last: [hst_sim::replay::Pad; 4]| {
+                if instant_replay::playing(w) {
+                    let mut p = w.resource_mut::<Pads>();
+                    for s in 0..4 {
+                        p.slots[s] = tick_input::decode(now[s], last[s]);
+                    }
+                } else {
+                    w.insert_resource(tick_input::Replay([now].into()));
+                }
+                w.run_schedule(FixedUpdate);
+            };
+            let last = |t: usize| t.checked_sub(1).map_or([tick_input::IDLE; 4], pad);
+            let straight = |to: usize| {
+                let mut a = make();
+                let mut hashes = Vec::with_capacity(to);
+                for t in 0..to {
+                    hashes.push(snapshot::state_hash(a.world_mut()));
+                    tick(a.world_mut(), pad(t), last(t));
+                }
+                (a, hashes)
+            };
+            let (_, hashes) = straight(pads.len());
+            let mut a = make();
+            for (t, &hash) in hashes.iter().enumerate() {
+                let w = a.world_mut();
+                let now = snapshot::state_text(w);
+                if snapshot::fnv(&now) != hash {
+                    let (mut b, _) = straight(t);
+                    let text = snapshot::state_text(b.world_mut());
+                    let at = text.bytes().zip(now.bytes()).position(|(x, y)| x != y).unwrap_or(text.len().min(now.len()));
+                    let from = now[..at].char_indices().rev().nth(300).map_or(0, |(i, _)| i);
+                    let cut = |s: &str| s[from..].chars().take(700).collect::<String>();
+                    if let Ok(f) = std::env::var("HST_DESYNC_TEXT") {
+                        std::fs::write(&f, &now).unwrap();
+                        std::fs::write(format!("{f}.straight"), &text).unwrap();
+                    }
+                    panic!("tick {t}: rolled back from {n} guessed ticks every tick, the state differs from the run straight on\nstraight: {}\nrollback: {}", cut(&text), cut(&now));
+                }
+                if t % 1800 == 0 {
+                    println!("tick {t}: {hash:016x}, every rollback alike so far");
+                }
+                let saved = snapshot::save(w);
+                let queue = instant_replay::playing(w).then(|| w.get_resource::<tick_input::Replay>().cloned()).flatten();
+                let mut prev = last(t);
+                for u in t..(t + n).min(pads.len()) {
+                    let real = pad(u);
+                    let guess = std::array::from_fn(|s| if remote[s] { last(t)[s] } else { real[s] });
+                    tick(w, guess, prev);
+                    prev = guess;
+                }
+                snapshot::restore(w, &saved);
+                if let Some(q) = queue {
+                    w.insert_resource(q);
+                }
+                tick(w, pad(t), last(t));
+            }
+            println!("{} ticks, each rolled back from {n} guessed: every state alike", pads.len());
+        }
+
+        /// `replays_a_desync`'s verdict at tick `t`: this run's state `ours` against the saving machine's `theirs`.
+        fn report_state(ours: &str, theirs: &str, t: usize) {
+            if let Ok(f) = std::env::var("HST_DESYNC_TEXT") {
+                std::fs::write(f, ours).unwrap();
+            }
+            println!("tick {t}: this run {:016x}, the saving machine {:016x}", super::super::snapshot::fnv(ours), super::super::snapshot::fnv(theirs));
+            if ours == theirs {
+                return println!("tick {t}: the same state as the saving machine's (the other machine went its own way)");
+            }
+            let at = ours.bytes().zip(theirs.bytes()).position(|(x, y)| x != y).unwrap_or(ours.len().min(theirs.len()));
+            let from = ours[..at].char_indices().rev().nth(300).map_or(0, |(i, _)| i);
+            let cut = |s: &str| s[from..].chars().take(700).collect::<String>();
+            println!("tick {t}: differs from the saving machine's state\nthis run: {}\nsaved:    {}", cut(ours), cut(theirs));
         }
 
         /// C2: one machine's mashed doubles match, every tick's state hash written to `HST_HASH_TRACE` (one hex line
