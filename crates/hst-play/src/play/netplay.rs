@@ -208,7 +208,23 @@ pub struct Netplay {
     pub(super) intro: Option<Lockstep>,
     /// A peer gone silent: waiting, a bot taking over, a rejoin (B196).
     pub recover: super::recover::Recover,
+    /// B738: the last [`KEEP`] hashed ticks' state text and state, for a desync's report (the last in-sync state to
+    /// replay from, this machine's text at the bad tick).
+    pub(super) kept: BTreeMap<u32, (String, Kept)>,
+    /// B738: the peers' state texts for their bad tick (`Msg::Diverged`), by peer: (tick, text, all pieces in).
+    pub(super) theirs: BTreeMap<String, (u32, String, bool)>,
+    /// B738: the desync report's file and contents, written again as the peers' texts come in.
+    filed: Option<(std::path::PathBuf, serde_json::Value)>,
 }
+
+/// B738: a hashed tick's state as rollback keeps it: the snapshot and an instant replay's queue while one plays.
+pub(super) type Kept = std::sync::Arc<(snapshot::Snapshot, Option<Replay>)>;
+
+/// B738: how many hashed ticks' states a match keeps for its desync report (ggrs tells a desync a few checksums late).
+const KEEP: usize = 12;
+
+/// B738: a `Msg::Diverged` piece's length (bytes of state text; under a browser data channel's 256 KB as JSON).
+const TEXT_PIECE: usize = 96 << 10;
 
 impl Netplay {
     pub fn new(room: Room, me: String) -> Self {
@@ -234,6 +250,9 @@ impl Netplay {
             intro: None,
             resync: Default::default(),
             recover: super::recover::Recover::new(rejoin, others.into_iter()),
+            kept: BTreeMap::new(),
+            theirs: BTreeMap::new(),
+            filed: None,
         }
         .resuming()
     }
@@ -242,6 +261,14 @@ impl Netplay {
     fn resuming(mut self) -> Self {
         self.recover.hold |= self.room.resuming();
         self
+    }
+
+    /// B738: the state hashed before tick `t` (a rollback's re-run replaces it), the oldest beyond [`KEEP`] dropped.
+    pub(super) fn keep(&mut self, t: u32, text: String, state: Kept) {
+        self.kept.insert(t, (text, state));
+        while self.kept.len() > KEEP {
+            self.kept.pop_first();
+        }
     }
 
     /// The court intro's lockstep starts: the match's seats and delay.
@@ -275,7 +302,11 @@ impl Netplay {
 }
 
 /// Every seat's pads, every tick, and the line-up: written when hashes differ, once a match (later calls say where).
-fn save_desync(w: &mut World, why: &str) -> String {
+/// B738: with the last in-sync state (`snapshot::encode`, the newest kept before the bad tick `bad`) and its tick and
+/// hash, this machine's state text at the bad tick, and the peers' as they send theirs (each machine sends its own
+/// here, `Msg::Diverged`), so `replays_a_desync` runs the pads on from the in-sync state and names the first field
+/// the machines' states differ in.
+fn save_desync(w: &mut World, why: &str, bad: Option<u32>) -> String {
     if let Some(at) = &w.resource::<Netplay>().report {
         return at.clone();
     }
@@ -293,17 +324,102 @@ fn save_desync(w: &mut World, why: &str) -> String {
         crate::net::Online::path(&iso).with_file_name(format!("desync-{unix}-{me}.json"))
     };
     let pads: Vec<[[u8; 6]; 4]> = np.lock.log.iter().map(|t| t.map(wire)).collect();
-    let json = serde_json::json!({ "why": why, "room": np.room, "me": np.me, "pads": pads, "state_tick": np.state.0, "state": np.state.1 });
+    // the bad tick's state (else the last hashed) and the newest kept before it
+    let state = bad.and_then(|t| np.kept.get(&t).map(|k| (t, k.0.clone()))).unwrap_or_else(|| np.state.clone());
+    let before = np.kept.range(..bad.unwrap_or(u32::MAX)).next_back().map(|(&t, k)| (t, snapshot::fnv(&k.0), k.1.clone()));
+    let mut json = serde_json::json!({ "why": why, "room": np.room, "me": np.me, "pads": pads, "state_tick": state.0, "state": state.1 });
+    let from = np.me.clone();
+    if let Some((t, hash, kept)) = before {
+        let data = encode_kept(w, &kept);
+        json["snapshot_tick"] = t.into();
+        json["snapshot_hash"] = format!("{hash:016x}").into();
+        json["snapshot"] = hex(&data).into();
+    }
+    // the peers hear this machine's text for the bad tick, in pieces
+    let mut np = w.resource_mut::<Netplay>();
+    let pieces = text_pieces(&state.1);
+    let n = pieces.len();
+    np.out.extend(pieces.into_iter().enumerate().map(|(i, text)| Msg::Diverged { from: from.clone(), tick: state.0, text, last: i + 1 == n }));
+    json["peers"] = peers_json(&np.theirs);
+    let at = write_report(&path, &json);
+    np.report = Some(at.clone());
+    np.filed = Some((path, json));
+    at
+}
+
+/// B738: `text` in [`TEXT_PIECE`]-byte pieces cut at character boundaries (one, maybe empty, at least).
+fn text_pieces(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    loop {
+        let mut cut = rest.len().min(TEXT_PIECE);
+        while !rest.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        out.push(rest[..cut].to_string());
+        rest = &rest[cut..];
+        if rest.is_empty() {
+            return out;
+        }
+    }
+}
+
+/// B738: the peers' complete texts for the report: `{peer: {"tick": t, "state": text}}`.
+fn peers_json(theirs: &BTreeMap<String, (u32, String, bool)>) -> serde_json::Value {
+    theirs.iter().filter(|p| p.1.2).map(|(peer, (t, text, _))| (peer.clone(), serde_json::json!({ "tick": t, "state": text }))).collect::<serde_json::Map<_, _>>().into()
+}
+
+/// The report's JSON to `path` (in the browser a download of that name): where it went, or why it didn't.
+fn write_report(path: &std::path::Path, json: &serde_json::Value) -> String {
     #[cfg(target_arch = "wasm32")]
     let saved = crate::web::save_file(&path.file_name().unwrap().to_string_lossy(), &json.to_string());
     #[cfg(not(target_arch = "wasm32"))]
-    let saved = std::fs::write(&path, json.to_string()).map(|()| path.display().to_string());
-    let at = match saved {
+    let saved = std::fs::write(path, json.to_string()).map(|()| path.display().to_string());
+    match saved {
         Ok(at) => at,
         Err(e) => format!("(not saved: {e})"),
-    };
-    w.resource_mut::<Netplay>().report = Some(at.clone());
-    at
+    }
+}
+
+/// B738: a piece of a peer's state text for its bad tick; once all are in, the report (if saved) is written again
+/// with it (in the browser a second download).
+fn heard_text(w: &mut World, from: String, tick: u32, text: String, last: bool) {
+    let mut np = w.resource_mut::<Netplay>();
+    let have = np.theirs.entry(from).or_insert((tick, String::new(), false));
+    if have.0 != tick || have.2 {
+        *have = (tick, String::new(), false);
+    }
+    have.1.push_str(&text);
+    have.2 = last;
+    if !last {
+        return;
+    }
+    let peers = peers_json(&np.theirs);
+    if let Some((path, json)) = &mut np.filed {
+        json["peers"] = peers;
+        let at = write_report(path, json);
+        info!("online: a peer's state for the desync's tick added to {at}");
+    }
+}
+
+/// B738: a kept state as `snapshot::encode` bytes (the match is put back as it is now), as `rollback::confirmed`.
+fn encode_kept(w: &mut World, kept: &Kept) -> Vec<u8> {
+    let (now, queue) = (snapshot::save(w), w.get_resource::<Replay>().cloned());
+    snapshot::restore(w, &kept.0);
+    if let Some(q) = &kept.1 {
+        w.insert_resource(q.clone());
+    }
+    let data = snapshot::encode(w);
+    snapshot::restore(w, &now);
+    if let Some(q) = queue {
+        w.insert_resource(q);
+    }
+    data
+}
+
+/// Bytes as lowercase hex (the report's snapshot).
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 /// The states differ at tick `t`: logged every time, the first time also the report and a note on screen; the match
@@ -323,7 +439,7 @@ pub(super) fn desync(w: &mut World, (t, ours, theirs): (u32, u64, u64)) {
             return;
         }
     }
-    let path = save_desync(w, &why);
+    let path = save_desync(w, &why, Some(t));
     info!("online: inputs saved to {path}");
     let mut np = w.resource_mut::<Netplay>();
     np.desynced = !mended;
@@ -361,13 +477,14 @@ pub fn take(w: &mut World, e: Event) {
             front_end::set_paused(w, open);
         }
         Event::Datagram(from, data) => super::rollback::heard(w, from, &data),
+        Event::Match(_, Msg::Diverged { from, tick, text, last }) => heard_text(w, from, tick, text, last),
         Event::Match(_, m @ (Msg::State { .. } | Msg::Resynced(_))) => super::resync::heard(&mut np, m),
         // B279: the host left the result screen: its lobby once this machine leaves it too (`again`)
         Event::Match(_, Msg::Lobby(room)) if over => np.recover.lobby = Some(room),
         Event::Match(_, m @ (Msg::Away { .. } | Msg::Choose(_) | Msg::Restart { .. } | Msg::Rejoined { .. } | Msg::Lobby(_))) => super::recover::heard(&mut np, m),
         Event::Match(_, Msg::Bye(why)) | Event::Dropped(why) => {
             if why.starts_with(DESYNC) && np.end.is_none() {
-                let path = save_desync(w, &why);
+                let path = save_desync(w, &why, None);
                 w.resource_mut::<Netplay>().finish(format!("{why}\nInputs saved to {path}"), false);
             } else if why.contains("The match is over") {
                 np.finish(why, false);
@@ -454,7 +571,9 @@ pub fn gate(w: &mut World) -> bool {
         if t % (HASH_EVERY * 60) == 0 {
             info!("online tick {t}: hash {h:016x}");
         }
+        let kept = std::sync::Arc::new((snapshot::save(w), super::instant_replay::playing(w).then(|| w.get_resource::<Replay>().cloned()).flatten()));
         let mut np = w.resource_mut::<Netplay>();
+        np.keep(t, text.clone(), kept);
         np.state = (t, text);
         np.out.push(Msg::Hash { tick: t, hash: h });
         if let Some(bad) = np.lock.own_hash(t, h) {
@@ -811,6 +930,16 @@ mod tests {
 
     fn pad(b: u16) -> Pad {
         Pad { buttons: b, ..IDLE }
+    }
+
+    /// B738: a state text goes to the peers in pieces under the piece size, cut between characters, that join back.
+    #[test]
+    fn a_state_text_goes_in_pieces_that_join_back() {
+        let text: String = "é→x".repeat(super::TEXT_PIECE / 2);
+        let pieces = super::text_pieces(&text);
+        assert!(pieces.len() > 2 && pieces.iter().all(|p| p.len() <= super::TEXT_PIECE && !p.is_empty()));
+        assert_eq!(pieces.concat(), text);
+        assert_eq!(super::text_pieces(""), [""]);
     }
 
     /// B736: an on-screen pad on 1P and a controller on 2P, both held near full tilt with a thumb's wobble (two
@@ -1447,6 +1576,21 @@ mod tests {
                 println!("mod {}: looks {}", w.id, got.as_ref().map_or("(the donor stands in)".into(), |d| d.display().to_string()));
                 got
             };
+            // B738: the machines' states at the bad tick side by side, and a run on from the last in-sync state
+            machines_differ(&saved);
+            if saved.get("snapshot").is_some() && std::env::var("HST_DESYNC_RERUN").is_err() {
+                let mut a = from_snapshot(&saved, &room, Some(&looks));
+                let ours = replay_from(&mut a, &saved, &room, &pads, true);
+                let peers = saved["peers"].as_object().cloned().unwrap_or_default();
+                if let Some(ours) = ours {
+                    report_state(&ours, &theirs, at.unwrap_or(0));
+                    for (peer, p) in &peers {
+                        println!("against {peer}'s state:");
+                        report_state(&ours, p["state"].as_str().unwrap_or_default(), p["tick"].as_u64().unwrap_or(0) as usize);
+                    }
+                }
+                return;
+            }
             // the match's start as the saving machine logged it (`rollback tick 0: hash …` in `hst-log.txt` beside
             // the file): the setup's cloud draws are the count that starts the same (`HST_DESYNC_CLOUDS` sets it)
             let log = std::fs::read_to_string(path.with_file_name("hst-log.txt")).unwrap_or_default();
@@ -1569,6 +1713,137 @@ mod tests {
                 tick(w, pad(t), last(t));
             }
             println!("{} ticks, each rolled back from {n} guessed: every state alike", pads.len());
+        }
+
+        /// B738: the desync report's machines' states at the bad tick (the saving machine's, each peer's that came in):
+        /// where they first differ, by field.
+        fn machines_differ(saved: &serde_json::Value) {
+            let (me, mine) = (saved["me"].as_str().unwrap_or("this machine"), saved["state"].as_str().unwrap_or_default());
+            let peers = saved["peers"].as_object().cloned().unwrap_or_default();
+            if peers.is_empty() {
+                println!("no peer's state in the report (saved before B738, or the peer's text never came)");
+            }
+            for (peer, p) in &peers {
+                let theirs = p["state"].as_str().unwrap_or_default();
+                let (t, u) = (saved["state_tick"].as_u64().unwrap_or(0), p["tick"].as_u64().unwrap_or(0));
+                match first_difference(mine, theirs) {
+                    None => println!("tick {t}: {me}'s state and {peer}'s (tick {u}) are the same"),
+                    Some((field, at)) => {
+                        let from = mine[..at].char_indices().rev().nth(200).map_or(0, |(i, _)| i);
+                        let cut = |s: &str| s.get(from..).unwrap_or_default().chars().take(400).collect::<String>();
+                        println!("tick {t}: {me} and {peer} (tick {u}) first differ at `{field}` (byte {at})\n{me}: {}\n{peer}: {}", cut(mine), cut(theirs));
+                    }
+                }
+            }
+        }
+
+        /// B738: where two state texts first differ: the field's path (`ball.pos`, from the `Debug` text's
+        /// `name: ` keys and their nesting) and the byte; `None` if they're the same.
+        fn first_difference(a: &str, b: &str) -> Option<(String, usize)> {
+            if a == b {
+                return None;
+            }
+            let at = a.bytes().zip(b.bytes()).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
+            let (mut stack, mut key, mut word) = (Vec::<String>::new(), String::new(), String::new());
+            let mut chars = a[..at].chars().peekable();
+            while let Some(c) = chars.next() {
+                match c {
+                    '"' => {
+                        // a string's insides aren't structure
+                        let mut esc = false;
+                        for c in chars.by_ref() {
+                            if !esc && c == '"' {
+                                break;
+                            }
+                            esc = !esc && c == '\\';
+                        }
+                        word.clear();
+                    }
+                    c if c.is_alphanumeric() || c == '_' => word.push(c),
+                    ':' if chars.peek() == Some(&' ') && !word.is_empty() => key = std::mem::take(&mut word),
+                    '{' | '[' | '(' => {
+                        stack.push(std::mem::take(&mut key));
+                        word.clear();
+                    }
+                    '}' | ']' | ')' => {
+                        key = stack.pop().unwrap_or_default();
+                        word.clear();
+                    }
+                    _ => word.clear(),
+                }
+            }
+            let path: Vec<&str> = stack.iter().chain([&key]).filter(|k| !k.is_empty()).map(String::as_str).collect();
+            Some((path.join("."), at))
+        }
+
+        /// B738: a match for the report's room with the report's last in-sync state put in (`snapshot::decode`; the
+        /// per-match constants are this one's own), its hash checked against the saving machine's.
+        fn from_snapshot(saved: &serde_json::Value, room: &Room, looks: Option<Looks>) -> App {
+            let t = saved["snapshot_tick"].as_u64().expect("the snapshot's tick");
+            let hex = saved["snapshot"].as_str().expect("the snapshot");
+            let data: Vec<u8> = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect();
+            let mut a = app_in(room, "replay", looks);
+            a.world_mut().remove_resource::<Netplay>();
+            super::super::snapshot::decode(a.world_mut(), &data).expect("the snapshot loads");
+            let h = super::super::snapshot::fnv(&super::super::snapshot::state_text(a.world_mut()));
+            let logged = saved["snapshot_hash"].as_str().unwrap_or_default();
+            println!("tick {t}: the saved in-sync state put in, hash {h:016x} (the saving machine's {logged})");
+            assert_eq!(format!("{h:016x}"), logged, "the snapshot doesn't hash as it did on the saving machine");
+            a
+        }
+
+        /// B738: the report's pads from its snapshot's tick to its bad tick (`state_tick`) as the room's ticks run
+        /// them (lockstep's `run_on`, rollback's `handle`), the hash every 30 ticks if `say`: the state text there
+        /// (`None` if the pads end first).
+        fn replay_from(a: &mut App, saved: &serde_json::Value, room: &Room, pads: &[[[u8; 6]; 4]], say: bool) -> Option<String> {
+            let (from, to) = (saved["snapshot_tick"].as_u64().unwrap() as usize, saved["state_tick"].as_u64().unwrap() as usize);
+            let pad = |t: usize| pads[t].map(unwire);
+            for t in from..=to {
+                let w = a.world_mut();
+                if say && t % 30 == 0 {
+                    println!("tick {t}: {:016x}", super::super::snapshot::state_hash(w));
+                }
+                if t == to {
+                    return Some(super::super::snapshot::state_text(w));
+                }
+                let (now, last) = (*pads.get(t)?, t.checked_sub(1).map_or([tick_input::IDLE; 4], pad));
+                let now = now.map(unwire);
+                if room.lockstep {
+                    run_on(w, now, last);
+                } else if instant_replay::playing(w) {
+                    let mut p = w.resource_mut::<Pads>();
+                    for s in 0..4 {
+                        p.slots[s] = tick_input::decode(now[s], last[s]);
+                    }
+                } else {
+                    w.insert_resource(tick_input::Replay([now].into()));
+                }
+                w.run_schedule(FixedUpdate);
+            }
+            None
+        }
+
+        /// B738: a desync report has the last in-sync state, the peer's state at the bad tick beside its own, and
+        /// the pads from that state reach the in-sync machine's (the host's) state at the bad tick, not the nudged
+        /// guest's; the first difference between the machines is named.
+        fn report_replays(path: &str) {
+            let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).expect("saved")).unwrap();
+            let room: Room = serde_json::from_value(saved["room"].clone()).unwrap();
+            let pads: Vec<[[u8; 6]; 4]> = serde_json::from_value(saved["pads"].clone()).unwrap();
+            let me = saved["me"].as_str().unwrap();
+            let peer = if me == "host" { "g" } else { "host" };
+            let (t, s) = (saved["state_tick"].as_u64().unwrap(), saved["snapshot_tick"].as_u64().expect("the snapshot's tick"));
+            assert!(s < t && t - s <= super::super::HASH_EVERY as u64 * super::super::KEEP as u64, "{me}: snapshot at {s}, bad tick {t}");
+            let theirs = &saved["peers"][peer];
+            assert_eq!(theirs["tick"].as_u64(), Some(t), "{me}: {peer}'s state's tick");
+            let (mine, theirs) = (saved["state"].as_str().unwrap(), theirs["state"].as_str().unwrap());
+            let (field, _) = first_difference(mine, theirs).expect("the machines' states differ");
+            eprintln!("{me}: tick {t}, the machines first differ at `{field}`, snapshot {s}");
+            machines_differ(&saved);
+            let mut a = from_snapshot(&saved, &room, None);
+            let ran = replay_from(&mut a, &saved, &room, &pads, false).expect("the pads reach the bad tick");
+            let host = if me == "host" { mine } else { theirs };
+            assert!(ran == host, "{me}: replayed from tick {s}, differs from the host's state at {t}: {:?}", first_difference(&ran, host));
         }
 
         /// `replays_a_desync`'s verdict at tick `t`: this run's state `ours` against the saving machine's `theirs`.
@@ -2102,7 +2377,9 @@ mod tests {
             // ggrs compares the confirmed ticks' checksums: none differ after the resync (`reported`)
             let apps = play_rollback(5, 900, true);
             for a in &apps {
-                std::fs::remove_file(reported(a, 330)).expect("saved");
+                let path = reported(a, 330);
+                report_replays(&path);
+                std::fs::remove_file(path).expect("saved");
             }
         }
 

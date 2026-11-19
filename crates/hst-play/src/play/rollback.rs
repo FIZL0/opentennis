@@ -349,6 +349,7 @@ fn stats(w: &mut World) {
 fn save(w: &mut World, cell: ggrs::GameStateCell<Arc<(snapshot::Snapshot, Option<Replay>)>>, frame: i32, every: i32) {
     let s = snapshot::save(w);
     let queue = super::instant_replay::playing(w).then(|| w.get_resource::<Replay>().cloned()).flatten();
+    let state = Arc::new((s, queue));
     let hash = (frame % every == 0).then(|| {
         let text = snapshot::state_text(w);
         let h = snapshot::fnv(&text);
@@ -372,6 +373,7 @@ fn save(w: &mut World, cell: ggrs::GameStateCell<Arc<(snapshot::Snapshot, Option
         }
         let base = w.get_resource::<Rollback>().map_or(0, |rb| rb.base) as u32;
         if let Some(mut np) = w.get_resource_mut::<Netplay>() {
+            np.keep(base + frame as u32, text.clone(), state.clone());
             np.state = (base + frame as u32, text);
         }
         h as u128
@@ -380,7 +382,7 @@ fn save(w: &mut World, cell: ggrs::GameStateCell<Arc<(snapshot::Snapshot, Option
         let n = rb.cells.len();
         rb.cells[frame as usize % n] = Some((frame, cell.clone()));
     }
-    cell.save(frame, Some(Arc::new((s, queue))), hash);
+    cell.save(frame, Some(state), hash);
 }
 
 /// The host after a desync (B154b): the state at the last tick every seat's pads are in for goes out.

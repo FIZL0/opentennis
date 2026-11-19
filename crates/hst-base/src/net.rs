@@ -964,6 +964,10 @@ pub enum Msg {
     Team(u8),
     /// M122: a guest is downloading a mod's looks, this far (percent), or not any more (`Room::fetching`).
     Fetching(Option<u8>),
+    /// B738: after a desync, a piece of this machine's state text (`snapshot::state_text`) for the bad tick, so each
+    /// machine's desync report holds both; the pieces of one text go in order, `last` on the final one. `from`: the
+    /// sending machine's peer name (the host relays a guest's to the others).
+    Diverged { from: String, tick: u32, text: String, last: bool },
 }
 
 impl Msg {
@@ -971,7 +975,7 @@ impl Msg {
     fn in_match(&self) -> bool {
         matches!(
             self,
-            Msg::Pads { .. } | Msg::Intro { .. } | Msg::Hash { .. } | Msg::Pause(_) | Msg::Bye(_) | Msg::State { .. } | Msg::Resynced(_) | Msg::Alive(_) | Msg::Away { .. } | Msg::Choose(_) | Msg::Restart { .. } | Msg::Lobby(_) | Msg::Loaded(_) | Msg::Hidden(_)
+            Msg::Pads { .. } | Msg::Intro { .. } | Msg::Hash { .. } | Msg::Pause(_) | Msg::Bye(_) | Msg::State { .. } | Msg::Resynced(_) | Msg::Alive(_) | Msg::Away { .. } | Msg::Choose(_) | Msg::Restart { .. } | Msg::Lobby(_) | Msg::Loaded(_) | Msg::Hidden(_) | Msg::Diverged { .. }
         )
     }
 }
