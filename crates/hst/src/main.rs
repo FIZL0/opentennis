@@ -329,7 +329,11 @@ fn main() {
     // M170: a 50 Hz disc's shot tables read at 60 Hz
     hst_sim::shot::regen::install();
     #[cfg(target_os = "ios")]
-    ios::log_to_documents(&disc::data_dir());
+    {
+        ios::log_to_documents(&disc::data_dir());
+        // as on Android: files kept by bare name (saves/, the store's) go in Documents, not `/` (read-only)
+        let _ = std::env::set_current_dir(disc::data_dir());
+    }
     // B693: debug.txt's switches for the mod heads on iOS, the Metal one before the renderer starts
     mod_debug::start();
     // `hst net …`: the lobby flow in a terminal (`net::cli`)
