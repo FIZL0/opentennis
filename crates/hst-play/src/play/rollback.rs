@@ -573,6 +573,9 @@ fn advance(w: &mut World) -> bool {
         let mut pads = w.resource_mut::<Pads>();
         handles.iter().map(|&h| tick_input::take(&mut pads.slots[seats[h]])).collect()
     };
+    // B736: on-screen sticks rounded
+    let mine: Vec<usize> = handles.iter().map(|&h| seats[h]).collect();
+    super::netplay::round_touch(w, &mine, &mut local);
     let mut np = w.resource_mut::<Netplay>();
     if np.mash.is_some() {
         np.lock.tick = frame.max(0) as u32;

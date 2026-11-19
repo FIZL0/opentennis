@@ -468,6 +468,7 @@ pub fn gate(w: &mut World) -> bool {
         let mut pads = w.resource_mut::<Pads>();
         mine.iter().map(|&s| tick_input::take(&mut pads.slots[s])).collect()
     };
+    round_touch(w, &mine, &mut local);
     let mut np = w.resource_mut::<Netplay>();
     if np.mash.is_some() {
         local = mine.iter().map(|&s| np.mashed(s)).collect();
@@ -480,6 +481,31 @@ pub fn gate(w: &mut World) -> bool {
     run_on(w, now, last);
     pump(w);
     true
+}
+
+/// B736: each on-screen stick's rounding, by seat (`device::TouchStick`).
+#[derive(Resource, Default)]
+struct TouchSticks([hst_base::device::TouchStick; 4]);
+
+/// B736: this machine's seats' pads (`seats`, `pads` in step) with an on-screen stick's axes rounded, before the
+/// match uses them or they go out: a thumb's jitter changed the stick nearly every tick, and every change is a
+/// rollback guess gone wrong. A seat on a controller or the keyboard is left as it is.
+pub(super) fn round_touch(w: &mut World, seats: &[usize], pads: &mut [Pad]) {
+    let tilts: Vec<Option<Vec2>> = seats.iter().map(|&s| touch_tilt(w, s)).collect();
+    let mut sticks = w.get_resource_or_insert_with(TouchSticks::default);
+    for ((&s, p), tilt) in seats.iter().zip(pads).zip(tilts) {
+        match tilt {
+            Some(t) => (p.lx, p.ly) = sticks.0[s].round(t),
+            None => sticks.0[s] = Default::default(),
+        }
+    }
+}
+
+/// Seat `s`'s on-screen stick's tilt, if an on-screen pad drives it (its device sits in the slot of the same number).
+fn touch_tilt(w: &World, s: usize) -> Option<Vec2> {
+    let e = w.get_resource::<super::controls::PadSlots>()?.0.get(s).copied().flatten()?;
+    let named = w.get::<Name>(e).is_some_and(|n| super::emote::is_touch(n));
+    named.then(|| w.get::<Gamepad>(e).map(|g| g.left_stick())).flatten()
 }
 
 /// The court intro's next tick in lockstep (B42e), this machine's seats pressing ✕ if `skip`: `None` while a seat's
@@ -785,6 +811,49 @@ mod tests {
 
     fn pad(b: u16) -> Pad {
         Pad { buttons: b, ..IDLE }
+    }
+
+    /// B736: an on-screen pad on 1P and a controller on 2P, both held near full tilt with a thumb's wobble (two
+    /// pixels of a 60 px reach every tick), then turned a quarter: the on-screen seat's pad changes only a handful of
+    /// times in 600 ticks (each change a rollback guess gone wrong and its ticks re-run, every tick before), the
+    /// controller's is left as it was, and the buttons pass through.
+    #[test]
+    fn a_jittery_touch_stick_changes_its_pad_rarely() {
+        let mut w = World::new();
+        let mut spawn = |name: &str| w.spawn((Gamepad::default(), Name::new(name.to_string()))).id();
+        let (touch, xbox) = (spawn("Touch controls (iPhone)"), spawn("Xbox Controller"));
+        w.insert_resource(super::super::controls::PadSlots([Some(touch), Some(xbox), None, None], None));
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        let mut noise = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % 2001) as f32 / 1000.0 - 1.0
+        };
+        let byte = |v: f32| hst_sim::player::pad_deadzone(super::super::stick_byte(v));
+        let mut changes = [0; 2];
+        let mut last = [IDLE; 2];
+        for t in 0..600 {
+            let a = if t < 400 { 0.0 } else { (t - 400).min(180) as f32 / 180.0 * std::f32::consts::FRAC_PI_2 };
+            let tilt = Vec2::from_angle(a) * 0.95 + Vec2::new(noise(), noise()) / 30.0;
+            for e in [touch, xbox] {
+                let mut g = w.get_mut::<Gamepad>(e).unwrap();
+                g.analog_mut().set(bevy::input::gamepad::GamepadInput::Axis(GamepadAxis::LeftStickX), tilt.x);
+                g.analog_mut().set(bevy::input::gamepad::GamepadInput::Axis(GamepadAxis::LeftStickY), tilt.y);
+            }
+            let raw = Pad { buttons: 0x2000, lx: byte(tilt.x), ly: byte(-tilt.y), ..IDLE };
+            let mut pads = [raw; 2];
+            round_touch(&mut w, &[0, 1], &mut pads);
+            assert_eq!(pads[1], raw);
+            assert_eq!(pads[0].buttons, 0x2000);
+            for s in 0..2 {
+                changes[s] += (pads[s] != last[s]) as u32;
+            }
+            last = pads;
+        }
+        assert!(changes[0] <= 10 && changes[1] > 400, "{changes:?}");
+        // pointing up at the end
+        assert!(last[0].lx == 0x80 && last[0].ly <= 0x10, "{:?}", last[0]);
     }
 
     /// Two machines, 2 seats each, a link `lag` ticks long: both run the same pads, every tick, in order.
