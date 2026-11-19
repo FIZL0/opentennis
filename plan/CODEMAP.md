@@ -99,7 +99,8 @@ the front-end into its `play` module (`mod play { pub use hst_play::play::*; pub
   `word_label.rs` word.tm2 labels (`FONT`), `legend.rs` the key legend's types and drawing, `front_end.rs` the hooks
   above · `play/fifty_hz.rs` the European disc at 50 Hz: motions/paths retimed to `Build::motion_rate`, umpire
   voice ticks, the 50 Hz bot-match test (`EU_DISC` lock for European-disc tests) · `play/dive_ik.rs` a contact dive's arm
-  solve (`pose::DiveIk`) into `Player::arm`/`racket` · `mode.rs` mode switches/teardown · `preload.rs` · `stage.rs` court models/layout/sky (from main.rs)
+  solve (`pose::DiveIk`) into `Player::arm`/`racket` · `play/save_game.rs` match saves (M193): setup + point-start
+  state (`PointStart`, `capture`/`resume`), `Saves` (data dir `saves/`, one per line-up+mode, newest 5), `Head::check` · `mode.rs` mode switches/teardown · `preload.rs` · `stage.rs` court models/layout/sky (from main.rs)
 
 
 ## hst

@@ -118,6 +118,7 @@ mod court_load;
 mod carts;
 mod serve_retime;
 mod fifty_hz;
+pub mod save_game;
 pub use hst_base::widescreen;
 
 /// The original's default exhibition: one set to 4 games, deuce on.
@@ -687,6 +688,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(key_hints::plugin);
     app.add_plugins(umpire_mod::plugin);
     app.add_plugins(no_hud::plugin);
+    app.add_plugins(save_game::plugin);
     #[cfg(target_arch = "wasm32")]
     app.add_systems(Last, |g: Option<Res<Game>>| crate::web::in_match(g.is_some()));
     // M176: the match's ticks a second (`--match-hz`: 60, or 50 for the European original)
