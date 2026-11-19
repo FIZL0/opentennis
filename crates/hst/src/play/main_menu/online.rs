@@ -467,7 +467,12 @@ impl Menu {
         if self.net.hosting && room.is_some() {
             let seats = (0..n).map(Item::Seat);
             let lan = self.lan_host();
-            seats.chain(lobby::SIDE).chain(with_chat(&HOST_BUTTONS)).map(|it| if lan && it == Item::Button("Public") { Item::Button("Paste") } else { it }).collect()
+            let mut items: Vec<Item> = seats.chain(lobby::SIDE).chain(with_chat(&HOST_BUTTONS)).map(|it| if lan && it == Item::Button("Public") { Item::Button("Paste") } else { it }).collect();
+            // M197: an unfinished match's Resume / New match picker leads the bottom bar, before Start
+            if room.is_some_and(|r| r.resume.is_some()) {
+                items.insert(items.len() - 1, Item::Button("Match"));
+            }
+            items
         } else if room.is_some() && !self.net.started && !self.net.pick_next {
             (0..n).filter(|&i| self.mine(i)).map(Item::Seat).chain(with_chat(&GUEST_BUTTONS)).collect()
         } else if !self.net.hosting && crate::net::rtc::is_answer(&self.net.code) {
@@ -729,9 +734,16 @@ impl Menu {
             Item::Button("Public") if self.net.room.as_ref().is_some_and(|r| r.private) => "Make Public",
             Item::Button("Public") => "Make Private",
             Item::Button("Paste") => "Paste",
+            Item::Button("Match") if self.net.room.as_ref().is_some_and(|r| r.resuming()) => "New Match",
+            Item::Button("Match") => "Resume",
             Item::Button(b @ ("Start" | "Ready" | "Leave")) => b,
             Item::Button(_) => return None,
         })
+    }
+
+    /// M197: item `item` can't change while the lobby resumes a saved match: the seats and the settings are its.
+    fn resume_locked(&self, item: Item) -> bool {
+        self.net.room.as_ref().is_some_and(|r| r.resuming()) && matches!(item, Item::Seat(_) | Item::Set(_) | Item::Mode)
     }
 
     /// B215: the start's countdown, seconds left (0: none).
@@ -1348,7 +1360,7 @@ impl Menu {
         };
         let rects = self.lobby_rects();
         // B449: a tap on a value's ‹ › halves (✕ with ← or →): back or on
-        if let (Some(&Item::Set(i @ 2..)), true) = (items.get(self.sel), k.ok && (k.left || k.right)) {
+        if let (Some(&Item::Set(i @ 2..)), true) = (items.get(self.sel), k.ok && (k.left || k.right) && !self.resume_locked(Item::Set(2))) {
             return self.change_setting(i, if k.right { 1 } else { -1 }, out);
         }
         // B449: the host's □ switches singles / doubles; Start starts
@@ -1422,6 +1434,9 @@ impl Menu {
         } else if (k.back || (k.ok && item == Item::Button("Leave"))) && !self.ask_leave(out) {
             self.chars_back(out);
         } else if !k.ok {
+        } else if self.resume_locked(item) {
+            // M197: resuming, the line-up and the settings are the save's
+            out.push(Sound(1));
         } else if let Item::Seat(i) = item {
             if self.movable(i) {
                 // B523: the host picks up another player's card, to put it down on another
@@ -1471,6 +1486,20 @@ impl Menu {
             // B215: stop the countdown for everyone (M161: or the wait for the downloads)
             self.net.status.clear();
             out.extend([Sound(1), Effect::Online(Fx::Net(Cmd::Cancel))]);
+        } else if item == Item::Button("Match") {
+            // M197: Resume the saved match or a New match (the host's own court and rules again)
+            let on = self.net.room.as_ref().is_some_and(|r| r.resuming());
+            out.extend([Sound(2), Effect::Online(Fx::Net(Cmd::ResumeOn(!on)))]);
+            if on {
+                let (court, umpire) = self.venue();
+                out.extend([Effect::Online(Fx::Net(Cmd::Venue(court, self.sets, self.games, umpire))), self.umpire_mod_fx()]);
+                out.push(Effect::Online(Fx::Net(Cmd::CourtMod(self.court_mod_wire()))));
+                out.push(Effect::Online(Fx::Net(Cmd::RandomCourt(self.court == super::COURTS))));
+                out.push(Effect::Online(Fx::Net(Cmd::NoMarks(self.no_marks))));
+            }
+        } else if item == Item::Button("Start") && self.net.room.as_ref().is_some_and(|r| r.resuming() && !r.resume_ready()) {
+            // M197: a resume starts only with every saved player back in their seat
+            out.push(Sound(1));
         } else if item == Item::Button("Start") {
             // B215: a countdown, ready or not
             self.start(out);
@@ -3059,6 +3088,16 @@ pub(super) fn sample(m: &mut Menu) {
         m.sel = m.items().iter().position(|it| *it == Item::Seat(1)).unwrap_or(0);
         m.ask_kick(1, &mut vec![]);
     }
+    // M197: ACE-42 dropped out of the match; back in the lobby the host resumes it, their seat held
+    if menu == "lobby-resume" || menu == "lobby-resume-new" {
+        let r = m.net.room.as_mut().unwrap();
+        r.picking.clear();
+        let saved = Box::new(r.clone());
+        r.seats[2] = None;
+        r.names.remove(peers[1]);
+        r.resume = Some(crate::net::Resume { chip: "3-5 · 40-40 · MAYA to serve".into(), score: "3-5".into(), on: menu == "lobby-resume", saved });
+        m.sel = m.items().iter().position(|it| *it == Item::Button("Match")).unwrap_or(0);
+    }
     m.net.short = "K7QX".into();
     // B519: friends can join (but the relay samples, its code still going up)
     m.net.joinable = !matches!(menu.as_str(), "chars-relay" | "lobby-relay");
@@ -3176,6 +3215,7 @@ fn launch(menu: &Menu, room: Room, me: String, gamepads: &Query<(Entity, &Gamepa
         }
     }
     info!("starting the online match: {}", flags.join(" "));
+    resume_from_save(&room, &me);
     let (base, kept) = (args.clone(), menu.clone());
     let (fetched, always) = (fetched(menu, &args.iso), menu.settings.keep_downloads == Ask::Always);
     commands.queue(move |w: &mut World| {
@@ -3199,6 +3239,7 @@ fn launch(menu: &Menu, room: Room, me: String, gamepads: &Query<(Entity, &Gamepa
                 } else if !fetched.is_empty() {
                     (m.net.keep, m.sel) = (fetched, 0);
                 }
+                offer_saved(&m, &net);
                 app.insert_resource(net).insert_resource(super::Kept(m));
             }
             crate::menu_mode(app);
@@ -3212,6 +3253,27 @@ fn launch(menu: &Menu, room: Room, me: String, gamepads: &Query<(Entity, &Gamepa
         }).early(move |w| crate::preload::mods(w, &iso, &early_mods)) };
         w.insert_resource(crate::mode::Next(Some(mode)));
     });
+}
+
+/// M197: back in the lobby after a drop, the host offers the match it saved going back (`netplay::SAVED`): Resume or
+/// New match.
+fn offer_saved(m: &Menu, net: &Net) {
+    if !m.net.hosting {
+        return;
+    }
+    if let Some((save, room)) = crate::play::netplay::SAVED.lock().unwrap().as_ref() {
+        net.send(Cmd::Resume(Some(crate::play::netplay::offer(save, room))));
+    }
+}
+
+/// M197: a match starting takes the host's saved match: a resumed one starts from it (`netplay::mode`), a new one
+/// leaves it behind.
+fn resume_from_save(room: &Room, me: &str) {
+    if me != "host" {
+        return;
+    }
+    let saved = crate::play::netplay::SAVED.lock().unwrap().take();
+    *crate::play::netplay::RESUME.lock().unwrap() = saved.filter(|_| room.resuming()).map(|(s, _)| s);
 }
 
 /// What Copy Link did with the text.
@@ -3241,6 +3303,10 @@ fn rejoin_seat(menu: &Menu, c: &Cmd) -> Option<u8> {
 /// Returns the sounds to play.
 pub(super) fn apply(fx: Fx, menu: &mut Menu, commands: &mut Commands, net: Option<&Net>, clipboard: &mut bevy::clipboard::Clipboard, iso: &str) -> Vec<u8> {
     let mut out = Vec::new();
+    // M197: this player's own id, which a join's hello carries
+    if matches!(fx, Fx::Net(_)) {
+        crate::net::player::load(iso);
+    }
     match fx {
         Fx::Net(c) => match net {
             Some(n) => {
@@ -4845,5 +4911,33 @@ mod tests {
         g.net.code = Sig { to: "abcd".into(), ..sig }.code(ANSWER);
         assert_eq!(g.items(), vec![Item::Button("Copy Link"), Item::Button("Leave")]);
         assert!(g.step(dev, ok).contains(&Effect::Online(Fx::Copy)));
+    }
+
+    /// M197: an unfinished match on offer: resuming, the settings and seats don't change and Start waits for the
+    /// dropped player; the Match picker's New match frees them, the host's own court and rules again.
+    #[test]
+    fn a_saved_match_is_resumed_or_not() {
+        let mut m = Menu { screen: Screen::Lobby, grid: super::super::Grid::fit(16.0 / 9.0), ..default() };
+        sample(&mut m);
+        let (dev, ok) = (super::super::Dev::Keys, Press { ok: true, ..default() });
+        let r = m.net.room.as_mut().unwrap();
+        r.picking.clear();
+        let saved = Box::new(r.clone());
+        r.seats[2] = None;
+        r.resume = Some(crate::net::Resume { chip: "3-5 · 40-40 · MAYA to serve".into(), score: "3-5".into(), on: true, saved });
+        let net = |fx: &[Effect]| fx.iter().filter_map(|e| if let Effect::Online(Fx::Net(c)) = e { Some(c.clone()) } else { None }).collect::<Vec<_>>();
+        let at = |m: &Menu, it: Item| m.items().iter().position(|x| *x == it).unwrap();
+        for it in [Item::Set(2), Item::Set(0), Item::Seat(1), Item::Button("Start")] {
+            m.sel = at(&m, it);
+            let fx = m.step(dev, ok);
+            assert!(net(&fx).iter().all(|c| !matches!(c, Cmd::Start | Cmd::Venue(..))) && m.screen == Screen::Lobby, "{it:?}: {fx:?}");
+        }
+        m.sel = at(&m, Item::Button("Match"));
+        assert_eq!(m.lobby_ok(), Some("New Match"));
+        let sent = net(&m.step(dev, ok));
+        assert!(matches!(sent[..], [Cmd::ResumeOn(false), Cmd::Venue(..), ..]), "{sent:?}");
+        m.net.room.as_mut().unwrap().resume.as_mut().unwrap().on = false;
+        assert_eq!(m.lobby_ok(), Some("Resume"));
+        assert_eq!(net(&m.step(dev, ok)), vec![Cmd::ResumeOn(true)]);
     }
 }
