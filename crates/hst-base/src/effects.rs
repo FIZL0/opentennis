@@ -1059,6 +1059,11 @@ impl LandingMarks {
         [&self.red.1, &self.smash.1]
     }
 
+    /// The red marker's root entity (B735: a rollback's correction moves it where it's drawn).
+    pub fn red_root(&self) -> Entity {
+        self.red.1.root
+    }
+
     /// One game frame: `start_smash` (the first smash point was just found) restarts the yellow marker's play.
     pub fn tick(&mut self, start_smash: bool) {
         if self.red_at.is_some() {

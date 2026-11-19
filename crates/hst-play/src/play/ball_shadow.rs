@@ -93,6 +93,7 @@ fn place(
     g: Res<Game>,
     own: Option<Res<super::own_camera::OwnCam>>,
     time: Res<Time<Fixed>>,
+    smooth: Option<Res<super::smooth::Smooth>>,
     world: Option<Res<crate::shade::Shade>>,
     mut balls: Query<(&BallView, &mut Transform), Without<Outline>>,
     mut outlines: Query<(&mut Transform, &Children), With<Outline>>,
@@ -107,7 +108,10 @@ fn place(
         [p.x, p.y, p.z, 1.0]
     };
     let (v0, view) = super::own_camera::shown(&g, own.as_deref());
+    // B735: the drawn ball, a rollback's correction gliding out
+    let off = smooth.map_or([0.0; 3], |s| s.ball.to_array());
     let (pos, eye) = (mix(g.prev_ball, g.flight.ball.pos), mix(v0.eye, view.eye));
+    let pos = [pos[0] + off[0], pos[1] + off[1], pos[2] + off[2], 1.0];
     let [dx, dy, dz] = view.rot[1];
     // split, each half's ball size and disc go by its own camera (from the other end the shared camera's disc shows
     // its back, culled; and a half's widened lens shows the ball smaller)

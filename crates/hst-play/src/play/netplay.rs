@@ -1809,6 +1809,101 @@ mod tests {
             assert!(!a.desynced && !b.desynced);
         }
 
+        /// B735: what each machine draws for the ball, before (the match's own ball) and with rollback corrections
+        /// gliding (`smooth`), against where it really was (the same pads on one machine), `lag` ticks each way
+        /// (`EXP_LAG`, 9) over `EXP_ROUNDS` frames: frames drawn off, separate warps, frames that jump over 25 cm past
+        /// the ball's true move and the worst of those short of a snap, and snaps (3 m or more). This machine's own players are never moved.
+        fn drawn_ball_corrections(lag: u32, rounds: u32) -> [[(u32, u32, u32, f32, u32); 2]; 2] {
+            use super::super::super::smooth::{Smooth, fade};
+            REPLAYS.set(false);
+            let mut room = room(0);
+            room.games = 2;
+            // per machine, per drawn tick (its first frame): the match's ball and the drawn one
+            let mut shown: [std::collections::BTreeMap<usize, ([f32; 3], [f32; 3])>; 2] = Default::default();
+            let apps = play_rollback_in(room.clone(), lag, rounds, false, 0..0, |_, apps| {
+                for i in 0..2 {
+                    let w = apps[i].world_mut();
+                    let own = w.resource::<Rollback>().local_seats();
+                    let mut s = w.get_resource_or_init::<Smooth>().clone();
+                    let n = w.resource::<Game>().players.len();
+                    for (p, d) in s.players.iter().enumerate().take(n) {
+                        let seat = if n == 4 { [0, 2, 1, 3][p] } else { p };
+                        assert!(!own.contains(&seat) || *d == Vec3::ZERO, "machine {i}'s own player {p} moved by {d}");
+                    }
+                    let f = w.resource::<Rollback>().frame();
+                    let pos = w.resource::<Game>().flight.ball.pos;
+                    shown[i].entry(f).or_insert((pos, s.ball_at(pos)));
+                    fade(&mut s, 1.0 / 60.0);
+                    w.insert_resource(s);
+                }
+            });
+            let log = apps[0].world().resource::<Netplay>().lock.log.clone();
+            let n = log.len() - rollback::WINDOW;
+            let mut a = app(&room, "replay");
+            a.world_mut().remove_resource::<Netplay>();
+            let mut truth = Vec::new();
+            for (t, &p) in log[..n].iter().enumerate() {
+                run_on(a.world_mut(), p, t.checked_sub(1).map_or([tick_input::IDLE; 4], |l| log[l]));
+                a.world_mut().run_schedule(FixedUpdate);
+                truth.push(Vec3::from(a.world().resource::<Game>().flight.ball.pos));
+            }
+            std::array::from_fn(|i| {
+                [0, 1].map(|k| {
+                    let (mut bad, mut runs, mut jumps, mut jump, mut snaps, mut prev) = (0, 0, 0, 0f32, 0, None::<(usize, Vec3, Vec3)>);
+                    for (&f, (raw, smooth)) in &shown[i] {
+                        let Some(&q) = f.checked_sub(1).and_then(|k| truth.get(k)) else { continue };
+                        let p = Vec3::from(if k == 0 { *raw } else { *smooth });
+                        let d = p.distance(q);
+                        let off = d > 1e-3;
+                        let was = prev.is_some_and(|(_, pp, pq)| pp.distance(pq) > 1e-3);
+                        bad += off as u32;
+                        runs += (off && !was) as u32;
+                        if let Some((_, pp, pq)) = prev.filter(|(pf, _, _)| *pf + 1 == f) {
+                            // past the ball's own move this frame: a correction showing (one past SNAP_BALL is a snap)
+                            let j = ((p - pp) - (q - pq)).length();
+                            if j >= super::super::super::smooth::SNAP_BALL {
+                                snaps += 1;
+                            } else {
+                                jumps += (j > 0.25) as u32;
+                                jump = jump.max(j);
+                            }
+                        }
+                        prev = Some((f, p, q));
+                    }
+                    (bad, runs, jumps, jump, snaps)
+                })
+            })
+        }
+
+        /// B735's measure: `cargo test --release -p hst-play drawn_ball_corrections_at -- --ignored --nocapture`.
+        #[test]
+        #[ignore]
+        fn drawn_ball_corrections_at_9_ticks() {
+            if !hst_data::fixture::has_iso() {
+                return;
+            }
+            let lag = std::env::var("EXP_LAG").map_or(9, |v| v.parse().unwrap());
+            let rounds = std::env::var("EXP_ROUNDS").map_or(9000, |v| v.parse().unwrap());
+            for (i, m) in drawn_ball_corrections(lag, rounds).iter().enumerate() {
+                for (k, (bad, runs, jumps, jump, snaps)) in m.iter().enumerate() {
+                    eprintln!("B735 lag {lag}: machine {i} {}: {bad} drawn frames off, {runs} warps, {jumps} frames jump over 25 cm (worst {jump:.3} m), {snaps} snaps", ["before", "smoothed"][k]);
+                }
+            }
+        }
+
+        /// B735: at 9 ticks each way the smoothed ball jumps (over 25 cm past its true move, short of a snap) on fewer
+        /// frames and by less than the match's own, and neither machine's own players are ever moved (per frame).
+        #[test]
+        fn drawn_ball_corrections_glide() {
+            if !hst_data::fixture::has_iso() {
+                return;
+            }
+            for (i, [before, smoothed]) in drawn_ball_corrections(9, 900).into_iter().enumerate() {
+                eprintln!("machine {i}: before {before:?}, smoothed {smoothed:?}");
+                assert!(smoothed.2 <= before.2 && smoothed.3 <= before.3, "machine {i}: smoothed {smoothed:?}, before {before:?}");
+            }
+        }
+
         /// A tick that runs differently on one machine: both see it at the next checksum, save their inputs, the
         /// guest takes the host's state, and the hashes from then on agree (B154b).
         #[test]

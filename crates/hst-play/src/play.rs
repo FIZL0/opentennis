@@ -48,6 +48,7 @@ use snapshot::Const;
 #[cfg(any(target_os = "android", test))]
 pub mod background;
 mod ball_shadow;
+mod smooth;
 mod build_rules;
 mod dive_ik;
 mod release_art;
@@ -655,6 +656,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(cutaway::plugin);
     app.add_plugins(change_ends::plugin);
     app.add_plugins(ball_shadow::plugin);
+    app.add_plugins(smooth::plugin);
     app.add_plugins(net_hide::plugin);
     app.add_plugins(court_load::plugin);
     app.add_plugins(crate::stage::plugin);
