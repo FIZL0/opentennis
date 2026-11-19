@@ -37,7 +37,7 @@ impl Plates {
 }
 
 /// Player `i`'s character in words: a mod by its name, a disc one by the select's.
-fn character(args: &Args, mods: Option<&crate::mods::MatchMod>, i: usize) -> String {
+pub(super) fn character(args: &Args, mods: Option<&crate::mods::MatchMod>, i: usize) -> String {
     match mods.and_then(|m| m.get(i)) {
         Some(m) => m.name.clone(),
         None => {

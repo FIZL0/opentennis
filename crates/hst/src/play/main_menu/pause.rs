@@ -499,6 +499,121 @@ fn notice_draw(
     }
 }
 
+/// M194: the "Match saved" box over the pause screen after Save and Quit (`menu.rs` fills and clears it): a title,
+/// lines and an OK pill in the dialog's style. Empty `lines`: down.
+#[derive(Resource, Default)]
+pub(in crate::play) struct SavedBox {
+    /// The title, then the text's lines.
+    pub(in crate::play) lines: Vec<String>,
+    /// OK clicked or tapped since `menu.rs` last looked.
+    pub(in crate::play) tapped: bool,
+}
+
+#[derive(Component)]
+struct SavedSlot(usize);
+/// Not hidden under the pause screen (`menu.rs` `Hud`): it's over it.
+#[derive(Component)]
+pub(in crate::play) struct SavedRoot;
+/// Four outlined lines of ~40 glyphs (9 quads each), the box, the pill and the hand.
+const SAVED_POOL: usize = 1600;
+
+/// The box's quads and its OK pill's rect, centred on the 640×448 screen (the pause screen dims the match under it).
+fn saved_layout(text: &Text, b: &SavedBox) -> (Vec<super::Quad>, Option<[f32; 4]>) {
+    use super::super::menu::{CHOSEN, PANEL};
+    use super::{INK, Tex, WHITE};
+    let mut d = super::Draw { out: Vec::new(), text, said: String::new(), anchor: widescreen::Anchor::Centre, hits: Vec::new(), outside: None, clock: 0.0 };
+    let Some((title, lines)) = b.lines.split_first() else {
+        return (d.out, None);
+    };
+    let (x, w, max) = (120.0, 400.0, 368.0);
+    let h = 18.0 + 30.0 + 24.0 * lines.len() as f32 + 12.0 + 32.0 + 16.0;
+    let top = (224.0 - h / 2.0).round();
+    d.box3([x, top, w, h], 16.0, [Some(INK), Some(WHITE), Some(PANEL)], 128.0);
+    // the title as the confirm's question (22 px), the lines under it a little smaller and softer
+    d.outlined(|d| d.label(title, 320.0, top + 16.0, 22.0, max, WHITE));
+    for (i, l) in lines.iter().enumerate() {
+        let size = (18.0 * max / d.width(l, 18.0).max(1.0)).clamp(14.0, 18.0);
+        let y = top + 48.0 + 24.0 * i as f32 + (18.0 - size) / 2.0;
+        d.outlined(|d| d.label(l, 320.0, y, size, max, [112.0; 3]));
+    }
+    let r = [176.0, top + 48.0 + 24.0 * lines.len() as f32 + 12.0, 288.0, 32.0];
+    d.pill_at(r, [INK, WHITE, CHOSEN], 128.0);
+    d.outlined(|d| d.label("OK", 320.0, r[1] + 6.0, 20.0, 230.0, WHITE));
+    // where the pause dialog's hand points (pill x − 60)
+    d.q(Tex::Cursor, [0.0, 0.0, 64.0, 32.0], [116.0, r[1], 64.0, 32.0], WHITE, 128.0);
+    (d.out, Some(r))
+}
+
+fn saved_setup(mut commands: Commands) {
+    let full = Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() };
+    // over the pause screen (10), under the key legend's strip
+    commands.spawn((full, GlobalZIndex(11), SavedRoot));
+}
+
+/// P39: the box's quads only while it's up.
+fn saved_pool(mut commands: Commands, b: Res<SavedBox>, root: Query<Entity, With<SavedRoot>>, slots: Query<Entity, With<SavedSlot>>) {
+    for r in &root {
+        crate::ui_pool::keep(&mut commands, r, !b.lines.is_empty(), slots, SAVED_POOL, |i| (SavedSlot(i), crate::ui_pool::quad()));
+    }
+}
+
+/// Draws [`SavedBox`]; a click or tap on OK answers it.
+fn saved_draw(
+    mut b: ResMut<SavedBox>,
+    art: Option<Res<Art>>,
+    cursor: Option<Res<super::cursor::Cursor>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    (mouse, touches): (Res<ButtonInput<MouseButton>>, Res<Touches>),
+    mut q: Query<(&SavedSlot, &mut ImageNode, &mut Node, &mut Visibility)>,
+) {
+    use super::Tex;
+    let Some(art) = art else { return };
+    if b.lines.is_empty() && q.is_empty() {
+        return;
+    }
+    let (quads, ok) = saved_layout(&art.2, &b);
+    if let Some(r) = ok
+        && pointer_press(&window, &mouse, &touches).0.is_some_and(|p| (r[0]..r[0] + r[2]).contains(&p.x) && (r[1]..r[1] + r[3]).contains(&p.y))
+    {
+        b.tapped = true;
+    }
+    let share = widescreen::window_share(&window);
+    let aspect = widescreen::window_aspect(&window);
+    for (SavedSlot(i), mut img, mut node, mut vis) in &mut q {
+        let Some(quad) = quads.get(*i) else {
+            vis.set_if_neq(Visibility::Hidden);
+            continue;
+        };
+        let three_d = cursor.as_ref().filter(|_| quad.tex == Tex::Cursor);
+        let image = match (three_d, quad.tex) {
+            (Some(c), _) => c.image.clone(),
+            (_, Tex::Solid) => art.0[0].clone(),
+            (_, Tex::Font) => art.0[1].clone(),
+            (_, Tex::Pill) => art.0.last().expect("pill").clone(),
+            _ => {
+                vis.set_if_neq(Visibility::Hidden);
+                continue;
+            }
+        };
+        let [u, v, w, h] = quad.src;
+        let rect = (quad.tex != Tex::Solid && three_d.is_none()).then(|| Rect::new(u, v, u + w, v + h));
+        let [r, g, bl] = quad.rgb.map(|c| c / 128.0);
+        let colour = Color::srgba(r, g, bl, quad.alpha / 128.0);
+        let colour = if quad.tex == Tex::Font { crate::hud_gamma::letters(colour) } else { colour };
+        crate::ui_pool::paint(&mut img, image, rect, colour);
+        let [mut x, mut y, mut w, mut h] = quad.dst;
+        if three_d.is_some() {
+            // the hand's image covers `PAD` times its quad, around the same centre (B146)
+            let pad = super::cursor::PAD;
+            (x, y, w, h) = (x - w * (pad - 1.0) / 2.0, y - h * (pad - 1.0) / 2.0, w * pad, h * pad);
+        }
+        let (left, width) = widescreen::place(x, w, share, quad.anchor);
+        let (top, height) = widescreen::vplace(y, h, aspect, quad.anchor);
+        widescreen::put(&mut node, left, top, width, height);
+        vis.set_if_neq(Visibility::Inherited);
+    }
+}
+
 pub(in crate::play) fn plugin(app: &mut App) {
     #[cfg(target_arch = "wasm32")]
     app.add_systems(Update, touch_menu);
@@ -515,6 +630,9 @@ pub(in crate::play) fn plugin(app: &mut App) {
         .init_resource::<super::Icons>()
         .init_resource::<super::mods_screen::Shelf>()
         .init_resource::<OnlineNotice>()
+        .init_resource::<SavedBox>()
+        .add_systems(PostStartup, saved_setup)
+        .add_systems(Update, (saved_pool, saved_draw).chain().after(Systems))
         .add_systems(PostStartup, (setup, notice_setup))
         // the whole match: the mouse pointer shows when the mouse moves (hidden again by a key or pad button), as on the
         // front-end's, so it never sits hidden where it was left (a window's app: tests without one skip it)
