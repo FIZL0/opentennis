@@ -36,7 +36,7 @@ const END: f32 = 5.0;
 /// The desync message's start (a peer that hears it saves its inputs too).
 const DESYNC: &str = "Out of sync";
 /// How long a desync's note stays up (real seconds).
-const NOTE: f32 = 6.0;
+const NOTE: f32 = 3.0;
 
 /// `--pads`' gamepad for a peer's seat.
 const REMOTE: usize = 99;
@@ -327,7 +327,8 @@ pub(super) fn desync(w: &mut World, (t, ours, theirs): (u32, u64, u64)) {
     info!("online: inputs saved to {path}");
     let mut np = w.resource_mut::<Netplay>();
     np.desynced = !mended;
-    np.note = Some((format!("{why}: playing on.\nInputs saved to {path}"), NOTE));
+    // a brief line at the top, not the notice window: the match plays on (the report's path is in the log)
+    np.note = Some(("Out of sync, catching up".into(), NOTE));
 }
 
 /// A network event into the match.
@@ -557,6 +558,7 @@ fn watch(w: &mut World) {
     } else if !open {
         np.stalled += dt;
     }
+    let mut toast = false;
     let text = match &np.end {
         Some(why) => why.clone(),
         None if !notice.is_empty() => notice,
@@ -571,6 +573,7 @@ fn watch(w: &mut World) {
         None => match &mut np.note {
             Some((say, left)) if *left > 0.0 => {
                 *left -= dt;
+                toast = true;
                 say.clone()
             }
             _ => String::new(),
@@ -584,8 +587,8 @@ fn watch(w: &mut World) {
         if ask && !n.ask {
             n.sel = 0;
         }
-        if n.text != text || n.ask != ask {
-            (n.text, n.ask) = (text, ask);
+        if n.text != text || n.ask != ask || n.toast != toast {
+            (n.text, n.ask, n.toast) = (text, ask, toast);
         }
     }
     if close {
@@ -631,6 +634,8 @@ pub struct OnlineNotice {
     pub text: String,
     /// The question is up: pill 0 "A bot plays for them", 1 "Everyone to the lobby", 2 "Leave".
     pub ask: bool,
+    /// A brief line at the top of the screen instead of the window (a desync the match played through).
+    pub toast: bool,
     pub sel: usize,
     pub tapped: bool,
 }
@@ -1245,13 +1250,15 @@ mod tests {
                 let path = reported(&a, 120);
                 let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).expect("saved")).unwrap();
                 assert!(saved["pads"].as_array().unwrap().len() >= 120);
+                assert!(saved["why"].as_str().unwrap().starts_with("Out of sync at tick 120 "), "{}", saved["why"]);
                 std::fs::remove_file(&path).unwrap();
                 // B276: going out of sync again after the note is down notes it, but the match's report isn't saved again
                 let t = a.world().resource::<Netplay>().state.0 + 30;
                 a.world_mut().resource_mut::<Netplay>().note = None;
                 super::super::desync(a.world_mut(), (t, 1, 2));
-                let (say, _) = a.world().resource::<Netplay>().note.clone().expect("the second desync's note");
-                assert!(say.ends_with(&format!("Inputs saved to {path}")) && !Path::new(&path).exists(), "{say}");
+                let np = a.world().resource::<Netplay>();
+                assert!(np.note.is_some(), "the second desync's note");
+                assert!(np.report.as_deref() == Some(path.as_str()) && !Path::new(&path).exists());
             }
         }
 
@@ -1264,9 +1271,8 @@ mod tests {
             assert_eq!(np.resync.done, 1, "resyncs");
             assert!(!np.desynced && np.state.0 >= np.resync.fresh + 2 * super::super::HASH_EVERY, "out of sync again by tick {}", np.state.0);
             eprintln!("{}: resynced from tick {}, hashed to {}", np.me, np.resync.fresh, np.state.0);
-            let (say, _) = np.note.clone().expect("the desync's note");
-            assert!(say.starts_with(&format!("Out of sync at tick {t} ")), "{say}");
-            say.rsplit("Inputs saved to ").next().unwrap().to_string()
+            assert!(np.note.is_some(), "the desync's note");
+            np.report.clone().expect("the desync's report")
         }
 
         /// B154b: a state from `snapshot::encode` taken on by a match that's elsewhere hashes the same, and its

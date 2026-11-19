@@ -364,6 +364,13 @@ fn notice_layout(text: &Text, n: &OnlineNotice) -> (Vec<super::Quad>, Vec<[f32; 
     if n.text.is_empty() {
         return (d.out, Vec::new());
     }
+    if n.toast {
+        // a brief line near the top, the match not dimmed under it
+        let w = (d.width(&n.text, 18.0) + 40.0).min(400.0);
+        d.box3([320.0 - w / 2.0, 16.0, w, 34.0], 12.0, [Some(INK), Some(WHITE), Some(PANEL)], 128.0);
+        d.outlined(|d| d.label(&n.text, 320.0, 24.0, 18.0, w - 24.0, WHITE));
+        return (d.out, Vec::new());
+    }
     let lines: Vec<&str> = n.text.lines().collect();
     let (x, w, max) = (120.0, 400.0, 368.0);
     let h = 18.0 + 26.0 * lines.len() as f32 + if n.ask { 40.0 * CHOICES.len() as f32 } else { 0.0 } + 14.0;
@@ -441,11 +448,11 @@ fn notice_draw(
 ) {
     use super::Tex;
     let Some(art) = art else { return };
-    // `HST_NOTICE=<text, | between lines>` (with `HST_NOTICE_ASK=1` the question's pills) shows one, for `--shot`
+    // `HST_NOTICE=<text, | between lines>` (with `HST_NOTICE_ASK=1` the question's pills, `HST_NOTICE_TOAST=1` as the top line) shows one, for `--shot`
     if n.text.is_empty()
         && let Ok(t) = std::env::var("HST_NOTICE")
     {
-        (n.text, n.ask) = (t.replace('|', "\n"), std::env::var_os("HST_NOTICE_ASK").is_some());
+        (n.text, n.ask, n.toast) = (t.replace('|', "\n"), std::env::var_os("HST_NOTICE_ASK").is_some(), std::env::var_os("HST_NOTICE_TOAST").is_some());
     }
     let (quads, pills) = notice_layout(&art.2, &n);
     let on = |p: Vec2| pills.iter().position(|r| (r[0]..r[0] + r[2]).contains(&p.x) && (r[1]..r[1] + r[3]).contains(&p.y));

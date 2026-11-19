@@ -9,7 +9,7 @@
 //!
 //! Input waits 5 ticks after it opens. Up/down move with wrap-around (repeat after 32 ticks held, then every 8;
 //! sound 0, the hand starts its swing again), ✕ chooses (sound 2), Start closes it (sound 2). ○ does nothing in the
-//! original; here (B340) it is Back and closes it too (sound 1), as do a right click and a click or tap off the pills.
+//! original; here (B340) it is Back and closes it too (sound 1), as does a right click.
 //! "Return to the Menu" fades to black over 60 ticks; the port has no menu, so it then quits.
 //! B68 (ours: the original fades out at once): once any point has been scored it first asks "Leave the match?" in
 //! the same dialog, Yes / No on its pills (No chosen; up/down, ✕ chooses, ○ or Start is No, sound 1); No goes back
@@ -816,7 +816,8 @@ fn step(
         let half = 144.0 * fit.s;
         ((320.0 - half)..(320.0 + half)).contains(&p.x).then(|| (0..rows).find(|&k| (0.0..32.0 * fit.s).contains(&(p.y - fit.y(top(k) as f32))))).flatten()
     };
-    // B221: the mouse over a pill moves the hand there; a right click, or a click or tap off the pills, is Back
+    // B221: the mouse over a pill moves the hand there; a right click is Back (a click or tap off the pills does
+    // nothing: a phone's swipe for its control centre unpaused the match)
     let (press, right) = super::main_menu::pause::pointer_press(&window, &mouse, &touches);
     let at = super::main_menu::pause::cursor_point(&window);
     // M194: the "Match saved" box takes only its OK (a click or tap on it, `pause.rs`), up until the fade
@@ -838,7 +839,7 @@ fn step(
         }
     }
     *hovered = at;
-    menu.cancel |= !boxed && (right || press.is_some_and(|p| pill(p).is_none()));
+    menu.cancel |= !boxed && right;
     if let Some(k) = press.filter(|_| !boxed).and_then(pill) {
         match menu.ask {
             Some(a) => {
