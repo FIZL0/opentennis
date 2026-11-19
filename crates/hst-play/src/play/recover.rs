@@ -29,6 +29,7 @@ use super::{Game, Pads, snapshot};
 use crate::net::{CPU, Event, Msg, Room, Seat};
 use bevy::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 /// Keep-alive every this many seconds.
 const ALIVE: f32 = 0.5;
@@ -83,13 +84,19 @@ pub struct Recover {
     keeper: Option<crate::net::keeper::Keeper>,
     /// M126: this machine's rejoin record is gone (the match is over).
     forgot: bool,
+    /// M197: the host back to the lobby after a drop: the match saved as its point started, with its line-up (tried
+    /// once: `lobby_save`).
+    pub saved: Option<(Arc<super::save_game::MatchSave>, Room)>,
+    tried: bool,
+    /// M197: a resumed match's host: the save every machine starts from, once everyone has loaded.
+    pub resume: Option<Arc<super::save_game::MatchSave>>,
 }
 
 impl Recover {
     /// `others`: the other peers, already playing if this machine rejoins.
     pub fn new(rejoin: bool, others: impl Iterator<Item = String>) -> Self {
         let loaded = if rejoin { others.collect() } else { BTreeSet::new() };
-        Recover { quiet: BTreeMap::new(), alive: 0.0, away: Vec::new(), waited: 0.0, asking: None, chosen: None, sent: None, told: None, answered: false, pieces: Vec::new(), ready: None, round: 0, hold: rejoin, lobby: None, ask_me: false, loaded, hidden: BTreeMap::new(), keeper: None, forgot: false }
+        Recover { quiet: BTreeMap::new(), alive: 0.0, away: Vec::new(), waited: 0.0, asking: None, chosen: None, sent: None, told: None, answered: false, pieces: Vec::new(), ready: None, round: 0, hold: rejoin, lobby: None, ask_me: false, loaded, hidden: BTreeMap::new(), keeper: None, forgot: false, saved: None, tried: false, resume: None }
     }
 
     /// Any word from a peer.
@@ -211,6 +218,7 @@ fn quiet(quiet: &mut BTreeMap<String, (f32, bool)>, p: &str) -> f32 {
 /// (empty: none).
 pub(super) fn tick(w: &mut World, dt: f32) -> String {
     restarted(w);
+    lobby_save(w);
     let press = pressed(w);
     let score = score(w);
     // B279: on the result screen nobody waits for anybody: each leaves it for the lobby in their own time
@@ -386,6 +394,7 @@ fn notice(who: &str, left: u32, ask: bool, answered: bool) -> String {
 
 /// A restart ready: the host's goes out first (its state now), then every machine takes it on.
 pub(super) fn restarted(w: &mut World) {
+    resume_start(w);
     let Some((round, tick, room, last, data)) = w.get_resource_mut::<Netplay>().and_then(|mut np| np.recover.ready.take()) else { return };
     let (round, tick, last, data) = if tick == u32::MAX {
         // the host's own: its state at a tick every seat's pads are in for
@@ -406,6 +415,11 @@ pub(super) fn restarted(w: &mut World) {
         } else {
             (tick, data)
         };
+        // M197: a resumed match: the save's point, from the tick everyone is at
+        let (tick, data) = match w.resource_mut::<Netplay>().recover.resume.take() {
+            Some(s) if snapshot::decode(w, &s.state).is_ok() => (tick, snapshot::encode(w)),
+            _ => (tick, data),
+        };
         let np = w.resource::<Netplay>();
         let last = tick.checked_sub(1).and_then(|t| np.lock.log.get(t as usize)).map_or([IDLE; 4], |p| *p).map(super::netplay::wire);
         let mut np = w.resource_mut::<Netplay>();
@@ -421,6 +435,13 @@ pub(super) fn restarted(w: &mut World) {
         warn!("online: the host's state didn't load: {e}");
         return w.resource_mut::<Netplay>().finish(format!("The match couldn't go on ({e})."), true);
     }
+    // M197: a resumed match picks up at its point's start (the next save and the instant replay go from it); once
+    let room = if room.resuming() {
+        super::save_game::at_point_start(w);
+        Room { resume: None, ..room }
+    } else {
+        room
+    };
     let human: [bool; 4] = std::array::from_fn(|i| room.seats.get(i).is_some_and(|s| s.as_ref().is_some_and(Seat::human)));
     if let Some(mut p) = w.get_resource_mut::<Pads>() {
         p.seats = Some(human);
@@ -449,6 +470,59 @@ pub(super) fn restarted(w: &mut World) {
     if !lockstep {
         super::rollback::restart(w, &room, &me, tick, round);
     }
+}
+
+/// M197: the host gone back to the lobby with a player away: the match as its point started, kept with the line-up
+/// it had, for the lobby to offer (`netplay::SAVED`) and the saves. Once.
+pub(super) fn lobby_save(w: &mut World) {
+    let Some(np) = w.get_resource::<Netplay>() else { return };
+    if np.me != "host" || np.recover.lobby.is_none() || np.recover.away.is_empty() || np.recover.tried {
+        return;
+    }
+    let room = np.room.clone();
+    let flags = super::netplay::flags(&room, "host", &[], &[]);
+    w.resource_mut::<Netplay>().recover.tried = true;
+    match super::save_game::capture(w, super::save_game::Mode::Online, flags) {
+        Some(s) => w.resource_mut::<Netplay>().recover.saved = Some((Arc::new(s), room)),
+        None => info!("online: nothing to save for the lobby (no point under way)"),
+    }
+}
+
+/// M197: a resumed match's host, every machine loaded: its restart from the save goes out.
+fn resume_start(w: &mut World) {
+    let Some(np) = w.get_resource::<Netplay>() else { return };
+    if np.me != "host" || np.recover.resume.is_none() || np.recover.ready.is_some() || !super::netplay::started(np) {
+        return;
+    }
+    let room = np.room.clone();
+    w.resource_mut::<Netplay>().recover.ready = Some((0, u32::MAX, room, [[0; 6]; 4], Vec::new()));
+}
+
+/// M197: the lobby's offer of the match `save` (its line-up `room`): how it stands ("3-5 · 40-40 · Ace to serve"; the
+/// first team's side first), to resume.
+pub fn offer(save: &super::save_game::MatchSave, room: &Room) -> crate::net::Resume {
+    let s = &save.head.summary;
+    let score = format!("{}-{}", s.games[0], s.games[1]);
+    let points = if s.tiebreak {
+        format!("{}-{}", s.points[0], s.points[1])
+    } else if s.advantage {
+        if s.points[0] > s.points[1] { "Ad-40".into() } else { "40-Ad".into() }
+    } else if s.deuce {
+        "40-40".into()
+    } else {
+        let p = |i: i32| ["0", "15", "30", "40"][i.clamp(0, 3) as usize];
+        format!("{}-{}", p(s.points[0]), p(s.points[1]))
+    };
+    let order: &[usize] = if room.doubles { &[0, 2, 1, 3] } else { &[0, 1] };
+    let server = order.get(s.server.max(0) as usize).and_then(|&i| room.seats.get(i)).cloned().flatten();
+    let who = match server {
+        Some(x) if x.human() => name(room, &x.peer),
+        Some(_) => "CPU".into(),
+        None => String::new(),
+    };
+    let sets = if s.sets != [0, 0] { format!("Sets {}-{} · ", s.sets[0], s.sets[1]) } else { String::new() };
+    let chip = if who.is_empty() { format!("{sets}{score} · {points}") } else { format!("{sets}{score} · {points} · {who} to serve") };
+    crate::net::Resume { chip, score, on: true, saved: Box::new(room.clone()) }
 }
 
 #[cfg(test)]

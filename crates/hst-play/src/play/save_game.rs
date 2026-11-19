@@ -330,13 +330,18 @@ pub fn capture(w: &mut World, mode: Mode, flags: Vec<String>) -> Option<MatchSav
 /// Puts a save's state into the match `w` just set up from its [`Setup`]: the match picks up at the point's start.
 pub fn resume(w: &mut World, save: &MatchSave) -> Result<(), String> {
     snapshot::decode(w, &save.state)?;
-    // the point's start is the serve set-up the instant replay and the next save go from
+    at_point_start(w);
+    Ok(())
+}
+
+/// The match in `w` is at a point's start (a save's state just put in): the serve set-up the instant replay and the
+/// next save go from.
+pub fn at_point_start(w: &mut World) {
     let s = Arc::new(snapshot::save(w));
     instant_replay::set_serve(w, Some(s.clone()));
     if let Some(mut k) = w.get_resource_mut::<PointStart>() {
         k.0 = Some(s);
     }
-    Ok(())
 }
 
 /// A save on disk.

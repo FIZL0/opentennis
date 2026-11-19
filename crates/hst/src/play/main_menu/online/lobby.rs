@@ -91,7 +91,16 @@ impl Menu {
         g.plates = (0..c.n).map(|p| c.parts(p).card).collect();
         [g.code, g.copy, g.public, g.mode] = self.lobby_bar();
         g.pill = g.code;
+        if self.net.hosting && self.net.room.as_ref().is_some_and(|r| r.resume.is_some()) {
+            resume_split(&mut g);
+        }
         g
+    }
+
+    /// M197: the host's Match picker (Resume / New match) at the head of the bottom bar, while it has a saved match.
+    pub(in super::super) fn lobby_match(&self) -> [f32; 4] {
+        let mut g = self.lobby_foot();
+        resume_split(&mut g)
     }
 
     /// Seat `i` is this machine's player's.
@@ -119,6 +128,7 @@ impl Menu {
                 Item::Button("Copy Link") => g.copy,
                 Item::Button("Public" | "Paste") => g.public,
                 Item::Button("Chat") => g.chat,
+                Item::Button("Match") => self.lobby_match(),
                 Item::Button(_) => g.back,
             })
             .collect()
@@ -168,6 +178,110 @@ pub(in super::super) fn over(d: &mut Draw, m: &Menu) {
     super::super::handicap::lift(d, m);
     strip(d, m, rm, &g, &on, &hit);
     start_button(d, m, rm, &g, &items, &on);
+    if let Some(r) = rm {
+        resume(d, m, r, &g, &on, &hit);
+    }
+}
+
+/// M197: the Match picker's width (mockup px) at the head of the bottom bar.
+const MATCH_W: f32 = 190.0;
+
+/// M197: room for the Match picker at the head of the bottom bar, taken from `g`: Start alone on its row gives up its
+/// left end; Start ending the strip's row, the strip's cells close up right of it. Its rect.
+fn resume_split(g: &mut frame::Geo) -> [f32; 4] {
+    let [sx, sy, sw, sh] = g.start;
+    let (want, gap) = (MATCH_W * PX, 12.0 * PX);
+    if let Some(row) = g.panels.iter().position(|p| p[1] == sy) {
+        let [px, py, pw, ph] = g.panels[row];
+        let w = want.min(pw * 0.3);
+        let nl = px + w + gap;
+        let k = (px + pw - nl) / pw;
+        for c in g.cells.iter_mut().filter(|c| c[1] == sy && c[2] > 0.0) {
+            *c = [nl + (c[0] - px) * k, c[1], c[2] * k, c[3]];
+        }
+        if g.strip == g.panels[row] {
+            g.strip = [nl, py, pw * k, ph];
+        }
+        g.panels[row] = [nl, py, pw * k, ph];
+        [px, py, w, ph]
+    } else {
+        let w = want.min(sw * 0.4);
+        g.start = [sx + w + gap, sy, sw - w - gap, sh];
+        [sx, sy, w, sh]
+    }
+}
+
+/// M197: the chip's words' size (mockup px).
+const CHIP_SIZE: f32 = 13.0;
+
+/// M197: the unfinished match's chip in the top bar, between the title and Copy link: "Unfinished match · …", or
+/// only how it stands where that's too long; None where neither fits (`start_button` says it instead).
+fn chip(d: &Draw, m: &Menu, g: &frame::Geo, r: &Room) -> Option<([f32; 4], String)> {
+    let res = r.resume.as_ref().filter(|r| r.on)?;
+    let [l, _, _, _] = m.grid.view;
+    let [cx, cy, _, ch] = g.copy;
+    let (left, right) = (l + 32.0 + TITLE_W * PX, cx - 12.0 * PX);
+    [format!("Unfinished match · {}", res.chip), res.chip.clone()].into_iter().find_map(|words| {
+        let w = d.width(&words, CHIP_SIZE * PY) + 28.0 * PX;
+        (w <= right - left).then_some(([left, cy, w, ch], words))
+    })
+}
+
+/// M197: an unfinished match on offer: the chip by the title ("Unfinished match · 3-5 · 40-40 · Ace to serve"), the
+/// host's Match picker; resuming, the locked settings dimmed, a dropped player's card held for them ("Waiting for …",
+/// how to take it back), the others "From the save · Back".
+fn resume(d: &mut Draw, m: &Menu, r: &Room, g: &frame::Geo, on: &dyn Fn(Item) -> bool, hit: &dyn Fn(&mut Draw, Item, [f32; 4], Press)) {
+    let Some(res) = r.resume.as_ref() else { return };
+    let lobby = m.screen == Screen::Lobby;
+    if let Some((rect, words)) = chip(d, m, g, r) {
+        let [x, y, w, h] = rect;
+        frame::ringed(d, rect, h / 2.0, 2.0 * PX, frame::GOLD, Some(frame::NAVY));
+        d.label(&words, x + w / 2.0, y + (h - CHIP_SIZE * PY) / 2.0, CHIP_SIZE * PY, w - 20.0 * PX, frame::GOLD);
+    }
+    if m.net.hosting {
+        let rect = m.lobby_match();
+        let value = if res.on { format!("Resume {}", res.score) } else { "New match".into() };
+        let mut mg = g.clone();
+        (mg.panels, mg.cells) = (vec![rect], [rect; 6]);
+        frame::strip(d, m, &mg, &[Cell { label: "MATCH", value, arrows: true, sel: on(Item::Button("Match")), thumb: Thumb::None }]);
+        hit(d, Item::Button("Match"), rect, OK);
+    }
+    if !res.on {
+        return;
+    }
+    // the save's settings, locked
+    for (k, &cell) in g.cells.iter().enumerate() {
+        if cell[2] > 0.0 && !g.cells[..k].contains(&cell) {
+            let inner = [cell[0] + 2.0 * PX, cell[1] + 2.0 * PY, cell[2] - 4.0 * PX, cell[3] - 4.0 * PY];
+            frame::rounded(d, inner, 10.0 * PX, frame::NAVY, 72.0);
+        }
+    }
+    if !lobby {
+        return;
+    }
+    let waiting = r.waiting();
+    let s = g.k * g.s;
+    for (i, &[x, y, w, h]) in g.plates.iter().enumerate() {
+        if let Some((_, peer)) = waiting.iter().find(|(k, _)| *k == i) {
+            // held for its player: dimmed, who it waits for and how they get it back
+            let inset = 6.0 * s * roster::PX;
+            frame::rounded(d, [x + inset, y + inset, w - 2.0 * inset, h - 2.0 * inset], 10.0 * s * roster::PX, frame::NAVY, 128.0);
+            let (big, small) = (16.0 * s * roster::PY, 11.0 * s * roster::PY);
+            let mid = y + h * 0.42;
+            d.label(&format!("Waiting for {}", res.name(peer)), x + w / 2.0, mid - big, big, w - 16.0 * s * roster::PX, frame::GOLD);
+            let how = if m.net.short.is_empty() { "Rejoining takes this seat back".to_string() } else { format!("Rejoining with code {} takes this seat back", m.net.short) };
+            d.label(&how, x + w / 2.0, mid + 6.0 * s * roster::PY, small, w - 16.0 * s * roster::PX, WHITE);
+        } else if r.seats.get(i).and_then(Option::as_ref).is_some_and(|n| n.human() && res.saved.seats.get(i).and_then(Option::as_ref).is_some_and(|o| o.peer == n.peer)) {
+            // back in their seat
+            let words = "From the save · Back";
+            let size = 11.0 * s * roster::PY;
+            let (pw, ph) = ((d.width(words, size) + 20.0 * s * roster::PX).min(w - 8.0), size + 8.0 * s * roster::PY);
+            // a tab on the card's top edge, clear of its header's words and buttons
+            let (px, py) = (x + w - pw - 18.0 * s * roster::PX, y - ph / 2.0);
+            frame::rounded(d, [px, py, pw, ph], ph / 2.0, frame::GREEN, 128.0);
+            d.label(words, px + pw / 2.0, py + (ph - size) / 2.0, size, pw - 8.0, WHITE);
+        }
+    }
 }
 
 /// The top bar's buttons right of the title: Copy link (dim until there's a link), the host's Public / Private (a
@@ -249,6 +363,8 @@ fn strip(d: &mut Draw, m: &Menu, r: Option<&Room>, g: &frame::Geo, on: &dyn Fn(I
         return frame::strip(d, m, g, &[cell("COURT"), cell("UMPIRE"), cell("SETS"), cell("GAMES"), cell("MODS"), cell("MARKERS")]);
     };
     // the host's own choice (Random stays Random), a guest's the lobby's
+    // M197: resuming, the save's (in the room) and fixed
+    let (host, steps) = (host && !r.resuming(), host && !r.resuming());
     let (court, sets, games, umpire) = if host { (m.court, m.sets, m.games, m.umpire as usize) } else { (m.room_court_value(r), r.sets, r.games, r.umpire as usize) };
     let umpire_name = match r.umpire_mod.as_ref().filter(|_| !host && !r.vanilla) {
         // M8f3: the host's umpire mod by its name (a guest without it hears the donor)
@@ -258,10 +374,10 @@ fn strip(d: &mut Draw, m: &Menu, r: Option<&Room>, g: &frame::Geo, on: &dyn Fn(I
     let cells = [
         Cell { label: "COURT", value: m.room_court_name(text, r, host), arrows: false, sel: on(Item::Set(0)), thumb: Thumb::Court(court) },
         Cell { label: "UMPIRE", value: umpire_name, arrows: false, sel: on(Item::Set(1)), thumb: Thumb::Umpire(umpire) },
-        Cell { label: "SETS", value: super::super::SETS.get(sets).copied().unwrap_or(1).to_string(), arrows: host, sel: on(Item::Set(2)), thumb: Thumb::None },
-        Cell { label: "GAMES", value: games.to_string(), arrows: host, sel: on(Item::Set(3)), thumb: Thumb::None },
-        Cell { label: "MODS", value: if r.vanilla { "None" } else { "Allowed" }.to_string(), arrows: host, sel: on(Item::Set(4)), thumb: Thumb::None },
-        Cell { label: "MARKERS", value: if r.no_marks { "Off" } else { "On" }.to_string(), arrows: host, sel: on(Item::Set(5)), thumb: Thumb::None },
+        Cell { label: "SETS", value: super::super::SETS.get(sets).copied().unwrap_or(1).to_string(), arrows: steps, sel: on(Item::Set(2)), thumb: Thumb::None },
+        Cell { label: "GAMES", value: games.to_string(), arrows: steps, sel: on(Item::Set(3)), thumb: Thumb::None },
+        Cell { label: "MODS", value: if r.vanilla { "None" } else { "Allowed" }.to_string(), arrows: steps, sel: on(Item::Set(4)), thumb: Thumb::None },
+        Cell { label: "MARKERS", value: if r.no_marks { "Off" } else { "On" }.to_string(), arrows: steps, sel: on(Item::Set(5)), thumb: Thumb::None },
     ];
     frame::strip(d, m, g, &cells);
     for (i, cell) in g.cells.iter().enumerate() {
@@ -300,12 +416,25 @@ fn start_button(d: &mut Draw, m: &Menu, r: Option<&Room>, g: &frame::Geo, items:
         // M161: the start waits for the downloads (then counts down by itself), or for a choice about a mod
         _ if m.held() && let Some(f) = &fetching => ("Downloading...".into(), format!("Starts once everyone has it: {f}"), false),
         _ if m.held() => ("Cancel".into(), "The match is starting".to_string(), false),
+        // M197: a resume waits for every player of the saved match back in their seat
+        Item::Button("Start") if r.resuming() => {
+            let (back, all) = r.back_of();
+            match (r.waiting().first(), r.resume.as_ref()) {
+                (Some((_, p)), Some(res)) => ("Resume".into(), format!("{back} of {all} back · waiting for {}", res.name(p)), false),
+                _ => ("Resume".into(), format!("{all} of {all} back"), true),
+            }
+        }
         Item::Button("Start") if fetching.is_some() => ("Downloading...".into(), ready, false),
         Item::Button("Start") => ("Start".into(), ready, true),
         _ if m.net.prepared && fetching.is_some() => ("Not ready".into(), ready, false),
         _ if m.net.prepared => ("Not ready".into(), format!("{n} of {of} ready · waiting for the host"), false),
         _ if fetching.is_some() => ("Ready".into(), ready, false),
         _ => ("Ready".into(), format!("{n} of {of} ready · waiting for the host"), false),
+    };
+    // M197: how the unfinished match stands, where the top bar has no room for its chip
+    let small = match r.resume.as_ref() {
+        Some(res) if res.on && chip(d, m, g, r).is_none() => format!("{} · {small}", res.chip),
+        _ => small,
     };
     frame::start(d, g, &big, &small, play, on(items[k]));
     if m.screen == Screen::Lobby {
@@ -343,10 +472,16 @@ mod tests {
     #[test]
     fn lays_out_at_any_aspect() {
         for aspect in [4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 1.0, 3.0 / 4.0, 9.0 / 16.0, 0.4] {
-            for hosting in [true, false] {
+            for (hosting, resume) in [(true, false), (false, false), (true, true), (false, true)] {
                 let mut m = Menu { screen: super::super::super::Screen::Lobby, grid: super::super::super::Grid::fit(aspect), ..default() };
                 super::super::sample(&mut m);
                 m.net.hosting = hosting;
+                // M197: an unfinished match on offer: the host's Match picker leads the bottom bar
+                if resume {
+                    let r = m.net.room.as_mut().unwrap();
+                    r.resume = Some(crate::net::Resume { chip: "3-5 · 40-40 · MAYA to serve".into(), score: "3-5".into(), on: true, saved: Box::new(r.clone()) });
+                    assert_eq!(m.items().contains(&Item::Button("Match")), hosting);
+                }
                 let g = m.lobby_geo();
                 // M121: the lobby is the select's columns, across the whole view
                 let [l, t, r, b] = m.grid.view;

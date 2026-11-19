@@ -235,6 +235,13 @@ impl Netplay {
             resync: Default::default(),
             recover: super::recover::Recover::new(rejoin, others.into_iter()),
         }
+        .resuming()
+    }
+
+    /// M197: a resumed match holds until the host's restart from the save (as a rejoin's), the host's too.
+    fn resuming(mut self) -> Self {
+        self.recover.hold |= self.room.resuming();
+        self
     }
 
     /// The court intro's lockstep starts: the match's seats and delay.
@@ -582,6 +589,7 @@ fn watch(w: &mut World) {
         }
     }
     if close {
+        lobby_saved(w);
         // B196: the connection goes on into the lobby (`main_menu/online.rs` `launch`'s way back)
         if let Some(room) = w.resource_mut::<Netplay>().recover.lobby.take()
             && let Some(net) = w.remove_resource::<Net>()
@@ -702,9 +710,32 @@ pub fn flags(room: &Room, me: &str, devices: &[Option<super::controls::Seat>], e
 /// The online match as a mode: `game`, `flags(…)`'s match (`main.rs` `match_mode`), with the lockstep on `net`.
 pub fn mode(game: crate::mode::Mode, net: Net, room: Room, me: String) -> crate::mode::Mode {
     SEED.store(room.seed as u64, Ordering::Relaxed);
+    // M197: the host's save, for a resumed match
+    let resume = if me == "host" && room.resuming() { RESUME.lock().unwrap().take() } else { None };
     game.and(move |app| {
-        app.insert_resource(Netplay::new(room, me)).insert_resource(net);
+        let mut np = Netplay::new(room, me);
+        np.recover.resume = resume;
+        app.insert_resource(np).insert_resource(net);
     })
+}
+
+/// M197: the lobby's offer of a saved match (`recover::offer`).
+pub use super::recover::offer;
+
+/// M197: the match the host saved going back to the lobby after a drop, and its line-up (the lobby offers it).
+pub static SAVED: Mutex<Option<(std::sync::Arc<super::save_game::MatchSave>, Room)>> = Mutex::new(None);
+
+/// M197: the save a resumed match starts from (the host's lobby sets it at Start).
+pub static RESUME: Mutex<Option<std::sync::Arc<super::save_game::MatchSave>>> = Mutex::new(None);
+
+/// M197: the host's match saved for its lobby (`recover::lobby_save`) into the saves and to the lobby (`SAVED`).
+fn lobby_saved(w: &mut World) {
+    super::recover::lobby_save(w);
+    let Some(saved) = w.resource_mut::<Netplay>().recover.saved.take() else { return };
+    if let Err(e) = super::save_game::Saves::user().write(&saved.0) {
+        warn!("online: the unfinished match wasn't saved: {e}");
+    }
+    *SAVED.lock().unwrap() = Some(saved);
 }
 
 /// B196: the lobby an ended match goes back to, with its connection; B279: true for a guest whose host hasn't left
@@ -2241,6 +2272,83 @@ mod tests {
                 assert_eq!(peers, [Some("host"), Some("h"), None, Some("h")]);
                 assert!(lobby.ready.is_empty() && !lobby.names.contains_key("g"));
             }
+        }
+
+        /// M197: `g` drops, the host takes everyone back to the lobby (the match saved as its point started), `g` comes
+        /// back as `g2` and the host resumes: the host's restart from the save puts both machines at the save's state,
+        /// and they play on from it in step.
+        #[test]
+        fn a_dropped_match_resumes_from_the_lobby() {
+            if !hst_data::fixture::has_iso() {
+                return;
+            }
+            let (kill, s) = (600, |x: f32| (x * 60.0) as u32);
+            let mut apps = peers(true, kill + s(recover::SILENT) + 240, |round, apps, live| {
+                if round == kill {
+                    live[1] = false;
+                }
+                if round == kill + s(recover::SILENT) + 120 {
+                    press(&mut apps[0], KeyCode::Backspace);
+                }
+            });
+            let host = &mut apps[0];
+            notice(host);
+            let np = host.world().resource::<Netplay>();
+            assert!(np.recover.lobby.is_some(), "back to the lobby: {:?}", np.end);
+            let (save, saved) = np.recover.saved.clone().expect("the match saved going back to the lobby");
+            assert_eq!(saved.seats, room(0).seats, "the line-up as the match had it");
+            // the save's state, as a fresh match takes it
+            let mut room = saved.clone();
+            room.rejoined("g", "g2", "g");
+            room.resume = Some(super::super::offer(&save, &saved));
+            let mut fresh = app(&room, "host");
+            snapshot::decode(fresh.world_mut(), &save.state).unwrap();
+            let want = snapshot::fnv(&snapshot::state_text(fresh.world_mut()));
+            // the lobby's Start: the host with the save, g back as g2, both held for the restart
+            let mut apps: Vec<App> = ["host", "g2"]
+                .iter()
+                .map(|&me| {
+                    let mut a = app(&room, me);
+                    a.insert_resource(Rollback::new(&room, me, step as fn(&mut _)).unwrap());
+                    assert!(a.world().resource::<Netplay>().recover.hold, "{me} waits for the restart");
+                    a
+                })
+                .collect();
+            apps[0].world_mut().resource_mut::<Netplay>().recover.resume = Some(save.clone());
+            let mut wire: Vec<(String, u32, Event)> = Vec::new();
+            let me = |a: &App| a.world().resource::<Netplay>().me.clone();
+            let mut got = [None; 2];
+            for round in 0..900u32 {
+                for (to, at, e) in std::mem::take(&mut wire) {
+                    if at > round {
+                        wire.push((to, at, e));
+                    } else if let Some(i) = (0..2).find(|&i| me(&apps[i]) == to) {
+                        take(apps[i].world_mut(), e);
+                    }
+                }
+                for i in 0..2 {
+                    let w = apps[i].world_mut();
+                    rollback::gate(w);
+                    recover::tick(w, 1.0 / 60.0);
+                    // the restart just taken on: this machine's state then
+                    if got[i].is_none() && !w.resource::<Netplay>().recover.hold {
+                        got[i] = Some(snapshot::fnv(&snapshot::state_text(w)));
+                    }
+                    let from = w.resource::<Netplay>().me.clone();
+                    wire.extend(rollback::outgoing(w).into_iter().map(|(to, d)| (to, round + 3, Event::Datagram(from.clone(), d))));
+                    let out = std::mem::take(&mut w.resource_mut::<Netplay>().out);
+                    let to = if from == "host" { "g2" } else { "host" };
+                    wire.extend(out.into_iter().map(|m| (to.to_string(), round + 3, via(&from, to, m))));
+                }
+            }
+            assert_eq!(got, [Some(want); 2], "both machines start from the host's save");
+            for a in &apps {
+                let np = a.world().resource::<Netplay>();
+                assert!(np.room.resume.is_none(), "{}: taken on once", np.me);
+                let g = &a.world().resource::<Game>().score;
+                assert_eq!((g.sets, g.games), (save.head.summary.sets, save.head.summary.games), "{}", np.me);
+            }
+            in_step(&[&apps[0], &apps[1]], 300);
         }
 
         /// B279: the match over, nobody waits for anybody on the result screen (the host gone quiet there is it in the

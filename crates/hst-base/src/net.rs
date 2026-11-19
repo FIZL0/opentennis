@@ -56,6 +56,7 @@ use crate::handshake::Handshake;
 pub mod rtc;
 pub mod keeper;
 pub mod rejoin;
+pub mod player;
 
 pub const ALPN: &[u8] = b"hst/lobby/1";
 #[cfg(not(target_arch = "wasm32"))]
@@ -343,6 +344,127 @@ pub struct Room {
     /// M176: the match's ticks a second, the host's Match Speed (`match_speed`; 0: the default 60).
     #[serde(default, skip_serializing_if = "hz_unset")]
     pub hz: u32,
+    /// M197: an unfinished match the host saved when the players went back to the lobby after a drop, offered to resume.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume: Option<Resume>,
+    /// M197: each guest's player id (its Hello's, `net::player`), by peer: the host's own, never sent.
+    #[serde(skip)]
+    pub ids: std::collections::BTreeMap<String, String>,
+}
+
+/// M197: the unfinished match a lobby can resume: the line-up it was saved with (seats, court, rules), how it stood,
+/// and whether the host chose to resume it (on: the settings are the save's, locked, and Start waits for every player
+/// of it back in their seats) or to play a new match.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Resume {
+    /// How it stands, for the lobby's chip ("3-5 · 40-40 · Ace to serve").
+    pub chip: String,
+    /// The games of the set ("3-5"), for the picker's "Resume 3-5".
+    pub score: String,
+    pub on: bool,
+    /// The lobby as the match had it (a rejoiner's peer moved over once it's back).
+    pub saved: Box<Room>,
+}
+
+impl Resume {
+    /// The saved line-up's seats a person played (seat, its player).
+    fn people(&self) -> impl Iterator<Item = (usize, &Seat)> {
+        self.saved.seats.iter().enumerate().filter_map(|(i, s)| Some((i, s.as_ref().filter(|s| s.human())?)))
+    }
+
+    /// The saved player `peer`'s name.
+    pub fn name(&self, peer: &str) -> String {
+        self.saved.names.get(peer).cloned().unwrap_or_else(|| short(peer).into())
+    }
+}
+
+impl Room {
+    /// M197: the host chose to resume the saved match.
+    pub fn resuming(&self) -> bool {
+        self.resume.as_ref().is_some_and(|r| r.on)
+    }
+
+    /// M197: the saved match's seats whose player isn't back in them yet (seat, the saved peer).
+    pub fn waiting(&self) -> Vec<(usize, String)> {
+        let Some(r) = self.resume.as_ref() else { return Vec::new() };
+        r.people().filter(|(i, s)| self.seats.get(*i).and_then(Option::as_ref).is_none_or(|n| n.peer != s.peer)).map(|(i, s)| (i, s.peer.clone())).collect()
+    }
+
+    /// M197: the saved match's players back in their seats, of all its players (people, not the computer).
+    pub fn back_of(&self) -> (usize, usize) {
+        let all = self.resume.as_ref().map_or(0, |r| r.people().count());
+        (all - self.waiting().len(), all)
+    }
+
+    /// M197: Start can go: not resuming, or every player of the saved match back in their seat.
+    pub fn resume_ready(&self) -> bool {
+        !self.resuming() || self.waiting().is_empty()
+    }
+
+    /// M197: the seats kept for the saved match's players not back yet (nobody else takes them).
+    fn kept(&self) -> Vec<usize> {
+        if self.resuming() { self.waiting().into_iter().map(|(i, _)| i).collect() } else { Vec::new() }
+    }
+
+    /// M197: resume the saved match or not; false (no change) with none, or for resuming with someone seated who
+    /// wasn't in it. On: the save's court, rules and line-up (its computer seats; everyone of it still here in their
+    /// own seat, with their own pick; the others' seats kept). Off: the save's computer seats open again.
+    fn resume_on(&mut self, on: bool) -> bool {
+        let Some(saved) = self.resume.as_ref().map(|r| (*r.saved).clone()) else { return false };
+        if on {
+            let theirs = |p: &str| saved.seats.iter().flatten().any(|s| s.peer == p);
+            if self.seats.iter().flatten().any(|s| s.human() && !theirs(&s.peer)) {
+                return false;
+            }
+            (self.doubles, self.court, self.court_mod, self.random) = (saved.doubles, saved.court, saved.court_mod.clone(), saved.random);
+            (self.umpire, self.umpire_mod, self.sets, self.games) = (saved.umpire, saved.umpire_mod.clone(), saved.sets, saved.games);
+            (self.vanilla, self.no_marks) = (saved.vanilla, saved.no_marks);
+            self.seats = saved.seats.iter().map(|s| s.clone().filter(|s| !s.human() || self.names.contains_key(&s.peer))).collect();
+            let seated: Vec<String> = self.seats.iter().flatten().map(|s| s.peer.clone()).collect();
+            self.picking.retain(|p| !seated.contains(p));
+        } else {
+            for s in &mut self.seats {
+                if s.as_ref().is_some_and(|s| !s.human()) {
+                    *s = None;
+                }
+            }
+        }
+        self.resume.as_mut().unwrap().on = on;
+        self.ready.clear();
+        self.ver += 1;
+        true
+    }
+
+    /// M197: `peer` (player id `id`, named `name`) joining while resuming: if it's a player of the saved match not
+    /// here, it is that player back (the save's seats move over to it): the seats to give it back.
+    fn returning(&mut self, peer: &str, id: Option<&str>, name: &str) -> Vec<usize> {
+        let (Some(id), true) = (id, self.resuming()) else { return Vec::new() };
+        let r = self.resume.as_ref().unwrap();
+        let Some(old) = r.people().map(|(_, s)| s.peer.clone()).find(|p| r.saved.ids.get(p).is_some_and(|i| i == id) && !self.names.contains_key(p)) else { return Vec::new() };
+        let r = self.resume.as_mut().unwrap();
+        r.saved.rejoined(&old, peer, name);
+        r.people().filter(|(_, s)| s.peer == peer).map(|(i, _)| i).collect()
+    }
+
+    /// M197: the returning `peer`'s seats that are its saved ones get its saved picks.
+    fn saved_picks(&mut self, peer: &str) {
+        let Some(r) = self.resume.as_ref() else { return };
+        for (i, s) in self.seats.iter_mut().enumerate() {
+            if let (Some(s), Some(Some(was))) = (s.as_mut(), r.saved.seats.get(i))
+                && s.peer == peer
+                && was.peer == peer
+            {
+                s.pick = was.pick.clone();
+            }
+        }
+    }
+
+    /// M197: the match's line-up at a resumed start: the save's seats, every player in their own.
+    fn resume_seats(&mut self) {
+        if let Some(r) = self.resume.as_ref().filter(|r| r.on) {
+            self.seats = r.saved.seats.clone();
+        }
+    }
 }
 
 fn hz_unset(n: &u32) -> bool {
@@ -587,6 +709,9 @@ impl Room {
 
     /// B196: player `old` is back as peer `new` (named `name`): their seats and name move over.
     pub fn rejoined(&mut self, old: &str, new: &str, name: &str) {
+        if let Some(id) = self.ids.remove(old) {
+            self.ids.insert(new.into(), id);
+        }
         for s in self.seats.iter_mut().flatten().filter(|s| s.peer == old) {
             s.peer = new.into();
         }
@@ -611,6 +736,7 @@ impl Room {
         self.names.retain(|p, _| !away.contains(p));
         self.courts.retain(|p, _| !away.contains(p));
         self.devices.retain(|p, _| !away.contains(p));
+        self.ids.retain(|p, _| !away.contains(p));
         self.picking.retain(|p| !away.contains(p));
         self.deciding.retain(|p| !away.contains(p));
         self.fetching.retain(|p, _| !away.contains(p));
@@ -634,6 +760,7 @@ impl Room {
 
     fn leave(&mut self, peer: &str) {
         self.ver += 1;
+        self.ids.remove(peer);
         self.names.remove(peer);
         self.courts.remove(peer);
         self.devices.remove(peer);
@@ -770,6 +897,9 @@ pub enum Msg {
         /// let in, and the host sends it its data for what differs (crossplay).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         manifest: Option<hst_data::digest::Manifest>,
+        /// M197: this player's own id (`net::player`), so a host keeping an unfinished match's seats knows it again.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
     },
     Room(Room),
     Refused(String),
@@ -1081,6 +1211,9 @@ pub enum Cmd {
     /// M122: this machine is downloading a mod's looks, this far (percent), or not any more: everyone in the lobby
     /// sees it on its seats.
     Fetching(Option<u8>),
+    /// M197: the host's unfinished match to offer in the lobby (or none), and its choice to resume it or not.
+    Resume(Option<Resume>),
+    ResumeOn(bool),
 }
 
 /// What the network tells the app.
@@ -1681,7 +1814,7 @@ async fn announce(cx: &Ctx, n: u16, room: &Room) {
 /// A joiner's side, inside the host task.
 #[allow(clippy::large_enum_variant)] // `Said` keeps its `Msg` by value so the host's match arms destructure it
 enum Guest {
-    In { peer: String, name: String, picks: Vec<Pick>, hand: Handshake, link: Link, conn: Conn, courts: Vec<String>, device: crate::device::Device, seat: Option<u8> },
+    In { peer: String, name: String, picks: Vec<Pick>, hand: Handshake, link: Link, conn: Conn, courts: Vec<String>, device: crate::device::Device, seat: Option<u8>, id: Option<String> },
     Said(String, Msg),
     /// B551: the peer's connection whose link this is ended (a newer one of the same peer's stays).
     Gone(String, Link),
@@ -1790,14 +1923,14 @@ fn micros(t0: n0_future::time::Instant) -> u64 {
 
 /// A guest's arrivals into the host task: its Hello first (else it's dropped), then what it says and sends, then gone.
 async fn guest(gtx: amp::UnboundedSender<Guest>, peer: String, conn: Conn, link: Link, mut inbox: Inbox) {
-    let Some(Ok(Msg::Hello { build, picks, name, courts, device, seat, pack, tables, sim, manifest })) = inbox.msgs.recv().await else {
+    let Some(Ok(Msg::Hello { build, picks, name, courts, device, seat, pack, tables, sim, manifest, id })) = inbox.msgs.recv().await else {
         conn.close(b"no hello");
         return;
     };
     let g = gtx.clone();
     let p = gtx.clone();
     n0_future::task::spawn(read_packs(conn.clone(), move |h, b| drop(g.send(Guest::Pack(h, b))), move |h, got, n| drop(p.send(Guest::Progress(h, got, n)))));
-    let _ = gtx.send(Guest::In { peer: peer.clone(), name, picks, hand: Handshake { build, pack, tables, sim, manifest }, link: link.clone(), conn, courts, device, seat });
+    let _ = gtx.send(Guest::In { peer: peer.clone(), name, picks, hand: Handshake { build, pack, tables, sim, manifest }, link: link.clone(), conn, courts, device, seat, id });
     loop {
         tokio::select! {
             m = inbox.msgs.recv() => match m {
@@ -2115,7 +2248,7 @@ impl Hosted {
     /// Started, everyone ready, and with mods everyone has their looks or stand-ins: a countdown, a last round trip;
     /// B281's wait for the players still choosing about a mod.
     fn settle(&mut self, cx: &Ctx) {
-        if self.starting.is_none() && self.count.is_none() && !self.go && self.auto && self.room.all_set() {
+        if self.starting.is_none() && self.count.is_none() && !self.go && self.auto && self.room.all_set() && self.room.resume_ready() {
             self.auto = false;
             self.count_or_hold();
             broadcast(&self.joined, &Msg::Room(self.room.clone()));
@@ -2222,6 +2355,7 @@ impl Hosted {
             self.room.delay = delay_at(worst, self.room.match_hz());
             self.room.lockstep = std::env::var_os("HST_NET_LOCKSTEP").is_some();
             self.room.seed = (SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_nanos()) as u32) | 1;
+            self.room.resume_seats();
             self.room.bots();
             broadcast(&self.joined, &Msg::Start(self.room.clone()));
             cx.say(Event::Status(format!("Round trip {} ms, input delay {} ticks.", worst.as_millis(), self.room.delay)));
@@ -2237,6 +2371,8 @@ impl Hosted {
     /// Back from a match with the players still in.
     fn back(&mut self, room: Room, joined: Vec<(String, Link, Conn)>) {
         (self.room, self.joined, self.starting, self.go, self.count, self.auto) = (room, joined, None, false, None, true);
+        // M197: a resumed match's offer is spent (a new save comes with the next drop)
+        self.room.resume = None;
         self.ready.clear();
         self.dirty = true;
     }
@@ -2244,7 +2380,7 @@ impl Hosted {
     /// A guest's connection, message, pack or leaving.
     fn on_guest(&mut self, cx: &Ctx, g: Guest) {
         match g {
-            Guest::In { peer, name, picks, hand, link, conn, courts, device, .. } => {
+            Guest::In { peer, name, picks, hand, link, conn, courts, device, id, .. } => {
                 // B551: the same peer on a new connection (it left and came back before its old one was seen to
                 // drop): the old one goes, its seats free for it to take back
                 let mut back = Vec::new();
@@ -2257,11 +2393,22 @@ impl Hosted {
                     cx.say(Event::Room(self.room.clone()));
                     self.dirty = true;
                 }
+                // M197: resuming, a player of the saved match back takes its own seats; nobody else takes them
+                let ret = self.room.returning(&peer, id.as_deref(), &name);
+                let kept = self.room.kept();
+                if !ret.is_empty() {
+                    back = ret.clone();
+                }
+                if !kept.is_empty() {
+                    let free: Vec<usize> = (0..self.room.seats.len()).filter(|i| self.room.seats[*i].is_none() && !kept.contains(i) && !back.contains(i)).collect();
+                    back.extend(free);
+                }
+                let spare = self.room.open() - kept.iter().filter(|i| !back.contains(i)).count();
                 let why = if let Err(e) = hand.check(&Handshake::here()) {
                     Some(e)
                 } else if let Err(e) = picks_ok(&picks) {
                     Some(e)
-                } else if self.starting.is_some() || !self.room.take_from(&peer, &picks, &back) {
+                } else if self.starting.is_some() || picks.len() > spare || !self.room.take_from(&peer, &picks, &back) {
                     Some(format!("not enough open seats ({} open, you bring {})", self.room.open(), picks.len()))
                 } else {
                     None
@@ -2282,7 +2429,15 @@ impl Hosted {
                 self.room.names.insert(peer.clone(), name);
                 self.room.courts.insert(peer.clone(), courts);
                 self.room.devices.insert(peer.clone(), device);
-                self.room.picking.insert(peer.clone());
+                if let Some(id) = id {
+                    self.room.ids.insert(peer.clone(), id);
+                }
+                // M197: a returning player plays its saved picks, nothing to choose
+                if ret.is_empty() {
+                    self.room.picking.insert(peer.clone());
+                } else {
+                    self.room.saved_picks(&peer);
+                }
                 link.send(&Msg::Ping(micros(self.t0)));
                 self.joined.push((peer, link, conn));
                 self.ready.clear();
@@ -2306,7 +2461,7 @@ impl Hosted {
             }
             // B522: a guest's player to the other team (a line-up change, as the host's Doubles)
             Guest::Said(peer, Msg::Team(i)) => {
-                if self.starting.is_none() && self.room.switch_team(&peer, i as usize) {
+                if self.starting.is_none() && !self.room.resuming() && self.room.switch_team(&peer, i as usize) {
                     self.ready.clear();
                     broadcast(&self.joined, &Msg::Room(self.room.clone()));
                     cx.say(Event::Room(self.room.clone()));
@@ -2323,7 +2478,7 @@ impl Hosted {
                         l.send(&Msg::Chat { from: "host".into(), name: "Lobby".into(), text: format!("Your pick was refused: {why}") });
                     }
                 }
-                if self.starting.is_none() && ok.is_ok() && self.room.repick(&peer, &p) {
+                if self.starting.is_none() && !self.room.resuming() && ok.is_ok() && self.room.repick(&peer, &p) {
                     self.ready.clear();
                     broadcast(&self.joined, &Msg::Room(self.room.clone()));
                     cx.say(Event::Room(self.room.clone()));
@@ -2394,6 +2549,38 @@ impl Hosted {
                 cx.say(Event::Room(self.room.clone()));
                 self.dirty = true;
             }
+        }
+    }
+
+    /// M197: the unfinished match offered (resumed if it says so), or the choice changed: everyone's lobby again.
+    fn resume(&mut self, cx: &Ctx, c: Cmd) {
+        if self.starting.is_some() || self.count.is_some() || self.go {
+            return;
+        }
+        let changed = match c {
+            Cmd::Resume(r) => {
+                let on = r.as_ref().is_some_and(|r| r.on);
+                self.room.resume = r.map(|r| Resume { on: false, ..r });
+                self.room.ver += 1;
+                if on && !self.room.resume_on(true) {
+                    cx.say(Event::Status("Someone here wasn't in the unfinished match: New match.".into()));
+                }
+                true
+            }
+            Cmd::ResumeOn(on) if self.room.resuming() != on => {
+                let ok = self.room.resume_on(on);
+                if !ok && on {
+                    cx.say(Event::Status("Someone here wasn't in the unfinished match: it can't be resumed with them.".into()));
+                }
+                ok
+            }
+            _ => false,
+        };
+        if changed {
+            self.ready.clear();
+            broadcast(&self.joined, &Msg::Room(self.room.clone()));
+            cx.say(Event::Room(self.room.clone()));
+            self.dirty = true;
         }
     }
 
@@ -2475,11 +2662,23 @@ impl Hosted {
 
     /// The host's own command; false once it leaves.
     fn on_cmd(&mut self, cx: &Ctx, c: Option<Cmd>) -> bool {
+        // M197: resuming, the line-up, court and rules are the save's
+        let locked = matches!(
+            c,
+            Some(Cmd::Picks(_) | Cmd::Venue(..) | Cmd::UmpireMod(_) | Cmd::CourtMod(_) | Cmd::RandomCourt(_) | Cmd::Bot(..) | Cmd::Doubles(_) | Cmd::Swap(..) | Cmd::Handicap(..) | Cmd::Vanilla(_) | Cmd::NoMarks(_) | Cmd::Team(_))
+        );
+        if locked && self.room.resuming() && self.starting.is_none() {
+            return true;
+        }
+        if let Some(c @ (Cmd::Resume(_) | Cmd::ResumeOn(_))) = c {
+            self.resume(cx, c);
+            return true;
+        }
         match c {
             Some(Cmd::Ready(v)) if v == self.room.ver => drop(self.ready.insert("host".into())),
             Some(Cmd::Deciding(d)) => deciding(cx, &self.joined, &mut self.room, "host".into(), d),
             Some(Cmd::Fetching(f)) => fetching(cx, &self.joined, &mut self.room, "host".into(), f),
-            Some(Cmd::Start) if self.count.is_none() && !self.room.held && !self.go && self.starting.is_none() => {
+            Some(Cmd::Start) if self.count.is_none() && !self.room.held && !self.go && self.starting.is_none() && self.room.resume_ready() => {
                 self.auto = false;
                 self.count_or_hold();
                 broadcast(&self.joined, &Msg::Room(self.room.clone()));
@@ -3129,7 +3328,7 @@ async fn join_in(cx: &Ctx, code: &str, mut picks: Vec<Pick>, cmds: &mut amp::Unb
         let _ = n0_future::time::timeout(Duration::from_secs(10), ep.online()).await;
     }
     let Some((conn, link, inbox, me)) = connect(cx, code, cmds).await else { return false };
-    link.send(&Msg::Hello { build: hand.build.clone(), picks: picks.clone(), name: cx.name.clone(), courts: cx.courts.clone(), device: *cx.device.lock().unwrap(), seat: cx.seat, pack: hand.pack, tables: hand.tables, sim: hand.sim, manifest: hand.manifest.clone() });
+    link.send(&Msg::Hello { build: hand.build.clone(), picks: picks.clone(), name: cx.name.clone(), courts: cx.courts.clone(), device: *cx.device.lock().unwrap(), seat: cx.seat, pack: hand.pack, tables: hand.tables, sim: hand.sim, manifest: hand.manifest.clone(), id: player::id() });
     cx.say(Event::Me(me.clone()));
     let Inbox { msgs: mut inbox, mut dgrams } = inbox;
     let ev = cx.ev.clone();
@@ -3934,6 +4133,46 @@ mod tests {
         r.picking.clear();
         r.ready.insert("h".into());
         assert!(r.all_set(), "full and ready");
+    }
+
+    /// M197: resuming a saved match: its court and line-up back, its dropped player's seat kept for that player (known
+    /// by its player id on a new peer), nobody else's to take, and Start waiting until it's back.
+    #[test]
+    fn a_resumed_lobby_keeps_the_dropped_seat() {
+        let mut r = room(true);
+        r.take("host", &[Pick::disc(0, 0)]);
+        r.take("h", &[Pick::disc(4, 0)]);
+        r.take("g", &[Pick::disc(1, 0)]);
+        r.seats[3] = Some(Seat { peer: CPU.into(), pick: Pick::disc(9, 0) });
+        r.court = 3;
+        for (p, n) in [("host", "Host"), ("h", "Hal"), ("g", "Gil")] {
+            r.names.insert(p.into(), n.into());
+        }
+        r.ids = [("g".to_string(), "id-g".to_string()), ("h".into(), "id-h".into())].into();
+        let saved = r.clone();
+        r.back_to_lobby(&["g".into()]);
+        r.court = 0;
+        assert!(!r.resume_on(true), "nothing to resume");
+        r.resume = Some(Resume { chip: "3-5".into(), score: "3-5".into(), on: false, saved: Box::new(saved.clone()) });
+        assert!(r.resume_ready(), "a new match starts as usual");
+        assert!(r.resume_on(true));
+        assert_eq!((r.court, r.seats[3].as_ref().map(|s| s.pick.char)), (3, Some(9)), "the save's court and computer seat");
+        assert_eq!(r.waiting(), vec![(2, "g".to_string())]);
+        assert_eq!((r.back_of(), r.resume_ready(), r.kept()), ((2, 3), false, vec![2]));
+        assert_eq!(r.resume.as_ref().unwrap().name("g"), "Gil");
+        assert!(r.returning("x", Some("other"), "Xan").is_empty(), "a stranger isn't the dropped player");
+        assert!(r.returning("x", None, "Xan").is_empty());
+        assert_eq!(r.returning("g2", Some("id-g"), "Gil"), vec![2], "the dropped player on a new peer");
+        assert!(r.take_from("g2", &[Pick::disc(5, 0)], &[2]));
+        r.saved_picks("g2");
+        assert_eq!(r.seats[2].as_ref().map(|s| (s.peer.as_str(), s.pick.char)), Some(("g2", 1)), "its own seat and saved pick");
+        assert!(r.resume_ready() && r.waiting().is_empty());
+        r.resume_seats();
+        assert_eq!(r.seats.iter().flatten().map(|s| s.pick.char).collect::<Vec<_>>(), vec![0, 4, 1, 9]);
+        assert!(r.resume_on(false));
+        assert!(r.seats[3].is_none() && !r.resuming(), "a new match: the computer's seat open");
+        r.take("x", &[Pick::disc(7, 0)]);
+        assert!(!r.resume_on(true), "someone not in the save is seated");
     }
 
     /// B523: the host's swaps trade two seats' players (or move one to an open seat), never one peer's two and never
