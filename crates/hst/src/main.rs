@@ -724,7 +724,8 @@ fn no_disc_mode(app: &mut App) {
         handshake::set_disc(&args.iso);
         textures::disc(&args.iso);
         releases::start(&args.iso, store::path(&args.iso, "voices"));
-        next.0 = Some(mode::Mode::new(menu_mode));
+        // B740: a quick fade, not the slow zoom, so the pick-up shows
+        next.0 = Some(mode::Mode::new(menu_mode).quick());
     };
     app.add_systems(Startup, ios::no_disc).add_systems(Update, look);
 }

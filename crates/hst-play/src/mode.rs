@@ -29,13 +29,14 @@ pub struct Mode {
     back: Option<Box<Mode>>,
     cover: Option<Cover>,
     early: Option<Early>,
+    quick: bool,
 }
 
 type Early = Box<dyn FnOnce(&mut World) + Send + Sync>;
 
 impl Mode {
     pub fn new(build: impl FnOnce(&mut App) + Send + Sync + 'static) -> Self {
-        Mode { build: Box::new(build), back: None, cover: None, early: None }
+        Mode { build: Box::new(build), back: None, cover: None, early: None, quick: false }
     }
 
     /// This mode with `more` built on top.
@@ -49,6 +50,7 @@ impl Mode {
             back: self.back,
             cover: self.cover,
             early: self.early,
+            quick: self.quick,
         }
     }
 
@@ -69,6 +71,13 @@ impl Mode {
             }),
             None => Box::new(f),
         });
+        self
+    }
+
+    /// B740: the switch to this mode is a quick fade through black ([`QUICK`]) both ways, not the last frame's zoom
+    /// and fade: the iOS no-disc page into the menu once the disc is there, so the pick-up reads at once.
+    pub fn quick(mut self) -> Self {
+        self.quick = true;
         self
     }
 
@@ -140,6 +149,17 @@ const LEAVE_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
 /// The zoom and fade's length (the original's ~30 frames) and the zoom it ends at.
 const FADE: f32 = 0.5;
 const ZOOM: f32 = 1.5;
+
+/// B740: a quick switch's black cover fading in over the old mode (`out` false) or, its loading done, out over the
+/// new one, `t` seconds in.
+#[derive(Component)]
+struct QuickFade {
+    t: f32,
+    out: bool,
+}
+
+/// B740: a quick switch's fade in and out (a few frames each).
+const QUICK: f32 = 0.1;
 
 /// Render pipelines still compiling (the render world's count, a frame or two behind; compute ones aren't counted).
 #[derive(Resource, Clone, Default)]
@@ -218,6 +238,7 @@ pub fn plugin(app: &mut App) {
         .insert_resource(settle)
         .add_systems(First, (crate::jobs::run, crate::play::menu_art::land, switch, |w: &mut World| run(w, First), loaded).chain())
         .add_systems(Update, zoom)
+        .add_systems(Update, quick_fade)
         .add_systems(Last, warm_up)
         .add_systems(First, unwarm.before(switch))
         .add_systems(PostUpdate, warm.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate))
@@ -332,11 +353,13 @@ fn switch(world: &mut World) {
     if let Some(early) = world.resource_mut::<Next>().0.as_mut().and_then(|m| m.early.take()) {
         early(world);
     }
+    let quick = world.resource::<Next>().0.as_ref().is_some_and(|m| m.quick);
     // the loading screen goes up and is presented (pipelined rendering: frames later) before the build blocks
-    if leave(world) {
+    if !quick && leave(world) {
         return;
     }
-    let fading = world.query::<&Snapshot>().iter(world).next().is_some();
+    // B740: a quick switch's cover fades in instead
+    let fading = world.query::<&Snapshot>().iter(world).next().is_some() || world.query::<&QuickFade>().iter(world).any(|f| !f.out && f.t < QUICK);
     let mut q = world.query::<&mut Loading>();
     match q.iter_mut(world).next() {
         None => {
@@ -591,6 +614,18 @@ fn zoom(time: Res<Time<Real>>, loading: Query<(), With<Loading>>, mut q: Query<(
     }
 }
 
+/// B740: a quick switch's cover, black faded in over [`QUICK`] (real time), or out, then gone.
+fn quick_fade(time: Res<Time<Real>>, mut q: Query<(Entity, &mut QuickFade, &mut BackgroundColor)>, mut c: Commands) {
+    for (e, mut f, mut bg) in &mut q {
+        f.t += time.delta_secs();
+        let k = (f.t / QUICK).min(1.0);
+        bg.0 = Color::BLACK.with_alpha(if f.out { 1.0 - k } else { k });
+        if f.out && k >= 1.0 {
+            c.entity(e).despawn();
+        }
+    }
+}
+
 fn show_loading(world: &mut World) {
     if let Some(mut t) = world.get_resource_mut::<Time<Virtual>>() {
         t.pause();
@@ -601,6 +636,9 @@ fn show_loading(world: &mut World) {
     // B623: black under the notch and the home indicator too, over the menus' walls there
     let bleed = hst_base::widescreen::Bleed { order: 1 << 21, on: true };
     let e = world.spawn((Loading::default(), node, BackgroundColor(Color::BLACK), GlobalZIndex(i32::MAX - 1), bleed)).id();
+    if world.resource::<Next>().0.as_ref().is_some_and(|m| m.quick) {
+        world.entity_mut(e).insert((QuickFade { t: 0.0, out: false }, BackgroundColor(Color::NONE)));
+    }
     if let Some(cover) = world.resource_mut::<Next>().0.as_mut().and_then(|m| m.cover.take()) {
         cover(world, e);
     }
@@ -620,7 +658,12 @@ fn loaded(world: &mut World) {
     }
     info!("loading screen down after {} frames at {:.2} s", l.after, crate::stall::since_start());
     crate::stall::watch();
-    world.entity_mut(e).despawn();
+    if world.get::<QuickFade>(e).is_some() {
+        // B740: off the new mode in a few frames, the cover no longer a loading screen (presses go through)
+        world.entity_mut(e).remove::<Loading>().insert(QuickFade { t: 0.0, out: true });
+    } else {
+        world.entity_mut(e).despawn();
+    }
     if let Some(mut t) = world.get_resource_mut::<Time<Virtual>>() {
         t.unpause();
     }
