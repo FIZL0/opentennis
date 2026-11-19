@@ -26,6 +26,26 @@ const MAGIC: &[u8; 8] = b"HSTSAVE1";
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<PointStart>().add_systems(FixedUpdate, keep.after(instant_replay::run));
+    app.add_systems(PreUpdate, resume_next);
+}
+
+/// M195: a save the menu chose to resume, put into the next match once it's set up ([`resume_next`]).
+static NEXT: std::sync::Mutex<Option<MatchSave>> = std::sync::Mutex::new(None);
+
+/// M195: the next match to start resumes `save` (the menu starts it from the save's setup).
+pub fn resume_in_next(save: MatchSave) {
+    *NEXT.lock().unwrap_or_else(|e| e.into_inner()) = Some(save);
+}
+
+/// M195: once the match is set up (after every start-up system), the save waiting for it goes in.
+fn resume_next(w: &mut World) {
+    if !w.contains_resource::<Game>() {
+        return;
+    }
+    let Some(save) = NEXT.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
+    if let Err(e) = resume(w, &save) {
+        warn!("couldn't resume the saved match: {e}");
+    }
 }
 
 /// The latest point's start outside an instant replay (a replay puts an older point's start back: a save then
@@ -198,7 +218,7 @@ impl Setup {
 }
 
 /// The score where it picks up, for a save's card.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default)]
 pub struct Summary {
     pub sets: [i32; 2],
@@ -209,6 +229,30 @@ pub struct Summary {
     pub advantage: bool,
     /// The player serving.
     pub server: i32,
+    /// M195: each finished set's games, by team.
+    pub set_games: Vec<[i32; 2]>,
+}
+
+impl Summary {
+    /// Team `t`'s points as called: 0 15 30 40, AD on advantage (a tiebreak's as counted).
+    pub fn call(&self, t: usize) -> String {
+        let p = self.points[t];
+        match p {
+            _ if self.tiebreak => p.to_string(),
+            0..=3 => ["0", "15", "30", "40"][p as usize].to_string(),
+            _ => "AD".into(),
+        }
+    }
+
+    /// The points as "30-15" (team 0's first).
+    pub fn points_line(&self) -> String {
+        format!("{}-{}", self.call(0), self.call(1))
+    }
+
+    /// The finished sets and this one's games, "6-4 4-2".
+    pub fn games_line(&self) -> String {
+        self.set_games.iter().chain([&self.games]).map(|g| format!("{}-{}", g[0], g[1])).collect::<Vec<_>>().join(" ")
+    }
 }
 
 /// What a save's card and its check read (any build's file reads this far).
@@ -320,7 +364,8 @@ pub fn capture(w: &mut World, mode: Mode, flags: Vec<String>) -> Option<MatchSav
     let now = snapshot::save(w);
     snapshot::restore(w, &start);
     let s = &w.resource::<Game>().score;
-    let summary = Summary { sets: s.sets, games: s.games, points: s.points, tiebreak: s.tiebreak, deuce: s.deuce, advantage: s.advantage, server: s.server };
+    let set_games = (0..(s.set.max(0) as usize).min(s.set_games[0].len())).map(|k| [s.set_games[0][k], s.set_games[1][k]]).collect();
+    let summary = Summary { sets: s.sets, games: s.games, points: s.points, tiebreak: s.tiebreak, deuce: s.deuce, advantage: s.advantage, server: s.server, set_games };
     let state = snapshot::encode(w);
     snapshot::restore(w, &now);
     let saved = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0, |d| d.as_secs());

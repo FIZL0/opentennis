@@ -38,6 +38,22 @@ pub(super) fn acts(m: &Menu, dev: Dev) -> Vec<(Act, String)> {
         _ if m.takeover_asking() && (m.takeover_asked(dev) || m.on_keys(Some(dev))) => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, if super::touch_page() { "Keep touch" } else { "Keep keyboard" })]),
         _ if m.takeover_asking() => {}
         _ if m.add.ask.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose")]),
+        // M195: the Continue screen's delete confirm, then the screen (✕ only on a save that can be resumed)
+        Screen::Main if m.saved.open && m.saved.ask.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Cancel")]),
+        Screen::Main if m.saved.open => {
+            let c = m.saved.list.get(s.min(m.saved.list.len().saturating_sub(1)));
+            if m.saved.list.len() > 1 {
+                v.push((Act::Move, "Move"));
+            }
+            match c {
+                Some(c) if c.refusal.is_none() => v.push((Act::Ok, if c.head.mode == crate::play::save_game::Mode::Online { "Open lobby" } else { "Resume" })),
+                _ => {}
+            }
+            if c.is_some() {
+                v.push((Act::Card, "Delete"));
+            }
+            v.push((Act::Back, "Back"));
+        }
         Screen::Main if m.stale.0.is_some() => v.extend([(Act::Move, "Move"), (Act::Ok, "Choose"), (Act::Back, "Back")]),
         Screen::Main if m.update_ask.is_some() => v.extend([(Act::UpDown, "Move"), (Act::Ok, "Choose"), (Act::Back, "No")]),
         _ if m.mod_asking() => v.extend([(Act::UpDown, "Move"), (Act::Ok, "Choose"), (Act::Back, "Stand-in")]),
@@ -505,6 +521,16 @@ mod tests {
         }
         let mut m = base(Screen::Main);
         m.add.ask = Some(0);
+        starts.push((m, Dev::Keys));
+        // M195: the main list with saves, the Continue screen open over it, its delete confirm, a save that can't load
+        let mut m = super::super::continue_screen::tests::with_saves(3);
+        starts.push((m.clone(), Dev::Keys));
+        m.saved.open = true;
+        starts.push((m.clone(), Dev::Keys));
+        m.saved.ask = Some(1);
+        starts.push((m.clone(), Dev::Keys));
+        m.saved.ask = None;
+        m.saved.list[0].refusal = Some("Mods changed".into());
         starts.push((m, Dev::Keys));
         // B373: a Mods kind tab the store doesn't carry yet
         let mut m = base(Screen::Mods);
