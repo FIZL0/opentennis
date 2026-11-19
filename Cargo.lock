@@ -3895,7 +3895,7 @@ dependencies = [
 
 [[package]]
 name = "hst"
-version = "1.8.1"
+version = "1.8.2"
 dependencies = [
  "bevy",
  "hst-base",
@@ -3922,7 +3922,7 @@ dependencies = [
 
 [[package]]
 name = "hst-base"
-version = "1.8.1"
+version = "1.8.2"
 dependencies = [
  "bevy",
  "block2 0.6.2",
@@ -3996,7 +3996,7 @@ dependencies = [
 
 [[package]]
 name = "hst-play"
-version = "1.8.1"
+version = "1.8.2"
 dependencies = [
  "ab_glyph",
  "bevy",
