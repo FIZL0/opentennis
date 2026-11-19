@@ -19,9 +19,9 @@ use std::sync::{Arc, Mutex};
 
 /// The local input delay, ticks: the least and the default (a room with no measured round trip).
 pub const DELAY: usize = 2;
-/// B731: the most local input delay, ticks (67 ms at 60): past it local controls feel slow, so a longer round trip is
-/// guessed and rolled back instead.
-pub const MAX_DELAY: usize = 4;
+/// B731: the most local input delay, ticks. 2 (33 ms at 60), down from B731's 4: at 4 a serve's timing felt late
+/// (each press lands 67 ms after it), and a longer round trip is guessed and rolled back instead.
+pub const MAX_DELAY: usize = 2;
 
 /// B731: the input delay every peer of `room` runs rollback with: the host's measured `Room::delay` (from the slowest
 /// guest's round trip, the same on every machine since it comes in Start), kept to [`DELAY`]..=[`MAX_DELAY`], so at

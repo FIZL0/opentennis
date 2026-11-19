@@ -1565,32 +1565,26 @@ mod tests {
         }
 
         /// B731: a room whose host measured a long round trip (200 ms: 7 ticks) runs rollback with the capped input
-        /// delay, 4 ticks, on both machines, and over a link that slow (6 ticks each way) both run the same pads and
-        /// ggrs' checksums agree, with fewer ticks re-run than at the default delay.
+        /// delay ([`rollback::MAX_DELAY`]) on both machines, and over a link that slow (6 ticks each way) both run the
+        /// same pads and ggrs' checksums agree.
         #[test]
         fn rollback_delay_follows_room() {
-            assert_eq!(rollback::input_delay(&room(crate::net::delay_for(std::time::Duration::from_millis(200)))), rollback::MAX_DELAY);
-            assert_eq!(rollback::input_delay(&room(3)), 3);
+            let room = room(crate::net::delay_for(std::time::Duration::from_millis(200)));
+            assert_eq!(rollback::input_delay(&room), rollback::MAX_DELAY);
             if !hst_data::fixture::has_iso() {
                 return;
             }
             REPLAYS.set(true);
-            let run = |delay| {
-                let apps = play_rollback_in(room(delay), 6, 600, false, 0..0, |_, _| {});
-                for a in &apps {
-                    assert_eq!(a.world().resource::<Netplay>().end, None);
-                    assert_eq!(a.world().resource::<Rollback>().delay, rollback::input_delay(&room(delay)));
-                }
-                let [a, b] = apps.each_ref().map(|a| a.world().resource::<Netplay>());
-                let n = a.lock.log.len().min(b.lock.log.len()) - rollback::WINDOW;
-                assert_eq!(a.lock.log[..n], b.lock.log[..n]);
-                let checked = a.state.0.min(b.state.0);
-                assert!(checked >= (n as u32).saturating_sub(120), "the checksums stopped at tick {checked} of {n}");
-                apps.each_ref().map(|a| a.world().resource::<Rollback>().reruns).iter().sum::<u64>()
-            };
-            let (long, short) = (run(4), run(0));
-            assert!(long < short, "re-run ticks at delay 4: {long}, at 2: {short}");
-            eprintln!("re-run ticks at delay 4: {long}, at 2: {short}");
+            let apps = play_rollback_in(room.clone(), 6, 600, false, 0..0, |_, _| {});
+            for a in &apps {
+                assert_eq!(a.world().resource::<Netplay>().end, None);
+                assert_eq!(a.world().resource::<Rollback>().delay, rollback::input_delay(&room));
+            }
+            let [a, b] = apps.each_ref().map(|a| a.world().resource::<Netplay>());
+            let n = a.lock.log.len().min(b.lock.log.len()) - rollback::WINDOW;
+            assert_eq!(a.lock.log[..n], b.lock.log[..n]);
+            let checked = a.state.0.min(b.state.0);
+            assert!(checked >= (n as u32).saturating_sub(120), "the checksums stopped at tick {checked} of {n}");
         }
 
         /// B162: the guest's frame loop stops (a hidden browser tab, a minimised window) at tick 300 for `away` of real
