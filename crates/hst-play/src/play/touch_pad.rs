@@ -426,7 +426,7 @@ fn drive(
     let real = gamepads.iter().any(|(e, g)| e != entity && super::controls::readable(g));
     // B656: a seated touch pad stays beside the real one. iOS's no-disc page has none: it comes with the menu, so a
     // finger down as the disc is found never lands on it mid-switch (dead buttons after, user 2026-11-19)
-    let shown = !hst_base::disc::WAITING.load(Ordering::Relaxed) && (!real || pad.connected && hst_base::seats::touch_held());
+    let shown = !disc_waiting() && (!real || pad.connected && hst_base::seats::touch_held());
     if shown != pad.shown {
         pad.shown = shown;
         pad.fingers.reset();
@@ -719,6 +719,17 @@ fn bake(images: &mut Assets<Image>, s: &str) -> Option<(Handle<Image>, f32)> {
     super::menu_art::fill_rgb(&mut p, &path, [255; 3], Transform::from_scale(k, k).post_translate(2.0, font.ascent_unscaled() * k));
     let img = Image::new(Extent3d { width: w, height: S as u32, depth_or_array_layers: 1 }, TextureDimension::D2, super::menu_art::unpremultiply(p), TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::RENDER_WORLD);
     Some((images.add(img), w as f32 / S))
+}
+
+/// iOS's no-disc page is up (no disc found yet); the web build has no disc module and never waits.
+#[cfg(not(target_arch = "wasm32"))]
+fn disc_waiting() -> bool {
+    hst_base::disc::WAITING.load(Ordering::Relaxed)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn disc_waiting() -> bool {
+    false
 }
 
 #[cfg(test)]
