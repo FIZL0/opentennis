@@ -79,6 +79,11 @@ fi
 # T5: a test whose disc or context/ recording is missing fails instead of passing without checking anything
 # (hst_data::fixture); HST_REQUIRE_DISC=0 for a checkout without them
 export HST_REQUIRE_DISC=${HST_REQUIRE_DISC-1}
+# T28: the tests' scratch files (temp_dir(): voice packs of ~200 MB, disc links, mod packages) go under this
+# checkout's target/, not /tmp: /tmp is a quota-limited tmpfs that the session scratchpads fill, and three tests
+# failed on "Disk quota exceeded" in the gate. A crashed test's leftovers go with the target/ cap above.
+export TMPDIR="$PWD/target/test-tmp"
+mkdir -p "$TMPDIR"
 # every recording a test reads, for tools/context_prune.py (the main checkout's context/, which slots link to)
 # nice: builds yield to the desktop and PCSX2
 nice -n 10 cargo test -j "$jobs" -q --message-format=short "${args[@]}" >"$log" 2>&1 9>&- && {
