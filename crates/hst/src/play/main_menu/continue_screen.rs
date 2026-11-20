@@ -6,8 +6,9 @@
 //! Can't resume with the reason). △ / L / Del deletes the chosen save after a confirm. Laid out across the whole view
 //! (`Grid::extra`), the cards in as many rows as the width needs and scaled as one, so any aspect ratio fits.
 
+use super::super::menu::saved_board;
 use super::frame::{self, Cell, Geo, Thumb};
-use super::{CHAR_NAMES, COURTS, Dev, Draw, Effect, Menu, Press, Screen, Tex, Text, UMPIRES, WHITE, Who, face_frame, pointer};
+use super::{CHAR_NAMES, COURTS, Dev, Draw, Effect, Menu, Press, Screen, Tex, Text, UMPIRES, WHITE, Who, pointer};
 use crate::play::save_game::{self, Head, MatchSave, Mode, Saves};
 use bevy::prelude::Entity;
 use std::path::PathBuf;
@@ -350,16 +351,22 @@ const ONLINE: [f32; 3] = [92.0, 108.0, 122.0];
 const DEAD: [f32; 3] = [100.0; 3];
 const READY: [f32; 3] = [23.0, 84.0, 48.0];
 const STUCK: [f32; 3] = [46.0, 50.0, 58.0];
-/// A card's picture and fact boxes' heights (design units).
-const PIC_H: f32 = 84.0;
+/// A card's fact boxes' height (design units).
 const FACT_H: f32 = 28.0;
 const SERVE: [f32; 3] = frame::GOLD;
 
-/// A card's design size (units, scaled as one to fit) and the least width it's shown at before the cards wrap.
-const CARD_W: f32 = 132.0;
-const CARD_H: f32 = 184.0;
-const CARD_MIN: f32 = 104.0;
+/// B750: a card's design width (units, scaled as one to fit), its mode band's and title's heights, the most a card
+/// is scaled up and the gap between cards.
+const CARD_W: f32 = 240.0;
+const HEAD_H: f32 = 24.0;
+const TITLE_H: f32 = 30.0;
+const MAX_SCALE: f32 = 2.0;
 const GAP: f32 = 12.0;
+/// The pause board's scale on a card: across the card inside its margins.
+const BOARD_K: f32 = (CARD_W - 12.0) / saved_board::WIDTH;
+/// The seat tags' and character pills' words on the board (disc px).
+const TAG_SIZE: f32 = 18.0;
+const PILL_SIZE: f32 = 13.0;
 /// The foot: the navy bar's and Resume's height, Resume's width.
 const FOOT_H: f32 = 40.0;
 const START_W: f32 = 190.0;
@@ -381,13 +388,29 @@ fn chip(c: &Card) -> (String, [f32; 3]) {
     }
 }
 
-/// The cards' grid in the room `[x, y, w, h]` for `n` cards: how many across, the scale and the first card's corner.
-pub(super) fn grid(n: usize, [x, y, w, h]: [f32; 4]) -> (usize, f32, [f32; 2]) {
+/// B750: save `h`'s pause board as its card shows it.
+fn board_of(h: &Head) -> saved_board::Board {
+    saved_board::board(&h.summary, h.setup.sets as i32, h.setup.games as i32, if h.setup.singles { 2 } else { 4 })
+}
+
+/// B750: the cards' design height: the tallest board among `cards` (all the same height, so they line up).
+fn card_h(cards: &[Card]) -> f32 {
+    let board = cards.iter().map(|c| board_of(&c.head).size[1]).fold(112.0, f32::max) * BOARD_K;
+    3.0 + HEAD_H + 2.0 + TITLE_H + board + 6.0 + FACT_H + 6.0
+}
+
+/// The cards' grid in the room `[x, y, w, h]` for `n` cards `card_h` high: how many across (B750: as many as shows
+/// them biggest), the scale and the first card's corner.
+pub(super) fn grid(n: usize, card_h: f32, [x, y, w, h]: [f32; 4]) -> (usize, f32, [f32; 2]) {
     let n = n.max(1);
-    let cols = (((w + GAP) / (CARD_MIN + GAP)) as usize).clamp(1, n);
+    let fit = |cols: usize| {
+        let rows = n.div_ceil(cols);
+        ((w - GAP * (cols - 1) as f32) / cols as f32 / CARD_W).min((h - GAP * (rows - 1) as f32) / rows as f32 / card_h)
+    };
+    let cols = (2..=n).fold(1, |best, c| if fit(c) > fit(best) + 0.001 { c } else { best });
     let rows = n.div_ceil(cols);
-    let s = ((w - GAP * (cols - 1) as f32) / cols as f32 / CARD_W).min((h - GAP * (rows - 1) as f32) / rows as f32 / CARD_H).min(1.25);
-    let (cw, ch) = (CARD_W * s, CARD_H * s);
+    let s = fit(cols).min(MAX_SCALE);
+    let (cw, ch) = (CARD_W * s, card_h * s);
     let used = [cols as f32 * cw + (cols - 1) as f32 * GAP, rows as f32 * ch + (rows - 1) as f32 * GAP];
     (cols, s, [x + (w - used[0]) / 2.0, y + (h - used[1]) / 2.0])
 }
@@ -395,6 +418,8 @@ pub(super) fn grid(n: usize, [x, y, w, h]: [f32; 4]) -> (usize, f32, [f32; 2]) {
 /// The Continue screen over the main one.
 pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, hand_x: f32) {
     let (top, foot) = super::home::span(&m.grid);
+    // B750: a tall view's room above and below the 4:3 screen too
+    let (top, foot) = (top + m.grid.view[1].min(0.0), foot + (m.grid.view[3] - 432.0).max(0.0));
     let e = m.grid.extra;
     // the wall and a gold band with the Continue tab (the tab is Back for the pointer; the main screen's draw puts
     // its "<" on it)
@@ -406,7 +431,8 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, hand_x: f32) {
     let sub = format!("{n} saved · newest first · keeps {}", save_game::KEEP);
     d.outlined(|d| frame::dotted(d, &sub, l + 4.0, top - 4.0, 14.0, r - l - 8.0, WHITE, false));
     // the foot: the navy bar and Resume (Resume alone across on a narrow view, the bar over it)
-    let narrow = r - l < 420.0;
+    // B750: up to a 4:3 view's width, so the bar's court and length aren't cut short
+    let narrow = r - l < 700.0;
     let fy = foot - FOOT_H - 2.0;
     let (bar, start, room_foot) = if narrow {
         ([l, fy - FOOT_H - 8.0, r - l, FOOT_H], [l, fy, r - l, FOOT_H], fy - FOOT_H - 8.0)
@@ -415,18 +441,19 @@ pub(super) fn layout(d: &mut Draw, m: &Menu, text: &Text, hand_x: f32) {
         ([l, fy, r - l - sw - 10.0, FOOT_H], [r - sw, fy, sw, FOOT_H], fy)
     };
     let room = [l, top + 16.0, r - l, room_foot - 10.0 - (top + 16.0)];
-    let (cols, s, [x0, y0]) = grid(n, room);
+    let ch = card_h(&m.saved.list);
+    let (cols, s, [x0, y0]) = grid(n, ch, room);
     let mut hand = [x0 - 60.0, y0];
     for (i, c) in m.saved.list.iter().enumerate() {
-        let at = [x0 + (i % cols) as f32 * (CARD_W * s + GAP), y0 + (i / cols) as f32 * (CARD_H * s + GAP)];
+        let at = [x0 + (i % cols) as f32 * (CARD_W * s + GAP), y0 + (i / cols) as f32 * (ch * s + GAP)];
         let mark = d.mark();
-        card(d, m, text, c, i == sel, [at[0], at[1]]);
+        card(d, m, text, c, i == sel, [at[0], at[1], ch]);
         d.scale_since(mark, at, s);
         // a tap picks it; on the chosen one, resumes it
         let press = if i == sel { pointer::OK } else { Press::default() };
-        d.hit([at[0], at[1], CARD_W * s, CARD_H * s], pointer::Act::Row(i, press));
+        d.hit([at[0], at[1], CARD_W * s, ch * s], pointer::Act::Row(i, press));
         if i == sel {
-            hand = [at[0] - 56.0, at[1] + CARD_H * s / 2.0 - 16.0];
+            hand = [at[0] - 56.0, at[1] + ch * s / 2.0 - 16.0];
         }
     }
     if let Some(c) = m.saved.list.get(sel) {
@@ -458,49 +485,98 @@ fn tab(d: &mut Draw) {
     d.anchor = super::Anchor::Centre;
 }
 
-/// Save `c`'s card at its design size from `[x, y]`, in the main menu panel's style (B747): an ink-rimmed paper box
-/// (a gold ring when chosen), a picture in the mode's colour with the chip, the faces and the mode over its foot,
-/// then the names, the score and two fact boxes on the paper.
-fn card(d: &mut Draw, m: &Menu, text: &Text, c: &Card, on: bool, [x, y]: [f32; 2]) {
+/// The `n`th board sheet ([`saved_board::SHEETS`]), read after the courts' pictures (`read_sheets`).
+const fn board_sheet(k: usize) -> Tex {
+    Tex::Sheet(super::EXTRA + 2 + COURTS + k)
+}
+
+/// `s` left-aligned from `x` in at most `max` across, shrunk as a whole (about its middle line) when it's wider: never
+/// cut or squeezed (B750).
+fn fit(d: &mut Draw, s: &str, x: f32, y: f32, size: f32, max: f32, rgb: [f32; 3]) {
+    let k = (max / d.width(s, size).max(1.0)).min(1.0);
+    d.text(s, x, y + size * (1.0 - k) / 2.0, size * k, rgb);
+}
+
+/// As [`fit`], centred on `cx`.
+fn fit_centred(d: &mut Draw, s: &str, cx: f32, y: f32, size: f32, max: f32, rgb: [f32; 3]) {
+    let k = (max / d.width(s, size).max(1.0)).min(1.0);
+    d.centred(s, cx, y + size * (1.0 - k) / 2.0, size * k, rgb);
+}
+
+/// Each team's players' names in save `h`: "Carol", "Ashley & Momoko".
+fn team_names(m: &Menu, h: &Head) -> [String; 2] {
+    Menu::save_teams(h).map(|t| t.iter().map(|&p| m.save_name(h, p)).collect::<Vec<_>>().join(" & "))
+}
+
+/// Match player `p`'s seat tag in save `h`: "1P".."4P" for the human seats in order, "COM" for the computer's.
+fn seat_tag(h: &Head, p: usize) -> String {
+    let humans = &h.setup.humans;
+    match humans.get(p) {
+        Some(true) => format!("{}P", humans[..p].iter().filter(|&&x| x).count() + 1),
+        _ => "COM".into(),
+    }
+}
+
+/// Save `c`'s card `ch` high from `[x, y]` at its design size, in the main menu panel's style (B747): an ink-rimmed
+/// paper box (a gold ring when chosen), a band in the mode's colour with the mode and the chip, every player's name
+/// (B750: doubles' four, on two lines when one won't hold them), the pause menu's score board, then the court and
+/// when it was saved in two fact boxes.
+fn card(d: &mut Draw, m: &Menu, text: &Text, c: &Card, on: bool, [x, y, ch]: [f32; 3]) {
     use super::home::{MUTED, ON, PAPER};
     let h = &c.head;
-    d.box3([x, y, CARD_W, CARD_H], 12.0, [Some(super::INK), Some(if on { ON } else { WHITE }), Some(PAPER)], 128.0);
-    // the picture: the mode's backdrop, an ink rule under it
-    let pic = [x + 3.0, y + 3.0, CARD_W - 6.0, PIC_H];
-    d.box3(pic, 9.0, [None, None, Some(picture_fill(c))], 128.0);
-    d.q(Tex::Solid, [0.0; 4], [x, y + 3.0 + PIC_H, CARD_W, 2.0], super::INK, 128.0);
-    // the chip
+    d.box3([x, y, CARD_W, ch], 12.0, [Some(super::INK), Some(if on { ON } else { WHITE }), Some(PAPER)], 128.0);
+    // the band: the mode's backdrop, an ink rule under it
+    d.box3([x + 3.0, y + 3.0, CARD_W - 6.0, HEAD_H], 9.0, [None, None, Some(picture_fill(c))], 128.0);
+    d.q(Tex::Solid, [0.0; 4], [x, y + 3.0 + HEAD_H, CARD_W, 2.0], super::INK, 128.0);
+    // the chip at the band's right, the mode at its left in what's left
     let (words, fill) = chip(c);
-    let cw = (d.width(&words, 9.0) + 14.0).min(CARD_W - 16.0);
-    d.box3([x + (CARD_W - cw) / 2.0, y + 9.0, cw, 14.0], 6.0, [Some(super::INK), None, Some(fill)], 128.0);
-    d.label(&words, x + CARD_W / 2.0, y + 10.5, 9.0, cw - 8.0, WHITE);
-    // the faces: a side each, the teams' two side by side
-    let [a, b] = Menu::save_teams(h);
-    let size = if h.setup.singles { 38.0 } else { 27.0 };
-    for (side, team) in [a, b].iter().enumerate() {
-        let cx = x + CARD_W * if side == 0 { 0.27 } else { 0.73 };
-        for (k, &p) in team.iter().enumerate() {
-            let dx = if team.len() == 1 { 0.0 } else { (k as f32 - 0.5) * (size - 4.0) };
-            face_frame(d, (Tex::Face(m.save_who(h, p)), [0.0, 0.0, 64.0, 64.0]), cx + dx, y + 47.0, size, WHITE);
-        }
-    }
-    d.outlined(|d| d.label("vs", x + CARD_W / 2.0, y + 41.0, 11.0, 20.0, WHITE));
-    // the mode over the picture's foot, as the panel's name sits over its picture
+    let cw = (d.width(&words, 10.0) + 14.0).min(CARD_W * 0.55);
+    let chip_x = x + CARD_W - 9.0 - cw;
+    d.box3([chip_x, y + 3.0 + (HEAD_H - 15.0) / 2.0, cw, 15.0], 6.0, [Some(super::INK), None, Some(fill)], 128.0);
+    d.label(&words, chip_x + cw / 2.0, y + 3.0 + (HEAD_H - 10.0) / 2.0 - 0.5, 10.0, cw - 8.0, WHITE);
     let mode = format!("{} {}", if c.online() { "Online" } else { "Local" }, if h.setup.singles { "singles" } else { "doubles" });
-    d.outlined(|d| d.label(&mode, x + CARD_W / 2.0, y + PIC_H - 14.0, 13.0, CARD_W - 18.0, WHITE));
-    // the names, the mini board
-    let below = y + 3.0 + PIC_H + 2.0;
-    super::home::fit_text(d, &m.save_players(h), x + 8.0, below + 4.0, 10.0, CARD_W - 16.0, super::INK);
-    mini_board(d, m, h, [x + 6.0, below + 18.0, CARD_W - 12.0, 30.0]);
+    d.outlined(|d| fit(d, &mode, x + 10.0, y + 3.0 + (HEAD_H - 14.0) / 2.0, 14.0, chip_x - x - 16.0, WHITE));
+    // every player: "A vs B" on a line, or each side on its own when that doesn't fit
+    let ty = y + 5.0 + HEAD_H;
+    let [a, b] = team_names(m, h);
+    let all = format!("{a} vs {b}");
+    let room = CARD_W - 16.0;
+    if d.width(&all, 12.0) <= room {
+        d.centred(&all, x + CARD_W / 2.0, ty + (TITLE_H - 12.0) / 2.0, 12.0, super::INK);
+    } else {
+        fit_centred(d, &a, x + CARD_W / 2.0, ty + 3.0, 11.0, room, super::INK);
+        fit_centred(d, &format!("vs {b}"), x + CARD_W / 2.0, ty + 16.0, 11.0, room, super::INK);
+    }
+    // the pause menu's score board, its faces, seat tags and character pills; a shorter board than the screen's
+    // tallest sits in the middle of the room
+    let board = board_of(h);
+    let k = BOARD_K;
+    let room_h = ch - (3.0 + HEAD_H + 2.0 + TITLE_H + 6.0 + FACT_H + 6.0);
+    let (bx, by) = (x + 6.0, ty + TITLE_H + (room_h - board.size[1] * k) / 2.0);
+    let at = |r: [f32; 4]| [bx + r[0] * k, by + r[1] * k, r[2] * k, r[3] * k];
+    for p in &board.pieces {
+        d.q(board_sheet(p.sheet), p.src, at(p.dst), WHITE, p.alpha);
+    }
+    for (p, &f) in board.faces.iter().enumerate() {
+        let [fx, fy, fw, fh] = at(f);
+        d.q(Tex::Face(m.save_who(h, p)), [0.0, 0.0, 64.0, 64.0], [fx + fw * 0.06, fy + fh * 0.06, fw * 0.88, fh * 0.88], WHITE, 128.0);
+        let [tx, tyy, tw, th] = at(board.tags[p]);
+        let tag = seat_tag(h, p);
+        d.outlined(|d| fit_centred(d, &tag, tx + tw / 2.0, tyy + (th - TAG_SIZE * k) / 2.0, TAG_SIZE * k, tw, WHITE));
+        let name = m.save_name(h, p);
+        let pill = at(board.pill(p, d.width(&name, PILL_SIZE) + 10.0));
+        frame::rounded(d, pill, pill[3] / 2.0, frame::NAVY, 128.0);
+        fit_centred(d, &name, pill[0] + pill[2] / 2.0, pill[1] + (pill[3] - PILL_SIZE * k) / 2.0, PILL_SIZE * k, pill[2] - 3.0 * k, WHITE);
+    }
     // the court and the date in fact boxes at the foot
     let court = m.court_short(text, m.save_court(h));
     let facts = [("COURT", court), ("SAVED", ago(h.saved, now()))];
     let fw = (CARD_W - 12.0 - 4.0) / 2.0;
-    for (k, (label, value)) in facts.iter().enumerate() {
-        let r = [x + 6.0 + (fw + 4.0) * k as f32, y + CARD_H - 6.0 - FACT_H, fw, FACT_H];
+    for (n, (label, value)) in facts.iter().enumerate() {
+        let r = [x + 6.0 + (fw + 4.0) * n as f32, y + ch - 6.0 - FACT_H, fw, FACT_H];
         d.box3(r, 6.0, [Some(super::INK), Some(PAPER), Some(PAPER)], 128.0);
-        super::home::fit_text(d, label, r[0] + 5.0, r[1] + 3.5, 7.0, fw - 10.0, MUTED);
-        super::home::fit_text(d, value, r[0] + 5.0, r[1] + 12.5, 9.5, fw - 10.0, super::INK);
+        fit(d, label, r[0] + 6.0, r[1] + 3.5, 7.0, fw - 12.0, MUTED);
+        fit(d, value, r[0] + 6.0, r[1] + 12.0, 10.5, fw - 12.0, super::INK);
     }
 }
 
@@ -549,8 +625,9 @@ fn foot_bar(d: &mut Draw, m: &Menu, text: &Text, c: &Card, sel: usize, bar: [f32
         Cell { label: "LENGTH", value: length_words(h), arrows: false, sel: false, thumb: Thumb::None },
         Cell { label: "SERVING", value: m.save_server(h), arrows: false, sel: false, thumb: Thumb::None },
     ];
-    // the bar's own cells: Court and Umpire wider (their pictures), the rest even
-    let shares = [1.5, 1.2, 1.0, 1.0];
+    // the bar's own cells: Court and Umpire wider (their pictures)
+    // B750: Length wider than Serving, so "Best of 3, 6 games" isn't cut short on a 4:3 or tall view
+    let shares = [1.4, 1.1, 1.3, 0.9];
     let total: f32 = shares.iter().sum();
     let mut at = bar[0];
     g.cells = [[bar[0], bar[1], 0.0, bar[3]]; 6];
@@ -756,10 +833,11 @@ pub(super) mod tests {
             let e = extra(a);
             let room = [-e + 16.0, 66.0, 640.0 + 2.0 * e - 32.0, 300.0];
             for n in 1..=save_game::KEEP {
-                let (cols, s, [x, y]) = grid(n, room);
+                let ch = card_h(&with_saves(1).saved.list);
+                let (cols, s, [x, y]) = grid(n, ch, room);
                 let rows = n.div_ceil(cols);
                 let w = cols as f32 * CARD_W * s + (cols - 1) as f32 * GAP;
-                let h = rows as f32 * CARD_H * s + (rows - 1) as f32 * GAP;
+                let h = rows as f32 * ch * s + (rows - 1) as f32 * GAP;
                 assert!(x >= room[0] - 0.01 && x + w <= room[0] + room[2] + 0.01 && y >= room[1] - 0.01 && y + h <= room[1] + room[3] + 0.01, "{a} {n}");
                 assert!(s > 0.4, "{a} {n}: {s}");
             }

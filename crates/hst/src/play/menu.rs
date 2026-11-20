@@ -37,6 +37,8 @@ use crate::audio::{Sound, SoundBank};
 
 mod plate;
 mod rules_tab;
+/// B750: the score board for the Continue screen's save cards.
+pub(super) mod saved_board;
 
 // Z21: not `i_dialog_00`/`01`, which our box, pills and rows (B141) stand in for, nor `hsm_yubi`, whose place the 3D
 // hand always takes (`cursor::setup` at Startup)

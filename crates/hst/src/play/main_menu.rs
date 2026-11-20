@@ -2534,6 +2534,10 @@ fn read_sheets(mut commands: Commands, args: Res<Args>, mut images: ResMut<Asset
         let name = format!("confirmation_court{k:02}");
         sheets.push((name.clone(), read(&mut iso, &format!("MENU/WALL/COURT{k:02}.XB"), &format!("/{name}.tm2"))));
     }
+    // B750: the pause screen's score board on the Continue screen's cards (`continue_screen::board_sheet`)
+    for name in super::menu::saved_board::SHEETS {
+        sheets.push((name.into(), read(&mut iso, "AZUMA/INPANE/INPANE.XB0", &format!("/{name}.tm2"))));
+    }
     let _pre = crate::textures::prefetch_tim2(sheets.iter().map(|s| s.1.as_slice()));
     art.extend(sheets.iter().map(|(name, d)| super::menu_art::image(&mut images, d, name)));
     commands.insert_resource(Sheets { art });
