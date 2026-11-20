@@ -373,6 +373,13 @@ window.hstTouchHeld = on => {
   held = on;
   update();
 };
+// B749: the splash was tapped to start (`web.rs` `touch_start`): until then the pad is hidden, reads no touches and
+// isn't in `getGamepads()`, so fingers spammed or a grip touch while the game opens only reach the splash
+let started = false;
+window.hstTouchStart = () => {
+  started = true;
+  update();
+};
 window.hstTouchMenu = on => {
   menu = on;
   touch.menu(on);
@@ -395,7 +402,7 @@ window.hstTouchBuzz = vibrate => {
 };
 const update = () => {
   // gone when the game stops (index.html `fail`): its Reload must take the taps
-  const want = touched && (held && shown || !anyReal()) && !site() && !document.getElementById('boot')?.classList.contains('err');
+  const want = started && touched && (held && shown || !anyReal()) && !site() && !document.getElementById('boot')?.classList.contains('err');
   if (want !== shown) {
     shown = want;
     touch.root.hidden = !want;

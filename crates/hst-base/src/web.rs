@@ -523,6 +523,18 @@ pub fn touch_menu(on: bool) {
     }
 }
 
+/// B749: the splash was tapped to start (or the game started past it): the page's on-screen pad, hidden and reading
+/// no touches until now, may show (`web/touch.js` `hstTouchStart`). Sent once.
+pub fn touch_start() {
+    static SENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !SENT.load(std::sync::atomic::Ordering::Relaxed)
+        && let Some(f) = page_fn("hstTouchStart")
+    {
+        SENT.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = f.call0(&JsValue::NULL);
+    }
+}
+
 /// B662: the words on the page's on-screen pad's buttons (✕ ○ □ △ L1 R1 Select Start), what each does now; blank
 /// where it does nothing; `play`: a match is being played (□ hidden: it does nothing there). Sent when they change.
 pub fn touch_labels(words: &[String; 8], play: bool) {

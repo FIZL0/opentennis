@@ -456,6 +456,9 @@ pub fn plugin(app: &mut App) {
     if on() || cfg!(target_arch = "wasm32") {
         app.add_systems(PostUpdate, relabel.after(super::legend::draw)).add_systems(Last, menu_form);
     }
+    // B749: the browser's pad (`web/touch.js`) waits for the splash's tap too
+    #[cfg(target_arch = "wasm32")]
+    app.init_resource::<Tapped>().add_systems(Last, page_start);
     if on() {
         input(app);
         app.add_systems(PostUpdate, draw.after(relabel).before(bevy::ui::UiSystems::Prepare));
@@ -476,6 +479,14 @@ fn menu_form(w: &World) {
         || super::front_end::paused(w)
         || w.get_resource::<super::netplay::OnlineNotice>().is_some_and(|n| n.ask);
     MENU.store(on, Ordering::Relaxed);
+}
+
+/// B749: tells the page's pad the splash was tapped (`web::touch_start`, once), so it shows and reads touches from then.
+#[cfg(target_arch = "wasm32")]
+fn page_start(tapped: Res<Tapped>) {
+    if tapped.0 {
+        crate::web::touch_start();
+    }
 }
 
 /// The fingers → the pad's gamepad; shown or not; taps on it kept from the menus.
