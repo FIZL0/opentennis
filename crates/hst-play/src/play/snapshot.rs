@@ -7,9 +7,10 @@
 //!
 //! [`state_hash`] is a 64-bit FNV-1a over `Game` (constants left out), the players' motions and the tick's pads, fed by
 //! their `Debug` text: Rust prints an f32 as its shortest round-trip decimal, so different bits print differently
-//! (NaNs aside, which all read "NaN").
+//! (NaNs aside, which all read "NaN"). It leaves out `Game`'s pure cosmetics (B744: [`Cosmetic`]).
 
 use super::{Figure, Game, Pads, tick_input::TickPads};
+use hst_sim::rng::Mt;
 use crate::character::{Motion, Rig};
 use bevy::prelude::*;
 use std::fmt::{self, Write};
@@ -103,10 +104,74 @@ pub fn fnv(text: &str) -> u64 {
 
 /// What `state_hash` hashes (a desync's report keeps it, to diff the machines'). A motion's drawn clock goes as its
 /// gameplay one (B556): it runs a mod's own clip, which a peer without the mod's looks doesn't have, and only draws.
+/// B744: `Game`'s pure cosmetics ([`Cosmetic`]) are left out, so they can't split an online match.
 pub fn state_text(w: &mut World) -> String {
+    let cosmetic = w.get_resource_mut::<Game>().map(|mut g| Cosmetic::take(g.bypass_change_detection()));
     let mut figures: Vec<_> = w.query::<(&Figure, &Motion)>().iter(w).map(|(f, m)| (f.0, Motion { drawn: m.clock, drawn_prev: m.prev, ..*m })).collect();
     figures.sort_by_key(|f| f.0);
-    format!("{:?}{:?}{:?}", w.get_resource::<Game>(), figures, w.get_resource::<TickPads>())
+    let text = format!("{:?}{:?}{:?}", w.get_resource::<Game>(), figures, w.get_resource::<TickPads>());
+    if let (Some(c), Some(mut g)) = (cosmetic, w.get_resource_mut::<Game>()) {
+        c.put(g.bypass_change_detection());
+    }
+    text
+}
+
+/// B744: the pure cosmetics in `Game`, which the state text (the online hash) leaves out: the court's generator
+/// (spectators, gallery, emitters), the sound manager's (hit keys, bounces, footstep dust, hit sparks, debris), the
+/// lens flare's rays and the hit sparks' kept generator, and what only they and the sound system feed: the sound
+/// queues, the ambient emitters, the gallery with its cheers and the applause it takes. None of them is read back by
+/// gameplay, and none of their draws calls `rand()` or the shared or AI generator, so a machine whose cosmetics went
+/// another way still plays the same match. Each machine keeps its own (`save`/`restore` still copy them, so a local
+/// rollback re-runs them alike); a resync sends them along. What the original's cosmetics draw from `rand()` (the
+/// clouds, the flare's ticks, the court's and the sound manager's reseeds) and from the shared generator (shouts,
+/// voices) seeds gameplay too, so those draws stay in the hash, as the original makes them.
+#[derive(Debug)]
+struct Cosmetic {
+    court: Mt,
+    sound: Mt,
+    flare: hst_sim::rng::Flare,
+    respark: Option<Mt>,
+    sounds: Vec<(hst_sim::sound::Play, hst_sim::ball::V3)>,
+    whooshes: Vec<(u32, usize, hst_sim::sound::Play)>,
+    emitters: Vec<hst_sim::npc::Emitter>,
+    gallery: hst_sim::sound::Gallery,
+    cheers: Vec<(hst_sim::sound::Play, i32)>,
+    applause: Option<hst_sim::sound::Reaction>,
+}
+
+impl Cosmetic {
+    /// Out of `g`, blanks left in their place.
+    fn take(g: &mut Game) -> Cosmetic {
+        let blank = || Mt::from_words([0; 624], 0);
+        Cosmetic {
+            court: std::mem::replace(&mut g.rng.court, blank()),
+            sound: std::mem::replace(&mut g.rng.sound, blank()),
+            flare: std::mem::take(&mut g.rng.flare),
+            respark: g.respark.take(),
+            sounds: std::mem::take(&mut g.sounds),
+            whooshes: std::mem::take(&mut g.whooshes),
+            emitters: std::mem::take(&mut g.emitters),
+            gallery: std::mem::take(&mut g.gallery),
+            cheers: std::mem::take(&mut g.cheers),
+            applause: g.applause.take(),
+        }
+    }
+
+    /// Back into `g`.
+    fn put(self, g: &mut Game) {
+        (g.rng.court, g.rng.sound, g.rng.flare, g.respark) = (self.court, self.sound, self.flare, self.respark);
+        (g.sounds, g.whooshes, g.emitters, g.gallery, g.cheers, g.applause) = (self.sounds, self.whooshes, self.emitters, self.gallery, self.cheers, self.applause);
+    }
+}
+
+/// The cosmetics `state_text` leaves out, as text (tests: a rollback must still re-run them alike on one machine).
+#[cfg(test)]
+pub fn cosmetic_text(w: &mut World) -> String {
+    let Some(mut g) = w.get_resource_mut::<Game>() else { return String::new() };
+    let c = Cosmetic::take(g.bypass_change_detection());
+    let text = format!("{c:?}");
+    c.put(g.bypass_change_detection());
+    text
 }
 
 /// Everything a match tick reads and writes, copied.
@@ -591,6 +656,45 @@ mod tests {
         }
         assert!(want[pads.len() - 1] - want[299] > 15, "too few sounds to tell");
         assert_eq!(state_hash(a.world_mut()), state_hash(b.world_mut()), "the re-runs ended somewhere else");
+    }
+
+    /// B744: two machines on the same pads, the second's cosmetics sent another way (other court and sound
+    /// generators, flare rays and gallery) and rolling the last 8 ticks back every tick: the state hashes match tick for
+    /// tick while the cosmetics differ, and the second machine's rollbacks re-run its own cosmetics alike.
+    #[test]
+    fn a_rollback_with_other_cosmetics_keeps_the_hash() {
+        let (Ok(data), true) = (hst_data::fixture::read(FIXTURE), hst_data::fixture::has_iso()) else {
+            return;
+        };
+        let pads: Vec<_> = hst_sim::replay::frames(&data).iter().take(1200).map(|f| [tick_input::recorded(f.pad(0)), tick_input::IDLE, tick_input::IDLE, tick_input::IDLE]).collect();
+        let (mut a, mut b) = (app(), app());
+        assert_eq!(run(&mut a, &pads[..300]), run(&mut b, &pads[..300]));
+        {
+            let mut g = b.world_mut().resource_mut::<Game>();
+            (0..7).for_each(|_| _ = g.rng.court.next());
+            (0..3).for_each(|_| _ = g.rng.sound.next());
+            g.rng.flare.bright = [0.5; 24];
+            g.gallery = hst_sim::sound::Gallery::default();
+        }
+        let cosmetics = |a: &mut App, b: &mut App| super::cosmetic_text(a.world_mut()) != super::cosmetic_text(b.world_mut());
+        assert!(cosmetics(&mut a, &mut b), "the cosmetics didn't change");
+        let (mut differed, mut snaps) = (0, std::collections::VecDeque::new());
+        for t in 300..pads.len() {
+            let want = run(&mut a, &pads[t..=t]);
+            snaps.push_back(save(b.world_mut()));
+            let straight = run(&mut b, &pads[t..=t]);
+            let looks = super::cosmetic_text(b.world_mut());
+            if snaps.len() == 8 {
+                restore(b.world_mut(), &snaps.pop_front().unwrap());
+                run(&mut b, &pads[t - 7..t]);
+                assert_eq!(run(&mut b, &pads[t..=t]), straight, "tick {t}: the rollback re-ran another state");
+                assert_eq!(super::cosmetic_text(b.world_mut()), looks, "tick {t}: the rollback re-ran other cosmetics");
+            }
+            assert_eq!(straight, want, "tick {t}: the cosmetics split the hash");
+            differed += cosmetics(&mut a, &mut b) as u32;
+        }
+        assert!(differed > 100, "the cosmetics differed only {differed} ticks");
+        assert!(a.world().resource::<Game>().shots > 0, "no rally played");
     }
 
     /// B132: a press's approach runs exactly its planned frames, the search frame doesn't move (as the original,
