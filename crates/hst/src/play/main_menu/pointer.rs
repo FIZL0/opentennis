@@ -386,6 +386,16 @@ pub(super) fn to_menu(p: Vec2, aspect: f32, k: f32) -> [f32; 2] {
     [(p.x * 100.0 - 50.0 * (1.0 - share)) * 6.4 / share, (p.y * 100.0 - 50.0 * (1.0 - vshare)) * 4.48 / vshare]
 }
 
+/// B748: the share of the screen, each way, a finger's tap on the splash must land in to start (user 2026-11-20): a
+/// grip touch on an edge or in a corner as the phone is picked up doesn't.
+const SPLASH_MIDDLE: f32 = 0.75;
+
+/// Whether `p` lies in the middle [`SPLASH_MIDDLE`] of a screen `size`, both ways.
+fn splash_middle(p: Vec2, size: Vec2) -> bool {
+    let edge = size * (1.0 - SPLASH_MIDDLE) / 2.0;
+    p.cmpge(edge).all() && p.cmple(size - edge).all()
+}
+
 /// The mouse, fingers and wheel → `Pending`.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::play) fn pointer(
@@ -408,6 +418,9 @@ pub(in crate::play) fn pointer(
     if let Some(css) = crate::web::page_size() {
         size = css;
     }
+    // B748: the splash's tap-anywhere counts only in the middle of the whole screen
+    let screen = size;
+    let splash = menu.as_ref().is_some_and(|m| m.splash_open());
     // B117: measured in the view (a fixed aspect ratio's centred rect)
     let off = widescreen::view(size).min;
     let size = widescreen::in_view(size, off).0;
@@ -453,7 +466,7 @@ pub(in crate::play) fn pointer(
         } else if touches.iter_just_released().chain(touches.iter_just_canceled()).any(|t| t.id() == *id) {
             if !*dragged && touches.iter_just_released().any(|t| t.id() == *id) {
                 let a = at(*start, SLOP_TOUCH);
-                out(a.or(hits.1), true);
+                out(a.or(hits.1.filter(|_| !splash || splash_middle(*start, screen))), true);
             }
             st.finger = None;
         } else {
@@ -833,4 +846,20 @@ pub(super) mod tests {
         assert_eq!(m.sel, 1);
     }
 
+    /// B748: the splash's tap counts in the middle 75% of the screen only, both ways; edges and corners don't.
+    #[test]
+    fn splash_tap_only_in_the_middle() {
+        let size = Vec2::new(852.0, 393.0);
+        assert!(splash_middle(size / 2.0, size));
+        assert!(splash_middle(size * 0.13, size) && splash_middle(size * 0.87, size));
+        for p in [Vec2::new(20.0, 196.0), Vec2::new(840.0, 196.0), Vec2::new(426.0, 10.0), Vec2::new(426.0, 385.0), Vec2::new(5.0, 5.0), size * 0.12] {
+            assert!(!splash_middle(p, size), "{p}");
+        }
+        let mut m = Menu { screen: Screen::Press, ..default() };
+        assert!(m.splash_open());
+        m.quit = Some(1);
+        assert!(!m.splash_open());
+        (m.quit, m.p1) = (None, Some(Dev::Keys));
+        assert!(!m.splash_open());
+    }
 }

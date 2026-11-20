@@ -71,7 +71,14 @@ pub(super) fn load(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 }
 
 /// The clock; once 1P is taken and its card has been up a moment, on to the main menu.
-pub(super) fn tick(mut menu: ResMut<Menu>, time: Res<Time>, window: Query<&Window, With<bevy::window::PrimaryWindow>>) {
+pub(super) fn tick(mut menu: ResMut<Menu>, time: Res<Time>, window: Query<&Window, With<bevy::window::PrimaryWindow>>, tapped: Option<ResMut<crate::play::touch_pad::Tapped>>) {
+    // B748: the on-screen pad comes once the splash is answered (or never was up)
+    if let Some(mut tapped) = tapped
+        && !tapped.0
+        && (menu.screen != Screen::Press || menu.p1.is_some())
+    {
+        tapped.0 = true;
+    }
     if menu.screen != Screen::Press {
         return;
     }
@@ -91,6 +98,11 @@ pub(super) fn tick(mut menu: ResMut<Menu>, time: Res<Time>, window: Query<&Windo
 }
 
 impl Menu {
+    /// B748: the splash waits for its first press, nothing over it (its tap-anywhere is live).
+    pub(super) fn splash_open(&self) -> bool {
+        self.screen == Screen::Press && self.p1.is_none() && self.quit.is_none() && self.update_ask.is_none()
+    }
+
     /// The splash's presses: the first ✕ / Start / Enter / Space (or tap) takes 1P.
     pub(super) fn splash_step(&mut self, dev: Dev, ok: bool) -> bool {
         if !ok || self.p1.is_some() || dev == Dev::Open {

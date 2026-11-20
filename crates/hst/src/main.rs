@@ -548,6 +548,10 @@ fn start(argv: Vec<String>) {
     app.add_plugins(device::plugin);
     // M91a1: the iPhone's on-screen pad, kept through mode switches
     app.add_plugins(play::touch_pad::plugin);
+    // B748: no splash to tap first
+    if !menu {
+        app.insert_resource(play::touch_pad::Tapped(true));
+    }
     // B629: the loading screen's court picture over the whole window
     app.add_plugins(loading::plugin);
     // M101: Android's controllers, which gilrs can't read

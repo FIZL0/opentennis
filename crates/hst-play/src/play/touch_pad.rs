@@ -6,6 +6,8 @@
 //! one connecting takes it away in the same frame, before any seat or slot sees both (B247). B656: unless it holds a
 //! seat (it pressed Start on the splash, `seats::hold_touch`): then it stays and keeps playing as 1P, and the
 //! controller joins as the next player.
+//! B748: it isn't there at all, no gamepad, nothing drawn and no touch read, until the splash is tapped to start
+//! ([`Tapped`]): before that every touch is the splash's, whose tap counts only in the screen's middle.
 //!
 //! In the menus, which take taps themselves (B221), the stick is a fixed circle at the bottom left, so taps anywhere else
 //! reach the menu; in a match (the pause and result screens are menus) it appears wherever the left thumb lands in the
@@ -400,46 +402,24 @@ struct Pad {
     launch: Launch,
 }
 
-/// B746: seconds the pad has been on show with no loading screen over it before it, and the menus under it, take
-/// touches after the app starts (user 2026-11-20: fingers spammed while the app opens left the pad dead). Touches
-/// that land sooner go nowhere for their whole life, so nothing is left holding what they landed on.
-const SETTLE: f32 = 1.5;
-/// B746: the first touches' phases logged after the app starts (the phone's hst-log.txt), to see what a dead pad saw.
+/// B748: the player has tapped the splash to go (or the app started past it: no splash, a menu screen named by
+/// `HST_MENU`, back from a match). Until then the pad isn't there at all: no gamepad, nothing drawn, no touch read, so
+/// fingers spammed or a grip touch while the app opens only reach the splash (user 2026-11-20: they left the pad dead,
+/// B746). Set by the splash (`main_menu::splash::tick`), and by `main.rs` for a start with no menus; never unset.
+#[derive(Resource, Default, Debug)]
+pub struct Tapped(pub bool);
+
+/// B746: the first touches' phases logged after the pad comes (the phone's hst-log.txt), to see what a dead pad saw.
 const LOG_TOUCHES: usize = 60;
 
-/// B746: the app's start, until the pad takes touches.
+/// B746: the pad's first touches, logged.
 #[derive(Default, Debug)]
 struct Launch {
-    /// It takes touches.
-    armed: bool,
-    /// Since when (real s) it has been on show with no loading screen over it.
-    since: Option<f32>,
-    /// Touches it kept from everything meanwhile.
-    swallowed: usize,
     /// Touch events logged so far.
     logged: usize,
 }
 
 impl Launch {
-    /// This frame's touches before the pad reads them: until [`SETTLE`] s of the pad on show (`clear`: no loading
-    /// screen over it) every new touch is taken back, from the pad and the menus alike; then it's armed, for good.
-    fn gate(&mut self, touches: &mut Touches, clear: bool, now: f32) {
-        if self.armed {
-            return;
-        }
-        self.since = if clear { self.since.or(Some(now)) } else { None };
-        if self.since.is_some_and(|t| now - t >= SETTLE) {
-            self.armed = true;
-            info!("touch pad: taking touches at {now:.2} s ({} touched before, kept from everything; {} fingers down now)", self.swallowed, touches.iter().count());
-            return;
-        }
-        let early: Vec<u64> = touches.iter_just_pressed().map(|t| t.id()).collect();
-        self.swallowed += early.len();
-        for id in early {
-            touches.clear_just_pressed(id);
-        }
-    }
-
     /// The first [`LOG_TOUCHES`] touch events after the start, each with what the pad did with it.
     fn log(&mut self, id: u64, what: &str, p: Vec2, did: &str) {
         if self.logged < LOG_TOUCHES {
@@ -485,6 +465,7 @@ pub fn plugin(app: &mut App) {
 /// The pad's input side (all but its drawing).
 fn input(app: &mut App) {
     app.init_resource::<Pad>()
+        .init_resource::<Tapped>()
         .add_systems(PreUpdate, drive.after(bevy::input::InputSystems).before(crate::mode::hush));
 }
 
@@ -507,10 +488,14 @@ fn drive(
     ours: Query<(), With<Ours>>,
     mut gamepads: Query<(Entity, &mut Gamepad)>,
     mut connect: MessageWriter<GamepadConnectionEvent>,
-    (loading, time): (Query<(), With<crate::mode::Loading>>, Res<Time<Real>>),
+    tapped: Res<Tapped>,
 ) {
     let pad = &mut *pad;
     pad.frame += 1;
+    // B748: not before the splash's tap
+    if !tapped.0 {
+        return;
+    }
     let Ok(win) = window.single() else { return };
     // a mode switch took it (`mode.rs` keeps only the pads connected): a new one
     let entity = match pad.entity.filter(|&e| ours.contains(e)) {
@@ -557,12 +542,6 @@ fn drive(
         for (id, what, p) in ends {
             launch.log(id, what, p, if pad.fingers.control.contains_key(&id) { "lets its control go" } else { "-" });
         }
-    }
-    let armed = launch.armed;
-    let early: Vec<_> = if armed { Vec::new() } else { touches.iter_just_pressed().map(|t| (t.id(), t.position())).collect() };
-    launch.gate(&mut touches, loading.is_empty(), time.elapsed_secs());
-    for (id, p) in early {
-        launch.log(id, "start", p, "too soon after the start: ignored");
     }
     let f = &mut pad.fingers;
     let mut buzz = false;
@@ -1048,10 +1027,10 @@ mod tests {
         assert!(!f.control.contains_key(&4));
     }
 
-    /// B746: touches while the app starts (and under a loading screen) go nowhere, neither the pad nor the menus, for
-    /// their whole life; the pad takes touches SETTLE s after it's on show with nothing over it.
+    /// B748: before the splash's tap the pad isn't there: no gamepad, every touch left to the menus (the splash), even
+    /// on ✕'s spot; after it the pad comes, a finger still down from before holds nothing, a new one plays.
     #[test]
-    fn launch_touches_go_nowhere() {
+    fn no_pad_till_the_splash_is_tapped() {
         let _held = HELD.lock().unwrap_or_else(|e| e.into_inner());
         hst_base::seats::hold_touch(false);
         let mut app = App::new();
@@ -1066,27 +1045,25 @@ mod tests {
             app.world_mut().write_message(TouchInput { phase, position: p, window: win, force: None, id });
             app.update();
         };
+        let pads = |app: &mut App| app.world_mut().query::<&Gamepad>().iter(app.world()).count();
         let cross = |app: &mut App| app.world_mut().query::<&Gamepad>().iter(app.world()).any(|g| g.pressed(GamepadButton::South));
         let l = Layout::new(SIZE, [0.0; 4]);
-        // just started: ✕ and the menus' part of the screen both go nowhere, and keep going nowhere till they lift
         touch(&mut app, TouchPhase::Started, l.keys[0].center(), 1);
-        touch(&mut app, TouchPhase::Started, Vec2::new(SIZE.x * 0.6, 100.0), 2);
-        assert!(!cross(&mut app) && !app.world().resource::<Touches>().any_just_pressed());
-        assert!(!app.world().resource::<Pad>().launch.armed);
-        // settled (as if SETTLE s had passed): armed
-        app.world_mut().resource_mut::<Pad>().launch.since = Some(-SETTLE);
+        assert!(app.world().resource::<Touches>().just_pressed(1), "the splash sees it");
+        assert_eq!(pads(&mut app), 0);
+        assert!(app.world().resource::<Pad>().entity.is_none() && app.world().resource::<Pad>().fingers.control.is_empty());
+        // the splash's tap
+        app.world_mut().resource_mut::<Tapped>().0 = true;
         app.update();
-        let pad = app.world().resource::<Pad>();
-        assert!(pad.launch.armed && pad.launch.swallowed == 2 && pad.fingers.control.is_empty());
-        // the early fingers, still down, still go nowhere; lifting them does nothing either
+        app.update();
+        assert_eq!(pads(&mut app), 1);
+        // finger 1, down since before, slides and lifts on ✕: nothing
         touch(&mut app, TouchPhase::Moved, l.keys[0].center() + Vec2::X, 1);
-        touch(&mut app, TouchPhase::Ended, l.keys[0].center(), 1);
         assert!(!cross(&mut app));
-        // a new touch on ✕ presses it, one away from the pad reaches the menus
+        touch(&mut app, TouchPhase::Ended, l.keys[0].center(), 1);
+        // a new touch on ✕ presses it
         touch(&mut app, TouchPhase::Started, l.keys[0].center(), 3);
         assert!(cross(&mut app));
-        touch(&mut app, TouchPhase::Started, Vec2::new(SIZE.x * 0.6, 120.0), 4);
-        assert!(app.world().resource::<Touches>().just_pressed(4));
     }
 
     /// The pad as the app reads it: a gamepad named for `emote::touch`, its presses kept from the menus' `Touches`,
@@ -1099,6 +1076,7 @@ mod tests {
         app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, bevy::window::WindowPlugin::default()));
         app.insert_resource(super::super::controls::Bindings::default());
         input(&mut app);
+        app.insert_resource(Tapped(true));
         let win = app.world_mut().query_filtered::<Entity, With<PrimaryWindow>>().single(app.world()).unwrap();
         app.world_mut().query::<&mut Window>().single_mut(app.world_mut()).unwrap().resolution.set(SIZE.x, SIZE.y);
         app.update();
@@ -1112,8 +1090,6 @@ mod tests {
             q.iter(app.world()).map(|(e, g, n)| (e, n.to_string(), g.just_pressed(GamepadButton::South), g.pressed(GamepadButton::South), g.left_stick())).next()
         };
         let (e, name, ..) = pad(&mut app).expect("connected");
-        // B746: past the start's settling (`launch_touches_go_nowhere` has it)
-        app.world_mut().resource_mut::<Pad>().launch.armed = true;
         assert!(name.starts_with("Touch controls"));
         let l = Layout::new(SIZE, [0.0; 4]);
         // ✕ tapped within one frame
@@ -1156,6 +1132,7 @@ mod tests {
         app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, bevy::window::WindowPlugin::default()));
         app.insert_resource(super::super::controls::Bindings::default());
         input(&mut app);
+        app.insert_resource(Tapped(true));
         app.world_mut().query::<&mut Window>().single_mut(app.world_mut()).unwrap().resolution.set(SIZE.x, SIZE.y);
         app.update();
         app.update();
