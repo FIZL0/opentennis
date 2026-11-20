@@ -277,7 +277,16 @@ struct Fingers {
     stick: Option<(u64, Vec2)>,
     /// The stick's tilt, screen axes (+y down), within the unit circle.
     tilt: Vec2,
+    /// B746: each finger on a control: where it was last seen and the frame it last moved (or landed).
+    seen: HashMap<u64, (Vec2, u64)>,
+    /// B746: a button whose lost fingers a new one replaced on that frame: up then, down again the next.
+    again: [u64; 8],
 }
+
+/// B746: frames a finger on a control can give no sign (no move) before a new finger landing on that control counts
+/// it as lost (its end never reached us: iOS, touches spammed at launch) and takes over: half a second at 120 Hz, a
+/// second at 60. A real thumb can rest that still, but never shares a button or the stick with another finger.
+const QUIET: u64 = 60;
 
 impl Fingers {
     /// A touch landed at `p` on frame `frame`: whether a control took it, and whether it pressed a button.
@@ -285,17 +294,44 @@ impl Fingers {
         if self.control.contains_key(&id) {
             return (true, false);
         }
-        match l.control_at(p, menu) {
+        let control = l.control_at(p, menu);
+        // B746: the control held only by fingers gone quiet: theirs ended without word, the new finger has it
+        let lost = |f: &Fingers, ids: &mut dyn Iterator<Item = u64>| {
+            let ids: Vec<u64> = ids.collect();
+            (!ids.is_empty() && ids.iter().all(|h| f.seen.get(h).is_none_or(|&(_, at)| frame.saturating_sub(at) >= QUIET))).then_some(ids)
+        };
+        match control {
             Some(Control::Key(k)) => {
+                if let Some(gone) = lost(self, &mut self.held[k].iter().copied()) {
+                    info!("touch pad: button {k}'s finger(s) {gone:?} gave no sign for {QUIET}+ frames, a new one takes it (their end never came)");
+                    for h in gone {
+                        self.lift(h);
+                    }
+                    // up this frame, so the new finger presses it again on the next
+                    self.down[k] = None;
+                    self.again[k] = frame;
+                    self.control.insert(id, Control::Key(k));
+                    self.held[k].push(id);
+                    self.seen.insert(id, (p, frame));
+                    return (true, true);
+                }
                 self.control.insert(id, Control::Key(k));
                 self.held[k].push(id);
+                self.seen.insert(id, (p, frame));
                 let new = self.down[k].is_none();
                 self.down[k] = self.down[k].or(Some(frame));
                 (true, new)
             }
+            Some(Control::Stick) if self.stick.is_some_and(|(s, _)| lost(self, &mut std::iter::once(s)).is_some()) => {
+                let (s, _) = self.stick.expect("checked");
+                info!("touch pad: the stick's finger {s} gave no sign for {QUIET}+ frames, a new one takes it (its end never came)");
+                self.lift(s);
+                self.land(id, p, l, menu, frame)
+            }
             // one stick finger at a time; another lands on nothing
             Some(Control::Stick) if self.stick.is_none() => {
                 self.control.insert(id, Control::Stick);
+                self.seen.insert(id, (p, frame));
                 // in the menus the stick sits still: its centre is the corner's
                 self.stick = Some((id, if menu { l.corner } else { p }));
                 self.tilt = Vec2::ZERO;
@@ -305,8 +341,13 @@ impl Fingers {
         }
     }
 
-    /// The stick's finger is at `p`.
-    fn slide(&mut self, id: u64, p: Vec2, l: &Layout) {
+    /// The stick's finger is at `p`. B746: any finger on a control seen somewhere new on frame `frame` is alive.
+    fn slide(&mut self, id: u64, p: Vec2, l: &Layout, frame: u64) {
+        if let Some(seen) = self.seen.get_mut(&id)
+            && seen.0 != p
+        {
+            *seen = (p, frame);
+        }
         if let Some((s, c)) = self.stick
             && s == id
         {
@@ -316,6 +357,7 @@ impl Fingers {
 
     /// A touch lifted or was cancelled.
     fn lift(&mut self, id: u64) {
+        self.seen.remove(&id);
         match self.control.remove(&id) {
             Some(Control::Key(k)) => self.held[k].retain(|&f| f != id),
             Some(Control::Stick) => {
@@ -331,6 +373,10 @@ impl Fingers {
         for k in 0..8 {
             if self.held[k].is_empty() && self.down[k].is_some_and(|f| f < frame) {
                 self.down[k] = None;
+            }
+            // B746: a button a new finger took from lost ones, up for a frame, down again
+            if !self.held[k].is_empty() && self.down[k].is_none() && self.again[k] < frame {
+                self.down[k] = Some(frame);
             }
         }
     }
@@ -351,6 +397,56 @@ struct Pad {
     frame: u64,
     fingers: Fingers,
     safe: [f32; 4],
+    launch: Launch,
+}
+
+/// B746: seconds the pad has been on show with no loading screen over it before it, and the menus under it, take
+/// touches after the app starts (user 2026-11-20: fingers spammed while the app opens left the pad dead). Touches
+/// that land sooner go nowhere for their whole life, so nothing is left holding what they landed on.
+const SETTLE: f32 = 1.5;
+/// B746: the first touches' phases logged after the app starts (the phone's hst-log.txt), to see what a dead pad saw.
+const LOG_TOUCHES: usize = 60;
+
+/// B746: the app's start, until the pad takes touches.
+#[derive(Default, Debug)]
+struct Launch {
+    /// It takes touches.
+    armed: bool,
+    /// Since when (real s) it has been on show with no loading screen over it.
+    since: Option<f32>,
+    /// Touches it kept from everything meanwhile.
+    swallowed: usize,
+    /// Touch events logged so far.
+    logged: usize,
+}
+
+impl Launch {
+    /// This frame's touches before the pad reads them: until [`SETTLE`] s of the pad on show (`clear`: no loading
+    /// screen over it) every new touch is taken back, from the pad and the menus alike; then it's armed, for good.
+    fn gate(&mut self, touches: &mut Touches, clear: bool, now: f32) {
+        if self.armed {
+            return;
+        }
+        self.since = if clear { self.since.or(Some(now)) } else { None };
+        if self.since.is_some_and(|t| now - t >= SETTLE) {
+            self.armed = true;
+            info!("touch pad: taking touches at {now:.2} s ({} touched before, kept from everything; {} fingers down now)", self.swallowed, touches.iter().count());
+            return;
+        }
+        let early: Vec<u64> = touches.iter_just_pressed().map(|t| t.id()).collect();
+        self.swallowed += early.len();
+        for id in early {
+            touches.clear_just_pressed(id);
+        }
+    }
+
+    /// The first [`LOG_TOUCHES`] touch events after the start, each with what the pad did with it.
+    fn log(&mut self, id: u64, what: &str, p: Vec2, did: &str) {
+        if self.logged < LOG_TOUCHES {
+            self.logged += 1;
+            info!("touch {:04x} {what} at {:.0},{:.0}: {did}", id & 0xffff, p.x, p.y);
+        }
+    }
 }
 
 /// A menu is up (the main menu, the pause or result screen): the stick keeps to its corner.
@@ -411,6 +507,7 @@ fn drive(
     ours: Query<(), With<Ours>>,
     mut gamepads: Query<(Entity, &mut Gamepad)>,
     mut connect: MessageWriter<GamepadConnectionEvent>,
+    (loading, time): (Query<(), With<crate::mode::Loading>>, Res<Time<Real>>),
 ) {
     let pad = &mut *pad;
     pad.frame += 1;
@@ -454,6 +551,19 @@ fn drive(
     }
     let l = Layout::new(Vec2::new(win.width(), win.height()), pad.safe);
     let frame = pad.frame;
+    let launch = &mut pad.launch;
+    if launch.logged < LOG_TOUCHES {
+        let ends: Vec<_> = touches.iter_just_released().map(|t| (t.id(), "end", t.position())).chain(touches.iter_just_canceled().map(|t| (t.id(), "cancel", t.position()))).collect();
+        for (id, what, p) in ends {
+            launch.log(id, what, p, if pad.fingers.control.contains_key(&id) { "lets its control go" } else { "-" });
+        }
+    }
+    let armed = launch.armed;
+    let early: Vec<_> = if armed { Vec::new() } else { touches.iter_just_pressed().map(|t| (t.id(), t.position())).collect() };
+    launch.gate(&mut touches, loading.is_empty(), time.elapsed_secs());
+    for (id, p) in early {
+        launch.log(id, "start", p, "too soon after the start: ignored");
+    }
     let f = &mut pad.fingers;
     let mut buzz = false;
     let landed: Vec<_> = touches.iter_just_pressed().map(|t| (t.id(), t.position())).collect();
@@ -469,9 +579,18 @@ fn drive(
             touches.clear_just_pressed(id);
         }
         buzz |= pressed;
+        if pad.launch.logged < LOG_TOUCHES {
+            let did = match f.control.get(&id) {
+                Some(Control::Key(k)) if pressed => format!("presses button {k}"),
+                Some(Control::Key(k)) => format!("on button {k}, already down"),
+                Some(Control::Stick) => "takes the stick".into(),
+                None => "to the menus".into(),
+            };
+            pad.launch.log(id, "start", p, &did);
+        }
     }
     for t in touches.iter() {
-        f.slide(t.id(), t.position(), &l);
+        f.slide(t.id(), t.position(), &l, frame);
     }
     let gone: Vec<u64> = touches.iter_just_released().chain(touches.iter_just_canceled()).map(|t| t.id()).collect();
     for id in gone {
@@ -879,10 +998,10 @@ mod tests {
         let mut f = Fingers::default();
         let at = Vec2::new(200.0, 250.0);
         assert!(f.land(1, at, &l, false, 1).0);
-        f.slide(1, at + Vec2::new(l.reach() * 0.5, 0.0), &l);
+        f.slide(1, at + Vec2::new(l.reach() * 0.5, 0.0), &l, 1);
         assert!((f.tilt - Vec2::new(0.5, 0.0)).length() < 1e-5);
         // past the base: full tilt
-        f.slide(1, at + Vec2::new(0.0, -l.reach() * 3.0), &l);
+        f.slide(1, at + Vec2::new(0.0, -l.reach() * 3.0), &l, 2);
         assert!((f.tilt - Vec2::new(0.0, -1.0)).length() < 1e-5);
         // a second thumb on the zone takes nothing
         assert!(!f.land(2, at + Vec2::splat(30.0), &l, false, 2).0);
@@ -891,8 +1010,83 @@ mod tests {
         // menus: only the corner circle, centred there wherever the thumb lands in it
         assert!(!f.land(3, at, &l, true, 3).0);
         assert!(f.land(4, l.corner + Vec2::new(10.0, 0.0), &l, true, 3).0);
-        f.slide(4, l.corner + Vec2::new(l.reach() * 0.25, 0.0), &l);
+        f.slide(4, l.corner + Vec2::new(l.reach() * 0.25, 0.0), &l, 3);
         assert!((f.tilt.x - 0.25).abs() < 1e-5);
+    }
+
+    /// B746: a finger whose end never came (a touch iOS lost) doesn't keep a button or the stick from the next one:
+    /// gone quiet, a new finger landing there takes over, and the button goes up for a frame and down again.
+    #[test]
+    fn a_lost_finger_gives_way() {
+        let l = layout();
+        let mut f = Fingers::default();
+        let cross = l.keys[0].center();
+        f.land(1, cross, &l, false, 10);
+        f.settle(10);
+        // a second finger soon after: as before, no second press
+        assert_eq!(f.land(2, cross, &l, false, 20), (true, false));
+        f.lift(2);
+        // finger 1 never lifts and never moves: a finger landing past QUIET takes ✕, up this frame, down the next
+        let late = 10 + QUIET;
+        assert_eq!(f.land(3, cross, &l, false, late), (true, true));
+        assert!(!f.control.contains_key(&1) && f.held[0] == [3]);
+        f.settle(late);
+        assert!(f.down[0].is_none());
+        f.settle(late + 1);
+        assert_eq!(f.down[0], Some(late + 1));
+        f.lift(3);
+        f.settle(late + 2);
+        assert!(f.down[0].is_none());
+        // a finger that moves lately is alive: the stick keeps it
+        let at = Vec2::new(200.0, 250.0);
+        assert!(f.land(4, at, &l, false, 100).0);
+        f.slide(4, at + Vec2::X, &l, 100 + QUIET);
+        assert!(!f.land(5, at, &l, false, 101 + QUIET).0);
+        // still from then on: the next thumb takes the stick, centred where it lands
+        assert!(f.land(6, at + Vec2::Y * 20.0, &l, false, 100 + 2 * QUIET).0);
+        assert_eq!(f.stick, Some((6, at + Vec2::Y * 20.0)));
+        assert!(!f.control.contains_key(&4));
+    }
+
+    /// B746: touches while the app starts (and under a loading screen) go nowhere, neither the pad nor the menus, for
+    /// their whole life; the pad takes touches SETTLE s after it's on show with nothing over it.
+    #[test]
+    fn launch_touches_go_nowhere() {
+        let _held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+        hst_base::seats::hold_touch(false);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::input::InputPlugin, bevy::window::WindowPlugin::default()));
+        app.insert_resource(super::super::controls::Bindings::default());
+        input(&mut app);
+        let win = app.world_mut().query_filtered::<Entity, With<PrimaryWindow>>().single(app.world()).unwrap();
+        app.world_mut().query::<&mut Window>().single_mut(app.world_mut()).unwrap().resolution.set(SIZE.x, SIZE.y);
+        app.update();
+        app.update();
+        let touch = |app: &mut App, phase, p: Vec2, id| {
+            app.world_mut().write_message(TouchInput { phase, position: p, window: win, force: None, id });
+            app.update();
+        };
+        let cross = |app: &mut App| app.world_mut().query::<&Gamepad>().iter(app.world()).any(|g| g.pressed(GamepadButton::South));
+        let l = Layout::new(SIZE, [0.0; 4]);
+        // just started: ✕ and the menus' part of the screen both go nowhere, and keep going nowhere till they lift
+        touch(&mut app, TouchPhase::Started, l.keys[0].center(), 1);
+        touch(&mut app, TouchPhase::Started, Vec2::new(SIZE.x * 0.6, 100.0), 2);
+        assert!(!cross(&mut app) && !app.world().resource::<Touches>().any_just_pressed());
+        assert!(!app.world().resource::<Pad>().launch.armed);
+        // settled (as if SETTLE s had passed): armed
+        app.world_mut().resource_mut::<Pad>().launch.since = Some(-SETTLE);
+        app.update();
+        let pad = app.world().resource::<Pad>();
+        assert!(pad.launch.armed && pad.launch.swallowed == 2 && pad.fingers.control.is_empty());
+        // the early fingers, still down, still go nowhere; lifting them does nothing either
+        touch(&mut app, TouchPhase::Moved, l.keys[0].center() + Vec2::X, 1);
+        touch(&mut app, TouchPhase::Ended, l.keys[0].center(), 1);
+        assert!(!cross(&mut app));
+        // a new touch on ✕ presses it, one away from the pad reaches the menus
+        touch(&mut app, TouchPhase::Started, l.keys[0].center(), 3);
+        assert!(cross(&mut app));
+        touch(&mut app, TouchPhase::Started, Vec2::new(SIZE.x * 0.6, 120.0), 4);
+        assert!(app.world().resource::<Touches>().just_pressed(4));
     }
 
     /// The pad as the app reads it: a gamepad named for `emote::touch`, its presses kept from the menus' `Touches`,
@@ -918,6 +1112,8 @@ mod tests {
             q.iter(app.world()).map(|(e, g, n)| (e, n.to_string(), g.just_pressed(GamepadButton::South), g.pressed(GamepadButton::South), g.left_stick())).next()
         };
         let (e, name, ..) = pad(&mut app).expect("connected");
+        // B746: past the start's settling (`launch_touches_go_nowhere` has it)
+        app.world_mut().resource_mut::<Pad>().launch.armed = true;
         assert!(name.starts_with("Touch controls"));
         let l = Layout::new(SIZE, [0.0; 4]);
         // ✕ tapped within one frame
