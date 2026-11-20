@@ -154,6 +154,25 @@ fn modules(e: &mut impl Each) {
     e.one::<crate::effects::LandingMarks>();
     // the sounds' tick number and timers (what was played stays: `heard`)
     e.one::<super::heard::Heard>();
+    // B742: the weather the clouds were last made for, which lives outside the world (`crate::sky_made`)
+    e.one::<CloudsMade>();
+}
+
+/// `crate::sky_made` as a resource, so the module walk copies and encodes it: refreshed before a save or an encode
+/// (`mirror`), put back after a restore or a decode (`put_back`).
+#[derive(Resource, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct CloudsMade(Option<u8>);
+
+impl Wire for CloudsMade {}
+
+fn mirror(w: &mut World) {
+    w.insert_resource(CloudsMade(crate::sky_made()));
+}
+
+fn put_back(w: &World) {
+    if let Some(&CloudsMade(Some(made))) = w.get_resource::<CloudsMade>() {
+        crate::set_sky_made(made);
+    }
 }
 
 /// Each resource the match has, to be copied back as it was.
@@ -168,6 +187,7 @@ impl Each for Keep<'_> {
 }
 
 pub fn save(w: &mut World) -> Snapshot {
+    mirror(w);
     Snapshot {
         game: w.get_resource::<Game>().cloned(),
         pads: w.get_resource::<Pads>().cloned(),
@@ -200,6 +220,7 @@ pub fn restore(w: &mut World, s: &Snapshot) {
         }
     }
     s.modules.iter().for_each(|put| put(w));
+    put_back(w);
 }
 
 /// Each resource as bincode (`None`: the match hasn't it).
@@ -263,6 +284,7 @@ pub fn decode(w: &mut World, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn encode_now(w: &mut World) -> Vec<u8> {
+    mirror(w);
     let mut figures: Vec<_> = w.query::<(&Figure, &Motion)>().iter(w).map(|(f, m)| (f.0, *m)).collect();
     figures.sort_by_key(|f| f.0);
     let replay = super::instant_replay::playing(w).then(|| w.get_resource::<super::tick_input::Replay>()).flatten();
@@ -306,6 +328,7 @@ fn decode_now(w: &mut World, bytes: &[u8]) -> Result<(), String> {
     let mut d = Dec(w, parts.collect::<Vec<_>>().into_iter(), Ok(()));
     modules(&mut d);
     d.2?;
+    put_back(w);
     if let Some(r) = replay {
         w.insert_resource(bincode::deserialize::<super::tick_input::Replay>(&r).map_err(|e| format!("Replay: {e}"))?);
     }
@@ -710,5 +733,41 @@ mod tests {
             assert!(sent.is_none_or(|s| t < s + 30), "the ball never reached the net");
         }
         panic!("no rally to send into the net");
+    }
+}
+
+/// B742 (the iPhone 1.7.3 desync at tick 13410): the host's and the guest's states differed only in `rand()` and the
+/// generators it seeds at a new point (court, sound, the flare). Their shared generators matched, so `rand()` was
+/// alike up to the new point and split at the clouds' draws, between the shared and the court generator's seeds. A
+/// rollback over a game's first point had re-run the point with the sky's weather already updated, so it skipped the
+/// draws. Here the snapshot puts `Sky::made` back, and the re-run draws as the first run did.
+#[cfg(test)]
+mod b742 {
+    use super::{restore, save};
+    use bevy::prelude::*;
+    use hst_sim::rng::{Mt, Rand, Rngs};
+
+    fn sky() {
+        let mut weathers = [0; hst_sim::weather::GAMES];
+        weathers[1] = 2;
+        crate::stage::TEST_SKY.with(|s| *s.borrow_mut() = Some(crate::Sky { weathers, fixed: None, made: 0, count: 4, rain: 6, draws: None }));
+    }
+
+    #[test]
+    fn a_rollback_over_a_weather_change_draws_the_clouds_again() {
+        sky();
+        let mut w = World::new();
+        let then = save(&mut w);
+        let fresh = Rngs::new(Rand::default(), Mt::new(7));
+        let (mut first, mut again, mut plain) = (fresh.clone(), fresh.clone(), fresh.clone());
+        crate::point_clouds(&mut first, 1);
+        assert_eq!(crate::sky_made(), Some(2));
+        // the clouds' draws came between the two seeds: a point without them seeds the court generator differently
+        plain.new_point();
+        assert_ne!(format!("{:?}", first.court), format!("{:?}", plain.court));
+        restore(&mut w, &then);
+        assert_eq!(crate::sky_made(), Some(0));
+        crate::point_clouds(&mut again, 1);
+        assert_eq!(format!("{first:?}"), format!("{again:?}"));
     }
 }

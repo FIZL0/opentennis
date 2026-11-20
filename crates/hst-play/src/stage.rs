@@ -204,7 +204,41 @@ pub static SKY: std::sync::Mutex<Option<Sky>> = std::sync::Mutex::new(None);
 /// A new point on game `game` of the schedule (`Rngs::new_point`): a weather change remakes the clouds
 /// (`weather::clouds_remade`), their draws between the shared and the court generator's seeds, in doubles too.
 pub fn point_clouds(rng: &mut hst_sim::rng::Rngs, game: usize) {
-    let mut sky = SKY.lock().unwrap();
+    with_sky(|sky| point_clouds_in(sky, rng, game))
+}
+
+/// The match's sky: `SKY`, or under test this thread's own (so a test's sky never reaches another test's match).
+#[cfg(not(test))]
+fn with_sky<R>(f: impl FnOnce(&mut Option<Sky>) -> R) -> R {
+    f(&mut SKY.lock().unwrap())
+}
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_SKY: std::cell::RefCell<Option<Sky>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+fn with_sky<R>(f: impl FnOnce(&mut Option<Sky>) -> R) -> R {
+    TEST_SKY.with(|s| f(&mut s.borrow_mut()))
+}
+
+/// B742: the weather the clouds were last made for (`Sky::made`). A new point reads it to tell whether the weather
+/// changed and so whether its clouds' `rand()` draws come, then writes it: it is match state, so a snapshot keeps it
+/// (`play::snapshot`), or a rollback over a game's first point skips the clouds' draws the second time and the court's
+/// and sound generators split from the other machine's. None without a sky.
+pub fn sky_made() -> Option<u8> {
+    with_sky(|s| s.as_ref().map(|s| s.made))
+}
+
+/// `sky_made`'s value put back (a restore or a resync).
+pub fn set_sky_made(made: u8) {
+    with_sky(|s| {
+        if let Some(s) = s.as_mut() {
+            s.made = made;
+        }
+    })
+}
+
+fn point_clouds_in(sky: &mut Option<Sky>, rng: &mut hst_sim::rng::Rngs, game: usize) {
     let Some(s) = sky.as_mut().filter(|s| {
         let w = s.fixed.unwrap_or(s.weathers[game % hst_sim::weather::GAMES]);
         hst_sim::weather::clouds_remade(s.made, w)

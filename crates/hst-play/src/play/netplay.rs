@@ -1719,7 +1719,12 @@ mod tests {
         /// where they first differ, by field.
         fn machines_differ(saved: &serde_json::Value) {
             let (me, mine) = (saved["me"].as_str().unwrap_or("this machine"), saved["state"].as_str().unwrap_or_default());
-            let peers = saved["peers"].as_object().cloned().unwrap_or_default();
+            let mut peers = saved["peers"].as_object().cloned().unwrap_or_default();
+            // B742: before B738 each machine saved only its own state; `HST_DESYNC_PEER=file` is the other one's report
+            if let Some(other) = std::env::var("HST_DESYNC_PEER").ok().filter(|_| peers.is_empty()) {
+                let o: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&other).unwrap()).unwrap();
+                peers.insert(o["me"].as_str().unwrap_or("peer").into(), serde_json::json!({ "tick": o["state_tick"], "state": o["state"] }));
+            }
             if peers.is_empty() {
                 println!("no peer's state in the report (saved before B738, or the peer's text never came)");
             }
