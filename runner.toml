@@ -6,6 +6,7 @@ brief_extra = "tools/cleanroom.py {id}" # a SPEC.md's spec/port phase; in a slot
 lookup = ["PLAN.md", "plan/CODEMAP.md", "plan/GUIDE.md"]
 
 [run]
+auto_upgrade = true  # upgrade agent-runner by itself when a newer release is out, between merges
 # Claude Code (Opus) runs every session. For other providers (Codex, Copilot, ...) the runner can use Pi
 # instead: `AGENT_RUNNER_BACKEND=pi agent-runner run once`, or `backend = "pi"` here. Pi slots keep the repo's
 # PreToolUse guards (.claude/settings.json) but not the inbox hook. Pi on an Anthropic model bills extra usage.
