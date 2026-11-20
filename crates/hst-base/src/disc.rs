@@ -364,6 +364,17 @@ mod tests {
             std::fs::create_dir_all(&d).unwrap();
             Tmp(d)
         }
+        /// For a full-size import (a whole disc pack): under the build's `target/`, on disk, not the system temp dir,
+        /// which is often a small RAM disk with a per-user quota (an import there fails with "Disk quota exceeded").
+        fn on_disk(tag: &str) -> Tmp {
+            let exe = std::env::current_exe().unwrap();
+            let target = exe.ancestors().find(|a| a.file_name().is_some_and(|n| n == "target"));
+            let base = target.map_or_else(std::env::temp_dir, |t| t.join("tmp"));
+            let d = base.join(format!("hst-base-disc-{}-{tag}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            Tmp(d)
+        }
     }
     impl Drop for Tmp {
         fn drop(&mut self) {
@@ -423,7 +434,7 @@ mod tests {
         if !jp.exists() {
             return fixture::skip("the Japanese disc (fixtures/discs/SCPS-15113.iso)");
         }
-        let t = Tmp::new("import");
+        let t = Tmp::on_disk("import");
         let pack = t.0.join("disc.pack");
         std::fs::write(&pack, b"us").unwrap();
         assert_eq!(swap(&pack, &pack, Edition::Us, &jp).unwrap(), pack);

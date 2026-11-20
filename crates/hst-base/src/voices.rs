@@ -529,6 +529,14 @@ fn pick_disc() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    /// Where the tests write voice packs: under the build's `target/tmp/`, on disk, not the system temp dir, which is
+    /// often a small RAM disk with a per-user quota ("Disk quota exceeded" mid-import).
+    fn scratch_on_disk() -> PathBuf {
+        let exe = std::env::current_exe().unwrap();
+        let target = exe.ancestors().find(|a| a.file_name().is_some_and(|n| n == "target"));
+        target.map_or_else(std::env::temp_dir, |t| t.join("tmp"))
+    }
+
     use super::*;
     use crate::audio::{Sound, umpire_bank, voice_bank};
     use hst_data::fixture;
@@ -557,7 +565,7 @@ mod tests {
             return fixture::skip("the European and Japanese discs (fixtures/discs/)");
         }
         let Ok(mut us) = fixture::iso() else { return };
-        let tmp = std::env::temp_dir().join(format!("hst-voices-{}", std::process::id()));
+        let tmp = scratch_on_disk().join(format!("hst-voices-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         // the packs (≈ 200 MB) go whether the test passes or not
         struct Gone(PathBuf);
@@ -631,7 +639,7 @@ mod tests {
     #[test]
     fn add_voices_reads_a_disc_with_progress() {
         let Ok(us) = fixture::iso() else { return };
-        let tmp = std::env::temp_dir().join(format!("hst-voices-add-{}", std::process::id()));
+        let tmp = scratch_on_disk().join(format!("hst-voices-add-{}", std::process::id()));
         struct Gone(PathBuf);
         impl Drop for Gone {
             fn drop(&mut self) {
