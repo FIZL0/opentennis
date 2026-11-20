@@ -156,7 +156,10 @@ mod tests {
         if !dir.join("SCPS-15113.iso").exists() || !dir.join("SCES-54535.iso").exists() {
             return fixture::skip("the Japanese and European discs (fixtures/discs/)");
         }
-        let tmp = std::env::temp_dir().join(format!("hst-releases-{}", std::process::id()));
+        // voice packs are written: on disk under the build's target/, not a temp dir that may be a quota'd RAM disk
+        let exe = std::env::current_exe().unwrap();
+        let target = exe.ancestors().find(|a| a.file_name().is_some_and(|n| n == "target"));
+        let tmp = target.map_or_else(std::env::temp_dir, |t| t.join("tmp")).join(format!("hst-releases-{}", std::process::id()));
         struct Gone(PathBuf);
         impl Drop for Gone {
             fn drop(&mut self) {
