@@ -355,13 +355,12 @@ const STUCK: [f32; 3] = [46.0, 50.0, 58.0];
 const FACT_H: f32 = 28.0;
 const SERVE: [f32; 3] = frame::GOLD;
 
-/// B750: a card's design width (units, scaled as one to fit), its mode band's and title's heights, the most a card
+/// B750: a card's design width (units, scaled as one to fit), its mode band's height, the most a card
 /// is scaled up and the gap between cards.
 const CARD_W: f32 = 240.0;
 const HEAD_H: f32 = 24.0;
-const TITLE_H: f32 = 30.0;
-const MAX_SCALE: f32 = 2.0;
-const GAP: f32 = 12.0;
+const MAX_SCALE: f32 = 3.0;
+const GAP: f32 = 8.0;
 /// The pause board's scale on a card: across the card inside its margins.
 const BOARD_K: f32 = (CARD_W - 12.0) / saved_board::WIDTH;
 /// The seat tags' and character pills' words on the board (disc px).
@@ -396,7 +395,7 @@ fn board_of(h: &Head) -> saved_board::Board {
 /// B750: the cards' design height: the tallest board among `cards` (all the same height, so they line up).
 fn card_h(cards: &[Card]) -> f32 {
     let board = cards.iter().map(|c| board_of(&c.head).size[1]).fold(112.0, f32::max) * BOARD_K;
-    3.0 + HEAD_H + 2.0 + TITLE_H + board + 6.0 + FACT_H + 6.0
+    3.0 + HEAD_H + 2.0 + board + 6.0 + FACT_H + 6.0
 }
 
 /// The cards' grid in the room `[x, y, w, h]` for `n` cards `card_h` high: how many across (B750: as many as shows
@@ -503,19 +502,13 @@ fn fit_centred(d: &mut Draw, s: &str, cx: f32, y: f32, size: f32, max: f32, rgb:
     d.centred(s, cx, y + size * (1.0 - k) / 2.0, size * k, rgb);
 }
 
-/// Each team's players' names in save `h`: "Carol", "Ashley & Momoko".
-fn team_names(m: &Menu, h: &Head) -> [String; 2] {
-    Menu::save_teams(h).map(|t| t.iter().map(|&p| m.save_name(h, p)).collect::<Vec<_>>().join(" & "))
-}
-
 /// Match player `p`'s seat tag in save `h`: "1P".."4P" for a seat with a person at it, "COM" for the computer's.
 fn seat_tag(h: &Head, p: usize) -> String {
     if h.setup.humans.get(p) == Some(&true) { format!("{}P", p + 1) } else { "COM".into() }
 }
 
 /// Save `c`'s card `ch` high from `[x, y]` at its design size, in the main menu panel's style (B747): an ink-rimmed
-/// paper box (a gold ring when chosen), a band in the mode's colour with the mode and the chip, every player's name
-/// (B750: doubles' four, on two lines when one won't hold them), the pause menu's score board, then the court and
+/// paper box (a gold ring when chosen), a band in the mode's colour with the mode and the chip, the pause menu's score board, then the court and
 /// when it was saved in two fact boxes.
 fn card(d: &mut Draw, m: &Menu, text: &Text, c: &Card, on: bool, [x, y, ch]: [f32; 3]) {
     use super::home::{MUTED, ON, PAPER};
@@ -532,23 +525,14 @@ fn card(d: &mut Draw, m: &Menu, text: &Text, c: &Card, on: bool, [x, y, ch]: [f3
     d.label(&words, chip_x + cw / 2.0, y + 3.0 + (HEAD_H - 10.0) / 2.0 - 0.5, 10.0, cw - 8.0, WHITE);
     let mode = format!("{} {}", if c.online() { "Online" } else { "Local" }, if h.setup.singles { "singles" } else { "doubles" });
     d.outlined(|d| fit(d, &mode, x + 10.0, y + 3.0 + (HEAD_H - 14.0) / 2.0, 14.0, chip_x - x - 16.0, WHITE));
-    // every player: "A vs B" on a line, or each side on its own when that doesn't fit
+    // no names line: the board's pills name every player
     let ty = y + 5.0 + HEAD_H;
-    let [a, b] = team_names(m, h);
-    let all = format!("{a} vs {b}");
-    let room = CARD_W - 16.0;
-    if d.width(&all, 12.0) <= room {
-        d.centred(&all, x + CARD_W / 2.0, ty + (TITLE_H - 12.0) / 2.0, 12.0, super::INK);
-    } else {
-        fit_centred(d, &a, x + CARD_W / 2.0, ty + 3.0, 11.0, room, super::INK);
-        fit_centred(d, &format!("vs {b}"), x + CARD_W / 2.0, ty + 16.0, 11.0, room, super::INK);
-    }
     // the pause menu's score board, its faces, seat tags and character pills; a shorter board than the screen's
     // tallest sits in the middle of the room
     let board = board_of(h);
     let k = BOARD_K;
-    let room_h = ch - (3.0 + HEAD_H + 2.0 + TITLE_H + 6.0 + FACT_H + 6.0);
-    let (bx, by) = (x + 6.0, ty + TITLE_H + (room_h - board.size[1] * k) / 2.0);
+    let room_h = ch - (3.0 + HEAD_H + 2.0 + 6.0 + FACT_H + 6.0);
+    let (bx, by) = (x + 6.0, ty + (room_h - board.size[1] * k) / 2.0);
     let at = |r: [f32; 4]| [bx + r[0] * k, by + r[1] * k, r[2] * k, r[3] * k];
     for p in &board.pieces {
         d.q(board_sheet(p.sheet), p.src, at(p.dst), WHITE, p.alpha);
