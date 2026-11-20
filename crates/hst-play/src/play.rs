@@ -502,6 +502,12 @@ pub struct Game {
     music_hold: bool,
     /// The instant replay's decision and what it reads (`instant_replay`).
     instant: instant_replay::Instant,
+    /// B743: the weather this tick plays (0 clear): `Weather`'s as the tick starts, before the tick's own weather
+    /// step can move it on (`weather::tick_start`), so a tick sees the weather the last one ended with. The ticks'
+    /// weather checks (the flare's `rand()` draws, footstep and dive sounds, the NPCs' rain checks) read it, not the
+    /// render-side `crate::weather::now()`, so a rollback's re-run ticks play the weather they had the first time.
+    #[serde(default)]
+    weather: u8,
 }
 
 /// The landing markers, as the original: the red one at the shot's aim (from the serve return on), the yellow one
@@ -776,7 +782,7 @@ fn reaction_roots(mut game: ResMut<Game>, mut held: ResMut<ReactionRoots>) {
 /// The sun's lens flare's `rand()` draws each tick it shows (clear or cloudy).
 fn flare_tick(game: Option<ResMut<Game>>) {
     if let Some(mut g) = game
-        && crate::weather::now() < 2
+        && g.weather < 2
     {
         g.rng.flare_tick();
     }
@@ -1580,6 +1586,7 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
         jingle: None,
         music_hold: false,
         instant: default(),
+        weather: 0,
         stage: args.stage.map_or(args.court, |s| s as usize) as u8,
         hit_effect: None,
         smash_heights: Vec::new(),
@@ -2966,7 +2973,7 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
             p.pending = None;
             p.dive = Some(d);
             p.aim_from = [p.pos[0], p.pos[2]];
-            let thud = sound::dive_thud(crate::weather::now());
+            let thud = sound::dive_thud(g.weather);
             g.whooshes.extend([
                 (0, i, thud),
                 (sound::dive_echo(g.players.len() as u32), i, thud),

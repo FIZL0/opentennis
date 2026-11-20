@@ -200,7 +200,8 @@ fn steps(g: &mut Game, feet: &Feet, states: &[u8; 4]) {
         let at = [p.pos[0], p.pos[1], p.pos[2], 1.0];
         for _ in feet.stepped[i].iter().filter(|&&s| s && state == 1 && hst_sim::sound::step_heard(eye, look, &view, focal, at)) {
             debug!("replay footstep, player {i}");
-            g.whooshes.push((0, i, hst_sim::sound::step(crate::weather::now())));
+            let step = hst_sim::sound::step(g.weather);
+            g.whooshes.push((0, i, step));
         }
     }
 }

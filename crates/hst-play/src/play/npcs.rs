@@ -342,7 +342,7 @@ fn step(
         let rng = &mut g.rng.court;
         let mut roll = || rng.next();
         applaud(&mut g.gallery, &mut g.applause, &mut roll);
-        if matches!(crate::weather::now(), 2 | 3) {
+        if matches!(g.weather, 2 | 3) {
             g.gallery.idle();
         } else {
             g.cheers.extend(g.gallery.step(g.stage, g.players.len() as u32, g.gallery_game, &watch, &mut roll));
@@ -602,7 +602,7 @@ fn walk(
     let mut spots: Vec<[f32; 4]> = npcs.walkers.iter().map(|(_, w, _)| w.wander.world[3]).collect();
     let near: Vec<[f32; 4]> = g.players.iter().map(|p| at(p.pos)).collect();
     let (b, v) = (g.flight.ball.pos, g.flight.ball.vel);
-    let raining = matches!(crate::weather::now(), 2 | 3);
+    let raining = matches!(g.weather, 2 | 3);
     for (k, (e, w, home)) in npcs.walkers.iter_mut().enumerate() {
         let react = w.mode == 1;
         if raining {
@@ -633,7 +633,7 @@ fn walk(
         }
     }
     // the gallery's manager: paused by type 44 in the deciding set, silent in the rain
-    if npcs.near.paused || matches!(crate::weather::now(), 2 | 3) {
+    if npcs.near.paused || matches!(g.weather, 2 | 3) {
         g.gallery.idle();
     } else {
         g.cheers.extend(g.gallery.step(g.stage, g.players.len() as u32, g.gallery_game, &watch, &mut roll));
