@@ -80,4 +80,4 @@ Never wait or loop on one obstacle: tool hangs, PCSX2 won't cooperate, the same 
 `tools/done.sh <ID> "<msg>" --blocked "<why + what unblocks>"` (or `agent-runner plan block`), next task. PLAN.md
 *When blocked* has the rest.
 
-Tasks: this repo is worked by agent-runner. Use the agent-runner skill (or run `agent-runner guide`): queue work with `agent-runner plan add`, never edit the plan's TODO.md by hand, never merge task/* or wip/* branches.
+Tasks: this repo is worked by agent-runner. Use the agent-runner skill (or run `agent-runner guide`): queue work with `agent-runner plan add`, never edit the plan's TODO.md by hand, never merge task/* or wip/* branches. Asked to do something now? Use `agent-runner take "what" --kind K` (a worktree of your own; `--here` brings edits already made along); never edit the main checkout.
