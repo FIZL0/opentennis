@@ -389,7 +389,7 @@ fn chip(c: &Card) -> (String, [f32; 3]) {
 
 /// B750: save `h`'s pause board as its card shows it.
 fn board_of(h: &Head) -> saved_board::Board {
-    saved_board::board(&h.summary, h.setup.sets as i32, h.setup.games as i32, if h.setup.singles { 2 } else { 4 })
+    saved_board::board(&h.summary, h.setup.sets, h.setup.games, if h.setup.singles { 2 } else { 4 })
 }
 
 /// B750: the cards' design height: the tallest board among `cards` (all the same height, so they line up).
