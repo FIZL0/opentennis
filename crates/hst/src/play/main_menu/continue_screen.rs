@@ -508,13 +508,9 @@ fn team_names(m: &Menu, h: &Head) -> [String; 2] {
     Menu::save_teams(h).map(|t| t.iter().map(|&p| m.save_name(h, p)).collect::<Vec<_>>().join(" & "))
 }
 
-/// Match player `p`'s seat tag in save `h`: "1P".."4P" for the human seats in order, "COM" for the computer's.
+/// Match player `p`'s seat tag in save `h`: "1P".."4P" for a seat with a person at it, "COM" for the computer's.
 fn seat_tag(h: &Head, p: usize) -> String {
-    let humans = &h.setup.humans;
-    match humans.get(p) {
-        Some(true) => format!("{}P", humans[..p].iter().filter(|&&x| x).count() + 1),
-        _ => "COM".into(),
-    }
+    if h.setup.humans.get(p) == Some(&true) { format!("{}P", p + 1) } else { "COM".into() }
 }
 
 /// Save `c`'s card `ch` high from `[x, y]` at its design size, in the main menu panel's style (B747): an ink-rimmed
@@ -831,13 +827,18 @@ pub(super) mod tests {
         let extra = |a: f32| (640.0 / super::super::super::widescreen::share(a) - 640.0) / 2.0;
         for a in [9.0 / 19.5, 3.0 / 4.0, 4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 32.0 / 9.0] {
             let e = extra(a);
-            let room = [-e + 16.0, 66.0, 640.0 + 2.0 * e - 32.0, 300.0];
-            for n in 1..=save_game::KEEP {
-                let ch = card_h(&with_saves(1).saved.list);
+            // B750: the 4:3 screen's room and a tall view's, cards as high as singles' board and doubles' best of 5
+            let mut tallest = with_saves(1);
+            (tallest.saved.list[0].head.setup.singles, tallest.saved.list[0].head.setup.sets) = (false, 3);
+            let heights = [card_h(&with_saves(1).saved.list), card_h(&tallest.saved.list)];
+            assert!(heights[1] > heights[0]);
+            for (n, room_h, ch) in (1..=save_game::KEEP).flat_map(|n| [300.0, 900.0].into_iter().flat_map(move |rh| heights.map(|ch| (n, rh, ch)))) {
+                let room = [-e + 16.0, 66.0, 640.0 + 2.0 * e - 32.0, room_h];
                 let (cols, s, [x, y]) = grid(n, ch, room);
                 let rows = n.div_ceil(cols);
                 let w = cols as f32 * CARD_W * s + (cols - 1) as f32 * GAP;
                 let h = rows as f32 * ch * s + (rows - 1) as f32 * GAP;
+                assert!(s <= MAX_SCALE);
                 assert!(x >= room[0] - 0.01 && x + w <= room[0] + room[2] + 0.01 && y >= room[1] - 0.01 && y + h <= room[1] + room[3] + 0.01, "{a} {n}");
                 assert!(s > 0.4, "{a} {n}: {s}");
             }

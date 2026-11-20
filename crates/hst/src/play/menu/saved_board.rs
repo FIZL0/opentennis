@@ -91,7 +91,9 @@ pub(in crate::play) fn board(s: &Summary, sets_to_win: i32, games: i32, players:
             Tex::Face(p) => b.faces[p] = at([q.dst[0] - 2.0, q.dst[1] - 2.0, 48.0, 48.0]),
             // the seat tags come in player order
             Tex::Slot => {
-                b.tags[tag.min(players - 1)] = at(q.dst);
+                if let Some(t) = b.tags.get_mut(tag) {
+                    *t = at(q.dst);
+                }
                 tag += 1;
             }
             t => {
