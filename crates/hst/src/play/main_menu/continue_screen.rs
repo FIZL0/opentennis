@@ -343,11 +343,16 @@ pub(super) fn cancelled(m: &mut Menu) {
     PENDING.lock().unwrap_or_else(|e| e.into_inner()).take();
 }
 
-/// The mode headers' colours: local red, online blue, grey when it can't be resumed.
-const LOCAL: [f32; 3] = frame::hex(0xc8413b);
-const ONLINE: [f32; 3] = frame::hex(0x2f6fc0);
-const DEAD: [f32; 3] = frame::hex(0x5d6475);
-const READY: [f32; 3] = frame::hex(0x2fa860);
+/// The cards' picture colours (B747: the main menu's Local and Online backdrops), grey when it can't be resumed, and
+/// the chips' fills (the main menu's Continue chip).
+const LOCAL: [f32; 3] = [100.0, 116.0, 96.0];
+const ONLINE: [f32; 3] = [92.0, 108.0, 122.0];
+const DEAD: [f32; 3] = [100.0; 3];
+const READY: [f32; 3] = [23.0, 84.0, 48.0];
+const STUCK: [f32; 3] = [46.0, 50.0, 58.0];
+/// A card's picture and fact boxes' heights (design units).
+const PIC_H: f32 = 84.0;
+const FACT_H: f32 = 28.0;
 const SERVE: [f32; 3] = frame::GOLD;
 
 /// A card's design size (units, scaled as one to fit) and the least width it's shown at before the cards wrap.
@@ -359,7 +364,7 @@ const GAP: f32 = 12.0;
 const FOOT_H: f32 = 40.0;
 const START_W: f32 = 190.0;
 
-/// The colour of save `c`'s header.
+/// The colour of save `c`'s picture.
 fn header_fill(c: &Card) -> [f32; 3] {
     match (c.refusal.is_some(), c.online()) {
         (true, _) => DEAD,
@@ -371,7 +376,7 @@ fn header_fill(c: &Card) -> [f32; 3] {
 /// Save `c`'s chip: its words and fill.
 fn chip(c: &Card) -> (String, [f32; 3]) {
     match &c.refusal {
-        Some(r) => (r.clone(), DEAD),
+        Some(r) => (r.clone(), STUCK),
         None => ("Ready".into(), READY),
     }
 }
@@ -453,44 +458,50 @@ fn tab(d: &mut Draw) {
     d.anchor = super::Anchor::Centre;
 }
 
-/// Save `c`'s card at its design size from `[x, y]`.
+/// Save `c`'s card at its design size from `[x, y]`, in the main menu panel's style (B747): an ink-rimmed paper box
+/// (a gold ring when chosen), a picture in the mode's colour with the chip, the faces and the mode over its foot,
+/// then the names, the score and two fact boxes on the paper.
 fn card(d: &mut Draw, m: &Menu, text: &Text, c: &Card, on: bool, [x, y]: [f32; 2]) {
+    use super::home::{MUTED, ON, PAPER};
     let h = &c.head;
-    let rect = [x, y, CARD_W, CARD_H];
-    frame::ringed(d, rect, 10.0, 2.0, if on { WHITE } else { frame::RULE }, Some(frame::PANEL));
-    if on {
-        frame::focus(d, rect, 10.0, 3.0, 2.5);
-    }
-    // the header in the mode's colour: "LOCAL · SINGLES"
-    let head = format!("{} · {}", if c.online() { "ONLINE" } else { "LOCAL" }, if h.setup.singles { "SINGLES" } else { "DOUBLES" });
-    let hr = [x + 2.0, y + 2.0, CARD_W - 4.0, 20.0];
-    frame::rounded(d, hr, 8.0, header_fill(c), 128.0);
-    d.q(Tex::Solid, [0.0; 4], [hr[0], hr[1] + 10.0, hr[2], 10.0], header_fill(c), 128.0);
-    frame::dotted(d, &head, x + CARD_W / 2.0, y + 6.0, 11.0, CARD_W - 16.0, WHITE, true);
+    d.box3([x, y, CARD_W, CARD_H], 12.0, [Some(super::INK), Some(if on { ON } else { WHITE }), Some(PAPER)], 128.0);
+    // the picture: the mode's backdrop, an ink rule under it
+    let pic = [x + 3.0, y + 3.0, CARD_W - 6.0, PIC_H];
+    d.box3(pic, 9.0, [None, None, Some(header_fill(c))], 128.0);
+    d.q(Tex::Solid, [0.0; 4], [x, y + 3.0 + PIC_H, CARD_W, 2.0], super::INK, 128.0);
     // the chip
     let (words, fill) = chip(c);
-    let cw = (d.width(&words, 10.0) + 14.0).min(CARD_W - 16.0);
-    let cr = [x + (CARD_W - cw) / 2.0, y + 28.0, cw, 15.0];
-    frame::rounded(d, cr, 7.5, fill, 128.0);
-    d.label(&words, cr[0] + cw / 2.0, cr[1] + 2.5, 10.0, cw - 8.0, WHITE);
+    let cw = (d.width(&words, 9.0) + 14.0).min(CARD_W - 16.0);
+    d.box3([x + (CARD_W - cw) / 2.0, y + 9.0, cw, 14.0], 6.0, [Some(super::INK), None, Some(fill)], 128.0);
+    d.label(&words, x + CARD_W / 2.0, y + 10.5, 9.0, cw - 8.0, WHITE);
     // the faces: a side each, the teams' two side by side
     let [a, b] = Menu::save_teams(h);
-    let size = if h.setup.singles { 40.0 } else { 28.0 };
+    let size = if h.setup.singles { 38.0 } else { 27.0 };
     for (side, team) in [a, b].iter().enumerate() {
         let cx = x + CARD_W * if side == 0 { 0.27 } else { 0.73 };
         for (k, &p) in team.iter().enumerate() {
             let dx = if team.len() == 1 { 0.0 } else { (k as f32 - 0.5) * (size - 4.0) };
-            face_frame(d, (Tex::Face(m.save_who(h, p)), [0.0, 0.0, 64.0, 64.0]), cx + dx, y + 70.0, size, WHITE);
+            face_frame(d, (Tex::Face(m.save_who(h, p)), [0.0, 0.0, 64.0, 64.0]), cx + dx, y + 47.0, size, WHITE);
         }
     }
-    d.label("vs", x + CARD_W / 2.0, y + 64.0, 11.0, 20.0, frame::CAPTION);
+    d.outlined(|d| d.label("vs", x + CARD_W / 2.0, y + 41.0, 11.0, 20.0, WHITE));
+    // the mode over the picture's foot, as the panel's name sits over its picture
+    let mode = format!("{} {}", if c.online() { "Online" } else { "Local" }, if h.setup.singles { "singles" } else { "doubles" });
+    d.outlined(|d| d.label(&mode, x + CARD_W / 2.0, y + PIC_H - 14.0, 13.0, CARD_W - 18.0, WHITE));
     // the names, the mini board
-    super::home::fit_text(d, &m.save_players(h), x + 8.0, y + 94.0, 11.0, CARD_W - 16.0, WHITE);
-    mini_board(d, m, h, [x + 8.0, y + 111.0, CARD_W - 16.0, 34.0]);
-    // the court and the date at the foot
+    let below = y + 3.0 + PIC_H + 2.0;
+    super::home::fit_text(d, &m.save_players(h), x + 8.0, below + 4.0, 10.0, CARD_W - 16.0, super::INK);
+    mini_board(d, m, h, [x + 6.0, below + 18.0, CARD_W - 12.0, 30.0]);
+    // the court and the date in fact boxes at the foot
     let court = m.court_short(text, m.save_court(h));
-    super::home::fit_text(d, &court, x + 8.0, y + 152.0, 10.0, CARD_W - 16.0, frame::CAPTION);
-    super::home::fit_text(d, &ago(h.saved, now()), x + 8.0, y + 166.0, 9.0, CARD_W - 16.0, frame::CAPTION);
+    let facts = [("COURT", court), ("SAVED", ago(h.saved, now()))];
+    let fw = (CARD_W - 12.0 - 4.0) / 2.0;
+    for (k, (label, value)) in facts.iter().enumerate() {
+        let r = [x + 6.0 + (fw + 4.0) * k as f32, y + CARD_H - 6.0 - FACT_H, fw, FACT_H];
+        d.box3(r, 6.0, [Some(super::INK), Some(PAPER), Some(PAPER)], 128.0);
+        super::home::fit_text(d, label, r[0] + 5.0, r[1] + 3.5, 7.0, fw - 10.0, MUTED);
+        super::home::fit_text(d, value, r[0] + 5.0, r[1] + 12.5, 9.5, fw - 10.0, super::INK);
+    }
 }
 
 /// The score in `[x, y, w, h]` on navy: a row a side, its first player's name, the serve dot, each set's games and
