@@ -365,7 +365,7 @@ const FOOT_H: f32 = 40.0;
 const START_W: f32 = 190.0;
 
 /// The colour of save `c`'s picture.
-fn header_fill(c: &Card) -> [f32; 3] {
+fn picture_fill(c: &Card) -> [f32; 3] {
     match (c.refusal.is_some(), c.online()) {
         (true, _) => DEAD,
         (_, true) => ONLINE,
@@ -467,7 +467,7 @@ fn card(d: &mut Draw, m: &Menu, text: &Text, c: &Card, on: bool, [x, y]: [f32; 2
     d.box3([x, y, CARD_W, CARD_H], 12.0, [Some(super::INK), Some(if on { ON } else { WHITE }), Some(PAPER)], 128.0);
     // the picture: the mode's backdrop, an ink rule under it
     let pic = [x + 3.0, y + 3.0, CARD_W - 6.0, PIC_H];
-    d.box3(pic, 9.0, [None, None, Some(header_fill(c))], 128.0);
+    d.box3(pic, 9.0, [None, None, Some(picture_fill(c))], 128.0);
     d.q(Tex::Solid, [0.0; 4], [x, y + 3.0 + PIC_H, CARD_W, 2.0], super::INK, 128.0);
     // the chip
     let (words, fill) = chip(c);
