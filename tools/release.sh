@@ -24,7 +24,8 @@
 # bullets); without it, RELEASE_NOTES.md (kept up to date as changes land; emptied and committed after a release, kept after a pre-release),
 # and if that has no bullets either, the commit subjects since the last v* tag (required for the first release). A draft unless
 # `publish` is given: check it on GitHub and publish there. Publishing puts the release on opentennis.dev when the repo
-# variable SITE_FROM is `release` (pages.yml). Every push to main is a beta (pages.yml), not made here.
+# variable SITE_FROM is `release` (pages.yml). Every push to main is a beta (pages.yml), not made here: it lives on
+# https://beta.opentennis.dev, never as a release (B745), so this repo's only releases are these vX.Y.Z.
 set -e
 cd "$(dirname "$0")/.."
 key=~/.config/hst/release.key
@@ -151,7 +152,7 @@ body=$out/notes.md
     echo "minisign -Vm SHA256SUMS -P $pub && sha256sum -c --ignore-missing SHA256SUMS"
     echo '```'
     echo
-    echo "Want the newest changes before the next release? Try the [beta](https://github.com/$repo/releases/tag/beta) or [beta.opentennis.dev](https://beta.opentennis.dev/)."
+    echo "Want the newest changes before the next release? Try the beta at [beta.opentennis.dev](https://beta.opentennis.dev/) (in the browser, or [download it](https://beta.opentennis.dev/download/))."
 } > "$body"
 git push -q origin HEAD
 gh release create "$tag" --target "$(git rev-parse HEAD)" --title "OpenTennis $version" \

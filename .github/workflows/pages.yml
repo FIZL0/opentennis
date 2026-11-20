@@ -1,14 +1,16 @@
 # The browser build (`tools/web.sh`) on GitHub Pages: the page and the wasm only, no game data (players pick their ISO).
-# Every push to main that passes ci.yml (tests, clippy, cargo-deny: the `ci` job) is a beta: it replaces the rolling
-# "Beta" release (tag `beta`, a pre-release, never Latest) with Linux + Windows builds and the website (web.tar.gz)
-# of that commit, then asks FIZL0/opentennis-beta (one workflow, tools/beta-site.yml) to put that website on
-# https://beta.opentennis.dev (secret BETA_DISPATCH_TOKEN: a fine-grained token with Contents read/write on that repo;
-# without it the beta site isn't updated).
+# Every push to main that passes ci.yml (tests, clippy, cargo-deny: the `ci` job) is a beta: https://beta.opentennis.dev
+# gets that commit's website, and its Linux + Windows builds under /download/ (tools/beta-bundle.sh). B745: the beta is
+# not a GitHub release (launchers took a rolling "beta" pre-release for the newest version); this repo's only
+# releases are tools/release.sh's vX.Y.Z. The beta job leaves the bundle as a draft release of FIZL0/opentennis-beta
+# (drafts are hidden) and asks that repo (one workflow, tools/beta-site.yml) to put it on its Pages (secret
+# BETA_DISPATCH_TOKEN: a fine-grained token with Contents read/write on that repo; without it the beta isn't updated).
 # Which builds go on https://opentennis.dev is the repo variable SITE_FROM:
 #   unset / main   every push to main (as before)
 #   release        only published releases (tools/release.sh): `gh variable set SITE_FROM --body release`
 # tools/ship-local.sh builds the website on the dev machine and runs this with `prebuilt`: that run only deploys the
-# uploaded web/ (the build jobs are skipped) to opentennis.dev, or to the beta site when SITE_FROM is release.
+# uploaded web/ (the build jobs are skipped) to opentennis.dev, or to the beta site when SITE_FROM is release. The
+# upload comes as a draft release (`release`: its id), which the `prebuilt` job takes in and deletes.
 # A release made by tools/release.sh carries its own web.tar.gz, which its run deploys without building (~1 min).
 name: pages
 on:
@@ -19,9 +21,13 @@ on:
   workflow_dispatch:
     inputs:
       prebuilt:
-        description: deploy the web/ that tools/ship-local.sh uploaded (release web-prebuilt) instead of building
+        description: deploy the web/ that tools/ship-local.sh uploaded (the draft release `release`) instead of building
         type: boolean
         default: false
+      release:
+        description: with prebuilt, the id of tools/ship-local.sh's web-prebuilt draft release
+        type: string
+        default: ''
 permissions:
   contents: read
   pages: write
@@ -33,23 +39,52 @@ concurrency:
   group: pages-${{ github.event_name }}${{ inputs.prebuilt && '-prebuilt' || '' }}
   cancel-in-progress: false
 jobs:
+  # B745: ship-local.sh's upload, a draft release (hidden: never a version to launchers), becomes this run's
+  # web-prebuilt artifact and the draft is deleted. Only this job may see drafts (contents: write); it runs no build.
+  prebuilt:
+    if: ${{ inputs.prebuilt }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ inputs.release }}
+        run: |
+          [[ $ID =~ ^[0-9]+$ ]] || { echo "::error::no release id (tools/ship-local.sh passes it)"; exit 1; }
+          r=$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID")
+          # never a real release, whatever id was given
+          [ "$(jq -r '.draft and .tag_name == "web-prebuilt"' <<< "$r")" = true ] || { echo "::error::release $ID is not a web-prebuilt draft"; exit 1; }
+          a=$(jq -r '.assets[] | select(.name == "web.tar.gz") | .id' <<< "$r")
+          gh api "repos/$GITHUB_REPOSITORY/releases/assets/$a" -H 'Accept: application/octet-stream' > web.tar.gz
+          tar tzf web.tar.gz >/dev/null
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$ID"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: web-prebuilt
+          path: web.tar.gz
   build:
-    # a release only builds the site when it is the one opentennis.dev shows; ship-local.sh's web-prebuilt
-    # prerelease is only a carrier for its upload, not a release
-    if: ${{ github.event_name != 'release' || vars.SITE_FROM == 'release' && github.event.release.tag_name != 'web-prebuilt' }}
+    needs: [prebuilt]
+    # a release only builds the site when it is the one opentennis.dev shows
+    if: ${{ !cancelled() && (needs.prebuilt.result == 'success' || needs.prebuilt.result == 'skipped') && (github.event_name != 'release' || vars.SITE_FROM == 'release') }}
     runs-on: ubuntu-latest
     steps:
-      # a site built elsewhere: ship-local.sh's web-prebuilt, or the web.tar.gz tools/release.sh attaches to a release
-      # (an older release without one is built here as before)
+      - if: ${{ inputs.prebuilt }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: web-prebuilt
+      # a site built elsewhere: ship-local.sh's, or the web.tar.gz tools/release.sh attaches to a release (an older
+      # release without one is built here as before)
       - id: pre
         if: ${{ inputs.prebuilt || github.event_name == 'release' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.prebuilt && 'web-prebuilt' || github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name }}
         run: |
           mkdir web
-          if gh release download "$TAG" -R "${{ github.repository }}" -p web.tar.gz -O - | tar xz -C web; then echo got=1 >> "$GITHUB_OUTPUT"
-          elif [ "${{ inputs.prebuilt }}" = true ]; then exit 1; else rm -rf web; fi
+          if [ "${{ inputs.prebuilt }}" = true ]; then tar xzf web.tar.gz -C web && rm web.tar.gz && echo got=1 >> "$GITHUB_OUTPUT"
+          elif gh release download "$TAG" -R "${{ github.repository }}" -p web.tar.gz -O - | tar xz -C web; then echo got=1 >> "$GITHUB_OUTPUT"
+          else rm -rf web; fi
       - if: ${{ !steps.pre.outputs.got }}
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       # the version and targets in rust-toolchain.toml
@@ -188,48 +223,58 @@ jobs:
         with:
           name: windows
           path: opentennis-windows-x86_64.zip
-  # a prebuilt run has only the website: it updates the beta site, not the release, and only when opentennis.dev
-  # doesn't already show it
+  # a prebuilt run has only the website: it updates the beta site (keeping its downloads), and only when
+  # opentennis.dev doesn't already show it
   beta:
     needs: [build, ci, linux, linux-aarch64, windows]
     if: ${{ !cancelled() && github.event_name != 'release' && needs.build.result == 'success' && (inputs.prebuilt && vars.SITE_FROM == 'release' || !inputs.prebuilt && needs.ci.result == 'success' && needs.linux.result == 'success' && needs.linux-aarch64.result == 'success' && needs.windows.result == 'success') }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write  # B745: deletes the old rolling `beta` release
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          sparse-checkout: tools/beta-bundle.sh
+          sparse-checkout-cone-mode: false
+          path: src
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
+          pattern: '{web,linux,linux-aarch64,windows}'
           merge-multiple: true
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           DISPATCH: ${{ secrets.BETA_DISPATCH_TOKEN }}
           PREBUILT: ${{ inputs.prebuilt }}
+          BETA: FIZL0/opentennis-beta
         run: |
-          # tagging a commit whose workflow files differ from main's is a workflow change, which github.token may not
-          # make (HTTP 403), and the delete below would leave no release: leave that to the newer run. Otherwise a
-          # stale run still publishes (skipping whenever main had moved on starved beta while merges kept landing),
-          # unless the beta already shows a newer commit.
-          wf=$(gh api "repos/$GH_REPO/compare/$GITHUB_SHA...main" -q '[.files[].filename|select(startswith(".github/workflows/"))]|length')
-          [ "$wf" = 0 ] || { echo "workflow files changed on main since, skipping"; exit 0; }
-          cur=$(gh api "repos/$GH_REPO/commits/beta" -q .sha 2>/dev/null || true)
-          if [ -n "$cur" ] && [ "$(gh api "repos/$GH_REPO/compare/$cur...$GITHUB_SHA" -q .status)" = behind ]; then
-            echo "beta already at newer ${cur::7}, skipping"; exit 0
+          [ -n "$DISPATCH" ] || { echo "::warning::no BETA_DISPATCH_TOKEN secret: beta.opentennis.dev not updated"; exit 0; }
+          # a stale run still publishes (skipping whenever main had moved on starved the beta while merges kept
+          # landing), unless the beta site already shows a newer commit
+          cur=$(curl -sSfL https://beta.opentennis.dev/version.txt 2>/dev/null | tr -cd 0-9a-f || true)
+          if [ -n "$cur" ] && [ "$(gh api "repos/$GH_REPO/compare/$cur...$GITHUB_SHA" -q .status 2>/dev/null)" = behind ]; then
+            echo "beta already at newer $cur, skipping"; exit 0
           fi
+          # the beta repo's workflow must be tools/beta-site.yml's B745 one (it takes the bundle from a draft there);
+          # an older one still reads this repo's `beta` release, so that stays until the workflow is updated
+          GH_TOKEN=$DISPATCH gh api "repos/$BETA/contents/.github/workflows/deploy.yml" -q .content | base64 -d | grep -q beta-site.tar.gz \
+            || { echo "::error::$BETA's deploy.yml is older than tools/beta-site.yml: copy it there (plan/HUMAN.md)"; exit 1; }
           if [ "$PREBUILT" = true ]; then
-            gh release upload beta --clobber web.tar.gz
+            bash src/tools/beta-bundle.sh web.tar.gz beta-site.tar.gz "$GITHUB_SHA"
           else
-            # recreated each time so the tag moves to this commit; the download links stay the same
-            gh release delete beta --cleanup-tag -y || true
-            printf '%s\n\n%s\n\n%s\n' \
-              "**Beta: rebuilt on every change to main (${GITHUB_SHA::7}). Newer than the latest release, less tested.** For the stable version, see [the latest release](https://github.com/$GH_REPO/releases/latest)." \
-              "No game data is included: you need your own *Hot Shots Tennis (USA)* (SCUS-97610) ISO." \
-              "Beta in the browser: https://beta.opentennis.dev/" > notes.md
-            gh release create beta --prerelease --latest=false --target "$GITHUB_SHA" --title "Beta (${GITHUB_SHA::7})" \
-              --notes-file notes.md opentennis-linux-x86_64.tar.gz opentennis-linux-aarch64.tar.gz opentennis.zip opentennis-windows-x86_64.zip web.tar.gz
+            bash src/tools/beta-bundle.sh web.tar.gz beta-site.tar.gz "$GITHUB_SHA" \
+              opentennis-windows-x86_64.zip opentennis-linux-x86_64.tar.gz opentennis-linux-aarch64.tar.gz opentennis.zip
           fi
-          if [ -n "$DISPATCH" ]; then
-            GH_TOKEN=$DISPATCH gh api repos/FIZL0/opentennis-beta/dispatches -f event_type=beta
-          else
-            echo "::warning::no BETA_DISPATCH_TOKEN secret: beta.opentennis.dev not updated"
-          fi
+          # one draft at a time over there: an older run's (its deploy, if still waiting, fails and this one's follows)
+          for id in $(GH_TOKEN=$DISPATCH gh api "repos/$BETA/releases" -q '.[] | select(.draft) | .id'); do
+            GH_TOKEN=$DISPATCH gh api -X DELETE "repos/$BETA/releases/$id"
+          done
+          id=$(GH_TOKEN=$DISPATCH gh api "repos/$BETA/releases" -f tag_name=beta-site -f name="Beta site ${GITHUB_SHA::7}" -F draft=true -q .id)
+          GH_TOKEN=$DISPATCH gh api -X POST "https://uploads.github.com/repos/$BETA/releases/$id/assets?name=beta-site.tar.gz" \
+            -H 'Content-Type: application/gzip' --input beta-site.tar.gz -q .size
+          GH_TOKEN=$DISPATCH gh api "repos/$BETA/dispatches" -f event_type=beta -F "client_payload[release]=$id"
+          # the rolling release and ship-local.sh's carrier from before B745: gone for good (no-ops once they are)
+          for t in beta web-prebuilt; do
+            gh release view "$t" >/dev/null 2>&1 && gh release delete "$t" --cleanup-tag -y
+            gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$t" 2>/dev/null || true
+          done

@@ -3,9 +3,9 @@
 //!
 //! Browser: `web/index.html` reads the site's `version.txt` (`tools/web.sh` writes the commit there) when the page
 //! loads and again every few minutes; once the site's differs from the one this page loaded with, it sets
-//! `hstLatest`. Desktop: builds made by GitHub Actions (`pages.yml`, the rolling "Beta") ask GitHub which
-//! commit the beta release is at, at start and every half hour; a local build never asks (its commit is never the
-//! beta's). `HST_LATEST=<commit>` in the environment fakes a newer one (the browser: set `hstLatest` in the console).
+//! `hstLatest`. Desktop: builds made by GitHub Actions (`pages.yml`, the beta) ask the beta site which commit
+//! its downloads are at ([`BETA_COMMIT`], B745: the beta is no GitHub release), at start and every half hour; a local
+//! build never asks (its commit is never the beta's). `HST_LATEST=<commit>` in the environment fakes a newer one (the browser: set `hstLatest` in the console).
 //!
 //! B374: a release build (`tools/release.sh` builds it with `HST_VERSION=v1.2.3`) asks GitHub for the latest `v*`
 //! release instead, at start and every half hour, unless Settings' Check for Updates is off or `--no-update-check`
@@ -31,7 +31,11 @@
 
 /// The release page the desktop notice's Download opens.
 #[cfg(not(target_arch = "wasm32"))]
-pub const RELEASES: &str = "https://github.com/FIZL0/opentennis/releases/tag/beta";
+pub const RELEASES: &str = "https://beta.opentennis.dev/download/";
+
+/// The full commit the beta's downloads were built from (`tools/beta-bundle.sh` writes it).
+#[cfg(not(target_arch = "wasm32"))]
+const BETA_COMMIT: &str = "https://beta.opentennis.dev/download/commit.txt";
 
 /// This build's release tag (`v0.1.0-beta.9`, `v1.0.0`): only builds made by `tools/release.sh` have one, and only
 /// they check for and install newer releases.
@@ -219,12 +223,16 @@ fn due(asked: std::time::SystemTime, now: std::time::SystemTime) -> bool {
     now.duration_since(asked).map_or(true, |d| d >= std::time::Duration::from_secs(30 * 60))
 }
 
-/// The commit the "Beta" release was built from (GitHub's API asks for a User-Agent).
+/// The commit the beta's downloads were built from.
 #[cfg(not(target_arch = "wasm32"))]
 async fn beta() -> Result<String, String> {
-    let j = json("https://api.github.com/repos/FIZL0/opentennis/releases/tags/beta").await?;
-    // `gh release create --target $GITHUB_SHA`: the full commit
-    j["target_commitish"].as_str().filter(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())).map(str::to_string).ok_or_else(|| "no commit".into())
+    beta_commit(&fetch(BETA_COMMIT, 256).await?)
+}
+
+/// `commit.txt`'s full commit (40 hex digits and a newline).
+#[cfg(not(target_arch = "wasm32"))]
+fn beta_commit(body: &[u8]) -> Result<String, String> {
+    std::str::from_utf8(body).ok().map(str::trim).filter(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())).map(str::to_string).ok_or_else(|| "no commit".into())
 }
 
 /// `url`'s JSON.
@@ -1186,6 +1194,14 @@ PGdwmy/sa9Kqh1f1dYqI+JP0Iweg2dLM/mEgnRNTVfsQ9pI1u5aeusKILuRdn61QcyAsnzeOSfS5RRAE
             Installer::TrollStore.link(ipa),
             "apple-magnifier://install?url=https%3A%2F%2Fgithub.com%2FFIZL0%2Fopentennis%2Freleases%2Fdownload%2Fv1.0.0%2Fopentennis-ios.ipa"
         );
+    }
+
+    #[test]
+    fn the_beta_commit_is_a_full_hash() {
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(beta_commit(format!("{sha}\n").as_bytes()).as_deref(), Ok(sha));
+        assert!(beta_commit(b"0123456\n").is_err());
+        assert!(beta_commit(b"<html>404</html>").is_err());
     }
 
     #[test]
