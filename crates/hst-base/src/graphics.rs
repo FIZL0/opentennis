@@ -78,6 +78,12 @@ const PHONE_FPS: u32 = if PHONE_OS { 60 } else { 0 };
 /// drawn is at most 60 then ([`Graphics::fps_drawn`]), whatever the setting says.
 pub static LOW_POWER: AtomicBool = AtomicBool::new(false);
 
+/// B754: settings.txt `text` was written by a build whose phone default was already 60 (it has a `match_speed`
+/// line, written on every save since M176, which came after P137): its Uncapped is the player's own pick.
+pub fn saved_since_phone_60(text: &str) -> bool {
+    text.lines().any(|l| l.split('#').next().and_then(|l| l.split_once('=')).is_some_and(|(k, _)| k.trim() == "match_speed"))
+}
+
 /// P137: under Frame Limit on a phone, for a limit above 60 (or Uncapped).
 pub fn battery_note(fps: u32) -> Option<&'static str> {
     (PHONE_OS && (fps == 0 || fps > 60)).then_some("Smoother, but uses about twice the battery and runs the phone warmer.")
@@ -231,9 +237,8 @@ impl Graphics {
     /// its Uncapped is the player's own pick and stays: read back as 60 it showed in Settings, and was saved by the
     /// pause menu's Settings, while the match ran uncapped.
     pub fn upgrade_saved(self, text: &str) -> Graphics {
-        let newer = text.lines().any(|l| l.split('#').next().and_then(|l| l.split_once('=')).is_some_and(|(k, _)| k.trim() == "match_speed"));
         let deck = self.keep(Self::STEAM_DECK_OLD) == self;
-        if newer && !deck { self } else { self.upgrade() }
+        if saved_since_phone_60(text) && !deck { self } else { self.upgrade() }
     }
 
     /// P137: the frame limit drawn: the setting, at most 60 while the phone's Low Power Mode / battery saver is on.
@@ -1447,6 +1452,9 @@ mod tests {
         let top = if PHONE_OS { 60 } else { 0 };
         let mine = Graphics { fps: 0, ..Graphics::HIGH };
         assert_eq!((mine.upgrade_saved("frame_limit = uncapped\nmatch_speed = 60\n").fps, mine.upgrade_saved("frame_limit = uncapped\n").fps), (0, top));
+        // the file tells: on every build (the phone cap itself only exists on a phone)
+        assert!(saved_since_phone_60("frame_limit = uncapped\nmatch_speed = 60\n") && saved_since_phone_60(" match_speed=50 # x\n"));
+        assert!(!saved_since_phone_60("frame_limit = uncapped\n") && !saved_since_phone_60("# match_speed = 60\n"));
         let deck = Graphics { windowed: true, ..Graphics::STEAM_DECK_OLD };
         assert_eq!(deck.upgrade_saved("match_speed = 60\n"), Graphics { windowed: true, ..Graphics::STEAM_DECK });
     }

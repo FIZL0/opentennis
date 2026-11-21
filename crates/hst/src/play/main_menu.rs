@@ -4469,6 +4469,8 @@ mod tests {
         // B754: Uncapped on the Default picture survives the save the pause menu's Settings make (a phone read it back as 60)
         let open = Settings { graphics: Graphics { fps: 0, ..Graphics::DEFAULT }, ..base };
         assert_eq!(Settings::parse(&open.text()).graphics.fps, 0);
+        // and every save marks the file as the player's own (a phone reads its Uncapped back only then)
+        assert!(crate::graphics::saved_since_phone_60(&open.text()) && crate::graphics::saved_since_phone_60(&Settings::default().text()));
         assert_eq!(s.flags()[..1], ["--fps"]);
         assert_eq!(Settings { upscaled_textures: false, menu_music: false, music: true, upscaled_downloads: false, aspect: 1, ..base }.flags()[..2], ["--no-upscale", "--music"]);
     }
