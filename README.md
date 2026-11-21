@@ -12,8 +12,6 @@ in Europe and **Minna no Tennis** (みんなのテニス) in Japan, in Rust with
 
 **Play in your browser: <https://opentennis.dev>** (you pick your own ISO; nothing is uploaded).
 
-Newest unreleased build (every change to main, less tested): <https://beta.opentennis.dev>.
-
 **Download** for Windows, Mac (Apple Silicon), Linux, Android or iOS: [latest release](https://github.com/FIZL0/opentennis/releases/latest).
 The Mac app isn't notarized: the first time, right-click OpenTennis → Open, or on macOS 15 and later open it once, then
 System Settings → Privacy & Security → Open Anyway.

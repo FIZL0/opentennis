@@ -3,9 +3,8 @@
 //!
 //! Browser: `web/index.html` reads the site's `version.txt` (`tools/web.sh` writes the commit there) when the page
 //! loads and again every few minutes; once the site's differs from the one this page loaded with, it sets
-//! `hstLatest`. Desktop: builds made by GitHub Actions (`pages.yml`, the beta) ask the beta site which commit
-//! its downloads are at ([`BETA_COMMIT`], B745: the beta is no GitHub release), at start and every half hour; a local
-//! build never asks (its commit is never the beta's). `HST_LATEST=<commit>` in the environment fakes a newer one (the browser: set `hstLatest` in the console).
+//! `hstLatest`. Desktop: only release builds check (below); `HST_LATEST=<commit>` in the environment fakes a newer
+//! build in any (the browser: set `hstLatest` in the console).
 //!
 //! B374: a release build (`tools/release.sh` builds it with `HST_VERSION=v1.2.3`) asks GitHub for the latest `v*`
 //! release instead, at start and every half hour, unless Settings' Check for Updates is off or `--no-update-check`
@@ -31,11 +30,7 @@
 
 /// The release page the desktop notice's Download opens.
 #[cfg(not(target_arch = "wasm32"))]
-pub const RELEASES: &str = "https://beta.opentennis.dev/download/";
-
-/// The full commit the beta's downloads were built from (`tools/beta-bundle.sh` writes it).
-#[cfg(not(target_arch = "wasm32"))]
-const BETA_COMMIT: &str = "https://beta.opentennis.dev/download/commit.txt";
+pub const RELEASES: &str = "https://github.com/FIZL0/opentennis/releases/latest";
 
 /// This build's release tag (`v0.1.0-beta.9`, `v1.0.0`): only builds made by `tools/release.sh` have one, and only
 /// they check for and install newer releases.
@@ -102,7 +97,7 @@ pub fn updated() -> Option<String> {
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Default)]
 struct State {
-    /// The rolling beta's newer commit (short).
+    /// A faked newer commit (`HST_LATEST`).
     commit: Option<String>,
     /// A newer release.
     found: Option<Found>,
@@ -144,42 +139,31 @@ pub fn latest() -> Option<String> {
             STATE.lock().unwrap().commit = Some(fake);
             return;
         }
-        // a release build asks for releases; else this build's full commit, only in an Actions build
-        let ours = match (VERSION, option_env!("GITHUB_SHA")) {
-            (Some(v), _) => Ok(v),
-            (None, Some(sha)) => Err(sha),
-            (None, None) => return,
-        };
+        // only a release build asks, and only for releases
+        let Some(ours) = VERSION else { return };
         let t = std::thread::spawn(move || {
             let rt = crate::runtime();
             let api = std::env::var("HST_UPDATE_API").unwrap_or_else(|_| "https://api.github.com/repos/FIZL0/opentennis/releases/latest".into());
             // B710: a game updated by an updater from before B710 came without vulkan/: its own release's, once
-            if let (Ok(v), Some(exe)) = (ours, exe()) {
-                let own = format!("https://api.github.com/repos/FIZL0/opentennis/releases/tags/{v}");
+            if let Some(exe) = exe() {
+                let own = format!("https://api.github.com/repos/FIZL0/opentennis/releases/tags/{ours}");
                 if let Err(e) = rt.block_on(mend(&own, ASSET, &exe, PUBLIC_KEY)) {
                     bevy::log::info!("update: no software renderer beside the game: {e}");
                 }
             }
             loop {
                 let asked = std::time::SystemTime::now();
-                match ours {
-                    Ok(v) => match rt.block_on(check(&api, v, ASSET)) {
-                        Ok(f) => {
-                            // in the log (a phone's hst-log.txt): whether this check saw the new release
-                            bevy::log::info!("update check: {}", f.as_ref().map_or(format!("{v} is the latest"), |f| format!("{} is out", f.tag)));
-                            let now = f.is_some() && std::env::var_os("HST_UPDATE_NOW").is_some();
-                            STATE.lock().unwrap().found = f;
-                            if now {
-                                act();
-                            }
+                match rt.block_on(check(&api, ours, ASSET)) {
+                    Ok(f) => {
+                        // in the log (a phone's hst-log.txt): whether this check saw the new release
+                        bevy::log::info!("update check: {}", f.as_ref().map_or(format!("{ours} is the latest"), |f| format!("{} is out", f.tag)));
+                        let now = f.is_some() && std::env::var_os("HST_UPDATE_NOW").is_some();
+                        STATE.lock().unwrap().found = f;
+                        if now {
+                            act();
                         }
-                        Err(e) => bevy::log::info!("update check: {e}"),
-                    },
-                    Err(ours) => match rt.block_on(beta()) {
-                        Ok(sha) if sha != ours => STATE.lock().unwrap().commit = Some(sha[..7.min(sha.len())].to_string()),
-                        Ok(_) => {}
-                        Err(e) => bevy::log::info!("update check: {e}"),
-                    },
+                    }
+                    Err(e) => bevy::log::info!("update check: {e}"),
                 }
                 // B567: half an hour by the wall clock, not one 30-minute sleep: a phone keeps the app suspended for
                 // hours or days and a sleep's clock stops meanwhile, so a resumed app asked again only after half an
@@ -221,18 +205,6 @@ pub fn recheck(mut life: bevy::prelude::MessageReader<bevy::window::AppLifecycle
 #[cfg(not(target_arch = "wasm32"))]
 fn due(asked: std::time::SystemTime, now: std::time::SystemTime) -> bool {
     now.duration_since(asked).map_or(true, |d| d >= std::time::Duration::from_secs(30 * 60))
-}
-
-/// The commit the beta's downloads were built from.
-#[cfg(not(target_arch = "wasm32"))]
-async fn beta() -> Result<String, String> {
-    beta_commit(&fetch(BETA_COMMIT, 256).await?)
-}
-
-/// `commit.txt`'s full commit (40 hex digits and a newline).
-#[cfg(not(target_arch = "wasm32"))]
-fn beta_commit(body: &[u8]) -> Result<String, String> {
-    std::str::from_utf8(body).ok().map(str::trim).filter(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())).map(str::to_string).ok_or_else(|| "no commit".into())
 }
 
 /// `url`'s JSON.
@@ -1194,14 +1166,6 @@ PGdwmy/sa9Kqh1f1dYqI+JP0Iweg2dLM/mEgnRNTVfsQ9pI1u5aeusKILuRdn61QcyAsnzeOSfS5RRAE
             Installer::TrollStore.link(ipa),
             "apple-magnifier://install?url=https%3A%2F%2Fgithub.com%2FFIZL0%2Fopentennis%2Freleases%2Fdownload%2Fv1.0.0%2Fopentennis-ios.ipa"
         );
-    }
-
-    #[test]
-    fn the_beta_commit_is_a_full_hash() {
-        let sha = "0123456789abcdef0123456789abcdef01234567";
-        assert_eq!(beta_commit(format!("{sha}\n").as_bytes()).as_deref(), Ok(sha));
-        assert!(beta_commit(b"0123456\n").is_err());
-        assert!(beta_commit(b"<html>404</html>").is_err());
     }
 
     #[test]

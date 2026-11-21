@@ -1,16 +1,12 @@
-# The browser build (`tools/web.sh`) on GitHub Pages: the page and the wasm only, no game data (players pick their ISO).
-# Every push to main that passes ci.yml (tests, clippy, cargo-deny: the `ci` job) is a beta: https://beta.opentennis.dev
-# gets that commit's website, and its Linux + Windows builds under /download/ (tools/beta-bundle.sh). B745: the beta is
-# not a GitHub release (launchers took a rolling "beta" pre-release for the newest version); this repo's only
-# releases are tools/release.sh's vX.Y.Z. The beta job leaves the bundle as a draft release of FIZL0/opentennis-beta
-# (drafts are hidden) and asks that repo (one workflow, tools/beta-site.yml) to put it on its Pages (secret
-# BETA_DISPATCH_TOKEN: a fine-grained token with Contents read/write on that repo; without it the beta isn't updated).
-# Which builds go on https://opentennis.dev is the repo variable SITE_FROM:
-#   unset / main   every push to main (as before)
-#   release        only published releases (tools/release.sh): `gh variable set SITE_FROM --body release`
+# The browser build (`tools/web.sh`) on GitHub Pages, https://opentennis.dev: the page and the wasm only, no game data
+# (players pick their ISO). Builds of the game are published only as tools/release.sh's vX.Y.Z releases (P147: no beta
+# site or beta builds any more). Which website goes on opentennis.dev is the repo variable SITE_FROM:
+#   unset / main   every push to main that passes ci.yml (tests, clippy, cargo-deny: the `ci` job)
+#   release        only published releases (tools/release.sh): `gh variable set SITE_FROM --body release`; a push
+#                  to main then runs only the `ci` job
 # tools/ship-local.sh builds the website on the dev machine and runs this with `prebuilt`: that run only deploys the
-# uploaded web/ (the build jobs are skipped) to opentennis.dev, or to the beta site when SITE_FROM is release. The
-# upload comes as a draft release (`release`: its id), which the `prebuilt` job takes in and deletes.
+# uploaded web/ to opentennis.dev (while SITE_FROM isn't release). The upload comes as a draft release (`release`: its
+# id), which the `prebuilt` job takes in and deletes.
 # A release made by tools/release.sh carries its own web.tar.gz, which its run deploys without building (~1 min).
 name: pages
 on:
@@ -65,8 +61,8 @@ jobs:
           path: web.tar.gz
   build:
     needs: [prebuilt]
-    # a release only builds the site when it is the one opentennis.dev shows
-    if: ${{ !cancelled() && (needs.prebuilt.result == 'success' || needs.prebuilt.result == 'skipped') && (github.event_name != 'release' || vars.SITE_FROM == 'release') }}
+    # only the site opentennis.dev shows is built: releases' when SITE_FROM is release, else main's
+    if: ${{ !cancelled() && (needs.prebuilt.result == 'success' || needs.prebuilt.result == 'skipped') && (github.event_name == 'release') == (vars.SITE_FROM == 'release') }}
     runs-on: ubuntu-latest
     steps:
       - if: ${{ inputs.prebuilt }}
@@ -104,18 +100,11 @@ jobs:
           tar xzf binaryen-version_123-x86_64-linux.tar.gz
           echo "$PWD/binaryen-version_123/bin" >> "$GITHUB_PATH"
       - if: ${{ !steps.pre.outputs.got }}
-        # M22: the online build id's commit, the same as the Linux and Windows jobs' (crates/hst/build.rs)
+        # M22: the online build id's commit (crates/hst/build.rs)
         run: HST_COMMIT=${GITHUB_SHA::7} tools/web.sh
-        env:
-          HST_SITE: ${{ github.event_name != 'release' && vars.SITE_FROM == 'release' && 'https://beta.opentennis.dev/' || '' }}
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3.0.1
         with:
           path: web
-      - run: tar -czf web.tar.gz -C web .
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: web
-          path: web.tar.gz
   deploy:
     needs: [build, ci]
     # ci is skipped only for releases and prebuilt deploys
@@ -135,146 +124,10 @@ jobs:
       - if: ${{ steps.fresh.outputs.ok }}
         id: deployment
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e  # v4.0.5
-  # T4: tests, clippy and cargo-deny (ci.yml); the beta and the site deploy of a push wait for it. Releases and
-  # ship-local.sh's prebuilt deploys skip it (a release's commit was a beta first)
+  # T4: tests, clippy and cargo-deny (ci.yml); the site deploy of a push waits for it. Releases and ship-local.sh's
+  # prebuilt deploys skip it (a release's commit was tested when it was pushed to main)
   ci:
     if: ${{ !inputs.prebuilt && github.event_name != 'release' }}
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
-  # executables are only built by Actions: tools/ship-local.sh ships the website alone
-  # releases ship tools/release.sh's own builds
-  linux:
-    if: ${{ !inputs.prebuilt && github.event_name != 'release' }}
-    runs-on: ubuntu-latest
-    # Steam Runtime sniper (glibc 2.31) like tools/build.sh, so it runs on every SteamOS / Steam Deck
-    container: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      # rustup alone; the toolchain is rust-toolchain.toml's
-      - run: |
-          curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain none
-          "$HOME/.cargo/bin/rustup" toolchain install
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0  # v2.9.3
-      - env:
-          HST_SITE: ${{ vars.SITE_FROM == 'release' && 'https://beta.opentennis.dev/' || '' }}
-        # M22: the container's checkout may have no usable git: the commit for the online build id from Actions
-        run: |
-          export HST_COMMIT=$(echo "$GITHUB_SHA" | cut -c1-7)
-          cargo build --release -p hst --features ship
-          mkdir -p dist/linux
-          strip -o dist/linux/opentennis target/release/hst
-          cp crates/hst/icon/hst.png dist/linux/opentennis.png
-          printf '[Desktop Entry]\nType=Application\nName=OpenTennis\nExec=opentennis\nIcon=opentennis\nStartupWMClass=opentennis\nCategories=Game;\n' > dist/linux/opentennis.desktop
-          cp tools/steam/add-to-steam.sh dist/linux/ && mkdir -p dist/linux/steam && cp tools/steam/*.png dist/linux/steam/  # a Steam shortcut with its artwork
-          tar -czf opentennis-linux-x86_64.tar.gz -C dist/linux .
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: linux
-          path: opentennis-linux-x86_64.tar.gz
-  # M154: ARM Linux handhelds, cross-compiled in Debian 11 (glibc 2.31) like tools/build.sh linux-aarch64
-  linux-aarch64:
-    if: ${{ !inputs.prebuilt && github.event_name != 'release' }}
-    runs-on: ubuntu-latest
-    container: debian:bullseye
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - run: |
-          sh tools/linux-aarch64.sh setup
-          apt-get install -yq --no-install-recommends zip  # tools/portmaster.sh (readelf comes with gcc's binutils)
-          curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal --default-toolchain none
-          "$HOME/.cargo/bin/rustup" toolchain install
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0  # v2.9.3
-        with:
-          workspaces: ". -> target/linux-aarch64"
-      - env:
-          HST_SITE: ${{ vars.SITE_FROM == 'release' && 'https://beta.opentennis.dev/' || '' }}
-          CARGO_TARGET_DIR: target/linux-aarch64
-        run: |
-          export HST_COMMIT=$(echo "$GITHUB_SHA" | cut -c1-7)
-          sh tools/linux-aarch64.sh build
-          tar -czf opentennis-linux-aarch64.tar.gz -C dist/linux-aarch64 OpenTennis
-          bash tools/portmaster.sh  # M155a1: the same build as a PortMaster port, dist/linux-aarch64/opentennis.zip
-          cp dist/linux-aarch64/opentennis.zip opentennis.zip
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: linux-aarch64
-          path: |
-            opentennis-linux-aarch64.tar.gz
-            opentennis.zip
-  windows:
-    if: ${{ !inputs.prebuilt && github.event_name != 'release' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0  # v2.9.3
-      - run: |
-          sudo apt-get update -q && sudo apt-get install -yq gcc-mingw-w64-x86-64
-          export HST_SITE=${{ vars.SITE_FROM == 'release' && 'https://beta.opentennis.dev/' || '' }}
-          export HST_COMMIT=${GITHUB_SHA::7}
-          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc RUSTFLAGS="-C target-feature=+crt-static" \
-            cargo build --release -p hst --features ship --target x86_64-pc-windows-gnu
-          x86_64-w64-mingw32-strip -o opentennis.exe target/x86_64-pc-windows-gnu/release/hst.exe
-          zip -q opentennis-windows-x86_64.zip opentennis.exe
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: windows
-          path: opentennis-windows-x86_64.zip
-  # a prebuilt run has only the website: it updates the beta site (keeping its downloads), and only when
-  # opentennis.dev doesn't already show it
-  beta:
-    needs: [build, ci, linux, linux-aarch64, windows]
-    if: ${{ !cancelled() && github.event_name != 'release' && needs.build.result == 'success' && (inputs.prebuilt && vars.SITE_FROM == 'release' || !inputs.prebuilt && needs.ci.result == 'success' && needs.linux.result == 'success' && needs.linux-aarch64.result == 'success' && needs.windows.result == 'success') }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write  # B745: deletes the old rolling `beta` release
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-        with:
-          sparse-checkout: tools/beta-bundle.sh
-          sparse-checkout-cone-mode: false
-          path: src
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          pattern: '{web,linux,linux-aarch64,windows}'
-          merge-multiple: true
-      - env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          DISPATCH: ${{ secrets.BETA_DISPATCH_TOKEN }}
-          PREBUILT: ${{ inputs.prebuilt }}
-          BETA: FIZL0/opentennis-beta
-        run: |
-          [ -n "$DISPATCH" ] || { echo "::warning::no BETA_DISPATCH_TOKEN secret: beta.opentennis.dev not updated"; exit 0; }
-          # a stale run still publishes (skipping whenever main had moved on starved the beta while merges kept
-          # landing), unless the beta site already shows a newer commit
-          cur=$(curl -sSfL https://beta.opentennis.dev/version.txt 2>/dev/null | tr -cd 0-9a-f || true)
-          if [ -n "$cur" ] && [ "$(gh api "repos/$GH_REPO/compare/$cur...$GITHUB_SHA" -q .status 2>/dev/null)" = behind ]; then
-            echo "beta already at newer $cur, skipping"; exit 0
-          fi
-          # the beta repo's workflow must be tools/beta-site.yml's B745 one (it takes the bundle from a draft there);
-          # an older one still reads this repo's `beta` release, so that stays until the workflow is updated
-          GH_TOKEN=$DISPATCH gh api "repos/$BETA/contents/.github/workflows/deploy.yml" -q .content | base64 -d | grep -q beta-site.tar.gz \
-            || { echo "::error::$BETA's deploy.yml is older than tools/beta-site.yml: copy it there (plan/HUMAN.md)"; exit 1; }
-          if [ "$PREBUILT" = true ]; then
-            bash src/tools/beta-bundle.sh web.tar.gz beta-site.tar.gz "$GITHUB_SHA"
-          else
-            bash src/tools/beta-bundle.sh web.tar.gz beta-site.tar.gz "$GITHUB_SHA" \
-              opentennis-windows-x86_64.zip opentennis-linux-x86_64.tar.gz opentennis-linux-aarch64.tar.gz opentennis.zip
-          fi
-          # one draft at a time over there: an older run's (its deploy, if still waiting, fails and this one's follows)
-          for id in $(GH_TOKEN=$DISPATCH gh api "repos/$BETA/releases" -q '.[] | select(.draft) | .id'); do
-            GH_TOKEN=$DISPATCH gh api -X DELETE "repos/$BETA/releases/$id"
-          done
-          id=$(GH_TOKEN=$DISPATCH gh api "repos/$BETA/releases" -f tag_name=beta-site -f name="Beta site ${GITHUB_SHA::7}" -F draft=true -q .id)
-          GH_TOKEN=$DISPATCH gh api -X POST "https://uploads.github.com/repos/$BETA/releases/$id/assets?name=beta-site.tar.gz" \
-            -H 'Content-Type: application/gzip' --input beta-site.tar.gz -q .size
-          GH_TOKEN=$DISPATCH gh api "repos/$BETA/dispatches" -f event_type=beta -F "client_payload[release]=$id"
-          # the rolling release and ship-local.sh's carrier from before B745: gone for good (no-ops once they are)
-          for t in beta web-prebuilt; do
-            gh release view "$t" >/dev/null 2>&1 && gh release delete "$t" --cleanup-tag -y
-            gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$t" 2>/dev/null || true
-          done

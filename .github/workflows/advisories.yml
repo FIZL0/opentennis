@@ -1,7 +1,6 @@
-# Daily watch on main, since ci.yml only warns about RustSec advisories (a new one mustn't stop the beta):
+# Daily watch on main, since ci.yml only warns about RustSec advisories (a new one mustn't stop the site deploy):
 # - a new advisory: `cargo update -p` each flagged crate; if that clears it, push the lockfile to branch `advisories`
 #   and open an issue linking the pull request to make (Actions may not open PRs here); if not, an issue naming them
-# - the beta (tag `beta`, pages.yml) more than a day behind main: an issue, whatever stopped it
 # One open issue per title: a later run doesn't repeat it.
 name: advisories
 on:
@@ -48,12 +47,3 @@ jobs:
           else
             issue "RustSec: $ids" "New advisories against main: $ids. \`cargo update\` doesn't clear them (the fix needs a newer dependent, or there is none yet): update the crate that pulls it in, or add it to deny.toml's \`ignore\` with a reason. Run: $GITHUB_SERVER_URL/$GH_REPO/actions/runs/$GITHUB_RUN_ID"
           fi
-      - name: stale beta
-        if: ${{ !cancelled() }}
-        run: |
-          # the oldest commit on main the beta doesn't have yet
-          since=$(gh api "repos/$GH_REPO/compare/beta...main" -q '.commits[0].commit.committer.date // empty')
-          [ -n "$since" ] && [ $(( $(date +%s) - $(date -d "$since" +%s) )) -gt 86400 ] || exit 0
-          title="Beta is more than a day behind main"
-          gh issue list --state open --search "in:title \"$title\"" --json title -q '.[].title' | grep -qxF "$title" ||
-            gh issue create --title "$title" --body "Main has had commits since $since that aren't on the beta. Look at the latest pages runs: $GITHUB_SERVER_URL/$GH_REPO/actions/workflows/pages.yml"

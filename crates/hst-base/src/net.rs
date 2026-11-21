@@ -3614,8 +3614,8 @@ pub fn code_in(text: &str) -> Option<String> {
 /// The short codes' symbols: digits and capitals without the look-alikes 0/O and 1/I (32^4 ≈ 1M codes).
 pub const SYMBOLS: &[u8; 32] = b"23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 pub const SHORT: usize = 4;
-/// The browser build's page: a lobby link is this with `?code=<short code>`. Beta builds are built with
-/// `HST_SITE=https://beta.opentennis.dev/` (pages.yml), so their links open the beta site.
+/// The browser build's page: a lobby link is this with `?code=<short code>`. Every published build links to
+/// opentennis.dev; `HST_SITE=<url>` at build time points a test build's links at another copy of the site.
 pub const SITE: &str = match option_env!("HST_SITE") {
     Some(s) if !s.is_empty() => s,
     _ => "https://opentennis.dev/",

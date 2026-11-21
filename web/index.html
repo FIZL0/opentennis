@@ -5,8 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
 <title>OpenTennis: Hot Shots Tennis (Everybody's Tennis) remaster for PC, browser and online</title>
 <meta name="description" content="OpenTennis is a free, open-source remaster of the PS2 game Hot Shots Tennis (Everybody's Tennis, Minna no Tennis). Play it on PC, in your browser, on your phone or online, from your own disc.">
-<!-- M107: search and link previews. The site's one address is opentennis.dev; the beta site and ?site/?code= point
-     back to it. The original's names appear only as what this is a remaster of (AGENT.md: the name is OpenTennis). -->
+<!-- M107: search and link previews. The site's one address is opentennis.dev; ?site/?code= point back to it. The original's names appear only as what this is a remaster of (AGENT.md: the name is OpenTennis). -->
 <link rel="canonical" href="https://opentennis.dev/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="OpenTennis">
@@ -57,13 +56,6 @@
 }
 </script>
 <script>
-// M107: the beta site has the same page; only opentennis.dev is for search engines (the canonical link above says so too)
-if (location.hostname.startsWith('beta.')) {
-  const m = document.createElement('meta');
-  m.name = 'robots';
-  m.content = 'noindex';
-  document.head.append(m);
-}
 // M107: the site's text is in the page from the start (#disc isn't hidden), so search engines and a page without
 // scripts see it; a visit that goes straight into the game (a reload while playing, the autoplay box; see the module
 // script's landing check) hides it before the first paint, and site.js shows it again when the site opens after all.

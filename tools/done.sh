@@ -19,7 +19,7 @@ if [ "$3" = --spec ]; then
   exit
 fi
 tools/audit.sh && tools/patches.py && tools/check.sh || exit 1
-# T9: CI's clippy (ci.yml), warnings are errors, so a task can't land a warning that stops the beta. It covers the
+# T9: CI's clippy (ci.yml), warnings are errors, so a task can't land a warning that fails main's CI. It covers the
 # sim's #![deny(clippy::float_arithmetic)] modules too (C2: float math through ps2::F / vu0::Vf)
 out=$(cargo clippy -q --locked --workspace --all-targets --message-format=short -- -D warnings 2>&1) || {
   grep -E '^(crates|tools|third_party)/.*(error|warning)|^error' <<<"$out" | grep -v 'could not compile' | head -30

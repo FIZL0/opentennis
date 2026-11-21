@@ -1,5 +1,5 @@
-# T4: the checks a beta waits for. Runs on pull requests and pushes to other branches by itself; pushes to main run it
-# from pages.yml (`ci` job), whose beta and site deploy only go out when it passes.
+# T4: the checks main must pass. Runs on pull requests and pushes to other branches by itself; pushes to main run it
+# from pages.yml (`ci` job), whose site deploy only goes out when it passes.
 # - tests: hst-sim and hst-data, the ones that run without the disc (CI has no ISO; the disc tests skip themselves through hst_data::fixture)
 # - clippy, warnings are errors: the whole workspace, the same command tools/done.sh runs before a task lands
 # - ios-source: tools/ios-source.sh builds the AltStore source from the GitHub releases and tools/ios-source-check.sh
@@ -50,7 +50,7 @@ jobs:
           tar xzf "$f.tar.gz"
           "$f/cargo-deny" --color always check bans licenses sources
           echo "$PWD/$f" >> "$GITHUB_PATH"
-      # a new RustSec advisory against a crate we already had isn't this push's fault: warn, don't hold the beta back.
+      # a new RustSec advisory against a crate we already had isn't this push's fault: warn, don't hold the site deploy back.
       # advisories.yml checks main daily and opens an issue (with a lockfile fix branch when `cargo update` is enough)
       - name: cargo-deny advisories
         continue-on-error: true
