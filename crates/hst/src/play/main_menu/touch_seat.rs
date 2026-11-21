@@ -14,6 +14,28 @@ pub(super) fn hold(menu: Res<Menu>, gamepads: Query<(Entity, &Gamepad, &Name)>) 
     hst_base::seats::hold_touch(holds(&menu, touch));
 }
 
+impl Menu {
+    /// B752: the on-screen pad and the screen's taps (the keyboard's seat, [`Dev::Keys`]) are the same thumbs. A press
+    /// on the pad takes 1P and the seats a tap took (the splash's tap-anywhere, a tap on a menu row): otherwise the
+    /// menus drop its presses as another pad's (only 1P's device works them) and, the main menu being a takeover screen,
+    /// [`Menu::pad_takes_touch_seat`] never runs, so no button or stick worked for the rest of the session (user
+    /// 2026-11-20, seen on the iPhone). Not while the takeover prompt is up: the pad answers it as the screen's.
+    pub(super) fn touch_pad_takes_taps(&mut self, dev: Dev) {
+        let Dev::Pad(e) = dev else { return };
+        if self.takeover_touch() != Some(e) || self.takeover_asking() {
+            return;
+        }
+        if self.p1 == Some(Dev::Keys) {
+            self.p1 = Some(dev);
+        }
+        if !self.seats.contains(&Some(dev))
+            && let Some(s) = self.seats.iter_mut().find(|s| **s == Some(Dev::Keys))
+        {
+            *s = Some(dev);
+        }
+    }
+}
+
 /// Whether one of the on-screen pads `touch` is the splash's 1P or in a seat.
 fn holds(menu: &Menu, mut touch: impl Iterator<Item = Entity>) -> bool {
     touch.any(|e| menu.p1 == Some(Dev::Pad(e)) || menu.seats.contains(&Some(Dev::Pad(e))))

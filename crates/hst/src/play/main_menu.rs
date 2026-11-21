@@ -3670,6 +3670,10 @@ fn step(
             dirs[i] = repeat.entry((id, i)).or_default().step(h, dt);
         }
         [k.up, k.down, k.left, k.right] = dirs;
+        // B752: the on-screen pad is the screen's own: it takes what a tap took
+        if k != Press::default() {
+            menu.touch_pad_takes_taps(dev);
+        }
         // B656: unless the on-screen pad holds a seat beside another human (or the controller screen has a seat open
         // to join): then it keeps it, and the controller joins as the next player
         // M127: where the takeover prompt may ask, it asks instead (and its Yes does the same)
