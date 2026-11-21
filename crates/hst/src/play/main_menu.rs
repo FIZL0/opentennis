@@ -462,7 +462,7 @@ impl Settings {
             }
         }
         // P63: an older build's Steam Deck preset (Low shadows) moves up to the current one
-        s.graphics = s.graphics.upgrade();
+        s.graphics = s.graphics.upgrade_saved(text);
         // before Character Shading: settings that are a preset's take the preset's value
         if !text.contains("character_shading")
             && let Some((_, p)) = Graphics::PRESETS.iter().find(|(_, p)| s.graphics.keep(*p) == Graphics { shading: p.shading, ..s.graphics })
@@ -4466,6 +4466,9 @@ mod tests {
         crate::match_speed::choose(60);
         crate::voices::choose(0);
         assert_eq!(Settings::parse("uncapped_fps = off\n").graphics, Graphics { vsync: true, ..d });
+        // B754: Uncapped on the Default picture survives the save the pause menu's Settings make (a phone read it back as 60)
+        let open = Settings { graphics: Graphics { fps: 0, ..Graphics::DEFAULT }, ..base };
+        assert_eq!(Settings::parse(&open.text()).graphics.fps, 0);
         assert_eq!(s.flags()[..1], ["--fps"]);
         assert_eq!(Settings { upscaled_textures: false, menu_music: false, music: true, upscaled_downloads: false, aspect: 1, ..base }.flags()[..2], ["--no-upscale", "--music"]);
     }
