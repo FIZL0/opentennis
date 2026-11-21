@@ -44,8 +44,13 @@ the main menu's hand after, a real pad and the open prompt left alone, a keyboar
 
 - WebDriverAgent's spam is slower than a thumb (~2 actions a second, up to 4 fingers each), so "very fast" tapping
   is approximated; the cause doesn't depend on speed (one tap is enough).
-- Not tried in a match on the phone (the menus' seat now is the pad's, which is what a match reads; unit-tested
-  only through the menus).
+- Not tried in a match on the phone: when I went back for it, another agent (R31) held the phone's lock
+  (`ui-15.sh`) for 20+ minutes. My tap script didn't check the lock, so a few of my taps landed during R31's session
+  (they opened the Ko-fi link in Safari) before I stopped. The match reads the menus' seat, which is now the pad's:
+  the same path as when the pad's ✕ takes the splash. Follow-up filed to check it on the phone.
+- On a touch device with a real keyboard as well (an iPad with one, a phone browser), the on-screen pad's first press
+  takes 1P or the seat from the keyboard instead of joining as another player. That's how the existing
+  `pad_takes_touch_seat` already treats the keyboard on a touch page (the screen's seat); not tested with a keyboard.
 - The browser's touch pad (`web/touch.js`) goes through the same menu code and should be fixed by the same change;
   not run in a phone browser.
 - Front-end behaviour: ours, nothing to match in the original.
