@@ -452,4 +452,34 @@ mod tests {
         assert!(hits.iter().all(|h| h.anchor == Anchor::Centre));
         assert_eq!(outside, Some(pointer::Act::Row(1, pointer::OK)));
     }
+
+    /// B752: the splash taken by a tap (the screen's, the keyboard's seat): the on-screen pad's first press takes 1P
+    /// and the tap's seat, then works the main menu (its stick moves the hand), and stays 1P
+    #[test]
+    fn the_on_screen_pad_takes_what_a_tap_took() {
+        let (t, p) = (pad(4), pad(5));
+        let mut m = Menu { screen: Screen::Main, p1: Some(Dev::Keys), seats: [Some(Dev::Keys), None, None, None], ..default() };
+        // before the fix: another pad's press, dropped
+        assert_eq!(m.step(Dev::Pad(t), press(|k| k.down = true)), vec![]);
+        assert_eq!(m.sel, 0);
+        m.takeover.touch = Some(t);
+        m.touch_pad_takes_taps(Dev::Pad(t));
+        assert_eq!((m.p1, m.seats[0]), (Some(Dev::Pad(t)), Some(Dev::Pad(t))));
+        assert!(!m.step(Dev::Pad(t), press(|k| k.down = true)).is_empty());
+        assert_eq!(m.sel, 1);
+        // a real pad does nothing of the kind (it asks, `takeover_open`)
+        let mut m = Menu { screen: Screen::Main, p1: Some(Dev::Keys), seats: [Some(Dev::Keys), None, None, None], ..default() };
+        m.takeover.touch = Some(t);
+        m.touch_pad_takes_taps(Dev::Pad(p));
+        assert_eq!((m.p1, m.seats[0]), (Some(Dev::Keys), Some(Dev::Keys)));
+        // nor the on-screen pad while a real pad's prompt is up: it answers that as the screen's
+        assert!(m.takeover_open(p, "Pad".into()));
+        m.touch_pad_takes_taps(Dev::Pad(t));
+        assert_eq!(m.p1, Some(Dev::Keys));
+        // the on-screen pad already 1P, the keyboard's seat elsewhere (a real keyboard on 2P) is left alone
+        let mut m = Menu { screen: Screen::Main, p1: Some(Dev::Pad(t)), seats: [Some(Dev::Pad(t)), Some(Dev::Keys), None, None], ..default() };
+        m.takeover.touch = Some(t);
+        m.touch_pad_takes_taps(Dev::Pad(t));
+        assert_eq!(m.seats, [Some(Dev::Pad(t)), Some(Dev::Keys), None, None]);
+    }
 }
