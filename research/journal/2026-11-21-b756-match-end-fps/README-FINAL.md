@@ -59,7 +59,7 @@ The other suspects:
 
 ## Not verified / not 1:1
 
-- **The 5 % target is not met**: ceremony + result page average ~86 fps against ~97 plain (~11 % lower; was ~26 %).
+- **The 5 % target is not met** (follow-up R13): ceremony + result page average ~86 fps against ~97 plain (~11 % lower; was ~26 %).
   What is left is in the pass log, not hidden: the main transparent pass is 1.3-2.8 ms against 0.65 in a rally
   (the ceremony's close-ups fill the screen with the characters' blended parts, and on the result page the circling
   camera passes through the shown player, who draws faded), plus ~0.4 ms for the banner and ~0.2 ms of UI. Neither
