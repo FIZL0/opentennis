@@ -170,7 +170,8 @@ struct Flake {
     axis: Vec3,
     spin: f32,
     phase: f32,
-    entity: Entity,
+    /// Its colour (linear RGBA), the mesh's vertex colour.
+    rgba: [f32; 4],
 }
 
 /// The confetti's box around the point 2.4 ahead of the camera, its fall and sway per tick, its count and size.
@@ -207,7 +208,8 @@ pub(super) struct Ceremony {
     music: Option<(Arc<SoundBank>, Vec<u8>)>,
     level: f32,
     flakes: Vec<Flake>,
-    confetti: Option<Entity>,
+    /// B756: every flake is a quad of one mesh with one material ([`confetti_mesh`]): one draw, not one each.
+    confetti: Option<(Entity, Handle<Mesh>)>,
     flake_rng: u32,
 }
 
@@ -354,29 +356,30 @@ pub(super) fn begin(
         flake_rng: 0x2545_f491,
     };
     if let (false, Ok(cam), Some(art)) = (cer.plan.lost, camera.single(), art) {
-        let root = commands.spawn((Transform::default(), Visibility::default(), Confetti)).id();
-        commands.entity(cam).add_child(root);
-        let mesh = meshes.add(Rectangle::new(FLAKE, FLAKE));
         for _ in 0..FLAKES {
             let r = |c: &mut Ceremony| c.cosmetic() * 2.0 - 1.0;
             let at = Vec3::new(r(&mut cer) * BOX.x, r(&mut cer) * BOX.y, -AHEAD + r(&mut cer) * BOX.z);
             let axis = Vec3::new(r(&mut cer), r(&mut cer), r(&mut cer)).try_normalize().unwrap_or(Vec3::Y);
             let hue = cer.cosmetic() * 360.0;
-            let material = materials.add(StandardMaterial {
-                base_color: Color::hsl(hue, 1.0, 0.6),
-                base_color_texture: Some(art.0[super::CONFETTI].clone()),
-                unlit: true,
-                cull_mode: None,
-                alpha_mode: AlphaMode::Blend,
-                ..default()
-            });
+            let rgba = Color::hsl(hue, 1.0, 0.6).to_linear().to_f32_array();
             let phase = r(&mut cer) * std::f32::consts::PI;
             let spin = cer.cosmetic() * std::f32::consts::TAU;
-            let entity = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material), Transform::from_translation(at))).id();
-            commands.entity(root).add_child(entity);
-            cer.flakes.push(Flake { at, axis, spin, phase, entity });
+            cer.flakes.push(Flake { at, axis, spin, phase, rgba });
         }
-        cer.confetti = Some(root);
+        let material = materials.add(StandardMaterial {
+            base_color_texture: Some(art.0[super::CONFETTI].clone()),
+            unlit: true,
+            cull_mode: None,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        });
+        let mesh = meshes.add(confetti_mesh(&cer.flakes));
+        // the quads move every frame: no bounds to cull by, and no shadow (blended draws cast none)
+        let root = commands
+            .spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material), Transform::default(), Visibility::default(), Confetti, bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver))
+            .id();
+        commands.entity(cam).add_child(root);
+        cer.confetti = Some((root, mesh));
     }
     info!("winners' ceremony: {:?}", cer.plan.files);
     commands.insert_resource(cer);
@@ -540,6 +543,34 @@ fn stance(far: bool, hand: f32, turned: bool) -> (Quat, Vec3) {
     }
 }
 
+/// The confetti as one mesh in the camera's frame: a [`FLAKE`]-sized quad per flake at its place, sway and spin,
+/// in its colour, farthest first so the blended quads draw back to front as separate draws would sort.
+fn confetti_mesh(flakes: &[Flake]) -> Mesh {
+    let mut order: Vec<&Flake> = flakes.iter().collect();
+    order.sort_by(|a, b| a.at.z.total_cmp(&b.at.z));
+    let h = FLAKE / 2.0;
+    let corners = [(Vec3::new(h, h, 0.0), [1.0, 0.0]), (Vec3::new(-h, h, 0.0), [0.0, 0.0]), (Vec3::new(-h, -h, 0.0), [0.0, 1.0]), (Vec3::new(h, -h, 0.0), [1.0, 1.0])];
+    let (mut pos, mut normal, mut uv, mut colour, mut index) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for f in order {
+        let at = f.at + Vec3::X * f.phase.sin() * 0.1;
+        let turn = Quat::from_axis_angle(f.axis, f.spin);
+        let base = pos.len() as u32;
+        for (c, t) in corners {
+            pos.push((at + turn * c).to_array());
+            normal.push((turn * Vec3::Z).to_array());
+            uv.push(t);
+            colour.push(f.rgba);
+        }
+        index.extend([0, 1, 2, 0, 2, 3].map(|k| base + k));
+    }
+    Mesh::new(bevy::mesh::PrimitiveTopology::TriangleList, bevy::asset::RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normal)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colour)
+        .with_inserted_indices(bevy::mesh::Indices::U32(index))
+}
+
 fn wrap(v: f32, half: f32) -> f32 {
     (v + half).rem_euclid(2.0 * half) - half
 }
@@ -566,6 +597,7 @@ pub(super) fn pose(
     kids: Query<&Children>,
     parts: Query<(&Mesh3d, &MeshMaterial3d<crate::gs::GsMaterial>)>,
     mut gs: ResMut<Assets<crate::gs::GsMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let Some(c) = cer else { return };
     for (root, f, rig, mut tf, mut weights) in &mut figures {
@@ -640,11 +672,10 @@ pub(super) fn pose(
             }
         }
     }
-    for f in &c.flakes {
-        if let Ok(mut t) = joints.get_mut(f.entity) {
-            let sway = Vec3::X * f.phase.sin() * 0.1;
-            *t = Transform::from_translation(f.at + sway).with_rotation(Quat::from_axis_angle(f.axis, f.spin));
-        }
+    if let Some((_, h)) = &c.confetti
+        && let Some(mut mesh) = meshes.get_mut(h)
+    {
+        *mesh = confetti_mesh(&c.flakes);
     }
 }
 
@@ -800,6 +831,16 @@ mod tests {
         assert_eq!((q[0].src, q[0].dst), ([0.0, 160.0, 256.0, 80.0], [192.0, 360.0, 256.0, 80.0]));
         assert_eq!((q[7].rgb, q[10].src), ([67.0, 101.0, 127.0], [0.0, 32.0, 96.0, 32.0]));
         assert_eq!(quads(&p, false).len(), 1);
+    }
+
+    /// B756: the confetti is one mesh, a quad per flake, the farthest flake's quad first.
+    #[test]
+    fn confetti_one_mesh() {
+        let flake = |z: f32, rgba: [f32; 4]| Flake { at: Vec3::new(0.0, 0.0, z), axis: Vec3::Y, spin: 0.0, phase: 0.0, rgba };
+        let m = confetti_mesh(&[flake(-1.0, [1.0, 0.0, 0.0, 1.0]), flake(-3.0, [0.0, 1.0, 0.0, 1.0])]);
+        assert_eq!((m.count_vertices(), m.indices().map(|i| i.len())), (8, Some(12)));
+        let Some(bevy::mesh::VertexAttributeValues::Float32x4(c)) = m.attribute(Mesh::ATTRIBUTE_COLOR) else { panic!("colours") };
+        assert_eq!((c[0], c[4]), ([0.0, 1.0, 0.0, 1.0], [1.0, 0.0, 0.0, 1.0]));
     }
 
     #[test]
