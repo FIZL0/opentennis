@@ -34,3 +34,13 @@ screen fades out.
 - The score board is the original's final board (green games, red sets digits), not the pause board's orange ones:
   it is the game's own end-of-match board.
 - The online menu (Rematch / Back to Lobby) is covered by the fit test only, not shot.
+
+## Spec review
+
+A fresh reviewer's points, each checked, none changed:
+- Face 64 px at ring + 2 in a 48-px ring: the original board draws its faces exactly so (its face art has margin);
+  the shots show the face inside the ring.
+- Slot quads on `inpane_p` (`panel_art.0[1]`): the same sheet popups' own draw uses.
+- Note colour (unchosen + 24): the pause menu's own note colour.
+- Score board's green/red digits: the original final board's own outlined sprites (listed above under not 1:1).
+- `plate.rs`, the cursor hook and the taller header: needed for the asked-for plates; listed above.
