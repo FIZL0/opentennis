@@ -362,7 +362,13 @@ const POOL: usize = 400;
 
 /// The "Game, Set, Match!" model.
 #[derive(Resource)]
-struct Banner(hst_sim::effect::Effect, crate::effects::Shown);
+struct Banner(hst_sim::effect::Effect, crate::effects::Shown<crate::effects::OnTop>);
+/// B756: the banner's space, a child of the match camera scaled as the umpire's calls' (`popups::CallSpace`), so it
+/// lands where the overlay camera drew it with no second 3D camera running through the ceremony and the result page.
+#[derive(Component)]
+struct BannerSpace;
+/// The banner's blended draws sort after every scene draw, as the umpire's calls'.
+const BANNER_SORT: f32 = 1e5;
 /// Its scale and the screen point it stands on (page 0 at x 0).
 const BANNER_SCALE: f32 = 1.7;
 const BANNER_AT: [f32; 2] = [321.0, 53.0];
@@ -446,6 +452,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(PostStartup, setup.after(super::setup))
         .add_systems(FixedUpdate, tick.after(super::simulate))
         .add_systems(Update, (ceremony::begin, step, pool, draw, draw_banner).chain())
+        .add_systems(Update, banner_space.after(ceremony::show))
         .add_systems(Update, legend.after(step))
         .add_systems(Update, ceremony::pose.after(crate::character::animate).after(crate::character::uv_offsets).before(crate::character::texture_faces))
         .add_systems(PostUpdate, ceremony::hide.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate))
@@ -479,7 +486,7 @@ fn setup(
     args: Res<Args>,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<crate::effects::OnTop>>,
     mut bindposes: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
 ) {
     let mut iso = Iso::open(&args.iso).expect("open iso");
@@ -493,13 +500,18 @@ fn setup(
             art.push(super::menu_art::image(&mut images, &arc.read(e).expect("archive bytes"), name));
         }
         if xb.contains("PRIZE") {
-            // game space (y down) → Bevy, as the call models
-            let root = commands.spawn((Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::PI)), Visibility::default())).id();
+            // game space (y down) → Bevy, as the call models, in front of the match camera (`banner_space`)
+            let space = commands.spawn((BannerSpace, Transform::default(), Visibility::default())).id();
+            let root = commands.spawn((Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::PI)), Visibility::default(), ChildOf(space))).id();
             let (mut effect, shown) = crate::effects::model(&arc, "azuma/inpane/mdl/i_gameset_00", &mut commands, root, &mut meshes, &mut materials, &mut images, &mut bindposes)
                 .expect("i_gameset_00");
             effect.hold = true;
-            commands.entity(root).insert_recursive::<Children>(bevy::camera::visibility::RenderLayers::layer(popups::CALL_LAYER));
-            commands.entity(shown.root).insert(popups::OnCallCamera);
+            for h in &shown.materials {
+                if let Some(mut m) = materials.get_mut(h) {
+                    m.base.depth_bias = BANNER_SORT;
+                }
+            }
+            commands.entity(root).insert_recursive::<Children>((bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver));
             commands.insert_resource(Banner(effect, shown));
         }
     }
@@ -845,12 +857,14 @@ fn draw_banner(
     banner: Option<Res<Banner>>,
     mut q: Query<(&mut Visibility, &mut bevy::mesh::morph::MorphWeights)>,
     mut joints: Query<&mut Transform>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<crate::effects::OnTop>>,
 ) {
     let Some(banner) = banner else { return };
     let (effect, shown) = (&banner.0, &banner.1);
     let during = cer.is_some() && !screen.open && g.match_stats.result.is_some();
     let x = if during { Some(0) } else { screen.page_x(0).filter(|_| screen.open && g.match_stats.result.is_some()) };
+    // M98: no banner with the HUD off
+    let x = x.filter(|_| !super::no_hud::OFF.load(std::sync::atomic::Ordering::Relaxed));
     let Some(x) = x else {
         if let Ok((mut v, _)) = q.get_mut(shown.root) {
             *v = Visibility::Hidden;
@@ -866,6 +880,27 @@ fn draw_banner(
     );
     if let Ok(mut t) = joints.get_mut(shown.root) {
         *t = Transform::from_translation(at).with_rotation(Quat::from_rotation_y(std::f32::consts::PI)).with_scale(Vec3::splat(BANNER_SCALE));
+    }
+}
+
+/// B756: the banner's space follows the match camera as the umpire's calls' does: its child, x and y scaled by the
+/// match camera's half-angle tangent over the overlay camera's, z kept, so the banner keeps its pixels and size.
+fn banner_space(
+    mut commands: Commands,
+    window: Query<&Window>,
+    camera: Query<(Entity, &Projection), With<crate::Orbit>>,
+    mut space: Query<(Entity, &mut Transform, Option<&ChildOf>), With<BannerSpace>>,
+) {
+    let (Ok((cam, proj)), Ok((e, mut t, parent))) = (camera.single(), space.single_mut()) else { return };
+    if parent.is_none_or(|p| p.parent() != cam) {
+        commands.entity(cam).add_child(e);
+    }
+    let Projection::Perspective(p) = proj else { return };
+    let aspect = window.single().map_or(4.0 / 3.0, crate::play::widescreen::scene_aspect);
+    let k = (p.fov / 2.0).tan() / (popups::CALL_FOV_DEG.to_radians().tan() * super::SHOWN_ASPECT.max(1.0 / aspect));
+    let scale = Vec3::new(k, k, 1.0);
+    if t.scale != scale {
+        t.scale = scale;
     }
 }
 
