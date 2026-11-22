@@ -404,7 +404,9 @@ pub(super) fn begin(
         flake_rng: 0x2545_f491,
     };
     if let Some(l) = &look {
-        commands.entity(l.warm).despawn();
+        commands.entity(l.warm).try_despawn();
+        // the next match warms its own (its art may differ)
+        commands.remove_resource::<ConfettiLook>();
     }
     if let (false, Ok(cam), Some(art)) = (cer.plan.lost, camera.single(), art) {
         for _ in 0..FLAKES {
@@ -636,12 +638,13 @@ pub(super) struct ConfettiLook {
 pub(super) fn warm(
     mut commands: Commands,
     look: Option<Res<ConfettiLook>>,
+    cer: Option<Res<Ceremony>>,
     art: Option<Res<super::Art>>,
     camera: Query<Entity, With<crate::Orbit>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if look.is_some() {
+    if look.is_some() || cer.is_some() {
         return;
     }
     let (Some(art), Ok(cam)) = (art, camera.single()) else { return };
@@ -920,7 +923,7 @@ mod tests {
         assert_eq!(quads(&p, false).len(), 1);
     }
 
-    /// B756: the confetti is one mesh, a quad per flake, the farthest flake's quad first.
+    /// B761: the warm-up flake is out of sight and laid out as the confetti.
     #[test]
     fn warm_flake_behind_the_eye() {
         let m = warm_mesh();
@@ -931,6 +934,7 @@ mod tests {
         assert_eq!(m.get_mesh_vertex_buffer_layout(&mut Default::default()).0.layout(), real.get_mesh_vertex_buffer_layout(&mut Default::default()).0.layout());
     }
 
+    /// B756: the confetti is one mesh, a quad per flake, the farthest flake's quad first.
     #[test]
     fn confetti_one_mesh() {
         let flake = |z: f32, rgba: [f32; 4]| Flake { at: Vec3::new(0.0, 0.0, z), axis: Vec3::Y, spin: 0.0, phase: 0.0, rgba };
