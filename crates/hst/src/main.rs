@@ -1350,6 +1350,8 @@ fn gs_models_anim(
         // P32: a hole material whose alpha the `.MTA` animates, or whose texture a live reload can change, keeps its
         // blended draws whole
         let fixed_alpha = tracks(&stem, "mta", 1).is_none() && std::env::var_os("HST_TEXTURE_RELOAD").is_none();
+        // B762: nor does a model whose `.MTA` can raise a material's alpha drop its batches' alpha-0 triangles
+        let no_mta = tracks(&stem, "mta", 1).is_none();
         let mut parts = Vec::new();
         for (mi, packets) in model.materials.iter().enumerate() {
             let Some(mat) = mats.materials.get(mi) else { continue };
@@ -1395,6 +1397,15 @@ fn gs_models_anim(
                 if own_mips.is_some() {
                     draws.iter_mut().for_each(|g| g.uniform.screen_lod = 1.0);
                 }
+                // B762: a batch whose every draw leaves alpha 0 as it was keeps only the triangles with Af above 0 (court
+                // 1's fence: 12 of 119 drawn twice, blended, for nothing); not a scrolling one (`.UVA`), nor the net,
+                // whose mesh the net's shadow decal reuses with its own alpha
+                let mesh = if !stem.contains("_h01_") && !stem.starts_with("znet") && no_mta && k.1.is_none() && draws.iter().all(gs::GsMaterial::blank_at_zero) {
+                    let Some(m) = drop_blank_triangles(mesh, mat.color[3]) else { continue };
+                    m
+                } else {
+                    mesh
+                };
                 // P32: each of the hole's two draws keeps only the triangles with a pixel it can draw (the indoor
                 // court's floor is faded, its walls solid); a scrolling texture (`.UVA`) keeps them all
                 let mut split = Vec::new();
@@ -1445,6 +1456,26 @@ fn gs_models_anim(
         }
         f(stem, parts, anim, model, mats);
     });
+}
+
+/// B762: `mesh` without its triangles whose three vertices have Af 0 ([`gs::drawn_triangles`], material alpha
+/// `colour_a`); `None` when none is left.
+fn drop_blank_triangles(mut mesh: Mesh, colour_a: f32) -> Option<Mesh> {
+    let Some(Indices::U32(idx)) = mesh.indices() else { return Some(mesh) };
+    let alpha: Vec<f32> = match mesh.attribute(Mesh::ATTRIBUTE_COLOR) {
+        Some(bevy::mesh::VertexAttributeValues::Float32x4(c)) => c.iter().map(|c| c[3]).collect(),
+        _ => Vec::new(),
+    };
+    let keep = gs::drawn_triangles(idx, &alpha, colour_a);
+    if keep.iter().all(|&k| k) {
+        return Some(mesh);
+    }
+    let kept: Vec<u32> = idx.chunks(3).zip(&keep).filter(|(_, k)| **k).flat_map(|(t, _)| t.iter().copied()).collect();
+    if kept.is_empty() {
+        return None;
+    }
+    mesh.insert_indices(Indices::U32(kept));
+    Some(mesh)
 }
 
 /// [`gs::hsl_shift`] on these parts' vertex colours (PS2 units, 0x80 = 1.0), each mesh once.
