@@ -4,21 +4,22 @@
 //! each row on the player's pill colour, but net play and forehand rates), the longest rally and the match time
 //! on the bar below. The winner's header pulses white.
 //!
-//! Behind the columns a dark sprite (`i_pause_result_15`) at half alpha; "Stats" fades top to bottom from olive to
-//! grey, the row names are plain; each player's rank (`inpane_dani`, in the rank colour) under the slot label.
+//! Behind the columns a dark sprite (`i_pause_result_15`), the row names plain; each player's rank (`inpane_dani`,
+//! in the rank colour) under the slot label.
 //!
-//! It is the second page of the original's result screen. The first is the match's final board (the result board
-//! with every set settled, 40 up, the winner's stripes under the pulsing highlight and its sets count pulsing in
-//! scale) under the "Game, Set, Match!" model (`i_gameset_00`, `AZUMA/PRIZE/OTHER.XB0`). → / ← slide 40 px a tick
-//! to the other page (✕ too, while the stats page hasn't been seen); once the stats page has been seen it moves aside
-//! for the what-next pills ([`next`], M196), and from tick 120 ✕ on one ends the screen. Its button prompts are our key legend (M14), not the original's PS2-glyph bar.
+//! F1 (ours, user concept 2026-11-21 "End screen"): the original's result screen had two pages (the final board under
+//! the "Game, Set, Match!" model, then this one). Ours is one screen over a flat dim: "GAME, SET, MATCH!" in gold, the
+//! stats board widget ([`board`]: the final set scores in the board's own frame over this board, "Stats" in its
+//! yellow) at full size in the middle, and the what-next pills in a row under it ([`next`], M196); ←→ choose, from
+//! tick 120 ✕ picks. Its button prompts are our key legend (M14), not the original's PS2-glyph bar.
 //!
 //! The match pauses on it; a pill fades to black over 60 ticks and goes back to the menu, as the pause menu's
-//! "Return to the Menu" did, which then does what the pill said ([`next::take`]). `HST_STATS=<seconds>` ends the match (as it stands) after
-//! that long, for `--shot`; `HST_STATS_PAGE=1` opens it on the stats page (skipping the ceremony).
+//! "Return to the Menu" did, which then does what the pill said ([`next::take`]). `HST_STATS=<seconds>` ends the match
+//! (as it stands) after that long, for `--shot`; `HST_STATS_PAGE=1` skips the ceremony.
 //!
 //! Before it, the original's first state: the winners' ceremony ([`ceremony`]), the banner already up.
 
+mod board;
 mod ceremony;
 pub(super) use ceremony::END_JINGLE;
 mod dissolve;
@@ -33,7 +34,7 @@ use hst_sim::stats::Table;
 use std::time::Duration;
 
 use super::panel::{self, Colours};
-use super::popups::{self, Final};
+use super::popups;
 use super::{Game, Pads, Phase};
 use crate::Args;
 
@@ -52,15 +53,12 @@ enum Tex {
     Back,
     Face(usize),
     Rank,
-    /// The result board's (popups) sheets.
-    Board(u8),
-    Slot,
     /// The ceremony's "NARROW WIN" etc. rows and the team name plate.
     Gameset,
     Team,
     /// Our own pill sheet ([`super::menu_art::pill_layers`]), behind the team's name.
     Pill,
-    /// M196: what-next's words, [`next::LABELS`] then [`next::NOTES`].
+    /// M196: what-next's words, [`next::LABELS`] then [`next::NOTES`]; F1: then "GAME, SET, MATCH!".
     Own(u8),
 }
 
@@ -74,8 +72,10 @@ struct Quad {
 }
 
 const WHITE: [f32; 3] = [128.0; 3];
-/// "Stats"'s vertex colours, top and bottom.
-const FADE: [[f32; 3]; 2] = [[111.0, 114.0, 58.0], [127.0, 127.0, 127.0]];
+/// F1: "Stats" in the board's yellow (the original's fade starts from it, to grey at the bottom).
+const TITLE: [f32; 3] = [111.0, 114.0, 58.0];
+/// F1: "GAME, SET, MATCH!"'s words.
+const GSM: &str = "GAME, SET, MATCH!";
 
 /// The struck shot's counts: shot number, contact branch, the forehand side, the sweet balloon, the net distance.
 pub(super) fn hit(g: &mut Game, who: usize, branch: u8, grade: u8, offset: i32) {
@@ -131,7 +131,7 @@ fn layout(v: &View) -> Vec<Quad> {
     let digit = |d: u32| [d as i32 * 16, 0, 16, 24];
 
     let (x0, w) = if singles { (136, 368) } else { (40, 560) };
-    q(Tex::Back, [0, 0, 8, 8], [x0, 80, w, 256], WHITE, 64);
+    q(Tex::Back, [0, 0, 8, 8], [x0, 80, w, 256], WHITE, board::BACK_ALPHA as i32);
     // the bar below: longest rally, match time
     q(Tex::Frame, [0, 472, 16, 40], [40, 352, 16, 40], WHITE, 128);
     q(Tex::Frame, [16, 472, 16, 40], [56, 352, 528, 40], WHITE, 128);
@@ -228,12 +228,8 @@ fn layout(v: &View) -> Vec<Quad> {
         let h = if k == 0 || k == 3 { 232 } else { 256 };
         q(Tex::Frame, [40, 273, 2, 14], [x, 80, 2, h], WHITE, 128);
     }
-    // "Stats", its vertex colours run down a scanline at a time, and the row names
-    for r in 0..40 {
-        let t = (r as f32 + 0.5) / 40.0;
-        let c = std::array::from_fn(|i| FADE[0][i] + (FADE[1][i] - FADE[0][i]) * t);
-        q(Tex::Text, [0, 64 + r, 160, 1], [240, 80 + r, 160, 1], c, 128);
-    }
+    // "Stats" and the row names
+    q(Tex::Text, [0, 64, 160, 40], [240, 80, 160, 40], TITLE, 128);
     for k in 0..9 {
         q(Tex::Text, [0, 104 + 24 * k, 160, 24], [240, 120 + 24 * k, 160, 24], WHITE, 128);
     }
@@ -335,13 +331,6 @@ impl Pulse {
         self.advance();
         a
     }
-
-    /// The same shape in scale: 1 up to 1.3 and back.
-    fn scale(&mut self) -> f32 {
-        let k = if self.down { self.c } else { 0x14 - self.c };
-        self.advance();
-        k as f32 * 0.015 + 1.0
-    }
 }
 
 /// The sheets, and the system sounds' bank (the slide and Continue sounds).
@@ -359,6 +348,13 @@ struct Fade;
 /// the rest), and over the key legend's strip (z 30) too.
 const FADE_BLEED: hst_base::widescreen::Bleed = hst_base::widescreen::Bleed { order: (1 << 20) + 0x1000, on: true };
 const POOL: usize = 400;
+/// F1: the end screen's flat dim over the match (a `Root` too, hidden with the HUD by the pause screen), the whole
+/// window as the fade to black, under the screen.
+#[derive(Component)]
+struct Dim;
+const DIM_BLEED: hst_base::widescreen::Bleed = hst_base::widescreen::Bleed { order: (1 << 20) + 0x0f00, on: true };
+/// Its colour (the concept's: a slate blue, 85 %).
+const DIM: Color = Color::srgba(0.239, 0.282, 0.337, 0.85);
 
 /// The "Game, Set, Match!" model.
 #[derive(Resource)]
@@ -376,71 +372,39 @@ const BANNER_AT: [f32; 2] = [321.0, 53.0];
 #[derive(Resource, Default)]
 struct Screen {
     pulse: Pulse,
-    grow: Pulse,
+    /// The winner's header alpha this tick.
     alpha: i32,
-    scale: f32,
     acc: f32,
     open: bool,
-    /// The page shown (0 the result, 1 the stats); the slide's offset, direction (1 left, 2 right) and page.
-    page: usize,
-    slide: i32,
-    dir: u8,
-    target: usize,
-    /// The stats page has been shown.
-    seen: bool,
     timer: i32,
-    /// B578: a slide pressed on a frame with no tick, kept for the next tick.
-    held: u8,
-    /// Ticks into the fade to black after Continue.
+    /// Ticks into the fade to black after a pill.
     leaving: Option<i32>,
-    /// M196: ticks into the stats page's move aside for the what-next pills ([`next::ASIDE`] when in), the pill
-    /// chosen, the left stick's last y.
-    aside: i32,
+    /// M196: the pill chosen, the left stick's last x and y.
     sel: usize,
+    stick_x: f32,
     stick_y: f32,
 }
 
 impl Screen {
-    fn opened(page: usize) -> Self {
-        let p = || Pulse { down: false, c: 0x14 };
-        Screen { open: true, pulse: p(), grow: p(), scale: 1.0, page, seen: page == 1, ..default() }
+    fn opened() -> Self {
+        Screen { open: true, pulse: Pulse { down: false, c: 0x14 }, ..default() }
     }
 
-    /// A tick with `input` (1 slides on to the next page, 2 back); whether a slide started.
-    fn step(&mut self, input: u8) -> bool {
-        let start = self.dir == 0 && matches!((input, self.page), (1, 0) | (2, 1));
-        if start {
-            (self.dir, self.target, self.slide) = (input, 1 - self.page, 0);
-        }
-        if self.dir != 0 {
-            self.slide += if self.dir == 2 { 40 } else { -40 };
-            if self.slide.abs() > 640 {
-                (self.slide, self.dir, self.page) = (0, 0, self.target);
-                self.seen |= self.page == 1;
-            }
-        }
-        // M196: the stats page seen and standing: aside; sliding away or on the board, back
-        self.aside = if self.page == 1 && self.dir == 0 && self.seen { (self.aside + 1).min(next::ASIDE) } else { (self.aside - 4).max(0) };
+    /// A tick.
+    fn step(&mut self) {
         self.alpha = self.pulse.step();
-        self.scale = self.grow.scale();
         self.timer += 1;
-        start
     }
 
-    /// Where page `p` is drawn across, if it is.
-    fn page_x(&self, p: usize) -> Option<i32> {
-        if self.page == p {
-            Some(self.slide)
-        } else if self.dir != 0 && self.target == p {
-            Some(self.slide + if self.dir == 1 { 640 } else { -640 })
-        } else {
-            None
-        }
+    /// The pills take ✕ (the original's two seconds before its screen took one).
+    fn ready(&self) -> bool {
+        self.timer >= 120
     }
 
-    /// M196: the what-next pills are in and take ↑↓ and ✕.
-    fn choosing(&self) -> bool {
-        self.aside == next::ASIDE && self.page == 1 && self.dir == 0
+    /// `by` pills on from the one chosen (clamped); whether it moved.
+    fn choose(&mut self, by: i32, n: usize) -> bool {
+        let k = (self.sel as i32 + by).clamp(0, n as i32 - 1) as usize;
+        std::mem::replace(&mut self.sel, k) != k
     }
 }
 
@@ -460,22 +424,15 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, ceremony::show.after(crate::character::animate));
 }
 
-/// M14: the result screen's legend: `step`'s ✕ (the next page until the stats page is seen, then (M196) the pills'
-/// ↑↓ and OK once they're in) and ←→ (the other page).
+/// M14: the end screen's legend: ←→ choose a pill, OK from tick 120.
 fn legend(screen: Res<Screen>, dissolve: Res<dissolve::Dissolve>, last: Res<super::legend::Last>, mut out: ResMut<super::legend::Legend>) {
     use super::legend::{Act, item};
     if !screen.open || screen.leaving.is_some() || dissolve.fading() {
         return;
     }
-    let mut v = vec![item(Act::LeftRight, "Page", &["A", "D"])];
-    if !screen.seen || screen.page == 0 {
-        v.push(item(Act::Ok, "Next Page", &["Enter", "J"]));
-    } else if screen.choosing() {
-        // M196: the pills
-        v.push(item(Act::UpDown, "Choose", &["W", "S"]));
-        if screen.timer >= 120 {
-            v.push(item(Act::Ok, "OK", &["Enter", "J"]));
-        }
+    let mut v = vec![item(Act::LeftRight, "Choose", &["A", "D"])];
+    if screen.ready() {
+        v.push(item(Act::Ok, "OK", &["Enter", "J"]));
     }
     out.one(*last, v);
 }
@@ -523,11 +480,22 @@ fn setup(
     for s in next::NOTES {
         art.push(super::word_label::label_w(&mut iso, &mut images, s, next::NOTE_W));
     }
+    art.push(super::word_label::label_w(&mut iso, &mut images, GSM, next::GSM_W));
     let bank = crate::audio::SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd");
     commands.insert_resource(Art(art, bank.map(std::sync::Arc::new)));
     commands
         // left/top in percent too: a `Bleed` copy needs all four
         .spawn((Node { position_type: PositionType::Absolute, left: Val::Percent(0.0), top: Val::Percent(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }, BackgroundColor(Color::NONE), GlobalZIndex(31), Fade, Root, FADE_BLEED, hst_base::widescreen::BleedOutside));
+    // F1: the flat dim under the end screen, the whole window
+    commands.spawn((
+        Node { position_type: PositionType::Absolute, left: Val::Percent(0.0), top: Val::Percent(0.0), width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
+        BackgroundColor(Color::NONE),
+        GlobalZIndex(10),
+        Dim,
+        Root,
+        DIM_BLEED,
+        hst_base::widescreen::BleedOutside,
+    ));
     commands
         .spawn((super::widescreen::screen_43(), GlobalZIndex(11), Root))
         .with_children(|p| {
@@ -538,7 +506,7 @@ fn setup(
 
 /// P39: the screen's quads once the match has a result (the ceremony, then the pages), none in play: UI layout walks
 /// hidden nodes too.
-fn pool(mut commands: Commands, g: Res<Game>, root: Query<Entity, (With<Root>, Without<Fade>)>, slots: Query<Entity, With<Slot>>) {
+fn pool(mut commands: Commands, g: Res<Game>, root: Query<Entity, (With<Root>, Without<Fade>, Without<Dim>)>, slots: Query<Entity, With<Slot>>) {
     for r in &root {
         crate::ui_pool::keep(&mut commands, r, g.match_stats.result.is_some(), slots, POOL, |i| (Slot(i), crate::ui_pool::quad()));
     }
@@ -588,7 +556,6 @@ fn step(
     mut dissolve: ResMut<dissolve::Dissolve>,
     mut commands: Commands,
     mut auto: Local<bool>,
-    mut stick: Local<f32>,
 ) {
     if !*auto
         && std::env::var("HST_STATS").ok().and_then(|s| s.parse::<f32>().ok()).is_some_and(|t| time.elapsed_secs() >= t)
@@ -628,29 +595,25 @@ fn step(
         return; // the ceremony begins once the match's last frame is held
     }
     if !screen.open {
-        // the ceremony's last frame dissolves into the page
+        // the ceremony's last frame dissolves into the end screen
         if cer.is_some() && !dissolve.cut(&mut commands, dissolve::TO_PAGE) {
             return;
         }
         info!("result screen opens");
-        *screen = Screen::opened(std::env::var("HST_STATS_PAGE").map_or(0, |p| (p == "1") as usize));
-        if let Some(b) = banner.as_mut().filter(|_| cer.is_none()) {
-            b.0.start();
-        }
+        *screen = Screen::opened();
         // ponytail: the fixed clock runs on but never reaches a step, as the pause menu
         fixed.set_timestep(Duration::from_secs(1 << 20));
     }
     let any = |b: GamepadButton| gamepads.iter().filter(|g| super::controls::readable(g)).any(|p| p.just_pressed(b));
-    // B221: a click or tap on the left or right quarter slides that way, anywhere else is the confirm button
+    // a click or tap picks the pill under it; off them it does nothing
     let point = crate::widescreen::pointer_press(&window, &mouse, &touches).0;
-    let tap = point.map(|p| p.x);
-    let confirm = keys.any_just_pressed([KeyCode::Enter, KeyCode::Space, KeyCode::KeyJ]) || any(GamepadButton::South) || tap.is_some_and(|x| (160.0..480.0).contains(&x));
+    let confirm = keys.any_just_pressed([KeyCode::Enter, KeyCode::Space, KeyCode::KeyJ]) || any(GamepadButton::South);
     // the left stick as a d-pad: a push past half way
     let x = gamepads.iter().filter(|g| super::controls::readable(g)).filter_map(|p| p.get(GamepadAxis::LeftStickX)).find(|x| x.abs() >= 0.5).unwrap_or(0.0);
-    let pushed = |s: f32| x * s >= 0.5 && *stick * s < 0.5;
-    let right = keys.any_just_pressed([KeyCode::ArrowRight, KeyCode::KeyD]) || any(GamepadButton::DPadRight) || pushed(1.0) || tap.is_some_and(|x| x >= 480.0);
-    let left = keys.any_just_pressed([KeyCode::ArrowLeft, KeyCode::KeyA]) || any(GamepadButton::DPadLeft) || pushed(-1.0) || tap.is_some_and(|x| x < 160.0);
-    *stick = x;
+    let pushed = |s: f32| x * s >= 0.5 && screen.stick_x * s < 0.5;
+    let right = keys.any_just_pressed([KeyCode::ArrowRight, KeyCode::KeyD]) || any(GamepadButton::DPadRight) || pushed(1.0);
+    let left = keys.any_just_pressed([KeyCode::ArrowLeft, KeyCode::KeyA]) || any(GamepadButton::DPadLeft) || pushed(-1.0);
+    screen.stick_x = x;
     let play = |key: u8| {
         if let (Some(s), Some(b)) = (&sound, sounds.as_deref().and_then(|a| a.1.as_ref())) {
             s.play_menu(b, key);
@@ -660,64 +623,31 @@ fn step(
         s.shot = None;
         s.serve = false;
     }
-    // M196: with the pills in, ↑↓ choose and a press picks; a tap picks the pill under it, and off them does nothing
+    // M196: ←→ (↑↓ too) choose, a press picks; nothing under the dissolve or the fade
     let online = np.is_some();
     let updown = next::updown(&keys, &gamepads, &mut screen.stick_y);
-    let choosing = screen.choosing() && !dissolve.fading() && screen.leaving.is_none();
-    let hit = point.and_then(|p| next::pill_at(online, p)).filter(|_| choosing);
-    let (confirm, left, right) = if choosing && point.is_some() { (hit.is_some(), false, false) } else { (confirm, left, right) };
-    if let Some(k) = hit {
-        screen.sel = k;
-    }
-    if choosing && updown != 0 {
-        let n = next::pills(online).len();
-        let k = (screen.sel as i32 + updown).clamp(0, n as i32 - 1) as usize;
-        if k != screen.sel {
-            screen.sel = k;
+    let n = next::pills(online).len();
+    if !dissolve.fading() && screen.leaving.is_none() {
+        let by = right as i32 - left as i32 + updown;
+        if by != 0 && screen.choose(by, n) {
             play(0);
         }
-    }
-    let mut input = match () {
-        _ if confirm && screen.timer >= 120 => 3,
-        _ if right => 1,
-        _ if left => 2,
-        _ if confirm && !screen.seen => 1,
-        _ => 0,
-    };
-    // the page takes no input and stands still under the dissolve
-    let busy = dissolve.fading() || screen.leaving.is_some();
-    if busy {
-        input = 0;
-    }
-    if input == 3 {
-        if screen.seen && screen.page == 1 {
-            // M196: the pills' choice once they're in (until then a press does nothing on this page)
-            if screen.choosing() {
-                let n = next::pills(online)[screen.sel.min(next::pills(online).len() - 1)];
-                play(2);
-                info!("result screen: {n:?}");
-                next::choose(n);
-                screen.leaving = Some(0);
-            }
-            input = 0;
-        } else {
-            input = 1;
+        let hit = point.and_then(|p| next::pill_at(online, p));
+        if let Some(k) = hit {
+            screen.sel = k;
+        }
+        if (confirm || hit.is_some()) && screen.ready() {
+            let pick = next::pills(online)[screen.sel.min(n - 1)];
+            play(2);
+            info!("result screen: {pick:?}");
+            next::choose(pick);
+            screen.leaving = Some(0);
         }
     }
     screen.acc += time.delta_secs() * 60.0;
-    // B578: a frame between ticks (high refresh rates, frame jitter) would drop the press
-    if input == 0 {
-        input = std::mem::take(&mut screen.held);
-    }
-    if screen.acc < 1.0 {
-        screen.held = input;
-    }
     while screen.acc >= 1.0 {
         screen.acc -= 1.0;
-        if !busy && screen.step(input) {
-            play(0xc);
-        }
-        input = 0;
+        screen.step();
         if let Some(t) = &mut screen.leaving {
             *t += 1;
             if *t >= 60 {
@@ -727,31 +657,14 @@ fn step(
         if let Some(b) = banner.as_mut() {
             b.0.tick();
         }
-        // the figures and the confetti go on behind the page
+        // the figures and the confetti go on behind the screen
         if let Some(c) = cer.as_mut() {
             ceremony::tick(c, g.players.len() as u32, g.stage, sound.as_deref(), gallery.as_deref().and_then(|b| b.0.as_ref()));
         }
     }
 }
 
-/// The result board's quads as the stats screen draws them.
-fn board(g: &Game, score: &hst_sim::score::Score, slots: [usize; 4], pill: [[u8; 3]; 4], winner: usize, fin: Final) -> Vec<Quad> {
-    popups::final_board(g, score, slots, pill, winner, fin)
-        .into_iter()
-        .map(|q| Quad {
-            tex: match q.tex {
-                popups::Tex::Board(k) => Tex::Board(k),
-                popups::Tex::Face(p) => Tex::Face(p),
-                _ => Tex::Slot,
-            },
-            src: q.src,
-            dst: q.dst,
-            rgb: q.rgb,
-            alpha: q.alpha,
-        })
-        .collect()
-}
-
+/// The ceremony's quads, then the end screen's ([`next::fit`] to the screen); the dim and the fade to black.
 #[allow(clippy::too_many_arguments)]
 fn draw(
     g: Res<Game>,
@@ -760,61 +673,46 @@ fn draw(
     cer: Option<Res<ceremony::Ceremony>>,
     art: Option<Res<Art>>,
     panel_art: Option<Res<panel::Art>>,
-    board_art: Option<Res<popups::Art>>,
     colours: Option<Res<Colours>>,
     (names, mut plates): (Option<Res<super::name_tags::Names>>, ResMut<super::name_tags::Plates>),
     mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility)>,
-    mut fade: Query<&mut BackgroundColor, With<Fade>>,
+    mut fade: Query<&mut BackgroundColor, (With<Fade>, Without<Dim>)>,
+    mut dim: Query<&mut BackgroundColor, (With<Dim>, Without<Fade>)>,
     np: Option<Res<super::netplay::Netplay>>,
 ) {
     for mut c in &mut fade {
         c.set_if_neq(BackgroundColor(Color::BLACK.with_alpha(screen.leaving.map_or(0.0, |t| (t as f32 / 60.0).min(1.0)))));
     }
-    let (Some(art), Some(panel_art), Some(board_art), Some(colours)) = (art, panel_art, board_art, colours) else {
+    let shown = screen.open && g.match_stats.result.is_some();
+    for mut c in &mut dim {
+        c.set_if_neq(BackgroundColor(if shown { DIM } else { Color::NONE }));
+    }
+    let (Some(art), Some(panel_art), Some(colours)) = (art, panel_art, colours) else {
         return;
     };
     let n = g.players.len();
     let slot = |i: usize| if i < n { pads.slot_of(i, n).unwrap_or(4) } else { 4 };
     let mut quads = Vec::new();
     if let Some(table) = g.match_stats.result.as_ref().filter(|_| screen.open) {
-        let slots = std::array::from_fn(slot);
-        // the page being left first, then the one coming in
-        let mut pages = vec![screen.page];
-        if screen.dir != 0 {
-            pages.push(screen.target);
-        }
-        for p in pages {
-            let Some(dx) = screen.page_x(p) else { continue };
-            let mut page = if p == 0 {
-                let fin = Final { highlight: screen.alpha, scale: screen.scale, dx: dx as f32 };
-                board(&g, &table.score, slots, colours.0, table.winner, fin)
-            } else {
-                let mut page = layout(&View {
-                    table,
-                    players: n,
-                    slots,
-                    pill: colours.0,
-                    // COM players show their AI row's rank, as the panel; humans none
-                    ranks: std::array::from_fn(|i| (i < n && slot(i) == 4).then(|| g.players[i].ai.rank as usize)),
-                    rank_rgb: colours.1,
-                    pulse: screen.alpha,
-                });
-                // M196: aside for the what-next pills, which come in on its left
-                let t = next::eased(screen.aside);
-                next::shrink(&mut page, t);
-                page.iter_mut().for_each(|q| q.dst[0] += dx as f32);
-                page.extend(next::panel(np.is_some(), screen.sel, t, dx as f32));
-                page
-            };
-            quads.append(&mut page);
-        }
+        quads = board::widget(&View {
+            table,
+            players: n,
+            slots: std::array::from_fn(slot),
+            pill: colours.0,
+            // COM players show their AI row's rank, as the panel; humans none
+            ranks: std::array::from_fn(|i| (i < n && slot(i) == 4).then(|| g.players[i].ai.rank as usize)),
+            rank_rgb: colours.1,
+            pulse: screen.alpha,
+        });
+        quads.push(next::banner((next::LABELS.len() + next::NOTES.len()) as u8));
+        quads.extend(next::row(np.is_some(), screen.sel));
+        next::fit(&mut quads);
     } else if let Some(c) = cer.filter(|_| g.match_stats.result.is_some()) {
         quads = ceremony::quads(&c.plan, n > 2);
     }
     // B371: named players' slot labels give way to their names
     let label = |q: &Quad| match q.tex {
         Tex::Text if q.src[0] == 0.0 && q.src[2] == 48.0 && q.src[1] >= 392.0 => Some(((q.src[1] - 392.0) / 24.0) as usize),
-        Tex::Slot => Some((q.src[0] / 40.0) as usize),
         _ => None,
     };
     let slots: Vec<usize> = (0..n).map(slot).collect();
@@ -834,8 +732,6 @@ fn draw(
             Tex::Own(k) => art.0[9 + k as usize].clone(),
             Tex::Face(p) => panel_art.0[panel::FACES + p].clone(),
             Tex::Rank => panel_art.0[6].clone(),
-            Tex::Slot => panel_art.0[1].clone(),
-            Tex::Board(k) => board_art.0[5 + k as usize].clone(),
         };
         let [u, v, w, h] = quad.src;
         // B160: a face is its whole image (INPANE's 64×64, or a baked one's larger square)
@@ -861,8 +757,9 @@ fn draw_banner(
 ) {
     let Some(banner) = banner else { return };
     let (effect, shown) = (&banner.0, &banner.1);
+    // F1: the end screen has its own words over the dim
     let during = cer.is_some() && !screen.open && g.match_stats.result.is_some();
-    let x = if during { Some(0) } else { screen.page_x(0).filter(|_| screen.open && g.match_stats.result.is_some()) };
+    let x = during.then_some(0);
     // M98: no banner with the HUD off
     let x = x.filter(|_| !super::no_hud::OFF.load(std::sync::atomic::Ordering::Relaxed));
     let Some(x) = x else {
@@ -910,7 +807,7 @@ impl super::snapshot::Wire for Serving {}
 mod tests {
     use super::*;
 
-    fn table() -> Table {
+    pub(super) fn table() -> Table {
         let mut rows = [[0.0; 9]; 4];
         rows[0] = [161.0 * 0.62137, 24.0, 3.0, 1.0, 2.0, 37.5, 0.0, 60.0, 64.0];
         rows[1] = [149.0 * 0.62137, 18.0, 7.0, 1.0, 0.0, 12.25, 10.0, 55.0, 36.0];
@@ -946,14 +843,13 @@ mod tests {
         assert_eq!(at(480.0 + 16.0, 359.0), vec![[32.0, 0.0, 16.0, 24.0]]);
         assert_eq!(at(520.0, 359.0), vec![[48.0, 0.0, 16.0, 24.0]]);
         assert!(quads.len() <= POOL);
-        // the background at half alpha; the COM's rank under its label (the right half: at the label)
-        assert_eq!((quads[0].tex, quads[0].alpha), (Tex::Back, 64.0));
+        // the dark background; the COM's rank under its label (the right half: at the label)
+        assert_eq!((quads[0].tex, quads[0].alpha), (Tex::Back, board::BACK_ALPHA));
         let ranks: Vec<_> = quads.iter().filter(|q| q.tex == Tex::Rank).map(|q| (q.src, q.dst, q.rgb)).collect();
         assert_eq!(ranks, vec![([0.0, 120.0, 64.0, 24.0], [410.0, 104.0, 64.0, 24.0], [82.0, 107.0, 121.0])]);
-        // "Stats" from olive at the top to grey at the bottom; the row names plain
-        let stats: Vec<_> = quads.iter().filter(|q| q.dst[0] == 240.0 && q.dst[1] < 120.0).collect();
-        assert_eq!((stats.len(), stats[0].src, stats[39].dst[1]), (40, [0.0, 64.0, 160.0, 1.0], 119.0));
-        assert!(stats[0].rgb[2] < 59.0 && stats[39].rgb[2] > 126.0);
+        // "Stats" in the board's yellow; the row names plain
+        let stats: Vec<_> = quads.iter().filter(|q| q.dst[0] == 240.0 && q.dst[1] < 120.0).map(|q| (q.src, q.dst, q.rgb)).collect();
+        assert_eq!(stats, [([0.0, 64.0, 160.0, 40.0], [240.0, 80.0, 160.0, 40.0], TITLE)]);
         assert!(quads.iter().filter(|q| q.dst[0] == 240.0 && q.dst[1] >= 120.0 && q.dst[3] == 24.0).all(|q| q.rgb == WHITE));
     }
 
@@ -966,34 +862,32 @@ mod tests {
         assert_eq!((q.src, q.dst), ([0.0, 48.0, 64.0, 24.0], [(0x8a + 61 - 4) as f32, 104.0, 64.0, 24.0]));
     }
 
-    /// → slides 40 a tick to the stats page and lands on it past 640; → again does nothing, ← slides back.
+    /// One screen: the pills take ✕ from tick 120; choosing stops at the row's ends.
     #[test]
-    fn slide() {
-        let mut s = Screen::opened(0);
-        assert!(s.step(1));
-        assert_eq!((s.slide, s.page_x(0), s.page_x(1)), (-40, Some(-40), Some(600)));
-        for _ in 0..15 {
-            assert!(!s.step(0));
+    fn choose() {
+        let mut s = Screen::opened();
+        for _ in 0..119 {
+            s.step();
         }
-        assert_eq!((s.slide, s.page, s.seen), (-640, 0, false));
-        s.step(0);
-        assert_eq!((s.slide, s.page, s.seen, s.page_x(0)), (0, 1, true, None));
-        assert!(!s.step(1));
-        assert!(s.step(2));
-        assert_eq!((s.page_x(1), s.page_x(0)), (Some(40), Some(-600)));
-        assert_eq!(s.timer, 19);
-        // the scale pulse: 1 up 0.015 a tick to 1.3, then back down
-        let mut s = Screen::opened(0);
-        let k: Vec<f32> = (0..22).map(|_| (s.step(0), s.scale).1).collect();
-        assert_eq!((k[0], k[19], k[20], k[21]), (1.0, 1.285, 1.3, 1.3));
+        assert!(!s.ready());
+        s.step();
+        assert!(s.ready());
+        assert!(!s.choose(-1, 3));
+        assert!(s.choose(1, 3) && s.choose(1, 3));
+        assert!(!s.choose(1, 3));
+        assert_eq!(s.sel, 2);
     }
 
     #[test]
     fn doubles_fits() {
-        let t = table();
+        // the whole end screen: the widget (five sets), its banner and the pills
+        let mut t = table();
+        t.score.set = 5;
         let v = View { table: &t, players: 4, slots: [0, 4, 4, 4], pill: [[128; 3]; 4], ranks: [Some(0); 4], rank_rgb: [[128; 3]; 4], pulse: 0 };
-        // both pages while sliding, and the bar
-        assert!(layout(&v).len() + 100 <= POOL);
+        let mut quads = board::widget(&v);
+        quads.push(next::banner(0));
+        quads.extend(next::row(true, 0));
+        assert!(quads.len() <= POOL, "{}", quads.len());
     }
 
     #[test]
