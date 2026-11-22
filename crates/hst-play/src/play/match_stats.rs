@@ -453,6 +453,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(FixedUpdate, tick.after(super::simulate))
         .add_systems(Update, (ceremony::begin, step, pool, draw, draw_banner).chain())
         .add_systems(Update, banner_space.after(ceremony::show))
+        .add_systems(Update, ceremony::warm.before(ceremony::begin))
         .add_systems(Update, legend.after(step))
         .add_systems(Update, ceremony::pose.after(crate::character::animate).after(crate::character::uv_offsets).before(crate::character::texture_faces))
         .add_systems(PostUpdate, ceremony::hide.before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate))

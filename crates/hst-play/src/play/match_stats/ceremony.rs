@@ -341,6 +341,7 @@ pub(super) fn begin(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     match_mod: Option<Res<crate::mods::MatchMod>>,
+    look: Option<Res<ConfettiLook>>,
     mut reading: Local<Option<(Plan, Reading)>>,
 ) {
     let table = g.match_stats.result.as_ref().filter(|_| !screen.open && cer.is_none() && pending());
@@ -402,6 +403,9 @@ pub(super) fn begin(
         confetti: None,
         flake_rng: 0x2545_f491,
     };
+    if let Some(l) = &look {
+        commands.entity(l.warm).despawn();
+    }
     if let (false, Ok(cam), Some(art)) = (cer.plan.lost, camera.single(), art) {
         for _ in 0..FLAKES {
             let r = |c: &mut Ceremony| c.cosmetic() * 2.0 - 1.0;
@@ -413,13 +417,8 @@ pub(super) fn begin(
             let spin = cer.cosmetic() * std::f32::consts::TAU;
             cer.flakes.push(Flake { at, axis, spin, phase, rgba });
         }
-        let material = materials.add(StandardMaterial {
-            base_color_texture: Some(art.0[super::CONFETTI].clone()),
-            unlit: true,
-            cull_mode: None,
-            alpha_mode: AlphaMode::Blend,
-            ..default()
-        });
+        // B761: the look the match has drawn since its start ([`warm`]), so its pipeline is already built
+        let material = look.as_ref().map_or_else(|| materials.add(confetti_material(&art)), |l| l.material.clone());
         let mesh = meshes.add(confetti_mesh(&cer.flakes));
         // the quads move every frame: no bounds to cull by, and no shadow (blended draws cast none)
         let root = commands
@@ -616,6 +615,47 @@ fn confetti_mesh(flakes: &[Flake]) -> Mesh {
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colour)
         .with_inserted_indices(bevy::mesh::Indices::U32(index))
+}
+
+/// The confetti's one material: the flake sheet, unlit, both faces, blended.
+fn confetti_material(art: &super::Art) -> StandardMaterial {
+    StandardMaterial { base_color_texture: Some(art.0[super::CONFETTI].clone()), unlit: true, cull_mode: None, alpha_mode: AlphaMode::Blend, ..default() }
+}
+
+/// B761: the confetti's material, and the one flake of it the match draws behind its camera ([`warm`]).
+#[derive(Resource)]
+pub(super) struct ConfettiLook {
+    material: Handle<StandardMaterial>,
+    warm: Entity,
+}
+
+/// B761: from the match's start, one confetti flake behind the match camera (clipped, nothing on screen) in the
+/// confetti's own material and mesh layout, so the renderer builds that look's pipeline during the match and not on
+/// the ceremony's first frame (on a Steam Deck that first build landed in the ceremony's opening frame). The ceremony
+/// takes the material over and drops the flake.
+pub(super) fn warm(
+    mut commands: Commands,
+    look: Option<Res<ConfettiLook>>,
+    art: Option<Res<super::Art>>,
+    camera: Query<Entity, With<crate::Orbit>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if look.is_some() {
+        return;
+    }
+    let (Some(art), Ok(cam)) = (art, camera.single()) else { return };
+    let material = materials.add(confetti_material(&art));
+    let warm = commands
+        .spawn((Mesh3d(meshes.add(warm_mesh())), MeshMaterial3d(material.clone()), Transform::default(), Visibility::default(), bevy::camera::visibility::NoFrustumCulling, bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver))
+        .id();
+    commands.entity(cam).add_child(warm);
+    commands.insert_resource(ConfettiLook { material, warm });
+}
+
+/// [`warm`]'s one flake, in camera space behind the eye (the camera looks down −z): built, never seen.
+fn warm_mesh() -> Mesh {
+    confetti_mesh(&[Flake { at: Vec3::new(0.0, 0.0, AHEAD), axis: Vec3::Y, spin: 0.0, phase: 0.0, rgba: [1.0; 4] }])
 }
 
 fn wrap(v: f32, half: f32) -> f32 {
@@ -881,6 +921,16 @@ mod tests {
     }
 
     /// B756: the confetti is one mesh, a quad per flake, the farthest flake's quad first.
+    #[test]
+    fn warm_flake_behind_the_eye() {
+        let m = warm_mesh();
+        let Some(bevy::mesh::VertexAttributeValues::Float32x3(p)) = m.attribute(Mesh::ATTRIBUTE_POSITION) else { panic!("positions") };
+        assert!(p.len() == 4 && p.iter().all(|v| v[2] > 0.5), "{p:?}");
+        // the confetti's own layout, so the pipeline it builds is the confetti's
+        let real = confetti_mesh(&[]);
+        assert_eq!(m.get_mesh_vertex_buffer_layout(&mut Default::default()).0.layout(), real.get_mesh_vertex_buffer_layout(&mut Default::default()).0.layout());
+    }
+
     #[test]
     fn confetti_one_mesh() {
         let flake = |z: f32, rgba: [f32; 4]| Flake { at: Vec3::new(0.0, 0.0, z), axis: Vec3::Y, spin: 0.0, phase: 0.0, rgba };
