@@ -69,7 +69,7 @@ enum Tex {
     Board(u8),
     /// The board's slot labels (`inpane_p`), which the plates' names take the place of.
     Slot,
-    /// B764: player `p`'s plate name and character pill ([`plate::Words`]).
+    /// B764: player `p`'s plate name (the stats header's) and, F3, character name (the score board's): [`plate::Words`].
     Name(usize),
     Chara(usize),
     /// B764: the pause menu's pointing hand ([`next::Pointer`]).
@@ -294,8 +294,9 @@ fn cell(d: u32, x: i32, y: i32) -> Quad {
 }
 
 /// B764: the header's plates, as the pause board's: each player's face in the board's white ring at the column's
-/// outer end, the plate's name ([`plate::place`]) beside it on the stripes, the character's pill under the face; a
-/// CPU's rank (in the rank colour) under its "COM". `x0`: the first column's left.
+/// outer end, the player's name or 1P..4P / COM tag ([`plate::place`]) beside it on the stripes (F3: as the concept,
+/// no character here; the score board names them), a CPU's rank (in the rank colour) under its "COM". `x0`: the first
+/// column's left.
 fn plates(v: &View, x0: i32) -> Vec<Quad> {
     let mut out = Vec::new();
     let q = |tex, src: [f32; 4], dst: [f32; 4], rgb: [f32; 3]| Quad { tex, src, dst, rgb, alpha: 128.0 };
@@ -308,9 +309,8 @@ fn plates(v: &View, x0: i32) -> Vec<Quad> {
         let room = if left { [cx + 52.0, cx + 94.0] } else { [cx + 2.0, cx + 44.0] };
         let rank = v.ranks[p];
         let name_y = if rank.is_some() { 94.0 } else { 100.0 };
-        if let Some([name, pill]) = v.words[p].map(|w| plate::place(left, ring, name_y, room, [cx, cx + 96.0], w)) {
-            out.push(q(Tex::Name(p), [0.0; 4], name, WHITE));
-            out.push(q(Tex::Chara(p), [0.0; 4], pill, WHITE));
+        if let Some([w, _]) = v.words[p] {
+            out.push(q(Tex::Name(p), [0.0; 4], plate::place(left, name_y, room, w), WHITE));
         }
         if let Some(r) = rank {
             let w = room[1] - room[0];
@@ -917,9 +917,10 @@ mod tests {
         assert_eq!((quads[0].tex, quads[0].alpha), (Tex::Back, board::BACK_ALPHA));
         let ranks: Vec<_> = quads.iter().filter(|q| q.tex == Tex::Rank).map(|q| (q.src, q.dst, q.rgb)).collect();
         assert_eq!(ranks, vec![([0.0, 120.0, 64.0, 24.0], [410.0, 106.0, 42.0, 15.75], [82.0, 107.0, 121.0])]);
-        // each plate: the ring, the face in it, the name and the pill
+        // each plate: the ring, the face in it and the name (F3: the character's only on the score board)
         for p in 0..2 {
-            assert_eq!(quads.iter().filter(|q| matches!(q.tex, Tex::Name(k) | Tex::Chara(k) | Tex::Face(k) if k == p)).count(), 3);
+            assert_eq!(quads.iter().filter(|q| matches!(q.tex, Tex::Name(k) | Tex::Face(k) if k == p)).count(), 2);
+            assert!(!quads.iter().any(|q| matches!(q.tex, Tex::Chara(_))));
         }
         assert_eq!(quads.iter().filter(|q| q.tex == Tex::Board(0) && q.src == [80.0, 0.0, 48.0, 48.0]).count(), 2);
         // "Stats" white; the row names plain

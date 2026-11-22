@@ -1,8 +1,8 @@
 //! F1: the stats board as one widget; B764 builds it from the game's own parts: the "Game, Set, Match!" banner (the
 //! `i_gameset_00` model's own art, flat), the original's final board under it (`popups::final_board`: frame, each
 //! side's stripes, each set's games in its outlined digits, the sets won) with the pause board's plates (face in the
-//! white ring, the player's name where the slot label was, the character's pill under the face, [`super::plate`]),
-//! then the stats board ([`super::layout`]: the same plates in its header, every value in the outlined digits) and
+//! white ring; F3: the character's name where the slot label was, [`super::plate`]), then the stats board
+//! ([`super::layout`]: the plates in its header read the player, every value in the outlined digits) and
 //! its Longest Rally / Match Time bar. Laid out from y 0 down, centred on x 320 as the 640×448 screen; the end screen
 //! puts the menu box beside it and fits the two on the screen ([`super::next::fit`]), and the pause menu can too.
 
@@ -46,7 +46,7 @@ fn shift(quads: &mut [Quad], dy: f32) {
 }
 
 /// The original's final board for the match (every set settled, the winner's stripes pulsing with the header), its
-/// slot labels set as the pause board's plate names. A match ended mid-set (as `HST_STATS` does) shows that set too.
+/// slot labels set as the characters' names (F3). A match ended mid-set (as `HST_STATS` does) shows that set too.
 pub(super) fn score_board(v: &View) -> Vec<Quad> {
     let cur = v.table.score.set.clamp(0, 4) as usize;
     let games = v.table.score.set_games[0][cur] + v.table.score.set_games[1][cur];
@@ -74,13 +74,13 @@ pub(super) fn score_board_of(v: &View, shown: usize) -> Vec<Quad> {
         if tex == Tex::Slot {
             let p = labels;
             labels += 1;
-            // the pause board's plate: the label 6 below the ring's top, the ring 44 left of it on the left team
+            // the pause board's plate: the ring 44 left of the label on the left team, its top 6 above the label's;
+            // F3: the character's name beside the face, across the ring's middle
             let left = p & 1 == 0;
             let ring = [if left { 100.0 } else { 496.0 }, dst[1] - 6.0];
-            let (room, plate) = if left { ([146.0, 183.0], [96.0, 184.0]) } else { ([457.0, 494.0], [456.0, 544.0]) };
-            if let Some([name, pill]) = v.words.get(p).copied().flatten().map(|w| super::plate::place(left, ring, ring[1] + 18.0, room, plate, w)) {
-                out.push(Quad { tex: Tex::Name(p), src: [0.0; 4], dst: name, rgb: WHITE, alpha });
-                out.push(Quad { tex: Tex::Chara(p), src: [0.0; 4], dst: pill, rgb: WHITE, alpha });
+            let room = if left { [146.0, 183.0] } else { [457.0, 494.0] };
+            if let Some([_, w]) = v.words.get(p).copied().flatten() {
+                out.push(Quad { tex: Tex::Chara(p), src: [0.0; 4], dst: super::plate::place(left, ring[1] + 24.0, room, w), rgb: WHITE, alpha });
                 continue;
             }
         }
@@ -99,7 +99,7 @@ mod tests {
     }
 
     /// 6-4 3-6 7-5 of a best of five: each set's games on the settled (green) digits in its row, the sets won on the
-    /// big ones; a plate name and pill per player in place of the slot labels; the widget banner, board, stats from
+    /// big ones; the character's name per player in place of the slot labels; the widget banner, board, stats from
     /// the top down.
     #[test]
     fn score_board_sets() {
@@ -116,8 +116,13 @@ mod tests {
             assert_eq!(digits, [6, 4, 3, 6, 7, 5]);
             let sets: Vec<_> = q.iter().filter(|q| q.tex == Tex::Board(3) && q.src[1] == 0.0 && q.src[2] == 48.0).map(|q| q.src[0] / 48.0).collect();
             assert_eq!(sets, [2.0, 1.0]);
-            assert_eq!(q.iter().filter(|q| matches!(q.tex, Tex::Name(_))).count(), players);
+            assert!(!q.iter().any(|q| matches!(q.tex, Tex::Name(_))));
             assert_eq!(q.iter().filter(|q| matches!(q.tex, Tex::Chara(_))).count(), players);
+            // beside the face, across the ring's middle
+            for c in q.iter().filter(|q| matches!(q.tex, Tex::Chara(_))) {
+                let ring = q.iter().find(|r| r.tex == Tex::Board(0) && (r.dst[1] + 24.0 - c.dst[1] - c.dst[3] / 2.0).abs() < 1e-3);
+                assert!(ring.is_some_and(|r| c.dst[0] >= r.dst[0] + 46.0 || c.dst[0] + c.dst[2] <= r.dst[0] - 1.0), "{c:?}");
+            }
             assert!(!q.iter().any(|q| q.tex == Tex::Slot));
             // nothing from the stats sheet: every digit is the board's
             assert!(!q.iter().any(|q| q.tex == Tex::Text));

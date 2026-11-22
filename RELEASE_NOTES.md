@@ -2,3 +2,4 @@
 - The match's end screen now matches the rest of the game: the choices sit in the pause menu's box with its pointing hand, the players show the pause board's name plates, every number uses the game's own digits, and the real "Game, Set, Match!" banner sits on top.
 - Smoother start to the winners' ceremony on slower devices such as the Steam Deck: the confetti is ready before the ceremony begins instead of being set up in its first frame.
 - The pause menu now shows the match stats so far beside it, with the score on top, and its two ways out are one "Quit" that asks whether to save the match, leave without saving, or cancel.
+- The end screen and pause stats now name each character beside their face on the score board, while the stats board shows who played them (your name, 1P, or COM with its level).
