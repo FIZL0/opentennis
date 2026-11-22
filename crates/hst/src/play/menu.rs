@@ -1,27 +1,30 @@
 //! The original's pause screen (textures from `AZUMA/INPANE/INPANE.XB0`), coordinates on the PS2's 640×448 screen as
 //! the panel. Start opens it (system sound 2) and freezes the match: the court dimmed (`i_pause_result_15` at alpha
-//! 64), the top bar (`inpane_pause03`) with "Paused" and the rules ("1 sets 4 games", `inpane_pause02`), the score
-//! board at the bottom (the result board's frame, plates and each set's games, with the points from
-//! `inpane_pause00`, tiebreak `01`), and the dialog (the original's `i_dialog_00`/`01`, drawn with our own box, pills
-//! and words since B141): "Resume the Match" / "Return to the Menu" on pills, the chosen one bright, the hand
+//! 64; F2: 104), the top bar (`inpane_pause03`) with "Paused" and the rules ("1 sets 4 games", `inpane_pause02`), and
+//! the dialog (the original's `i_dialog_00`/`01`, drawn with our own box, pills and words since B141): "Resume the
+//! Match" / "Return to the Menu" on pills, the chosen one bright, the hand
 //! (`hsm_yubi`) beside it swinging out 16 px and back. Between them the remaster's "Settings" (B126, ours: the dialog's sheet has no such row, so `word.tm2` writes it) opens the main
 //! menu's Settings screens over the paused match (`main_menu/pause.rs`); a click or tap on a pill chooses it.
 //!
 //! Input waits 5 ticks after it opens. Up/down move with wrap-around (repeat after 32 ticks held, then every 8;
 //! sound 0, the hand starts its swing again), ✕ chooses (sound 2), Start closes it (sound 2). ○ does nothing in the
 //! original; here (B340) it is Back and closes it too (sound 1), as does a right click.
-//! "Return to the Menu" fades to black over 60 ticks; the port has no menu, so it then quits.
-//! B68 (ours: the original fades out at once): once any point has been scored it first asks "Leave the match?" in
-//! the same dialog, Yes / No on its pills (No chosen; up/down, ✕ chooses, ○ or Start is No, sound 1); No goes back
-//! to the pause menu, Yes fades out.
+//! "Return to the Menu" fades to black over 60 ticks to the menu.
+//! F2 (ours, the user's concept round): the original's score board at the bottom (`score_board`, kept for the
+//! Continue cards) gives way to the end screen's stats board, live (`match_stats::pause_board`): the score so far
+//! over the match's numbers, right of the dialog, up the whole time the dialog or its confirm is, all of it fitted
+//! between the top bar and the key legend at one scale for any aspect ratio. "Save and Quit" and "Return to the Menu"
+//! are one "Quit", which asks "Quit the match?" in the dialog's place (its title over its pills, the chosen one's note
+//! under them): "Save and Quit" (where this machine can save), "Quit without Saving" (the fade out), "Cancel" (back
+//! to the pause menu on "Quit", as ○ and Start are); up/down wrap, ✕ chooses.
 //! B254 (ours): in a local match a fourth pill, "Controllers", opens the main menu's controller assignment over the
 //! paused match (`main_menu/pause.rs`) to move devices between the human seats.
 //! `HST_PAUSE=<seconds>` opens it after that long (for `--shot`), with `HST_PAUSE_SETTINGS=settings|graphics|controls|assign`
-//! on that Settings screen (or the controller assignment), or with `HST_PAUSE_ASK=1` on the Leave the match? confirm.
-//! M194 (ours): "Save and Quit" before "Return to the Menu" (a local match, or the host's online one; the
-//! browser too, M198) saves the match as its point started (`save_game`) and shows "Match saved" in the dialog's style
-//! (`main_menu/pause.rs` `SavedBox`): the score where it picks up and how to go on; OK fades out to the menu. The Leave
-//! the match? confirm then says it won't be saved. `HST_PAUSE_SAVE=1` (with `HST_PAUSE`) saves at once, for `--shot`.
+//! on that Settings screen (or the controller assignment), or with `HST_PAUSE_ASK=1` on the Quit the match? confirm.
+//! M194 (ours): "Save and Quit" (a local match, or the host's online one; the browser too, M198; F2: in the Quit
+//! confirm) saves the match as its point started (`save_game`) and shows "Match saved" in the dialog's style
+//! (`main_menu/pause.rs` `SavedBox`): the score where it picks up and how to go on; OK fades out to the menu.
+//! `HST_PAUSE_SAVE=1` (with `HST_PAUSE`) saves at once, for `--shot`.
 
 use bevy::prelude::*;
 use hst_data::{iso::Iso, xb::Archive};
@@ -29,6 +32,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::main_menu::pause::{PauseSettings, Root as PauseRoot, SavedBox, SavedRoot};
+use super::match_stats::pause_board::{Build as PauseBoardBuild, PauseBoard};
 use super::panel::{self, Colours};
 use super::widescreen::Anchor;
 use super::{Game, Pads};
@@ -65,8 +69,10 @@ enum Tex {
     /// B671: player `p`'s name in the tag's place, and their character's pill (`plate.rs`), each its whole image.
     Name(usize),
     Chara(usize),
-    /// B671a: the Offbeat rules tab on the frame (`rules_tab.rs`), its whole image.
+    /// B671a: the Offbeat rules tab (`rules_tab.rs`), its whole image.
     Rules,
+    /// F2: the live stats board's picture `i` (`match_stats::pause_board`), its own image, part and colour.
+    Live(usize),
 }
 const DIM: Tex = Tex::Own(0);
 const POINTS: Tex = Tex::Own(1);
@@ -79,13 +85,14 @@ const GAMES_NOW: Tex = Tex::Own(7);
 const HAND: Tex = Tex::Hand;
 /// "Settings" in `word.tm2` on a row of its own (`pause::label`).
 const LABEL: Tex = Tex::Own(8);
-/// B141: "Resume the Match" and "Return to the Menu" set the same way, in place of `i_dialog_01`'s rows.
+/// B141: "Resume the Match" set the same way, in place of `i_dialog_01`'s rows; F2: "Quit", in "Return to the Menu"'s
+/// place.
 const RESUME: Tex = Tex::Own(9);
-const RETURN: Tex = Tex::Own(10);
-/// B68: the confirm's rows, set as `RESUME`: "Leave the match?", "Yes", "No".
+const QUIT_ROW: Tex = Tex::Own(10);
+/// F2: the quit confirm's rows, set as `RESUME`: "Quit the match?", "Quit without Saving", "Cancel".
 const ASK: Tex = Tex::Own(11);
-const YES: Tex = Tex::Own(12);
-const NO: Tex = Tex::Own(13);
+const DROP_ROW: Tex = Tex::Own(12);
+const CANCEL_ROW: Tex = Tex::Own(13);
 /// B254: "Controllers", set as `RESUME`.
 const SEATS: Tex = Tex::Own(14);
 /// B141: our pill and box layers (`menu_art::pill_layers`), in place of `i_dialog_00`'s frame and pills; after
@@ -95,13 +102,15 @@ const PILL: Tex = Tex::Own(15);
 const COURT: Tex = Tex::Own(16);
 const UMPIRE: Tex = Tex::Own(17);
 /// The rows set in `setup` after `TEXTURES`, as [`LABEL`] to [`SEATS`].
-const LABELS: [&str; 7] = ["Settings", "Resume the Match", "Return to the Menu", "Leave the match?", "Yes", "No", "Controllers"];
-/// M194: "Save and Quit" and the confirm's note, set as [`LABEL`] after [`UMPIRE`].
+const LABELS: [&str; 7] = ["Settings", "Resume the Match", "Quit", "Quit the match?", "Quit without Saving", "Cancel", "Controllers"];
+/// M194: "Save and Quit", set as [`LABEL`] after [`UMPIRE`].
 const SAVE_ROW: Tex = Tex::Own(18);
-const NOTE: Tex = Tex::Own(19);
-const SAVE_LABELS: [&str; 2] = ["Save and Quit", "It won't be saved. Save and Quit keeps it."];
-/// M194: how much taller the confirm is with its note under the question.
-const NOTE_H: i32 = 22;
+const SAVE_LABEL: &str = "Save and Quit";
+/// F2: the quit confirm's note under its pills for the chosen one (Save and Quit, Quit without Saving, Cancel), set
+/// [`NOTE_W`] wide after [`SAVE_ROW`] as the end screen's notes.
+const NOTES: [&str; 3] = ["Keep this match to continue later", "Drop this match and go to the menu", "Back to the pause menu"];
+const NOTE: usize = 19;
+const NOTE_W: usize = 448;
 /// The dialog's colours (ours, B141): rims, its fill, a pill's fill chosen and not.
 const INK: [f32; 3] = [15.0; 3];
 pub(super) const PANEL: [f32; 3] = [52.0, 44.0, 36.0];
@@ -119,27 +128,46 @@ struct Quad {
     alpha: f32,
 }
 
-/// The dialog's rows as `i_dialog_01` numbers them: "Resume the Match", (ours) "Settings", "Return to the Menu".
-const OPTIONS: [i32; 3] = [6, SETTINGS, 1];
+/// The dialog's rows as `i_dialog_01` numbers them: "Resume the Match", (ours) "Settings", F2: "Quit" (in "Return to the
+/// Menu"'s place: it asks first).
+const OPTIONS: [i32; 3] = [6, SETTINGS, QUIT];
+const QUIT: i32 = 1;
 /// Not a row of `i_dialog_01`: [`LABEL`].
 const SETTINGS: i32 = -1;
-/// B254: a local match's rows (M124: or an online one with two local players), with (ours) "Controllers" ([`SEATS`]) before "Return to the Menu".
-const OPTIONS_LOCAL: [i32; 4] = [6, SETTINGS, CONTROLLERS, 1];
+/// B254: a local match's rows (M124: or an online one with two local players), with (ours) "Controllers" ([`SEATS`]) before "Quit".
+const OPTIONS_LOCAL: [i32; 4] = [6, SETTINGS, CONTROLLERS, QUIT];
 const CONTROLLERS: i32 = -2;
-/// M194: with "Save and Quit" before "Return to the Menu".
-const OPTIONS_SAVE: [i32; 4] = [6, SETTINGS, SAVE, 1];
-const OPTIONS_LOCAL_SAVE: [i32; 5] = [6, SETTINGS, CONTROLLERS, SAVE, 1];
+/// F2: the quit confirm's choices: M194's "Save and Quit", "Quit without Saving" (what "Return to the Menu" did),
+/// "Cancel".
 const SAVE: i32 = -3;
+const DROP: i32 = -4;
+const BACK: i32 = -5;
+const ASKS: [i32; 3] = [SAVE, DROP, BACK];
 
-/// The dialog's rows: "Controllers" only when there is something to assign (M124: online, only with two local players);
-/// M194: "Save and Quit" where this machine can save the match.
-fn options(local: bool, save: bool) -> &'static [i32] {
-    match (local, save) {
-        (true, true) => &OPTIONS_LOCAL_SAVE,
-        (true, false) => &OPTIONS_LOCAL,
-        (false, true) => &OPTIONS_SAVE,
-        (false, false) => &OPTIONS,
+/// The dialog's rows: "Controllers" only when there is something to assign (M124: online, only with two local players).
+fn options(local: bool) -> &'static [i32] {
+    if local { &OPTIONS_LOCAL } else { &OPTIONS }
+}
+
+/// F2: the quit confirm's choices: "Save and Quit" where this machine can save the match (M194).
+fn asks(save: bool) -> &'static [i32] {
+    if save { &ASKS } else { &ASKS[1..] }
+}
+
+/// A row's words and (F2) a confirm choice's note.
+fn row_tex(row: i32) -> Tex {
+    match row {
+        6 => RESUME,
+        SETTINGS => LABEL,
+        CONTROLLERS => SEATS,
+        SAVE => SAVE_ROW,
+        DROP => DROP_ROW,
+        BACK => CANCEL_ROW,
+        _ => QUIT_ROW,
     }
+}
+fn note_tex(row: i32) -> Tex {
+    Tex::Own(NOTE + ASKS.iter().position(|&r| r == row).unwrap_or(2))
 }
 
 /// The score board's height in 16 px plate rows: 10 for three sets to win, else 6; (ours) doubles at one or two sets
@@ -151,31 +179,9 @@ fn board_rows(sets_to_win: i32, players: usize) -> i32 {
         _ => 6,
     }
 }
-/// Pill `k`'s top on the dialog of `n` rows: lifted over a taller board, centred on the options.
-fn pill_y(rows: i32, n: usize, k: usize) -> i32 {
-    let lift = match rows {
-        6 => -32,
-        8 => -64,
-        _ => -72,
-    };
-    lift - (n as i32 - 1) * 16 + 0xcc + 40 * k as i32
-}
-/// B178: the confirm's Yes (0) / No (1) pill tops: two pills as the dialog would centre them, moved down 24 px to
-/// make room for the question above.
-fn ask_y(rows: i32, k: usize) -> i32 {
-    pill_y(rows, 2, k) + 24
-}
 /// B671a: the score frame's top: the board's rows over its foot at 424, and its rim.
 fn frame_top(rows: i32) -> f32 {
     (416 - 16 * rows) as f32
-}
-/// B671a: the dialog's box `[top, height]`, of `n` rows or (`ask`) the confirm's (M194: with its `note`), and where it
-/// goes over a rules tab `tab_h` tall (M194: or, too tall for its room, between the top bar and the frame).
-fn dialog_fit(rows: i32, ask: bool, n: usize, note: bool, tab_h: Option<f32>) -> rules_tab::Fit {
-    let n = n as i32;
-    let note = if note { NOTE_H } else { 0 };
-    let [top, h] = if ask { [ask_y(rows, 0) - 46 - note, 134 + note] } else { [pill_y(rows, n as usize, 0) - 20, 40 * n + 32] };
-    rules_tab::Fit::new([top as f32, h as f32], frame_top(rows), tab_h)
 }
 /// Points cells (column, row) by point index; 4 is Deuce, 5 Advantage (tiebreak: 0–7, 8 Deuce, 9 Advantage).
 const POINT_U: [i32; 10] = [0, 1, 0, 1, 0, 1, 0, 1, 0, 1];
@@ -217,7 +223,7 @@ impl Hand {
 #[derive(Resource, Default)]
 struct Menu {
     open: bool,
-    /// Ticks into the fade to black after "Return to the Menu".
+    /// Ticks into the fade to black after "Quit without Saving" (or the saved box's OK).
     quitting: Option<i32>,
     /// Ticks left before input is read.
     delay: i32,
@@ -235,21 +241,14 @@ struct Menu {
     /// "Controllers" chosen.
     local: bool,
     seats: bool,
-    /// B68: a point has been scored (set by `step`), so "Return to the Menu" asks first.
-    scored: bool,
-    /// B68: the confirm is up, 0 = Yes, 1 = No chosen; ○ pressed since the last tick.
+    /// F2: the quit confirm is up with its choice `k` chosen ([`asks`]); ○ pressed since the last tick.
     ask: Option<usize>,
     cancel: bool,
-    /// M194: the dialog has "Save and Quit" (set by `step`); it was chosen (`save_match` saves); the "Match saved" box
+    /// M194: the confirm has "Save and Quit" (set by `step`); it was chosen (`save_match` saves); the "Match saved" box
     /// is up, `true` saved (OK fades out), `false` not (OK goes back to the dialog).
     save: bool,
     saving: bool,
     saved: Option<bool>,
-}
-
-/// B68: any point scored so far in the match.
-fn scored(s: &hst_sim::score::Score) -> bool {
-    s.points != [0; 2] || s.games != [0; 2] || s.sets != [0; 2] || s.set > 0
 }
 
 impl Menu {
@@ -291,7 +290,7 @@ impl Menu {
             };
             let up = self.held[1] == 0 && repeat(up, &mut self.held[0]);
             let down = self.held[0] == 0 && repeat(down, &mut self.held[1]);
-            let opts = options(self.local, self.save);
+            let opts = options(self.local);
             let n = opts.len();
             if down || up {
                 self.sel = if down { (self.sel + 1) % n } else { (self.sel + n - 1) % n };
@@ -303,9 +302,8 @@ impl Menu {
                     6 => *self = Menu::default(),
                     SETTINGS => self.settings = true,
                     CONTROLLERS => self.seats = true,
-                    SAVE => self.saving = true,
-                    _ if self.scored => (self.ask, self.hand) = (Some(1), Hand::default()),
-                    _ => self.quitting = Some(0),
+                    // F2: "Quit" always asks, its first choice chosen
+                    _ => (self.ask, self.hand) = (Some(0), Hand::default()),
                 }
             }
         } else {
@@ -334,9 +332,13 @@ impl Menu {
         sound
     }
 
-    /// B68: one tick of the confirm with `a` chosen: the menu's up/down repeat over Yes/No, ✕ chooses, ○ or Start is
-    /// No; a direction held keeps its count across the switch.
+    /// F2: one tick of the quit confirm with choice `a` chosen: the menu's up/down repeat (with wrap-around) over its
+    /// choices, ✕ chooses ("Save and Quit" saves, "Quit without Saving" fades out, "Cancel" goes back to the pause menu
+    /// on "Quit"), ○ or Start is Cancel; a direction held keeps its count across the switch.
     fn tick_ask(&mut self, a: usize, up: bool, down: bool) -> Option<usize> {
+        let choices = asks(self.save);
+        let n = choices.len();
+        let a = a.min(n - 1);
         let (start, cancel, confirm) =
             (std::mem::take(&mut self.start), std::mem::take(&mut self.cancel), std::mem::take(&mut self.confirm));
         let repeat = |on: bool, n: &mut u32| {
@@ -347,13 +349,17 @@ impl Menu {
         let d = self.held[0] == 0 && repeat(down, &mut self.held[1]);
         let mut sound = None;
         if u || d {
-            (self.ask, self.hand) = (Some(a ^ 1), Hand::default());
+            (self.ask, self.hand) = (Some(if d { (a + 1) % n } else { (a + n - 1) % n }), Hand::default());
             sound = Some(0);
-        } else if start || cancel || (confirm && a == 1) {
+        } else if start || cancel || (confirm && choices[a] == BACK) {
             (self.ask, self.hand) = (None, Hand::default());
             sound = Some(if confirm { 2 } else { 1 });
         } else if confirm {
-            self.quitting = Some(0);
+            if choices[a] == SAVE {
+                (self.ask, self.saving) = (None, true);
+            } else {
+                self.quitting = Some(0);
+            }
             sound = Some(2);
         }
         self.hand.step();
@@ -379,12 +385,12 @@ struct View {
     sel: usize,
     hand_x: f32,
     fade: Option<i32>,
-    /// B68: the confirm is up with Yes (0) or No (1) chosen.
+    /// F2: the quit confirm is up with its choice `k` chosen ([`asks`]).
     ask: Option<usize>,
     /// B254: a local match's dialog, with "Controllers".
     local: bool,
-    /// M194: the dialog has "Save and Quit" (and the confirm its note); the "Match saved" box is up (`pause.rs` draws
-    /// it over the dimmed screen in the dialog's place).
+    /// M194: the confirm has "Save and Quit"; the "Match saved" box is up (`pause.rs` draws it over the dimmed screen
+    /// in the dialog's place).
     save: bool,
     saved: bool,
     /// B671: each player's name and character pill widths (`plate.rs`), once set: drawn in place of the slot tag.
@@ -393,28 +399,15 @@ struct View {
     tab: Option<[f32; 2]>,
 }
 
-fn layout(v: &View) -> Vec<Quad> {
+/// B750: the old pause screen's score board (frame, plates, each set's games, the points), which the Continue screen's
+/// save cards draw (`saved_board.rs`); F2's pause screen shows the stats board's in its place.
+fn score_board(v: &View) -> Vec<Quad> {
     let mut out = Vec::new();
     let mut q = |tex, src: [i32; 4], dst: [f32; 4], rgb: [f32; 3], alpha: i32| {
         out.push(Quad { tex, src: src.map(|c| c as f32), dst, rgb, alpha: alpha as f32 })
     };
     let r = |x: i32, y: i32, w: i32, h: i32| [x, y, w, h].map(|c| c as f32);
     let rgb = |c: [u8; 3]| c.map(f32::from);
-    q(DIM, [0, 0, 8, 8], r(0, 0, 640, 448), WHITE, 64);
-    // the top bar and the rules: best-of sets in red, games in yellow
-    q(BAR, [0, 0, 16, 64], r(0, 0, 352, 64), WHITE, 128);
-    q(BAR, [16, 0, 32, 64], r(352, 0, 32, 64), WHITE, 128);
-    q(BAR, [48, 0, 16, 64], r(384, 0, 256, 64), WHITE, 128);
-    q(TEXT, [0, 0, 64, 32], r(24, 16, 64, 32), WHITE, 128);
-    q(TEXT, [(v.sets_to_win * 2 - 2) * 16, 40, 16, 24], r(176, 24, 16, 24), [127.0, 59.0, 59.0], 128);
-    q(TEXT, [0, 64, 56, 24], r(192, 24, 56, 24), WHITE, 128);
-    q(TEXT, [(v.games - 1) * 16, 40, 16, 24], r(248, 24, 16, 24), [127.0, 97.0, 24.0], 128);
-    q(TEXT, [0, 88, 104, 24], r(264, 24, 104, 24), WHITE, 128);
-    // B293 (ours): the court in the rules' yellow over the umpire, right of the rules, the court on the bar above its rim, the umpire under it
-    q(COURT, [0, 0, 256, 32], r(408, 3, 192, 24), [127.0, 110.0, 40.0], 128);
-    q(UMPIRE, [0, 0, 256, 32], r(424, 34, 160, 20), WHITE, 128);
-
-    // the score board: the result board's frame and plates, each set's games, the points either side
     let board = board_rows(v.sets_to_win, v.players);
     let (centre_h, top) = (16 * board, frame_top(board) as i32);
     let (edge_h, y0) = (centre_h - 16, top + 8);
@@ -455,19 +448,6 @@ fn layout(v: &View) -> Vec<Quad> {
         }
         q(Tex::Slot, [v.slots[p] as i32 * 40, 0, 40, 24], r([144, 456][p & 1], y + 6, 40, 24), rgb(v.pill[p]), 128);
     }
-    if let Some(size) = v.tab {
-        // the frame's own corners, rim and fill around the words, its foot over the frame's outline (`rules_tab.rs`)
-        let [x, y, w, h] = rules_tab::place(frame_top(board), size);
-        let body = h - rules_tab::SINK - 6.0;
-        q(BOARD, [65, 41, 14, 14], [x + 6.0, y + 6.0, w - 12.0, body], WHITE, 128);
-        for (u, x, w) in [(0, x, 16.0), (16, x + 16.0, w - 32.0), (40, x + w - 16.0, 16.0)] {
-            q(BOARD, [u, 0, 16, 16], [x, y, w, 16.0], WHITE, 128);
-        }
-        for (u, x) in [(0, x), (40, x + w - 16.0)] {
-            q(BOARD, [u, 16, 16, 8], [x, y + 16.0, 16.0, h - 16.0], WHITE, 128);
-        }
-        q(Tex::Rules, [0; 4], [x, y, w, h], WHITE, 128);
-    }
     // the set in play on the bright sheet, a past set the team didn't win at half alpha
     let cols = v.sets_to_win * 2 - 1;
     let games_y = mid - 16 * cols;
@@ -499,88 +479,184 @@ fn layout(v: &View) -> Vec<Quad> {
         q(tex, [POINT_U[k] << 6, POINT_V[k] * 48, 64, 48], r([184, 390][t], mid - 24, 64, 48), WHITE, alpha);
     }
 
-    // M194: the "Match saved" box is `pause.rs`'s, over the match dimmed as for the confirm
-    if v.saved {
-        q(DIM, [0, 0, 8, 8], r(0, 0, 640, 448), [0.0; 3], 80);
-        if let Some(t) = v.fade {
-            q(DIM, [0, 0, 8, 8], r(0, 0, 640, 448), [0.0; 3], (128 * t / 60).min(128));
+    out
+}
+
+/// F2: the dialog's box and the board around it (the 640×448 screen's px, as the end screen's `next.rs`): its width, a
+/// pill's left, width and height and the step between pills, the first pill's top (under the confirm's title), the
+/// note's gap and height, the room under the last row.
+const BOX_W: f32 = 320.0;
+const PILL_X: f32 = 16.0;
+const PILL_W: f32 = 288.0;
+const PILL_H: f32 = 32.0;
+const STEP: f32 = 40.0;
+const FIRST: f32 = 20.0;
+const ASK_FIRST: f32 = 46.0;
+const NOTE_GAP: f32 = 6.0;
+const NOTE_H: f32 = 15.0;
+const BOTTOM: f32 = 20.0;
+/// The gap between the box and the board, and how far left of the box the hand reaches; the rules tab's gap under the
+/// box.
+const GAP: f32 = 24.0;
+const HAND_ROOM: f32 = 44.0;
+const TAB_GAP: f32 = 8.0;
+/// The room kept under the top bar (64 high) and over the key legend's strip, and at the sides.
+const BAR_H: f32 = 64.0;
+const MARGIN: [f32; 2] = [6.0, 16.0];
+const SIDE: f32 = 8.0;
+/// F2 (the concept's): the court under the board and the dialog dimmed this much more than the original's 64.
+const DIM_ALPHA: i32 = 104;
+
+/// F2: what the screen is laid out around: the live board's pictures' places (`match_stats::pause_board`, from y 0,
+/// centred on x 320) and the visible part of the 640×448 screen.
+struct Around {
+    board: Vec<[f32; 4]>,
+    vis: [f32; 2],
+}
+
+/// F2: where the left column (the dialog, the rules tab under it) and the board go: the column left of the board, their
+/// middles level, all of it at one scale `k` (no larger than its own size) centred in the room between the top bar and
+/// the legend's strip, so it keeps its shape at any aspect ratio.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Place {
+    col: [f32; 2],
+    l: f32,
+    t: f32,
+    k: f32,
+    x0: f32,
+    y0: f32,
+}
+
+impl Place {
+    fn new(board: &[[f32; 4]], [cw, ch]: [f32; 2], [vw, vh]: [f32; 2]) -> Place {
+        let mut b = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for &[x, y, w, h] in board {
+            b = (b.0.min(x), b.1.min(y), b.2.max(x + w), b.3.max(y + h));
         }
-        return out;
+        let col = if board.is_empty() { [320.0 - cw / 2.0, 224.0 - ch / 2.0] } else { [b.0 - GAP - cw, (b.1 + b.3) / 2.0 - ch / 2.0] };
+        let (l, t) = ((col[0] - HAND_ROOM).min(b.0), col[1].min(b.1));
+        let (r, bottom) = ((col[0] + cw).max(b.2), (col[1] + ch).max(b.3));
+        let top = 224.0 - vh / 2.0 + BAR_H + MARGIN[0];
+        let room = [vw - 2.0 * SIDE, vh - BAR_H - MARGIN[0] - MARGIN[1]];
+        let k = (room[0] / (r - l)).min(room[1] / (bottom - t)).min(1.0);
+        Place { col, l, t, k, x0: 320.0 - (r - l) * k / 2.0, y0: top + (room[1] - (bottom - t) * k) / 2.0 }
     }
-    // the dialog (B141, ours in the dialog's place and colours): a rounded box, a pill per option (bright when
-    // chosen), the text, the hand; (B178) the confirm is a popup of its own there, as the main menu's Reload / Later
-    // (`mods_screen.rs ask_layout`): the match dimmed, a box with the question as its title, Yes and No on pills
-    let box_at = |out: &mut Vec<Quad>, frame: [f32; 4]| {
-        for (i, rgb) in [INK, WHITE, PANEL].into_iter().enumerate() {
-            for (src, dst) in super::menu_art::box_quads(i, frame, 16.0) {
-                out.push(Quad { tex: PILL, src, dst, rgb, alpha: 128.0 });
-            }
-        }
+
+    /// A rect in the board's (or the whole layout's) units, on the screen.
+    fn map(&self, [x, y, w, h]: [f32; 4]) -> [f32; 4] {
+        [self.x0 + (x - self.l) * self.k, self.y0 + (y - self.t) * self.k, w * self.k, h * self.k]
+    }
+
+    /// A rect in the column's own units, on the screen.
+    fn col(&self, [x, y, w, h]: [f32; 4]) -> [f32; 4] {
+        self.map([x + self.col[0], y + self.col[1], w, h])
+    }
+}
+
+/// F2: the dialog in its own units (the box's top-left at 0, 0): the box, a pill per row (bright when chosen), the
+/// words, the hand; the quit confirm with its question as the title over its choices and the chosen one's note under
+/// them. Its quads, its height and the pills' rects.
+fn dialog(v: &View) -> (Vec<Quad>, f32, Vec<[f32; 4]>) {
+    let mut out = Vec::new();
+    let (rows, sel, first): (Vec<i32>, usize, f32) = match v.ask {
+        Some(a) => (asks(v.save).to_vec(), a.min(asks(v.save).len() - 1), ASK_FIRST),
+        None => (options(v.local).to_vec(), v.sel, FIRST),
     };
-    let dialog = out.len();
-    let (rows, ys, sel): (Vec<Tex>, Vec<i32>, usize) = match v.ask {
-        Some(a) => {
-            out.push(Quad { tex: DIM, src: [0.0, 0.0, 8.0, 8.0], dst: [0.0, 0.0, 640.0, 448.0], rgb: [0.0; 3], alpha: 80.0 });
-            let y0 = ask_y(board, 0);
-            // M194: with "Save and Quit" in the dialog, a note under the question that leaving doesn't save
-            let note = if v.save { NOTE_H } else { 0 };
-            box_at(&mut out, r(160, y0 - 46 - note, 320, 46 + 72 + 16 + note));
-            // the title as `ask_layout`'s: 22 px high
-            let (w, h) = (256.0 * 22.0 / 32.0, 22.0);
-            out.push(Quad { tex: ASK, src: [0.0, 0.0, 256.0, 32.0], dst: [320.0 - w / 2.0, (y0 - 32 - note) as f32, w, h], rgb: WHITE, alpha: 128.0 });
-            if v.save {
-                // its whole row at 288 px (the sheet shrank the long line), centred 20 px over the first pill
-                out.push(Quad { tex: NOTE, src: [0.0, 0.0, 256.0, 32.0], dst: [176.0, (y0 - 38) as f32, 288.0, 36.0], rgb: UNCHOSEN.map(|c| c + 24.0), alpha: 128.0 });
-            }
-            (vec![YES, NO], (0..2).map(|k| ask_y(board, k)).collect(), a)
-        }
-        None => {
-            let opts = options(v.local, v.save);
-            let nopt = opts.len() as i32;
-            let top = pill_y(board, opts.len(), 0) - 20;
-            box_at(&mut out, r(160, top, 320, 16 + 8 * (nopt * 5 - 1) + 8 + 16));
-            let rows = opts
-                .iter()
-                .map(|&text| match text {
-                    SETTINGS => LABEL,
-                    CONTROLLERS => SEATS,
-                    SAVE => SAVE_ROW,
-                    6 => RESUME,
-                    _ => RETURN,
-                })
-                .collect();
-            (rows, (0..opts.len()).map(|k| pill_y(board, opts.len(), k)).collect(), v.sel)
-        }
-    };
-    for (k, &y) in ys.iter().enumerate() {
+    let pills: Vec<[f32; 4]> = (0..rows.len()).map(|k| [PILL_X, first + STEP * k as f32, PILL_W, PILL_H]).collect();
+    let end = first + STEP * rows.len() as f32 - (STEP - PILL_H);
+    let h = end + if v.ask.is_some() { NOTE_GAP + NOTE_H } else { 0.0 } + BOTTOM;
+    let quad = |tex, src, dst, rgb, alpha| Quad { tex, src, dst, rgb, alpha };
+    for (i, rgb) in [INK, WHITE, PANEL].into_iter().enumerate() {
+        out.extend(super::menu_art::box_quads(i, [0.0, 0.0, BOX_W, h], 16.0).into_iter().map(|(src, dst)| quad(PILL, src, dst, rgb, 128.0)));
+    }
+    if v.ask.is_some() {
+        // the title as the main menu's popups': 22 px high
+        let (w, th) = (256.0 * 22.0 / 32.0, 22.0);
+        out.push(quad(ASK, [0.0, 0.0, 256.0, 32.0], [BOX_W / 2.0 - w / 2.0, 14.0, w, th], WHITE, 128.0));
+    }
+    for (k, &r) in pills.iter().enumerate() {
         let fill = if k == sel { CHOSEN } else { UNCHOSEN };
         for (i, rgb) in [INK, WHITE, fill].into_iter().enumerate() {
-            for (src, dst) in super::menu_art::pill_quads(i, r(176, y, 288, 32)) {
-                out.push(Quad { tex: PILL, src, dst, rgb, alpha: 128.0 });
-            }
+            out.extend(super::menu_art::pill_quads(i, r).iter().map(|&(src, dst)| quad(PILL, src, dst, rgb, 128.0)));
         }
     }
+    for (k, (&row, r)) in rows.iter().zip(&pills).enumerate() {
+        let (rgb, alpha) = if k == sel { (WHITE, 128.0) } else { (UNCHOSEN, 64.0) };
+        // B171: the 256×32 row's ink is as tall as the pill; drawn at `FIT` and centred it sits inside the rims
+        let (w, rh) = (256.0 * FIT, 32.0 * FIT);
+        out.push(quad(row_tex(row), [0.0, 0.0, 256.0, 32.0], [r[0] + (r[2] - w) / 2.0, r[1] + (r[3] - rh) / 2.0, w, rh], rgb, alpha));
+    }
+    if let (Some(&row), Some(_)) = (rows.get(sel), v.ask) {
+        let w = NOTE_W as f32 * NOTE_H / 32.0;
+        out.push(quad(note_tex(row), [0.0, 0.0, NOTE_W as f32, 32.0], [BOX_W / 2.0 - w / 2.0, end + NOTE_GAP, w, NOTE_H], UNCHOSEN.map(|c| c + 24.0), 128.0));
+    }
+    if let Some(r) = pills.get(sel) {
+        out.push(quad(HAND, [0.0, 0.0, 64.0, 32.0], [v.hand_x + r[0] - 48.0, r[1] + 8.0, 64.0, 32.0], WHITE, 128.0));
+    }
+    (out, h, pills)
+}
+
+/// B671a: the Offbeat rules tab `[w, h]` with its top-left at `x`, `y`: the board frame's corners, rim and fill around
+/// its words (F2: on its own under the dialog, all four sides).
+fn rules_tab_quads(out: &mut Vec<Quad>, [x, y]: [f32; 2], [w, h]: [f32; 2]) {
+    let quad = |src: [i32; 4], dst| Quad { tex: BOARD, src: src.map(|c| c as f32), dst, rgb: WHITE, alpha: 128.0 };
+    out.push(quad([65, 41, 14, 14], [x + 6.0, y + 6.0, w - 12.0, h - 12.0]));
+    for (u, px, pw) in [(0, x, 16.0), (16, x + 16.0, w - 32.0), (40, x + w - 16.0, 16.0)] {
+        out.push(quad([u, 0, 16, 16], [px, y, pw, 16.0]));
+        out.push(quad([u, 16, 16, 8], [px, y + 16.0, pw, h - 32.0]));
+        out.push(quad([u, 24, 16, 16], [px, y + h - 16.0, pw, 16.0]));
+    }
+    out.push(Quad { tex: Tex::Rules, src: [0.0; 4], dst: [x, y, w, h], rgb: WHITE, alpha: 128.0 });
+}
+
+/// The pause screen: the court dimmed, the top bar and the rules, (F2) the live board with the dialog left of it (the
+/// rules tab under the dialog), all [`Place`]d; the pills' rects on the screen.
+fn scene(v: &View, at: &Around) -> (Vec<Quad>, Vec<[f32; 4]>) {
+    let mut out = Vec::new();
     let mut q = |tex, src: [i32; 4], dst: [f32; 4], rgb: [f32; 3], alpha: i32| {
         out.push(Quad { tex, src: src.map(|c| c as f32), dst, rgb, alpha: alpha as f32 })
     };
-    for (k, (&tex, &y)) in rows.iter().zip(&ys).enumerate() {
-        let (rgb, alpha) = if k == sel { (WHITE, 128) } else { (UNCHOSEN, 64) };
-        // B171: the 256×32 row's ink is as tall as the pill; drawn at `FIT` and centred it sits inside the rims
-        let (w, h) = (256.0 * FIT, 32.0 * FIT);
-        q(tex, [0, 0, 256, 32], [320.0 - w / 2.0, y as f32 + (32.0 - h) / 2.0, w, h], rgb, alpha);
+    let r = |x: i32, y: i32, w: i32, h: i32| [x, y, w, h].map(|c| c as f32);
+    q(DIM, [0, 0, 8, 8], r(0, 0, 640, 448), WHITE, DIM_ALPHA);
+    // the top bar and the rules: best-of sets in red, games in yellow
+    q(BAR, [0, 0, 16, 64], r(0, 0, 352, 64), WHITE, 128);
+    q(BAR, [16, 0, 32, 64], r(352, 0, 32, 64), WHITE, 128);
+    q(BAR, [48, 0, 16, 64], r(384, 0, 256, 64), WHITE, 128);
+    q(TEXT, [0, 0, 64, 32], r(24, 16, 64, 32), WHITE, 128);
+    q(TEXT, [(v.sets_to_win * 2 - 2) * 16, 40, 16, 24], r(176, 24, 16, 24), [127.0, 59.0, 59.0], 128);
+    q(TEXT, [0, 64, 56, 24], r(192, 24, 56, 24), WHITE, 128);
+    q(TEXT, [(v.games - 1) * 16, 40, 16, 24], r(248, 24, 16, 24), [127.0, 97.0, 24.0], 128);
+    q(TEXT, [0, 88, 104, 24], r(264, 24, 104, 24), WHITE, 128);
+    // B293 (ours): the court in the rules' yellow over the umpire, right of the rules, the court on the bar above its rim, the umpire under it
+    q(COURT, [0, 0, 256, 32], r(408, 3, 192, 24), [127.0, 110.0, 40.0], 128);
+    q(UMPIRE, [0, 0, 256, 32], r(424, 34, 160, 20), WHITE, 128);
+
+    let (dialog, box_h, pills) = dialog(v);
+    let tab = v.tab;
+    let cw = tab.map_or(BOX_W, |t| t[0].max(BOX_W));
+    let ch = box_h + tab.map_or(0.0, |t| TAB_GAP + t[1]);
+    let place = Place::new(&at.board, [cw, ch], at.vis);
+    out.extend(at.board.iter().enumerate().map(|(i, &dst)| Quad { tex: Tex::Live(i), src: [0.0; 4], dst: place.map(dst), rgb: WHITE, alpha: 128.0 }));
+    let dim = |out: &mut Vec<Quad>, alpha: i32| out.push(Quad { tex: DIM, src: [0.0, 0.0, 8.0, 8.0], dst: [0.0, 0.0, 640.0, 448.0], rgb: [0.0; 3], alpha: alpha as f32 });
+    // M194: the "Match saved" box is `pause.rs`'s, over the screen dimmed
+    if v.saved {
+        dim(&mut out, 80);
+        if let Some(t) = v.fade {
+            dim(&mut out, (128 * t / 60).min(128));
+        }
+        return (out, Vec::new());
     }
-    let hy = (ys[sel] + 8) as f32;
-    out.push(Quad { tex: HAND, src: [0.0, 0.0, 64.0, 32.0], dst: [v.hand_x + 128.0, hy, 64.0, 32.0], rgb: WHITE, alpha: 128.0 });
-    // B671a: the dialog (not the confirm's dimmer) clear of the rules tab
-    let fit = dialog_fit(board, v.ask.is_some(), options(v.local, v.save).len(), v.save, v.tab.map(|t| t[1]));
-    for quad in out[dialog..].iter_mut().filter(|q| q.tex != DIM) {
-        quad.dst = fit.rect(quad.dst);
+    let dx = (cw - BOX_W) / 2.0;
+    out.extend(dialog.into_iter().map(|q| Quad { dst: place.col([q.dst[0] + dx, q.dst[1], q.dst[2], q.dst[3]]), ..q }));
+    if let Some(t) = tab {
+        let mut quads = Vec::new();
+        rules_tab_quads(&mut quads, [(cw - t[0]) / 2.0, box_h + TAB_GAP], t);
+        out.extend(quads.into_iter().map(|q| Quad { dst: place.col(q.dst), ..q }));
     }
     if let Some(t) = v.fade {
-        let a = (128 * t / 60).min(128) as f32;
-        out.push(Quad { tex: DIM, src: [0.0, 0.0, 8.0, 8.0], dst: [0.0, 0.0, 640.0, 448.0], rgb: [0.0; 3], alpha: a });
+        dim(&mut out, (128 * t / 60).min(128));
     }
-    out
+    (out, pills.into_iter().map(|[x, y, w, h]| place.col([x + dx, y, w, h])).collect())
 }
 
 /// The match HUD's root nodes, hidden under the pause and result screens. Not B5b's composite node (aimed at its own
@@ -596,7 +672,12 @@ struct Art(Vec<Handle<Image>>, Option<Arc<SoundBank>>);
 struct Slot(usize);
 #[derive(Component)]
 struct Root;
-const POOL: usize = 200;
+/// F2: with the live board's pictures.
+const POOL: usize = 520;
+
+/// F2: the pills' rects on the screen (640×448) as last drawn, for clicks and taps.
+#[derive(Resource, Default)]
+struct Hits(Vec<[f32; 4]>);
 
 /// The pause screen is open (online play sends it to the peers).
 pub(super) fn paused(w: &World) -> bool {
@@ -633,7 +714,8 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Menu>()
         .insert_resource(super::front_end::FrontEnd { paused, set_paused, face: super::main_menu::face })
         .add_systems(PostStartup, setup.after(super::setup))
-        .add_systems(Update, (step.after(super::read_input), pool, draw).chain().before(super::main_menu::pause::Systems))
+        .init_resource::<Hits>()
+        .add_systems(Update, (step.after(super::read_input).before(PauseBoardBuild), pool, draw.after(PauseBoardBuild)).chain().before(super::main_menu::pause::Systems))
         .add_systems(Update, save_match.after(step).before(pool))
         .init_resource::<plate::Plates>()
         .add_systems(Update, plate::refresh.after(step).before(draw))
@@ -668,7 +750,7 @@ fn legend(menu: Res<Menu>, settings: Res<PauseSettings>, last: Res<super::main_m
     }
     let mut v = vec![item(Act::UpDown, "Move", &["W", "S"]), item(Act::Ok, "Choose", &["Enter", "J"])];
     if menu.ask.is_some() {
-        v.extend([item(Act::Back, "No", &["Backspace", "K"]), item(Act::Start, "No", &["Esc"])]);
+        v.extend([item(Act::Back, "Cancel", &["Backspace", "K"]), item(Act::Start, "Cancel", &["Esc"])]);
     } else {
         v.extend([item(Act::Back, "Resume", &["Backspace", "K"]), item(Act::Start, "Resume", &["Esc"])]);
     }
@@ -705,8 +787,9 @@ fn setup(mut commands: Commands, args: Res<Args>, mut images: ResMut<Assets<Imag
     }
     art.push(super::main_menu::pause::label(&mut iso, &mut images, &court));
     art.push(super::main_menu::pause::label(&mut iso, &mut images, &umpire));
-    for s in SAVE_LABELS {
-        art.push(super::main_menu::pause::label(&mut iso, &mut images, s));
+    art.push(super::main_menu::pause::label(&mut iso, &mut images, SAVE_LABEL));
+    for s in NOTES {
+        art.push(super::word_label::label_w(&mut iso, &mut images, s, NOTE_W));
     }
     let bank = SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd").map(Arc::new);
     commands.insert_resource(Art(art, bank));
@@ -753,7 +836,7 @@ fn step(
     mut hovered: Local<Option<Vec2>>,
     net: Option<Res<super::netplay::Netplay>>,
     bind: Option<Res<super::controls::Bindings>>,
-    rules: Res<rules_tab::RulesTab>,
+    (hits, mut board): (Res<Hits>, ResMut<PauseBoard>),
 ) {
     let any = |b: GamepadButton| gamepads.iter().filter(|g| super::controls::readable(g)).any(|g| g.just_pressed(b));
     // pause: Esc / Start, or what Controls binds it to
@@ -774,6 +857,7 @@ fn step(
     let timed = !*auto
         && std::env::var("HST_PAUSE").ok().and_then(|s| s.parse::<f32>().ok()).is_some_and(|t| time.elapsed_secs() >= t);
     if !menu.open {
+        board.open = false;
         // the result screen has no pause
         if (start || timed) && g.match_stats.result.is_none() {
             *auto = true;
@@ -790,7 +874,9 @@ fn step(
                 _ => {}
             }
             if timed && std::env::var_os("HST_PAUSE_ASK").is_some() {
-                menu.ask = Some(1);
+                // as chosen from "Quit", the last row
+                let local = net.as_ref().is_none_or(|np| !np.lock.mine.is_empty());
+                (menu.sel, menu.ask) = (options(local).len() - 1, Some(0));
             }
             if timed && std::env::var_os("HST_PAUSE_SAVE").is_some() {
                 menu.saving = true;
@@ -800,24 +886,16 @@ fn step(
         }
         return;
     }
+    // F2: the live board beside the dialog the whole time it's up, not under its Settings screens
+    board.open = !settings.open;
     if settings.open {
         spent(&mut pads);
         return;
     }
-    let board = board_rows(g.rules.sets.clamp(1, 3), g.players.len());
     // M124: online too (concept: with any local player), its own seats only
     menu.local = net.as_ref().is_none_or(|np| !np.lock.mine.is_empty());
     menu.save = can_save(net.as_deref().map(|np| np.me.as_str()));
-    let n = options(menu.local, menu.save).len();
-    // B178: the confirm's pills are Yes and No
-    let (ask, rows) = (menu.ask.is_some(), if menu.ask.is_some() { 2 } else { n });
-    let top = |k| if ask { ask_y(board, k) } else { pill_y(board, n, k) };
-    // B671a: the pills where the rules tab moved them
-    let fit = dialog_fit(board, ask, n, menu.save, rules.size().map(|t| t[1]));
-    let pill = |p: Vec2| {
-        let half = 144.0 * fit.s;
-        ((320.0 - half)..(320.0 + half)).contains(&p.x).then(|| (0..rows).find(|&k| (0.0..32.0 * fit.s).contains(&(p.y - fit.y(top(k) as f32))))).flatten()
-    };
+    let pill = |p: Vec2| hits.0.iter().position(|&[x, y, w, h]| (x..x + w).contains(&p.x) && (y..y + h).contains(&p.y));
     // B221: the mouse over a pill moves the hand there; a right click is Back (a click or tap off the pills does
     // nothing: a phone's swipe for its control centre unpaused the match)
     let (press, right) = super::main_menu::pause::pointer_press(&window, &mouse, &touches);
@@ -858,7 +936,6 @@ fn step(
             }
         }
     }
-    menu.scored = scored(&g.score);
     menu.cancel |= cancel;
     menu.start |= start;
     menu.confirm |= confirm;
@@ -880,6 +957,7 @@ fn step(
         exit.write(AppExit::Success);
     }
     if !menu.open {
+        board.open = false;
         if let Some(s) = &sound {
             s.hold(false);
         }
@@ -965,7 +1043,7 @@ fn draw(
     cursor: Option<Res<super::main_menu::cursor::Cursor>>,
     mut root_z: Query<&mut GlobalZIndex, With<Root>>,
     plates: Res<plate::Plates>,
-    rules: Res<rules_tab::RulesTab>,
+    (rules, board, mut hits): (Res<rules_tab::RulesTab>, Res<PauseBoard>, ResMut<Hits>),
 ) {
     let (Some(art), Some(panel_art), Some(colours)) = (art, panel_art, colours) else {
         return;
@@ -990,8 +1068,11 @@ fn draw(
     for mut z in &mut root_z {
         z.set_if_neq(GlobalZIndex(if menu.quitting.is_some() { FADE_Z } else { 10 }));
     }
+    let share = super::widescreen::window_share(&window);
+    let aspect = super::widescreen::window_aspect(&window);
+    let vis = [640.0 / hst_base::widescreen::share(aspect), 448.0 / hst_base::widescreen::vshare(aspect)];
     let quads = if menu.open {
-        layout(&View {
+        let view = View {
             players: n,
             slots: std::array::from_fn(|i| if i < n { pads.slot_of(i, n).unwrap_or(4) } else { 4 }),
             pill: colours.0,
@@ -1013,12 +1094,14 @@ fn draw(
             saved: menu.saved.is_some(),
             words: std::array::from_fn(|p| if p < n { plates.widths(p) } else { None }),
             tab: rules.size(),
-        })
+        };
+        let (quads, pills) = scene(&view, &Around { board: board.quads.iter().map(|q| q.dst).collect(), vis });
+        hits.0 = pills;
+        quads
     } else {
+        hits.0.clear();
         Vec::new()
     };
-    let share = super::widescreen::window_share(&window);
-    let aspect = super::widescreen::window_aspect(&window);
     for (Slot(i), mut img, mut node, mut vis, mut bleed) in &mut q {
         let Some(quad) = quads.get(*i) else {
             vis.set_if_neq(Visibility::Hidden);
@@ -1033,6 +1116,13 @@ fn draw(
             (_, Tex::Name(p)) => plates.name[p].as_ref().map_or_else(Handle::default, |w| w.0.clone()),
             (_, Tex::Chara(p)) => plates.chara[p].as_ref().map_or_else(Handle::default, |w| w.0.clone()),
             (_, Tex::Rules) => rules.tab.as_ref().map_or_else(Handle::default, |t| t.0.clone()),
+            (_, Tex::Live(k)) => match board.quads.get(k) {
+                Some(b) => b.image.clone(),
+                None => {
+                    vis.set_if_neq(Visibility::Hidden);
+                    continue;
+                }
+            },
             (None, Tex::Hand) => {
                 vis.set_if_neq(Visibility::Hidden);
                 continue;
@@ -1043,10 +1133,18 @@ fn draw(
         img.rect = (!matches!(quad.tex, Tex::Face(_) | Tex::Name(_) | Tex::Chara(_) | Tex::Rules) && three_d.is_none()).then(|| Rect::new(u, v, u + w, v + h));
         let [r, g, b] = quad.rgb.map(|c| c / 128.0);
         img.color = Color::srgba(r, g, b, quad.alpha / 128.0);
+        // F2: the board's pictures as it set them
+        if let Tex::Live(k) = quad.tex
+            && let Some(b) = board.quads.get(k)
+        {
+            (img.rect, img.color) = (b.rect, b.color);
+        }
         let [mut x, mut y, mut w, mut h] = quad.dst;
         if three_d.is_some() {
-            // where the main menus' rows put it (row x − 60, y + 3), not `hsm_yubi`'s (x − 48, y + 8)
-            (x, y) = (x - 12.0, y - 5.0);
+            // where the main menus' rows put it (row x − 60, y + 3), not `hsm_yubi`'s (x − 48, y + 8); F2: scaled with
+            // the dialog
+            let k = w / 64.0;
+            (x, y) = (x - 12.0 * k, y - 5.0 * k);
             // the hand's image covers `PAD` times its quad, around the same centre (B146)
             let pad = super::main_menu::cursor::PAD;
             (x, y, w, h) = (x - w * (pad - 1.0) / 2.0, y - h * (pad - 1.0) / 2.0, w * pad, h * pad);
@@ -1101,12 +1199,23 @@ mod tests {
         }
     }
 
-    /// Slot 3's pause (doubles, one set to 4 games, 0-0): the rules digits, both points, the games and the dialog.
-    /// B177: the textures' indices follow `setup`'s order: the disc sheets, the labels, the pill sheet.
+    /// B177: the textures' indices follow `setup`'s order: the disc sheets, the labels, the pill sheet, (F2) the
+    /// confirm's notes.
     #[test]
     fn art_order() {
         let n = TEXTURES.len();
-        assert_eq!([LABEL, RESUME, RETURN, ASK, YES, NO, SEATS, PILL, COURT, UMPIRE, SAVE_ROW, NOTE], std::array::from_fn(|i| Tex::Own(n + i)));
+        assert_eq!([LABEL, RESUME, QUIT_ROW, ASK, DROP_ROW, CANCEL_ROW, SEATS, PILL, COURT, UMPIRE, SAVE_ROW], std::array::from_fn(|i| Tex::Own(n + i)));
+        assert_eq!([SAVE, DROP, BACK].map(note_tex), std::array::from_fn(|i| Tex::Own(n + 11 + i)));
+    }
+
+    /// A live board's pictures as the end screen's widget lays them out: the score board over the stats board.
+    fn board() -> Vec<[f32; 4]> {
+        vec![[96.0, 0.0, 448.0, 140.0], [80.0, 148.0, 480.0, 200.0], [176.0, 356.0, 288.0, 24.0]]
+    }
+    /// 16:9, 4:3 and 21:9 (wider and taller than the 640×448 screen's 10:7 at the same height).
+    const SCREENS: [[f32; 2]; 3] = [[796.4, 448.0], [640.0, 480.0], [1045.3, 448.0]];
+    fn around(vis: [f32; 2]) -> Around {
+        Around { board: board(), vis }
     }
 
     /// B341: a press latched while paused, an emote included, is spent before the match resumes.
@@ -1137,29 +1246,26 @@ mod tests {
         assert!(!front_end::paused(&w));
     }
 
+    /// Slot 3's pause (doubles, one set to 4 games, 0-0): the rules digits on the top bar, the court and umpire; the old
+    /// score board (the Continue cards') keeps its points, games and faces.
     #[test]
     fn slot3_pause() {
-        let qs = layout(&view());
-        let at = |tex: Tex, x: f32, y: f32| qs.iter().find(|q| q.tex == tex && q.dst[0] == x && q.dst[1] == y).copied();
-        assert_eq!(at(TEXT, 176.0, 24.0).unwrap().src, [0.0, 40.0, 16.0, 24.0]); // "1"
-        assert_eq!(at(TEXT, 248.0, 24.0).unwrap().src, [48.0, 40.0, 16.0, 24.0]); // "4"
-        // (ours) doubles on an 8-row board, so each face's pill clears the face under it
-        assert_eq!(at(POINTS, 184.0, 336.0).unwrap().src, [0.0, 0.0, 64.0, 48.0]);
-        assert!(at(POINTS, 390.0, 336.0).is_some());
-        assert!(at(GAMES_NOW, 272.0, 344.0).is_some() && at(GAMES_NOW, 308.0, 344.0).is_some());
-        assert!(at(Tex::Face(2), 102.0, 367.0).is_some() && at(Tex::Face(1), 498.0, 303.0).is_some());
-        // three options: frame from y 88 to 240, pills at 108, 148 ("Settings", ours) and 188, the hand beside the first
-        assert!(at(PILL, 160.0, 88.0).is_some() && at(PILL, 160.0, 224.0).is_some());
-        assert!(at(PILL, 176.0, 108.0).is_some() && at(PILL, 176.0, 188.0).is_some());
-        // the rows centred on their pills at 160×20 (B171)
-        assert_eq!(at(RESUME, 240.0, 114.0).unwrap().alpha, 128.0);
-        assert_eq!(at(RETURN, 240.0, 194.0).unwrap().alpha, 64.0);
-        assert_eq!(at(LABEL, 240.0, 154.0).unwrap().dst, [240.0, 154.0, 160.0, 20.0]);
-        assert_eq!(qs.iter().find(|q| q.tex == HAND).unwrap().dst, [128.0, 116.0, 64.0, 32.0]);
-        assert_eq!((pill_y(6, 3, 1), pill_y(10, 3, 0)), (180, 100));
+        let (qs, _) = scene(&view(), &around(SCREENS[0]));
+        let at = |qs: &[Quad], tex: Tex, x: f32, y: f32| qs.iter().find(|q| q.tex == tex && q.dst[0] == x && q.dst[1] == y).copied();
+        assert_eq!(at(&qs, TEXT, 176.0, 24.0).unwrap().src, [0.0, 40.0, 16.0, 24.0]); // "1"
+        assert_eq!(at(&qs, TEXT, 248.0, 24.0).unwrap().src, [48.0, 40.0, 16.0, 24.0]); // "4"
         // B293: the court on the bar's right end, the umpire under its rim
         assert_eq!(qs.iter().find(|q| q.tex == COURT).unwrap().dst, [408.0, 3.0, 192.0, 24.0]);
         assert_eq!(qs.iter().find(|q| q.tex == UMPIRE).unwrap().dst, [424.0, 34.0, 160.0, 20.0]);
+        // F2: none of the old board on the pause screen, the live one in its place
+        assert!(!qs.iter().any(|q| [POINTS, GAMES_NOW, Tex::Face(0)].contains(&q.tex)));
+        assert_eq!(qs.iter().filter(|q| matches!(q.tex, Tex::Live(_))).count(), board().len());
+        let qs = score_board(&view());
+        // (ours) doubles on an 8-row board, so each face's pill clears the face under it
+        assert_eq!(at(&qs, POINTS, 184.0, 336.0).unwrap().src, [0.0, 0.0, 64.0, 48.0]);
+        assert!(at(&qs, POINTS, 390.0, 336.0).is_some());
+        assert!(at(&qs, GAMES_NOW, 272.0, 344.0).is_some() && at(&qs, GAMES_NOW, 308.0, 344.0).is_some());
+        assert!(at(&qs, Tex::Face(2), 102.0, 367.0).is_some() && at(&qs, Tex::Face(1), 498.0, 303.0).is_some());
     }
 
     /// B671: with the words set, each plate's name takes the slot tag's place (none drawn) and its character's pill sits
@@ -1168,7 +1274,7 @@ mod tests {
     fn plates_carry_names() {
         for players in [2, 4] {
             for w in [[30.0, 40.0], [400.0, 300.0]] {
-                let qs = layout(&View { players, words: [Some(w); 4], ..view() });
+                let qs = score_board(&View { players, words: [Some(w); 4], ..view() });
                 assert!(!qs.iter().any(|q| q.tex == Tex::Slot));
                 for p in 0..players {
                     let (left, right) = if p & 1 == 0 { (96.0, 184.0) } else { (456.0, 544.0) };
@@ -1185,51 +1291,57 @@ mod tests {
         assert_eq!((plate::who(4, Some("Ryan")), plate::who(0, Some("Ryan")), plate::who(1, None)), ("COM".into(), "Ryan".into(), "2P".into()));
     }
 
-    /// B671a: the rules tab sits on the frame at its left (none without rules), however many rows it wraps to; the
-    /// dialog (and the confirm) clears it, moving up first, never above the top bar's rim, then shrinking, the pointer's
-    /// pills following it.
+    /// F2: the dialog left of the board, their middles level, the hand's room inside the screen; all of it at one
+    /// scale, no larger than its own size, between the top bar and the legend's strip, at 16:9, 4:3 and 21:9, with
+    /// or without the rules tab (under the dialog, clear of it) or the confirm; the pills' rects are the pills drawn.
     #[test]
-    fn rules_tab_clears_the_dialog() {
-        assert!(!layout(&view()).iter().any(|q| q.tex == Tex::Rules));
-        for sets_to_win in 1..=3 {
-            for (local, save) in [(false, false), (true, false), (false, true), (true, true)] {
-                for ask in [None, Some(0)] {
-                    for h in [21.0, 36.0, 51.0, 81.0] {
-                        let v = View { sets_to_win, local, save, ask, tab: Some([300.0, h]), ..view() };
-                        let qs = layout(&v);
-                        let tab = qs.iter().find(|q| q.tex == Tex::Rules).unwrap().dst;
-                        let rows = board_rows(sets_to_win, v.players);
-                        let frame = frame_top(rows);
-                        assert_eq!((tab[0], tab[1] + tab[3]), (rules_tab::X, frame + rules_tab::SINK));
-                        let dialog: Vec<_> = qs.iter().filter(|q| [PILL, HAND, RESUME, LABEL, SEATS, SAVE_ROW, RETURN, YES, NO, ASK, NOTE].contains(&q.tex)).collect();
-                        let bottom = dialog.iter().filter(|q| q.tex == PILL).map(|q| q.dst[1] + q.dst[3]).fold(0.0, f32::max);
-                        let top = dialog.iter().filter(|q| q.tex == PILL).map(|q| q.dst[1]).fold(f32::MAX, f32::min);
-                        assert!(bottom <= tab[1] - 3.9, "{sets_to_win} {local} {ask:?} {h}: {bottom} over {}", tab[1]);
-                        assert!(top >= 57.9, "{top}");
-                        let n = options(local, save).len();
-                        let fit = dialog_fit(rows, ask.is_some(), n, save, Some(h));
-                        let first = if ask.is_some() { ask_y(rows, 0) } else { pill_y(rows, n, 0) };
-                        let row = dialog.iter().find(|q| q.tex == if ask.is_some() { YES } else { RESUME }).unwrap().dst;
-                        assert!((fit.y(first as f32) + 16.0 * fit.s - (row[1] + row[3] / 2.0)).abs() < 0.01);
+    fn fits_any_screen() {
+        for vis in SCREENS {
+            for tab in [None, Some([300.0, 21.0]), Some([420.0, 81.0])] {
+                for (ask, save, local) in [(None, false, false), (None, true, true), (Some(0), true, false), (Some(1), false, true)] {
+                    let v = View { ask, save, local, tab, ..view() };
+                    let (qs, pills) = scene(&v, &around(vis));
+                    let (l, t) = (320.0 - vis[0] / 2.0, 224.0 - vis[1] / 2.0);
+                    let drawn: Vec<_> = qs.iter().filter(|q| !matches!(q.tex, DIM | BAR | TEXT | COURT | UMPIRE)).map(|q| q.dst).collect();
+                    for [x, y, w, h] in &drawn {
+                        assert!(*x >= l + 7.9 && x + w <= l + vis[0] - 7.9, "{vis:?} {x} {w}");
+                        assert!(*y >= t + 64.0 && y + h <= t + vis[1] - 15.9, "{vis:?} {y} {h}");
+                    }
+                    let live: Vec<_> = qs.iter().filter(|q| matches!(q.tex, Tex::Live(_))).map(|q| q.dst).collect();
+                    let k = live[0][2] / board()[0][2];
+                    assert!(k <= 1.0 && live.iter().zip(board()).all(|(d, b)| (d[2] / b[2] - k).abs() < 1e-4 && (d[3] / b[3] - k).abs() < 1e-4));
+                    let pill = qs.iter().filter(|q| q.tex == PILL).map(|q| q.dst).collect::<Vec<_>>();
+                    let right = pill.iter().map(|d| d[0] + d[2]).fold(0.0, f32::max);
+                    // the box's right edge (the pills' sheet draws it too) the gap from the board's left
+                    let gap = live[1][0].min(live[0][0]) - right;
+                    assert!(if tab.is_some_and(|t| t[0] > BOX_W) { gap >= GAP * k - 0.01 } else { (gap - GAP * k).abs() < 0.01 }, "{vis:?} {gap}");
+                    assert_eq!(pills.len(), if ask.is_some() { asks(save).len() } else { options(local).len() });
+                    let row = qs.iter().find(|q| q.tex == HAND).unwrap().dst;
+                    assert!(pills.iter().any(|p| (p[1] + 8.0 * k - row[1]).abs() < 0.01 && (p[3] - PILL_H * k).abs() < 0.01));
+                    if let Some(tab) = qs.iter().find(|q| q.tex == Tex::Rules).map(|q| q.dst) {
+                        let bottom = pill.iter().map(|d| d[1] + d[3]).fold(0.0, f32::max);
+                        assert!(tab[1] >= bottom + TAB_GAP * k - 0.01);
                     }
                 }
             }
         }
-        // room to spare: the dialog stays as it was
-        let v = View { sets_to_win: 1, tab: Some([300.0, 21.0]), ..view() };
-        let same = |q: &&Quad| q.tex == PILL;
-        assert_eq!(layout(&v).iter().filter(same).count(), layout(&view()).iter().filter(same).count());
-        assert_eq!(layout(&v).iter().filter(same).map(|q| q.dst).collect::<Vec<_>>(), layout(&view()).iter().filter(same).map(|q| q.dst).collect::<Vec<_>>());
+        // with room to spare the board is drawn at its own size, never larger
+        let (qs, _) = scene(&view(), &around([1200.0, 800.0]));
+        assert_eq!(qs.iter().find(|q| q.tex == Tex::Live(0)).unwrap().dst[2], 448.0);
+        // no board yet: the dialog (and the hand's room) on the middle
+        let (_, pills) = scene(&view(), &Around { board: Vec::new(), vis: SCREENS[0] });
+        assert!((pills[0][0] + pills[0][2] / 2.0 - 320.0).abs() <= HAND_ROOM / 2.0);
+        assert!(!scene(&view(), &around(SCREENS[0])).0.iter().any(|q| q.tex == Tex::Rules));
     }
 
-    /// B254: a local match's dialog has four pills, "Controllers" third, centred as the three; ✕ on it asks for the
-    /// controller assignment.
+    /// B254: a local match's dialog has four pills, "Controllers" third, "Quit" last; ✕ on it asks for the controller
+    /// assignment.
     #[test]
     fn controllers_row() {
-        let qs = layout(&View { local: true, players: 2, ..view() });
-        assert!(qs.iter().any(|q| q.tex == PILL && q.dst[0] == 176.0 && q.dst[1] == 124.0));
-        assert_eq!(qs.iter().find(|q| q.tex == SEATS).unwrap().dst[1], 210.0);
-        assert!(qs.iter().any(|q| q.tex == RETURN && q.dst[1] == 250.0));
+        let (qs, _) = scene(&View { local: true, players: 2, ..view() }, &around([640.0, 1000.0]));
+        let y = |t: Tex| qs.iter().find(|q| q.tex == t).unwrap().dst[1];
+        assert!(y(RESUME) < y(LABEL) && y(LABEL) < y(SEATS) && y(SEATS) < y(QUIT_ROW));
+        assert!((y(QUIT_ROW) - y(SEATS) - (y(SEATS) - y(LABEL))).abs() < 0.01);
         let mut m = Menu { local: true, ..Menu::opened() };
         for _ in 0..5 {
             m.tick(false, false);
@@ -1246,10 +1358,10 @@ mod tests {
     /// Advantage: "A" for the leader, the trailing 40 at half alpha; tiebreak deuce uses the red D.
     #[test]
     fn points() {
-        let qs = layout(&View { points: [4, 3], advantage: true, ..view() });
+        let qs = score_board(&View { points: [4, 3], advantage: true, ..view() });
         let pts: Vec<_> = qs.iter().filter(|q| q.tex == POINTS).map(|q| (q.src, q.alpha)).collect();
         assert_eq!(pts, [([64.0, 96.0, 64.0, 48.0], 128.0), ([64.0, 48.0, 64.0, 48.0], 64.0)]);
-        let qs = layout(&View { points: [6, 6], deuce: true, tiebreak: true, ..view() });
+        let qs = score_board(&View { points: [6, 6], deuce: true, tiebreak: true, ..view() });
         assert!(qs.iter().filter(|q| q.tex == TIEBREAK).all(|q| q.src == [0.0, 192.0, 64.0, 48.0]));
     }
 
@@ -1266,7 +1378,7 @@ mod tests {
     }
 
     /// Down moves and wraps, input waits 5 ticks, the hand swings to −16 and back, ✕ on the second option asks for the
-    /// settings, on the third fades out.
+    /// settings, on the third (F2: "Quit") asks whether to quit.
     #[test]
     fn input() {
         let mut m = Menu::opened();
@@ -1295,6 +1407,10 @@ mod tests {
         m.sel = 2;
         m.confirm = true;
         assert_eq!(m.tick(false, false), Some(2));
+        assert_eq!((m.ask, m.quitting), (Some(0), None));
+        // no saving here: "Quit without Saving" first
+        m.confirm = true;
+        m.tick(false, false);
         assert_eq!(m.quitting, Some(0));
         m.start = true;
         m.tick(false, false);
@@ -1310,130 +1426,100 @@ mod tests {
         assert!(!m.open);
     }
 
-    /// B68: "Return to the Menu" at 0-0 fades out at once; after a point it asks, No (chosen first, or ○) goes back to
-    /// the pause menu on the same row, Yes fades out.
+    /// F2: "Quit" asks "Quit the match?" every time: Save and Quit saves (what it did on the pause menu), Quit without
+    /// Saving fades out to the menu, Cancel (chosen, ○ or Start) goes back to the pause menu on "Quit"; up and down wrap.
+    /// Where this machine can't save, only the last two. The board and the top bar stay; the title, the pills, the
+    /// chosen one's note under them, the hand by it.
     #[test]
-    fn confirm_return() {
-        let ret = |scored: bool| {
-            let mut m = Menu { sel: 2, scored, ..Menu::opened() };
+    fn quit_asks() {
+        let asked = |save: bool| {
+            let mut m = Menu { save, sel: 2, ..Menu::opened() };
             for _ in 0..5 {
                 m.tick(false, false);
             }
             m.confirm = true;
             assert_eq!(m.tick(false, false), Some(2));
+            assert_eq!((m.ask, m.quitting, m.saving), (Some(0), None, false));
             m
         };
-        let mut s = hst_sim::score::Score::new();
-        assert!(!scored(&s));
-        assert_eq!(ret(scored(&s)).quitting, Some(0));
-        s.points[1] = 1;
-        assert!(scored(&s));
-        s.points[1] = 0;
-        s.games[0] = 1;
-        assert!(scored(&s));
-
-        let mut m = ret(true);
-        assert_eq!((m.ask, m.quitting), (Some(1), None));
-        m.confirm = true;
-        assert_eq!(m.tick(false, false), Some(2));
-        assert!(m.open && m.ask.is_none() && m.quitting.is_none() && m.sel == 2);
-        // ○ is No too
-        let mut m = ret(true);
-        m.cancel = true;
-        assert_eq!(m.tick(false, false), Some(1));
-        assert!(m.open && m.ask.is_none() && m.quitting.is_none());
-        // up to Yes, ✕: the fade
-        let mut m = ret(true);
-        assert_eq!(m.tick(true, false), Some(0));
-        assert_eq!(m.ask, Some(0));
-        m.tick(false, false);
-        m.confirm = true;
-        assert_eq!(m.tick(false, false), Some(2));
-        assert_eq!(m.quitting, Some(0));
-
-        // B178: a popup of its own: the match dimmed, a box from 134 to 268, the question as its title, Yes and No on
-        // pills at 180 and 220 (No bright), the hand by No; none of the pause dialog's box or pills
-        let qs = layout(&View { ask: Some(1), players: 2, ..view() });
-        assert!(qs.iter().any(|q| q.tex == DIM && q.rgb == [0.0; 3] && q.alpha == 80.0));
-        assert!(qs.iter().any(|q| q.tex == ASK && q.dst == [232.0, 148.0, 176.0, 22.0] && q.alpha == 128.0));
-        assert!(qs.iter().any(|q| q.tex == PILL && q.dst[0] == 160.0 && q.dst[1] == 134.0));
-        assert!(qs.iter().any(|q| q.tex == PILL && q.dst[0] == 160.0 && q.dst[1] + q.dst[3] == 268.0));
-        assert!(!qs.iter().any(|q| q.tex == PILL && q.dst[1] == 120.0));
-        let pills: Vec<_> = qs.iter().filter(|q| q.tex == PILL && q.dst[0] == 176.0).map(|q| (q.dst[1], q.rgb)).collect();
-        assert_eq!(pills.iter().filter(|p| p.1 == UNCHOSEN).map(|p| p.0).collect::<Vec<_>>(), [180.0]);
-        assert_eq!(pills.iter().filter(|p| p.1 == CHOSEN).map(|p| p.0).collect::<Vec<_>>(), [220.0]);
-        assert!(qs.iter().any(|q| q.tex == YES && q.dst[1] == 186.0 && q.alpha == 64.0));
-        assert!(qs.iter().any(|q| q.tex == NO && q.dst[1] == 226.0 && q.alpha == 128.0));
-        assert!(!qs.iter().any(|q| [RESUME, RETURN, LABEL, SEATS].contains(&q.tex)));
-        assert_eq!(qs.iter().find(|q| q.tex == HAND).unwrap().dst[1], 228.0);
-    }
-
-    /// M194: "Save and Quit" sits before "Return to the Menu" (with "Controllers" or without), the dialog kept between
-    /// the top bar's rim and the score frame however tall the board; ✕ on it saves, and the box's OK fades out once
-    /// saved or goes back to the dialog when it wasn't.
-    #[test]
-    fn save_and_quit_row() {
-        for (local, players) in [(true, 2), (false, 4)] {
-            for sets_to_win in 1..=3 {
-                let v = View { local, save: true, players, sets_to_win, ..view() };
-                let qs = layout(&v);
-                let y = |t: Tex| qs.iter().find(|q| q.tex == t).unwrap().dst[1];
-                assert!(y(SAVE_ROW) < y(RETURN) && y(SAVE_ROW) > y(if local { SEATS } else { LABEL }));
-                let pills = qs.iter().filter(|q| q.tex == PILL);
-                let (top, bottom) = pills.fold((f32::MAX, 0.0f32), |(t, b), q| (t.min(q.dst[1]), b.max(q.dst[1] + q.dst[3])));
-                assert!(top >= 57.9 && bottom <= frame_top(board_rows(sets_to_win, players)) + 0.01, "{local} {sets_to_win}: {top}..{bottom}");
-            }
-        }
-        // the rows as before without it
-        assert_eq!(layout(&View { local: true, players: 2, ..view() }), layout(&View { local: true, players: 2, save: false, ..view() }));
-        assert!(!layout(&view()).iter().any(|q| q.tex == SAVE_ROW));
-
-        let chosen = |local: bool| {
-            let mut m = Menu { local, save: true, sel: if local { 3 } else { 2 }, ..Menu::opened() };
-            for _ in 0..5 {
+        let choose = |m: &mut Menu, downs: usize| {
+            for _ in 0..downs {
+                m.tick(false, true);
                 m.tick(false, false);
             }
+            m.confirm = true;
+            m.tick(false, false)
+        };
+        let mut m = asked(true);
+        choose(&mut m, 0);
+        assert!(m.saving && m.ask.is_none() && m.quitting.is_none());
+        let mut m = asked(true);
+        choose(&mut m, 1);
+        assert_eq!(m.quitting, Some(0));
+        let mut m = asked(true);
+        assert_eq!(choose(&mut m, 2), Some(2));
+        assert!(m.open && m.ask.is_none() && m.quitting.is_none() && !m.saving && m.sel == 2);
+        // ○ and Start are Cancel; up from the first wraps to Cancel
+        for back in [true, false] {
+            let mut m = asked(true);
+            (m.cancel, m.start) = (back, !back);
+            assert_eq!(m.tick(false, false), Some(1));
+            assert!(m.open && m.ask.is_none() && m.quitting.is_none() && m.sel == 2);
+        }
+        let mut m = asked(true);
+        m.tick(true, false);
+        assert_eq!(m.ask, Some(2));
+        // no saving here: Quit without Saving first, then Cancel
+        let mut m = asked(false);
+        choose(&mut m, 0);
+        assert_eq!(m.quitting, Some(0));
+        let mut m = asked(false);
+        choose(&mut m, 1);
+        assert!(m.ask.is_none() && m.quitting.is_none() && !m.saving);
+
+        let (qs, pills) = scene(&View { ask: Some(1), save: true, players: 2, ..view() }, &around([640.0, 1000.0]));
+        assert_eq!(qs.iter().filter(|q| matches!(q.tex, Tex::Live(_))).count(), board().len());
+        assert!(!qs.iter().any(|q| [RESUME, QUIT_ROW, LABEL, SEATS].contains(&q.tex)));
+        let at = |t: Tex| qs.iter().find(|q| q.tex == t).unwrap();
+        assert!(at(ASK).dst[1] + at(ASK).dst[3] < pills[0][1]);
+        assert_eq!([SAVE_ROW, DROP_ROW, CANCEL_ROW].map(|t| at(t).alpha), [64.0, 128.0, 64.0]);
+        assert!(at(SAVE_ROW).dst[1] < at(DROP_ROW).dst[1] && at(DROP_ROW).dst[1] < at(CANCEL_ROW).dst[1]);
+        assert!(qs.iter().any(|q| q.tex == note_tex(DROP) && q.dst[1] > pills[2][1] + pills[2][3]));
+        assert!(!qs.iter().any(|q| [note_tex(SAVE), note_tex(BACK)].contains(&q.tex)));
+        assert!((at(HAND).dst[1] - pills[1][1] - 8.0 * pills[1][3] / PILL_H).abs() < 0.01);
+        // no extra dim over the board
+        assert_eq!(qs.iter().filter(|q| q.tex == DIM).count(), 1);
+    }
+
+    /// M194: ✕ on "Save and Quit" saves, nothing moves while it does, and the box's OK fades out once saved or goes
+    /// back to the dialog when it wasn't; the screen dimmed under the box, no dialog.
+    #[test]
+    fn save_and_quit() {
+        let chosen = || {
+            let mut m = Menu { local: true, save: true, sel: 3, ask: Some(0), ..Menu::opened() };
             m.confirm = true;
             assert_eq!(m.tick(false, false), Some(2));
             assert!(m.saving && m.open && m.quitting.is_none() && m.ask.is_none());
-            // nothing moves while it saves
             assert_eq!(m.tick(false, true), None);
             m
         };
-        chosen(false);
-        let mut m = chosen(true);
+        let mut m = chosen();
         (m.saving, m.saved) = (false, Some(true));
         m.tick(false, true);
         assert_eq!(m.sel, 3);
         m.confirm = true;
         assert_eq!(m.tick(false, false), Some(2));
         assert_eq!(m.quitting, Some(0));
-        let qs = layout(&View { saved: true, fade: Some(30), ..view() });
-        assert!(!qs.iter().any(|q| [PILL, HAND, RESUME, RETURN].contains(&q.tex)));
+        let (qs, pills) = scene(&View { saved: true, fade: Some(30), ..view() }, &around(SCREENS[0]));
+        assert!(pills.is_empty() && !qs.iter().any(|q| [PILL, HAND, RESUME, QUIT_ROW].contains(&q.tex)));
         assert_eq!(qs.iter().filter(|q| q.tex == DIM && q.rgb == [0.0; 3]).map(|q| q.alpha).collect::<Vec<_>>(), [80.0, 64.0]);
-        // not saved: OK (or ○) goes back to the dialog
-        let mut m = chosen(true);
+        let mut m = chosen();
         (m.saving, m.saved) = (false, Some(false));
         m.cancel = true;
         assert_eq!(m.tick(false, false), Some(1));
         assert!(m.open && m.saved.is_none() && m.quitting.is_none());
         // online only the host saves; never the browser
         assert_eq!((can_save(None), can_save(Some("host")), can_save(Some("g"))), (!cfg!(target_arch = "wasm32"), !cfg!(target_arch = "wasm32"), false));
-    }
-
-    /// M194: with "Save and Quit" the confirm says leaving doesn't save, the box taller over the same pills.
-    #[test]
-    fn confirm_note() {
-        let plain = layout(&View { ask: Some(1), players: 2, ..view() });
-        let noted = layout(&View { ask: Some(1), players: 2, save: true, ..view() });
-        assert!(!plain.iter().any(|q| q.tex == NOTE));
-        let note = noted.iter().find(|q| q.tex == NOTE).unwrap().dst;
-        let ask = |qs: &[Quad]| qs.iter().find(|q| q.tex == ASK).unwrap().dst;
-        let yes = |qs: &[Quad]| qs.iter().find(|q| q.tex == YES).unwrap().dst;
-        assert_eq!(yes(&plain), yes(&noted));
-        assert_eq!(ask(&noted)[1], ask(&plain)[1] - NOTE_H as f32);
-        assert!(note[1] >= ask(&noted)[1] + ask(&noted)[3] - 8.0 && note[1] + note[3] <= yes(&noted)[1] + 6.0, "{note:?}");
-        assert!(noted.iter().any(|q| q.tex == PILL && q.dst[0] == 160.0 && q.dst[1] == 134.0 - NOTE_H as f32));
     }
 
     /// M194: the box's score from the left team's side, each set then the point.

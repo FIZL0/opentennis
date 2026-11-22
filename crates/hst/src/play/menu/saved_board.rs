@@ -4,7 +4,7 @@
 //! quads from the same disc sheets ([`SHEETS`]); faces, the seat tags and the character pills are its words and
 //! icons in the places the pause board gives them.
 
-use super::{BOARD, GAMES_NOW, GAMES_PAST, POINTS, TIEBREAK, Tex, View, board_rows, frame_top, layout};
+use super::{BOARD, GAMES_NOW, GAMES_PAST, POINTS, TIEBREAK, Tex, View, board_rows, frame_top, score_board};
 use crate::play::save_game::Summary;
 
 /// The board's sheets in `INPANE.XB0`, as [`Piece::Sheet`] numbers them.
@@ -85,7 +85,7 @@ pub(in crate::play) fn board(s: &Summary, sets_to_win: i32, games: i32, players:
     let at = |r: [f32; 4]| [r[0] - LEFT, r[1] - top, r[2], r[3]];
     let mut b = Board { pieces: Vec::new(), faces: vec![[0.0; 4]; players], tags: vec![[0.0; 4]; players], size: [WIDTH, (16 * rows + 16) as f32] };
     let mut tag = 0;
-    for q in layout(&v) {
+    for q in score_board(&v) {
         match q.tex {
             // the face over its frame (`r(x + 2, y + 2, ..)`)
             Tex::Face(p) => b.faces[p] = at([q.dst[0] - 2.0, q.dst[1] - 2.0, 48.0, 48.0]),
