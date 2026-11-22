@@ -40,7 +40,7 @@ mesh count then stayed flat and so did the frame time.
 ## Numbers
 
 Bench: `HST_GPU=igpu` (Radeon 610M-class Raphael iGPU, the Deck stand-in), `HST_PRESENT=immediate HST_PASSES=1`,
-1280×800 window, court 1, doubles, 60 s runs. Values are averages of the 5 s reports from 15 s on
+1280×800 window, court 1, doubles, 60 s runs (`HST_GPU=igpu HST_ENV="HST_PRESENT=immediate HST_PASSES=1 [HST_SPLIT2=on|stacked]" research/split/bench_split.sh LOG 60 --pads k,-,k,- [--msaa off] [--scale 67]`; the 4-bot row is `tools/bench.sh` with the same env). Values are averages of the 5 s reports from 15 s on
 (`research/split/summarize.py`). "1 % low" is the worst 5 s window's.
 
 | run | fps | 1 % low | CPU ms/frame | game ms |
@@ -70,6 +70,12 @@ Two earlier no-MSAA split runs sat at exactly 60.0 fps with 11–14 ms idle a fr
 reruns gave 112 and 106 fps uncapped. I didn't find what capped them: no frame limit was set and `LOW_POWER` is
 iOS-only. Probably outside interference (window or compositor state during the run). The table uses the reruns.
 
+Split no-MSAA (112 fps) matching unsplit no-MSAA (111) doesn't mean split is free. On this machine, in this
+scene, the frame isn't bound by the GPU's draw work. Unsplit opaque is 4.7 ms of a ~9–10 ms frame. The rest is
+spent waiting in acquire/present and on fixed per-frame work, so halving each view's pixels (each half is half the
+window) and doubling the draws nearly cancels out. With 4x MSAA, the resolve and the extra view's per-sample work
+do show: 89 vs 96. Each run's fps moved ±3–5 between its own 5 s windows, so differences under ~5 fps are noise.
+
 ## Verdict
 
 Salvageable. Fixed, split on the igpu bench holds 79–89 fps at full settings (12.6 / 11.2 ms a frame). That is
@@ -81,7 +87,7 @@ every second, whatever the hardware.
 Queued:
 - B: the leak fix (`backdrops` skips twin copies) with a test that the copy count stays flat over frames of split.
 - T: `tools/bench.sh` mode for split benches (no autoplay, humans on both teams, and a way to pick the stacked
-  layout in a `--play` run).
+  layout in a `--play` run). It waits on B757 because, until the leak is fixed, a split bench measures the leak's growth rather than split's cost.
 
 ## Not verified / not 1:1
 
@@ -91,5 +97,6 @@ Queued:
   autoplay (91 fps, moving) vs unsplit standstill (96 fps) suggests the scene is representative to within ~5 %.
 - The CPU side was measured on the 9800X3D only, not under `HST_SLOW=1` (`bench_split.sh` doesn't do that) or
   on a real Deck. The igpu is the stand-in for the GPU only.
-- Per-pass GPU figures under split likely show one view (see caveat above).
+- Per-pass GPU figures under split likely show one view (see caveat above), so the split vs unsplit per-pass comparison is partial. Frame time and CPU ms are complete.
+- The stacked numbers used a temporary local switch (not committed). They can be rerun once T30 lands.
 - The two 60 fps-capped runs' cause wasn't found (reruns uncapped).
