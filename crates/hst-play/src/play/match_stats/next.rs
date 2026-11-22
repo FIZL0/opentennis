@@ -1,8 +1,7 @@
-//! M196 (ours): what next, at the match's end. F1 (concept tab "End screen", 2026-11-21): the end screen is one
-//! screen, the stats board widget at full size in the middle and the pills in a row under it in the board's colours
-//! (olive, the chosen one yellow in a white ring): Rematch, New Match, Return to the Menu; online Rematch and Back to
-//! Lobby. A line under them says what the chosen one does. ←→ (↑↓ too) choose, ✕ picks, a click or tap on a pill
-//! picks it.
+//! M196 (ours): what next, at the match's end: Rematch, New Match, Return to the Menu; online Rematch and Back to
+//! Lobby. B764: in the pause menu's box on the left of the board widget, with its pills, words, pointing hand and
+//! colours, a line under the pills in the box saying what the chosen one does. ↑↓ (←→ too) choose, ✕ picks, a click
+//! or tap on a pill picks it.
 //!
 //! The pick goes to the front-end the match goes back to ([`take`]): the match itself only fades out as Continue
 //! did. Presentation only: nothing here reads or moves the sim, its RNG or the match's clock.
@@ -57,105 +56,133 @@ fn words(n: Next, online: bool) -> (usize, usize) {
     }
 }
 
-/// F1: the end screen in the stats board's coordinates (the widget's, [`super::board`]): "GAME, SET, MATCH!" over the
-/// widget, the pills in a row under its bar and the chosen one's note under them. All of it is fitted to the screen
-/// at one scale ([`fit`]), centred across, so it keeps its shape at any aspect ratio (the 4:3 view scales uniformly).
-pub(super) const GSM_H: f32 = 28.0;
-const GSM_Y: f32 = super::board::TOP - 4.0 - GSM_H;
-/// "GAME, SET, MATCH!"'s sheet width (its words are set on it at 32 px high).
-pub(super) const GSM_W: usize = 384;
-const PILLS_Y: f32 = super::board::BOTTOM + 8.0;
-const NOTE_Y: f32 = PILLS_Y + PILL_H + 5.0;
-const SPAN: [f32; 2] = [GSM_Y, NOTE_Y + NOTE_H];
-/// The screen's margins above and below (the key legend's strip at the bottom).
-const MARGIN: [f32; 2] = [6.0, 16.0];
-
-/// The fit's scale.
-pub(super) fn scale() -> f32 {
-    (448.0 - MARGIN[0] - MARGIN[1]) / (SPAN[1] - SPAN[0])
-}
-
-/// The end screen's quads from the board's coordinates to the screen's.
-pub(super) fn fit(quads: &mut [Quad]) {
-    let k = scale();
-    for q in quads {
-        let [x, y, w, h] = q.dst;
-        q.dst = [320.0 + (x - 320.0) * k, MARGIN[0] + (y - SPAN[0]) * k, w * k, h * k];
-    }
-}
-
-/// A screen point back in the board's coordinates.
-fn unfit(p: Vec2) -> Vec2 {
-    let k = scale();
-    Vec2::new(320.0 + (p.x - 320.0) / k, SPAN[0] + (p.y - MARGIN[0]) / k)
-}
-
-/// "GAME, SET, MATCH!" in gold, centred over the widget (`Tex::Own(k)`, its sheet's index).
-pub(super) fn banner(k: u8) -> Quad {
-    let w = GSM_W as f32 * GSM_H / 32.0;
-    Quad { tex: Tex::Own(k), src: [0.0, 0.0, GSM_W as f32, 32.0], dst: [320.0 - w / 2.0, GSM_Y, w, GSM_H], rgb: GOLD, alpha: 128.0 }
-}
-
-/// The board's colours (the concept's): its dark rim, a pill's olive fill, the chosen one's yellow, the words on an
-/// unchosen pill, the note's, and the title's gold.
-const INK: [f32; 3] = [29.0, 31.0, 22.0];
-const OLIVE: [f32; 3] = [72.0, 74.0, 54.0];
-const CHOSEN: [f32; 3] = [111.0, 114.0, 58.0];
-const DIM_WORDS: [f32; 3] = [106.0, 108.0, 92.0];
-const NOTE_RGB: [f32; 3] = [116.0, 118.0, 104.0];
-const GOLD: [f32; 3] = [121.0, 91.0, 25.0];
-/// The words' size on a pill (the pause dialog's: 20 of its 32 px high), and the note's.
-const FIT: f32 = 0.625;
-const NOTE_H: f32 = 15.0;
+/// B764: the menu box, the pause menu's (its box, pills, words and pointing hand, in its colours): 320 wide, a pill
+/// 288 wide every 40 px from 20 below its top, the chosen one's note under them in the box. Laid out with the box's
+/// left at x 0 and its top at y 0; [`compose`] puts it left of the board widget.
+const BOX_W: f32 = 320.0;
+const PILL_X: f32 = 16.0;
+const PILL_W: f32 = 288.0;
 const PILL_H: f32 = 32.0;
-const GAP: f32 = 16.0;
-/// Each pill's width, by its word ([`LABELS`]).
-const PILL_W: [f32; 4] = [128.0, 144.0, 208.0, 176.0];
+const STEP: f32 = 40.0;
+const FIRST: f32 = 20.0;
+/// The note: 6 under the last pill, 15 high (its sheet's 32 px row at that height), the box's bottom 20 under it.
+const NOTE_GAP: f32 = 6.0;
+const NOTE_H: f32 = 15.0;
+/// The pause menu's colours: the rims, the box's fill, a chosen and an unchosen pill (the words on an unchosen one).
+const INK: [f32; 3] = [15.0; 3];
+const PANEL: [f32; 3] = [52.0, 44.0, 36.0];
+const CHOSEN: [f32; 3] = [123.0, 105.0, 79.0];
+const UNCHOSEN: [f32; 3] = [94.0, 83.0, 70.0];
+/// The words' size on a pill (the pause dialog's: 20 of its 32 px high).
+const FIT: f32 = 0.625;
+/// The gap between the box and the board, and how far left of the box the hand reaches (the pause's: 48 left of the
+/// pill, then the 3D hand's own 12).
+const GAP: f32 = 24.0;
+const HAND_ROOM: f32 = 44.0;
+/// The screen's margins above and below (the key legend's strip at the bottom), and at the sides.
+const MARGIN: [f32; 2] = [6.0, 16.0];
+const SIDE: f32 = 8.0;
 
-/// The pills' rects in a row, centred, in the board's coordinates.
+/// The pause menu's pointing hand (its 3D hand's picture), which the front-end shares: without one the screen has no
+/// hand.
+#[derive(Resource, Clone)]
+pub struct Pointer(pub Handle<Image>);
+
+/// The pills' rects on the screen (640×448) as last drawn, for clicks and taps.
+#[derive(Resource, Default)]
+pub(super) struct Hits(pub(super) Vec<[f32; 4]>);
+
+fn box_h(n: usize) -> f32 {
+    FIRST + STEP * n as f32 - (STEP - PILL_H) + NOTE_GAP + NOTE_H + 20.0
+}
+
+/// The pills' rects, in the box's coordinates.
 fn rects(online: bool) -> Vec<[f32; 4]> {
-    let ws: Vec<f32> = pills(online).iter().map(|&n| PILL_W[words(n, online).0]).collect();
-    let total = ws.iter().sum::<f32>() + GAP * (ws.len() as f32 - 1.0);
-    let mut x = 320.0 - total / 2.0;
-    ws.iter()
-        .map(|&w| {
-            let r = [x, PILLS_Y, w, PILL_H];
-            x += w + GAP;
-            r
-        })
-        .collect()
+    (0..pills(online).len()).map(|k| [PILL_X, FIRST + STEP * k as f32, PILL_W, PILL_H]).collect()
+}
+
+/// The menu box with `sel` chosen: the box, the pills (the chosen one bright), their words (the chosen white, the rest
+/// dim), the hand at the chosen pill and its note, in the box's coordinates.
+pub(super) fn menu(online: bool, sel: usize) -> Vec<Quad> {
+    let mut out = Vec::new();
+    let opts = pills(online);
+    let quad = |tex, src, dst, rgb, alpha| Quad { tex, src, dst, rgb, alpha };
+    for (i, rgb) in [INK, WHITE, PANEL].into_iter().enumerate() {
+        out.extend(super::super::menu_art::box_quads(i, [0.0, 0.0, BOX_W, box_h(opts.len())], 16.0).into_iter().map(|(src, dst)| quad(Tex::Pill, src, dst, rgb, 128.0)));
+    }
+    for (k, r) in rects(online).into_iter().enumerate() {
+        let fill = if k == sel { CHOSEN } else { UNCHOSEN };
+        for (i, rgb) in [INK, WHITE, fill].into_iter().enumerate() {
+            out.extend(super::super::menu_art::pill_quads(i, r).iter().map(|&(src, dst)| quad(Tex::Pill, src, dst, rgb, 128.0)));
+        }
+    }
+    for (k, (&n, r)) in opts.iter().zip(rects(online)).enumerate() {
+        let (rgb, alpha) = if k == sel { (WHITE, 128.0) } else { (UNCHOSEN, 64.0) };
+        let (w, h) = (256.0 * FIT, 32.0 * FIT);
+        let dst = [r[0] + (r[2] - w) / 2.0, r[1] + (r[3] - h) / 2.0, w, h];
+        out.push(quad(Tex::Own(words(n, online).0 as u8), [0.0, 0.0, 256.0, 32.0], dst, rgb, alpha));
+    }
+    if let Some((&n, r)) = opts.get(sel).zip(rects(online).get(sel)) {
+        // the hand as the pause menu draws its 3D one: its 64×32 quad 48 left of the pill and 8 down, moved 12 left
+        // and 5 up, the picture three times the quad round its middle
+        let (x, y) = (r[0] - 48.0 - 12.0, r[1] + 8.0 - 5.0);
+        out.push(quad(Tex::Hand, [0.0; 4], [x - 64.0, y - 32.0, 192.0, 96.0], WHITE, 128.0));
+        let w = NOTE_W as f32 * NOTE_H / 32.0;
+        let y = FIRST + STEP * opts.len() as f32 - (STEP - PILL_H) + NOTE_GAP;
+        let tex = Tex::Own((LABELS.len() + words(n, online).1) as u8);
+        out.push(quad(tex, [0.0, 0.0, NOTE_W as f32, 32.0], [BOX_W / 2.0 - w / 2.0, y, w, NOTE_H], UNCHOSEN.map(|c| c + 24.0), 128.0));
+    }
+    out
+}
+
+/// The end screen: the menu box left of the board widget (`widget`), its middle level with the widget's; all of it
+/// and the pills' rects in the widget's coordinates.
+pub(super) fn compose(mut widget: Vec<Quad>, online: bool, sel: usize) -> (Vec<Quad>, Vec<[f32; 4]>) {
+    let (l, t, _, b) = bounds(&widget);
+    let (x, y) = (l - GAP - BOX_W, (t + b) / 2.0 - box_h(pills(online).len()) / 2.0);
+    let moved = |[qx, qy, w, h]: [f32; 4]| [qx + x, qy + y, w, h];
+    widget.extend(menu(online, sel).into_iter().map(|q| Quad { dst: moved(q.dst), ..q }));
+    (widget, rects(online).into_iter().map(moved).collect())
+}
+
+/// The quads' extent (left, top, right, bottom), the hand's picture left out but room for the hand itself.
+fn bounds(quads: &[Quad]) -> (f32, f32, f32, f32) {
+    let mut e = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for q in quads.iter().filter(|q| q.tex != Tex::Hand) {
+        let [x, y, w, h] = q.dst;
+        e = (e.0.min(x), e.1.min(y), e.2.max(x + w), e.3.max(y + h));
+    }
+    if quads.iter().any(|q| q.tex == Tex::Hand) {
+        e.0 -= HAND_ROOM;
+    }
+    e
+}
+
+/// The 640×448 screen's visible part in a window of `aspect` (the 4:3 screen's units, round its middle).
+pub(super) fn visible(aspect: f32) -> Vec2 {
+    Vec2::new(640.0 / hst_base::widescreen::share(aspect), 448.0 / hst_base::widescreen::vshare(aspect))
+}
+
+/// Fits the end screen (`quads`, `rects`) to the visible part `vis` of the screen at one scale, no larger than its own
+/// size, centred: it keeps its shape at any aspect ratio, the room left over goes round it.
+pub(super) fn fit(quads: &mut [Quad], rects: &mut [[f32; 4]], vis: Vec2) {
+    let (l, t, r, b) = bounds(quads);
+    let room = Vec2::new(vis.x - 2.0 * SIDE, vis.y - MARGIN[0] - MARGIN[1]);
+    let k = (room.x / (r - l)).min(room.y / (b - t)).min(1.0);
+    let x0 = 320.0 - (r - l) * k / 2.0;
+    let y0 = 224.0 - vis.y / 2.0 + MARGIN[0] + (room.y - (b - t) * k) / 2.0;
+    let map = |[x, y, w, h]: [f32; 4]| [x0 + (x - l) * k, y0 + (y - t) * k, w * k, h * k];
+    for q in quads {
+        q.dst = map(q.dst);
+    }
+    for r in rects {
+        *r = map(*r);
+    }
 }
 
 /// The pill under screen point `p` (640×448).
-pub(super) fn pill_at(online: bool, p: Vec2) -> Option<usize> {
-    let p = unfit(p);
-    rects(online).iter().position(|&[x, y, w, h]| (x..x + w).contains(&p.x) && (y..y + h).contains(&p.y))
-}
-
-/// The pills (`sel` chosen: yellow in a white ring, its words white; the rest olive, their words pale), and the chosen
-/// one's note, in the board's coordinates.
-pub(super) fn row(online: bool, sel: usize) -> Vec<Quad> {
-    let mut out = Vec::new();
-    let opts = pills(online);
-    for (k, (&n, r)) in opts.iter().zip(rects(online)).enumerate() {
-        let chosen = k == sel;
-        let ring = if chosen { WHITE } else { OLIVE };
-        let fill = if chosen { CHOSEN } else { OLIVE };
-        for (i, rgb) in [INK, ring, fill].into_iter().enumerate() {
-            out.extend(super::super::menu_art::pill_quads(i, r).iter().map(|&(src, dst)| Quad { tex: Tex::Pill, src, dst, rgb, alpha: 128.0 }));
-        }
-        let (w, h) = (256.0 * FIT, 32.0 * FIT);
-        let rgb = if chosen { WHITE } else { DIM_WORDS };
-        let src = [0.0, 0.0, 256.0, 32.0];
-        out.push(Quad { tex: Tex::Own(words(n, online).0 as u8), src, dst: [r[0] + (r[2] - w) / 2.0, r[1] + (r[3] - h) / 2.0, w, h], rgb, alpha: 128.0 });
-    }
-    if let Some(&n) = opts.get(sel) {
-        let w = NOTE_W as f32 * NOTE_H / 32.0;
-        let src = [0.0, 0.0, NOTE_W as f32, 32.0];
-        let tex = Tex::Own((LABELS.len() + words(n, online).1) as u8);
-        out.push(Quad { tex, src, dst: [320.0 - w / 2.0, NOTE_Y, w, NOTE_H], rgb: NOTE_RGB, alpha: 128.0 });
-    }
-    out
+pub(super) fn pill_at(hits: &Hits, p: Vec2) -> Option<usize> {
+    hits.0.iter().position(|&[x, y, w, h]| (x..x + w).contains(&p.x) && (y..y + h).contains(&p.y))
 }
 
 /// ↑ (−1) / ↓ (1) this frame: keys, the d-pad, the left stick past half way (`last`: its last y).
@@ -173,28 +200,36 @@ pub(super) fn updown(keys: &ButtonInput<KeyCode>, gamepads: &Query<&Gamepad>, la
 mod tests {
     use super::*;
 
-    /// The pills sit in a row under the bar, fitted inside the 4:3 screen with the banner; a tap on each pill's
-    /// middle finds it, off them nothing.
+    /// The pills stacked in the box, the hand at the chosen one, the note under them inside the box; fitted with a
+    /// board-sized block at 16:9, 4:3 and 21:9, all of it on the screen at one scale, the box left of the board, and a
+    /// tap on each pill's middle finds it.
     #[test]
-    fn row_fits_under_the_board() {
+    fn box_fits_beside_the_board() {
         for online in [false, true] {
-            let mut quads = row(online, 0);
-            quads.push(banner(9));
-            assert!(quads.iter().all(|q| q.dst[1] >= SPAN[0] - 0.01 && q.dst[1] + q.dst[3] <= SPAN[1] + 0.01));
-            fit(&mut quads);
-            for q in &quads {
-                let [x, y, w, h] = q.dst;
-                assert!(x >= 0.0 && x + w <= 640.0 && y >= MARGIN[0] - 0.01 && y + h <= 448.0 - MARGIN[1] + 0.01, "{:?}", q.dst);
+            let n = pills(online).len();
+            let quads = menu(online, 1);
+            let boxed = quads.iter().filter(|q| q.tex != Tex::Hand).all(|q| q.dst[0] >= 0.0 && q.dst[0] + q.dst[2] <= BOX_W && q.dst[1] >= 0.0 && q.dst[1] + q.dst[3] <= box_h(n) + 0.01);
+            assert!(boxed);
+            let hand = quads.iter().find(|q| q.tex == Tex::Hand).unwrap();
+            assert_eq!(hand.dst[1] + hand.dst[3] / 2.0, FIRST + STEP + 3.0 + 16.0);
+            for aspect in [16.0 / 9.0, 4.0 / 3.0, 21.0 / 9.0] {
+                let block = Quad { tex: Tex::Back, src: [0.0; 4], dst: [40.0, 0.0, 560.0, 520.0], rgb: WHITE, alpha: 128.0 };
+                let (mut quads, mut rects) = compose(vec![block], online, 0);
+                let vis = visible(aspect);
+                fit(&mut quads, &mut rects, vis);
+                let k = quads[0].dst[2] / 560.0;
+                assert!(k > 0.6 && k <= 1.0, "{aspect} {k}");
+                for q in quads.iter().filter(|q| q.tex != Tex::Hand) {
+                    let [x, y, w, h] = q.dst;
+                    assert!(x >= 320.0 - vis.x / 2.0 && x + w <= 320.0 + vis.x / 2.0 + 0.01 && y >= MARGIN[0] - 0.01 && y + h <= 448.0 - MARGIN[1] + 0.01, "{aspect} {:?}", q.dst);
+                }
+                assert!(rects.iter().all(|r| r[0] + r[2] < quads[0].dst[0]));
+                let hits = Hits(rects.clone());
+                for (i, r) in rects.iter().enumerate() {
+                    assert_eq!(pill_at(&hits, Vec2::new(r[0] + r[2] / 2.0, r[1] + r[3] / 2.0)), Some(i));
+                }
+                assert_eq!(pill_at(&hits, Vec2::new(quads[0].dst[0] + 10.0, 200.0)), None);
             }
-            for (k, r) in rects(online).into_iter().enumerate() {
-                let mut q = [Quad { tex: Tex::Pill, src: [0.0; 4], dst: r, rgb: WHITE, alpha: 128.0 }];
-                fit(&mut q);
-                let [x, y, w, h] = q[0].dst;
-                assert_eq!(pill_at(online, Vec2::new(x + w / 2.0, y + h / 2.0)), Some(k));
-            }
-            assert_eq!(pill_at(online, Vec2::new(320.0, 200.0)), None);
         }
-        // the board at most a fifth smaller than its own size
-        assert!(scale() > 0.8, "{}", scale());
     }
 }

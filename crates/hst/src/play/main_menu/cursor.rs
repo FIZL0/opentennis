@@ -90,6 +90,8 @@ pub(in crate::play) fn setup(
         layers,
         CursorCamera,
     ));
+    // B764: the end screen (hst-play) points with the same hand
+    commands.insert_resource(crate::play::match_stats::next::Pointer(image.clone()));
     commands.insert_resource(Cursor { image, effect, shown, acc: 0.0, at: Vec::new() });
 }
 

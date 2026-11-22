@@ -25,6 +25,7 @@ pub(super) use ceremony::END_JINGLE;
 mod dissolve;
 mod hold;
 pub mod next;
+mod plate;
 
 use bevy::prelude::*;
 use hst_data::{iso::Iso, xb::Archive};
@@ -58,8 +59,19 @@ enum Tex {
     Team,
     /// Our own pill sheet ([`super::menu_art::pill_layers`]), behind the team's name.
     Pill,
-    /// M196: what-next's words, [`next::LABELS`] then [`next::NOTES`]; F1: then "GAME, SET, MATCH!".
+    /// M196: what-next's words, [`next::LABELS`] then [`next::NOTES`]; B764: then the "Game, Set, Match!" banner's
+    /// art (the model's own texture).
     Own(u8),
+    /// B764: the result board's sheets (`popups::Art`, `result_gameset00`–`03`): frame, stripes and plate ring; the
+    /// settled games' green digits; the orange digits; the sets-won digits and "Set".
+    Board(u8),
+    /// The board's slot labels (`inpane_p`), which the plates' names take the place of.
+    Slot,
+    /// B764: player `p`'s plate name and character pill ([`plate::Words`]).
+    Name(usize),
+    Chara(usize),
+    /// B764: the pause menu's pointing hand ([`next::Pointer`]).
+    Hand,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -72,10 +84,9 @@ struct Quad {
 }
 
 const WHITE: [f32; 3] = [128.0; 3];
-/// F1: "Stats" in the board's yellow (the original's fade starts from it, to grey at the bottom).
-const TITLE: [f32; 3] = [111.0, 114.0, 58.0];
-/// F1: "GAME, SET, MATCH!"'s words.
-const GSM: &str = "GAME, SET, MATCH!";
+/// B764: the header is this much taller than the original's 40 (the pause board's plates: ring, name, pill under the
+/// face), the rows and the bar this much lower.
+const HEAD: i32 = 16;
 
 /// The struck shot's counts: shot number, contact branch, the forehand side, the sweet balloon, the net distance.
 pub(super) fn hit(g: &mut Game, who: usize, branch: u8, grade: u8, offset: i32) {
@@ -116,6 +127,9 @@ struct View<'a> {
     rank_rgb: [[u8; 3]; 4],
     /// The winner's header alpha (pulsing).
     pulse: i32,
+    /// B764: the rules' sets to win (the score board's length) and each player's plate words' widths (name, pill).
+    sets_to_win: i32,
+    words: [Option<[f32; 2]>; 4],
 }
 
 fn layout(v: &View) -> Vec<Quad> {
@@ -126,32 +140,32 @@ fn layout(v: &View) -> Vec<Quad> {
     let (n, t) = (v.players, v.table);
     let singles = n < 3;
     let rgb = |c: [u8; 3]| c.map(f32::from);
-    // native size where the original passes −1
-    let nat = |src: [i32; 4], x: i32, y: i32| [x, y, src[2], src[3]];
-    let digit = |d: u32| [d as i32 * 16, 0, 16, 24];
 
     let (x0, w) = if singles { (136, 368) } else { (40, 560) };
-    q(Tex::Back, [0, 0, 8, 8], [x0, 80, w, 256], WHITE, board::BACK_ALPHA as i32);
-    // the bar below: longest rally, match time
-    q(Tex::Frame, [0, 472, 16, 40], [40, 352, 16, 40], WHITE, 128);
-    q(Tex::Frame, [16, 472, 16, 40], [56, 352, 528, 40], WHITE, 128);
-    q(Tex::Frame, [32, 472, 16, 40], [584, 352, 16, 40], WHITE, 128);
+    let hh = 40 + HEAD;
+    q(Tex::Back, [0, 0, 8, 8], [x0, 80, w, 256 + HEAD], WHITE, board::BACK_ALPHA as i32);
+    // the bar below: longest rally, match time (B764: the digits the result board's, as every value)
+    let (bar, by) = (352 + HEAD, 359 + HEAD);
+    q(Tex::Frame, [0, 472, 16, 40], [40, bar, 16, 40], WHITE, 128);
+    q(Tex::Frame, [16, 472, 16, 40], [56, bar, 528, 40], WHITE, 128);
+    q(Tex::Frame, [32, 472, 16, 40], [584, bar, 16, 40], WHITE, 128);
     let rally = t.longest_rally.min(999);
-    q(Tex::Text, [0, 320, 104, 24], [88, 359, 104, 24], WHITE, 128);
+    q(Tex::Text, [0, 320, 104, 24], [88, by, 104, 24], WHITE, 128);
+    let mut cells = Vec::new();
     for (k, d) in [rally / 100, rally / 10 % 10, rally % 10].into_iter().enumerate() {
         if (k == 0 && rally < 100) || (k == 1 && rally < 10) {
             continue;
         }
-        q(Tex::Text, digit(d), nat(digit(d), 216 + 16 * k as i32, 359), WHITE, 128);
+        cells.push(cell(d, 216 + 16 * k as i32, by));
     }
-    q(Tex::Text, [0, 344, 80, 24], [352, 359, 80, 24], WHITE, 128);
+    q(Tex::Text, [0, 344, 80, 24], [352, by, 80, 24], WHITE, 128);
     // M176: in the match's own ticks a second
     for (k, part) in hst_sim::stats::hms_at(t.frames, crate::match_speed::current()).into_iter().enumerate() {
         let x = 440 + 40 * k as i32;
-        q(Tex::Text, digit(part / 10 % 10), [x, 359, 16, 24], WHITE, 128);
-        q(Tex::Text, digit(part % 10), [x + 16, 359, 16, 24], WHITE, 128);
+        cells.push(cell(part / 10 % 10, x, by));
+        cells.push(cell(part % 10, x + 16, by));
         if k < 2 {
-            q(Tex::Text, [80, 344, 8, 24], [x + 32, 359, 8, 24], WHITE, 128);
+            q(Tex::Text, [80, 344, 8, 24], [x + 32, by, 8, 24], WHITE, 128);
         }
     }
     // each player's header pill, in the player's stripe
@@ -159,13 +173,13 @@ fn layout(v: &View) -> Vec<Quad> {
         let vv = 0x110 + 0x28 * p as i32;
         let x = [x0, 408][p & 1] + if p >= 2 { 96 } else { 0 };
         if p & 1 == 0 {
-            q(Tex::Frame, [0, vv, 8, 40], [x, 80, 24, 40], WHITE, 128);
-            q(Tex::Frame, [8, vv, 16, 40], [x + 24, 80, 16, 40], WHITE, 128);
-            q(Tex::Frame, [24, vv, 7, 40], [x + 40, 80, 56, 40], WHITE, 128);
+            q(Tex::Frame, [0, vv, 8, 40], [x, 80, 24, hh], WHITE, 128);
+            q(Tex::Frame, [8, vv, 16, 40], [x + 24, 80, 16, hh], WHITE, 128);
+            q(Tex::Frame, [24, vv, 7, 40], [x + 40, 80, 56, hh], WHITE, 128);
         } else {
-            q(Tex::Frame, [0, vv, 8, 40], [x, 80, 56, 40], WHITE, 128);
-            q(Tex::Frame, [8, vv, 16, 40], [x + 56, 80, 16, 40], WHITE, 128);
-            q(Tex::Frame, [24, vv, 7, 40], [x + 72, 80, 24, 40], WHITE, 128);
+            q(Tex::Frame, [0, vv, 8, 40], [x, 80, 56, hh], WHITE, 128);
+            q(Tex::Frame, [8, vv, 16, 40], [x + 56, 80, 16, hh], WHITE, 128);
+            q(Tex::Frame, [24, vv, 7, 40], [x + 72, 80, 24, hh], WHITE, 128);
         }
     }
     let wx = match (t.winner, singles) {
@@ -173,21 +187,7 @@ fn layout(v: &View) -> Vec<Quad> {
         (0, false) => 0x28,
         _ => 0x198,
     };
-    q(Tex::Frame, [44, 308, 4, 4], [wx, 80, if singles { 0x60 } else { 0xc0 }, 40], WHITE, v.pulse);
-    // faces and slot labels: even players face then label, odd players label then face
-    let (faces, labels): (&[i32], &[i32]) =
-        if singles { (&[0x8a, 0x1d0], &[0xc6, 0x19a]) } else { (&[0x28, 0x1d0, 0x8a, 0x230], &[0x66, 0x19a, 0xc6, 0x1fa]) };
-    for p in 0..n {
-        q(Tex::Face(p), [0, 0, 64, 64], [faces[p], 80, 64, 64], WHITE, 128);
-        let lx = labels[p] - if p & 1 == 0 { 14 } else { 0 };
-        let src = [0, v.slots[p] as i32 * 24 + 392, 48, 24];
-        q(Tex::Text, src, nat(src, lx, 80), rgb(v.pill[p]), 128);
-        // the rank under it: beside the face on the left half
-        if let Some(r) = v.ranks[p] {
-            let x = if lx <= 320 { faces[p] + 61 } else { lx } - if p & 1 == 0 { 4 } else { 0 };
-            q(Tex::Rank, [0, r as i32 * 24, 64, 24], [x, 104, 64, 24], rgb(v.rank_rgb[p]), 128);
-        }
-    }
+    q(Tex::Frame, [44, 308, 4, 4], [wx, 80, if singles { 0x60 } else { 0xc0 }, hh], WHITE, v.pulse);
     // each row's best (fewest missed shots and double faults, the most of the rest) on its players' colours
     let hx: &[i32] = if singles { &[0x88, 0x198] } else { &[0x28, 0x198, 0x88, 0x1f8] };
     for r in (0..9).filter(|r| !(6..=7).contains(r)) {
@@ -204,34 +204,39 @@ fn layout(v: &View) -> Vec<Quad> {
         }
         for p in (0..who).filter(|&p| vals[p] == best) {
             let w = if r == 8 && !singles { 192 } else { 96 };
-            q(Tex::Frame, [49, 273, 6, 8], [hx[p], 120 + 24 * r as i32, w, 24], rgb(v.pill[p]), 128);
+            q(Tex::Frame, [49, 273, 6, 8], [hx[p], 120 + HEAD + 24 * r as i32, w, 24], rgb(v.pill[p]), 128);
         }
     }
-    // the column frames and their dividers
+    // the column frames and their dividers; B764: each frame's header part (its first 48 px) taller by `HEAD`, the
+    // rows' part as it is, so its row lines stay on the rows
     let fx = if singles { 128 } else { 32 };
-    q(Tex::Frame, [0, 0, 16, 272], [fx, 72, 16, 272], WHITE, 128);
-    q(Tex::Frame, [16, 0, 8, 272], [fx + 16, 72, 88, 272], WHITE, 128);
+    let mut frame = |u: i32, uw: i32, x: i32, w: i32| {
+        q(Tex::Frame, [u, 0, uw, 48], [x, 72, w, 48 + HEAD], WHITE, 128);
+        q(Tex::Frame, [u, 48, uw, 224], [x, 120 + HEAD, w, 224], WHITE, 128);
+    };
+    frame(0, 16, fx, 16);
+    frame(16, 8, fx + 16, 88);
     if !singles {
-        q(Tex::Frame, [16, 0, 8, 272], [fx + 104, 72, 96, 272], WHITE, 128);
+        frame(16, 8, fx + 104, 96);
     }
     let i = fx + if singles { 104 } else { 200 };
-    q(Tex::Frame, [29, 0, 6, 272], [i, 72, 176, 272], WHITE, 128);
-    q(Tex::Frame, [16, 0, 8, 272], [i + 176, 72, 88, 272], WHITE, 128);
+    frame(29, 6, i, 176);
+    frame(16, 8, i + 176, 88);
     if !singles {
-        q(Tex::Frame, [16, 0, 8, 272], [i + 264, 72, 96, 272], WHITE, 128);
+        frame(16, 8, i + 264, 96);
     }
-    q(Tex::Frame, [40, 0, 16, 272], [i + if singles { 264 } else { 360 }, 72, 16, 272], WHITE, 128);
+    frame(40, 16, i + if singles { 264 } else { 360 }, 16);
     for (k, x) in [136, 232, 406, 504].into_iter().enumerate() {
         if singles && (k == 0 || k == 3) {
             continue;
         }
         let h = if k == 0 || k == 3 { 232 } else { 256 };
-        q(Tex::Frame, [40, 273, 2, 14], [x, 80, 2, h], WHITE, 128);
+        q(Tex::Frame, [40, 273, 2, 14], [x, 80, 2, h + HEAD], WHITE, 128);
     }
-    // "Stats" and the row names
-    q(Tex::Text, [0, 64, 160, 40], [240, 80, 160, 40], TITLE, 128);
+    // "Stats" (white, as the original's sheet has it) and the row names
+    q(Tex::Text, [0, 64, 160, 40], [240, 80 + HEAD / 2, 160, 40], WHITE, 128);
     for k in 0..9 {
-        q(Tex::Text, [0, 104 + 24 * k, 160, 24], [240, 120 + 24 * k, 160, 24], WHITE, 128);
+        q(Tex::Text, [0, 104 + 24 * k, 160, 24], [240, 120 + HEAD + 24 * k, 160, 24], WHITE, 128);
     }
     // the values
     let (a, b, d, e): (&[i32], &[i32], &[i32], &[i32]) = if singles {
@@ -246,19 +251,12 @@ fn layout(v: &View) -> Vec<Quad> {
             if k + 1 < digits && value < place {
                 continue;
             }
-            let src = digit(value / place % 10);
-            out.push(Quad {
-                tex: Tex::Text,
-                src: src.map(|c| c as f32),
-                dst: [(x + 16 * k as i32) as f32, y as f32, 16.0, 24.0],
-                rgb: WHITE,
-                alpha: 128.0,
-            });
+            out.push(cell(value / place % 10, x + 16 * k as i32, y));
         }
     };
     let mut values = Vec::new();
     for r in 0..9 {
-        let y = 120 + 24 * r as i32;
+        let y = 120 + HEAD + 24 * r as i32;
         for p in 0..n {
             let v = t.rows[p][r];
             match r {
@@ -280,7 +278,43 @@ fn layout(v: &View) -> Vec<Quad> {
             }
         }
     }
+    out.extend(plates(v, x0));
     out.extend(values);
+    out.extend(cells);
+    out
+}
+
+/// B764: digit `d` in the stats sheet's 16×24 cell at `x, y`, drawn with the result board's orange outlined digits
+/// (`result_gameset02`, the pause board's), 20 px square round the cell's middle.
+fn cell(d: u32, x: i32, y: i32) -> Quad {
+    let (x, y) = (x as f32, y as f32);
+    Quad { tex: Tex::Board(2), src: [(d % 10) as f32 * 32.0, 0.0, 32.0, 32.0], dst: [x - 2.0, y + 2.0, 20.0, 20.0], rgb: WHITE, alpha: 128.0 }
+}
+
+/// B764: the header's plates, as the pause board's: each player's face in the board's white ring at the column's
+/// outer end, the plate's name ([`plate::place`]) beside it on the stripes, the character's pill under the face; a
+/// CPU's rank (in the rank colour) under its "COM". `x0`: the first column's left.
+fn plates(v: &View, x0: i32) -> Vec<Quad> {
+    let mut out = Vec::new();
+    let q = |tex, src: [f32; 4], dst: [f32; 4], rgb: [f32; 3]| Quad { tex, src, dst, rgb, alpha: 128.0 };
+    for p in 0..v.players.min(4) {
+        let left = p & 1 == 0;
+        let cx = ([x0, 408][p & 1] + if p >= 2 { 96 } else { 0 }) as f32;
+        let ring = [if left { cx + 2.0 } else { cx + 46.0 }, 82.0];
+        out.push(q(Tex::Board(0), [80.0, 0.0, 48.0, 48.0], [ring[0], ring[1], 48.0, 48.0], WHITE));
+        out.push(q(Tex::Face(p), [0.0, 0.0, 64.0, 64.0], [ring[0] + 2.0, ring[1] + 2.0, 64.0, 64.0], WHITE));
+        let room = if left { [cx + 52.0, cx + 94.0] } else { [cx + 2.0, cx + 44.0] };
+        let rank = v.ranks[p];
+        let name_y = if rank.is_some() { 94.0 } else { 100.0 };
+        if let Some([name, pill]) = v.words[p].map(|w| plate::place(left, ring, name_y, room, [cx, cx + 96.0], w)) {
+            out.push(q(Tex::Name(p), [0.0; 4], name, WHITE));
+            out.push(q(Tex::Chara(p), [0.0; 4], pill, WHITE));
+        }
+        if let Some(r) = rank {
+            let w = room[1] - room[0];
+            out.push(q(Tex::Rank, [0.0, r as f32 * 24.0, 64.0, 24.0], [room[0], 106.0, w, w * 24.0 / 64.0], v.rank_rgb[p].map(f32::from)));
+        }
+    }
     out
 }
 
@@ -298,16 +332,15 @@ fn text(src: [i32; 4], x: i32, y: i32) -> Quad {
 fn percent(out: &mut Vec<Quad>, v: f32, x: i32, y: i32) {
     let tenths = (v * 10.0) as u32;
     let whole = tenths / 10;
-    let cell = |d: u32, x: i32| text([d as i32 * 16, 0, 16, 24], x, y);
     if whole >= 100 {
-        out.push(cell(whole / 100 % 10, x));
+        out.push(cell(whole / 100 % 10, x, y));
     }
     if whole >= 10 {
-        out.push(cell(whole / 10 % 10, x + 16));
+        out.push(cell(whole / 10 % 10, x + 16, y));
     }
-    out.push(cell(whole % 10, x + 32));
+    out.push(cell(whole % 10, x + 32, y));
     out.push(text([160, 0, 8, 24], x + 48, y));
-    out.push(cell(tenths % 10, x + 56));
+    out.push(cell(tenths % 10, x + 56, y));
 }
 
 
@@ -413,6 +446,9 @@ pub fn plugin(app: &mut App) {
     hold::plugin(app);
     app.init_resource::<Screen>()
         .init_resource::<Serving>()
+        .init_resource::<plate::Words>()
+        .init_resource::<next::Hits>()
+        .add_systems(Update, plate::refresh.before(draw))
         .add_systems(PostStartup, setup.after(super::setup))
         .add_systems(FixedUpdate, tick.after(super::simulate))
         .add_systems(Update, (ceremony::begin, step, pool, draw, draw_banner).chain())
@@ -424,13 +460,13 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, ceremony::show.after(crate::character::animate));
 }
 
-/// M14: the end screen's legend: ←→ choose a pill, OK from tick 120.
+/// M14: the end screen's legend: ↑↓ choose a pill (B764: stacked as the pause menu's), OK from tick 120.
 fn legend(screen: Res<Screen>, dissolve: Res<dissolve::Dissolve>, last: Res<super::legend::Last>, mut out: ResMut<super::legend::Legend>) {
     use super::legend::{Act, item};
     if !screen.open || screen.leaving.is_some() || dissolve.fading() {
         return;
     }
-    let mut v = vec![item(Act::LeftRight, "Choose", &["A", "D"])];
+    let mut v = vec![item(Act::UpDown, "Choose", &["W", "S"])];
     if screen.ready() {
         v.push(item(Act::Ok, "OK", &["Enter", "J"]));
     }
@@ -448,6 +484,7 @@ fn setup(
 ) {
     let mut iso = Iso::open(&args.iso).expect("open iso");
     let mut art = Vec::new();
+    let mut banner_art = None;
     for (xb, names) in [("AZUMA/PRIZE/OTHER.XB0", &TEXTURES[..]), ("AZUMA/INPANE/INPANE.XB0", &INPANE[..])] {
         let data = iso.read(xb).expect("archive on disc");
         let arc = Archive::parse(&data).expect("xb archive");
@@ -470,6 +507,10 @@ fn setup(
             }
             commands.entity(root).insert_recursive::<Children>((bevy::light::NotShadowCaster, bevy::light::NotShadowReceiver));
             commands.insert_resource(Banner(effect, shown));
+            // B764: the model's own art, flat, for the end screen's banner
+            let get = |n: &str| arc.entries.iter().find(|e| e.name.replace('\\', "/").to_ascii_lowercase().ends_with(n)).and_then(|e| arc.read(e).ok());
+            let mtl = get("i_gameset_00.mtl").and_then(|m| hst_data::mtl::parse(&m, get("i_gameset_00.mti").as_deref()).ok()).expect("i_gameset_00 art");
+            banner_art = Some(images.add(crate::character::texture_image(&mtl.textures[0])));
         }
     }
     art.push(super::menu_art::pill_layers(&mut images));
@@ -480,7 +521,7 @@ fn setup(
     for s in next::NOTES {
         art.push(super::word_label::label_w(&mut iso, &mut images, s, next::NOTE_W));
     }
-    art.push(super::word_label::label_w(&mut iso, &mut images, GSM, next::GSM_W));
+    art.extend(banner_art);
     let bank = crate::audio::SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd");
     commands.insert_resource(Art(art, bank.map(std::sync::Arc::new)));
     commands
@@ -544,13 +585,14 @@ fn step(
     mut banner: Option<ResMut<Banner>>,
     sounds: Option<Res<Art>>,
     sound: Option<Res<crate::audio::Sound>>,
-    (gallery, mut exit, mouse, touches, window, np): (
+    (gallery, mut exit, mouse, touches, window, np, hits): (
         Option<Res<crate::audio::GalleryBank>>,
         MessageWriter<AppExit>,
         Res<ButtonInput<MouseButton>>,
         Res<Touches>,
         Query<&Window, With<bevy::window::PrimaryWindow>>,
         Option<Res<super::netplay::Netplay>>,
+        Res<next::Hits>,
     ),
     mut cer: Option<ResMut<ceremony::Ceremony>>,
     mut dissolve: ResMut<dissolve::Dissolve>,
@@ -632,7 +674,7 @@ fn step(
         if by != 0 && screen.choose(by, n) {
             play(0);
         }
-        let hit = point.and_then(|p| next::pill_at(online, p));
+        let hit = point.and_then(|p| next::pill_at(&hits, p));
         if let Some(k) = hit {
             screen.sel = k;
         }
@@ -679,6 +721,13 @@ fn draw(
     mut fade: Query<&mut BackgroundColor, (With<Fade>, Without<Dim>)>,
     mut dim: Query<&mut BackgroundColor, (With<Dim>, Without<Fade>)>,
     np: Option<Res<super::netplay::Netplay>>,
+    (board_art, words, pointer, mut hits, window): (
+        Option<Res<popups::Art>>,
+        Res<plate::Words>,
+        Option<Res<next::Pointer>>,
+        ResMut<next::Hits>,
+        Query<&Window, With<bevy::window::PrimaryWindow>>,
+    ),
 ) {
     for mut c in &mut fade {
         c.set_if_neq(BackgroundColor(Color::BLACK.with_alpha(screen.leaving.map_or(0.0, |t| (t as f32 / 60.0).min(1.0)))));
@@ -687,7 +736,7 @@ fn draw(
     for mut c in &mut dim {
         c.set_if_neq(BackgroundColor(if shown { DIM } else { Color::NONE }));
     }
-    let (Some(art), Some(panel_art), Some(colours)) = (art, panel_art, colours) else {
+    let (Some(art), Some(panel_art), Some(colours), Some(board_art)) = (art, panel_art, colours, board_art) else {
         return;
     };
     let n = g.players.len();
@@ -703,10 +752,13 @@ fn draw(
             ranks: std::array::from_fn(|i| (i < n && slot(i) == 4).then(|| g.players[i].ai.rank as usize)),
             rank_rgb: colours.1,
             pulse: screen.alpha,
+            sets_to_win: g.rules.sets,
+            words: std::array::from_fn(|p| if p < n { words.widths(p) } else { None }),
         });
-        quads.push(next::banner((next::LABELS.len() + next::NOTES.len()) as u8));
-        quads.extend(next::row(np.is_some(), screen.sel));
-        next::fit(&mut quads);
+        let (all, mut rects) = next::compose(quads, np.is_some(), screen.sel);
+        quads = all;
+        next::fit(&mut quads, &mut rects, next::visible(crate::widescreen::window_aspect(&window)));
+        hits.0 = rects;
     } else if let Some(c) = cer.filter(|_| g.match_stats.result.is_some()) {
         quads = ceremony::quads(&c.plan, n > 2);
     }
@@ -732,10 +784,21 @@ fn draw(
             Tex::Own(k) => art.0[9 + k as usize].clone(),
             Tex::Face(p) => panel_art.0[panel::FACES + p].clone(),
             Tex::Rank => panel_art.0[6].clone(),
+            Tex::Board(k) => board_art.0[5 + k as usize].clone(),
+            Tex::Slot => panel_art.0[1].clone(),
+            Tex::Name(p) => words.name[p].as_ref().map_or_else(Handle::default, |w| w.0.clone()),
+            Tex::Chara(p) => words.chara[p].as_ref().map_or_else(Handle::default, |w| w.0.clone()),
+            Tex::Hand => match &pointer {
+                Some(h) => h.0.clone(),
+                None => {
+                    vis.set_if_neq(Visibility::Hidden);
+                    continue;
+                }
+            },
         };
         let [u, v, w, h] = quad.src;
-        // B160: a face is its whole image (INPANE's 64×64, or a baked one's larger square)
-        img.rect = (!matches!(quad.tex, Tex::Face(_))).then(|| Rect::new(u, v, u + w, v + h));
+        // B160: a face is its whole image (INPANE's 64×64, or a baked one's larger square); our words and the hand too
+        img.rect = (!matches!(quad.tex, Tex::Face(_) | Tex::Name(_) | Tex::Chara(_) | Tex::Hand)).then(|| Rect::new(u, v, u + w, v + h));
         let [r, g, b] = quad.rgb.map(|c| c / 128.0);
         img.color = Color::srgba(r, g, b, quad.alpha / 128.0);
         let [x, y, w, h] = quad.dst;
@@ -814,52 +877,59 @@ mod tests {
         Table { rows, longest_rally: 7, frames: 60 * 754, winner: 0, score: Default::default() }
     }
 
-    /// Singles: the values' digits where the original draws them, the bests highlighted, ties not.
+    /// Singles: the values' digits where the original draws them (B764: the board's outlined digits, 20 px round
+    /// each cell's middle; the rows `HEAD` lower), the bests highlighted, ties not.
     #[test]
     fn singles() {
         let t = table();
         let rank_rgb = [[127, 105, 112], [82, 107, 121], [0; 3], [0; 3]];
         let pill = [[98, 46, 61], [33, 74, 97], [0; 3], [0; 3]];
-        let v = View { table: &t, players: 2, slots: [0, 4, 4, 4], pill, ranks: [None, Some(5), None, None], rank_rgb, pulse: 51 };
+        let v = View { table: &t, players: 2, slots: [0, 4, 4, 4], pill, ranks: [None, Some(5), None, None], rank_rgb, pulse: 51, sets_to_win: 1, words: [Some([30.0, 40.0]); 4] };
         let quads = layout(&v);
-        let at = |x: f32, y: f32| quads.iter().filter(|q| q.dst[0] == x && q.dst[1] == y).map(|q| q.src).collect::<Vec<_>>();
+        let at = |x: i32, y: i32| quads.iter().filter(|q| q.dst[0] == x as f32 && q.dst[1] == y as f32).map(|q| q.src).collect::<Vec<_>>();
+        // the cell at (x, y) holds digit d
+        let digit = |x: i32, y: i32, d: u32| at(x - 2, y + HEAD + 2) == vec![[d as f32 * 32.0, 0.0, 32.0, 32.0]];
         // fastest serve: 161 km/h is 100 mph at 0x8a
-        assert_eq!(at(138.0, 120.0), vec![[16.0, 0.0, 16.0, 24.0]]);
-        assert_eq!(at(170.0, 120.0), vec![[0.0, 0.0, 16.0, 24.0]]);
+        assert!(digit(0x8a, 120, 1) && digit(0x8a + 32, 120, 0));
         // points won 24 right-aligned in 4 digits from 0x92: "2" at +32, "4" at +48
-        assert_eq!(at(0x92 as f32 + 32.0, 144.0), vec![[32.0, 0.0, 16.0, 24.0]]);
-        assert!(at(0x92 as f32, 144.0).is_empty());
-        // 12.25 %: "1" "2" "." "2" from 0x19a (no hundreds)
-        assert_eq!(at(0x19a as f32 + 16.0, 240.0), vec![[16.0, 0.0, 16.0, 24.0]]);
-        assert_eq!(at(0x19a as f32 + 48.0, 240.0), vec![[160.0, 0.0, 8.0, 24.0]]);
-        assert_eq!(at(0x19a as f32 + 56.0, 240.0), vec![[32.0, 0.0, 16.0, 24.0]]);
+        assert!(digit(0x92 + 32, 144, 2) && digit(0x92 + 48, 144, 4));
+        assert!(at(0x92 - 2, 144 + HEAD + 2).is_empty());
+        // 12.25 %: "1" "2" "." "2" from 0x19a (no hundreds); the point is the stats sheet's
+        assert!(digit(0x19a + 16, 240, 1) && digit(0x19a + 56, 240, 2));
+        assert_eq!(at(0x19a + 48, 240 + HEAD), vec![[160.0, 0.0, 8.0, 24.0]]);
         // highlights: player 0 for points (row 1), missed (2); double faults tie (3); never net play (6)
-        let lit = |r: i32| quads.iter().filter(|q| q.src == [49.0, 273.0, 6.0, 8.0] && q.dst[1] == (120 + 24 * r) as f32).map(|q| q.dst[0]).collect::<Vec<_>>();
+        let lit = |r: i32| quads.iter().filter(|q| q.src == [49.0, 273.0, 6.0, 8.0] && q.dst[1] == (120 + HEAD + 24 * r) as f32).map(|q| q.dst[0]).collect::<Vec<_>>();
         assert_eq!(lit(1), vec![136.0]);
         assert_eq!(lit(2), vec![136.0]);
         assert!(lit(3).is_empty());
         assert!(lit(6).is_empty());
-        // 12:34 match time: 00:12:34
-        assert_eq!(at(480.0 + 16.0, 359.0), vec![[32.0, 0.0, 16.0, 24.0]]);
-        assert_eq!(at(520.0, 359.0), vec![[48.0, 0.0, 16.0, 24.0]]);
+        // 12:34 match time: 00:12:34, in the bar
+        assert!(digit(480 + 16, 359, 2) && digit(520, 359, 3));
         assert!(quads.len() <= POOL);
-        // the dark background; the COM's rank under its label (the right half: at the label)
+        // no digit from the stats sheet
+        assert!(!quads.iter().any(|q| q.tex == Tex::Text && q.src[1] == 0.0 && q.src[0] < 160.0));
+        // the dark background; the COM's rank under its "COM", in the room beside the face
         assert_eq!((quads[0].tex, quads[0].alpha), (Tex::Back, board::BACK_ALPHA));
         let ranks: Vec<_> = quads.iter().filter(|q| q.tex == Tex::Rank).map(|q| (q.src, q.dst, q.rgb)).collect();
-        assert_eq!(ranks, vec![([0.0, 120.0, 64.0, 24.0], [410.0, 104.0, 64.0, 24.0], [82.0, 107.0, 121.0])]);
-        // "Stats" in the board's yellow; the row names plain
+        assert_eq!(ranks, vec![([0.0, 120.0, 64.0, 24.0], [410.0, 106.0, 42.0, 15.75], [82.0, 107.0, 121.0])]);
+        // each plate: the ring, the face in it, the name and the pill
+        for p in 0..2 {
+            assert_eq!(quads.iter().filter(|q| matches!(q.tex, Tex::Name(k) | Tex::Chara(k) | Tex::Face(k) if k == p)).count(), 3);
+        }
+        assert_eq!(quads.iter().filter(|q| q.tex == Tex::Board(0) && q.src == [80.0, 0.0, 48.0, 48.0]).count(), 2);
+        // "Stats" white; the row names plain
         let stats: Vec<_> = quads.iter().filter(|q| q.dst[0] == 240.0 && q.dst[1] < 120.0).map(|q| (q.src, q.dst, q.rgb)).collect();
-        assert_eq!(stats, [([0.0, 64.0, 160.0, 40.0], [240.0, 80.0, 160.0, 40.0], TITLE)]);
+        assert_eq!(stats, [([0.0, 64.0, 160.0, 40.0], [240.0, 88.0, 160.0, 40.0], WHITE)]);
         assert!(quads.iter().filter(|q| q.dst[0] == 240.0 && q.dst[1] >= 120.0 && q.dst[3] == 24.0).all(|q| q.rgb == WHITE));
     }
 
-    /// The player on the left half: the rank beside the face, 4 px further left for an even player.
+    /// The player on the left half: the rank in the room right of the face.
     #[test]
     fn rank_left() {
         let t = table();
-        let v = View { table: &t, players: 2, slots: [4, 0, 4, 4], pill: [[0; 3]; 4], ranks: [Some(2), None, None, None], rank_rgb: [[1; 3]; 4], pulse: 0 };
+        let v = View { table: &t, players: 2, slots: [4, 0, 4, 4], pill: [[0; 3]; 4], ranks: [Some(2), None, None, None], rank_rgb: [[1; 3]; 4], pulse: 0, sets_to_win: 1, words: [None; 4] };
         let q = layout(&v).into_iter().find(|q| q.tex == Tex::Rank).unwrap();
-        assert_eq!((q.src, q.dst), ([0.0, 48.0, 64.0, 24.0], [(0x8a + 61 - 4) as f32, 104.0, 64.0, 24.0]));
+        assert_eq!((q.src, q.dst), ([0.0, 48.0, 64.0, 24.0], [188.0, 106.0, 42.0, 15.75]));
     }
 
     /// One screen: the pills take ✕ from tick 120; choosing stops at the row's ends.
@@ -883,10 +953,10 @@ mod tests {
         // the whole end screen: the widget (five sets), its banner and the pills
         let mut t = table();
         t.score.set = 5;
-        let v = View { table: &t, players: 4, slots: [0, 4, 4, 4], pill: [[128; 3]; 4], ranks: [Some(0); 4], rank_rgb: [[128; 3]; 4], pulse: 0 };
-        let mut quads = board::widget(&v);
-        quads.push(next::banner(0));
-        quads.extend(next::row(true, 0));
+        t.score.set_games[0] = [6, 4, 6, 3, 7];
+        t.score.set_games[1] = [4, 6, 3, 6, 6];
+        let v = View { table: &t, players: 4, slots: [0, 4, 4, 4], pill: [[128; 3]; 4], ranks: [Some(0); 4], rank_rgb: [[128; 3]; 4], pulse: 0, sets_to_win: 3, words: [Some([40.0, 50.0]); 4] };
+        let (quads, _) = next::compose(board::widget(&v), true, 0);
         assert!(quads.len() <= POOL, "{}", quads.len());
     }
 
