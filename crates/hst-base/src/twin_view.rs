@@ -193,6 +193,10 @@ pub fn sync(
                 cv.set_if_neq(*vis);
             }
             None => {
+                // a tracked copy this query can't see (it picked up a Billboard, say) would stay drawn forever
+                if let Some(old) = twins.copies.get(&e) {
+                    commands.entity(*old).try_despawn();
+                }
                 let mut c = commands.spawn((TwinOf(e), Mesh3d(m), pose, *vis, RenderLayers::layer(BOTTOM), NoFrustumCulling, NotShadowCaster));
                 if let Some(p) = parent {
                     c.insert(ChildOf(p.parent()));
@@ -290,6 +294,34 @@ mod tests {
         let wfc = Mat4::from_cols(w.x_axis, w.y_axis, w.z_axis, w * c.extend(1.0));
         let p = Mat4::from_cols(Vec4::new(2.0 / d, 0.0, 0.0, 0.0), Vec4::new(0.0, 2.0 / d, 0.0, 0.0), Vec4::new(0.0, 0.0, 1.0 / depth, 0.0), Vec4::new(0.0, 0.0, 1.0, 1.0));
         Cascade { world_from_cascade: wfc, clip_from_cascade: p, clip_from_world: p * cfw, texel_size: d / 2048.0 }
+    }
+
+    /// B757: with the second view on over many frames, copies don't pile up, even when something turns a copy into
+    /// a billboard of its own (the backdrops did, every frame).
+    #[test]
+    fn twin_copies_dont_pile_up() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>().init_resource::<Twins>();
+        app.insert_resource(SecondEye(Some((Entity::PLACEHOLDER, Transform::default(), PerspectiveProjection::default()))));
+        app.add_systems(Update, sync);
+        let mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(Mesh::from(Rectangle::new(1.0, 1.0)));
+        let parent = app.world_mut().spawn(Transform::default()).id();
+        for _ in 0..3 {
+            app.world_mut().spawn((Billboard::TURNED, Mesh3d(mesh.clone()), Transform::default(), Visibility::default(), ChildOf(parent)));
+        }
+        for frame in 0..50 {
+            app.update();
+            if frame % 2 == 0 {
+                // what the backdrops did: every mesh under the parent, copies included, made a billboard
+                let all: Vec<Entity> = app.world_mut().query_filtered::<Entity, (With<Mesh3d>, Without<Billboard>)>().iter(app.world()).collect();
+                for e in all {
+                    app.world_mut().entity_mut(e).insert(Billboard::TURNED);
+                }
+            }
+            let copies = app.world_mut().query::<&TwinOf>().iter(app.world()).count();
+            assert_eq!(copies, app.world().resource::<Twins>().copies.len(), "frame {frame}");
+            assert_eq!(copies, 3, "frame {frame}");
+        }
     }
 
     /// Every corner of either box lands inside the shared cascade's clip volume (x, y in −1..1, reverse z in 0..1).
