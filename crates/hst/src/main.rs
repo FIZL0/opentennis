@@ -2045,4 +2045,33 @@ mod tests {
         assert_eq!((p.width, p.height), (4, 4));
         assert_eq!(px, [0, 1, 2, 2, 3, 4, 5, 5, 6, 7, 8, 8, 6, 7, 8, 8]);
     }
+
+    /// B757: with the split view on, the backdrops turn only their own meshes, never the second view's copies (a
+    /// copy turned into a billboard was respawned every frame and the old one never went).
+    #[test]
+    fn twin_copies_dont_pile_up() {
+        use hst_base::twin_view::{Billboard, SecondEye, TwinOf, Twins};
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>().init_resource::<Twins>();
+        app.insert_resource(SecondEye(Some((Entity::PLACEHOLDER, Transform::from_xyz(0.0, 5.0, -20.0), PerspectiveProjection::default()))));
+        app.add_systems(Update, (backdrops, hst_base::twin_view::sync).chain());
+        app.world_mut().spawn((Orbit { focus: Vec3::ZERO, radius: 20.0, yaw: 0.0, pitch: 0.0 }, Transform::from_xyz(0.0, 5.0, 20.0)));
+        let mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(Mesh::from(Rectangle::new(1.0, 1.0)));
+        let sky = app.world_mut().spawn((Backdrop { yaw: 0.0, lift: 0.0 }, Transform::default())).id();
+        let node = app.world_mut().spawn((Transform::default(), ChildOf(sky))).id();
+        for _ in 0..3 {
+            app.world_mut().spawn((Mesh3d(mesh.clone()), Transform::default(), Visibility::default(), ChildOf(node)));
+        }
+        let mut first: Option<Vec<Entity>> = None;
+        for frame in 0..30 {
+            app.update();
+            let mut copies: Vec<Entity> = app.world_mut().query_filtered::<Entity, With<TwinOf>>().iter(app.world()).collect();
+            copies.sort();
+            assert_eq!(copies.len(), 3, "frame {frame}");
+            let turned = app.world_mut().query_filtered::<(), (With<TwinOf>, With<Billboard>)>().iter(app.world()).count();
+            assert_eq!(turned, 0, "frame {frame}");
+            // the same copies all along, not new ones each frame
+            assert_eq!(first.get_or_insert_with(|| copies.clone()), &copies, "frame {frame}");
+        }
+    }
 }
