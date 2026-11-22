@@ -3,21 +3,32 @@
 //! it. 16 ticks from the match into the winners' ceremony, 60 from the ceremony into the result page (seen in the
 //! original: `research/journal/2026-10-12-b38-gameset-dissolve/scripts/b38_transition.py`, `b38_hold.py`).
 //!
-//! The still is a screenshot of the window; the caller waits for it (10 frames at most: no window, no renderer)
+//! The still is a screenshot of the window, taken at once (into the ceremony: three ticks later, the picture has settled then); the
+//! caller waits for it (10 frames at most: no window, no renderer) and for its own loading
 //! before it changes the scene, as `mode::leave`.
 
+use bevy::platform::time::Instant;
 use bevy::prelude::*;
+use std::time::Duration;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 
 /// The match → ceremony and ceremony → result page lengths.
 pub(super) const TO_CEREMONY: i32 = 16;
 pub(super) const TO_PAGE: i32 = 60;
+/// How long the picture settles before the still is taken: three ticks, in frames and in time (a fast display draws
+/// several frames a tick).
+const SETTLE_FRAMES: u32 = 3;
+const SETTLE: Duration = Duration::from_millis(50);
+/// The longest wait for the still, in frames.
+const WAIT_FRAMES: u32 = 10;
 
 #[derive(Resource, Default)]
 pub(super) struct Dissolve {
     state: State,
     /// Frames waited for the capture.
     waited: u32,
+    /// When the picture began to settle.
+    since: Option<Instant>,
     t: i32,
     len: i32,
     acc: f32,
@@ -27,6 +38,7 @@ pub(super) struct Dissolve {
 enum State {
     #[default]
     Idle,
+    Settling,
     Waiting,
     Captured(Handle<Image>),
     Fading(Handle<Image>),
@@ -36,26 +48,42 @@ enum State {
 struct Still;
 
 impl Dissolve {
-    /// Asks for the frame on screen; true once it is held (or can't be had), when the caller changes the scene and
-    /// the still starts fading over `len` ticks.
-    pub(super) fn cut(&mut self, commands: &mut Commands, len: i32) -> bool {
+    /// Asks for the frame on screen; true once it is held (or can't be had) and the caller is `ready` with what
+    /// comes next, when the caller changes the scene and the still starts fading over `len` ticks.
+    pub(super) fn cut(&mut self, commands: &mut Commands, len: i32, ready: bool) -> bool {
         match std::mem::take(&mut self.state) {
-            State::Captured(h) => {
+            State::Captured(h) if ready => {
                 (self.state, self.t, self.len, self.acc) = (State::Fading(h), len + 2, len, 0.0);
                 true
             }
-            State::Waiting if self.waited < 10 => {
+            State::Captured(h) => {
+                self.state = State::Captured(h);
+                false
+            }
+            // B760: what hid when the match ended (a bounce marker, the name tags) lingers a few ticks in the picture
+            // (`hud_gamma`'s 25 % of the last frame), so the still is taken once that has gone: it is the picture the
+            // screen holds until the cut
+            State::Idle | State::Fading(_) if len == TO_CEREMONY => {
+                (self.waited, self.since, self.state) = (0, Some(Instant::now()), State::Settling);
+                false
+            }
+            State::Settling if self.waited < SETTLE_FRAMES || self.since.is_some_and(|s| s.elapsed() < SETTLE) => {
+                self.waited += 1;
+                self.state = State::Settling;
+                false
+            }
+            // the cut to the page takes the still at once
+            State::Idle | State::Fading(_) | State::Settling => {
+                (self.waited, self.state) = (0, State::Waiting);
+                commands.spawn(Screenshot::primary_window()).observe(captured);
+                false
+            }
+            State::Waiting if self.waited < WAIT_FRAMES || !ready => {
                 self.waited += 1;
                 self.state = State::Waiting;
                 false
             }
             State::Waiting => true,
-            State::Idle | State::Fading(_) => {
-                self.waited = 0;
-                self.state = State::Waiting;
-                commands.spawn(Screenshot::primary_window()).observe(captured);
-                false
-            }
         }
     }
 
@@ -125,5 +153,32 @@ mod tests {
         assert_eq!(d.alpha(), Some(0.5));
         d.state = State::Idle;
         assert_eq!(d.alpha(), None);
+    }
+
+    /// The cut waits for the still and for the caller: the picture settling, the capture, then `ready`; with no still
+    /// (no renderer) it goes once the frames are up.
+    #[test]
+    fn cut_waits_for_still_and_caller() {
+        let mut world = World::new();
+        let mut d = Dissolve::default();
+        let cut = |d: &mut Dissolve, world: &mut World, ready| d.cut(&mut world.commands(), TO_CEREMONY, ready);
+        assert!(!cut(&mut d, &mut world, true));
+        assert!(matches!(d.state, State::Settling));
+        (d.waited, d.since) = (SETTLE_FRAMES, Some(Instant::now() - SETTLE));
+        assert!(!cut(&mut d, &mut world, true));
+        assert!(matches!(d.state, State::Waiting));
+        d.state = State::Captured(Handle::default());
+        assert!(!cut(&mut d, &mut world, false));
+        assert!(cut(&mut d, &mut world, true));
+        assert_eq!((d.fading(), d.t), (true, TO_CEREMONY + 2));
+        // the cut to the page doesn't settle
+        let mut p = Dissolve::default();
+        assert!(!p.cut(&mut world.commands(), TO_PAGE, true));
+        assert!(matches!(p.state, State::Waiting));
+        // no still ever comes
+        d.state = State::Waiting;
+        d.waited = WAIT_FRAMES;
+        assert!(!cut(&mut d, &mut world, false));
+        assert!(cut(&mut d, &mut world, true));
     }
 }

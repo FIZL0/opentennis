@@ -18,7 +18,7 @@ use hst_sim::sound::{self, Gallery, Reaction};
 
 use super::{Quad, Tex, WHITE};
 use crate::audio::{Sound, SoundBank};
-use crate::character::{Face, Rig};
+use crate::character::{CharacterData, Face, Rig};
 
 /// What the match's end leaves for the ceremony (`match_over`, before the next match resets the score and reseeds
 /// the sound generator): the ends as they stood, and the sound generator.
@@ -155,11 +155,11 @@ pub(super) fn quads(plan: &Plan, doubles: bool) -> Vec<Quad> {
     if doubles {
         let tint = if plan.shown == 0 { [127.0, 77.0, 77.0] } else { [67.0, 101.0, 127.0] };
         for (i, rgb) in [[15.0; 3], WHITE, tint].into_iter().enumerate() {
-            for (src, dst) in crate::play::menu_art::pill_quads(i, [240.0, 320.0, 160.0, 32.0]) {
+            for (src, dst) in crate::play::menu_art::pill_quads(i, [240.0, 335.0, 160.0, 32.0]) {
                 out.push(Quad { tex: Tex::Pill, src, dst, rgb, alpha: 128.0 });
             }
         }
-        out.push(q(Tex::Team, [0, if plan.shown == 0 { 0 } else { 32 }, 96, 32], [272, 320, 96, 32], WHITE));
+        out.push(q(Tex::Team, [0, if plan.shown == 0 { 0 } else { 32 }, 96, 32], [272, 335, 96, 32], WHITE));
     }
     out
 }
@@ -266,7 +266,67 @@ pub(super) fn pending() -> bool {
     ENDING.lock().unwrap().is_some() && !std::env::var("HST_STATS_PAGE").is_ok_and(|p| p == "1")
 }
 
-/// Builds the ceremony when the match has ended: the plan, the clips, the voice bank, the confetti.
+/// What the ceremony takes from the disc: the camera clip's keys, each player's motions, faces and free rackets, the
+/// prize voice (and its win program) and the result music.
+pub(super) struct Disc {
+    cam: Vec<([f32; 4], [f32; 4], f32)>,
+    clips: Vec<[Option<Clip>; 3]>,
+    faces: Vec<[Option<Face>; 3]>,
+    rackets: Vec<[Option<(Clip, Option<usize>)>; 3]>,
+    voice: Option<Arc<SoundBank>>,
+    voice_program: u8,
+    music: Option<(Arc<SoundBank>, Vec<u8>)>,
+}
+
+/// Reads [`Disc`] for `plan`: `data` the players' characters, `speaker` the shown one's disc character, `court` the
+/// stage, `modded` the shown player's mod character if it speaks for itself.
+fn read(iso: &str, plan: &Plan, data: &[Arc<CharacterData>], speaker: i32, court: u8, modded: Option<&crate::mods::Mod>) -> Disc {
+    let mut iso = Iso::open(iso).expect("open iso");
+    let cam_name = ["win_99", "lost_99", "hand_99"][plan.clip];
+    let effct = iso.read("AZUMA/C_EFF/EFFCT.XB0").expect("EFFCT on disc");
+    let arc = Archive::parse(&effct).expect("xb archive");
+    let e = arc.entries.iter().find(|e| e.name.replace('\\', "/").ends_with(&format!("prize/CAM/{cam_name}.CAM"))).expect("ceremony camera");
+    let (cam, fov) = ani::parse_cam(&arc.read(e).expect("archive bytes")).expect("camera clip");
+    let keys = |l: &Vec<(i32, [f32; 4])>| l.iter().map(|k| k.1).collect::<Vec<_>>();
+    let (rot, pos, fov) = (keys(&cam.tracks[0].rotation), keys(&cam.tracks[0].position), keys(&fov.tracks[0].position));
+    let cam = (0..rot.len()).map(|k| (rot[k], pos[k], fov[k][0])).collect();
+    let raw: Vec<Vec<u8>> = ["AZUMA/PRIZE/ANI/WINANI.XB", "AZUMA/PRIZE/ANI/LOSTANI.XB"].iter().filter_map(|p| iso.read(p).ok()).collect();
+    let archives: Vec<Archive> = raw.iter().filter_map(|d| Archive::parse(d).ok()).collect();
+    let file = |name: &str, ext: &str| {
+        let tail = format!("pcani/{}.{ext}", name.to_ascii_lowercase());
+        archives.iter().find_map(|a| a.read(a.entries.iter().find(|e| e.name.replace('\\', "/").to_ascii_lowercase().ends_with(&tail))?).ok())
+    };
+    let motion = |name: &str| ani::parse(&file(name, "ani2")?).ok();
+    let n = data.len();
+    let rackets = (0..n).map(|i| std::array::from_fn(|s| motion(&plan.files[i][s]).and_then(|a| free_racket(&data[i], &a)))).collect();
+    // ponytail: a mod character beyond the 14 plays stock character 13's files on its own skeleton
+    let clips = (0..n).map(|i| std::array::from_fn(|s| motion(&plan.files[i][s]).map(|a| Clip::new(&data[i].skeleton, &a)))).collect();
+    let faces = (0..n)
+        .map(|i| {
+            let d = &data[i];
+            std::array::from_fn(|s| crate::character::face(file(&plan.files[i][s], "mor"), file(&plan.files[i][s], "uva"), &d.skeleton, &|t| d.morph_target(t)))
+        })
+        .collect();
+    let b = if court == 7 { "B" } else { "" };
+    // B181: a mod character (not a costume pack) never speaks its donor's; it has no prize take, so it says its own
+    // set cheer / groan (programs 9 / 10)
+    let (voice, voice_program) = match modded {
+        Some(m) => (crate::mods::voice(m), 9),
+        None => (SoundBank::load(&mut iso, &format!("SND/VOICE/PRIZE/PC_HV{speaker:02}{b}.XB0"), &format!("data/sound/VOICE/PRIZE/sgv_vc{speaker:02}f{}.hd", b.to_lowercase())), 0),
+    };
+    // B386: the result music plays whatever the match music setting (that is the court's BGM only)
+    let music = SoundBank::music(&mut iso, "Menu", RESULT_BGM).map(|(b, m)| (Arc::new(b), m));
+    Disc { cam, clips, faces, rackets, voice: voice.map(Arc::new), voice_program, music }
+}
+
+/// B760: the ceremony being read: its plan, and the disc's part on its way (off the frame, [`crate::jobs`]) or here.
+pub(super) enum Reading {
+    Job(crate::jobs::Job<Disc>),
+    Done(Disc),
+}
+
+/// Builds the ceremony when the match has ended: the plan, the clips, the voice bank, the confetti. The disc is read
+/// off the frame while the still of the match's last frame is on its way, and the ceremony begins once both are here.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn begin(
     mut commands: Commands,
@@ -281,75 +341,62 @@ pub(super) fn begin(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     match_mod: Option<Res<crate::mods::MatchMod>>,
+    mut reading: Local<Option<(Plan, Reading)>>,
 ) {
-    let Some(table) = g.match_stats.result.as_ref() else { return };
-    if screen.open || cer.is_some() || !pending() {
+    let table = g.match_stats.result.as_ref().filter(|_| !screen.open && cer.is_none() && pending());
+    let Some(table) = table else {
+        *reading = None;
         return;
+    };
+    let c = |plan: &Plan| g.chars[plan.shown].clamp(0, 13);
+    if reading.is_none() {
+        let Some(swapped) = ENDING.lock().unwrap().as_ref().map(|e| e.0) else { return };
+        let n = g.players.len();
+        let humans: Vec<bool> = (0..n).map(|i| g.humans.get(i).copied().unwrap_or(false)).collect();
+        let winner = table.winner.min(1);
+        let local = local(&humans, net.as_ref().map(|np| &np.lock.mine[..]));
+        let mut plan = plan(&local, &g.chars, winner, swapped, table.rows[winner][8]);
+        vary_lost(&mut plan, &g.chars, winner);
+        let modded = match_mod.as_ref().and_then(|m| m.0.get(plan.shown)?.as_ref()).filter(|m| m.disc_voice().is_none()).cloned();
+        let (iso, data, speaker, court) = (args.iso.clone(), g.data.to_vec(), c(&plan), g.stage);
+        let job = crate::jobs::spawn({
+            let (iso, plan, data, modded) = (iso.clone(), plan.clone(), data.clone(), modded.clone());
+            move || read(&iso, &plan, &data, speaker, court, modded.as_ref())
+        });
+        // no pool (headless tests): read here
+        let r = job.map_or_else(|| Reading::Done(read(&iso, &plan, &data, speaker, court, modded.as_ref())), Reading::Job);
+        *reading = Some((plan, r));
+    }
+    let Some((_, r)) = reading.as_mut() else { return };
+    if let Reading::Job(j) = r
+        && let Some(d) = j.poll()
+    {
+        *r = Reading::Done(d);
     }
     // the match's last frame dissolves into the ceremony
-    if !dissolve.cut(&mut commands, super::dissolve::TO_CEREMONY) {
+    if !dissolve.cut(&mut commands, super::dissolve::TO_CEREMONY, matches!(r, Reading::Done(_))) {
         return;
     }
-    let Some((swapped, _)) = ENDING.lock().unwrap().take() else { return };
-    let n = g.players.len();
-    let humans: Vec<bool> = (0..n).map(|i| g.humans.get(i).copied().unwrap_or(false)).collect();
-    let winner = table.winner.min(1);
-    let local = local(&humans, net.as_ref().map(|np| &np.lock.mine[..]));
-    let mut plan = plan(&local, &g.chars, winner, swapped, table.rows[winner][8]);
-    vary_lost(&mut plan, &g.chars, winner);
-    let mut iso = Iso::open(&args.iso).expect("open iso");
-    let cam_name = ["win_99", "lost_99", "hand_99"][plan.clip];
-    let data = iso.read("AZUMA/C_EFF/EFFCT.XB0").expect("EFFCT on disc");
-    let arc = Archive::parse(&data).expect("xb archive");
-    let e = arc.entries.iter().find(|e| e.name.replace('\\', "/").ends_with(&format!("prize/CAM/{cam_name}.CAM"))).expect("ceremony camera");
-    let (cam, fov) = ani::parse_cam(&arc.read(e).expect("archive bytes")).expect("camera clip");
-    let keys = |l: &Vec<(i32, [f32; 4])>| l.iter().map(|k| k.1).collect::<Vec<_>>();
-    let (rot, pos, fov) = (keys(&cam.tracks[0].rotation), keys(&cam.tracks[0].position), keys(&fov.tracks[0].position));
-    let cam: Vec<_> = (0..rot.len()).map(|k| (rot[k], pos[k], fov[k][0])).collect();
-    let length = (cam.len() as u32).saturating_sub(1);
-    let raw: Vec<Vec<u8>> = ["AZUMA/PRIZE/ANI/WINANI.XB", "AZUMA/PRIZE/ANI/LOSTANI.XB"].iter().filter_map(|p| iso.read(p).ok()).collect();
-    let archives: Vec<Archive> = raw.iter().filter_map(|d| Archive::parse(d).ok()).collect();
-    let file = |name: &str, ext: &str| {
-        let tail = format!("pcani/{}.{ext}", name.to_ascii_lowercase());
-        archives.iter().find_map(|a| a.read(a.entries.iter().find(|e| e.name.replace('\\', "/").to_ascii_lowercase().ends_with(&tail))?).ok())
-    };
-    let motion = |name: &str| ani::parse(&file(name, "ani2")?).ok();
-    let rackets = (0..n).map(|i| std::array::from_fn(|s| motion(&plan.files[i][s]).and_then(|a| free_racket(&g.data[i], &a)))).collect();
-    // ponytail: a mod character beyond the 14 plays stock character 13's files on its own skeleton
-    let clips = (0..n).map(|i| std::array::from_fn(|s| motion(&plan.files[i][s]).map(|a| Clip::new(&g.data[i].skeleton, &a)))).collect();
-    let faces = (0..n)
-        .map(|i| {
-            let d = &g.data[i];
-            std::array::from_fn(|s| crate::character::face(file(&plan.files[i][s], "mor"), file(&plan.files[i][s], "uva"), &d.skeleton, &|t| d.morph_target(t)))
-        })
-        .collect();
+    let Some((plan, Reading::Done(disc))) = reading.take() else { return };
+    ENDING.lock().unwrap().take();
+    let length = (disc.cam.len() as u32).saturating_sub(1);
     let slot = plan.start.iter().map(|&s| (s, 0.0)).collect();
-    let c = g.chars[plan.shown].clamp(0, 13);
-    let b = if g.stage == 7 { "B" } else { "" };
-    // B181: a mod character (not a costume pack) never speaks its donor's; it has no prize take, so it says its own
-    // set cheer / groan (programs 9 / 10)
-    let modded = match_mod.as_ref().and_then(|m| m.0.get(plan.shown)?.as_ref()).filter(|m| m.disc_voice().is_none());
-    let (voice, voice_program) = match modded {
-        Some(m) => (crate::mods::voice(m), 9),
-        None => (SoundBank::load(&mut iso, &format!("SND/VOICE/PRIZE/PC_HV{c:02}{b}.XB0"), &format!("data/sound/VOICE/PRIZE/sgv_vc{c:02}f{}.hd", b.to_lowercase())), 0),
-    };
-    let voice = voice.map(Arc::new);
+    let speaker = c(&plan);
     let mut cer = Ceremony {
         plan,
         t: 0,
         length,
-        cam,
-        clips,
-        faces,
-        rackets,
+        cam: disc.cam,
+        clips: disc.clips,
+        faces: disc.faces,
+        rackets: disc.rackets,
         slot,
         gallery: g.gallery.clone(),
         court_rng: g.rng.court.clone(),
-        voice,
-        voice_program,
-        speaker: c,
-        // B386: the result music plays whatever the match music setting (that is the court's BGM only)
-        music: SoundBank::music(&mut iso, "Menu", RESULT_BGM).map(|(b, m)| (Arc::new(b), m)),
+        voice: disc.voice,
+        voice_program: disc.voice_program,
+        speaker,
+        music: disc.music,
         level: 0.0,
         flakes: Vec::new(),
         confetti: None,
