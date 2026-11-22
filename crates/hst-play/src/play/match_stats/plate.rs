@@ -57,7 +57,7 @@ fn who(slot: usize, name: Option<&str>) -> String {
     }
 }
 
-/// Sets the words again when they change, once the match has a result.
+/// Sets the words again when they change, once the match has a result (F2: or while the pause board is up).
 pub(super) fn refresh(
     g: Res<Game>,
     pads: Res<Pads>,
@@ -66,8 +66,10 @@ pub(super) fn refresh(
     mods: Option<Res<crate::mods::MatchMod>>,
     mut words: ResMut<Words>,
     mut images: ResMut<Assets<Image>>,
+    pause: Option<Res<super::pause_board::PauseBoard>>,
 ) {
-    if g.match_stats.result.is_none() {
+    // F2: the pause screen's board shows them too
+    if g.match_stats.result.is_none() && !pause.is_some_and(|p| p.open) {
         return;
     }
     let n = g.players.len().min(4);

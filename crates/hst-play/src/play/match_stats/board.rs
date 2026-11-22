@@ -48,10 +48,16 @@ fn shift(quads: &mut [Quad], dy: f32) {
 /// The original's final board for the match (every set settled, the winner's stripes pulsing with the header), its
 /// slot labels set as the pause board's plate names. A match ended mid-set (as `HST_STATS` does) shows that set too.
 pub(super) fn score_board(v: &View) -> Vec<Quad> {
+    let cur = v.table.score.set.clamp(0, 4) as usize;
+    let games = v.table.score.set_games[0][cur] + v.table.score.set_games[1][cur];
+    score_board_of(v, cur + usize::from(games > 0))
+}
+
+/// F2: [`score_board`] with its first `shown` sets (the pause board's: the set in play too, even at 0-0).
+pub(super) fn score_board_of(v: &View, shown: usize) -> Vec<Quad> {
     let mut score = v.table.score.clone();
-    let cur = score.set.clamp(0, 4) as usize;
     let cols = (v.sets_to_win.clamp(1, 3) * 2 - 1) as usize;
-    score.set = (cur + usize::from(score.set_games[0][cur] + score.set_games[1][cur] > 0)).clamp(1, cols) as i32;
+    score.set = shown.clamp(1, cols) as i32;
     let fin = popups::Final { highlight: v.pulse, scale: 1.0, dx: 0.0 };
     let board = popups::final_board(v.players, &score, v.sets_to_win, v.slots, v.pill, v.table.winner.min(1), fin);
     let mut out = Vec::new();

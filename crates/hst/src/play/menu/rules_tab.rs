@@ -1,7 +1,7 @@
-//! B671a (ours, the user's board D): with any Offbeat rule on, a tab in the score frame's own rim sits on it, left
-//! of its middle, saying "OFFBEAT RULES" and a chip per rule on (the Confirm strip's short names). It wraps into more
-//! rows, growing upward, and the dialog above it moves up (and, with no more room under the top bar, shrinks) so the
-//! tab never sits over it. No rules on, no tab. Drawing only: nothing here touches the match.
+//! B671a (ours, the user's board D): with any Offbeat rule on, a tab in the score frame's own rim saying "OFFBEAT
+//! RULES" and a chip per rule on (the Confirm strip's short names), wrapping into more rows. F2: it sits under the
+//! pause dialog (`super::scene`), the two fitted on the screen with the live board. No rules on, no tab. Drawing only:
+//! nothing here touches the match.
 
 use bevy::prelude::*;
 
@@ -11,11 +11,6 @@ use super::Game;
 /// The tab's left edge: the frame's (88) and a little in. Its widest: as far in again from the frame's right (552).
 pub(super) const X: f32 = 108.0;
 const MAX_W: f32 = 552.0 - 20.0 - X;
-/// The tab's foot runs this far onto the frame's top, over its outline, so the two rims meet.
-pub(super) const SINK: f32 = 2.0;
-/// The room kept between the dialog and the tab, and the lowest the top bar's rim reaches.
-const GAP: f32 = 4.0;
-const BAR_FLOOR: f32 = 58.0;
 
 /// The rules the tab says, and its image and size (disc px) while any is on.
 #[derive(Resource, Default)]
@@ -44,37 +39,4 @@ pub(super) fn refresh(menu: Res<super::Menu>, g: Res<Game>, mut tab: ResMut<Rule
         (images.add(img), size)
     });
     tab.made = Some(want);
-}
-
-/// The tab's place, `size` its size, on the frame whose top is at `frame_top`.
-pub(super) fn place(frame_top: f32, [w, h]: [f32; 2]) -> [f32; 4] {
-    [X, frame_top + SINK - h, w, h]
-}
-
-/// Where the dialog goes with the tab under it: moved up, then shrunk about the middle of its top, as far as it must
-/// to clear the tab.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Fit {
-    from: f32,
-    to: f32,
-    pub(super) s: f32,
-}
-
-impl Fit {
-    /// The dialog's box `[top, height]` over a tab `tab_h` tall on the frame at `frame_top`: lifted, never above the
-    /// top bar's rim, then shrunk to clear it. M194: without a tab it keeps clear of the frame and the rim the same way
-    /// (five rows over a three-set board); a box that already fits stays as it is.
-    pub(super) fn new([top, h]: [f32; 2], frame_top: f32, tab_h: Option<f32>) -> Fit {
-        let floor = tab_h.map_or(frame_top, |t| frame_top + SINK - t - GAP);
-        let to = top.min(floor - h).max(BAR_FLOOR);
-        Fit { from: top, to, s: ((floor - to) / h).clamp(0.0, 1.0) }
-    }
-
-    pub(super) fn y(&self, y: f32) -> f32 {
-        self.to + (y - self.from) * self.s
-    }
-
-    pub(super) fn rect(&self, [x, y, w, h]: [f32; 4]) -> [f32; 4] {
-        [320.0 + (x - 320.0) * self.s, self.y(y), w * self.s, h * self.s]
-    }
 }

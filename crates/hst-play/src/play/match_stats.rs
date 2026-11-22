@@ -25,6 +25,8 @@ pub(super) use ceremony::END_JINGLE;
 mod dissolve;
 mod hold;
 pub mod next;
+/// F2: the stats board on the pause screen.
+pub mod pause_board;
 mod plate;
 
 use bevy::prelude::*;
@@ -448,7 +450,9 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Serving>()
         .init_resource::<plate::Words>()
         .init_resource::<next::Hits>()
+        .init_resource::<pause_board::PauseBoard>()
         .add_systems(Update, plate::refresh.before(draw))
+        .add_systems(Update, pause_board::build.after(plate::refresh).in_set(pause_board::Build))
         .add_systems(PostStartup, setup.after(super::setup))
         .add_systems(FixedUpdate, tick.after(super::simulate))
         .add_systems(Update, (ceremony::begin, step, pool, draw, draw_banner).chain())
