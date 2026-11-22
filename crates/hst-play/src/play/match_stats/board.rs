@@ -26,10 +26,11 @@ const LOSE_H: f32 = 24.0;
 /// The dark sprite behind the cells: the stats board draws it this strong too, over the end screen's dim.
 pub(super) const BACK_ALPHA: f32 = 112.0;
 
-/// The whole widget for `v`: the score board, then the stats board and its bar.
+/// The whole widget for `v`: the stats board and its bar, then the score board above them (after, so the stats
+/// board's slot labels are the ones a named player's plate takes first).
 pub(super) fn widget(v: &View) -> Vec<Quad> {
-    let mut out = score_board(v);
-    out.extend(super::layout(v));
+    let mut out = super::layout(v);
+    out.extend(score_board(v));
     out
 }
 
@@ -37,12 +38,13 @@ fn quad(tex: Tex, src: [f32; 4], dst: [f32; 4], rgb: [f32; 3], alpha: f32) -> Qu
     Quad { tex, src, dst, rgb, alpha }
 }
 
-/// The final set-score board: team 0 (players 0 and 2) on the left, team 1 on the right, a column per set played, the
-/// first team's games on the top row.
+/// The final set-score board: team 0 (players 0 and 2) on the left, team 1 on the right, a column per set played (a
+/// match ended mid-set, as `HST_STATS` does, shows the set it was in too), the first team's games on the top row.
 pub(super) fn score_board(v: &View) -> Vec<Quad> {
     let mut out = Vec::new();
     let score = &v.table.score;
-    let sets = (score.set.clamp(1, 5)) as usize;
+    let cur = score.set.clamp(0, 4) as usize;
+    let sets = (cur + usize::from(score.set_games[0][cur] + score.set_games[1][cur] > 0)).clamp(1, 5);
     let inner_w = 2.0 * CELL_W + SET_W * sets as f32;
     let (x0, y0) = (320.0 - inner_w / 2.0 - RIM, TOP);
     let (ix, iy) = (x0 + RIM, y0 + RIM);
@@ -124,6 +126,11 @@ mod tests {
             // a label per player, for the name plates
             assert_eq!(q.iter().filter(|q| q.tex == Tex::Text && q.src[1] >= 392.0).count(), players);
         }
+        // ended in the fourth set at 2-1: its column too
+        t.score.set_games[0][3] = 2;
+        t.score.set_games[1][3] = 1;
+        let digits = score_board(&view(&t, 2)).iter().filter(|q| q.tex == Tex::Text && q.src[1] == 0.0).count();
+        assert_eq!(digits, 8);
         let w = widget(&view(&t, 4));
         assert!(w.iter().all(|q| q.dst[1] >= TOP - 0.01 && q.dst[1] + q.dst[3] <= BOTTOM + 0.01));
     }

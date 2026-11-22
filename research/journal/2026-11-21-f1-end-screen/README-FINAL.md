@@ -39,6 +39,7 @@ Spec: the concept page's "End screen" tab (`context/endscreen-concept/end-screen
   - `board::score_board_sets`: the set digits, gold for the winner, the board centred and within its extent.
   - `next::row_fits_under_the_board`: the row and banner fit inside the screen, and a tap on each pill finds it.
   - `choose`
+  - A match ended mid-set also shows the column for the set it was in.
   - `doubles_fits`: the whole screen, five sets and online pills, fits the 400-slot pool.
 
 ## Not verified / not 1:1
@@ -47,11 +48,14 @@ Spec: the concept page's "End screen" tab (`context/endscreen-concept/end-screen
   label (1P / COM); a named player's label becomes their name plate through the name tags. Character names live in
   the `hst` crate, not in `hst-play`.
 - **Name plates.** Only four plates exist per HUD. With the score board and the stats board both carrying labels,
-  a named player has two labels, and only the first four labels get plates. Not checked with named players.
+  a named player has two labels, and only the first four labels get plates. The widget lists the stats board first,
+  so its headers get them. Not checked with named players (F3).
 - **"COM Lv5" headers.** The stats headers still show the original's rank art (Hopeful / Lv 5) and slot labels, not
   the concept's "COM Lv5" text.
 - **The full return trip.** After the fade, I did not see the app go back to the menu or what the menu does next.
   That path (`next::take`, AppExit) is unchanged code, and the shot run with `--shot` kept running until I stopped it.
+- **Pause-menu reuse.** The widget exists (`board::widget`), but the pause menu doesn't draw it yet, and the widget
+  is still private to `match_stats` (F5).
 - **Online (Back to Lobby) row and real finished matches.** Only checked in tests: the online row, and a match that
   actually finished with several sets. The shots force the end with `HST_STATS`, so they show 0–0 in one column.
 - **Taps.** Mouse and touch picks are tested through `pill_at` only, not by hand.
