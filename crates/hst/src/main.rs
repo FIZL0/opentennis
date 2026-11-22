@@ -355,6 +355,8 @@ fn main() {
     // hst-log.txt beside settings.txt when nobody reads the output, as on the phones (`logfile.rs`)
     #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     logfile::unwatched_to(&disc::data_dir());
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+    steam_log_to(&disc::data_dir());
     start(argv);
 }
 
@@ -1690,6 +1692,54 @@ fn follow(mut camera: Query<&mut Transform, With<Orbit>>, rigs: Query<(&characte
     let Ok(mut t) = camera.single_mut() else { return };
     let focus = at.translation() + Vec3::Y * v[2];
     *t = Transform::from_translation(focus + Vec3::new(v[1].sin(), 0.25, v[1].cos()) * v[0]).looking_at(focus, Vec3::Y);
+}
+
+/// B758: under Steam (`SteamDeck=1`, or stderr a pipe or socket, which Steam hands to journald) the output goes on
+/// where it went and into `dir/hst-log.txt` too (the launch before's kept as `hst-log-previous.txt`), with the
+/// frame-rate log on, so a Deck has the fps, stall and slow-frame lines as a file. Call before the app's threads start,
+/// after `logfile::unwatched_to` (which has already sent an unwatched launch's output to the file).
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+fn steam_log_to(dir: &std::path::Path) {
+    use std::io::{IsTerminal, Read, Write};
+    use std::os::fd::{AsFd, AsRawFd};
+    use std::os::unix::fs::FileTypeExt;
+    unsafe extern "C" {
+        fn dup2(old: i32, new: i32) -> i32;
+    }
+    let err = std::io::stderr();
+    if err.is_terminal() {
+        return;
+    }
+    let Ok(orig) = err.as_fd().try_clone_to_owned() else { return };
+    let mut orig = std::fs::File::from(orig);
+    let kind = orig.metadata().map(|m| m.file_type()).ok();
+    let piped = kind.is_some_and(|k| k.is_fifo() || k.is_socket());
+    let deck = std::env::var("SteamDeck").is_ok_and(|v| v == "1");
+    // a file on stderr (`2>log`, or the unwatched launch's hst-log.txt) is a log already
+    if kind.is_some_and(|k| k.is_file()) || !(piped || deck) {
+        return;
+    }
+    let path = dir.join("hst-log.txt");
+    let _ = std::fs::create_dir_all(dir);
+    let _ = std::fs::rename(&path, dir.join("hst-log-previous.txt"));
+    let Ok(mut file) = std::fs::File::create(&path) else { return };
+    let Ok((mut rx, tx)) = std::io::pipe() else { return };
+    // SAFETY: dup2 of a pipe this function opened onto stdout/stderr, before any other thread of ours writes
+    unsafe {
+        dup2(tx.as_raw_fd(), 1);
+        dup2(tx.as_raw_fd(), 2);
+    }
+    drop(tx);
+    // every line to both: the pipe (journald) as before, and the file; a closed pipe doesn't stop the file
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        while let Ok(n @ 1..) = rx.read(&mut buf) {
+            let _ = orig.write_all(&buf[..n]);
+            let _ = file.write_all(&buf[..n]);
+        }
+    });
+    hst_base::FPS_LOG.store(true, std::sync::atomic::Ordering::Relaxed);
+    eprintln!("OpenTennis {} (build {}), log in {}", env!("CARGO_PKG_VERSION"), option_env!("HST_BUILD").unwrap_or("?"), path.display());
 }
 
 /// `HST_FPS=1`: every 5 s, the frame rate and the slowest frame to stderr, and each frame over 33 ms as it happens
