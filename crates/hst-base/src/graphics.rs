@@ -338,7 +338,7 @@ pub fn plugin<Match: Resource>(app: &mut App) {
         .add_systems(PreStartup, mesh_detail)
         .add_systems(First, (mesh_detail, crate::occlusion::follow, crate::lod::live).chain())
         .add_systems(Last, crate::occlusion::snapshot)
-        .add_systems(PostUpdate, (window, lights, msaa.after(bevy::camera::CameraUpdateSystems), fps_counter, software_gpu))
+        .add_systems(PostUpdate, (window, lights, msaa.after(bevy::camera::CameraUpdateSystems), fps_counter, fps_outline.after(fps_counter), software_gpu))
         // B707: a Software start that gets going
         .add_systems(Last, crate::render_mode::confirm)
         .add_systems(Last, limit)
@@ -771,6 +771,14 @@ fn lights(mut commands: Commands, g: Res<Graphics>, mut map: ResMut<DirectionalL
 #[derive(Component)]
 struct FpsText;
 
+/// B763: one of the eight dark copies of [`FpsText`] behind it, a PS2 line (448 to the 4:3 height) off in each
+/// direction: an even outline all round that reads on any background (Bevy UI text has a drop shadow, no outline).
+#[derive(Component)]
+struct FpsOutline(i8, i8);
+
+/// The outline's ink.
+const FPS_INK: Color = Color::srgb(0.05, 0.05, 0.05);
+
 /// Show FPS: the smoothed frame rate at the window's bottom-left corner, over menus and matches alike. Sized on the
 /// 4:3 screen's height (the window's, or its width × 3/4 when taller than 4:3, `widescreen::vplace`) so it scales
 /// uniformly with the HUD. Detailed (B328) adds, averaged over half a second: the frame's time split into the game's
@@ -782,13 +790,13 @@ fn fps_counter(
     g: Res<Graphics>,
     d: Res<bevy::diagnostic::DiagnosticsStore>,
     window: Query<&Window, With<PrimaryWindow>>,
-    mut q: Query<(Entity, &mut Text, &mut TextFont), With<FpsText>>,
+    mut q: Query<(&ChildOf, &mut Text, &mut TextFont), With<FpsText>>,
     mut split: ResMut<Split>,
     meshes: Query<(&ViewVisibility, Has<bevy::light::NotShadowCaster>), With<Mesh3d>>,
     adapter: Option<Res<bevy::render::renderer::RenderAdapterInfo>>,
     (time, mut since): (Res<Time<Real>>, Local<f32>),
 ) {
-    let Ok((e, mut text, mut font)) = q.single_mut() else {
+    let Ok((parent, mut text, mut font)) = q.single_mut() else {
         if g.show_fps > 0 {
             // bottom-left: the menus' header holds pads/disc/version top-right, the legend bar's left end is empty (under the hint line)
             // detailed: top-left on a dark box, clear of the match's team panels
@@ -797,13 +805,20 @@ fn fps_counter(
             if g.show_fps == 2 {
                 (node.bottom, node.top, bg) = (Val::Auto, Val::Px(0.0), BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)));
             }
-            commands.spawn((FpsText, Text::new(""), TextFont::default(), TextColor(Color::srgb(1.0, 1.0, 0.3)), TextShadow::default(), node, bg, GlobalZIndex(i32::MAX)));
+            // B763: the words on top of their outline, in a box that sits where the words did
+            commands.spawn((node, bg, GlobalZIndex(i32::MAX))).with_children(|b| {
+                for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                    let at = Node { position_type: PositionType::Absolute, ..default() };
+                    b.spawn((FpsOutline(dx, dy), Text::new(""), TextFont::default(), TextColor(FPS_INK), TextLayout::no_wrap(), at));
+                }
+                b.spawn((FpsText, Text::new(""), TextFont::default(), TextColor(Color::srgb(1.0, 1.0, 0.3)), TextLayout::no_wrap()));
+            });
         }
         return;
     };
     // off, or switched between On and Detailed (they sit in different corners): respawned next frame
     if g.show_fps == 0 || g.is_changed() {
-        commands.entity(e).despawn();
+        commands.entity(parent.parent()).despawn();
         return;
     }
     let fps = d.get(&bevy::diagnostic::FrameTimeDiagnosticsPlugin::FPS).and_then(|f| f.smoothed()).unwrap_or(0.0);
@@ -858,6 +873,30 @@ fn fps_counter(
     let size = if tall { bevy::text::FontSize::Vw(px / 448.0 * 75.0) } else { bevy::text::FontSize::Vh(px / 448.0 * 100.0) };
     if font.font_size != size {
         font.font_size = size;
+    }
+}
+
+/// B763: the outline copies follow the words (text and size) and sit a PS2 line off them, in the size's units; the
+/// words sit a line in from their box's edges so the outline fits inside it.
+fn fps_outline(
+    mut words: Query<(&Text, &TextFont, &mut Node), (With<FpsText>, Or<(Changed<Text>, Changed<TextFont>)>)>,
+    mut ink: Query<(&FpsOutline, &mut Text, &mut TextFont, &mut Node), Without<FpsText>>,
+    g: Res<Graphics>,
+) {
+    let Ok((text, font, mut at)) = words.single_mut() else { return };
+    // the size is in Vw on a screen taller than 4:3, else Vh (`fps_counter`)
+    let (line, size): (fn(f32) -> Val, f32) = match font.font_size {
+        bevy::text::FontSize::Vw(s) => (Val::Vw, s),
+        bevy::text::FontSize::Vh(s) => (Val::Vh, s),
+        _ => return,
+    };
+    let t = size / if g.show_fps == 2 { 11.0 } else { 16.0 };
+    // inset by the outline so the window's edge doesn't cut it off
+    at.margin = UiRect::all(line(t));
+    for (o, mut tx, mut f, mut n) in &mut ink {
+        tx.0.clone_from(&text.0);
+        f.clone_from(font);
+        (n.left, n.top) = (line(t * (1 + o.0) as f32), line(t * (1 + o.1) as f32));
     }
 }
 
