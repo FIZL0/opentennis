@@ -561,6 +561,31 @@ pub fn hole_triangles(test: Test, indices: &[u32], alpha: &[f32], uv: &[[f32; 2]
         .collect()
 }
 
+/// B762: per triangle of `indices` (a list), whether any of its vertices has a GS alpha Af above 0 (vertex alpha ×
+/// material colour alpha `colour_a`, cut to 8 bits as gs.wesl's vertex stage does; `alpha` empty: no vertex colours,
+/// 1.0). Af interpolates between the three, so a triangle whose vertices are all at 0 has Af 0 at every pixel, and a
+/// MODULATE draw's alpha (At·Af) is 0 there: a draw that leaves alpha 0 out ([`GsMaterial::blank_at_zero`]) draws
+/// nothing of it.
+pub fn drawn_triangles(indices: &[u32], alpha: &[f32], colour_a: f32) -> Vec<bool> {
+    let af = |i: u32| ((alpha.get(i as usize).copied().unwrap_or(1.0) * colour_a * 128.0).min(255.0) + 1e-3).floor();
+    indices.chunks(3).map(|t| t.iter().any(|&i| af(i) >= 1.0)).collect()
+}
+
+impl GsMaterial {
+    /// B762: whether this draw leaves every pixel at alpha 0 as it was, colour and Z (and casts no shadow from it):
+    /// MODULATE (HIGHLIGHT2's alpha ignores the vertex alpha) and either a test with a bound above 0 (the pixel fails
+    /// and writes nothing) or a blended colour-only draw (A < bound, `Never`: alpha 0 blends to the frame buffer as it
+    /// was). `Always` writes Z wherever it draws.
+    pub fn blank_at_zero(&self) -> bool {
+        self.key.modulate
+            && match self.key.test {
+                Test::Always => false,
+                Test::Ge40 | Test::Ge60 | Test::Ge70 | Test::Ge80 => true,
+                Test::Lt60 | Test::Lt70 | Test::Lt80 | Test::Never => self.key.blend.is_some(),
+            }
+    }
+}
+
 impl Material for GsMaterial {
     fn vertex_shader() -> ShaderRef {
         "embedded://hst_base/gs.wesl".into()
@@ -722,6 +747,29 @@ mod tests {
         assert!((u.shininess - 39.46).abs() < 0.05 && u.highlight == 0.9, "{u:?}");
         assert_eq!(GsMaterial::for_batch(&material("x", 5, 1.0), 0x30, tex.clone())[0].uniform.shininess, 1.0);
         assert!(!keys(&material("x", 5, 1.0), 0x10)[0].fog);
+    }
+
+    #[test]
+    fn drawn_triangles_leave_out_alpha_zero() {
+        let tri = [0, 1, 2, 3, 4, 5];
+        // vertex alpha 0 everywhere in the first, one vertex at 1/128 in the second
+        let alpha = [0.0, 0.0, 0.0, 0.0, 1.0 / 128.0, 0.0];
+        assert_eq!(drawn_triangles(&tri, &alpha, 1.0), [false, true]);
+        // × material alpha 0x40: 1/128 · 0.5 cuts to Af 0
+        assert_eq!(drawn_triangles(&tri, &alpha, 0.5), [false, false]);
+        assert_eq!(drawn_triangles(&tri, &[0.5, 0.0, 0.0, 0.0, 0.0, 0.0], 1.0 / 64.0), [true, false]);
+        // no vertex colours: the material alpha alone
+        assert_eq!(drawn_triangles(&tri, &[], 1.0 / 128.0), [true, true]);
+        assert_eq!(drawn_triangles(&tri, &[], 0.0), [false, false]);
+        // which court draws leave alpha 0 out: TEST 20..29's halves and 10..19 under MODULATE, not HIGHLIGHT2, not
+        // an always-pass blended draw (it writes Z)
+        let tex = Some(Handle::default());
+        let blank = |m: &mtl::Material| GsMaterial::for_court_batch(m, 0x10, tex.clone(), false).iter().map(GsMaterial::blank_at_zero).collect::<Vec<_>>();
+        assert_eq!(blank(&material("wallnet@vert", 20, 1.0)), [true, true]);
+        assert_eq!(blank(&material("x", 15, 0.5)), [true]);
+        assert_eq!(blank(&material("x", 20, 1.0)), [false, false]);
+        assert_eq!(blank(&material("x", 0, 0.5)), [false]);
+        assert_eq!(blank(&material("x@add", 0, 0.5)), [true]);
     }
 
     #[test]
