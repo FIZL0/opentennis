@@ -890,6 +890,7 @@ fn fps_outline(
         bevy::text::FontSize::Vh(s) => (Val::Vh, s),
         _ => return,
     };
+    // one PS2 line: the size is 16 of the 448 (Detailed: 11)
     let t = size / if g.show_fps == 2 { 11.0 } else { 16.0 };
     // inset by the outline so the window's edge doesn't cut it off
     at.margin = UiRect::all(line(t));
