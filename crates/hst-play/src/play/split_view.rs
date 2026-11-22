@@ -221,9 +221,18 @@ struct Half {
 pub(super) struct StickTurn(pub(super) [bool; 4]);
 
 /// Every match starts on the shared camera and the choice isn't kept (user 2026-10-21); `HST_SPLIT2=on`: split from
-/// the start (shots).
+/// the start (shots, `tools/bench.sh`), `HST_SPLIT2=stacked`: the same with the halves stacked (T30: a `--play` run
+/// skips the menu, so the Split Screen setting is never applied there).
 fn start_on() -> bool {
-    std::env::var("HST_SPLIT2").is_ok_and(|v| v == "on")
+    let v = std::env::var("HST_SPLIT2");
+    if v.as_deref() == Ok("stacked") {
+        STACKED.store(true, Ordering::Relaxed);
+    }
+    let on = v.as_deref().is_ok_and(|v| v == "on" || v == "stacked");
+    if on {
+        info!("split view on from the start ({})", if STACKED.load(Ordering::Relaxed) { "stacked" } else { "side by side" });
+    }
+    on
 }
 
 /// The split can play: humans on both teams on this device (B658: any count), not online, the remaster's own look.
