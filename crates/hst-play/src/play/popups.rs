@@ -94,43 +94,14 @@ struct View {
 
 /// The match's final board on the result page (the original's board mode 2): every set settled (a set lost at half
 /// alpha, none on the bright sheet), a highlight pulsing over the winner's stripes and the winner's sets count
-/// pulsing in scale, the whole board `dx` across and 40 up.
+/// pulsing in scale, the whole board `dx` across and 40 up. F1: the end screen draws its own score board now, so only
+/// the tests still build one.
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Final {
     pub(super) highlight: i32,
     pub(super) scale: f32,
     pub(super) dx: f32,
-}
-
-/// The final board for the match just over (its `score`, kept past the reset), won by `winner`.
-pub(super) fn final_board(g: &Game, score: &hst_sim::score::Score, slots: [usize; 4], pill: [[u8; 3]; 4], winner: usize, fin: Final) -> Vec<Quad> {
-    let mut out = Vec::new();
-    board(
-        &View {
-            players: g.players.len(),
-            slots,
-            ranks: [None; 4],
-            pill,
-            rank_rgb: [[0; 3]; 4],
-            points: [0; 2],
-            scorer: winner,
-            deuce: false,
-            advantage: false,
-            deuce_count: 0,
-            swapped: false,
-            show: ShowState { event: Event::Set, stage: 3, t: 0, n: 0, fading_out: false },
-            set_games: score.set_games,
-            set: score.set,
-            sets: score.sets,
-            sets_to_win: g.rules.sets,
-            match_over: true,
-            rise: 1,
-            drop: 1,
-            fin: Some(fin),
-        },
-        &mut out,
-    );
-    out
 }
 
 /// Points cells (column, row) by point index; 4 is Deuce, 5 Advantage.
