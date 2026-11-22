@@ -596,7 +596,7 @@ fn step(
     }
     if !screen.open {
         // the ceremony's last frame dissolves into the end screen
-        if cer.is_some() && !dissolve.cut(&mut commands, dissolve::TO_PAGE) {
+        if cer.is_some() && !dissolve.cut(&mut commands, dissolve::TO_PAGE, true) {
             return;
         }
         info!("result screen opens");
