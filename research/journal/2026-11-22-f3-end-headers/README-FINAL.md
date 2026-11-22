@@ -4,8 +4,8 @@ The concept's 'End screen' tab: the score board's stripes read the character (Ca
 stats header reads who plays (1P / COM with its level).
 
 - `plate.rs`: each player's second word image is now the character's name in the plate lettering (white, team-colour
-  outline, 22 px), not the navy pill. `place` sets one word image in its room beside the face: narrowed down to 70 %,
-  then shrunk about its middle.
+  outline, 22 px), not the navy pill. `place` sets one word image in its room beside the face, shrunk about its middle
+  at its own aspect when too wide.
 - Score board (`board.rs`): the character's name where the slot label was, centred on the ring; no pill.
 - Stats header (`match_stats.rs` `plates`): the player's name (a named human), else 1P..4P / COM, with the game's own
   rank art under a CPU's "COM" (the "Lv 5" / "Hopeful" rows); no character pill. The pause board (F2) reuses both.
@@ -21,7 +21,15 @@ the concept tab they read the same: names beside faces on the score board, 1P / 
 
 - "COM Lv5" is the game's own rank art under "COM" (its rows include words like "Hopeful", "Tier II"), not the
   concept's typed "COM Lv5" text: B764 asked for the game's existing parts, and the rank row is the original's.
-- Long character names (Big Chief) narrow then shrink in the 37-px room beside the face, so they read smaller than
+- Long character names (Big Chief) shrink in the 37-px room beside the face, so they read smaller than
   short ones; in singles the plate has spare width the room does not use.
 - `--names ",Ryan"` through `tools/shot.sh` lost the leading empty name (hyprctl exec quoting), so the named shot
   names every player "Ryan"; only humans show names, so it shows the same as ",Ryan" would.
+
+## Spec review
+
+- Fixed: `place` first squeezed long names sideways (a stretch, against PLAN's "scale uniformly, never stretch"); it
+  now only shrinks them at their own aspect.
+- Kept, listed above: the rank art instead of typed "COM Lv5"; the 37-px room in singles; the named shot names all
+  players (only humans show names); `plate.rs` changed though not on the task's line (it makes the word images);
+  the character pill dropped (the concept's headers have none, and the score board now names the character).

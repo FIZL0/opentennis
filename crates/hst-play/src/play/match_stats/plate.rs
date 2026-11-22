@@ -2,7 +2,7 @@
 //! front-end crate, which this one cannot name): white words in the menus' font, outlined in the plate's team colour.
 //! F3 (the concept's 'End screen' tab): the stats header's plates read the player, where the original drew its
 //! 1P..4P / COM tag (a human's own name, else the tag's words, a CPU's always "COM", its rank under it); the score
-//! board's read the character (a mod by its own name). Long words narrow, then shrink, to fit. Drawing only: nothing
+//! board's read the character (a mod by its own name). Long words shrink, keeping their aspect, to fit. Drawing only: nothing
 //! here touches the match.
 
 use bevy::prelude::*;
@@ -16,8 +16,6 @@ const EDGE: [[u8; 3]; 4] = [[0x8a, 0x1f, 0x52], [0x14, 0x50, 0x7e], [0x7a, 0x3f,
 /// The words' height (disc px, outline included) and their outline, the pause plates' name's.
 pub(super) const NAME_H: f32 = 22.0;
 const NAME_EW: f32 = 2.0;
-/// How narrow long words may be set before they shrink instead.
-const NARROW: f32 = 0.7;
 
 /// The disc's characters by the select's order, as the character select names them.
 const CHARACTERS: [&str; 14] =
@@ -89,13 +87,11 @@ pub(super) fn refresh(
 }
 
 /// Where a plate's words `w` wide go: in `room` (x from, to) beside the face, against its inner end on the left team
-/// (`left`), from its outer end on the right, their middle at `y`. Too wide, they narrow to [`NARROW`], then shrink
-/// about their middle at that aspect.
+/// (`left`), from its outer end on the right, their middle at `y`. Too wide, they shrink about their middle, keeping
+/// their aspect.
 pub(super) fn place(left: bool, y: f32, room: [f32; 2], w: f32) -> [f32; 4] {
-    let fit = room[1] - room[0];
-    let narrow = (fit / w).clamp(NARROW, 1.0);
-    let k = (fit / (w * narrow)).min(1.0);
-    let (w, h) = (w * narrow * k, NAME_H * k);
+    let k = ((room[1] - room[0]) / w).min(1.0);
+    let (w, h) = (w * k, NAME_H * k);
     [if left { room[1] - w } else { room[0] }, y - h / 2.0, w, h]
 }
 
@@ -103,15 +99,13 @@ pub(super) fn place(left: bool, y: f32, room: [f32; 2], w: f32) -> [f32; 4] {
 mod tests {
     use super::*;
 
-    /// A short name against the centre on the left, from it on the right; a longer one narrowed into the room; a
-    /// long one narrowed as far as it goes, then shrunk.
+    /// A short name against the centre on the left, from it on the right; a long one shrunk into the room at its
+    /// own aspect, about its middle.
     #[test]
     fn places() {
         assert_eq!(place(true, 318.0, [146.0, 183.0], 30.0), [153.0, 307.0, 30.0, 22.0]);
-        let r = place(false, 318.0, [457.0, 494.0], 40.0);
-        assert!(r[0] == 457.0 && (r[2] - 37.0).abs() < 1e-4 && r[3] == 22.0);
         let r = place(false, 318.0, [457.0, 494.0], 74.0);
-        assert!((r[2] - 37.0).abs() < 1e-4 && (r[3] - 22.0 * 37.0 / 51.8).abs() < 1e-3);
+        assert!(r[0] == 457.0 && (r[2] - 37.0).abs() < 1e-4 && (r[3] - 11.0).abs() < 1e-4);
         assert!((r[1] + r[3] / 2.0 - 318.0).abs() < 1e-4);
     }
 }
