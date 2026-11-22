@@ -1645,7 +1645,7 @@ fn backdrops(
     camera: Query<&Transform, (With<Orbit>, Without<Backdrop>)>,
     mut models: Query<(Entity, &Backdrop, &mut Transform)>,
     children: Query<&Children>,
-    parts: Query<(&Transform, &ChildOf, Has<hst_base::twin_view::Billboard>), (With<Mesh3d>, Without<Backdrop>, Without<Orbit>)>,
+    parts: Query<(&Transform, &ChildOf, Has<hst_base::twin_view::Billboard>), (With<Mesh3d>, Without<Backdrop>, Without<Orbit>, Without<hst_base::twin_view::TwinOf>)>,
     globals: Query<&GlobalTransform>,
     mut second: hst_base::twin_view::Second,
     mut commands: Commands,
