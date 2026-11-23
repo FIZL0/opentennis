@@ -33,8 +33,6 @@ index out of bounds: the len is 0 but the index is 0"
 
 ### AI
 
-- [~] **P11** Opponent AI | files: crates/hst-play/src/play.rs BLOCKED: umbrella (user 2026-10-21): the open AI work is P11k6, P11l6 and the review P116; everything the bot-only recordings reach is ported and bit-exact — P116 review (2026-10-21): table in journal 26-P116-REVIEW; gaps P127 (change of ends draws), P128 (app step replay), P129 (strike/new-path), P130 (serve hand-over order/aim frame)
-
 ### Match
 
 ### Presentation
