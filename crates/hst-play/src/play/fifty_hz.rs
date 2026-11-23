@@ -623,7 +623,7 @@ mod tests {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
         let Some((want, got)) = european(None, toss_ai) else { return };
         // to the end of the match (the result after it is a screen of ours)
-        assert!(compare("eu", &want, &got) >= 142, "the phases through the last point");
+        assert!(compare("eu", &want, &got) >= 144, "the phases through the last point");
         first_point_part("eu", &want, &got, 141);
         part_from("eu", &want, &got);
         shot_probe("eu", "fixtures/m169/eu-bot-match.bin", &want);

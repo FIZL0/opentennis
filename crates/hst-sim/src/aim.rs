@@ -740,8 +740,10 @@ impl AiParams {
                 plan = plan::TOPSPIN;
             }
         } else if l.formation == 0 && u < 30 && !l.smash_third {
-            let (a, _) = zone_in(l.opp[0], w, Some(&mut *roll));
-            let (b, _) = zone_in(l.opp[1], w, Some(&mut *roll));
+            // the farther opponent (from the net) blurs its zone first
+            let [far, near] = if l.opp[1][1].abs() > l.opp[0][1].abs() { [l.opp[1], l.opp[0]] } else { l.opp };
+            let (a, _) = zone_in(far, w, Some(&mut *roll));
+            let (b, _) = zone_in(near, w, Some(&mut *roll));
             x = any_open(open_lanes(a, b), roll);
             return Aim { stick: self.aim((x, 2), l.side, roll), plan: plan::LOB };
         } else {

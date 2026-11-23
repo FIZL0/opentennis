@@ -6,3 +6,4 @@
 - A ball that hits a player now bounces off them, and ends the point, on the same frame as in the original.
 - A player who dives now stays down as long as in the original before getting up, and gets up turning the right way.
 - A ball struck the moment after it bounces out now stays in play, as in the original.
+- Doubles computer players choose where to lob like the original when an opponent stands deeper than their partner.
