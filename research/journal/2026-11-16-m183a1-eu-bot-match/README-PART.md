@@ -1,6 +1,6 @@
-# M183a1: the European bot match in play from the original's seed (PART: blocked on B768 and B769)
+# M183a1: the European bot match in play from the original's seed (PART: blocked on B771 and B772)
 
-Status 2026-11-23 (part 9): B766, B767 and R14 landed. The US match matches 27 phases and parts at game 2's first-serve fault (B769). The EU match still parts at point 2's set-up (164 ticks against play's 154); R14 showed the set-up doesn't wait, and B768 maps the generator test to ticks to find what does differ. The table below is from the first parts.
+Status 2026-11-23 (part 10): B768, B769 and B770 landed. The US match matches 28 phases and parts at game 2's first serve (B771). The EU match matches 7 phases and parts at tick 1585 of point 3's rally, where the game's net player runs for the ball after its bounce and play's search finds no contact (B772). The table below is from the first parts.
 
 The goal was to play M177's European bot match (`fixtures/m169/eu-bot-match.bin`) in play and match it phase for
 phase, then tick for tick, with a US baseline from slot 5 (`match_s05.bin`). After that, flip
