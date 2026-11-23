@@ -427,8 +427,9 @@ pub(super) fn heard_hit(g: &mut Game, i: usize, who: usize, at: V3) -> bool {
     let mind = g.players[i].ai_mind;
     let rally = mind.is_some_and(|m| m.phase == Ai::Rally);
     if g.players.len() == 4 {
-        // the hit message reaches the AI only while it plays the point
-        if mind.is_some_and(|m| matches!(m.phase, Ai::Receive | Ai::Rally)) {
+        // the hit message reaches the AI in every state it plays the point in, the serve's too: the server hears
+        // its own serve's contact (B771)
+        if mind.is_some_and(|m| matches!(m.phase, Ai::Serve | Ai::Receive | Ai::Rally)) {
             let (shots, at) = (g.shots, up(at));
             at_message(g, i, |x, b, w, roll| x.heard_hit_doubles(rally, shots, b, w, Some((who as i32, at)), &mut || roll()));
         }
