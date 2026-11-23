@@ -207,6 +207,12 @@ pub(super) fn hand_over(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> boo
     run(g, i, mind, false)
 }
 
+/// B767: computer player `i` between ends: the receive's or the rally's entry only, as its AI enters the state (no
+/// routine step follows until the next point). Nothing in any other state.
+pub(super) fn enter_between_ends(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) {
+    run(g, i, mind, false);
+}
+
 /// The routine's stick or press this frame breaks off a follow-through past its recovery (`follow_through`'s rule):
 /// the player runs or stands this same frame, and the run's first turn starts from the stroke's motion.
 fn break_off(p: &mut Player, input: bool) -> bool {
@@ -227,7 +233,8 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
         Phase::Serve => phase::SERVE,
         Phase::Rally => phase::RALLY,
         Phase::Post => phase::POINT_OVER,
-        Phase::ChangeEnds(_) => return false,
+        Phase::ChangeEnds(_) if routine => return false,
+        Phase::ChangeEnds(_) => phase::CHANGE_ENDS,
     };
     let singles = g.players.len() == 2;
     if !matches!(g.players.len(), 2 | 4) || !matches!(mind.phase, Ai::Receive | Ai::Rally) {

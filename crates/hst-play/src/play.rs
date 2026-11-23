@@ -3558,8 +3558,8 @@ fn ai_serve_step(g: &mut Game, i: usize, dir: Vec2) -> bool {
 }
 
 /// Computer player `i`'s frame: its AI object's update, then its serve, or its receive or rally routine
-/// (`doubles_ai::step`, which decides who of a doubles team plays the ball). What's left (between ends) walks it to
-/// its formation spot or home.
+/// (`doubles_ai::step`, which decides who of a doubles team plays the ball); between ends only its state's entry
+/// (`ai_between_ends`).
 fn bot(g: &mut Game, i: usize) {
     if let Some(c) = &g.players[i].contact {
         g.players[i].ai_branch = Some(c.swing.branch);
@@ -3571,6 +3571,9 @@ fn bot(g: &mut Game, i: usize) {
     // runs the tick after)
     if mind.phase == hst_sim::ai::Phase::Start || mind.phase == hst_sim::ai::Phase::Serve && was == Some(hst_sim::ai::Phase::Start) {
         return;
+    }
+    if matches!(g.phase, Phase::ChangeEnds(_)) {
+        return ai_between_ends(g, i, &mind);
     }
     if mind.phase == hst_sim::ai::Phase::Serve && g.shots == 0 {
         return bot_serve(g, i);
@@ -3612,6 +3615,15 @@ fn bot(g: &mut Game, i: usize) {
         locomote(g, i, dir);
     }
     advance_stroke(g, i, |g| ai_contact_stick(g, i));
+}
+
+/// B767: a computer player between ends: its AI state's entry and nothing more (the receive's and the rally's,
+/// `doubles_ai::enter_between_ends`; the serve's is the AI update's), standing where the change of ends put it. No
+/// routine steps until the next point, so nothing walks, re-rolls or picks a serve spot (slot 5's recording: the
+/// AI generator makes the point reset's and the entries' draws on the phase's first frames and none after).
+fn ai_between_ends(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) {
+    doubles_ai::enter_between_ends(g, i, mind);
+    locomote(g, i, Vec2::ZERO);
 }
 
 /// A doubles bot's goal while the ball isn't its own (`hst_sim::position`): its formation spot, walked to once
