@@ -7,8 +7,8 @@
 //! the match statistics' match time, and the drawing, which blends the last two ticks by `Time<Fixed>`'s overstep at
 //! any rate. The menus stay at 60.
 //!
-//! 50 Hz is offered only where the European disc's data is here (the main disc, or a disc beside it: `releases`) and
-//! the game's own 50 Hz timing is in the sim ([`FIFTY_HZ_SIM`]); until then the row has only 60 Hz and is hidden.
+//! 50 Hz is not offered (user 2026-11-23: [`FIFTY_HZ_SIM`] is off): every match runs at 60, so the row has only 60 Hz
+//! and is hidden. The sim keeps the 50 Hz timing for the tests against the recorded European match ([`test_sim_hz`]).
 //! Online the lobby plays its host's speed (`net::Room::hz`); a guest that can't play it is turned away.
 
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
@@ -16,9 +16,10 @@ use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 /// The rates, in the row's order: 60 Hz (the default), 50 Hz.
 pub const SPEEDS: [u32; 2] = [60, 50];
 
-/// Whether the sim plays the European program's 50 Hz timing (its retimed counts, per-tick amounts and motion
-/// rescale: M169a1), as the recorded European bot match shows (M183a1). Off, a match only runs at 60.
-pub const FIFTY_HZ_SIM: bool = true;
+/// Whether players can choose the European program's 50 Hz timing (its retimed counts, per-tick amounts and motion
+/// rescale: M169a1; the recorded European bot match plays by it: M183a1). Off (user 2026-11-23), a match only runs at
+/// 60, outside the tests ([`test_sim_hz`]).
+pub const FIFTY_HZ_SIM: bool = false;
 
 /// The saved choice (60 or 50).
 static CHOSEN: AtomicU32 = AtomicU32::new(60);
@@ -66,17 +67,19 @@ pub fn current() -> u32 {
     MATCH.load(Relaxed)
 }
 
-/// A match's flags were read: it runs at `hz` (`--match-hz`; 60 without one).
+/// A match's flags were read: it runs at `hz` (`--match-hz`; 60 without one). With [`FIFTY_HZ_SIM`] off it runs at
+/// 60 whatever they say (a match saved at 50, the flag by hand), outside the tests ([`test_sim_hz`]).
 pub fn set_current(hz: u32) {
-    MATCH.store(valid(hz), Relaxed);
+    let offered = FIFTY_HZ_SIM || SIM_TEST.load(Relaxed) != 0;
+    MATCH.store(if offered { valid(hz) } else { 60 }, Relaxed);
     hst_data::iso::set_own_rate(sim_hz() == 50);
 }
 
-/// M183: the rate the sim's timing plays a test at before [`FIFTY_HZ_SIM`] is on (0: none, [`sim_hz`]).
+/// M183: the rate the sim's timing plays a test at with [`FIFTY_HZ_SIM`] off (0: none, [`sim_hz`]).
 static SIM_TEST: AtomicU32 = AtomicU32::new(0);
 
 /// The tick rate whose timing the sim plays the match by (`hst_sim::build::Build::Europe` at 50 on the European
-/// disc): the match's own rate once [`FIFTY_HZ_SIM`] is on, 60 until then (but under [`test_sim_hz`]). At 50 the
+/// disc): the match's own rate with [`FIFTY_HZ_SIM`] on, 60 with it off (but under [`test_sim_hz`]). At 50 the
 /// disc's data is read at its own rate too (`hst_data::iso::set_own_rate`: the European disc's raw tables, no lending).
 pub fn sim_hz() -> u32 {
     match SIM_TEST.load(Relaxed) {
@@ -128,7 +131,7 @@ pub fn refused(hz: u32) -> Option<String> {
         if !SPEEDS.contains(&hz) {
             format!("The host's match runs at {hz} Hz, which this version doesn't play.")
         } else if !FIFTY_HZ_SIM {
-            "The host plays at 50 Hz (European original), which this version doesn't play yet.".into()
+            "The host plays at 50 Hz (European original), which this version doesn't play.".into()
         } else {
             "The host plays at 50 Hz (European original): it needs the European disc (Everybody's Tennis) here.".into()
         }
@@ -186,10 +189,10 @@ mod tests {
         assert_eq!(name(50), "50 Hz (European original)");
     }
 
-    /// 60 Hz is always playable; 50 only with the sim's 50 Hz timing (and the European data), so until then a saved
+    /// 60 Hz is always playable; 50 only with `FIFTY_HZ_SIM` (and the European data): off, a saved
     /// 50 plays at 60 and a 50 Hz lobby turns this app away; the 60 Hz clock is the one the match always had.
     #[test]
-    fn fifty_waits_for_the_sim() {
+    fn fifty_is_not_offered() {
         assert!(playable(60) && available()[0] == 60);
         assert_eq!(refused(60), None);
         assert_eq!(refused(0), None);
@@ -200,6 +203,8 @@ mod tests {
             assert_eq!((setting(), chosen()), (50, 60));
             choose(60);
             assert!(refused(50).is_some());
+            set_current(50);
+            assert_eq!(current(), 60);
         }
         assert_eq!(MatchHz(60).fixed().timestep(), bevy::time::Time::<bevy::time::Fixed>::from_hz(60.0).timestep());
         assert_eq!(MatchHz(50).fixed().timestep(), std::time::Duration::from_millis(20));

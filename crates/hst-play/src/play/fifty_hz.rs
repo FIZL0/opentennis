@@ -79,7 +79,7 @@ pub(super) static EU_DISC: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub(super) static EARLY_LINE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// A bot match on the European disc at 50 Hz (`fixtures/discs/SCES-54535.iso`; skipped without it even under
-/// `HST_REQUIRE_DISC`, as it isn't the user's disc), the sim's 50 Hz timing on before `FIFTY_HZ_SIM`: it plays the
+/// `HST_REQUIRE_DISC`, as it isn't the user's disc), the sim's 50 Hz timing on with `FIFTY_HZ_SIM` off: it plays the
 /// European program (`Build::Europe` everywhere play asks), on the disc's own trajectory tables, with every motion at
 /// the European program's rate, and rallies and the change of ends play out on its timing.
 #[cfg(test)]

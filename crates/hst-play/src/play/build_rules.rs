@@ -3,7 +3,7 @@
 //! (a mod character's own aim values included); the rest of the match asks `Game::build` where a rule differs.
 //! Settings → Gameplay → Rules (M175, `crate::rules_choice`) can lay another release's disc over the main one, which
 //! then reads as that release here too; online the lobby's host's disc decides (M171). A match at 50 Hz
-//! (`hst_base::match_speed::current`, once `FIFTY_HZ_SIM` is on) on the European disc plays its own retimed program.
+//! (`hst_base::match_speed::current`, with `FIFTY_HZ_SIM` on) on the European disc plays its own retimed program.
 
 use super::Game;
 use hst_data::exe::Release;

@@ -7,7 +7,6 @@
 - A player who dives now stays down as long as in the original before getting up, and gets up turning the right way.
 - A ball struck the moment after it bounces out now stays in play, as in the original.
 - Doubles computer players choose where to lob like the original when an opponent stands deeper than their partner.
-- The European disc's original 50 Hz match speed can now be chosen, with its own timing.
 - A server starts their next serve from where they tossed the ball, as in the original.
 - Players step evenly into a smash, as in the original, instead of in a rush at the end.
 - A player hit by the ball is knocked back, as in the original.
