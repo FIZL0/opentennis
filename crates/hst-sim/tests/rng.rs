@@ -6,6 +6,7 @@
 //! `sound_draws_like_the_game` has the order).
 
 use hst_data::fixture;
+use hst_sim::build::Build;
 use hst_sim::rng::{MenuFlame, Mt, Rand, Rngs};
 
 /// Draws from `a` that land on `b`, if any within `max`.
@@ -710,7 +711,7 @@ fn setup_rand_like_the_game() {
         assert_eq!(fx, at.next(), "the effects seed");
         assert_eq!(g.rand, at, "rand() after the effects seed");
         g.change_ends();
-        (0..Rngs::intro_ticks(4)).for_each(|_| g.flare_tick());
+        (0..Rngs::intro_ticks(4, Build::Us)).for_each(|_| g.flare_tick());
         assert_eq!(low(&g.rand), point, "rand() at the first point");
     }
     assert_eq!(d.len(), 24);
@@ -780,7 +781,7 @@ fn intro_ticks_like_the_game() {
             r.next();
         }
         let mut g = Rngs::new(r, Mt::new(0));
-        (0..Rngs::intro_ticks(court)).for_each(|_| g.flare_tick());
+        (0..Rngs::intro_ticks(court, Build::Us)).for_each(|_| g.flare_tick());
         assert_eq!(low(&g.rand), point, "court {court}, {players} players");
     }
     assert_eq!(d.len(), 20 * 16);
@@ -811,9 +812,28 @@ fn intro_ticks_from_the_disc() {
         (11, 354, 354),
     ];
     for (court, singles, doubles) in recorded {
-        let ticks = Rngs::intro_ticks_on_disc(&mut iso, court).unwrap();
+        let ticks = Rngs::intro_ticks_on_disc(&mut iso, court, Build::Us).unwrap();
         assert_eq!((ticks, ticks), (singles, doubles), "court {court}");
-        assert_eq!(Rngs::intro_ticks(court), ticks, "court {court}");
+        assert_eq!(Rngs::intro_ticks(court, Build::Us), ticks, "court {court}");
+    }
+}
+
+/// B782: the intro's length at 50 Hz from the European disc's camera files and banner (`fixtures/discs/SCES-54535.iso`;
+/// skipped without it, as it isn't the user's disc): each move's frames ×0.8333333 chopped (150 → 124) and the banner
+/// at 96 ticks a frame (75 frames). Court 6 ran 124 + 2 + 124 + 75 + 2 = 327 ticks in the European bot match (its
+/// `rand()` trace, M183a1 part 11; the camera done at 250, the banner at 326); the other courts follow the rule.
+#[test]
+fn intro_ticks_at_50_hz() {
+    let path = fixture::path("fixtures/discs/SCES-54535.iso");
+    let Ok(mut iso) = hst_data::iso::Iso::open(&path) else {
+        return eprintln!("skipped: no European disc");
+    };
+    assert_eq!(Rngs::intro_ticks_on_disc(&mut iso, 6, Build::Europe), Some(327), "court 6, recorded");
+    for court in 1..=11 {
+        let ticks = Rngs::intro_ticks_on_disc(&mut iso, court, Build::Europe).unwrap();
+        assert_eq!(Rngs::intro_ticks(court, Build::Europe), ticks, "court {court}");
+        // the European disc's files give the US lengths at 60 Hz
+        assert_eq!(Rngs::intro_ticks_on_disc(&mut iso, court, Build::Us), Some(Rngs::intro_ticks(court, Build::Us)), "court {court} at 60 Hz");
     }
 }
 

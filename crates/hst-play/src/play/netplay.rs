@@ -1282,9 +1282,9 @@ mod tests {
             /// M171: a peer's own disc (its name, the path) where it isn't the US one (`ISO`).
             static DISCS: std::cell::RefCell<Vec<(String, String)>> = const { std::cell::RefCell::new(Vec::new()) };
             /// B734: `app_in` seeds the match from the room's seed as `main.rs` does online (the generators, the
-            /// weather schedule, the effects seed), the setup's cloud draws this many (`main.rs` counts them from the
-            /// court's cloud models; the harness has no court).
-            static CLOUDS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+            /// weather schedule, the effects seed), with the setup's clouds as `main.rs` makes them (B782:
+            /// `stage::setup_clouds`; `Some(None)`) or this many (`Some(Some(n))`: a log from a build before it).
+            static CLOUDS: std::cell::Cell<Option<Option<usize>>> = const { std::cell::Cell::new(None) };
         }
 
         /// B734: what `play::plugin`'s tick runs beyond the harness's chain (the lens flare's draws, the point's
@@ -1304,8 +1304,9 @@ mod tests {
         }
 
         /// B734: the room's seed into the match as `main.rs`' `match_weather` takes it online: the shared generator
-        /// seeded with it, the weather schedule drawn from it, then the setup's `rand()`s with `clouds` cloud draws.
-        fn seed_match(app: &mut App, room: &Room, args: &Args, clouds: usize) {
+        /// seeded with it, the weather schedule drawn from it, then the setup's `rand()`s with its clouds (B782: the
+        /// shared rule both peers take, `stage::setup_clouds`) or `clouds` of them.
+        fn seed_match(app: &mut App, room: &Room, args: &Args, clouds: Option<usize>) {
             let mut disc = hst_data::iso::Iso::open(&args.iso).unwrap();
             let (cnf, bin) = (disc.read("SYSTEM.CNF").unwrap(), disc.read("ZZBIN/GAME.BIN").unwrap());
             let exe = hst_data::exe::Game::new(&cnf, &bin).unwrap();
@@ -1319,6 +1320,10 @@ mod tests {
             let players = if args.singles { 2 } else { 4 };
             let schedule = hst_sim::weather::schedule(&odds, &wind, args.games, args.sets, players, || mt.next());
             let mut rngs = hst_sim::rng::Rngs::new(seed.rand, mt);
+            let clouds = clouds.unwrap_or_else(|| {
+                let sky = crate::match_sky(&mut disc, n, args.singles, schedule.map(|g| g.weather), None, exe.rain_clouds().0);
+                crate::setup_clouds(sky.as_ref(), args.singles, crate::SETUP_MADE)
+            });
             let (effects, _) = rngs.setup_rand(clouds);
             set_effects_seed(effects);
             app.insert_resource(MatchRng(rngs));
@@ -1593,13 +1598,15 @@ mod tests {
                 return;
             }
             // the match's start as the saving machine logged it (`rollback tick 0: hash …` in `hst-log.txt` beside
-            // the file): the setup's cloud draws are the count that starts the same (`HST_DESYNC_CLOUDS` sets it)
+            // the file): the setup's clouds as play makes them, else (a log from before B782) the count that starts
+            // the same (`HST_DESYNC_CLOUDS` sets it)
             let log = std::fs::read_to_string(path.with_file_name("hst-log.txt")).unwrap_or_default();
             let logged = |t: usize| log.lines().filter_map(|l| l.split_once(&format!("rollback tick {t}: hash "))).map(|(_, h)| h.trim().to_string()).collect::<Vec<_>>();
             let start = logged(0).first().and_then(|h| u64::from_str_radix(h, 16).ok());
             let fixed = std::env::var("HST_DESYNC_CLOUDS").ok().and_then(|c| c.parse().ok());
             let (mut a, mut found) = (None, None);
-            for clouds in fixed.map_or(0..=64, |c| c..=c) {
+            let tries: Vec<Option<usize>> = fixed.map_or_else(|| std::iter::once(None).chain((0..=64).map(Some)).collect(), |c| vec![Some(c)]);
+            for clouds in tries {
                 CLOUDS.set(Some(clouds));
                 let mut b = app_in(&room, "replay", Some(&looks));
                 let text = super::super::snapshot::state_text(b.world_mut());
@@ -1608,7 +1615,7 @@ mod tests {
                     std::fs::write(f, &text).unwrap();
                 }
                 if fixed.is_some() || start == Some(h) {
-                    println!("tick 0: {clouds} cloud draws start as the saving machine logged ({h:016x}, logged {start:016x?})");
+                    println!("tick 0: {clouds:?} cloud draws (None: play's own) start as the saving machine logged ({h:016x}, logged {start:016x?})");
                     (a, found) = (Some(b), Some(clouds));
                     break;
                 }

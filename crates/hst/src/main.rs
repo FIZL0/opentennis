@@ -780,15 +780,6 @@ pub fn match_mode(iso: &str, flags: &[String], back: mode::Mode) -> mode::Mode {
     })
 }
 
-/// How many clouds court `n` makes outside heavy rain (`layout::cloud_count`; singles' environment row 1, doubles' 0).
-fn cloud_count(iso: &mut Iso, n: u32, envir: Option<&[u8]>, singles: bool) -> usize {
-    let hole = iso.read(&format!("COURT/{n:02}/GRD01.XB")).ok().and_then(|d| {
-        let arc = Archive::parse(&d).ok()?;
-        arc.read(arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(&format!("envir_c{n:02}_h01.dat")))?).ok()
-    });
-    envir.zip(hole).and_then(|(e, h)| layout::cloud_count(e, &h, singles as usize)).unwrap_or(20)
-}
-
 fn load(
     mut commands: Commands,
     args: Res<Args>,
@@ -911,7 +902,7 @@ fn load_court(
     let sun = shadow::Sun::read(iso, n as usize);
     let (cnf, bin) = (iso.read("SYSTEM.CNF").expect("SYSTEM.CNF"), iso.read("ZZBIN/GAME.BIN").expect("GAME.BIN"));
     let exe = hst_data::exe::Game::new(&cnf, &bin).expect("supported disc");
-    let today = match_weather(commands, iso, args, &exe, n, envir.as_deref(), seed);
+    let today = match_weather(commands, iso, args, &exe, n, seed);
     let mut look = weather::CourtLook {
         envir: envir.clone().unwrap_or_default(),
         sky: None,
@@ -1185,8 +1176,7 @@ fn court_library(
 
 /// The match's weather schedule and generators, from court `n`'s odds and the match seed (`seed`: online, the host's);
 /// the weather of its first game.
-fn match_weather(commands: &mut Commands, iso: &mut Iso, args: &Args, exe: &hst_data::exe::Game, n: u32, envir: Option<&[u8]>, seed: Option<hst_sim::rng::Seed>) -> hst_sim::weather::Game {
-    let season = args.singles as usize;
+fn match_weather(commands: &mut Commands, iso: &mut Iso, args: &Args, exe: &hst_data::exe::Game, n: u32, seed: Option<hst_sim::rng::Seed>) -> hst_sim::weather::Game {
     let o = exe.weather_odds(n);
     let odds = hst_sim::weather::Odds { cloudy: o[0], cloudy_len: [o[1], o[2]], rain: o[3], rain_len: [o[4], o[5]], no_border: o[7] != 0, heavy: o[8] != 0 };
     let ((directions, speed), (chance, kind)) = (exe.wind(n), exe.gusts(n));
@@ -1216,15 +1206,18 @@ fn match_weather(commands: &mut Commands, iso: &mut Iso, args: &Args, exe: &hst_
     // the match goes on drawing from the same generators (with a given seed, `rand()` is taken as at boot)
     let mut rngs = hst_sim::rng::Rngs::new(r, mt);
     // the setup's own `rand()` calls: the lens flare, the sound manager, the clouds and the effects seed. The
-    // clouds are made only with in-season cloud models; at the setup in singles only
+    // clouds are made only with in-season cloud models: at the setup in singles, then at its first weather (B782)
     let fixed = std::env::var("HST_WEATHER").ok().and_then(|w| w.parse().ok());
     let first = fixed.unwrap_or(schedule[0].weather);
-    let models = court_layout(iso, n as usize).is_some_and(|(l, _)| l.iter().any(|e| e.dir == "cloud" && layout::in_season(&e.stem, season)));
-    let sky = Sky { weathers: schedule.map(|g| g.weather), fixed, made: first, count: cloud_count(iso, n, envir, args.singles), rain: exe.rain_clouds().0, draws: None };
-    let (effects, draws) = rngs.setup_rand(if models && args.singles { sky.made_count(first) } else { 0 });
+    let sky = match_sky(iso, n, args.singles, schedule.map(|g| g.weather), fixed, exe.rain_clouds().0);
+    let (effects, mut draws) = rngs.setup_rand(setup_clouds(sky.as_ref(), args.singles, SETUP_MADE));
     play::set_effects_seed(effects);
     commands.insert_resource(play::MatchRng(rngs));
-    *SKY.lock().unwrap() = models.then_some(Sky { draws: Some((first, draws)), ..sky });
+    // the clouds on screen are the last set made
+    *SKY.lock().unwrap() = sky.map(|sky| {
+        let shown = draws.split_off(draws.len() - 5 * sky.made_count(first));
+        Sky { draws: Some((first, shown)), ..sky }
+    });
     let w = weather::Weather { schedule, game: 0, fixed };
     let today = w.today();
     commands.insert_resource(w);

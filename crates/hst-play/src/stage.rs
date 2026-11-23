@@ -201,6 +201,46 @@ impl Sky {
 
 pub static SKY: std::sync::Mutex<Option<Sky>> = std::sync::Mutex::new(None);
 
+/// B782: the weather the clouds were last made for when a match's setup sets its first weather. In the game it is a
+/// fresh heap block's stale byte that nothing sets first, so it depends on what earlier screens left there; the port
+/// takes *none* for every match (no weather equals it, so the setup always remakes the clouds), as the menu-started
+/// matches seen did (the European bot match, P3f's singles logs). Both peers of an online match take it as is.
+pub const SETUP_MADE: Option<u8> = None;
+
+/// B782: the sky a match on court `n` lays out (`Sky`, its schedule's weathers, `fixed` for `HST_WEATHER`, the
+/// court's count for the side count `singles` and the exe's heavy-rain one `rain`), or none without in-season cloud
+/// models. Read from the disc only, so both peers of an online match make the same one.
+pub fn match_sky(iso: &mut Iso, n: u32, singles: bool, weathers: [u8; hst_sim::weather::GAMES], fixed: Option<u8>, rain: usize) -> Option<Sky> {
+    let season = singles as usize;
+    let models = court_layout(iso, n as usize).is_some_and(|(l, _)| l.iter().any(|e| e.dir == "cloud" && layout::in_season(&e.stem, season)));
+    let first = fixed.unwrap_or(weathers[0]);
+    models.then(|| Sky { weathers, fixed, made: first, count: cloud_count(iso, n, singles), rain, draws: None })
+}
+
+/// How many clouds court `n` makes outside heavy rain (`layout::cloud_count`; singles' environment row 1, doubles' 0).
+fn cloud_count(iso: &mut Iso, n: u32, singles: bool) -> usize {
+    let read = |iso: &mut Iso, xb: &str, name: &str| {
+        let d = iso.read(xb).ok()?;
+        let arc = Archive::parse(&d).ok()?;
+        arc.read(arc.entries.iter().find(|e| e.name.to_ascii_lowercase().ends_with(name))?).ok()
+    };
+    let envir = read(iso, &format!("COURT/{n:02}/CMN.XB"), &format!("envir_c{n:02}.dat"));
+    let hole = read(iso, &format!("COURT/{n:02}/GRD01.XB"), &format!("envir_c{n:02}_h01.dat"));
+    envir.zip(hole).and_then(|(e, h)| layout::cloud_count(&e, &h, singles as usize)).unwrap_or(20)
+}
+
+/// B782: the clouds the match setup makes on `sky` (`Rngs::setup_rand`'s count): a singles setup spawns the first
+/// game's clouds partway through, then setting the first weather remakes them when it differs from `made` (the
+/// weather they were last made for: `SETUP_MADE`) as a change between games does (`weather::clouds_remade`), in
+/// doubles too. None without a sky. The clouds left on screen are the last set (`made_count` of the first weather).
+pub fn setup_clouds(sky: Option<&Sky>, singles: bool, made: Option<u8>) -> usize {
+    let Some(s) = sky else { return 0 };
+    let first = s.fixed.unwrap_or(s.weathers[0]);
+    let n = s.made_count(first);
+    let remade = made.is_none_or(|m| hst_sim::weather::clouds_remade(m, first));
+    n * singles as usize + n * remade as usize
+}
+
 /// A new point on game `game` of the schedule (`Rngs::new_point`): a weather change remakes the clouds
 /// (`weather::clouds_remade`), their draws between the shared and the court generator's seeds, in doubles too.
 pub fn point_clouds(rng: &mut hst_sim::rng::Rngs, game: usize) {

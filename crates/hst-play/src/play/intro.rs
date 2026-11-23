@@ -208,7 +208,7 @@ fn start(
     let (cnf, bin) = (iso.read("SYSTEM.CNF").expect("SYSTEM.CNF"), iso.read("ZZBIN/GAME.BIN").expect("GAME.BIN"));
     let shots = hst_data::exe::Game::new(&cnf, &bin).expect("supported disc").camera_shots();
     let frames = cutaway::intro_frames(&dat);
-    let ticks = (Rngs::intro_ticks(n as u32) as u32).max(frames);
+    let ticks = (Rngs::intro_ticks(n as u32, g.build) as u32).max(frames);
     let rng = g.rng.court.clone();
     let bank = SoundBank::load(&mut iso, "SND/SE/SYS/SYS_SE00.XB", "data/sound/SE/sys/sys_se00.hd").map(std::sync::Arc::new);
     commands.insert_resource(SystemBank(bank));

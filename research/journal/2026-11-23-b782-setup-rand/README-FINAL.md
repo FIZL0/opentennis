@@ -37,3 +37,25 @@
 ## Next
 
 - Port phase (decompile locked): implement `SPEC.md` in `rng.rs`, `main.rs`, `play.rs` and `fifty_hz.rs`. Replace `SETUP_CLOUDS` and `INTRO_TICKS`. Make netplay `seed_match` use the same rule. Test `fifty_hz`.
+
+# Port phase (decompile locked)
+
+Implemented `SPEC.md` from the spec and the recordings only.
+
+- `Rngs::intro_ticks_of` / `intro_ticks_on_disc` / `intro_ticks` take the `Build`. At 50 Hz:
+  - each non-zero camera move becomes `F(frames) × F(0x3f555555)` (the chopping multiply), truncated;
+  - the banner divides its last key by `Build::motion_rate(ticks_per_frame, None)` (80 → 96, so 75 frames);
+  - `intro_ticks(stage, Europe)` holds the spec's 50 Hz table.
+  - New test `intro_ticks_at_50_hz` reads the EU disc: court 6 gives 327, every court matches the table, and the EU files give the US lengths at 60 Hz.
+- `stage.rs` gets one shared rule for main.rs, the netplay harness and the probes:
+  - `match_sky`: the disc-only sky, with the in-season cloud models check and the court's singles/doubles count (moved out of main.rs);
+  - `setup_clouds`: a singles setup spawn plus the remake at the first weather, judged against `SETUP_MADE` with `clouds_remade`;
+  - `SETUP_MADE = None`.
+  - main.rs shows the last set made (`made_count(first)` clouds' draws). So doubles now starts with clouds too: release note.
+- Probe hooks `SETUP_CLOUDS` and `INTRO_TICKS` are gone, and so is `fifty_hz::intro_flare_ticks`.
+  - play.rs calls `intro_ticks_on_disc(.., build)`.
+  - The probes set up through `match_setup` (the shared rule).
+  - The US slot-5 probe steps `rand()` back by the setup's draws as play now counts them. Its start is back-computed from the recording, so the result doesn't change.
+- `intro.rs`'s hold length takes `g.build` (presentation only).
+- Netplay `seed_match` takes `Option<usize>`: `None` (the default) is the shared rule. The desync tool tries the rule first, then the old 0..=64 search for logs from older builds.
+- Tests: `hst-sim intro_ticks` (3, the EU disc test included), `hst-play fifty_hz` (5, the EU generators/serve/point and US serve all pass) and `hst-play netplay` (45) all pass.

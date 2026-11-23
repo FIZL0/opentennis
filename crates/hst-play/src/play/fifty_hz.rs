@@ -66,29 +66,6 @@ pub(super) fn voice_ticks(frames: u32, build: Build) -> u32 {
     frames * build.hz() / 60
 }
 
-/// The match intro's lens-flare ticks on court `stage` of disc `iso_path` (`Rngs::intro_ticks_on_disc`). A bot-match
-/// probe can give its recording's own count for its disc instead (`INTRO_TICKS`): the European original's intro at
-/// 50 Hz ran 327 ticks on court 6, where the disc's 60 Hz count is 394, and the 50 Hz rule isn't known yet (M183a1
-/// part 11).
-pub(super) fn intro_flare_ticks(iso: &mut hst_data::iso::Iso, iso_path: &str, stage: u32) -> usize {
-    #[cfg(test)]
-    {
-        // taken on read, so a probe that stops early can't leave it for the next match on the disc
-        let mut set = INTRO_TICKS.lock().unwrap_or_else(|e| e.into_inner());
-        if set.as_ref().is_some_and(|(p, _)| p == iso_path) {
-            return set.take().map(|(_, n)| n).unwrap_or_default();
-        }
-    }
-    let _ = iso_path;
-    hst_sim::rng::Rngs::intro_ticks_on_disc(iso, stage).expect("court intro files on disc")
-}
-
-/// A probe's intro length for matches on one disc (`intro_flare_ticks`): the disc's path and the count. Bevy runs
-/// the setup on its own threads, so it's process-wide, keyed by the disc (the European probes take turns on
-/// `EU_DISC`).
-#[cfg(test)]
-pub(super) static INTRO_TICKS: std::sync::Mutex<Option<(String, usize)>> = std::sync::Mutex::new(None);
-
 /// The tests that play a match on the European disc take turns: the 50 Hz one sets the process's sim rate and the
 /// disc's own-rate reads (`hst_base::match_speed::test_sim_hz`), which the others must not see.
 #[cfg(test)]
@@ -258,9 +235,6 @@ mod tests {
         /// B775: each player's motion and clock (its next sampled time, and the time it sampled last) in the game's
         /// start state, for [`played_ticks_rng`] to start from instead of play's set-up (none: as play sets them up).
         static START_CLOCKS: std::cell::Cell<Option<[(usize, f32, f32); 4]>> = const { std::cell::Cell::new(None) };
-        /// The clouds the match setup spawns (`Rngs::setup_rand`): 0 unless a probe's recording made some (M183a1 part
-        /// 11: the European match's setup spawned court 6's 6 doubles clouds, 30 `rand()` draws).
-        static SETUP_CLOUDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     }
 
     /// B775: the recording's start state on the players play just set up: a bot match starts from the game's frame
@@ -284,11 +258,10 @@ mod tests {
         }
     }
 
-    fn played_ticks_rng(args: Args, seed: hst_sim::rng::Seed, n: usize, keep: usize, toss_ai: usize) -> (Vec<Tick>, Vec<hst_sim::rng::Rngs>) {
-        crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
-        let mut app = App::new();
-        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
-        app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+    /// The match's setup as main.rs makes it from `seed`: the weather schedule, the generators after the setup's
+    /// draws (B782: its clouds, remade at the first weather as the recordings' setups did, `SETUP_MADE`) and the
+    /// effects seed.
+    fn match_setup(args: &Args, seed: hst_sim::rng::Seed) -> ([hst_sim::weather::Game; hst_sim::weather::GAMES], hst_sim::rng::Rngs, u32) {
         let mut disc = hst_data::iso::Iso::open(&args.iso).unwrap();
         let (cnf, bin) = (disc.read("SYSTEM.CNF").unwrap(), disc.read("ZZBIN/GAME.BIN").unwrap());
         let exe = hst_data::exe::Game::new(&cnf, &bin).unwrap();
@@ -300,7 +273,17 @@ mod tests {
         let players = if args.singles { 2 } else { 4 };
         let schedule = hst_sim::weather::schedule(&odds, &wind, args.games, args.sets, players, || mt.next());
         let mut rngs = hst_sim::rng::Rngs::new(seed.rand, mt);
-        let (effects, _) = rngs.setup_rand(SETUP_CLOUDS.take());
+        let sky = crate::match_sky(&mut disc, args.court as u32, args.singles, schedule.map(|g| g.weather), None, exe.rain_clouds().0);
+        let (effects, _) = rngs.setup_rand(crate::setup_clouds(sky.as_ref(), args.singles, crate::SETUP_MADE));
+        (schedule, rngs, effects)
+    }
+
+    fn played_ticks_rng(args: Args, seed: hst_sim::rng::Seed, n: usize, keep: usize, toss_ai: usize) -> (Vec<Tick>, Vec<hst_sim::rng::Rngs>) {
+        crate::play::AUTOPLAY.store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Mesh>().init_asset::<StandardMaterial>().init_asset::<Image>().init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+        let (schedule, rngs, effects) = match_setup(&args, seed);
         set_effects_seed(effects);
         app.insert_resource(MatchRng(rngs));
         app.insert_resource(crate::weather::Weather { schedule, game: 0, fixed: None });
@@ -525,10 +508,8 @@ mod tests {
         // before to the same fractional 50 Hz clock (23.6664, sampled 22.6664)
         let (time, sampled) = (f32::from_bits(0x41bd_54ce), f32::from_bits(0x41b5_54ce));
         START_CLOCKS.set(Some([(0x20, time, sampled), (0, time, sampled), (0, time, sampled), (0, time, sampled)]));
-        // M183a1 part 11: the recording's setup and intro as its `rand()` trace (`eu_rand_rec.py`) has them: the setup
-        // spawned court 6's 6 doubles clouds (P3f3's heap-dependent setup spawn) and the intro ran 327 flare ticks
-        SETUP_CLOUDS.set(6);
-        *crate::play::fifty_hz::INTRO_TICKS.lock().unwrap_or_else(|e| e.into_inner()) = Some((args.iso.clone(), 327));
+        // B782: the recording's setup remade court 6's 6 doubles clouds at its first weather (30 `rand()` draws) and
+        // its intro ran the 50 Hz camera table's 327 flare ticks, as play makes them
         // the match seed: the 81 875th `rand()` output from boot (`eu_match_seed_search`)
         let (got, rngs) = played_ticks_rng(args, hst_sim::rng::Seed::after(81_874), n.unwrap_or(want.len() + 10), keep, toss_ai);
         Some((want, got, rngs))
@@ -721,9 +702,16 @@ mod tests {
         // The match seed is the `rand()` output 0x28c7c4a1 (P3d3, `weather.rs`), but the intro was cut short when slot
         // 5 was made (a button skips it): `rand()` stands 2642 draws past the seed as the first point starts, where a
         // whole intro's lens flare (394 ticks of 24 draws) takes 9456. So `rand()` starts where play's setup (the
-        // setup's 50 draws, the sound manager's reseed, the whole intro) lands on the recording's `rand()` the frame
+        // setup's draws, the sound manager's reseed, the whole intro) lands on the recording's `rand()` the frame
         // before the first point's reseed (vsync 7565); the shared generator keeps the seed the schedule came from.
-        let rand = hst_sim::rng::Rand(rand_back(rand_at(7565), 50 + 1 + 394 * 24));
+        // B782: the setup's draws counted as play makes them (its clouds remade at the first weather included)
+        let setup = match_setup(&args, hst_sim::rng::Seed { rand: hst_sim::rng::Rand(0), shared: 0x28c7_c4a1 }).1.rand.0;
+        let (mut r, mut draws) = (hst_sim::rng::Rand(0), 0);
+        while r.0 != setup {
+            r.next();
+            draws += 1;
+        }
+        let rand = hst_sim::rng::Rand(rand_back(rand_at(7565), draws + 1 + 394 * 24));
         let seed = hst_sim::rng::Seed { rand, shared: 0x28c7_c4a1 };
         let want = recorded_ticks(&data);
         // B775: the motions as the recording's start state has them (`anim_s05.bin`, vsync 7565): the server in its

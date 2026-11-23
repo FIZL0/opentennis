@@ -7,7 +7,11 @@
 //! that order); the match start, a change of ends and a new point after a point's end then reseed the sound manager's.
 #![deny(clippy::float_arithmetic)]
 
+use crate::build::Build;
 use crate::ps2::{self, F};
+
+/// The 50 Hz program's camera-table retime factor (0.8333333).
+const FIVE_SIXTHS: f32 = f32::from_bits(0x3f55_5555);
 use hst_data::{ani::{self, Anim}, iso::Iso, xb::Archive};
 
 pub use ps2_float::rand::Rand;
@@ -177,24 +181,29 @@ impl Rngs {
         (self.rand.next(), draws)
     }
 
-    /// The match intro's game ticks (before the first point, each a lens flare tick in clear or cloudy weather). The
-    /// intro phase ends once the court's camera flyover (`camera`: `cam_cNN_00.dat`, 40-byte records whose first
-    /// field is the move's frames) has run and then the "Start the match!" banner's animation (`banner`) has played
-    /// out: the flyover takes its records' frames (a record of 0 frames after the first cuts to a new segment, 2
-    /// frames), the banner its last key's frame, and the two hand-offs a tick each. Its timer (3 ticks) and the
-    /// streamed sound are done long before. Same in singles and doubles.
-    pub fn intro_ticks_of(camera: &[u8], banner: &Anim) -> usize {
+    /// The match intro's game ticks under `build` (before the first point, each a lens flare tick in clear or cloudy
+    /// weather). The intro phase ends once the court's camera flyover (`camera`: `cam_cNN_00.dat`, 40-byte records
+    /// whose first field is the move's frames) has run and then the "Start the match!" banner's animation (`banner`)
+    /// has played out: the flyover takes its records' frames (a record of 0 frames after the first cuts to a new
+    /// segment, 2 frames), the banner its last key's frame, and the two hand-offs a tick each. Its timer (3 ticks)
+    /// and the streamed sound are done long before. Same in singles and doubles.
+    ///
+    /// At 50 Hz the camera table is retimed as it loads: each move's frames become `frames × 0.8333333` on the EE's
+    /// chopping multiply, truncated (150 → 124, not 125), and the banner plays at the motions' 50 Hz ticks per frame
+    /// (80 → 96: 90 frames → 75). The cut's 2 and the hand-offs stay.
+    pub fn intro_ticks_of(camera: &[u8], banner: &Anim, build: Build) -> usize {
+        let frames = |n: i16| if build.fifty() && n != 0 { (F(f32::from(n)) * F(FIVE_SIXTHS)).0 as i16 } else { n };
         let flyover: usize = camera
             .as_chunks::<40>().0.iter()
             .take(20)
             .enumerate()
-            .map(|(i, r)| (i16::from_le_bytes([r[0], r[1]]).max(0) as usize).max(2 * (i > 0) as usize))
+            .map(|(i, r)| (frames(i16::from_le_bytes([r[0], r[1]])).max(0) as usize).max(2 * (i > 0) as usize))
             .sum();
-        flyover + (banner.end_tick() / banner.ticks_per_frame) as usize + 2
+        flyover + (banner.end_tick() / build.motion_rate(banner.ticks_per_frame, None)) as usize + 2
     }
 
     /// `intro_ticks_of` for court `stage` from the disc (`COURT/NN/CMN.XB` and INPANE's `i_gamestart_00.ANI`).
-    pub fn intro_ticks_on_disc(iso: &mut Iso, stage: u32) -> Option<usize> {
+    pub fn intro_ticks_on_disc(iso: &mut Iso, stage: u32, build: Build) -> Option<usize> {
         let read = |iso: &mut Iso, xb: &str, name: &str| {
             let d = iso.read(xb).ok()?;
             let arc = Archive::parse(&d).ok()?;
@@ -202,12 +211,21 @@ impl Rngs {
         };
         let camera = read(iso, &format!("COURT/{stage:02}/CMN.XB"), &format!("cam_c{stage:02}_00.dat"))?;
         let banner = read(iso, "AZUMA/INPANE/INPANE.XB0", "i_gamestart_00.ani")?;
-        Some(Self::intro_ticks_of(&camera, &ani::parse(&banner).ok()?))
+        Some(Self::intro_ticks_of(&camera, &ani::parse(&banner).ok()?, build))
     }
 
     /// `intro_ticks_on_disc` for the retail disc's court `stage` (1–11), for callers without the disc at hand.
     // ponytail: the retail courts' lengths, checked against the disc by tests/rng.rs intro_ticks_from_the_disc
-    pub fn intro_ticks(stage: u32) -> usize {
+    pub fn intro_ticks(stage: u32, build: Build) -> usize {
+        if build.fifty() {
+            return match stage {
+                1 => 303,
+                5 => 371,
+                11 => 295,
+                2 | 7 | 9 => 328,
+                _ => 327,
+            };
+        }
         match stage {
             1 => 364,
             5 => 446,
