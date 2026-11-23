@@ -43,7 +43,24 @@ Spec phase. The port phase follows from `SPEC.md` in this dir. Probe is M183a1 p
   - After it is in, run the probe and check that phase 24 matches.
 - Not a gameplay change. No release note.
 
+## Port phase
+- Implemented per `SPEC.md`, test-only (commit 6f349705). Release play is unchanged.
+- `fifty_hz::EARLY_LINE` (an `AtomicBool`, `#[cfg(test)]`) is the stand-in: the next umpire line play starts takes its ticks left one shorter.
+- The hook is in `play.rs` `play_sounds`, where the line's `voice_left` is set. It consumes the flag (swap to false).
+- The EU probe lists recorded ticks in a thread-local `EARLY_LINES`, set in `european_rngs` to [6636]. `played_ticks_rng` raises the flag before play's step t.
+- A temporary print found that play starts the fault's call in its step 6636. That is the same number as the recorded point-over start tick, with 29 ticks left. The flag set at step 6637 was never used.
+- The flag is cleared at the end of the run.
+- `the_european_bot_match_plays_as_recorded` (ignored, full match, `HST_M183A1_PHASES=42`):
+  - Phase 24 now runs 64 ticks in play, like the recording.
+  - 38 of 144 phases match (was 24).
+  - Phases 25 to 37 all match.
+  - Phase 38 (rally, recording 92 ticks, play 138) is the first miss, as the spec predicted.
+  - The probe's assertion now asks for at least 38 matching phases.
+- `tools/check.sh -p hst-play --lib fifty_hz`: 5 tests pass, including the EU generators test, which plays past tick 6636.
+
 ## Not verified / not 1:1
 - The jitter's cause is inferred from the data. It is not traced inside the sound driver. Its timing is off the EE side (the sound processor), so it is not modelled.
-- The stand-in is not yet written or run. That is the port phase.
 - The 50 Hz line ends were checked only for umpire 0, voice a.
+- Which calls the game hears a tick early is not predictable from game state (sound processor timing). Play keeps the usual line end. The stand-in only feeds the one known early call of the EU recording (tick 6636).
+- The US probe lists none. P0b4c's 3 early US calls are not fed into the US probe.
+- Phase 38's rally part is outside this task.
