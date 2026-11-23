@@ -42,9 +42,31 @@ Spec phase. The spec is in `SPEC.md`.
   new motion ahead of play's look-ahead.
 - Look-ahead 2 with the update moved: the US match parts later, at 1827, near a motion switch (0x1f to 0x3).
 
+## Spec phase 2 (2026-11-23)
+
+- The open questions are answered in `SPEC.md`: *When in the tick the pose is taken*, *Play's stored pose is one step
+  behind, not two*, *What the port has to produce*.
+- Decompile: each player's update runs in court-slot order: the AI and motion commands, one motion step, the pose layers
+  and crossfade mix, the placement, then the racket hand-off. The hand-off evaluates the skeleton afresh and copies the
+  racket node matrix (x row times hand sign) through the scratch slot. So player 2's stand test on tick T reads player
+  1's pose from player 1's own step on tick T, including a motion player 1 started that tick.
+- Checked against the captures: the game's read equals the game's own sampled clip time in the same frame at EU rally
+  200, 289–290, 390, 396, 409, 411, and US play ticks 26 and 310.
+  - EU 390: the switch to the speed-4 swing. The game is already on the new motion at clip 0 (−0.7529); play carries
+    the old motion on (−0.8270).
+- The earlier "lead" reading was backwards. On lined-up motions the fit shift is −1: the game equals the value play's AI
+  read one tick earlier, so look-ahead 2 reaches one frame too far.
+- The right read is the stored pose plus one step (look-ahead 1), plus this tick's motion command. Not look-ahead 3.
+  That explains why the `wip/B773` look-ahead-3 attempt failed on motion switches.
+- The US probe's opening idle has play's idle clock 3 frames behind the game's from the probe start (play starts the idle
+  at clip 0). It is a test-harness start-state difference, filed as B775.
+- Not verified: the new read was not run (spec phase, no Rust). The arm turn's place relative to the crossfade mix wasn't
+  checked against a capture. The skip-drawing case (hand-off and sampling skipped) was not observed.
+
 ## Not verified / not 1:1
 
-- Look-ahead 3 with the update moved was run (*Port attempt*): steady windows line up, motion switches don't.
+- Look-ahead 3 with the update moved was run (*Port attempt*): steady windows line up, motion switches don't. Spec phase 2
+  explains the switch failures: the read should be look-ahead 1 plus the tick's motion command.
 - The ordering explanation (the per-frame update runs after the step) fits every case, including the 0x2 at EU tick 257,
   which is the stance after the early-started swing ends (*After a swing ends*). Tried with the update moved on
   `wip/B773` (*Port attempt*). Lead 0 in the EU 555–589 window is predicted, not compared: play diverges before then.
@@ -55,3 +77,5 @@ Spec phase. The spec is in `SPEC.md`.
 - The port is on `wip/B773` (e13fb188), not landed. The US bot match regresses at 890 with it (motion switch inside
   the look-ahead window).
 - The stance after the EU 0x12 swing (0x2 at 257) and the crossfade were not checked against the anim capture.
+- The look-ahead-1 read (*Spec phase 2*) is not implemented or run. The US probe's opening idle can't line up until B775
+  fixes its start state.

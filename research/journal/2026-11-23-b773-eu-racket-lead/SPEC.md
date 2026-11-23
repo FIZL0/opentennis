@@ -1,8 +1,8 @@
 # B773 spec: why the European racket lead changes per swing
 
-What the doubles stand test reads as player 1's leftover racket direction, and why play's look-ahead-2 model leads
-it by 0, 1 or 4 frames depending on the swing. Both builds behave the same way. The European rally just happens to
-contain the swing that shows it most.
+What the doubles stand test reads as player 1's leftover racket direction, when in the tick that pose is taken, and
+why play's look-ahead-2 model is off by a different amount per swing. Both builds behave the same way. The European
+rally just happens to contain the swing that shows it most.
 
 ## What the game reads
 
@@ -10,9 +10,46 @@ contain the swing that shows it most.
   times the hand sign) of the player's pose at the game's own motion clock on tick T: the clip time the motion
   player has sampled that tick. EU point 3: on rally ticks 405–411 the game's value equals play's pose at the same
   clip time (tick 409: clip time 25 in both).
-- So the AI reads this tick's pose. The game has no extra pose pass and no look-ahead. Any difference from play
-  comes from play's motion clock running out of step with the game's. Both builds step motions once per game tick.
+- So the AI reads this tick's pose. The game has no extra pose pass and no look-ahead. The difference from play
+  comes from play's motion clock running out of step with the game's, and from play's fixed look-ahead (*Play's
+  stored pose is one step behind, not two*). Both builds step motions once per game tick.
   The 50 Hz build doesn't step motions at a different rate here.
+
+
+## When in the tick the pose is taken
+
+Each player's update runs in court-slot order and does these in order:
+
+1. the computer player's AI (a human's pad instead), then its mode's movement and motion commands. A newly decided
+   swing, stance or run starts here;
+2. one motion step: the current motion is sampled at its clock, then the clock moves on by the speed, and the
+   crossfade counts down;
+3. the pose's extra layers (the contact arm turn among them) and the crossfade's mix of the outgoing motion;
+4. the player's placement for this tick: position and facing after this tick's move;
+5. the racket hand-off. The step and the placement mark the skeleton as changed, so it is evaluated afresh here from
+   the pose of steps 2–3 under the placement of step 4. The racket node's matrix, with its x row times the hand sign,
+   goes to the racket model through the scratch slot. That copy is what the next player's stand test reads;
+6. later in the same update: the toss (on a toss tick its launch velocity overwrites the slot) and the per-frame swing
+   update (*The per-frame swing update runs after the motion step*).
+
+So player 2's AI on tick T reads player 1's pose after player 1's own motion step on tick T, under player 1's facing for
+tick T. That includes a motion player 1's own update started on tick T: its first sample (clip time 0) with that
+tick's crossfade mix, or a cut. Nothing comes from an earlier tick and nothing is looked ahead.
+
+Measured (game's read against the game's own sampled clip time in the same frame; the anim capture records a frame's
+state at the start of the next frame):
+
+- EU rally 409: clip time 25, 411: 27, 396: 12 (the speed-4 swing), 289–290: 3, 4 (a lined-up run), 200: 20 (the
+  queued 0x12 swing).
+- US play ticks 26 (idle, clip time 28) and 310 (the 0x10 swing, clip time 20).
+- EU rally 390: player 1 cuts from 0x1 to the speed-4 swing 0x10 that tick. The game's read on 390 (−0.7529) is
+  already the swing at clip time 0. Play's value, carried on from the old motion, is −0.8270.
+- US play tick 888: player 1 switches from 0x1f to 0x5 on the same tick in the game and in play. The game's read on 888
+  (0.4028) is already 0x5 at clip time 0 with its crossfade from 0x1f; play's look-ahead value (0.4855) is the old
+  motion run on. On 890 the game reads 0x5 at clip time 2 (−0.0784); play's look-ahead 2 gives clip time 3 (−0.0913),
+  and look-ahead 3 reaches further still. The port attempt's parting at 890 comes from this.
+- When the game's skip-drawing flag is set, the hand-off doesn't run (and the motion step doesn't sample), so the slot
+  keeps whatever its last writer left (the M185 spec's writers).
 
 ## The per-frame swing update runs after the motion step
 
@@ -72,48 +109,58 @@ contain the swing that shows it most.
 - Port check: against the EU anim capture, the stance read one tick later must still pick 0x2 at 257, as the game
   does, and the crossfade must match.
 
-## What the lead is, in B772's terms
 
-Lead = how many frames the game's value is ahead of play's look-ahead-2 value (EU point 3, shift fit of every rally
-tick, `research/b773_lead_fit.py`):
+## Play's stored pose is one step behind, not two
 
-| Window (rally ticks) | Motion | Lead | Cause |
+- Play poses after its motion step, at that step's sampled clip time, and the after-pose store keeps that pose. The AI
+  reads it on the next tick. So the stored pose is exactly one motion step behind the tick the AI is in, and with
+  play's clock equal to the game's, one step on from it is the game's read when player 1's motion didn't change
+  that tick.
+- The shift fits (`research/b773_lead_fit.py`, `research/b773_us_lead_fit.py`) give s, the play tick (relative to
+  the same tick) whose look-ahead-2 value equals the game's read:
+
+| Window | Play's clock against the game's | s | Look-ahead that fits |
 |---|---|---|---|
-| 196–255 (and 555–589) | queued speed-1 swing, started one tick early in play | 0 | Rule 2: play one frame ahead, so the lead drops from 1 to 0 |
-| most idle/run ticks | lined-up motions | 1 | base lead: play's look-ahead 2 reads one frame short |
-| 393–423 (396–421 fitted) | speed-4 swing from 390 | 4 | Rule 1: play trails 3, so the lead goes from 1 to 4 |
-| speed-8/3 swings | | about 2.667 | Rule 1: play trails 1.667. No whole-tick shift fits, so those ticks show no match |
+| lined-up motions (EU 289–290, 302–306 and the other idle/run windows) | equal | −1 | 1 |
+| queued speed-1 swings play starts a tick early (EU 194–255, US 304–335) | 1 frame ahead | −2 | 0 |
+| speed-4 swing from EU 390 (396–421) | 3 frames behind | +2 | 4 |
+| speed-8/3 swings | 1.667 frames behind | none (no whole-tick shift fits) | none; lines up once Rule 1 is ported |
+| US probe's opening idle (play ticks 26–200) | 3 frames behind | +2 | 4 |
 
-The US fit (`research/b773_us_lead_fit.py` against `fixtures/ai_net_s05.bin`) agrees:
-
-- The early-started 0x10 swing at US play tick 289 shows lead 0 for all of ticks 304–335, the same as the early EU
-  swing.
-- That is the window B771/M185 calibrated "look ahead 2" on. So the 2 already contains the one-tick early start.
-  With both rules in place, a lined-up motion has lead 1 relative to play's current read.
+- s = −1 means the game's read equals the value play's AI read one tick earlier: look-ahead 2 reaches one frame too
+  far. The earlier reading of the same numbers ("base lead 1, so look-ahead 3") had the direction backwards.
+- M185's look-ahead 2 was set in windows where play's clock was off (the rows above), and only the sign of z is read,
+  so a wrong look-ahead passes for long stretches. The held-ball reason given for "two ticks" doesn't apply: play's
+  held ball has nothing to do with when the stand test's pose is taken.
+- The US opening idle row comes from the probe's start: play's idle clock starts at 0 there while the game's idle was
+  already 3 frames in. That is a start-state difference in the test harness, not a timing rule (follow-up filed).
 
 ## What the port has to produce
 
 - Run play's per-frame swing update (countdown, queued start, fast-speed reset) after the motion step, so its
-  changes show from the next step. The decision-time fast start stays where it is. Play's motion clock should then
-  equal the game's on every tick of both anim captures (clip time and speed per tick).
-- With the clocks equal, every window has the same lead of 1. Play's look-ahead goes from 2 to 3, once, in both
-  builds. US: M185 calibrated 2 on the early-started 0x10 swing (lead 0), so that window moves to lead 1 too. No
-  per-swing correction.
-- Acceptance: the European bot match gets past point 3's 1585 (game reads +0.2663 there) without the no-contact
-  fallback B772 relied on, and the US bot match still plays as recorded at least as far as before.
+  changes show from the next step (Rules 1 and 2). The decision-time fast start stays where it is. Play's motion
+  clock then equals the game's on every tick of both anim captures, apart from the US probe's opening idle offset.
+- Drop the fixed look-ahead. The steps below are how play rebuilds the game's same-tick pose from what it keeps, not
+  something the game does. The leftover computer player i reads on tick T is player i−1's racket z from player
+  i−1's pose of tick T:
+  - start from player i−1's stored pose of tick T−1;
+  - apply player i−1's own motion command for tick T, the way play's motion setter does in that tick: a new motion
+    starts at clip time 0 with its crossfade or cut, a restart or speed change takes effect;
+  - run exactly one motion step (sample, then advance; crossfade count and mix);
+  - use player i−1's facing for tick T and its arm turn (and a dive's racket turn) for tick T.
+- Players run in court-slot order, so all of player i−1's update for tick T comes before player i's AI. In play the
+  motion commands become motions only after every AI has run, so the port has to work out player i−1's tick-T motion
+  at player i's AI time. It can't wait for the motion step: player i's decision depends on the read.
+- With no motion change on tick T this is the stored pose plus one step (look-ahead 1). On a switch it is the new
+  motion's first sample.
+- The toss-tick, hit-tick and first-player overrides stay as they are.
+- Acceptance:
+  - EU bot match: past point 3's 1585 (the game reads +0.2663 there, clip time 27) without the no-contact fallback.
+  - US bot match: at least as far as before the port attempt (2354).
+  - Shift fit: the value play's AI reads on tick T equals the game's read on T on
+    every tick where slot 2 stored a racket direction, including the switch ticks (EU 390). The exception is the US
+    probe's opening idle, until its start offset is fixed.
 
 ## Open questions
 
-- With the update moved and look-ahead 3, the steady windows line up. Across a motion switch they don't: the game's
-  stand-test read already shows the new motion on the tick play's motion player starts it, and a look-ahead from the
-  older pose can't foresee that. US bot match: player 1 switches from 0x1f (run) to 0x5 at play's tick 888. The game's
-  value at 890 is already on 0x5 (-0.0784, wrong sign), so player 2's stand test goes the other way and the match
-  parts at 890. Before the change it held to 2354.
-- Find in the original: on which tick, relative to the player update and the computer players' AI in that tick, the
-  game samples the pose its stand test reads. Does that read come from player 1's pose after player 1's own motion
-  step for the same tick? The players update in court-slot order, so player 1's step has already run when player 2's
-  AI runs.
-- Also find why play's posed nodes are two ticks behind play's own motion clock.
-- Say what the port should use instead of the fixed look-ahead. Candidate: at AI time, compute the leftover from
-  player 1's current motion (its motion command for this tick applied and stepped once), not from the previous tick's
-  posed nodes. Confirm or replace it, and name the tick and order it needs.
+none
