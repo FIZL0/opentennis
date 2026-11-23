@@ -494,6 +494,11 @@ mod tests {
         let _sixty = Sixty;
         let args = Args { iso: iso.to_string_lossy().into(), archives: vec![], shot: None, shot_at: 0.5, radius: None, ball: false, court: 6, stage: Some(6), play: true, singles: false, chars: vec![0, 1, 1, 0], outfits: vec![], viewer: None, sound: None, music: false, umpire: 0, sets: 1, games: 4, pads: None };
         let want = recorded_ticks(&data);
+        // B778: the motions as the recording's start state has them (`eu-bot-anim.bin`, vsync 37921, the frame before
+        // the first set-up): the server in its serve stance and the others in their idle, all run on from the screens
+        // before to the same fractional 50 Hz clock (23.6664, sampled 22.6664)
+        let (time, sampled) = (f32::from_bits(0x41bd_54ce), f32::from_bits(0x41b5_54ce));
+        START_CLOCKS.set(Some([(0x20, time, sampled), (0, time, sampled), (0, time, sampled), (0, time, sampled)]));
         // the match seed: the 81 875th `rand()` output from boot (`eu_match_seed_search`)
         let (got, rngs) = played_ticks_rng(args, hst_sim::rng::Seed::after(81_874), n.unwrap_or(want.len() + 10), keep, toss_ai);
         Some((want, got, rngs))
