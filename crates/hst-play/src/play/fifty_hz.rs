@@ -260,6 +260,12 @@ mod tests {
         app.add_systems(Startup, setup);
         app.add_systems(FixedUpdate, (remember, flare_tick, effects::tick, react_first, control, reaction_roots, simulate, start_effects, motions, character::tick, played_out, held_ball, crate::play::bodyhit::pose, crate::play::doubles_ai::scratch::after_pose).chain());
         app.init_resource::<ReactionRoots>();
+        // B769: the umpire's calls are voiced, so the point-over waits for the voice as in a real match (a fault's
+        // point-over is 80 ticks in the game, 38 without a mixer)
+        let mut iso = hst_data::fixture::iso().unwrap();
+        app.insert_resource(crate::audio::Sound::test(&mut iso));
+        app.add_plugins(heard::plugin);
+        app.add_systems(FixedUpdate, play_sounds.after(held_ball));
         app.init_resource::<crate::play::bodyhit::Posed>().init_resource::<crate::play::bodyhit::Bones>();
         app.update();
         let code = |p: &Phase| match p {
@@ -735,6 +741,9 @@ mod tests {
         // (80 ticks in the game, 38 in play)
         assert!(compare("us", &want, &got) >= 27, "the phases through game 2's first serve's fault");
         assert_eq!((219..6899).filter(|&k| ![1084, 2354, 3190, 3795, 4391, 5011, 5689, 6543].contains(&k)).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before tick 6899");
+        // B769: the umpire's "Fault" is voiced, and the point-over waits for it: the fault's point-over phase for phase
+        // (80 ticks; a draw at the serve's contact is still missing, B771)
+        assert!(compare("us", &want, &got) >= 28, "the phases through game 2's first serve's point-over");
         if let Some(d) = &ends {
             // the AI generator on the recording's draws from point 10's point-over through the change of ends and game
             // 2's serve set-up to the press, but at the two phase changes' ticks (as at every point's)
