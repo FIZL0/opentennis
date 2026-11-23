@@ -266,6 +266,8 @@ mod tests {
         app.insert_resource(crate::audio::Sound::test(&mut iso));
         app.add_plugins(heard::plugin);
         app.add_systems(FixedUpdate, play_sounds.after(held_ball));
+        // B770: the court's figures (court 6's fences stop the ball and send the computer players the strike)
+        app.add_plugins(crate::play::npcs::sim_plugin);
         app.init_resource::<crate::play::bodyhit::Posed>().init_resource::<crate::play::bodyhit::Bones>();
         app.update();
         let code = |p: &Phase| match p {
@@ -494,7 +496,7 @@ mod tests {
     /// it), the point-over phase runs its 134 ticks and the next serve is set up on the game's tick (the recording
     /// counted in game ticks: its loading stalls freeze everything and aren't ticks). Players stand where the
     /// recording has them through the scoreboard's pause (463: they part at the reaction after it), the ball flies
-    /// as recorded to 470 (it meets the stage there in the game, not in play).
+    /// as recorded to the next serve's set-up (571), off court 6's fence at 471 too (B770).
     #[test]
     fn the_european_first_point_ends_as_recorded() {
         let Some((want, got)) = european(Some(600), 0) else { return };
@@ -508,7 +510,7 @@ mod tests {
         for k in 437..=463 {
             assert_eq!(ground(&want[k]), ground(&got[k + 1]), "eu tick {k}: the players");
         }
-        for k in (437..=470).filter(|&k| k != 464) {
+        for k in (437..=571).filter(|&k| k != 464) {
             assert_eq!(want[k].2.map(f32::to_bits), got[k].2.map(f32::to_bits), "eu tick {k}: the ball");
         }
     }
@@ -553,8 +555,8 @@ mod tests {
     /// (`fixtures/m169/eu-rng.bin`, `eu_rng_rec.py` in the journal: vsync, then the shared, AI and court generators):
     /// for each played tick, the recorded tick (from the first serve set-up) each generator equals, and the AI draws a
     /// tick around the return (`--nocapture`; `HST_M183A1_DRAWS=from,to`: another span); asserts the AI generator
-    /// follows the recording, read by game tick (`recorded_vsyncs`), through the first point to point 2's reset and on
-    /// to its server's toss (6 draws short from the ball meeting the stage at 471).
+    /// follows the recording, read by game tick (`recorded_vsyncs`), through the first point, the ball striking court
+    /// 6's fence (471, B770), point 2 and on to point 3's serve, and the phases with it.
     #[test]
     fn the_european_generators_play_as_recorded() {
         use hst_sim::rng::Mt;
@@ -574,8 +576,8 @@ mod tests {
             .map(|s| (u32::from_le_bytes(s[..4].try_into().unwrap()) as i64 - start, Mt::from_ram(&s[4..]), Mt::from_ram(&s[4 + 0x9d0..]), Mt::from_ram(&s[4 + 2 * 0x9d0..])))
             .collect();
         // `HST_M183A1_KEEP=n`: play n ticks (the probes below reach past the asserted span)
-        let keep = std::env::var("HST_M183A1_KEEP").ok().and_then(|v| v.parse().ok()).unwrap_or(660);
-        let Some((_, _, rngs)) = european_rngs(Some(keep), 0, keep) else { return };
+        let keep = std::env::var("HST_M183A1_KEEP").ok().and_then(|v| v.parse().ok()).unwrap_or(1190);
+        let Some((want, got, rngs)) = european_rngs(Some(keep), 0, keep) else { return };
         let mut last = None;
         for (k, r) in rngs.iter().enumerate() {
             let at = |f: &dyn Fn(&(i64, Mt, Mt, Mt)) -> bool| rec.iter().find(|x| f(x)).map(|x| x.0);
@@ -615,7 +617,8 @@ mod tests {
         // its release (407, M183a1), the rally's end (the point decided two ticks after the deciding bounce, B723) and
         // the point-over phase past the scoreboard's pause end and its loading stall to the ball meeting the stage
         // (470), but at the serve's contact (140), where play's draws land a tick apart from the game's; B768: the set-up's
-        // first ticks too, as the server picks its serve spot and wait in its serve state's entry tick
+        // first ticks too, as the server picks its serve spot and wait in its serve state's entry tick; point 2's
+        // serve contact (742) and point 3's (1181) are a tick apart the same way
         let off: Vec<usize> = (1..=470).filter(|&k| k != 140).filter(|&k| by_tick(k).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
         assert!(off.is_empty(), "the AI generator leaves the recording at {off:?}");
         // every tick has a recorded sample to compare with but the one run unsampled inside each loading stall
@@ -623,17 +626,18 @@ mod tests {
         assert_eq!(unsampled, [464, 572], "ticks with no recorded sample");
         // B768: point 2's new-point reset in the tick the set-up starts (572: each AI object's 17) and the entries and
         // the serve pick in the next (21), both inside the recording's one sample after the loading stall (vsync 577),
-        // none after; and on as recorded to the server's toss (653: its serve wait), but 6 draws short from the tick
-        // the game's ball meets the stage (471: B770), where the game draws 6 that play doesn't make
+        // none after; B770: and on as recorded through the tick the game's ball meets court 6's fence (471: the
+        // computer players' 6 draws as they hear the strike) to the server's toss (653: its serve wait)
         let drawn = |k: usize| steps(&rngs[k].ai, &rngs[k + 1].ai);
         assert_eq!((572..=574).map(drawn).collect::<Vec<_>>(), [Some(68), Some(21), Some(0)], "point 2's reset");
-        let six = |k: usize| {
-            let mut m = rngs[k + 1].ai.clone();
-            (0..6).for_each(|_| _ = m.next());
-            m
-        };
-        let off: Vec<usize> = (471..=652).filter(|&k| by_tick(k).is_some_and(|x| x.2 != six(k))).collect();
-        assert!(off.is_empty(), "past the stage, the AI generator leaves the recording at {off:?}");
+        assert_eq!(drawn(471), Some(6), "the strike on the fence");
+        let off: Vec<usize> = (471..=1180).filter(|&k| k != 742).filter(|&k| by_tick(k).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
+        assert!(off.is_empty(), "past the fence, the AI generator leaves the recording at {off:?}");
+        // so the match's phases run as recorded through point 3's set-up: point 2's set-up its 164 ticks, its rally
+        // and point-over, point 3's set-up its 221 (they part in point 3's rally)
+        let kinds = |p: &[(u8, u32, [[f32; 3]; 4])]| p.iter().take(7).map(|p| (p.0, p.1)).collect::<Vec<_>>();
+        assert_eq!(kinds(&phases(&want)), [(2, 135), (3, 303), (4, 134), (2, 164), (3, 84), (4, 134), (2, 221)], "the recording's phases");
+        assert_eq!(kinds(&phases(&got[..=1180])), kinds(&phases(&want)), "the phases in play");
     }
 
     /// Slot 5's bot match (`fixtures/match_s05.bin`: doubles, characters 0/2/1/5, court 10, umpire 4, 1 set of 4

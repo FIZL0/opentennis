@@ -48,10 +48,39 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Ambience>()
         .add_systems(PostStartup, setup.after(super::setup))
         .add_systems(FixedUpdate, step.after(character::tick).before(super::play_sounds))
+        .add_systems(FixedUpdate, hear_strike.before(super::control))
         .add_systems(Update, (draw_cheers.after(super::split_view::split), draw_crowd, look.after(character::animate)))
         .add_systems(FixedUpdate, mod_umpire.after(step).before(super::play_sounds))
         .add_systems(Update, mod_look.after(look))
         .add_systems(PostUpdate, cull_crowd.before(bevy::transform::TransformSystems::Propagate));
+}
+
+/// B770: the court figures as the match sees them, with nothing drawn (the bot-match test harness in `fifty_hz`):
+/// made at setup and stepped every tick, so the ball meets a court's ball-hit obstacles (court 6's fences) there too.
+#[cfg(test)]
+pub(super) fn sim_plugin(app: &mut App) {
+    app.init_asset::<crate::gs::GsMaterial>()
+        .init_resource::<Ambience>()
+        .add_systems(PostStartup, setup)
+        .add_systems(FixedUpdate, step.after(character::tick).before(super::play_sounds))
+        .add_systems(FixedUpdate, hear_strike.before(super::control));
+}
+
+/// B770: the computer players' own handling of the ball striking a creature (`doubles_ai::struck`: back to the start
+/// of their state, on their generator), as the tick after next starts, before they move. The creature meets the ball
+/// at the end of a tick (`step`), which is the original's next tick: its obstacles run before the ball moves, so the
+/// ball steps off them before that move. Play's computer players run a tick behind its ball against the original
+/// (as at a contact, whose AI draws come a tick after the ball's), so they hear it a tick later again (court 6's
+/// fences: the game's 6 draws on point 1's point-over tick 34 in the European match).
+fn hear_strike(mut g: ResMut<Game>, npcs: Option<ResMut<Npcs>>) {
+    let Some(mut npcs) = npcs else { return };
+    if npcs.strike_heard == 0 {
+        return;
+    }
+    npcs.strike_heard -= 1;
+    if npcs.strike_heard == 0 {
+        super::doubles_ai::struck(&mut g);
+    }
 }
 
 #[derive(Resource, Clone, serde::Serialize, serde::Deserialize)]
@@ -103,6 +132,9 @@ pub(super) struct Npcs {
     surf: Surf,
     #[serde(default)]
     games: u32,
+    /// B770: ticks till the computer players hear the ball's strike on a creature (`hear_strike`), 0 for none.
+    #[serde(default)]
+    strike_heard: u8,
 }
 
 /// The umpire's animation controller: `frame` shown, `next` the one after.
@@ -159,7 +191,7 @@ fn setup(
     let walkers = game.walkers(n as u32);
     let (mut hidden, mut off) = (Vec::new(), Vec::new());
     let mut crowd = Vec::new();
-    let mut npcs = Npcs { umpire: None, walkers: Vec::new(), triggers: Vec::new(), tick: 0, motion: 0, decided: false, near: default(), ends: false, serving: false, fade: Vec::new(), uncull: Vec::new(), cheers: npc::Cheers::new(g.stage), mark: Vec::new(), marks: Vec::new(), figures: Vec::new(), sprites: default(), sizes: game.cheer_sprites(), started: false, over: None, reacted: false, crowd: Vec::new(), surf: default(), games: 0 };
+    let mut npcs = Npcs { umpire: None, walkers: Vec::new(), triggers: Vec::new(), tick: 0, motion: 0, decided: false, near: default(), ends: false, serving: false, fade: Vec::new(), uncull: Vec::new(), cheers: npc::Cheers::new(g.stage), mark: Vec::new(), marks: Vec::new(), figures: Vec::new(), sprites: default(), sizes: game.cheer_sprites(), started: false, over: None, reacted: false, crowd: Vec::new(), surf: default(), games: 0, strike_heard: 0 };
     let (umpire, rng) = (g.umpire.clone(), &mut g.rng.court);
     let mut voices = game.deciding_voices().into_iter();
     let mut other_side = false;
@@ -755,8 +787,8 @@ fn figures(
         }
     }
     if strike {
-        // the AI's own handling of the strike (its generator, not the figures')
-        super::doubles_ai::struck(g);
+        // the AI's own handling of the strike (its generator, not the figures'), at the tick after next (`hear_strike`)
+        npcs.strike_heard = 2;
     }
     (flyover, surf)
 }
