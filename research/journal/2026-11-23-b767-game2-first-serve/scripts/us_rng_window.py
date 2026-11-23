@@ -2,7 +2,7 @@
 """B767 (from M183a1 us_rng_rec.py, the wait for min_vsync no longer capped at 600 frames): slot 5's generators every frame, as P3b's p3b_rng_rec.py records them (same sample layout: u32 vsync, u64
 rand() state, then the shared, AI, court and sound MT19937 blocks), but waiting for the state load to land (vsync past
 `min_vsync`, the match object's generators valid) before it reads their addresses, so it can run long.
-Usage: us_rng_rec.py <slot> <frames> <out.bin> [min_vsync=7000]. Run under tools/pcsx2.sh."""
+Usage: us_rng_window.py <slot> <frames> <out.bin> [min_vsync=7000]. Run under tools/pcsx2.sh."""
 import struct, sys, time, os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../../tools"))
 from pine import Pine
