@@ -2187,8 +2187,11 @@ fn strike(
     // the ball launch's two uniforms (kept on the ball; only offbeat rule 1 reads them)
     let irregular = offbeat::launch(g);
     let last = g.flight;
-    g.flight = Flight::struck(Ball { pos: at, vel, spin }, launched.frame, launched.frame);
+    // the hit leaves the ball's contact frame and slide as its last touch left them (the toss's, a bounce's): a
+    // plane step that finds no slide reads them (M183a1: a volley into the net player's body)
+    g.flight = Flight::struck(Ball { pos: at, vel, spin }, launched.frame, last.contact);
     g.flight = last.relaunch(g.flight);
+    g.flight.slide = last.slide;
     g.flight.irregular = irregular;
     ai_heard_hit(g, who, branch, vel);
     // ponytail: practice's (one player) side pick between candidates and its red-marker timeout aren't ported

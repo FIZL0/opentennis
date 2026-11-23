@@ -246,6 +246,36 @@ mod tests {
         /// end follows the sound processor, not the game's state), for [`played_ticks_rng`] to feed play
         /// (`EARLY_LINE`); none: every line ends on its usual tick.
         static EARLY_LINES: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+        /// M183a1 probe: the live ball's whole flight after each played tick in `HST_M183A1_FLIGHT=from,to`.
+        static FLIGHTS: std::cell::RefCell<Vec<(usize, hst_sim::ball::Flight)>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// `HST_M183A1_FLIGHT=from,to`: the span of recorded ticks [`flight_probe`] lists.
+    fn flight_span() -> Option<(usize, usize)> {
+        std::env::var("HST_M183A1_FLIGHT").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 2).map(|v| (v[0], v[1]))
+    }
+
+    /// Probe (`HST_M183A1_FLIGHT=from,to`): the recorded live ball's counts, slide, spin frame and contact frame
+    /// beside play's (level), for each recorded tick.
+    fn flight_probe(name: &str, file: &str) {
+        let Some((from, to)) = flight_span() else { return };
+        let Ok(data) = hst_data::fixture::read(file) else { return };
+        let frames = hst_sim::replay::frames_live(&data);
+        let want = recorded_ticks(&data);
+        let f = |b: &[u8], o: usize| f32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+        let i = |b: &[u8], o: usize| i32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+        let rows = |b: &[u8], o: usize| -> [[f32; 4]; 4] { std::array::from_fn(|r| std::array::from_fn(|c| f(b, o + 16 * r + 4 * c))) };
+        let flights = FLIGHTS.with_borrow(|v| v.clone());
+        for k in from..to.min(want.len()) {
+            let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
+            if let Some(fr) = frames.iter().find(|fr| v3(fr.live_ball(), 0xe0) == want[k].2) {
+                let b = fr.live_ball();
+                eprintln!("{name} flight {k} want: counts {:?} slide {} rolling {} fbs {} spin frame {:?} contact {:?}", (i(b, 0xac), i(b, 0x224), i(b, 0x228), i(b, 0x22c)), f(b, 0x200), b[0xa4] == 2, f(b, 0x1a8), rows(b, 0x160), rows(b, 0x1c0));
+            }
+            if let Some((_, fl)) = flights.iter().find(|(t, _)| *t == k) {
+                eprintln!("{name} flight {k} got:  counts {:?} slide {} rolling {} fbs - spin frame {:?} contact {:?}", (fl.frame, fl.bounces, fl.contacts, fl.special_contacts), fl.slide, fl.rolling, fl.spin_frame, fl.contact);
+            }
+        }
     }
 
     /// B775: the recording's start state on the players play just set up: a bot match starts from the game's frame
@@ -314,6 +344,8 @@ mod tests {
         app.add_plugins(crate::play::npcs::sim_plugin);
         app.init_resource::<crate::play::bodyhit::Posed>().init_resource::<crate::play::bodyhit::Bones>();
         app.update();
+        // M183a1: the ball hitting a player ends the point (phase 38's rally ends on the net player's body)
+        crate::play::bodyhit::sim_plugin(&mut app);
         start_clocks(&mut app);
         let code = |p: &Phase| match p {
             Phase::Serve => 2,
@@ -342,6 +374,9 @@ mod tests {
                 let g = app.world().resource::<Game>();
                 v.push((g.flight.ball, g.shot.class, g.shot.kind, g.shot.curve, g.shot.bend, g.shot.side, g.aim.target, std::array::from_fn(|i| g.players.get(i).map_or([0.0; 2], |p| p.aim_from))));
             });
+            if flight_span().is_some_and(|(a, b)| (a..b).contains(&k)) {
+                FLIGHTS.with_borrow_mut(|v| v.push((k, app.world().resource::<Game>().flight.clone())));
+            }
             if k < keep {
                 rngs.push(app.world().resource::<Game>().rng.clone());
             }
@@ -588,10 +623,11 @@ mod tests {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
         let Some((want, got)) = european(None, toss_ai) else { return };
         // B785: through the first fault's early call (phase 24) to phase 38's rally
-        assert!(compare("eu", &want, &got) >= 38, "the phases up to phase 38's rally (B723, B785)");
+        assert!(compare("eu", &want, &got) >= 40, "the phases through phase 39 (B723, B785; phase 38 a volley into the net player's body)");
         first_point_part("eu", &want, &got, 141);
         part_from("eu", &want, &got);
         shot_probe("eu", "fixtures/m169/eu-bot-match.bin", &want);
+        flight_probe("eu", "fixtures/m169/eu-bot-match.bin");
         // B723: after the point's rally, the first tick a player (on the ground, play a tick behind) or the ball parts
         let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
         let player = (437..want.len() - 1).find(|&k| ground(&want[k]) != ground(&got[k + 1]));

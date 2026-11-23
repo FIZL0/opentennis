@@ -33,7 +33,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<Posed>()
         .init_resource::<Bones>()
         .add_systems(PostStartup, setup.after(super::setup))
-        .add_systems(FixedUpdate, (detect.after(super::control).before(super::simulate), place_ball.before(super::simulate), (age, bounce_words).after(super::simulate), pose.after(crate::character::tick)))
+        .add_systems(FixedUpdate, (detect.after(super::simulate).before(super::bounce_debris::set_up).before(super::start_effects), place_ball.before(super::simulate), (age, bounce_words).after(super::simulate), pose.after(crate::character::tick)))
         .add_systems(Update, (draw, draw_words).after(super::balloons));
 }
 
@@ -88,13 +88,17 @@ fn setup(
 
 /// Swinging, diving or whiffing players aren't tested (the game's stroke state). A hit ball can't hit a player the same
 /// tick, and a hit player's ball can't be struck after (see `advance_stroke`): whichever comes first owns the ball.
+/// The test runs after the ball's step, on where it just moved, and the point is judged on the same tick (the game's
+/// players find the hit after the ball moves and before its rally check: M183a1, the EU match's volley into the net
+/// player at recorded tick 9094, the rally ending two ticks later).
 fn detect(mut g: ResMut<Game>, mut hits: ResMut<Hits>, posed: Res<Posed>, bones: Res<Bones>, q: Query<&Figure, With<Motion>>) {
     let last = std::mem::replace(&mut hits.last, g.flight.ball.pos);
     if g.phase == Phase::Serve {
         g.body_hit = None;
     }
-    // a ball struck this tick is the striker's: no body hit on its contact frame (strikes run first, in `control`)
-    if g.phase != Phase::Rally || g.shots == 0 || g.body_hit.is_some() || g.since_hit == 0 {
+    // a ball struck this tick is the striker's: no body hit on its contact frame (strikes run first, in `control`;
+    // the step after counts the tick)
+    if g.phase != Phase::Rally || g.shots == 0 || g.body_hit.is_some() || g.since_hit <= 1 {
         return;
     }
     // `HST_BODY_HIT=<player>`: that player counts as hit 30 frames into the first rally (tools/record_bodyhit.py forces
@@ -126,9 +130,21 @@ fn detect(mut g: ResMut<Game>, mut hits: ResMut<Hits>, posed: Res<Posed>, bones:
             info!("ball hit player {}", f.0);
             g.body_hit = Some(f.0 as i32);
             struck(&mut g, f.0, last);
+            judge_now(&mut g);
             return;
         }
     }
+}
+
+/// The rally check on the hit's tick (the step's own check ran before the hit was found): the point is decided with
+/// the hit, unless a bounce already decided it.
+fn judge_now(g: &mut Game) {
+    if g.deciding.is_some() {
+        return;
+    }
+    let f = &g.flight;
+    let view = hst_sim::judge::BallState { call: f.call, contacts: f.contacts, stopped: f.at_rest, pos: f.ball.pos };
+    _ = super::deciding(g, &view);
 }
 
 /// `HST_BALL=x,y,z,vx,vy,vz` (game space): the ball is put there 30 frames into each rally, for `--shot` checks of
@@ -439,4 +455,16 @@ mod tests {
             assert!(along > 0.9, "{deg}°: the head falls {fell:?}, the ball came along {way:?}");
         }
     }
+}
+
+/// M183a1: the body hit in a headless match (no pop-up, no words): each player's collision size from its
+/// character's row on the disc, and the test run the tick the full plugin runs it (after the controls, before the
+/// sim step).
+#[cfg(test)]
+pub(super) fn sim_plugin(app: &mut App) {
+    let (g, args) = (app.world().resource::<Game>(), app.world().resource::<Args>());
+    let mut iso = Iso::open(&args.iso).expect("open iso");
+    let radius = g.chars.iter().enumerate().map(|(i, &c)| ReachStats::from_tparam(&super::mod_match::row(&mut iso, None, i, c as usize).join(",")).collision).collect();
+    app.insert_resource(Hits { radius, pop: None, made: false, last: [0.0; 3], alpha: 0.0 });
+    app.add_systems(FixedUpdate, detect.after(super::simulate).before(super::start_effects));
 }
