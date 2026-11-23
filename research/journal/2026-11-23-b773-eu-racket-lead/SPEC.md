@@ -104,4 +104,16 @@ The US fit (`research/b773_us_lead_fit.py` against `fixtures/ai_net_s05.bin`) ag
 
 ## Open questions
 
-none
+- With the update moved and look-ahead 3, the steady windows line up. Across a motion switch they don't: the game's
+  stand-test read already shows the new motion on the tick play's motion player starts it, and a look-ahead from the
+  older pose can't foresee that. US bot match: player 1 switches from 0x1f (run) to 0x5 at play's tick 888. The game's
+  value at 890 is already on 0x5 (-0.0784, wrong sign), so player 2's stand test goes the other way and the match
+  parts at 890. Before the change it held to 2354.
+- Find in the original: on which tick, relative to the player update and the computer players' AI in that tick, the
+  game samples the pose its stand test reads. Does that read come from player 1's pose after player 1's own motion
+  step for the same tick? The players update in court-slot order, so player 1's step has already run when player 2's
+  AI runs.
+- Also find why play's posed nodes are two ticks behind play's own motion clock.
+- Say what the port should use instead of the fixed look-ahead. Candidate: at AI time, compute the leftover from
+  player 1's current motion (its motion command for this tick applied and stepped once), not from the previous tick's
+  posed nodes. Confirm or replace it, and name the tick and order it needs.
