@@ -4096,6 +4096,10 @@ fn simulate(mut g: ResMut<Game>) {
                 Some(Next::ChangeEnds) => {
                     doubles_ai::heard(g, msg::CHANGE_ENDS);
                     reseed_sound(g);
+                    #[cfg(test)]
+                    for _ in 0..fifty_hz::CHANGE_ENDS_DRAWS.load(std::sync::atomic::Ordering::Relaxed) {
+                        g.rng.rand.next();
+                    }
                     g.gallery.hush();
                     g.umpire.start(true, g.flight.ball.pos);
                     // the change-ends tune, cued as the phase is entered

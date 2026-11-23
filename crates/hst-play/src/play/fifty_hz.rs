@@ -71,6 +71,12 @@ pub(super) fn voice_ticks(frames: u32, build: Build) -> u32 {
 #[cfg(test)]
 pub(super) static EU_DISC: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// M183a1 probe stand-in: extra `rand()` draws as a change of ends starts, beside the sound manager's reseed (the
+/// European recording draws one more there than play does; its source isn't known yet). Process-wide, as Bevy runs
+/// the match on its own threads; set only under `EU_DISC`.
+#[cfg(test)]
+pub(super) static CHANGE_ENDS_DRAWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// A bot match on the European disc at 50 Hz (`fixtures/discs/SCES-54535.iso`; skipped without it even under
 /// `HST_REQUIRE_DISC`, as it isn't the user's disc), the sim's 50 Hz timing on before `FIFTY_HZ_SIM`: it plays the
 /// European program (`Build::Europe` everywhere play asks), on the disc's own trajectory tables, with every motion at
@@ -336,7 +342,9 @@ mod tests {
     /// elsewhere. Returns the phases that match.
     fn compare(name: &str, want: &[Tick], got: &[Tick]) -> usize {
         let (w, g) = (phases(want), phases(got));
-        for (k, (w, g)) in w.iter().zip(&g).enumerate().take(30) {
+        // `HST_M183A1_PHASES=n`: list n phases (default 30)
+        let listed = std::env::var("HST_M183A1_PHASES").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
+        for (k, (w, g)) in w.iter().zip(&g).enumerate().take(listed) {
             eprintln!("{name} {k:3} want {} {:4} {:?} | got {} {:4} {:?}", w.0, w.1, w.2[0], g.0, g.1, g.2[0]);
         }
         let same = w.iter().zip(&g).take_while(|(w, g)| w.0 == g.0 && w.1 == g.1).count();
@@ -511,7 +519,11 @@ mod tests {
         // B782: the recording's setup remade court 6's 6 doubles clouds at its first weather (30 `rand()` draws) and
         // its intro ran the 50 Hz camera table's 327 flare ticks, as play makes them
         // the match seed: the 81 875th `rand()` output from boot (`eu_match_seed_search`)
+        // `HST_M183A1_CHANGE_ENDS=n`: n stand-in `rand()` draws as the change of ends starts
+        let extra = std::env::var("HST_M183A1_CHANGE_ENDS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+        super::CHANGE_ENDS_DRAWS.store(extra, std::sync::atomic::Ordering::Relaxed);
         let (got, rngs) = played_ticks_rng(args, hst_sim::rng::Seed::after(81_874), n.unwrap_or(want.len() + 10), keep, toss_ai);
+        super::CHANGE_ENDS_DRAWS.store(0, std::sync::atomic::Ordering::Relaxed);
         Some((want, got, rngs))
     }
 
@@ -568,6 +580,7 @@ mod tests {
         assert!(compare("eu", &want, &got) >= 3, "the first point's phases (B723)");
         first_point_part("eu", &want, &got, 141);
         part_from("eu", &want, &got);
+        shot_probe("eu", "fixtures/m169/eu-bot-match.bin", &want);
         // B723: after the point's rally, the first tick a player (on the ground, play a tick behind) or the ball parts
         let ground = |t: &Tick| t.1.map(|p| [p[0], p[2]]);
         let player = (437..want.len() - 1).find(|&k| ground(&want[k]) != ground(&got[k + 1]));
@@ -1018,6 +1031,42 @@ mod tests {
             st = rand_back(st, 1);
         }
         panic!("no seed");
+    }
+
+    /// M183a1 probe: at each point's serve set-up (the recording's phase-2 starts through tick `HST_M183A1_KEEP`), how
+    /// many `rand()` outputs the game's shared reseed sits from play's `rand()` at that tick (`--nocapture`).
+    #[test]
+    #[ignore]
+    fn eu_point_reseeds() {
+        use hst_sim::rng::Mt;
+        let Ok(d) = std::fs::read(hst_data::fixture::path("fixtures/m183a1/eu-rng-long.bin")) else { return };
+        let Ok(m) = std::fs::read(hst_data::fixture::path("fixtures/m169/eu-bot-match.bin")) else { return };
+        let frames = hst_sim::replay::frames_live(&m);
+        let start = frames.iter().find(|f| f.gm()[0x55] == 2).unwrap().vsync() as i64;
+        let rec: Vec<(i64, Mt)> = d.as_chunks::<{ 4 + 3 * 0x9d0 }>().0.iter().map(|s| (u32::from_le_bytes(s[..4].try_into().unwrap()) as i64 - start, Mt::from_ram(&s[4..]))).collect();
+        let keep = std::env::var("HST_M183A1_KEEP").ok().and_then(|v| v.parse().ok()).unwrap_or(6200);
+        let Some((want, _, rngs)) = european_rngs(Some(keep), 0, keep) else { return };
+        let vsyncs = recorded_vsyncs(&m);
+        let mut at = 0;
+        for (ph, len, _) in phases(&want) {
+            let k = at;
+            at += len as usize;
+            if ph != 2 || k + 3 >= rngs.len() {
+                continue;
+            }
+            let Some(r) = vsyncs.get(k + 3).copied().flatten().and_then(|v| rec.iter().find(|x| x.0 == v)) else { continue };
+            let mut g = r.1.clone();
+            let target = [g.next(), g.next()];
+            let mut st = rand_back(rngs[k].rand.0, 20_000);
+            let found = (0..40_000i64).find(|_| {
+                let mut r = hst_sim::rng::Rand(st);
+                let mut mt = Mt::new(r.next());
+                st = r.0;
+                let outs: Vec<u32> = (0..300).map(|_| mt.next()).collect();
+                outs.windows(2).any(|w| w == target)
+            });
+            eprintln!("eu point at tick {k}: the game's shared seed is play's rand() output {:?} (from play's state after that tick)", found.map(|n| n - 20_000));
+        }
     }
 
     /// newlib's `rand()` state `n` draws before `state`.
