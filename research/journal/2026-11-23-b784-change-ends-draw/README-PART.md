@@ -18,7 +18,8 @@
 ## Findings
 - EU change-of-ends start (vsync 43492):
   - Two non-flare draws. First the effects' message handler, which redraws the effects seed on the match-start and change-of-ends messages. Then the sound manager's reseed.
-  - Then the flare's 48.
+  - Then 48 flare draws under the same vsync value: two flare ticks, as the hook reads the vsync counter and the
+    next tick's flare runs before it moves. The rand() state per frame (part 12's count) gives 24 + 2 for the tick.
 - EU setup frame (37518) has the same pair in the same order, after its 30 cloud draws.
   - That is the setup's effects seed and sound reseed #2, which play already makes.
 - EU change of ends' end (43558) draws only shared and court, as play does.

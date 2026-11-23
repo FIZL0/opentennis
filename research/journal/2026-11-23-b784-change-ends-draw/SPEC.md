@@ -39,12 +39,15 @@ The same in the US and European programs. The task's line says European only, bu
   `rand()` or the shared generator.
 
 ## What the port changes
-- At the change of ends' start, before `reseed_sound`, draw one `rand()`. That value becomes the match's effects seed
+- At the change of ends' start, before `reseed_sound`, draw one `rand()`. The stand-in draws after the reseed, so the
+  draw moves; it doesn't just lose its test gate. The AI's change-of-ends message (`doubles_ai::heard`) draws no
+  `rand()` (the start frame has only the two calls), so the draw can go either side of it. That value becomes the match's effects seed
   from then on (`play::set_effects_seed`), so the next serve's effects LCG restart uses it. The same applies after
   every change of ends.
 - Remove `fifty_hz::CHANGE_ENDS_DRAWS` and its loop. Remove `HST_M183A1_CHANGE_ENDS` from the EU probe. The draw is
   not test-only, and it is not a 50 Hz rule.
-- Rollback/netplay: the effects seed is now match state that changes mid-match. A snapshot must carry it, or a
+- Rollback/netplay: the effects seed is now match state that changes mid-match. Today it is a process-wide value set
+  once at setup (`play::set_effects_seed`), not part of the match. A snapshot must carry it, or a
   rollback over a change of ends restarts the effects LCG from the wrong seed. That is presentation only: the
   `rand()` stream itself is already in the snapshot.
 
