@@ -10,7 +10,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 
 1949cf8c6b5b557f/bevy_render-0.19.1/src/render_phase/mod.rs:1241:40:
 index out of bounds: the len is 0 but the index is 0"
-- [~] **V2** Release: bump the version where the project keeps it, per its versioning rules (agent-runner's: docs/SETUP.md#versions), move CHANGELOG.md's Unreleased entries under the new version heading, commit to main so the release workflow tags and publishes it. Check: the release workflow passed (gh run list) and gh release view shows the new tag | after: all — User 2026-11-22: this release is version 1.9.0 (not a patch bump). It must include B764 and F2; do not release without both on main. BLOCKED: (after B654) waiting for B654 (task/B654 finished, not merged into main yet; user 2026-11-23: release only after it lands). Unblocks when task/B654 is on main: then run tools/release.sh 1.9.0 publish
+- [ ] **V2** Release: bump the version where the project keeps it, per its versioning rules (agent-runner's: docs/SETUP.md#versions), move CHANGELOG.md's Unreleased entries under the new version heading, commit to main so the release workflow tags and publishes it. Check: the release workflow passed (gh run list) and gh release view shows the new tag | after: all — User 2026-11-22: this release is version 1.9.0 (not a patch bump). It must include B764 and F2; do not release without both on main. — B654 on main 00:23 (user 2026-11-23: go ahead)
 
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
 
