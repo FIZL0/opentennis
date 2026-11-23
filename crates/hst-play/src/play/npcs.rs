@@ -74,11 +74,9 @@ pub(super) fn sim_plugin(app: &mut App) {
 /// fences: the game's 6 draws on point 1's point-over tick 34 in the European match).
 fn hear_strike(mut g: ResMut<Game>, npcs: Option<ResMut<Npcs>>) {
     let Some(mut npcs) = npcs else { return };
-    if npcs.strike_heard == 0 {
-        return;
-    }
-    npcs.strike_heard -= 1;
-    if npcs.strike_heard == 0 {
+    let [now, next] = npcs.strike_heard;
+    npcs.strike_heard = [next, 0];
+    for _ in 0..now {
         super::doubles_ai::struck(&mut g);
     }
 }
@@ -132,9 +130,10 @@ pub(super) struct Npcs {
     surf: Surf,
     #[serde(default)]
     games: u32,
-    /// B770: ticks till the computer players hear the ball's strike on a creature (`hear_strike`), 0 for none.
+    /// B770: the ball's strikes on creatures the computer players hear as the next tick starts, then the one after
+    /// (`hear_strike`).
     #[serde(default)]
-    strike_heard: u8,
+    strike_heard: [u8; 2],
 }
 
 /// The umpire's animation controller: `frame` shown, `next` the one after.
@@ -191,7 +190,7 @@ fn setup(
     let walkers = game.walkers(n as u32);
     let (mut hidden, mut off) = (Vec::new(), Vec::new());
     let mut crowd = Vec::new();
-    let mut npcs = Npcs { umpire: None, walkers: Vec::new(), triggers: Vec::new(), tick: 0, motion: 0, decided: false, near: default(), ends: false, serving: false, fade: Vec::new(), uncull: Vec::new(), cheers: npc::Cheers::new(g.stage), mark: Vec::new(), marks: Vec::new(), figures: Vec::new(), sprites: default(), sizes: game.cheer_sprites(), started: false, over: None, reacted: false, crowd: Vec::new(), surf: default(), games: 0, strike_heard: 0 };
+    let mut npcs = Npcs { umpire: None, walkers: Vec::new(), triggers: Vec::new(), tick: 0, motion: 0, decided: false, near: default(), ends: false, serving: false, fade: Vec::new(), uncull: Vec::new(), cheers: npc::Cheers::new(g.stage), mark: Vec::new(), marks: Vec::new(), figures: Vec::new(), sprites: default(), sizes: game.cheer_sprites(), started: false, over: None, reacted: false, crowd: Vec::new(), surf: default(), games: 0, strike_heard: [0; 2] };
     let (umpire, rng) = (g.umpire.clone(), &mut g.rng.court);
     let mut voices = game.deciding_voices().into_iter();
     let mut other_side = false;
@@ -693,7 +692,7 @@ fn figures(
     let mut emitters = 0..g.emitters.len();
     let mut flyover = None;
     let mut surf = Vec::new();
-    let mut strike = false;
+    let mut strikes = 0u8;
     for &f in &npcs.figures {
         let Some(k) = f else {
             if let Some(k) = emitters.next() {
@@ -764,7 +763,7 @@ fn figures(
             g.flight.step_plane(&shot, &hst_sim::ball::COURTS[g.court], material);
             g.doubles_ai.record.stop();
             g.doubles_ai.hear(&g.players, msg::STRIKE, true);
-            strike = true;
+            strikes += 1;
         }
         if let Ok((_, mut m)) = q.get_mut(*e) {
             // type 38 plays its second clip after a fast ball
@@ -786,10 +785,8 @@ fn figures(
             surf.push(npcs.surf.tick(surf.len(), &mut roll));
         }
     }
-    if strike {
-        // the AI's own handling of the strike (its generator, not the figures'), at the tick after next (`hear_strike`)
-        npcs.strike_heard = 2;
-    }
+    // the AI's own handling of each strike (its generator, not the figures'), at the tick after next (`hear_strike`)
+    npcs.strike_heard[1] += strikes;
     (flyover, surf)
 }
 
