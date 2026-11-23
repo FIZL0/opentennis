@@ -748,6 +748,11 @@ mod tests {
         // B769: the umpire's "Fault" is voiced, and the point-over waits for it: the fault's point-over phase for phase
         // (80 ticks; a draw at the serve's contact is still missing, B771)
         assert!(compare("us", &want, &got) >= 28, "the phases through game 2's first serve's point-over");
+        // B771: the serving computer player hears its own serve's hit message (its formation repick, a moved spot
+        // rolling the row's centre rate): game 2's second serve's set-up, and every player on to tick 7387 (and each
+        // point-over's last tick, the fault's at 6941 too)
+        assert!(compare("us", &want, &got) >= 29, "the phases through game 2's second serve's set-up");
+        assert_eq!((219..7387).filter(|&k| ![1084, 2354, 3190, 3795, 4391, 5011, 5689, 6543, 6941].contains(&k)).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before tick 7387");
         if let Some(d) = &ends {
             // the AI generator on the recording's draws from point 10's point-over through the change of ends and game
             // 2's serve set-up to the press, but at the two phase changes' ticks (as at every point's)
