@@ -1464,7 +1464,7 @@ pub fn setup(
     reseed_sound(&mut game);
     // the intro's lens flare ticks
     if weather.is_some_and(|w| w.today().weather < 2) {
-        let ticks = Rngs::intro_ticks_on_disc(&mut iso, game.stage as u32).expect("court intro files on disc");
+        let ticks = fifty_hz::intro_flare_ticks(&mut iso, &args.iso, game.stage as u32);
         (0..ticks).for_each(|_| game.rng.flare_tick());
     }
     game.rng.new_point();

@@ -1,6 +1,6 @@
-# M183a1: the European bot match in play from the original's seed (PART: blocked on B771 and B772)
+# M183a1: the European bot match in play from the original's seed (PART: blocked on B782)
 
-Status 2026-11-23 (part 10): B768, B769 and B770 landed. The US match matches 28 phases and parts at game 2's first serve (B771). The EU match matches 7 phases and parts at tick 1585 of point 3's rally, where the game's net player runs for the ball after its bounce and play's search finds no contact (B772). The table below is from the first parts.
+Status 2026-11-23 (part 11): B771 and B772 (answered via B773 and B774) landed. Part 11 found the EU setup's rand() offset (327 intro ticks at 50 Hz and 30 setup cloud draws in doubles). The probe now seeds the shared generator as recorded and matches 20 phases. Blocked on B782 (spec).
 
 The goal was to play M177's European bot match (`fixtures/m169/eu-bot-match.bin`) in play and match it phase for
 phase, then tick for tick, with a US baseline from slot 5 (`match_s05.bin`). After that, flip
