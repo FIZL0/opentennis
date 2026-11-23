@@ -3390,6 +3390,7 @@ fn control(mut g: ResMut<Game>, pads: Res<Pads>, tick: Res<tick_input::TickPads>
             None => bot(g, i),
         }
     }
+    ai_serve_entered(g);
     g.cam_owner = (0..g.players.len()).find(|&i| pads.slot_of(i, g.players.len()).is_some());
     let server = g.score.server as usize;
     if g.phase == Phase::Serve && g.message.is_empty() {
@@ -3732,6 +3733,34 @@ fn ai_wait_singles(g: &mut Game, i: usize) -> Option<V3> {
     Some(go.map_or(p.pos, |d| [d[0], 0.0, d[1]]))
 }
 
+/// B768: a computer server picks its serve spot and wait in the tick its serve state is entered, after every player's
+/// turn (each AI object's entry draws first): slot 5's recording draws the entries' 19 and these 2 on the set-up's
+/// second tick, the European one all 89 of point 2's new-point draws by then. It walks from the tick after.
+fn ai_serve_entered(g: &mut Game) {
+    let i = g.score.server as usize;
+    let entered = g.players.get(i).and_then(|p| p.ai_mind).is_some_and(|m| m.phase == hst_sim::ai::Phase::Serve);
+    if entered && g.phase == Phase::Serve && g.shots == 0 && g.humans.get(i) == Some(&false) {
+        ai_serve_entry(g, i);
+    }
+}
+
+/// A computer server's serve spot and wait (two AI draws), once a serve.
+fn ai_serve_entry(g: &mut Game, i: usize) {
+    if g.serving.bot_due.is_some() {
+        return;
+    }
+    let (end, ad, doubles) = (g.players[i].end, g.score.side == hst_sim::score::AD_COURT, g.players.len() == 4);
+    let build = g.build;
+    let mut roll = ai_roll(&mut g.rng);
+    let level0 = g.players[i].ai_picks.serve_level == 0;
+    let spot = hst_sim::ai::serve_spot(level0, doubles, end, ad, &mut roll);
+    let wait = hst_sim::ai::serve_wait_in(&mut roll, build);
+    drop(roll);
+    g.players[i].ai_serve = (spot, wait);
+    g.players[i].ai_serve_swing = None;
+    g.serving.bot_due = Some(serve::AiPress::default());
+}
+
 /// The AI's serve state: on entering it a timing draw (ending with the net count), then it walks the baseline to
 /// its spot, waits there 60 to 119 frames and tosses; the swing is timed by its serve error (a badly timed strong
 /// toss then goes wide or long, as in the original).
@@ -3739,18 +3768,7 @@ fn ai_wait_singles(g: &mut Game, i: usize) -> Option<V3> {
 /// (`hst_sim::aim`), the press counts down to the AI's own contact pick (rising for a quick serve; `serve::AiPress`).
 /// ponytail: the original aims the frame before the contact; the server stands still, so this aims at the press.
 fn bot_serve(g: &mut Game, i: usize) {
-    if g.serving.bot_due.is_none() {
-        let (end, ad, doubles) = (g.players[i].end, g.score.side == hst_sim::score::AD_COURT, g.players.len() == 4);
-        let build = g.build;
-        let mut roll = ai_roll(&mut g.rng);
-        let level0 = g.players[i].ai_picks.serve_level == 0;
-        let spot = hst_sim::ai::serve_spot(level0, doubles, end, ad, &mut roll);
-        let wait = hst_sim::ai::serve_wait_in(&mut roll, build);
-        drop(roll);
-        g.players[i].ai_serve = (spot, wait);
-        g.players[i].ai_serve_swing = None;
-        g.serving.bot_due = Some(serve::AiPress::default());
-    }
+    ai_serve_entry(g, i);
     // the aim, the frame before the contact (`serve_turn` hits as `left` runs out)
     if g.players[i].ai_serve_swing.is_some() && g.serving.swing.is_some_and(|sw| sw.left <= 2) {
         ai_serve_aim(g, i);

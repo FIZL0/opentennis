@@ -87,7 +87,8 @@ fn a_server_enters_its_rally_return_roll_first() {
 }
 
 /// A later point's first state entries in doubles draw as recorded: the server's serve entry 17, the receiver
-/// nothing, the two others the Return roll each (they enter the rally again on every point, not only the first).
+/// nothing, the two others the Return roll each (they enter the rally again on every point, not only the first), and
+/// after them, in the same tick, the server's serve spot and wait (B768: slot 5's recording draws these 21 together).
 /// Points that start during a change of ends aren't counted.
 #[test]
 fn every_point_enters_again() {
@@ -104,7 +105,17 @@ fn every_point_enters_again() {
                 // a point that starts between ends: its draws there are a known gap (p11-ai journal 26)
                 continue;
             }
-            assert_eq!(drawn(&before, &g.rng.ai), 17 + 1 + 1, "point {points}");
+            // the pick's own draws: the wait's one, the spot's as the serve level asks
+            let s = g.score.server as usize;
+            let (level0, end, ad) = (g.players[s].ai_picks.serve_level == 0, g.players[s].end, g.score.side == hst_sim::score::AD_COURT);
+            let mut n = 0;
+            let mut count = || {
+                n += 1;
+                0
+            };
+            hst_sim::ai::serve_spot(level0, true, end, ad, &mut count);
+            hst_sim::ai::serve_wait_in(&mut count, g.build);
+            assert_eq!(drawn(&before, &g.rng.ai), 17 + 1 + 1 + n, "point {points}");
             points += 1;
         }
     }

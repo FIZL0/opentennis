@@ -189,6 +189,26 @@ mod tests {
         out
     }
 
+    /// B768: for each tick of [`recorded_ticks`], the vsync (from the first serve set-up's) its sample was taken at,
+    /// `None` for a tick that ran unsampled (a repeat). Recordings indexed by vsync (the generators') read through it:
+    /// the game's loading stalls are vsyncs with no tick, so past the first one vsync and tick numbers drift apart.
+    fn recorded_vsyncs(data: &[u8]) -> Vec<Option<i64>> {
+        let frames = hst_sim::replay::frames_live(data);
+        let first = frames.iter().position(|f| f.gm()[0x55] == 2).unwrap();
+        let start = frames[first].vsync() as i64;
+        let tick = |f: &hst_sim::replay::Frame| u32::from_le_bytes(f.gm()[0x58..0x5c].try_into().unwrap()) as usize;
+        let mut out = vec![Some(0)];
+        for w in frames[first..].windows(2) {
+            // as `recorded_ticks` counts them: in a phase the counter's step, at a phase change the new count
+            let n = if w[0].gm()[0x55] == w[1].gm()[0x55] { tick(&w[1]).saturating_sub(tick(&w[0])) } else { tick(&w[1]) };
+            if n > 0 {
+                out.extend(std::iter::repeat_n(None, n - 1));
+                out.push(Some(w[1].vsync() as i64 - start));
+            }
+        }
+        out
+    }
+
     /// `ticks` as phases: (phase, ticks, the players' positions as it starts); the last, unfinished one dropped.
     fn phases(ticks: &[Tick]) -> Vec<(u8, u32, [[f32; 3]; 4])> {
         let mut out: Vec<(u8, u32, [[f32; 3]; 4])> = Vec::new();
@@ -527,7 +547,8 @@ mod tests {
     /// (`fixtures/m169/eu-rng.bin`, `eu_rng_rec.py` in the journal: vsync, then the shared, AI and court generators):
     /// for each played tick, the recorded tick (from the first serve set-up) each generator equals, and the AI draws a
     /// tick around the return (`--nocapture`; `HST_M183A1_DRAWS=from,to`: another span); asserts the AI generator
-    /// follows the recording through the first point's rally and into its point-over phase (recorded 463).
+    /// follows the recording, read by game tick (`recorded_vsyncs`), through the first point to point 2's reset and on
+    /// to its server's toss (6 draws short from the ball meeting the stage at 471).
     #[test]
     fn the_european_generators_play_as_recorded() {
         use hst_sim::rng::Mt;
@@ -547,7 +568,7 @@ mod tests {
             .map(|s| (u32::from_le_bytes(s[..4].try_into().unwrap()) as i64 - start, Mt::from_ram(&s[4..]), Mt::from_ram(&s[4 + 0x9d0..]), Mt::from_ram(&s[4 + 2 * 0x9d0..])))
             .collect();
         // `HST_M183A1_KEEP=n`: play n ticks (the probes below reach past the asserted span)
-        let keep = std::env::var("HST_M183A1_KEEP").ok().and_then(|v| v.parse().ok()).unwrap_or(470);
+        let keep = std::env::var("HST_M183A1_KEEP").ok().and_then(|v| v.parse().ok()).unwrap_or(660);
         let Some((_, _, rngs)) = european_rngs(Some(keep), 0, keep) else { return };
         let mut last = None;
         for (k, r) in rngs.iter().enumerate() {
@@ -558,6 +579,10 @@ mod tests {
                 last = Some(got);
             }
         }
+        // B768: the recorded generators by game tick, at the vsync each tick's sample was taken (the loading stalls
+        // are vsyncs with no tick: 2 behind from point 1's scoreboard pause end, 4 from point 2's set-up)
+        let vsyncs = recorded_vsyncs(&m);
+        let by_tick = |k: usize| vsyncs.get(k).copied().flatten().and_then(|v| rec.iter().find(|x| x.0 == v));
         // draws a tick around the return: the recording's and play's (a tick later)
         let steps = |a: &Mt, b: &Mt| {
             let mut g = a.clone();
@@ -573,13 +598,33 @@ mod tests {
             let (Some(x0), Some(x1)) = (rec.iter().find(|x| x.0 == k as i64 - 1), rec.iter().find(|x| x.0 == k as i64)) else { continue };
             eprintln!("eu ai draws at recorded {k}: game {:?}, play {:?}", steps(&x0.2, &x1.2), steps(&rngs[k].ai, &rngs[k + 1].ai));
         }
+        // `HST_B768_DRAWS=from,to`: the AI draws a tick by game tick, the recording's (where sampled) and play's
+        let span = std::env::var("HST_B768_DRAWS").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 2);
+        for k in span.map_or(0..0, |v| v[0].max(1)..v[1].min(rngs.len() - 1)) {
+            let game = by_tick(k - 1).zip(by_tick(k)).and_then(|(a, b)| steps(&a.2, &b.2));
+            eprintln!("eu ai draws at tick {k} (vsync {:?}): game {game:?}, play {:?}", vsyncs[k], steps(&rngs[k].ai, &rngs[k + 1].ai));
+        }
         // the AI generator as recorded every tick through player 2's steps after the return and the ticks after it
         // stops (250-260; play a tick later), its stand to the server's return back (303), the receiver's whiff and
         // its release (407, M183a1), the rally's end (the point decided two ticks after the deciding bounce, B723) and
-        // the point-over phase to the scoreboard's pause end (463, before the game's first loading stall), but at
-        // the set-up's first sample and the serve's contact (140), where play's draws land a tick apart from the game's
-        let off: Vec<usize> = (2..=463).filter(|&k| k != 140).filter(|&k| rec.iter().find(|x| x.0 == k as i64).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
+        // the point-over phase past the scoreboard's pause end and its loading stall to the ball meeting the stage
+        // (470), but at the serve's contact (140), where play's draws land a tick apart from the game's; B768: the set-up's
+        // first ticks too, as the server picks its serve spot and wait in its serve state's entry tick
+        let off: Vec<usize> = (1..=470).filter(|&k| k != 140).filter(|&k| by_tick(k).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
         assert!(off.is_empty(), "the AI generator leaves the recording at {off:?}");
+        // B768: point 2's new-point reset in the tick the set-up starts (572: each AI object's 17) and the entries and
+        // the serve pick in the next (21), both inside the recording's one sample after the loading stall (vsync 577),
+        // none after; and on as recorded to the server's toss (653: its serve wait), but 6 draws short from the tick
+        // the game's ball meets the stage (471: B770), where the game draws 6 that play doesn't make
+        let drawn = |k: usize| steps(&rngs[k].ai, &rngs[k + 1].ai);
+        assert_eq!((572..=574).map(drawn).collect::<Vec<_>>(), [Some(68), Some(21), Some(0)], "point 2's reset");
+        let six = |k: usize| {
+            let mut m = rngs[k + 1].ai.clone();
+            (0..6).for_each(|_| _ = m.next());
+            m
+        };
+        let off: Vec<usize> = (471..=652).filter(|&k| by_tick(k).is_some_and(|x| x.2 != six(k))).collect();
+        assert!(off.is_empty(), "past the stage, the AI generator leaves the recording at {off:?}");
     }
 
     /// Slot 5's bot match (`fixtures/match_s05.bin`: doubles, characters 0/2/1/5, court 10, umpire 4, 1 set of 4
@@ -779,7 +824,9 @@ mod tests {
             // M183a1: a computer player's follow-through held until its own stick breaks it off: on through point 6's
             // serve contact (3797), past which play's serve, a tick short, runs a tick ahead
             let lost: Vec<usize> = (2..last - 6).filter(|&k| !rec.iter().any(|x| x.3 == rngs[k + 1].ai)).take_while(|&k| k < 3900).collect();
-            let expect: Vec<usize> = [218, 1086, 1269, 2356, 2578, 3192, 3484, 3797].into_iter().filter(|&k| k < last - 6).collect();
+            // B768: the server's serve spot and wait drawn in its serve state's entry tick, beside the entries: the
+            // set-ups' second ticks (1086, 2356, 3192, 3797) on the recording's draws too, only the serves' contacts off
+            let expect: Vec<usize> = [218, 1269, 2578, 3484].into_iter().filter(|&k| k < last - 6).collect();
             assert_eq!(lost, expect, "play's AI generator is off the recording's draws but at the serves' contacts and point-overs");
             // `HST_M183A1_SHARED=from,to`: for each played tick, how many shared draws play's generator is from the
             // recorded one at the vsync rand puts it at (+: play ahead)
