@@ -7,6 +7,7 @@
 //!   0.8 m otherwise (|z| / cos heading < d·k),
 //! - the net top (0.91 m up) seen from the eye stands higher than a line 0.8 × the vertical half-angle below the
 //!   view's pitch, the half-angle's tangent being 0.7 × the horizontal one's,
+//!   (in a cut-away this one is dropped: our own addition, B654, so the net never cuts across a close cut-away)
 //!
 //! k = tan 20° / tan(half the horizontal fov), at least 1 (a zoomed-in view widens the zone).
 //! Checked frame by frame against the game's own "not drawn" flag over slot 5's matches (`research/journal/2026-10-11-b74-skybox/scripts/b74d_check.py`).
@@ -121,6 +122,11 @@ pub fn hidden(v: &View, cutaway: bool) -> bool {
     if e[0].abs() >= 7.0 * k || e[2].abs() / (f[2].abs() / flat) >= if cutaway { 2.0 } else { 0.8 } * k {
         return false;
     }
+    // Our addition (B654): in a cut-away the net hides whenever the eye is this close, even where the original
+    // still draws it (the shot from beside a net post); the match camera keeps the original's rule.
+    if cutaway {
+        return true;
+    }
     let top = ((0.91 + e[1]) / e[2].abs()).atan();
     let low = (-f[1]).atan2(flat) - (v.fov.tan() * 0.7).atan() * 0.8;
     low < top
@@ -230,9 +236,10 @@ mod tests {
         let end = view([-0.001, -0.807, 2.611], [0.0, 0.019, 1.0], 30.93);
         assert!(!hidden(&end, false) && hidden(&end, true));
         // B654: the cut-away from beside a net post, right at the net plane: the game draws the net (its top is below
-        // the view's lower line), both ends
-        assert!(!hidden(&view([6.285, -1.187, 0.219], [-0.747, -0.013, -0.665], 60.0), true));
-        assert!(!hidden(&view([-6.285, -1.187, 0.219], [0.958, -0.007, 0.285], 60.0), true));
+        // the view's lower line); we hide it in cut-aways (our addition), the same view as a match camera keeps it
+        for (eye, fwd) in [([6.285, -1.187, 0.219], [-0.747, -0.013, -0.665]), ([-6.285, -1.187, 0.219], [0.958, -0.007, 0.285])] {
+            assert!(hidden(&view(eye, fwd, 60.0), true) && !hidden(&view(eye, fwd, 60.0), false));
+        }
     }
 
     #[test]
