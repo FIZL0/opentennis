@@ -11,7 +11,6 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 1949cf8c6b5b557f/bevy_render-0.19.1/src/render_phase/mod.rs:1241:40:
 index out of bounds: the len is 0 but the index is 0"
 
-- [ ] **V3** (follow-up, critical) Release 1.9.1 (patch: B765's fixes) | after: B765
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
 
 ### Match basics
