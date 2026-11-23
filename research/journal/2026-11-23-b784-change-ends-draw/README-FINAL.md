@@ -1,4 +1,4 @@
-# B784: the extra rand() at the change of ends (PART: spec done, port next)
+# B784: the extra rand() at the change of ends (spec and port done)
 
 ## Question
 - The European build draws one more rand() as a change of ends starts than play does.
@@ -36,8 +36,17 @@
 - The port replaces the test-only `fifty_hz::CHANGE_ENDS_DRAWS` stand-in.
 
 ## Not verified / not 1:1
-- Tiebreak and set-end changes of ends were not recorded.
-  - The spec says the redraw follows every change-of-ends message, because the handler does not look at the score.
-  - That comes from reading the decompile, not from a recording.
-- What the new seed changes on screen (the next points' rain grid, leaves and ripples) was not compared against the game. It is presentation only.
-- The port's effect on the probes (EU 24 phases with no env; US rand() through the change of ends) is for the port session to check.
+- Tiebreak and set-end changes of ends: not recorded. The port redraws on every change of ends, as the spec says (from the decompile read, not a recording).
+- What the new seed changes on screen (the next points' rain grid, leaves and ripples) was not compared side by side with the game: presentation only.
+- The rain test is not proven bit-exact against the recording for the effects LCG itself; only the rand() stream is checked.
+
+## Port (2026-11-23)
+- `crates/hst-play/src/play.rs`: new `redraw_effects_seed` draws one rand() at the change of ends' start (`Next::ChangeEnds`), after `doubles_ai::heard` and before `reseed_sound`.
+- The value goes into a new `Game::effects_seed` field, so snapshots and rollback carry it (`#[serde(default)]`). It starts from the setup's `effects_seed()`.
+- `crates/hst-play/src/play/weather/rain.rs`: the serve's effects LCG restart reads `Game::effects_seed`, not the process-wide value.
+- `crates/hst-play/src/play/fifty_hz.rs`: `CHANGE_ENDS_DRAWS` and `HST_M183A1_CHANGE_ENDS` are removed.
+- US probe `the_us_bot_match_plays_as_recorded` now asserts play's rand() state is one of the recording's (`fixtures/b767/us-rng-game2.bin`) on every tick 6500..6813, except the two phase-change ticks 6543 and 6624. Without the draw, every tick from 6543 on was off.
+- Results:
+  - EU probe with no env: 24 of 144 phases match, the same as the env stand-in gave.
+  - `eu_point_reseeds`: game 2's first point (tick 5615) seeds at rand() output -2, the same as the match's first point (tick 0). Both are serve set-ups with no sound reseed (shared + court = 2). The others are -3 (with the sound reseed).
+  - US probe: 41 of 112 phases, passes.
