@@ -207,6 +207,21 @@ pub(super) fn hand_over(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind) -> boo
     run(g, i, mind, false)
 }
 
+/// The routine's stick or press this frame breaks off a follow-through past its recovery (`follow_through`'s rule):
+/// the player runs or stands this same frame, and the run's first turn starts from the stroke's motion.
+fn break_off(p: &mut Player, input: bool) -> bool {
+    let over = p.contact.is_none()
+        && p.pending.is_none()
+        && p.whiff.is_none()
+        && p.dive.is_none()
+        && p.after.is_some_and(|a| motion::follow_over(a, p.recover, false, input));
+    if over {
+        (p.after, p.swing, p.hit_at) = (None, None, None);
+        p.body.motion = p.cmd.id as i32;
+    }
+    over
+}
+
 fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool {
     let phase = match g.phase {
         Phase::Serve => phase::SERVE,
@@ -228,7 +243,8 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
     let mark = std::mem::take(&mut d.me[i].mark);
     // the stand-in's preamble: the recovery, the whiff, the press's approach run
     if routine {
-        follow_through(&mut g.players[i], true);
+        // the follow-through plays on here; the routine's own stick or press below is what breaks it off
+        follow_through(&mut g.players[i], false);
         whiff_frame(g, i, whiff_stick(&g.players[i]));
         if let Some(dir) = g.players[i].approach {
             locomote(g, i, dir);
@@ -357,9 +373,10 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
     // the routine's dive press lets go of the stick: the dive starts from the run it was judged on (the stroke state
     // takes over from the run), not from a body this frame's stand already stopped
     let dives = out.button.is_some() && x_kind == hst_sim::aim::contact::DIVE;
-    if !busy && !dives {
-        let dir = if mind.active { [out.stick[0], out.stick[2]] } else { [0.0; 2] };
-        let [x, z] = loco::stick_dir(loco::bot_stick(dir), phase);
+    let dir = if mind.active { [out.stick[0], out.stick[2]] } else { [0.0; 2] };
+    let [x, z] = loco::stick_dir(loco::bot_stick(dir), phase);
+    let broke = routine && busy && break_off(&mut g.players[i], (x, z) != (0.0, 0.0) || out.button.is_some());
+    if (!busy || broke) && !dives {
         // past its wait the stick breaks off a serve's follow-through (`ai_serve_step`)
         if ai_serve_step(g, i, Vec2::new(x, z)) {
             return true;
