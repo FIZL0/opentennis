@@ -66,6 +66,29 @@ pub(super) fn voice_ticks(frames: u32, build: Build) -> u32 {
     frames * build.hz() / 60
 }
 
+/// The match intro's lens-flare ticks on court `stage` of disc `iso_path` (`Rngs::intro_ticks_on_disc`). A bot-match
+/// probe can give its recording's own count for its disc instead (`INTRO_TICKS`): the European original's intro at
+/// 50 Hz ran 327 ticks on court 6, where the disc's 60 Hz count is 394, and the 50 Hz rule isn't known yet (M183a1
+/// part 11).
+pub(super) fn intro_flare_ticks(iso: &mut hst_data::iso::Iso, iso_path: &str, stage: u32) -> usize {
+    #[cfg(test)]
+    {
+        // taken on read, so a probe that stops early can't leave it for the next match on the disc
+        let mut set = INTRO_TICKS.lock().unwrap_or_else(|e| e.into_inner());
+        if set.as_ref().is_some_and(|(p, _)| p == iso_path) {
+            return set.take().map(|(_, n)| n).unwrap_or_default();
+        }
+    }
+    let _ = iso_path;
+    hst_sim::rng::Rngs::intro_ticks_on_disc(iso, stage).expect("court intro files on disc")
+}
+
+/// A probe's intro length for matches on one disc (`intro_flare_ticks`): the disc's path and the count. Bevy runs
+/// the setup on its own threads, so it's process-wide, keyed by the disc (the European probes take turns on
+/// `EU_DISC`).
+#[cfg(test)]
+pub(super) static INTRO_TICKS: std::sync::Mutex<Option<(String, usize)>> = std::sync::Mutex::new(None);
+
 /// The tests that play a match on the European disc take turns: the 50 Hz one sets the process's sim rate and the
 /// disc's own-rate reads (`hst_base::match_speed::test_sim_hz`), which the others must not see.
 #[cfg(test)]
@@ -235,6 +258,9 @@ mod tests {
         /// B775: each player's motion and clock (its next sampled time, and the time it sampled last) in the game's
         /// start state, for [`played_ticks_rng`] to start from instead of play's set-up (none: as play sets them up).
         static START_CLOCKS: std::cell::Cell<Option<[(usize, f32, f32); 4]>> = const { std::cell::Cell::new(None) };
+        /// The clouds the match setup spawns (`Rngs::setup_rand`): 0 unless a probe's recording made some (M183a1 part
+        /// 11: the European match's setup spawned court 6's 6 doubles clouds, 30 `rand()` draws).
+        static SETUP_CLOUDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     }
 
     /// B775: the recording's start state on the players play just set up: a bot match starts from the game's frame
@@ -274,7 +300,7 @@ mod tests {
         let players = if args.singles { 2 } else { 4 };
         let schedule = hst_sim::weather::schedule(&odds, &wind, args.games, args.sets, players, || mt.next());
         let mut rngs = hst_sim::rng::Rngs::new(seed.rand, mt);
-        let (effects, _) = rngs.setup_rand(0);
+        let (effects, _) = rngs.setup_rand(SETUP_CLOUDS.take());
         set_effects_seed(effects);
         app.insert_resource(MatchRng(rngs));
         app.insert_resource(crate::weather::Weather { schedule, game: 0, fixed: None });
@@ -499,6 +525,10 @@ mod tests {
         // before to the same fractional 50 Hz clock (23.6664, sampled 22.6664)
         let (time, sampled) = (f32::from_bits(0x41bd_54ce), f32::from_bits(0x41b5_54ce));
         START_CLOCKS.set(Some([(0x20, time, sampled), (0, time, sampled), (0, time, sampled), (0, time, sampled)]));
+        // M183a1 part 11: the recording's setup and intro as its `rand()` trace (`eu_rand_rec.py`) has them: the setup
+        // spawned court 6's 6 doubles clouds (P3f3's heap-dependent setup spawn) and the intro ran 327 flare ticks
+        SETUP_CLOUDS.set(6);
+        *crate::play::fifty_hz::INTRO_TICKS.lock().unwrap_or_else(|e| e.into_inner()) = Some((args.iso.clone(), 327));
         // the match seed: the 81 875th `rand()` output from boot (`eu_match_seed_search`)
         let (got, rngs) = played_ticks_rng(args, hst_sim::rng::Seed::after(81_874), n.unwrap_or(want.len() + 10), keep, toss_ai);
         Some((want, got, rngs))

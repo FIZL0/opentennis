@@ -1,12 +1,13 @@
-# M183a1: the European bot match in play from the original's seed (PART: blocked on B771 and B772)
+# M183a1: the European bot match in play from the original's seed (PART: blocked on B782)
 
-Status 2026-11-23 (part 10): B768, B769 and B770 landed. The US match matches 28 phases and parts at game 2's first serve (B771). The EU match matches 7 phases and parts at tick 1585 of point 3's rally, where the game's net player runs for the ball after its bounce and play's search finds no contact (B772). The table below is from the first parts.
+Status 2026-11-23 (part 11): B771 and B772 (answered via B773 and B774) landed. Part 11 found the EU setup's rand() offset (327 intro ticks at 50 Hz and 30 setup cloud draws in doubles). The probe now seeds the shared generator as recorded and matches 20 phases. Blocked on B782 (spec).
 
 The goal was to play M177's European bot match (`fixtures/m169/eu-bot-match.bin`) in play and match it phase for
 phase, then tick for tick, with a US baseline from slot 5 (`match_s05.bin`). After that, flip
-`match_speed::FIFTY_HZ_SIM` and add the release note. Both builds now play the first serve set-up as recorded. Both
-part in the same place, the serve's toss and contact, and that gap needs the decompile. So the flip and the release
-note wait. I added M184 (spec).
+`match_speed::FIFTY_HZ_SIM` and add the release note. At first, both builds played the first serve set-up as recorded
+but parted in the same place, the serve's toss and contact, and that gap needed the decompile. So the flip and the
+release note waited, and I added M184 (spec). M184, B771 and B772 have since landed; the current state is in the
+numbered part files (part 11 is the latest).
 
 ## Harness (`crates/hst-play/src/play/fifty_hz.rs`, tests only)
 - `recorded_ticks`: one entry per vsync from the first serve set-up sample (phase byte 2), with the phase, the four
@@ -47,7 +48,7 @@ note wait. I added M184 (spec).
 Before these fixes, 0 phases matched in either build (113 US, 144 EU). The first gap was the same in both, so it is
 general, not a 50 Hz one.
 
-## Where they part: the serve (M184)
+## At first: where they parted at the serve (before M184 landed)
 1. **Toss timing.** The game's toss flies the same curve as play's, bit for bit, but it starts later: 1 tick at
    60 Hz, 3 at 50 Hz. In between, the recorded ball sits at release positions play never produces, for two samples.
    Play releases at toss-motion frame 45 (37.5 at 50 Hz, which is 45 × 5/6). The EU capture (`eu-bot-anim.bin`) shows
@@ -65,8 +66,8 @@ Experiment, reverted: moving the 50 Hz release to frame 40.5 lines up the toss, 
 150. That timing is part of a rule, not a constant, and needs the decompile.
 
 ## Not verified / not 1:1
-- **Whole-match proof not done.** Neither match gets past its first serve: gaps 1–4 above, spec in M184.
-  `FIFTY_HZ_SIM` is not flipped and there is no release note. Both wait for M184's port, then M183a1 resumes.
+- **Whole-match proof not done.** Before M184 landed, neither match got past its first serve (gaps 1–4 above). Part
+  11 has the EU probe at 20 phases. `FIFTY_HZ_SIM` is not flipped and there is no release note; both wait on B782.
 - **The first 8–9 ticks of the held ball differ in both builds.** That is the hand pose as the walk starts. From
   tick 8 or 9 on it matches, so I didn't chase it. It is in M184's files if the spec finds it matters.
 - **No generator check for the EU match.** M177 recorded no `rng_*` file for it. The seed is proven only through the
