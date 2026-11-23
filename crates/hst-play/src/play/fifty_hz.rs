@@ -71,12 +71,6 @@ pub(super) fn voice_ticks(frames: u32, build: Build) -> u32 {
 #[cfg(test)]
 pub(super) static EU_DISC: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// M183a1 probe stand-in: extra `rand()` draws as a change of ends starts, beside the sound manager's reseed (the
-/// European recording draws one more there than play does; its source isn't known yet). Process-wide, as Bevy runs
-/// the match on its own threads; set only under `EU_DISC`.
-#[cfg(test)]
-pub(super) static CHANGE_ENDS_DRAWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
 /// A bot match on the European disc at 50 Hz (`fixtures/discs/SCES-54535.iso`; skipped without it even under
 /// `HST_REQUIRE_DISC`, as it isn't the user's disc), the sim's 50 Hz timing on before `FIFTY_HZ_SIM`: it plays the
 /// European program (`Build::Europe` everywhere play asks), on the disc's own trajectory tables, with every motion at
@@ -519,11 +513,7 @@ mod tests {
         // B782: the recording's setup remade court 6's 6 doubles clouds at its first weather (30 `rand()` draws) and
         // its intro ran the 50 Hz camera table's 327 flare ticks, as play makes them
         // the match seed: the 81 875th `rand()` output from boot (`eu_match_seed_search`)
-        // `HST_M183A1_CHANGE_ENDS=n`: n stand-in `rand()` draws as the change of ends starts
-        let extra = std::env::var("HST_M183A1_CHANGE_ENDS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-        super::CHANGE_ENDS_DRAWS.store(extra, std::sync::atomic::Ordering::Relaxed);
         let (got, rngs) = played_ticks_rng(args, hst_sim::rng::Seed::after(81_874), n.unwrap_or(want.len() + 10), keep, toss_ai);
-        super::CHANGE_ENDS_DRAWS.store(0, std::sync::atomic::Ordering::Relaxed);
         Some((want, got, rngs))
     }
 
@@ -846,6 +836,11 @@ mod tests {
             let rec: Vec<hst_sim::rng::Mt> = d.chunks_exact(size).map(|s| hst_sim::rng::Mt::from_ram(&s[12 + 0x9d0..])).collect();
             let lost: Vec<usize> = (6500..6813).filter(|&k| !rec.contains(&rngs[k + 1].ai)).collect();
             assert_eq!(lost, [6544, 6625], "play's AI generator leaves the recording between ends");
+            // B784: and `rand()` on the recording's through the change of ends (its start redraws the effects seed
+            // before the sound manager's reseed)
+            let rand: Vec<u64> = d.chunks_exact(size).map(|s| u64::from_le_bytes(s[4..12].try_into().unwrap())).collect();
+            let lost: Vec<usize> = (6500..6813).filter(|&k| !rand.contains(&rngs[k + 1].rand.0)).collect();
+            assert_eq!(lost, [6543, 6624], "play's rand() leaves the recording between ends (but the phase changes' ticks)");
         }
         if std::env::var_os("HST_M183A1_OFF").is_some() {
             let off: Vec<usize> = (219..want.len().min(got.len() - 1)).filter(|&k| ground(&want[k]) != ground(&got[k + 1])).take(40).collect();

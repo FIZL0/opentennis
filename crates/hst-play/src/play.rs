@@ -426,6 +426,10 @@ pub struct Game {
     rng: Rngs,
     /// The sound generator as a reseed found it: the hit sparks roll their table afresh from it.
     respark: Option<Mt>,
+    /// The match's effects seed: drawn at the setup (`set_effects_seed`) and redrawn at every change of ends; each
+    /// serve restarts the effects LCG from it. Match state, so a rollback over a change of ends keeps it.
+    #[serde(default)]
+    effects_seed: Option<u32>,
     /// Sounds due this tick, at a game-space position.
     sounds: Vec<(sound::Play, V3)>,
     /// Swing whooshes and dive thuds waiting to play: ticks left, the player (played at their position) and the sound.
@@ -795,7 +799,8 @@ fn flare_tick(game: Option<ResMut<Game>>) {
 
 static EFFECTS_SEED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
 
-/// The match's effects seed (`Rngs::setup_rand`), drawn when main.rs sets the match up.
+/// The match's effects seed at its start (`Rngs::setup_rand`), drawn when main.rs sets the match up (`Game::effects_seed`
+/// carries it on, redrawn at each change of ends).
 pub fn set_effects_seed(s: u32) {
     EFFECTS_SEED.store(s as u64, std::sync::atomic::Ordering::Relaxed);
 }
@@ -1558,6 +1563,7 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
         message: String::new(),
         rng: match_rng.map_or_else(|| Rngs::new(Rand::default(), Mt::new(1)), |r| r.0.clone()),
         respark: None,
+        effects_seed: effects_seed(),
         sounds: Vec::new(),
         whooshes: Vec::new(),
         lines: Vec::new(),
@@ -4095,11 +4101,8 @@ fn simulate(mut g: ResMut<Game>) {
                 Some(Next::Serve) => return next_point(g, true),
                 Some(Next::ChangeEnds) => {
                     doubles_ai::heard(g, msg::CHANGE_ENDS);
+                    redraw_effects_seed(g);
                     reseed_sound(g);
-                    #[cfg(test)]
-                    for _ in 0..fifty_hz::CHANGE_ENDS_DRAWS.load(std::sync::atomic::Ordering::Relaxed) {
-                        g.rng.rand.next();
-                    }
                     g.gallery.hush();
                     g.umpire.start(true, g.flight.ball.pos);
                     // the change-ends tune, cued as the phase is entered
@@ -4367,6 +4370,12 @@ fn next_point(g: &mut Game, fresh: bool) {
     if fresh {
         reseed_sound(g);
     }
+}
+
+/// The effects hear the change of ends message (before the sound manager) and take a fresh `rand()` seed, which the
+/// next serve's effects LCG restart uses.
+fn redraw_effects_seed(g: &mut Game) {
+    g.effects_seed = Some(g.rng.rand.next());
 }
 
 /// The sound manager's reseed messages (match start, change of ends, a new point after a point): the hit sparks

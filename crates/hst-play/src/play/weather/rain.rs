@@ -299,8 +299,8 @@ fn tick(fx: Option<ResMut<Particles>>, g: Res<Game>, w: Option<Res<Weather>>) {
     let serve = serving && !fx.serving;
     fx.serving = serving;
     if serve {
-        // the match's effects seed (main.rs draws it as the game does; the clock's until then)
-        fx.seed = crate::play::effects_seed().unwrap_or(fx.seed);
+        // the match's effects seed (drawn at the setup and each change of ends, as the game does; the clock's until then)
+        fx.seed = g.effects_seed.unwrap_or(fx.seed);
         fx.rng = Lcg(fx.seed);
         for wind in &mut fx.winds {
             wind.setup(&mut fx.rng, today.speed, today.weather);
