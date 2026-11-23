@@ -4,7 +4,8 @@
 //! white ring; F3: the character's name where the slot label was, [`super::plate`]), then the stats board
 //! ([`super::layout`]: the plates in its header read the player, every value in the outlined digits) and
 //! its Longest Rally / Match Time bar. Laid out from y 0 down, centred on x 320 as the 640×448 screen; the end screen
-//! puts the menu box beside it and fits the two on the screen ([`super::next::fit`]), and the pause menu can too.
+//! puts the menu box beside it and fits the two on the screen ([`super::next::fit`]); F5: the pause screen draws it too
+//! ([`Kind::Live`], the match so far, no banner) through [`super::pause_board`], the pause menu's box beside it.
 
 use super::super::popups;
 use super::{Quad, Tex, View, WHITE};
@@ -18,24 +19,61 @@ const BANNER_SIZE: [f32; 2] = [256.0, 64.0];
 const GAP: f32 = 4.0;
 const BOARD_GAP: f32 = 8.0;
 
-/// The whole widget for `v`, top to bottom.
-pub(super) fn widget(v: &View) -> Vec<Quad> {
-    let mut out = vec![Quad {
-        tex: Tex::Own(BANNER),
-        src: [0.0, 0.0, BANNER_SIZE[0], BANNER_SIZE[1]],
-        dst: [320.0 - BANNER_SIZE[0] / 2.0, 0.0, BANNER_SIZE[0], BANNER_SIZE[1]],
-        rgb: WHITE,
-        alpha: 128.0,
-    }];
-    let mut score = score_board(v);
-    let top = score.iter().map(|q| q.dst[1]).fold(f32::MAX, f32::min);
-    shift(&mut score, BANNER_SIZE[1] + GAP - top);
-    let bottom = score.iter().map(|q| q.dst[1] + q.dst[3]).fold(0.0, f32::max);
-    out.extend(score);
-    let mut stats = super::layout(v);
-    let top = stats.iter().map(|q| q.dst[1]).fold(f32::MAX, f32::min);
-    shift(&mut stats, bottom + BOARD_GAP - top);
-    out.extend(stats);
+/// Which screen the widget is for: the end screen's (the banner over the final board) or the pause screen's (F5: the
+/// match so far, the set in play on the bright sheet even at 0-0, no banner).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Kind {
+    End,
+    Live,
+}
+
+/// The whole widget for `v`, top to bottom from y 0.
+pub(super) fn widget(v: &View, kind: Kind) -> Vec<Quad> {
+    let (mut out, mut y) = match kind {
+        Kind::End => (
+            vec![Quad {
+                tex: Tex::Own(BANNER),
+                src: [0.0, 0.0, BANNER_SIZE[0], BANNER_SIZE[1]],
+                dst: [320.0 - BANNER_SIZE[0] / 2.0, 0.0, BANNER_SIZE[0], BANNER_SIZE[1]],
+                rgb: WHITE,
+                alpha: 128.0,
+            }],
+            BANNER_SIZE[1] + GAP,
+        ),
+        Kind::Live => (Vec::new(), 0.0),
+    };
+    let score = match kind {
+        Kind::End => score_board(v),
+        Kind::Live => live_board(v),
+    };
+    y = stack(&mut out, score, y) + BOARD_GAP;
+    stack(&mut out, super::layout(v), y);
+    out
+}
+
+/// Puts `quads` on `out` with their top at `y`; their bottom.
+fn stack(out: &mut Vec<Quad>, mut quads: Vec<Quad>, y: f32) -> f32 {
+    let top = quads.iter().map(|q| q.dst[1]).fold(f32::MAX, f32::min);
+    shift(&mut quads, y - top);
+    let bottom = quads.iter().map(|q| q.dst[1] + q.dst[3]).fold(y, f32::max);
+    out.extend(quads);
+    bottom
+}
+
+/// F2: the pause screen's score board: every set played and the set in play, that one on the bright sheet with both
+/// counts at full strength (the final board shows every set settled).
+fn live_board(v: &View) -> Vec<Quad> {
+    let cur = v.table.score.set.clamp(0, 4);
+    let mut out = score_board_of(v, cur as usize + 1);
+    let games_y = match v.sets_to_win {
+        1 => 360.0,
+        2 => 328.0,
+        _ => 264.0,
+    } + 32.0 * cur as f32
+        - 40.0;
+    for q in out.iter_mut().filter(|q| q.tex == Tex::Board(1) && q.dst[1] == games_y && [272.0, 308.0, 336.0].contains(&q.dst[0])) {
+        (q.tex, q.alpha) = (Tex::Board(2), 128.0);
+    }
     out
 }
 
@@ -132,7 +170,7 @@ mod tests {
         t.score.set_games[1][3] = 1;
         let games = score_board(&view(&t, 2, 3)).iter().filter(|q| q.tex == Tex::Board(1) && q.src[0] < 320.0).count();
         assert_eq!(games, 8);
-        let w = widget(&view(&t, 4, 3));
+        let w = widget(&view(&t, 4, 3), Kind::End);
         assert_eq!(w[0].tex, Tex::Own(BANNER));
         let banner_bottom = w[0].dst[1] + w[0].dst[3];
         assert!(w[1..].iter().filter(|q| matches!(q.tex, Tex::Board(_))).all(|q| q.dst[1] >= banner_bottom));

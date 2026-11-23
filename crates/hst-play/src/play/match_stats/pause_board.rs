@@ -1,4 +1,5 @@
-//! F2 (ours, the user's concept round): the end screen's stats board on the pause screen, live. The score so far on
+//! F2 (ours, the user's concept round): the end screen's stats board on the pause screen, live (F5: drawn by the end
+//! screen's own widget, [`super::board::widget`] as [`super::board::Kind::Live`]). The score so far on
 //! the original's final board ([`super::board::score_board_of`]: every set played, the set in play on the bright
 //! sheet, even at 0-0), and under it the stats board ([`super::layout`]) of the match so far, its Longest Rally /
 //! Match Time bar included; no banner. Laid out from y 0 down, centred on x 320 as the end screen's widget; the pause
@@ -10,9 +11,6 @@ use bevy::prelude::*;
 use super::super::panel::{self, Colours};
 use super::super::{Game, Pads, popups};
 use super::{Quad, Tex, View};
-
-/// The gap between the score board and the stats board (the end screen's).
-const BOARD_GAP: f32 = 8.0;
 
 /// One of the board's pictures: `image` (its `rect`, or the whole image) drawn to `dst` (the 640×448 screen's px).
 #[derive(Clone, Debug, PartialEq)]
@@ -39,33 +37,9 @@ fn leader(score: &hst_sim::score::Score) -> usize {
     usize::from(score.games[1] > score.games[0])
 }
 
-/// The board for `v`, its table's score the match's so far: the score board over the stats board.
+/// The board for `v`, its table's score the match's so far: F1's widget, live.
 fn quads(v: &View) -> Vec<Quad> {
-    let score = &v.table.score;
-    let cur = score.set.clamp(0, 4);
-    let mut out = super::board::score_board_of(v, cur as usize + 1);
-    // the set in play on the bright sheet, both counts at full strength: the final board shows every set settled
-    let games_y = match v.sets_to_win {
-        1 => 360.0,
-        2 => 328.0,
-        _ => 264.0,
-    } + 32.0 * cur as f32
-        - 40.0;
-    for q in out.iter_mut().filter(|q| q.tex == Tex::Board(1) && q.dst[1] == games_y && [272.0, 308.0, 336.0].contains(&q.dst[0])) {
-        (q.tex, q.alpha) = (Tex::Board(2), 128.0);
-    }
-    let bottom = out.iter().map(|q| q.dst[1] + q.dst[3]).fold(0.0, f32::max);
-    let top = out.iter().map(|q| q.dst[1]).fold(f32::MAX, f32::min);
-    for q in &mut out {
-        q.dst[1] -= top;
-    }
-    let mut stats = super::layout(v);
-    let stats_top = stats.iter().map(|q| q.dst[1]).fold(f32::MAX, f32::min);
-    for q in &mut stats {
-        q.dst[1] += bottom - top + BOARD_GAP - stats_top;
-    }
-    out.extend(stats);
-    out
+    super::board::widget(v, super::board::Kind::Live)
 }
 
 /// The system that sets the board's pictures: the pause menu opens the board before it and draws them after.

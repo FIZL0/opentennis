@@ -759,7 +759,7 @@ fn draw(
             pulse: screen.alpha,
             sets_to_win: g.rules.sets,
             words: std::array::from_fn(|p| if p < n { words.widths(p) } else { None }),
-        });
+        }, board::Kind::End);
         let (all, mut rects) = next::compose(quads, np.is_some(), screen.sel);
         quads = all;
         next::fit(&mut quads, &mut rects, next::visible(crate::widescreen::window_aspect(&window)));
@@ -962,7 +962,7 @@ mod tests {
         t.score.set_games[0] = [6, 4, 6, 3, 7];
         t.score.set_games[1] = [4, 6, 3, 6, 6];
         let v = View { table: &t, players: 4, slots: [0, 4, 4, 4], pill: [[128; 3]; 4], ranks: [Some(0); 4], rank_rgb: [[128; 3]; 4], pulse: 0, sets_to_win: 3, words: [Some([40.0, 50.0]); 4] };
-        let (quads, _) = next::compose(board::widget(&v), true, 0);
+        let (quads, _) = next::compose(board::widget(&v, board::Kind::End), true, 0);
         assert!(quads.len() <= POOL, "{}", quads.len());
     }
 
