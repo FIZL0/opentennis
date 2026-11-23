@@ -253,7 +253,8 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
         // the follow-through plays on here; the routine's own stick or press below is what breaks it off
         follow_through(&mut g.players[i], false);
         whiff_frame(g, i, whiff_stick(&g.players[i]));
-        if let Some(dir) = g.players[i].approach {
+        // B774: the search frame after the approach run doesn't move (B132's rule)
+        if let Some(dir) = g.players[i].approach.filter(|_| !searching(&mut g.players[i])) {
             locomote(g, i, dir);
         }
     }
@@ -383,14 +384,27 @@ fn run(g: &mut Game, i: usize, mind: &hst_sim::ai::Mind, routine: bool) -> bool 
     let dir = if mind.active { [out.stick[0], out.stick[2]] } else { [0.0; 2] };
     let [x, z] = loco::stick_dir(loco::bot_stick(dir), phase);
     let broke = routine && busy && break_off(&mut g.players[i], (x, z) != (0.0, 0.0) || out.button.is_some());
-    if (!busy || broke) && !dives {
+    // B774: a press that plans an approach run takes the run's first step this tick, along the approach, in place of
+    // the stick move (a dive-judged press too); the press reads the spot before any step, as a human's does
+    let runs = out.button.is_some() && g.players[i].approach.is_none() && approach(g, i).is_some_and(|(n, _)| n > 0);
+    let (mut pressed, mut ran) = (false, false);
+    if runs && let Some(button) = out.button {
+        g.players[i].ai_press = Some((Vec2::new(aim[0], aim[2]), button as u8));
+        press(g, i, button_kind(button as u8));
+        pressed = true;
+        if let Some(dir) = g.players[i].approach {
+            locomote(g, i, dir);
+            ran = true;
+        }
+    }
+    if (!busy || broke) && !dives && !ran {
         // past its wait the stick breaks off a serve's follow-through (`ai_serve_step`)
         if ai_serve_step(g, i, Vec2::new(x, z)) {
             return true;
         }
         locomote(g, i, Vec2::new(x, z));
     }
-    if let Some(button) = out.button {
+    if let Some(button) = out.button.filter(|_| !pressed) {
         g.players[i].ai_press = Some((Vec2::new(aim[0], aim[2]), button as u8));
         press(g, i, button_kind(button as u8));
     }
