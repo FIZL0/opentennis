@@ -2612,8 +2612,7 @@ fn hold_ball(g: &mut Game) {
 
 /// Where the server holds the ball before the toss leaves the hand, as the original: in the stance (`id::SERVE_STANCE`) on
 /// the stance's ball track (`*_serve_ad00_ball`), on the walk and through the toss at the left hand's
-/// `Bip01LFinger21`, both at the motion's sampled time.
-/// ponytail: posed from the motion's own clip; the original's pose mid-crossfade is the mixed one.
+/// `Bip01LFinger21`, both at the motion's sampled time; mid-crossfade the finger is on the mixed pose (`held_pose`).
 /// The player's matrix (rows, the spot in row 3): turned to face, mirrored across for a left-hander.
 fn player_matrix(p: &Player) -> [[f32; 4]; 4] {
     let [fx, _, fz, _] = p.body.face.dir;
@@ -2647,8 +2646,9 @@ fn held_ball(mut g: ResMut<Game>, q: Query<(&Figure, &Motion)>) {
     } else {
         let finger = sk.names.iter().position(|n| n == "Bip01LFinger21");
         data.motions.get(&m.id).zip(finger).map(|(c, f)| {
+            let locals = held_pose(data, m).unwrap_or_else(|| c.locals(sk, t));
             let [x, y, z, _] = hst_sim::vu0::transform(
-                &hst_sim::pose::node_world(sk, &c.locals(sk, t), f, &player),
+                &hst_sim::pose::node_world(sk, &locals, f, &player),
                 serve::HAND_BALL,
             );
             [x, y, z]
@@ -2658,6 +2658,29 @@ fn held_ball(mut g: ResMut<Game>, q: Query<(&Figure, &Motion)>) {
         g.prev_ball = g.flight.ball.pos;
         g.flight.ball.pos = at;
     }
+}
+
+/// B780: the server's pose mid-crossfade as the motion player mixes it (`bodyhit::pose`): the new clip sampled at its
+/// time with the outgoing one mixed over its first 23 tracks by this tick's weight (the held fade: the frozen outgoing
+/// pose with the new clip's frame 0 over it); `None` outside a crossfade.
+// ponytail: a node neither clip keys holds its rest pose here, where the motion player keeps whatever last keyed it
+fn held_pose(data: &CharacterData, m: &Motion) -> Option<Vec<[[f32; 4]; 4]>> {
+    let (sk, new) = (&data.skeleton, data.motions.get(&m.id)?);
+    let mut nodes = hst_sim::pose::Nodes::new(sk);
+    nodes.bind(sk, new);
+    match m.mix? {
+        (w, true) => {
+            let old = data.motions.get(&(m.fade.id as usize)).filter(|_| m.fade.clip)?;
+            nodes.sample(old, m.fade.sampled);
+            nodes.mix(new, 0.0, w, 23);
+        }
+        (w, false) => {
+            let old = data.motions.get(&(m.fade.mixed as usize))?;
+            nodes.sample(new, m.clock.sampled);
+            nodes.mix(old, m.fade.sampled, w, 23);
+        }
+    }
+    Some(nodes.local)
 }
 
 /// The run direction the original gives a human's stick (`hst_sim::player::pad_dir`): the stick as pad bytes, its

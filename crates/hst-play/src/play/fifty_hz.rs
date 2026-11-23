@@ -542,7 +542,7 @@ mod tests {
     #[test]
     fn the_european_first_serve_set_up_plays_as_recorded() {
         let Some((want, got)) = european(Some(450), 0) else { return };
-        serve_to_contact("eu", &want, &got, 8, (114, 134, 141));
+        serve_to_contact("eu", &want, &got, 0, (114, 134, 141));
         // every player through the server's partner's six steps after the return (250-255), its stand after them
         // (the walk back's singles-column roll, B719) and its partner's next contact (its frame stamp, M183a1), to
         // the receiver's whiff and the rally's end (its miss motion's 31-frame release, M183a1)
@@ -742,7 +742,7 @@ mod tests {
     #[test]
     fn the_us_first_serve_set_up_plays_as_recorded() {
         let Some((want, got, rngs)) = us(Some(380), 240, 0) else { return };
-        serve_to_contact("us", &want, &got, 9, (169, 215, 219));
+        serve_to_contact("us", &want, &got, 1, (169, 215, 219));
         serve_to_return("us", &want, &got, 219, 370, 298);
         // to the tick before the server's side strikes it back; every player stands where the recording has them to
         // there (they part at 855 first, `the_us_bot_match_plays_as_recorded`)
