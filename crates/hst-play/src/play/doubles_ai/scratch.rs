@@ -113,6 +113,10 @@ fn this_tick(g: &Game, i: usize) -> Option<Vec<(usize, M4)>> {
     }
     let keep = |k: usize| kept.chain.iter().any(|c| c.0 == k);
     let new = data.motions.get(&m.id)?;
+    // a motion started this tick binds its clip first (B777): rest rows, single-key tracks at their key
+    if m.id != kept.motion.id {
+        nodes.bind(&data.skeleton, new);
+    }
     let (mut clock, mut fade) = (m.clock, m.fade);
     let old = data.motions.get(&(fade.id as usize)).map_or(0.0, |c| c.length);
     let mut mix = fade.tick(old).map(|w| (w, false));
@@ -120,12 +124,13 @@ fn this_tick(g: &Game, i: usize) -> Option<Vec<(usize, M4)>> {
     if let Some(w) = fade.tick_hold() {
         mix = Some((w, true));
     }
-    match (mix, data.motions.get(&(fade.id as usize)).filter(|_| fade.clip)) {
-        (Some((w, true)), Some(old)) => {
+    let out = data.motions.get(&(fade.mixed as usize));
+    match (mix, data.motions.get(&(fade.id as usize)).filter(|_| fade.clip), out) {
+        (Some((w, true)), Some(old), _) => {
             nodes.sample_kept(old, fade.sampled, keep);
             nodes.mix_kept(new, 0.0, w, 23, keep);
         }
-        (Some((w, false)), Some(old)) => {
+        (Some((w, false)), _, Some(old)) => {
             nodes.sample_kept(new, clock.sampled, keep);
             nodes.mix_kept(old, fade.sampled, w, 23, keep);
         }
