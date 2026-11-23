@@ -71,6 +71,13 @@ pub(super) fn voice_ticks(frames: u32, build: Build) -> u32 {
 #[cfg(test)]
 pub(super) static EU_DISC: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// B785 probe stand-in: the next umpire line play starts is heard to stop a tick early (its ticks left one shorter).
+/// The sound processor isn't in step with the frames, so now and then the game hears a line's end a tick sooner than
+/// its length says; nothing in the game's state tells when, so the whole-match proof feeds the recording's early
+/// lines (`EARLY_LINES`). Process-wide, as Bevy runs the match on its own threads; set only under `EU_DISC`.
+#[cfg(test)]
+pub(super) static EARLY_LINE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// A bot match on the European disc at 50 Hz (`fixtures/discs/SCES-54535.iso`; skipped without it even under
 /// `HST_REQUIRE_DISC`, as it isn't the user's disc), the sim's 50 Hz timing on before `FIFTY_HZ_SIM`: it plays the
 /// European program (`Build::Europe` everywhere play asks), on the disc's own trajectory tables, with every motion at
@@ -235,6 +242,10 @@ mod tests {
         /// B775: each player's motion and clock (its next sampled time, and the time it sampled last) in the game's
         /// start state, for [`played_ticks_rng`] to start from instead of play's set-up (none: as play sets them up).
         static START_CLOCKS: std::cell::Cell<Option<[(usize, f32, f32); 4]>> = const { std::cell::Cell::new(None) };
+        /// B785: the recorded ticks of the point-overs whose call the recording hears stop a tick early (the line's
+        /// end follows the sound processor, not the game's state), for [`played_ticks_rng`] to feed play
+        /// (`EARLY_LINE`); none: every line ends on its usual tick.
+        static EARLY_LINES: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
     }
 
     /// B775: the recording's start state on the players play just set up: a bot match starts from the game's frame
@@ -313,8 +324,14 @@ mod tests {
         let tick = |g: &Game| (code(&g.phase), std::array::from_fn(|i| g.players[i].pos), g.flight.ball.pos);
         let mut out = vec![tick(app.world().resource::<Game>())];
         let mut rngs = vec![app.world().resource::<Game>().rng.clone()];
+        let early = EARLY_LINES.take();
         for k in 1..n {
             let tossed = app.world().resource::<Game>().serving.tossed;
+            // B785: a listed point-over's call heard a tick early (play starts the call in its step t, the
+            // recording's point-over tick t); the line play starts next takes it
+            if early.contains(&k) {
+                super::EARLY_LINE.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
             app.world_mut().run_schedule(FixedUpdate);
             let mut g = app.world_mut().resource_mut::<Game>();
             if g.serving.tossed && !tossed {
@@ -329,6 +346,7 @@ mod tests {
                 rngs.push(app.world().resource::<Game>().rng.clone());
             }
         }
+        super::EARLY_LINE.store(false, std::sync::atomic::Ordering::Relaxed);
         (out, rngs)
     }
 
@@ -510,6 +528,8 @@ mod tests {
         // before to the same fractional 50 Hz clock (23.6664, sampled 22.6664)
         let (time, sampled) = (f32::from_bits(0x41bd_54ce), f32::from_bits(0x41b5_54ce));
         START_CLOCKS.set(Some([(0x20, time, sampled), (0, time, sampled), (0, time, sampled), (0, time, sampled)]));
+        // B785: the match's first fault (point-over from recorded tick 6636) hears its call stop a tick early
+        EARLY_LINES.set(vec![6636]);
         // B782: the recording's setup remade court 6's 6 doubles clouds at its first weather (30 `rand()` draws) and
         // its intro ran the 50 Hz camera table's 327 flare ticks, as play makes them
         // the match seed: the 81 875th `rand()` output from boot (`eu_match_seed_search`)
@@ -567,7 +587,8 @@ mod tests {
     fn the_european_bot_match_plays_as_recorded() {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
         let Some((want, got)) = european(None, toss_ai) else { return };
-        assert!(compare("eu", &want, &got) >= 3, "the first point's phases (B723)");
+        // B785: through the first fault's early call (phase 24) to phase 38's rally
+        assert!(compare("eu", &want, &got) >= 38, "the phases up to phase 38's rally (B723, B785)");
         first_point_part("eu", &want, &got, 141);
         part_from("eu", &want, &got);
         shot_probe("eu", "fixtures/m169/eu-bot-match.bin", &want);

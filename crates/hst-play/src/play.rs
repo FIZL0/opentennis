@@ -4881,6 +4881,10 @@ fn play_sounds(
         }
         g.umpire_voice = (played.umpire != 0) as u64;
         heard.voice_left = fifty_hz::voice_ticks(sound.centre_frames(&b, p), g.build) + hst_sim::umpire::VOICE_LAG;
+        #[cfg(test)]
+        if fifty_hz::EARLY_LINE.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            heard.voice_left -= 1;
+        }
     }
     // timed in ticks, not by the audio thread, so the post-point timeline is the same on every machine (netplay)
     if g.umpire_voice != 0 {
