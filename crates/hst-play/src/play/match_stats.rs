@@ -721,7 +721,8 @@ fn draw(
     panel_art: Option<Res<panel::Art>>,
     colours: Option<Res<Colours>>,
     (names, mut plates): (Option<Res<super::name_tags::Names>>, ResMut<super::name_tags::Plates>),
-    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility)>,
+    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility, Option<&ChildOf>)>,
+    parents: Query<&ComputedNode>,
     mut fade: Query<&mut BackgroundColor, (With<Fade>, Without<Dim>)>,
     mut dim: Query<&mut BackgroundColor, (With<Dim>, Without<Fade>)>,
     np: Option<Res<super::netplay::Netplay>>,
@@ -773,7 +774,7 @@ fn draw(
     };
     let slots: Vec<usize> = (0..n).map(slot).collect();
     plates.0[super::name_tags::RESULT] = super::name_tags::take(&mut quads, names.as_deref(), &slots, 0.0, label, |q| (q.dst, q.src, q.rgb, q.alpha));
-    for (Slot(i), mut img, mut node, mut vis) in &mut q {
+    for (Slot(i), mut img, mut node, mut vis, up) in &mut q {
         let Some(quad) = quads.get(*i) else {
             vis.set_if_neq(Visibility::Hidden);
             continue;
@@ -806,7 +807,8 @@ fn draw(
         let [r, g, b] = quad.rgb.map(|c| c / 128.0);
         img.color = Color::srgba(r, g, b, quad.alpha / 128.0);
         let [x, y, w, h] = quad.dst;
-        crate::play::widescreen::put(&mut node, x / 6.4, y / 4.48, w / 6.4, h / 4.48);
+        let px = up.and_then(|u| parents.get(u.parent()).ok()).map_or(Vec2::ZERO, ComputedNode::size);
+        crate::play::widescreen::put_snapped(&mut node, x / 6.4, y / 4.48, w / 6.4, h / 4.48, px);
         vis.set_if_neq(Visibility::Inherited);
     }
 }

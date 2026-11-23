@@ -5,7 +5,7 @@
 # vVERSION goes on top from the local IPA (it isn't published yet when tools/release.sh runs this), listed once.
 # NOTES=file gives its "What's new" text (RELEASE_NOTES.md); older ones take their release's "## New in" section.
 # OUT defaults to altstore-source.json next to IPA. tools/release.sh uploads it with every release, so the URL below
-# always serves the latest release's; web/ios.html has the one-tap "add source" buttons for it.
+# always serves the latest release's; the FIZL0 apps page (https://fizl0.github.io/apps/) has the one-tap "add source" buttons.
 # The app also carries the legacy top-level version/downloadURL fields (= versions[0]), for older signers.
 # A failed GitHub API call fails this (and the release): never a source with only the new version.
 set -euo pipefail

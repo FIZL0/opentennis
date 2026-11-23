@@ -109,7 +109,7 @@ cp "$mac" "$out/opentennis-macos-arm64.dmg"
 env -u HST_SITE HST_COMMIT=$HST_COMMIT tools/web.sh
 tar -czf "$out/web.tar.gz" -C web .
 (cd "$out" && sha256sum opentennis-* opentennis.zip > SHA256SUMS)
-# M140: the AltStore / SideStore / Feather source, at a URL that always serves the latest release's copy (web/ios.html)
+# M140: the AltStore / SideStore / Feather source, at a URL that always serves the latest release's copy (the FIZL0 apps page, https://fizl0.github.io/apps/)
 NOTES=$notes tools/ios-source.sh "$version" "$out/opentennis-ios.ipa" >/dev/null
 printf %s "$pw" | minisign -S -s "$key" -m "$out/SHA256SUMS" -x "$out/SHA256SUMS.sig" -t "OpenTennis $tag"
 # the game checks against the key built into it (update.rs): refuse a release it would turn down
@@ -131,7 +131,7 @@ body=$out/notes.md
     echo "| **Linux** / **Steam Deck** | [\`opentennis-linux-x86_64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-x86_64.tar.gz) | Unpack and open \`opentennis\`, then pick your ISO. For Steam (with artwork): run \`add-to-steam.sh\` |"
     echo "| **Linux ARM64** (aarch64) | [\`opentennis-linux-aarch64.tar.gz\`](https://github.com/$repo/releases/download/$tag/opentennis-linux-aarch64.tar.gz) | Unpack and run \`OpenTennis/OpenTennis.sh\`, with your ISO in the \`OpenTennis\` folder |"
     echo "| **Handhelds** with [PortMaster](https://portmaster.games/) (muOS, ROCKNIX, Knulli…) | [\`opentennis.zip\`](https://github.com/$repo/releases/download/$tag/opentennis.zip) | Put the zip in PortMaster's \`autoinstall\` folder, then your ISO in \`ports/opentennis/\`, and start OpenTennis from Ports |"
-    echo "| **iPhone** / **iPad** (iOS 15+) | [\`add-source (one tap)\`](https://opentennis.dev/ios.html) | Adds the FIZL0 apps source to Feather, AltStore or SideStore (or add \`https://fizl0.github.io/apps/source.json\` by hand); install OpenTennis from it and updates arrive there. Then put your ISO in Files → On My iPhone → OpenTennis. Touch controls or a controller. Signing it yourself instead: [\`opentennis-ios.ipa\`](https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa) (unsigned; Sideloadly, AltStore…) |"
+    echo "| **iPhone** / **iPad** (iOS 15+) | [\`add-source (one tap)\`](https://fizl0.github.io/apps/) | Adds the FIZL0 apps source to Feather, AltStore or SideStore (or add \`https://fizl0.github.io/apps/source.json\` by hand); install OpenTennis from it and updates arrive there. Then put your ISO in Files → On My iPhone → OpenTennis. Touch controls or a controller. Signing it yourself instead: [\`opentennis-ios.ipa\`](https://github.com/$repo/releases/download/$tag/opentennis-ios.ipa) (unsigned; Sideloadly, AltStore…) |"
     echo "| **Android** 8+ | [\`opentennis-android.apk\`](https://github.com/$repo/releases/download/$tag/opentennis-android.apk) | Install it (allow unknown apps), then pick your ISO on first start |"
     echo "| **Browser** | [opentennis.dev](https://opentennis.dev/) | Nothing to install |"
     echo

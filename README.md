@@ -16,7 +16,7 @@ in Europe and **Minna no Tennis** (みんなのテニス) in Japan, in Rust with
 The Mac app isn't notarized: the first time, right-click OpenTennis → Open, or on macOS 15 and later open it once, then
 System Settings → Privacy & Security → Open Anyway.
 
-**iPhone / iPad:** [add the source in one tap](https://opentennis.dev/ios.html) to Feather, AltStore or SideStore, or add
+**iPhone / iPad:** [add the source in one tap](https://fizl0.github.io/apps/) to Feather, AltStore or SideStore, or add
 `https://fizl0.github.io/apps/source.json` under Sources. You sign it
 with your own certificate, and updates arrive through the app.
 
