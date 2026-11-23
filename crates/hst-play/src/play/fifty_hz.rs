@@ -181,7 +181,9 @@ mod tests {
                     out.push(b);
                 }
             } else {
-                out.extend(std::iter::repeat_n(b, tick(&w[1]).max(1) as usize));
+                // B766: a phase's first sample can come before its first tick has run (counter 0, at 30-30,
+                // 30-40, ...): it counts as no tick, and the next sample's count repeats it for tick 1
+                out.extend(std::iter::repeat_n(b, tick(&w[1]) as usize));
             }
         }
         out
@@ -668,8 +670,14 @@ mod tests {
         assert!(compare("us", &want, &got) >= 12, "the phases through point 4's point-over");
         // M183a1: a computer player's follow-through plays on until its own stick breaks it off (its first turn then starts
         // from the stroke's motion): every player on through point 6's serve to its rally, where play's serve, a tick
-        // short at 30-40, puts play a tick ahead (and each point-over's last tick)
+        // short at 30-40 as counted then (B766: it wasn't), puts play a tick ahead (and each point-over's last tick)
         assert_eq!((219..4011).filter(|&k| ![1084, 2354, 3190, 3795].contains(&k)).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before tick 4011");
+        // B766: the serve set-ups at 30-30, 30-40 and advantage weren't a tick long; the recording's first sample of
+        // each came before its first tick ran and was counted as one (`recorded_ticks`): the first game and the change
+        // of ends phase for phase, and every player on to the second game's first rally (and each point-over's last
+        // tick)
+        assert!(compare("us", &want, &got) >= 25, "the phases through the change of ends");
+        assert_eq!((219..6845).filter(|&k| ![1084, 2354, 3190, 3795, 4391, 5011, 5689, 6543].contains(&k)).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before tick 6845");
         if std::env::var_os("HST_M183A1_OFF").is_some() {
             let off: Vec<usize> = (219..want.len().min(got.len() - 1)).filter(|&k| ground(&want[k]) != ground(&got[k + 1])).take(40).collect();
             eprintln!("us players off at {off:?}");
