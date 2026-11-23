@@ -612,6 +612,9 @@ mod tests {
         // first ticks too, as the server picks its serve spot and wait in its serve state's entry tick
         let off: Vec<usize> = (1..=470).filter(|&k| k != 140).filter(|&k| by_tick(k).is_some_and(|x| x.2 != rngs[k + 1].ai)).collect();
         assert!(off.is_empty(), "the AI generator leaves the recording at {off:?}");
+        // every tick has a recorded sample to compare with but the one run unsampled inside each loading stall
+        let unsampled: Vec<usize> = (1..=652).filter(|&k| by_tick(k).is_none()).collect();
+        assert_eq!(unsampled, [464, 572], "ticks with no recorded sample");
         // B768: point 2's new-point reset in the tick the set-up starts (572: each AI object's 17) and the entries and
         // the serve pick in the next (21), both inside the recording's one sample after the loading stall (vsync 577),
         // none after; and on as recorded to the server's toss (653: its serve wait), but 6 draws short from the tick
