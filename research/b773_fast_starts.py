@@ -16,7 +16,7 @@ for n in range(1, len(rows) - 3):
     for P in range(4):
         samp, t, spd = rows[n][4][P]
         if samp == 0 and spd != 1 and rows[n][3][P][0] != rows[n - 1][3][P][0] and all(rows[n + j][0] == rows[n][0] + j for j in range(4)):
-            steps = tuple(round(rows[n + j][4][P][1] - rows[n + j - 1][4][P][1], 3) if j else round(t, 3) for j in range(3))
-            spds = tuple(round(rows[n + j][4][P][2], 3) for j in range(3))
+            steps = tuple(round(rows[n + j][4][P][1] - rows[n + j - 1][4][P][1], 3) if j else round(t, 3) for j in range(4))
+            spds = tuple(round(rows[n + j][4][P][2], 3) for j in range(4))
             c[(round(spd, 3), steps, spds)] += 1
 for k, v in sorted(c.items()): print(v, "start speed", k[0], "steps", k[1], "speed after", k[2])

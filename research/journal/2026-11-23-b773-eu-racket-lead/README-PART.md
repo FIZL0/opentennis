@@ -21,13 +21,14 @@ Spec phase. The spec is in `SPEC.md`.
 
 - The lead isn't 50 Hz stepping and isn't an extra pose pass. Two play-side clock differences set it:
   1. Fast swings lose their speed one step too early in play: play trails the game by 3 frames on speed-4 swings.
-  2. Some speed-1 swings start one tick early in play.
+  2. Queued speed-1 swings start one tick early in play.
+  Both come from one cause: play runs the per-frame swing update before the motion step, and the game runs it after.
 - Both differences show up in the US match as well.
 
 ## Not verified / not 1:1
 
-- The base lead of 1 after both fixes is predicted from the EU fit. Play hasn't been run with both fixes.
-- Why play starts speed-1 swings early (Rule 2) wasn't traced. It's an open question in the spec.
+- Look-ahead 3 after the fix is predicted from the EU fit and the US 0x10 window. It has not been run.
+- The ordering explanation (the per-frame update runs after the step) fits every case except the 0x2 ready motion at EU tick 257 (Open questions). Play has not been tried with the update moved. Lead 0 in the EU 555–589 window is predicted, not compared: play diverges before then.
 - The US fit only covers ticks where slot 2's AI stored a racket direction. Many idle and run ticks show no match
   (the scratch holds other values there), and the idle loop's period makes those shifts ambiguous.
 - The EU lead-4 window was fitted on ticks 396–421. B772 measured it on 393–423. The edge ticks weren't re-fitted.
