@@ -18,17 +18,25 @@ const ARM: [&str; 4] = ["Bip01RHand", "Bip01RForearm", "Bip01RUpperArm", "Bip01L
 /// tell which player tossed or hit in this one).
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(in crate::play) struct Left {
-    /// Per player the `Racket` node and its ancestors up to the root (node, local matrix), as the player's update
-    /// poses them in this tick, before the arm turn.
-    chain: Vec<Vec<(usize, M4)>>,
+    /// Per player its pose as its last motion step left it, kept to the `Racket` chain.
+    #[serde(default)]
+    posed: Vec<Option<Kept>>,
     tossed: bool,
     shots: i32,
+}
+
+/// A player's `Racket` node and its ancestors up to the root (node, local rows, held rotation and position) as its
+/// motion step posed them, before the arm turn, and its motion after that step.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct Kept {
+    chain: Vec<(usize, M4, [f32; 4], [f32; 3])>,
+    motion: Motion,
 }
 
 /// Player `i`'s racket direction z: its `Racket` node's world x axis (the chain under its placement, with the
 /// contact or dive arm turn and a dive's racket turn it holds now), z, times its hand.
 fn racket(g: &Game, i: usize) -> Option<f32> {
-    let chain = g.doubles_ai.left.chain.get(i).filter(|c| !c.is_empty())?;
+    let chain = this_tick(g, i)?;
     let (p, sk) = (&g.players[i], &g.data.get(i)?.skeleton);
     let turned = |n: usize, local: &M4| -> M4 {
         let Some((quats, w)) = p.arm else { return *local };
@@ -60,57 +68,68 @@ pub(super) fn z(g: &Game, i: usize) -> f32 {
     racket(g, before).unwrap_or(1.0)
 }
 
-/// After the pose: the toss and shot count the tick ends with, and each player's racket chain as its update in the
-/// next tick poses it. Play's posed nodes are the original's pose of two ticks before the tick the AI is in (the
-/// held ball hangs on the pose of the frame before, and play poses after the ball): the motion player runs on
-/// `AHEAD` more frames from the posed one, its clock, crossfade and held fade as `character::tick` runs them.
+/// After the pose: the toss and shot count the tick ends with, and each player's racket chain and motion as its
+/// motion step left them.
 pub(in crate::play) fn after_pose(mut g: ResMut<Game>, posed: Res<super::super::bodyhit::Posed>, q: Query<(&Figure, &Motion)>) {
     let g = &mut *g;
     (g.doubles_ai.left.tossed, g.doubles_ai.left.shots) = (g.serving.tossed, g.shots);
     if g.players.len() != 4 {
         return;
     }
-    g.doubles_ai.left.chain.resize(4, Vec::new());
+    g.doubles_ai.left.posed.resize(4, None);
     for (f, m) in &q {
         let i = f.0;
-        let chain = g.data.get(i).zip(posed.nodes(i)).and_then(|(data, nodes)| ahead(data, nodes, m));
-        g.doubles_ai.left.chain[i] = chain.unwrap_or_default();
+        let kept = g.data.get(i).zip(posed.nodes(i)).and_then(|(data, nodes)| {
+            let chain = racket_chain(&data.skeleton)?.into_iter().map(|k| (k, nodes.local[k], nodes.held(k).0, nodes.held(k).1)).collect();
+            Some(Kept { chain, motion: *m })
+        });
+        g.doubles_ai.left.posed[i] = kept;
     }
 }
 
-/// How many frames the stand test's pose is past play's posed one.
-const AHEAD: usize = 2;
-
-/// The `Racket` chain of `nodes` (as posed for motion `m`) after the motion player runs `AHEAD` more frames.
-fn ahead(data: &crate::character::CharacterData, nodes: &Nodes, m: &Motion) -> Option<Vec<(usize, M4)>> {
-    let sk = &data.skeleton;
+/// The `Racket` node and its ancestors up to the root.
+fn racket_chain(sk: &hst_sim::pose::Skeleton) -> Option<Vec<usize>> {
     let mut n = sk.names.iter().position(|b| b == "Racket")?;
     let mut chain = vec![n];
     while let Some(p) = sk.parent[n] {
         chain.push(p);
         n = p;
     }
-    let keep = |k: usize| chain.contains(&k);
-    let new = data.motions.get(&m.id)?;
-    let (mut nodes, mut clock, mut fade) = (nodes.clone(), m.clock, m.fade);
-    for _ in 0..AHEAD {
-        let length = data.motions.get(&(fade.id as usize)).map_or(0.0, |c| c.length);
-        let mut mix = fade.tick(length).map(|w| (w, false));
-        clock.tick(new.length);
-        if let Some(w) = fade.tick_hold() {
-            mix = Some((w, true));
-        }
-        match (mix, data.motions.get(&(fade.id as usize)).filter(|_| fade.clip)) {
-            (Some((w, true)), Some(old)) => {
-                nodes.sample_kept(old, fade.sampled, keep);
-                nodes.mix_kept(new, 0.0, w, 23, keep);
-            }
-            (Some((w, false)), Some(old)) => {
-                nodes.sample_kept(new, clock.sampled, keep);
-                nodes.mix_kept(old, fade.sampled, w, 23, keep);
-            }
-            _ => nodes.sample_kept(new, clock.sampled, keep),
-        }
+    Some(chain)
+}
+
+/// Player `i`'s `Racket` chain as its own update poses it in this tick (B773): every player's update steps its motion
+/// before the next player's AI runs, so the pose is the kept one with player `i`'s motion command for this tick
+/// played (a motion it started this tick from its first frame, with its crossfade or cut) and one motion step run,
+/// its clock, crossfade and held fade as `character::tick` runs them.
+fn this_tick(g: &Game, i: usize) -> Option<Vec<(usize, M4)>> {
+    let kept = g.doubles_ai.left.posed.get(i)?.as_ref()?;
+    let data = g.data.get(i)?;
+    let mut m = kept.motion;
+    crate::play::motion_command(g, i, &mut m);
+    let mut nodes = Nodes::new(&data.skeleton);
+    for &(n, local, q, p) in &kept.chain {
+        nodes.restore(n, local, (q, p));
     }
-    Some(chain.into_iter().map(|k| (k, nodes.local[k])).collect())
+    let keep = |k: usize| kept.chain.iter().any(|c| c.0 == k);
+    let new = data.motions.get(&m.id)?;
+    let (mut clock, mut fade) = (m.clock, m.fade);
+    let old = data.motions.get(&(fade.id as usize)).map_or(0.0, |c| c.length);
+    let mut mix = fade.tick(old).map(|w| (w, false));
+    clock.tick(new.length);
+    if let Some(w) = fade.tick_hold() {
+        mix = Some((w, true));
+    }
+    match (mix, data.motions.get(&(fade.id as usize)).filter(|_| fade.clip)) {
+        (Some((w, true)), Some(old)) => {
+            nodes.sample_kept(old, fade.sampled, keep);
+            nodes.mix_kept(new, 0.0, w, 23, keep);
+        }
+        (Some((w, false)), Some(old)) => {
+            nodes.sample_kept(new, clock.sampled, keep);
+            nodes.mix_kept(old, fade.sampled, w, 23, keep);
+        }
+        _ => nodes.sample_kept(new, clock.sampled, keep),
+    }
+    Some(kept.chain.iter().map(|c| (c.0, nodes.local[c.0])).collect())
 }

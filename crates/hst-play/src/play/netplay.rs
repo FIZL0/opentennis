@@ -1297,6 +1297,7 @@ mod tests {
             app.init_resource::<ReactionRoots>();
             app.add_systems(FixedUpdate, (flare_tick.after(remember).before(control), react_first.after(effects::tick).before(control), reaction_roots.after(control).before(simulate)));
             app.add_systems(FixedUpdate, (effects::tick_trails.after(character::tick).before(played_out), play_sounds.after(held_ball).before(instant_replay::run)));
+            app.add_systems(FixedUpdate, swing_after_step::apply.after(character::tick).before(effects::tick_trails));
             app.add_systems(FixedUpdate, (doubles_ai::scratch::after_pose.after(bodyhit::pose).after(play_sounds), emote::play_lines.after(play_sounds)));
             app.add_systems(FixedUpdate, (bounce_debris::set_up.after(simulate).before(start_effects), bounce_debris::throw.after(start_effects).after(foot_fx::tick)));
             app.add_plugins((look::plugin, carts::plugin, tornado::plugin, offbeat::plugin, replay_pace::plugin, super::super::super::save_game::plugin));

@@ -51,6 +51,7 @@ mod ball_shadow;
 mod smooth;
 mod build_rules;
 mod dive_ik;
+mod swing_after_step;
 mod release_art;
 mod bounce_debris;
 mod smash_marker;
@@ -253,6 +254,9 @@ pub struct Player {
     /// A swing waiting for 8 frames before contact while the body turns, and a soft follow-through due next frame.
     wait_swing: Option<i32>,
     follow: Option<i32>,
+    /// The swing update's motion changes due after this tick's motion step (B773).
+    #[serde(default)]
+    after_step: swing_after_step::AfterStep,
     /// A swing at nothing (`motion::Whiff`), and a pending press's whiff to come is a re-press (no shout).
     whiff: Option<motion::Whiff>,
     whiff_quiet: bool,
@@ -744,6 +748,7 @@ pub fn plugin(app: &mut App) {
         );
     app.add_systems(FixedUpdate, flare_tick.after(remember).before(control));
     app.init_resource::<ReactionRoots>().add_systems(FixedUpdate, (react_first.after(effects::tick).before(control), reaction_roots.after(control).before(simulate)));
+    app.add_systems(FixedUpdate, swing_after_step::apply.after(character::tick).before(effects::tick_trails));
     app.add_systems(FixedUpdate, doubles_ai::scratch::after_pose.after(bodyhit::pose).after(play_sounds));
     app.add_systems(FixedUpdate, (bounce_debris::set_up.after(simulate).before(start_effects), bounce_debris::throw.after(start_effects).after(foot_fx::tick)));
     app.add_systems(Update, emote::hide_ball.after(draw));
@@ -2905,6 +2910,7 @@ fn square_up(p: &mut Player) {
 /// shot over the last frames before contact, as the original; the racket meets the ball on the chosen frame.
 fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Option<Contact> {
     let mut struck = None;
+    swing_after_step::land(&mut g.players[i]);
     doubles_ai::stroke_check(g, i);
     let pace = swing_pace(g, i);
     if let Some(f) = g.players[i].follow.take() {
@@ -3020,9 +3026,9 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
         if !ik.on {
             p.ik = None;
         }
-        // the swing reaches its contact pose at speed 1
+        // the swing reaches its contact pose at speed 1 (from the next motion step)
         if unit {
-            p.cmd.speed = 1.0;
+            p.after_step.speed_one();
         }
         p.prev = p.pos;
         p.pos = [pos[0], pos[1], pos[2]];
@@ -3102,11 +3108,11 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
                 frames: c.frames - 1,
                 ..c
             });
-            // the swing waiting behind the body's turn starts 8 frames before contact
+            // the swing waiting behind the body's turn starts 8 frames before contact (from the next motion step)
             if c.frames as i32 - 1 == motion::swing_lead(pace)
                 && let Some(anim) = p.wait_swing.take()
             {
-                set_motion(p, anim, pace, false, None);
+                p.after_step.swing(anim, pace);
             }
         }
     }
@@ -4516,14 +4522,28 @@ fn marks_age(g: &Game) -> bool {
 fn motions(mut g: ResMut<Game>, mut q: Query<(&Figure, &mut Motion)>) {
     for (f, mut m) in &mut q {
         let i = f.0;
+        let Some(id) = motion_command(&g, i, &mut m) else { continue };
+        // a mod's emote holds the player for its own clip (the take this set draws), not the donor's
+        if g.players[i].emote > 0
+            && let Some(t) = g.data[i].emote_ticks(id, m.sets)
+        {
+            g.players[i].emote = t - 1;
+        }
+    }
+}
+
+/// Player `i`'s motion command for this tick into its motion `m`, as the motion step will play it. Returns the
+/// motion the player's own command (re)started, if it did.
+pub(in crate::play) fn motion_command(g: &Game, i: usize, m: &mut Motion) -> Option<usize> {
+    {
         let p = &g.players[i];
         m.arm = p.arm;
         m.racket = p.racket;
         // a whiffed serve's miss motion plays on through the fault's call, until the players react (B270: a
         // double fault's reaction takes the server too)
-        let serving = (g.phase == Phase::Serve || serve_swinging(&g) || g.serving.whiffed && !g.post.as_ref().is_some_and(|p| p.reacted))
+        let serving = (g.phase == Phase::Serve || serve_swinging(g) || g.serving.whiffed && !g.post.as_ref().is_some_and(|p| p.reacted))
             && g.score.server == i as i32
-            || change_ends::server(&g) == Some(i);
+            || change_ends::server(g) == Some(i);
         // an emote before the toss (B231) plays its own motion, then the stance comes back
         if serving && p.emote == 0 {
             let s = g.serving;
@@ -4563,29 +4583,24 @@ fn motions(mut g: ResMut<Game>, mut q: Query<(&Figure, &mut Motion)>) {
                 }
                 (Some(_), None) => m.play(motion::serve_toss(under) as usize, 1.0, false),
             }
-            continue;
+            return None;
         }
         // B535: everyone but the next server stands idle through the change of ends
-        if change_ends::idle(&g, i) {
-            change_ends::hold_idle(&g, &mut m);
-            continue;
+        if change_ends::idle(g, i) {
+            change_ends::hold_idle(g, m);
+            return None;
         }
         // the serve swing plays on (at speed 1) through the server's follow-through
         if p.served.is_some() {
             m.serial = p.cmd.serial;
             m.clock.speed = 1.0;
             m.face_clock.speed = 1.0;
-            continue;
+            return None;
         }
         let c = p.cmd;
-        if c.serial != m.serial {
+        let set = c.serial != m.serial;
+        if set {
             m.set(c.id, c.speed, c.looping, c.hold, c.serial);
-            // a mod's emote holds the player for its own clip (the take this set draws), not the donor's
-            if g.players[i].emote > 0
-                && let Some(t) = g.data[i].emote_ticks(c.id, m.sets)
-            {
-                g.players[i].emote = t - 1;
-            }
             // a doubles team reaction: the point's losers show its `_2` face, five on from the winners'
             if c.id >= motion::id::TEAM as usize && i as i32 & 1 != g.post_winner {
                 m.face += 5;
@@ -4596,6 +4611,7 @@ fn motions(mut g: ResMut<Game>, mut q: Query<(&Figure, &mut Motion)>) {
         if g.players[i].dive.is_some_and(|d| d.restarted()) {
             (m.clock.time, m.clock.speed) = (5.0, 1.0);
         }
+        set.then_some(c.id)
     }
 }
 

@@ -345,6 +345,11 @@ impl Nodes {
         (self.q[n], self.p[n])
     }
 
+    /// Node `n` back to rows `local` with held rotation and position `held` (a node kept from another pose).
+    pub fn restore(&mut self, n: usize, local: M4, (q, p): ([f32; 4], [f32; 3])) {
+        (self.local[n], self.q[n], self.p[n]) = (local, q, p);
+    }
+
     /// Binding `clip`: every node's rows back to rest, single-key lists set once, unkeyed lists of its tracks held
     /// at rest (the sampled values of nodes it doesn't track stay as they were).
     pub fn bind(&mut self, sk: &Skeleton, clip: &Clip) {

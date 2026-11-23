@@ -108,7 +108,7 @@ mod tests {
         app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
         app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
         app.add_systems(Startup, setup);
-        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, played_out, held_ball, crate::play::bodyhit::pose, crate::play::doubles_ai::scratch::after_pose).chain());
+        app.add_systems(FixedUpdate, (remember, effects::tick, control, simulate, start_effects, motions, character::tick, crate::play::swing_after_step::apply, played_out, held_ball, crate::play::bodyhit::pose, crate::play::doubles_ai::scratch::after_pose).chain());
         app.init_resource::<crate::play::bodyhit::Posed>().init_resource::<crate::play::bodyhit::Bones>();
         app.update();
         {
@@ -258,7 +258,7 @@ mod tests {
         app.init_resource::<Pads>().init_resource::<tick_input::TickPads>();
         app.world_mut().spawn((GameSpace, Transform::default(), Visibility::default()));
         app.add_systems(Startup, setup);
-        app.add_systems(FixedUpdate, (remember, flare_tick, effects::tick, react_first, control, reaction_roots, simulate, start_effects, motions, character::tick, played_out, held_ball, crate::play::bodyhit::pose, crate::play::doubles_ai::scratch::after_pose).chain());
+        app.add_systems(FixedUpdate, (remember, flare_tick, effects::tick, react_first, control, reaction_roots, simulate, start_effects, motions, character::tick, crate::play::swing_after_step::apply, played_out, held_ball, crate::play::bodyhit::pose, crate::play::doubles_ai::scratch::after_pose).chain());
         app.init_resource::<ReactionRoots>();
         // B769: the umpire's calls are voiced, so the point-over waits for the voice as in a real match (a fault's
         // point-over is 80 ticks in the game, 38 without a mixer)

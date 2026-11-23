@@ -6,11 +6,11 @@ Spec phase. The spec is in `SPEC.md`.
 
 - A temporary print in play's doubles AI hook (since reverted) logged player 1's motion, clip time, speed and racket
   z every tick of the EU and US bot-match probes (`context/b773/`).
-- `research/b773_anim_show.py` decodes the anim captures (`fixtures/m169/eu-bot-anim.bin`, `fixtures/anim_s05.bin`):
+- `research/journal/2026-11-23-b773-eu-racket-lead/scripts/b773_anim_show.py` decodes the anim captures (`fixtures/m169/eu-bot-anim.bin`, `fixtures/anim_s05.bin`):
   motion, sampled clip time, time, speed and crossfade per tick.
-- `research/b773_fast_starts.py` lists every motion start with speed ≠ 1 and its first steps. Every fast start in both
+- `research/journal/2026-11-23-b773-eu-racket-lead/scripts/b773_fast_starts.py` lists every motion start with speed ≠ 1 and its first steps. Every fast start in both
   captures keeps its speed until the clock reaches 8 (Rule 1).
-- `research/b773_lead_fit.py` (EU, from B772's dispatcher stack capture) and `research/b773_us_lead_fit.py` (US,
+- `research/journal/2026-11-23-b773-eu-racket-lead/scripts/b773_lead_fit.py` (EU, from B772's dispatcher stack capture) and `research/journal/2026-11-23-b773-eu-racket-lead/scripts/b773_us_lead_fit.py` (US,
   `ai_net_s05.bin`) find, per tick, which play tick's racket z equals the game's leftover.
   - EU: lead 0 on the early-started 0x12 swing, 1 on lined-up motions, 4 on the speed-4 swing from 390.
   - US: lead 0 on the early-started 0x10 swing.
@@ -33,7 +33,7 @@ Spec phase. The spec is in `SPEC.md`.
 - The non-ignored fifty_hz tests pass with it.
 - EU bot match probe: 16 of the recording's phases now match (was 7, parting at point 3's tick 1585). The European
   acceptance point is passed.
-- US racket re-fit (`research/b773_us_lead_fit.py` against `fixtures/ai_net_s05.bin`, play's look-ahead-3 values per
+- US racket re-fit (`research/journal/2026-11-23-b773-eu-racket-lead/scripts/b773_us_lead_fit.py` against `fixtures/ai_net_s05.bin`, play's look-ahead-3 values per
   tick): the shift between the game's value and play's is one constant on every lined-up window (the early 0x10 swing,
   the 0x1b swing, idle, run, turns). Before it was 1 or 2, depending on the motion. So the clock part of the spec
   holds: the lead no longer changes per swing. Clip times 36-54 of the 0x1b swing still fit one further, as before.
@@ -79,3 +79,44 @@ Spec phase. The spec is in `SPEC.md`.
 - The stance after the EU 0x12 swing (0x2 at 257) and the crossfade were not checked against the anim capture.
 - The look-ahead-1 read (*Spec phase 2*) is not implemented or run. The US probe's opening idle can't line up until B775
   fixes its start state.
+
+## Port phase (2026-11-23)
+
+Built from `SPEC.md` with the decompile locked.
+
+- Per-frame swing update after the motion step: the parked `wip/B773` change, taken over as is (`swing_after_step.rs`:
+  the fast swing's return to speed 1 and the queued swing's start are noted in the stroke update and handed to the
+  motion command after `character::tick`).
+- Same-tick read, no fixed look-ahead (`doubles_ai/scratch.rs`): after the pose, each player's `Racket` chain (local
+  rows and held rotation and position) and its `Motion` are kept. At the next player's AI time the read runs play's
+  motion setter for that tick on a copy (`motion_command`, split out of the `motions` system so both share it), then
+  one motion step with its crossfade or held fade, under the player's current facing and arm turn.
+  - Play runs each player's control in court-slot order, so player i−1's motion command for the tick is already set
+    when player i reads it.
+- `Nodes::restore` (hst-sim) rebuilds the kept chain into a pose to step.
+- `swing_after_step::apply` also goes in netplay's real-tick harness, next to the plugin's schedule.
+
+### Results
+
+- `fifty_hz` tests, both bot-match probes included: all 7 pass.
+  - EU: 16 of 144 phases match (was 7). Point 3's 1585 is passed with no no-contact fallback.
+  - US: the 2354 player check holds. The parting at 890 from the look-ahead-3 attempt is gone.
+- Shift fit, with a temporary print of player 2's read since reverted (`context/b773/port2/`):
+  - EU (B772 run6 capture): 299 ticks at shift 0, 6 at shift 1 (the probe's opening idle, B775), no other whole-tick
+    shift. Every swing matches on every tick: the queued 0x12 (181–256), the speed-4 0x10 from its cut at 391 through
+    423, and 0x10 at 540–589, which is lead 0 as Rule 2 predicted. The first ticks of every other motion match too.
+  - US (`ai_net_s05.bin`): shift 0 through the 0x10 swing (was −2), the 0x1b and 0x17 swings, and 889–894 across the
+    0x1f→0x5 switch. Opening idle shift 3 (B775). Some 0x1b clip times (19, 35–47) still fit −1, as before.
+
+### Not matched (follow-ups)
+
+- Crossfaded motions (B777): on a switch with a crossfade the switch tick misses (US 888: game 0.4028, play 0.4199;
+  was 0.4855), and from clip time 6 of every looping, stance or run motion play's value is off by 0.005–0.09 with no
+  shift fitting (EU 7–22, 49–60, 307–353, 360–390). The old look-ahead-2 fit missed the same ticks. Recomputing with
+  player 1's tick-end facing changes nothing, so the gap is in play's pose of the chain on crossfaded motions, not in
+  the read's timing. Cut motions match throughout.
+- Another scratch writer (B776): EU rally 69 and 188 (clip 7 of a queued swing) read 127 and 8, and 392 (second tick
+  of the speed-4 swing) reads 128. Play reads the racket there, and the sign differs at 69 and 392.
+- The stance pick one tick later (0x2 at EU 257) wasn't compared against the anim capture beyond the fit: 258–263 match
+  at shift 0, and 257 itself is a crossfaded switch tick (B777).
+- The skip-drawing case (no hand-off) isn't modelled. It was not seen in either capture.

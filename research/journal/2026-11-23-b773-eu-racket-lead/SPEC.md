@@ -72,7 +72,7 @@ state at the start of the next frame):
   - Slower starts keep their speed for longer.
 - Play resets the speed one step early: 0 → 4 → 5 at speed 4, 0 → 2.667 → 5.333 → 6.333 at speed 8/3. For the rest
   of the swing it trails the game by 3 frames (speed 4) or 1.667 frames (speed 8/3).
-- Seen on every fast start in both anim captures, in the first four steps (`research/b773_fast_starts.py`).
+- Seen on every fast start in both anim captures, in the first four steps (`research/journal/2026-11-23-b773-eu-racket-lead/scripts/b773_fast_starts.py`).
 - Examples:
   - EU rally tick 390, speed-4 swing: game clock 0, 4, 8, 9; play clock 0, 4, 5, 6.
   - US phase 3 tick 429: game clock 0, 2.667, 5.333, 8, 9; play clock 0, 2.667, 5.333, 6.333.
@@ -116,7 +116,7 @@ state at the start of the next frame):
   reads it on the next tick. So the stored pose is exactly one motion step behind the tick the AI is in, and with
   play's clock equal to the game's, one step on from it is the game's read when player 1's motion didn't change
   that tick.
-- The shift fits (`research/b773_lead_fit.py`, `research/b773_us_lead_fit.py`) give s, the play tick (relative to
+- The shift fits (`research/journal/2026-11-23-b773-eu-racket-lead/scripts/b773_lead_fit.py`, `research/journal/2026-11-23-b773-eu-racket-lead/scripts/b773_us_lead_fit.py`) give s, the play tick (relative to
   the same tick) whose look-ahead-2 value equals the game's read:
 
 | Window | Play's clock against the game's | s | Look-ahead that fits |
