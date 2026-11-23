@@ -1,12 +1,12 @@
 {
- "prompts": 3665,
- "tokens": 12704786901,
- "input_tokens": 283458,
- "output_tokens": 70392257,
- "cache_read_tokens": 12323701242,
- "cache_write_tokens": 310409944,
- "commits": 5345,
- "sessions": 3016,
+ "prompts": 3677,
+ "tokens": 12983725642,
+ "input_tokens": 289846,
+ "output_tokens": 71936560,
+ "cache_read_tokens": 12592132347,
+ "cache_write_tokens": 319366889,
+ "commits": 5448,
+ "sessions": 3107,
  "since": "2026-09-17",
  "updated": "2026-11-23"
 }
