@@ -266,9 +266,9 @@ mod tests {
         let i = |b: &[u8], o: usize| i32::from_le_bytes(b[o..o + 4].try_into().unwrap());
         let rows = |b: &[u8], o: usize| -> [[f32; 4]; 4] { std::array::from_fn(|r| std::array::from_fn(|c| f(b, o + 16 * r + 4 * c))) };
         let flights = FLIGHTS.with_borrow(|v| v.clone());
-        for k in from..to.min(want.len()) {
+        for (k, w) in want.iter().enumerate().take(to).skip(from) {
             let v3 = |b: &[u8], o: usize| [f(b, o), f(b, o + 4), f(b, o + 8)];
-            if let Some(fr) = frames.iter().find(|fr| v3(fr.live_ball(), 0xe0) == want[k].2) {
+            if let Some(fr) = frames.iter().find(|fr| v3(fr.live_ball(), 0xe0) == w.2) {
                 let b = fr.live_ball();
                 eprintln!("{name} flight {k} want: counts {:?} slide {} rolling {} fbs {} spin frame {:?} contact {:?}", (i(b, 0xac), i(b, 0x224), i(b, 0x228), i(b, 0x22c)), f(b, 0x200), b[0xa4] == 2, f(b, 0x1a8), rows(b, 0x160), rows(b, 0x1c0));
             }
@@ -375,7 +375,7 @@ mod tests {
                 v.push((g.flight.ball, g.shot.class, g.shot.kind, g.shot.curve, g.shot.bend, g.shot.side, g.aim.target, std::array::from_fn(|i| g.players.get(i).map_or([0.0; 2], |p| p.aim_from))));
             });
             if flight_span().is_some_and(|(a, b)| (a..b).contains(&k)) {
-                FLIGHTS.with_borrow_mut(|v| v.push((k, app.world().resource::<Game>().flight.clone())));
+                FLIGHTS.with_borrow_mut(|v| v.push((k, app.world().resource::<Game>().flight)));
             }
             if k < keep {
                 rngs.push(app.world().resource::<Game>().rng.clone());

@@ -2187,11 +2187,10 @@ fn strike(
     // the ball launch's two uniforms (kept on the ball; only offbeat rule 1 reads them)
     let irregular = offbeat::launch(g);
     let last = g.flight;
-    // the hit leaves the ball's contact frame and slide as its last touch left them (the toss's, a bounce's): a
-    // plane step that finds no slide reads them (M183a1: a volley into the net player's body)
+    // the hit leaves the ball's contact frame as its last touch left it: a plane step with no slide reads it (M183a1:
+    // a volley into the net player's body)
     g.flight = Flight::struck(Ball { pos: at, vel, spin }, launched.frame, last.contact);
     g.flight = last.relaunch(g.flight);
-    g.flight.slide = last.slide;
     g.flight.irregular = irregular;
     ai_heard_hit(g, who, branch, vel);
     // ponytail: practice's (one player) side pick between candidates and its red-marker timeout aren't ported
@@ -4049,7 +4048,10 @@ fn remember(mut g: ResMut<Game>) {
     }
 }
 
-fn simulate(mut g: ResMut<Game>) {
+fn simulate(mut g: ResMut<Game>, hits: Option<Res<bodyhit::Hits>>, posed: Option<Res<bodyhit::Posed>>, bones: Option<Res<bodyhit::Bones>>, figures: Query<&Figure, With<Motion>>) {
+    if g.phase == Phase::Serve {
+        g.body_hit = None;
+    }
     let g2 = &mut *g;
     if std::mem::take(&mut g2.rally_due) {
         enter_rally(g2);
@@ -4157,6 +4159,7 @@ fn simulate(mut g: ResMut<Game>) {
     g.sounds
         .extend(g.bounces.frame(bounce, smash).into_iter().map(|p| (p, at)));
     g.whistle.0 &= n == 0;
+    bodyhit::detect(g, hits.as_deref(), posed.as_deref(), bones.as_deref(), &figures);
     g.since_hit += 1;
     if g.phase != Phase::Rally || g.shots == 0 && !g.serving.whiffed {
         return;
