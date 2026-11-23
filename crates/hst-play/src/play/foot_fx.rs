@@ -115,7 +115,7 @@ pub(super) fn tick(fx: Option<ResMut<FootFx>>, mut g: ResMut<Game>, w: Option<Re
         .filter_map(|(f, m)| {
             let (i, data) = (f.0, g.data.get(f.0)?);
             let p = g.players.get(i)?;
-            let pd = p.dive.as_ref();
+            let pd = p.dive.as_ref().filter(|d| !d.held());
             let (dive, lunge, dive_over) = fx.dives.get_mut(i).map_or((false, 0.0, false), |w| w.see(pd.map(|d| (d.slide, d.cut()))));
             posed.locals(i)?;
             // a skeleton without one of the bones has no runner

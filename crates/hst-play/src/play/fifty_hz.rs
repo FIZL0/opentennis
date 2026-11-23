@@ -622,8 +622,8 @@ mod tests {
     fn the_european_bot_match_plays_as_recorded() {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
         let Some((want, got)) = european(None, toss_ai) else { return };
-        // B785: through the first fault's early call (phase 24) to phase 38's rally
-        assert!(compare("eu", &want, &got) >= 127, "the phases through phase 39 (B723, B785; phase 38 a volley into the net player's body)");
+        // to the end of the match (the result after it is a screen of ours)
+        assert!(compare("eu", &want, &got) >= 142, "the phases through the last point");
         first_point_part("eu", &want, &got, 141);
         part_from("eu", &want, &got);
         shot_probe("eu", "fixtures/m169/eu-bot-match.bin", &want);

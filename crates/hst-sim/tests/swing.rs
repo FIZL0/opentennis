@@ -618,6 +618,13 @@ fn blocked_dives() {
             steps += 1;
             n += 1;
         }
+        // the diver is kept down a few ticks more
+        for _ in 0..hst_sim::swing::DIVE_HOLD {
+            at_ = step(&mut d, at_, n).unwrap_or_else(|| panic!("{at}: hold over early, frame {n}"));
+            let f = frames[k + n];
+            assert_eq!(at_, [f.player_pos(0)[0], f.player_pos(0)[2]], "{at} held frame {n}");
+            n += 1;
+        }
         assert_eq!(step(&mut d, at_, n), None, "{at}: dive runs on");
         cut += slide_cut as usize;
         root_stops += (d.cut() && !slide_cut) as usize;

@@ -186,6 +186,8 @@ pub fn search(r: &Reach, path: &[PathPoint], pos: [f32; 3], facing: f32, kind: i
 pub const DIVE_HORIZON: usize = 16;
 /// Frames on the ground after the dive's slide (the receive motion's recovery).
 pub const DIVE_RECOVERY: usize = 50;
+/// Ticks the diver stays down after the receive motion's counter stops, its last pose held.
+pub const DIVE_HOLD: usize = 5;
 
 /// Whether a press may dive: the player ran on the frame before the press. Taken at the start of each of the
 /// player's frames from `running` (the body ran last frame) and held while a press is live (`press_live`), so a
@@ -316,16 +318,29 @@ impl Dive {
         self.frame + DIVE_RECOVERY + 1
     }
 
+    /// The hold is over too: the player stands or runs this tick.
+    pub fn over(&self) -> bool {
+        self.tick >= self.lock_frames() + DIVE_HOLD
+    }
+
+    /// The dive's motion is over and the diver is kept down (`DIVE_HOLD`).
+    pub fn held(&self) -> bool {
+        self.tick > self.lock_frames()
+    }
+
     /// One frame of the dive for a player at `pos` (x, z); `None` once over. The slide is spread evenly up to
     /// `frame`, then the receive motion's root path is followed along `dir` (`root_z`: its forward offset at a
     /// motion time). `mover` applies a step and returns the new position; a step it alters that leaves the
     /// player more than 25° off `dir` from the start ends the slide (or, later, the lunge).
     pub fn step(&mut self, pos: [f32; 2], root_z: impl Fn(f32) -> f32, mover: impl FnOnce([f32; 2]) -> [f32; 2]) -> Option<[f32; 2]> {
         let (n, k) = (self.tick, self.frame);
-        if n >= self.lock_frames() {
+        if self.over() {
             return None;
         }
         self.tick += 1;
+        if n >= self.lock_frames() {
+            return Some(pos);
+        }
         if n > k && self.stopped {
             return Some(pos);
         }

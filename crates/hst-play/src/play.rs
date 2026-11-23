@@ -2897,7 +2897,6 @@ fn locomote(g: &mut Game, i: usize, dir: Vec2) {
             p.pos[2] += acc[2] - r.acc[2];
             r.acc = acc;
             if std::env::var("HST_DBG").is_ok() {
-                eprintln!("DBG root p{i} m{:#x} t{} pos {:?}", r.motion, r.t, p.pos);
             }
         }
         return;
@@ -2908,6 +2907,10 @@ fn locomote(g: &mut Game, i: usize, dir: Vec2) {
     let p = &mut players[i];
     p.prev = p.pos;
     p.body.pos = p.pos;
+    // the run or stand starts from whatever motion plays (a dive's, a stroke's)
+    if p.cmd.serial > 0 {
+        p.body.motion = p.cmd.id as i32;
+    }
     p.body.step(&p.stats, [dir.x, dir.y], &sc, &pelvis[i]);
     p.pos = p.body.pos;
     p.vel = if p.body.running {
@@ -3027,6 +3030,7 @@ fn advance_stroke(g: &mut Game, i: usize, aim: impl Fn(&mut Game) -> Vec2) -> Op
             p.body.target = dir;
             p.body.face = loco::Facing {
                 dir,
+                way: -1,
                 ..loco::Facing::default()
             };
             p.body.running = false;
@@ -3188,9 +3192,11 @@ fn dive_frame(g: &mut Game, i: usize, aim: &impl Fn(&mut Game) -> Vec2) {
         },
     );
     p.dive = at.map(|_| d);
-    if let Some(q) = at {
-        (p.pos[0], p.pos[2]) = (q[0], q[1]);
-    }
+    let Some(q) = at else {
+        // a computer player's step found it down still and held its stick: it stands this tick
+        return locomote(g, i, Vec2::ZERO);
+    };
+    (p.pos[0], p.pos[2]) = (q[0], q[1]);
     if d.contact && n == d.frame && g.body_hit.is_none() {
         let stick = aim(g);
         let kind = hst_sim::shot::stick_kind(branch::DIVE, g.players[i].kind, [stick.x, stick.y], end);
@@ -3462,6 +3468,8 @@ fn human(g: &mut Game, i: usize, pad: &SlotPad, shot: Option<i32>) {
     if serve_follow(&mut g.players[i], stick) {
         return;
     }
+    let dive = &mut g.players[i].dive;
+    *dive = dive.filter(|d| !d.over());
     follow_through(&mut g.players[i], shot.is_some() || moved);
     whiff_frame(g, i, moved);
     if let Some(kind) = shot {
@@ -4136,6 +4144,7 @@ fn simulate(mut g: ResMut<Game>, hits: Option<Res<bodyhit::Hits>>, posed: Option
         Phase::Rally => {}
     }
     let g = &mut *g;
+    check_rally(g);
     g.prev_ball = g.flight.ball.pos;
     let (shot, surface) = (g.shot, &COURTS[g.court]);
     g.flight.in_play = g.shots > 0;
@@ -4169,14 +4178,7 @@ fn simulate(mut g: ResMut<Game>, hits: Option<Res<bodyhit::Hits>>, posed: Option
     if g.phase != Phase::Rally || g.shots == 0 && !g.serving.whiffed {
         return;
     }
-    let f = &g.flight;
-    let view = BallState {
-        call: f.call,
-        contacts: f.contacts,
-        stopped: f.at_rest,
-        pos: f.ball.pos,
-    };
-    let Some(body) = deciding(g, &view) else { return };
+    let Some(body) = deciding(g) else { return };
     let verdict = g.rally.judge(body);
     match_stats::point(g, verdict.call, verdict.winner);
     g.finish.point_over(&g.rally, verdict.call, g.players.len() > 2);
@@ -4254,27 +4256,29 @@ fn simulate(mut g: ResMut<Game>, hits: Option<Res<bodyhit::Hits>>, posed: Option
     g.phase = Phase::Post;
 }
 
-/// B723: the game's rally check reads the ball a tick after it moved (its verdict lands the tick after the ball's
-/// deciding bounce or stop), and the point-over phase starts the tick after that, scored then. So the rally phase
-/// runs two ticks past the tick play's ball decides the point; the rally check stays shut in between. Returns the
-/// body hit to judge with on the tick the point is scored.
-fn deciding(g: &mut Game, view: &BallState) -> Option<Option<i32>> {
-    match g.deciding {
-        Some((1, body)) => {
-            g.deciding = None;
-            Some(body)
-        }
-        Some((n, body)) => {
-            g.deciding = Some((n - 1, body));
-            None
-        }
-        None => {
-            if g.rally.check(view, g.shots, g.last_hitter, g.score.server, g.body_hit, true) {
-                g.deciding = Some((2, g.body_hit));
-            }
-            None
-        }
+/// The game's rally check reads the ball a tick after it moved (B723), once that tick's strokes are struck and before
+/// it moves again: a stroke the tick after a ball's bounce out keeps the rally going (M183a1, recorded tick 27401).
+fn check_rally(g: &mut Game) {
+    if g.deciding.is_some() || g.phase != Phase::Rally || g.shots == 0 && !g.serving.whiffed {
+        return;
     }
+    let f = &g.flight;
+    let view = BallState { call: f.call, contacts: f.contacts, stopped: f.at_rest, pos: f.ball.pos };
+    if g.rally.check(&view, g.shots, g.last_hitter, g.score.server, g.body_hit, true) {
+        g.deciding = Some((1, g.body_hit));
+    }
+}
+
+/// B723: the point-over phase starts the tick after the rally check's verdict, scored then; the check stays shut in
+/// between. Returns the body hit to judge with on the tick the point is scored.
+fn deciding(g: &mut Game) -> Option<Option<i32>> {
+    let (n, body) = g.deciding?;
+    if n == 0 {
+        g.deciding = None;
+        return Some(body);
+    }
+    g.deciding = Some((n - 1, body));
+    None
 }
 
 /// How deep behind the net a player reacts to a point: 4 m behind the baseline. The reaction pulls a player standing
@@ -4920,3 +4924,4 @@ fn serve_character(iso: &mut Iso, n: usize, aim: hst_sim::shot::AimStats, d: &mu
     d.miss = Some(serve::miss_of(hst_data::exe::Game::new(&cnf, &bin).expect("supported disc").serve_miss(), n));
     d.max_angle = aim.con[2] as f32;
 }
+
