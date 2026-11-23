@@ -48,7 +48,7 @@ contain the swing that shows it most.
 ## What the lead is, in B772's terms
 
 Lead = how many frames the game's value is ahead of play's look-ahead-2 value (EU point 3, shift fit of every rally
-tick, `scripts/lead_fit.py`):
+tick, `research/b773_lead_fit.py`):
 
 | Window (rally ticks) | Motion | Lead | Cause |
 |---|---|---|---|
@@ -56,7 +56,7 @@ tick, `scripts/lead_fit.py`):
 | most idle/run ticks | lined-up motions | 1 | the base lead (see below) |
 | 393–423 (396–421 fitted) | speed-4 swing from 390 | 4 | Rule 1: play trails 3, so the lead goes from 1 to 4 |
 
-The US fit (`scripts/us_lead_fit.py` against `fixtures/ai_net_s05.bin`) agrees:
+The US fit (`research/b773_us_lead_fit.py` against `fixtures/ai_net_s05.bin`) agrees:
 
 - The early-started 0x10 swing at US play tick 289 shows lead 0 for all of ticks 304–335, the same as the early EU
   swing.
