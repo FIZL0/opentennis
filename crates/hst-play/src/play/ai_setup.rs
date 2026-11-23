@@ -121,9 +121,9 @@ mod tests {
         }
         // human P0 serves to a CPU: the intro left 54, the CPU's first-point reset adds 18
         assert_eq!(indices(true, [true, false, false, false], 4)[..2], [54, 72]);
-        // CPU against CPU: 89 into the point, two resets, the serve's entry (the serve routine's own draws after it
-        // hang on the serve level drawn, and this isn't the captured match's seed)
-        assert_eq!(indices(true, [false; 4], 4)[..3], [89, 125, 142]);
+        // CPU against CPU: 89 into the point, two resets, the serve's entry with the server's spot and wait in its
+        // tick (B768; how many the spot draws hangs on the serve level drawn, and this isn't the captured match's seed)
+        assert_eq!(indices(true, [false; 4], 4)[..3], [89, 125, 143]);
         // doubles, human P0 beside a CPU: four full resets (the human's AI object too), then two rally entries
         assert_eq!(indices(false, [true, false, false, false], 4)[..3], [110, 182, 184]);
     }
