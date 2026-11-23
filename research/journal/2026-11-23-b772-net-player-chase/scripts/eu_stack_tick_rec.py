@@ -3,9 +3,12 @@
 player's per-frame state and, in a rally, the doubles NET/BASE stand routine), log the dead stack just below the
 caller's stack pointer: what the stand routine's never-initialised scratch quad holds, and the saved return addresses
 around it, which name the routines that last ran at that depth.
-Usage: eu_stack_rec.py <slot> <frames> <out.bin> [hook words slot-at]  (hook: default the dispatcher; slot-at:
-"ai" (the player is *(a0+4)) or "player" (a0); copy fixtures/m169/eu-bot-start.p2s to the slot first; run under
-tools/pcsx2.sh). Addresses are the European program's (M169 function matches).
+Usage: eu_stack_tick_rec.py <slot> <frames> <out.bin> [hook words slot-at]  (hook: default the dispatcher; any routine
+entry or call site whose first two words are not branches; slot-at: "ai" (the player is *(AIREG+4)) or "player").
+Env: AIREG (default a0; s5 at a call site whose delay slot sets a0), SRC/SRC_END (copy the words ending at SRC+SRC_END
+instead of the dead stack below sp, e.g. SRC=a1 for the quad a1 points at). Slot 8 holds the EU bot-match start
+(fixtures/m169/eu-bot-start.p2s); run under tools/pcsx2.sh with HST_PCSX2_BIN=pcsx2-qt (the state needs PCSX2 v2.9.179).
+Addresses are the European program's: the dispatcher from M169's function matches, the rest found by eu_code_dump.py.
 File: records of u32 vsync, ai, ra, sp, the player's court slot, the game manager's tick counter and its phase word (phase in byte 1), 1 word 0; then the WORDS words from sp - 4*WORDS
 up to sp."""
 import struct, sys, time, os

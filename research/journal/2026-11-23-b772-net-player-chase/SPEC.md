@@ -39,8 +39,9 @@ sign). The rules for slot 0, the toss tick and the trail tick are unchanged from
   the dispatcher entry: +0.2663, +0.3976, +0.5144, +0.6214, with x −0.9580, −0.9044, −0.8324, −0.7381.
 - On ticks 409 and 410 the game does not reach the fallback for slot 2, so it makes no landing-short test and no after
   test.
-- Recorded tick 1585 is game tick 411. The game draws nothing on 409 and 410. Its draws on 411 to 414 split across
-  frame counts as 3+7, 4, 10, which is the recording's 4, 6, 4, 10 offset by one frame.
+- Recorded tick 1585 is game tick 411. The game draws nothing on 409 and 410. Counted per frame (the frame counter
+  turns over mid-tick), its draws on the four frames from 411 are 3, 7, 4, 10. The recording has 4, 6, 4, 10 on
+  1585–1588: the same 24 draws, with one of 1585's draws landing in the next frame's count.
 
 Play's racket direction model (the posed racket after the motion player runs a fixed number of extra frames) gives
 exactly the same value sequence. Only the alignment differs:
@@ -57,44 +58,34 @@ look-ahead-4 sequence:
 - 2 or 3 frames earlier on short stretches in between.
 
 On the remaining ticks the dead stack is not player 1's racket direction. The sign only matters on ticks where the
-fallback runs. Here those are 411–414 (positive under look-ahead 2, 3, 4 or 5 alike, except at 411) and one call at 207
+fallback runs. Here those are 411–414 (look-ahead 3 to 5 is positive on all four; look-ahead 2 is negative only at 411; look-ahead 0 or 1 is negative at 411
+and 412) and one call at 207
 (negative either way).
 
 Measured in play (trials, reverted):
 
 | look-ahead | EU phases matched | EU players/ball part (from 1302) | US match |
 |---|---|---|---|
-| 0, 1, 2 | 7 of 144 | 1585 / 1610 | 2 passes (28 phases) |
+| 0, 1, 2 | 7 of 144 | 1585 / 1610 | 2 passes (to its known part at game 2's first serve, B771) |
 | 3, 4, 5 | 16 of 144 | 1588 / 1885 | 4 parts before tick 2354 |
 
 ## 50 Hz?
 
 - The rule (fallback, after test on the leftover sign, chase the after-bounce entry) is shared by both builds.
-- The value gap shows only in the European match so far. A look-ahead of 2 matches the US match, and changing it to 4
-  breaks the US match.
+- The value gap shows only in the European match so far. A look-ahead of 2 matches the US match as far as it is
+  proven (28 phases, up to B771's part), and changing it to 4 breaks the US match before tick 2354.
 - The European pose lead changes between swings (0 or 4 frames), which a single constant can't model. The cause is
   likely 50 Hz-specific: the European motion player's timing for player 1's swings, or what the European game computes
   between player 1's racket pose and slot 2's update. It is not confirmed.
 
 ## For the port
 
-- Keep the fallback as it is.
-- The European leftover direction on the tick the fallback runs must be the game's racket direction at that tick:
-  +0.2663 on point 3's tick 1585, not −0.0021.
-- A constant look-ahead is not enough: 3 to 5 fixes 1585 but disagrees with the game on ticks 196–255 and 555–589,
-  where 0 fits. The port needs the rule that picks the lead per swing, or a racket pose model whose timing follows the
-  game's.
-- Check with the European bot-match probe (`HST_M183A1_FROM=1302`) and the US bot match. Expected: 16 or more EU
-  phases, players to 1588 or later, and the US match unchanged.
+Nothing to port for B772: the fallback is already in the port and matches the game. The fix is the European leftover
+racket direction, which B773 specs. With it, the leftover on point 3's tick 1585 must be +0.2663, not −0.0021. A
+constant look-ahead of 3 to 5 fixes 1585, but it disagrees with the game on ticks 196–255 and 555–589, where 0 fits, so
+B773 has to find the rule. After B773, the European probe (`HST_M183A1_FROM=1302`) should match 16 or more phases with
+players to 1588 or later, and the US bot match should be unchanged. The next part, at 1588, is B774.
 
 ## Open questions
 
-- What sets the European racket pose lead per swing (0 frames on player 1's swings at rally ticks about 196–255 and
-  555–589, 4 frames on 393–423)? Candidates:
-  - the European motion player's frame stepping (the 60/50 time scale, rounding or a doubled step);
-  - a different swing start tick in the game than in play (invisible in positions);
-  - an extra racket-pose pass in the European game between player 1's update and slot 2's.
-
-  The next step is a live capture of player 1's motion frame and clock per tick next to play's.
-- At tick 1588 play's net player presses its dive (draws match) but doesn't move that tick, while the game's keeps
-  moving (players part at 1588 with the leftover fixed). Not looked at.
+none for this task: what sets the European racket pose lead per swing is B773, and the 1588 dive press move is B774.

@@ -1,4 +1,4 @@
-# B772: the EU net player's chase at point 3's tick 1585 (spec)
+# B772: the EU net player's chase at point 3's tick 1585 (answered; no port of its own)
 
 Behaviour is in [SPEC.md](SPEC.md). This is the session summary.
 
@@ -38,7 +38,7 @@ lead changes between swings (0 or 4 frames).
 
 ## Not verified / not 1:1
 
-- What sets the European racket pose lead per swing (open question in the spec).
+- What sets the European racket pose lead per swing (B773).
 - The dive at tick 1588, where play's net player doesn't move but the game's does. Not looked at.
 - The game's leftover was captured for this one rally phase only.
 - Tick alignment between game rally ticks and recorded ticks comes from the draw pattern (offset 1174) and is checked
@@ -48,3 +48,8 @@ lead changes between swings (0 or 4 frames).
 
 - B-task for the European racket-direction lead (scratch.rs): B773
 - B-task for the 1588 dive movement: B774 (after B773)
+
+## Closing
+
+B772 needs no port of its own: the fallback is already in the port. It closes as answered rather than going to a port
+phase. The fix is B773's. M183a1 now waits on B771, B773 and B774.
