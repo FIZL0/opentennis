@@ -12,7 +12,7 @@ No decompile was read. Every finding comes from recordings of slot 5 and from re
 ## New recordings (git-ignored)
 - `fixtures/m183a1/us-rng-long.bin`: slot 5's generators over vsyncs 7520–12719 (`scripts/us_rng_rec.py 5 5200`). It
   is the same as `fixtures/p3b/rng_s05.bin` where the two overlap, apart from three torn samples.
-  `the_us_bot_match_plays_as_recorded` reads it when it's there and then plays 5150 ticks.
+  `the_us_bot_match_plays_as_recorded` reads it when it's there and keeps play's generators for 5150 ticks to compare.
 - `fixtures/m183a1/ai-net-long.bin`: every AI routine call over vsyncs 7595–11411 (`tools/record_ai_rally.py`;
   302 calls dropped). Every recorded receive, NET and BASE call replays exactly through `hst_sim::rally`. So the US
   divergence at 3596 came from play's inputs to the routine, not from the routine itself.
@@ -44,13 +44,24 @@ No decompile was read. Every finding comes from recordings of slot 5 and from re
   where it sits for one after the earlier points. From then on the serve and the rally are the same, a tick apart. The
   "players part" at 4011 is just that shift.
 - Candidates: a score-dependent call or banner (game point, deuce) that holds the set-up a tick. Telling them apart
-  needs the set-up's timing rules from the decompile, so this goes through a spec. Filed as a new task.
+  needs the set-up's timing rules from the decompile, so this goes through a spec: B766.
 
 ## EU
 Unchanged since part 7. Point 2's set-up still runs its new-point AI reset 5 ticks later than play does (89 draws at
-recorded 577, all in one tick). The follow-through fix does not move it.
+recorded 577, all in one tick). The follow-through fix does not move it. Filed as R14 (a per-call AI-draw capture over
+EU recorded 570–580, now possible with the v2.9.52 copy).
+
+## Status
+M183a1 is blocked on B766 (the serve set-up tick) and R14 (EU point 2's set-up). When both land, carry on from
+here: the EU match tick for tick, then the flip and its release note.
+
+## Release note
+This branch adds one line for the follow-through fix: computer players in doubles now hold their follow-through
+until they run, as in the original, and that changes their first steps after a stroke.
 
 ## Not verified / not 1:1
+- A dive press during a follow-through ends it without a stand or run that frame. That was already so before, when
+  the preamble ended it. No recording covers it.
 - Whether the game's follow-through also holds for a computer player outside the doubles routine (`bot()` in
   `play.rs` still passes `true`). It is not on this task's files, and no recording here covers it.
 - The serve set-up's extra tick at 30–40 and deuce (above). Its cause is unknown.

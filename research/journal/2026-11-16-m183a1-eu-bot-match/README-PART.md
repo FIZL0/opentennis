@@ -1,4 +1,8 @@
-# M183a1: the European bot match in play from the original's seed (PART: blocked on M184)
+# M183a1: the European bot match in play from the original's seed (PART: blocked on B766 and R14)
+
+Status 2026-11-23 (part 8): M184 landed, and the US match now matches every player from the first serve to tick
+4010 (point 6's rally). What's left: B766 (point 6's serve set-up runs a tick longer at 30–40 and deuce) and R14 (EU
+point 2's set-up AI reset 5 ticks late). The table below is from the first parts.
 
 The goal was to play M177's European bot match (`fixtures/m169/eu-bot-match.bin`) in play and match it phase for
 phase, then tick for tick, with a US baseline from slot 5 (`match_s05.bin`). After that, flip
