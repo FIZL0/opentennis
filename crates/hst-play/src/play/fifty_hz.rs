@@ -649,7 +649,10 @@ mod tests {
     #[allow(clippy::needless_range_loop)]
     fn the_us_bot_match_plays_as_recorded() {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
-        let Some((want, got, rngs)) = us(None, 1500, toss_ai) else { return };
+        // M183a1: the longer recording of slot 5's generators (`us_rng_rec.py 5 5200`, vsyncs 7520..12719, taken in
+        // PCSX2 v2.9.52; it equals `rng_s05.bin` where they overlap, but for three torn samples) when it's there
+        let long = std::fs::read(hst_data::fixture::path("fixtures/m183a1/us-rng-long.bin")).ok();
+        let Some((want, got, rngs)) = us(None, if long.is_some() { 5150 } else { 1500 }, toss_ai) else { return };
         // B723: the first point's serve set-up, rally and point-over phase as long as the game's (point 2's set-up
         // parts: B722)
         // M183a1: point 2's set-up too (the flare draws before the point's logic, the reaction stops the players
@@ -663,7 +666,10 @@ mod tests {
         // M183a1: the contact height read up, and the reaction pulling a deep player to 4 m behind the baseline: the
         // phases through point 4's point-over, and every player on to point 5's rally (but each point-over's last tick)
         assert!(compare("us", &want, &got) >= 12, "the phases through point 4's point-over");
-        assert_eq!((219..3596).filter(|&k| ![1084, 2354, 3190].contains(&k)).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before tick 3596");
+        // M183a1: a computer player's follow-through plays on until its own stick breaks it off (its first turn then starts
+        // from the stroke's motion): every player on through point 6's serve to its rally, where play's serve, a tick
+        // short at 30-40, puts play a tick ahead (and each point-over's last tick)
+        assert_eq!((219..4011).filter(|&k| ![1084, 2354, 3190, 3795].contains(&k)).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before tick 4011");
         if std::env::var_os("HST_M183A1_OFF").is_some() {
             let off: Vec<usize> = (219..want.len().min(got.len() - 1)).filter(|&k| ground(&want[k]) != ground(&got[k + 1])).take(40).collect();
             eprintln!("us players off at {off:?}");
@@ -682,12 +688,14 @@ mod tests {
             let span: Vec<usize> = v.to_string_lossy().split(',').filter_map(|x| x.parse().ok()).collect();
             let (from, to) = if span.len() == 2 { (span[0], span[1]) } else { (0, 240) };
             for k in from..to.min(want.len()) {
-                eprintln!("us dump {k}: want {} {:?} {:?} | got {} {:?} {:?}", want[k].0, want[k].1[0], want[k].2, got[k + 1].0, got[k + 1].1[0], got[k + 1].2);
+                // `HST_M183A1_WHO=n`: player n's position (default player 0)
+                let who = std::env::var("HST_M183A1_WHO").ok().and_then(|v| v.parse().ok()).unwrap_or(0usize);
+                eprintln!("us dump {k}: want {} {:?} {:?} | got {} {:?} {:?}", want[k].0, want[k].1[who], want[k].2, got[k + 1].0, got[k + 1].1[who], got[k + 1].2);
             }
         }
         // the generators beside slot 5's recorded ones (`fixtures/p3b/rng_s05.bin`, vsyncs 7533..9032; the serve
         // set-up starts at 7566): each played tick's rand / shared / AI generator, at the recorded vsync it equals
-        if let Ok(d) = hst_data::fixture::read("fixtures/p3b/rng_s05.bin") {
+        if let Some(d) = long.or_else(|| hst_data::fixture::read("fixtures/p3b/rng_s05.bin").ok()) {
             use hst_sim::rng::Mt;
             let size = 4 + 8 + 4 * 0x9d0;
             let rec: Vec<(u32, u64, Mt, Mt)> = d
@@ -743,8 +751,11 @@ mod tests {
             // ones play, a few ticks ahead here, has passed), but at the two serves' contacts (their aim draws a tick
             // early) and point 1's point-over tick 1086
             let last = rec.last().unwrap().0 as usize - 7566;
-            let lost: Vec<usize> = (2..last - 6).filter(|&k| !rec.iter().any(|x| x.3 == rngs[k + 1].ai)).collect();
-            assert_eq!(lost, [218, 1086, 1269], "play's AI generator is off the recording's draws through point 2");
+            // M183a1: a computer player's follow-through held until its own stick breaks it off: on through point 6's
+            // serve contact (3797), past which play's serve, a tick short, runs a tick ahead
+            let lost: Vec<usize> = (2..last - 6).filter(|&k| !rec.iter().any(|x| x.3 == rngs[k + 1].ai)).take_while(|&k| k < 3900).collect();
+            let expect: Vec<usize> = [218, 1086, 1269, 2356, 2578, 3192, 3484, 3797].into_iter().filter(|&k| k < last - 6).collect();
+            assert_eq!(lost, expect, "play's AI generator is off the recording's draws but at the serves' contacts and point-overs");
             // `HST_M183A1_SHARED=from,to`: for each played tick, how many shared draws play's generator is from the
             // recorded one at the vsync rand puts it at (+: play ahead)
             if let Some(v) = std::env::var("HST_M183A1_SHARED").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 2) {

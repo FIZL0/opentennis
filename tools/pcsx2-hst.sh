@@ -45,6 +45,10 @@ fi
 [ -z "$N" ] && { echo $$ >"$PID"; exec pcsx2-qt "$@" -- "$ISO"; }  # exec keeps the pid
 # a copy's pad goes with it, however PCSX2 ends (stop, kill, crash). Detached, so the launch returns at once
 # (an agent ran it under tools/pcsx2.sh, which held the copy's lock until PCSX2 closed: B92, 2026-10-11)
-setsid pcsx2-qt "$@" -- "$ISO" >/dev/null 2>&1 </dev/null & echo $! >"$PID"
+# copies run PCSX2 v2.9.52 when it is installed (the user's states 3/4/5 were made with it; newer builds refuse
+# them, user 2026-11-22); HST_PCSX2_BIN overrides
+OLD=$HOME/.local/opt/pcsx2-v2.9.52/squashfs-root/usr/bin/pcsx2-qt
+BIN=${HST_PCSX2_BIN:-$([ -x "$OLD" ] && echo "$OLD" || echo pcsx2-qt)}
+setsid "$BIN" "$@" -- "$ISO" >/dev/null 2>&1 </dev/null & echo $! >"$PID"
 setsid bash -c 'while kill -0 '$!' 2>/dev/null; do sleep 2; done; fuser -k -TERM "$1" >/dev/null 2>&1' _ "$PAD" \
     >/dev/null 2>&1 </dev/null &
