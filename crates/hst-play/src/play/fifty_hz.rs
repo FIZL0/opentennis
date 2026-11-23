@@ -232,6 +232,30 @@ mod tests {
         /// M183a1 probe: after each played tick, the live ball (position, velocity, spin) and the shot's class,
         /// kind, curve, bend and side (`HST_M183A1_SHOT`).
         static SHOTS: std::cell::RefCell<Vec<ShotProbe>> = const { std::cell::RefCell::new(Vec::new()) };
+        /// B775: each player's motion and clock (its next sampled time, and the time it sampled last) in the game's
+        /// start state, for [`played_ticks_rng`] to start from instead of play's set-up (none: as play sets them up).
+        static START_CLOCKS: std::cell::Cell<Option<[(usize, f32, f32); 4]>> = const { std::cell::Cell::new(None) };
+    }
+
+    /// B775: the recording's start state on the players play just set up: a bot match starts from the game's frame
+    /// before the serve set-up, where each player already plays a looping motion its last command started (the server
+    /// its set-up motion, the others their idle) and has run it on from the screens before. So each player gets that
+    /// motion at the recorded clock, as its standing command, and the set-up's commands for the same motion keep it
+    /// going (the motion setter restarts only a player's first command).
+    fn start_clocks(app: &mut App) {
+        let Some(start) = START_CLOCKS.take() else { return };
+        let mut q = app.world_mut().query::<(&crate::play::Figure, &mut Motion)>();
+        let mut set = Vec::new();
+        for (f, mut m) in q.iter_mut(app.world_mut()) {
+            let (id, time, sampled) = start[f.0];
+            let clock = hst_sim::motion::Clock { time, sampled, ..hst_sim::motion::Clock::start(1.0, true, None) };
+            (m.id, m.face, m.clock, m.face_clock, m.uv_clock, m.drawn, m.serial) = (id, id, clock, clock, clock, clock, 1);
+            set.push((f.0, id));
+        }
+        let mut g = app.world_mut().resource_mut::<Game>();
+        for (i, id) in set {
+            g.players[i].cmd = crate::play::Cmd { id, speed: 1.0, looping: true, hold: None, serial: 1 };
+        }
     }
 
     fn played_ticks_rng(args: Args, seed: hst_sim::rng::Seed, n: usize, keep: usize, toss_ai: usize) -> (Vec<Tick>, Vec<hst_sim::rng::Rngs>) {
@@ -270,6 +294,7 @@ mod tests {
         app.add_plugins(crate::play::npcs::sim_plugin);
         app.init_resource::<crate::play::bodyhit::Posed>().init_resource::<crate::play::bodyhit::Bones>();
         app.update();
+        start_clocks(&mut app);
         let code = |p: &Phase| match p {
             Phase::Serve => 2,
             Phase::Rally => 3,
@@ -666,6 +691,10 @@ mod tests {
         let rand = hst_sim::rng::Rand(rand_back(rand_at(7565), 50 + 1 + 394 * 24));
         let seed = hst_sim::rng::Seed { rand, shared: 0x28c7_c4a1 };
         let want = recorded_ticks(&data);
+        // B775: the motions as the recording's start state has them (`anim_s05.bin`, vsync 7565): the server in its
+        // serve stance and the others in their idle, run on from the screens before (the last player's idle is a
+        // longer clip, near its end), so the doubles stand test reads the poses the game reads on idle ticks
+        START_CLOCKS.set(Some([(0x20, 2.0, 1.0), (0, 2.0, 1.0), (0, 2.0, 1.0), (0, 52.0, 51.0)]));
         let (got, rngs) = played_ticks_rng(args, seed, n.unwrap_or(want.len() + 10), keep, toss_ai);
         Some((want, got, rngs))
     }
