@@ -1,4 +1,6 @@
-# M183a1: the European bot match in play from the original's seed (PART: blocked on B782)
+# M183a1: the European bot match in play from the original's seed (PART: blocked on B784 and B785)
+
+Status 2026-11-23 (part 12): after B782 landed, 20 EU phases match, and 24 with a test-only change-of-ends draw (`HST_M183A1_CHANGE_ENDS=1`). Phase 20 is a mis-hit roll from the shared generator, which stopped matching at 5615 (game 2's first point). Phase 24 is a net-cord fault that plays 65 ticks to the recording's 64. Blocked on B784 (the change-of-ends draw source, spec) and B785 (the net-cord call timing, spec). See `12-CHANGE-ENDS-PART.md`.
 
 Status 2026-11-23 (part 11): B771 and B772 (answered via B773 and B774) landed. Part 11 found the EU setup's rand() offset (327 intro ticks at 50 Hz and 30 setup cloud draws in doubles). The probe now seeds the shared generator as recorded and matches 20 phases. Blocked on B782 (spec).
 
