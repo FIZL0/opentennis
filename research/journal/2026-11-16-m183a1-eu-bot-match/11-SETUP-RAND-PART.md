@@ -16,6 +16,9 @@
   build, since v2.9.52 refuses that state.
 - Play runs 394 intro ticks (court 6: camera 150+150, banner 90, +2, the disc's 60 Hz count) and no setup clouds in
   doubles. The gap is fully explained: 1578 = 67 × 24 − 30.
+- Play already makes the +1 (sound reseed) and the +2 at vsync 37521 in its own setup, so only the 30 cloud draws and
+  the 67 extra intro ticks differ. Checked empirically: with 6 setup clouds and 327 intro ticks, play's shared seeds
+  land exactly on outputs 89805, 103535 and 112706.
 - The 327 intro ticks run 1–125, 126–250, 251–252 and 253–327 (125 + 125 + 2 + 75). The camera moves and the banner
   come at 5/6, with only one of the two +2s.
 - The 30 draws are 6 clouds × 5, court 6's doubles cloud count. So this setup spawned clouds in doubles.

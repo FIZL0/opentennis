@@ -72,8 +72,12 @@ pub(super) fn voice_ticks(frames: u32, build: Build) -> u32 {
 /// part 11).
 pub(super) fn intro_flare_ticks(iso: &mut hst_data::iso::Iso, iso_path: &str, stage: u32) -> usize {
     #[cfg(test)]
-    if let Some((_, n)) = INTRO_TICKS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().filter(|(p, _)| p == iso_path) {
-        return *n;
+    {
+        // taken on read, so a probe that stops early can't leave it for the next match on the disc
+        let mut set = INTRO_TICKS.lock().unwrap_or_else(|e| e.into_inner());
+        if set.as_ref().is_some_and(|(p, _)| p == iso_path) {
+            return set.take().map(|(_, n)| n).unwrap_or_default();
+        }
     }
     let _ = iso_path;
     hst_sim::rng::Rngs::intro_ticks_on_disc(iso, stage).expect("court intro files on disc")
@@ -316,7 +320,6 @@ mod tests {
         app.add_plugins(crate::play::npcs::sim_plugin);
         app.init_resource::<crate::play::bodyhit::Posed>().init_resource::<crate::play::bodyhit::Bones>();
         app.update();
-        *crate::play::fifty_hz::INTRO_TICKS.lock().unwrap_or_else(|e| e.into_inner()) = None;
         start_clocks(&mut app);
         let code = |p: &Phase| match p {
             Phase::Serve => 2,
