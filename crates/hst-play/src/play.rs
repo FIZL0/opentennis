@@ -2053,7 +2053,8 @@ fn strike(
     let (kind, target) = framed.map_or((kind, target), |f| (kind::LOB, f.0));
     // launched as a volley (class 2: the volley tables and bounds, the high-ball blend), as the original
     let inside_high = swing::high_volley(branch, kind, framed.is_some(), g.players[who].aim_from[1], -at[1]);
-    let class = if inside_high { class::VOLLEY } else { class };
+    // so is a framed hit's lob (M183a1: the EU match's two off a ground stroke)
+    let class = if inside_high || framed.is_some() { class::VOLLEY } else { class };
     let power_gap = g.finish.strike(who, branch, kind, offset, g.players.len(), inside_high);
     // a counter launches from the incoming hitter's tables and shot record, as the original
     let src = match power_gap {
