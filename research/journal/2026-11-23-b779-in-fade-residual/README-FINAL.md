@@ -53,9 +53,22 @@ With the hack adding one frame to the outgoing clock in the read, EU ticks 8–1
 
 So EU 7–14 should close when B778 starts the EU probe's idle clocks from the recording.
 
+Ticks against fade frames: EU 8–14 are the fade's steps 0–6 (outgoing weight 7/8 down to 1/8; play's switch is
+aligned with the game's on tick 8). Tick 15 is step 7 at weight 0, which matches. Tick 7 is not a fade frame at all:
+it is the extra idle frame. The brief's "frames 0–5" was approximate.
+
+The mid-fade bump: the miss is the outgoing weight times the change in the idle pose over one frame, pushed through
+the racket chain. The weight falls 7/8 → 1/8, while the new clip turns the body so the racket z swings from +0.45 to
+−0.93. So the error's effect on z changes sign between steps 2 and 3 (+0.0049, +0.0046, +0.0004, −0.0027, −0.0032,
+−0.0019, −0.0003 game − play) and fades out with the weight. No separate cause is needed, and with the one-frame
+clock shift every step matches to the fit's 6e-5.
+
 ### US 220–225
 
-Already matched after B777 (`context/b777/run1/us_fit.txt`: 221–225 at shift 0, 220 at shift −1). Nothing remains there.
+Already matched after B777 (`context/b777/run1/us_fit.txt`: 221–225 at shift 0). Not re-run here. Tick 220, the
+switch tick, fits only at shift −1 there. That is a whole-tick timing offset on the switch, not an in-fade mix
+difference, the same kind as the US probe's other constant-shift runs (B775's clock offsets). It is out of this
+task's scope and listed under Not verified.
 
 ## Results
 
@@ -81,4 +94,6 @@ Already matched after B777 (`context/b777/run1/us_fit.txt`: 221–225 at shift 0
   because B778 has not landed.
 - EU tick 7 is predicted to close with B778 as well, but that is untested.
 - The longest-arc path's purpose was not explored, because it never runs.
+- US 220 (the switch tick, shift −1) was not re-run or explained here; it is a timing shift, not the mix.
+- The journal is a new B779 directory, not B777's (one directory per task, AGENT.md).
 - Ticks 179 and 538 were not investigated. They are the follow-up.
