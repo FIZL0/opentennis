@@ -11,6 +11,7 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 1949cf8c6b5b557f/bevy_render-0.19.1/src/render_phase/mod.rs:1241:40:
 index out of bounds: the len is 0 but the index is 0"
 
+- [ ] **M200** Take the 50 Hz match speed off the menu again (user 2026-11-23): turn FIFTY_HZ_SIM off, fix its comments and the lobby message, drop its release note; keep the timing code for the European recording test. Check: match_speed and fifty_hz tests pass | files: crates/hst-base/src/match_speed.rs, RELEASE_NOTES.md
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
 
 ### Match basics
