@@ -373,6 +373,15 @@ pub fn haptic() {
     });
 }
 
+/// B765: the faintest tick, a notch of the on-screen stick into a new direction.
+pub fn notch() {
+    with_env(|env, activity| {
+        let decor = decor(env, activity)?;
+        // HapticFeedbackConstants.CLOCK_TICK
+        env.call_method(&decor, "performHapticFeedback", "(I)Z", &[JValue::Int(4)]).map(drop)
+    });
+}
+
 /// M140: whether Google Play installed this app (`HstActivity.fromStore`): Play's rules let only Play update it.
 pub fn from_store() -> bool {
     ask("fromStore").unwrap_or(false)

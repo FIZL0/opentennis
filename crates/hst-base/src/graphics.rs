@@ -133,7 +133,7 @@ impl Graphics {
     /// M157: below Lowest, for framebuffer handhelds (a Mali G31 CPU-bound at ~27 fps on Lowest): Lowest without Court
     /// Life (a lower scale gained nothing there: the CPU, not the GPU, sets its frame rate).
     pub const POTATO: Graphics = Graphics { scenery: false, ..Self::LOWEST };
-    pub const PRESETS: [(&str, Graphics); 6] = [("High", Self::HIGH), ("Default", Self::DEFAULT), ("Low", Self::LOW), ("Lowest", Self::LOWEST), ("Potato", Self::POTATO), ("Phone", Self::PHONE)];
+    pub const PRESETS: [(&str, Graphics); 6] = [("High", Self::HIGH), ("Medium", Self::DEFAULT), ("Low", Self::LOW), ("Lowest", Self::LOWEST), ("Potato", Self::POTATO), ("Phone", Self::PHONE)];
 
     /// Read one `key = value` (settings.txt or a flag's name and value); false if the key isn't one of these.
     pub fn set(&mut self, key: &str, v: &str) -> bool {
@@ -228,7 +228,7 @@ impl Graphics {
             return self.keep(Self::STEAM_DECK);
         }
         let capped = Graphics { fps: PHONE_FPS, ..self };
-        if self.fps == 0 && PHONE_OS && matches!(capped.preset(), "High" | "Default") { capped } else { self }
+        if self.fps == 0 && PHONE_OS && matches!(capped.preset(), "High" | "Medium") { capped } else { self }
     }
 
     /// B754: [`Self::upgrade`] for a settings.txt's graphics, `text` being the whole file: a phone's saved Uncapped
@@ -1284,10 +1284,10 @@ mod tests {
             }
             assert_eq!(g, p);
         }
-        assert_eq!(Graphics::default().preset(), "Default");
+        assert_eq!(Graphics::default().preset(), "Medium");
         assert_eq!(Graphics { scale: 75, ..default() }.preset(), "Custom");
-        assert_eq!(Graphics { windowed: true, ..default() }.preset(), "Default");
-        assert_eq!(Graphics { show_fps: 1, ..default() }.preset(), "Default");
+        assert_eq!(Graphics { windowed: true, ..default() }.preset(), "Medium");
+        assert_eq!(Graphics { show_fps: 1, ..default() }.preset(), "Medium");
         assert_eq!(Graphics { show_fps: 1, ..default() }.flags().last().unwrap(), "--show-fps");
         assert_eq!(Graphics { windowed: true, ..default() }.flags().last().unwrap(), "--windowed");
         assert_eq!(Graphics { cull: false, ..default() }.preset(), "Custom");
@@ -1325,13 +1325,13 @@ mod tests {
         assert_eq!((Graphics::LOWEST.preset(), w.keep(Graphics::LOWEST).preset()), ("Lowest", "Lowest"));
         assert!(Graphics::LOWEST.fewer_shadows && Graphics::LOWEST.cull && Graphics::LOWEST.mesh == MESHES[0] && Graphics::LOWEST.scale == 50);
         let names: Vec<_> = Graphics::PRESETS.iter().map(|(n, _)| *n).collect();
-        assert_eq!(names, ["High", "Default", "Low", "Lowest", "Potato", "Phone"]);
+        assert_eq!(names, ["High", "Medium", "Low", "Lowest", "Potato", "Phone"]);
         // vsync on by default, and a preset leaves it as it is (like the window); the Deck is Default now
         assert!(Graphics::default().vsync);
         let off = Graphics { vsync: false, ..default() };
-        assert_eq!((off.preset(), off.keep(Graphics::HIGH).vsync, off.flags().last().unwrap().as_str()), ("Default", false, "--no-vsync"));
+        assert_eq!((off.preset(), off.keep(Graphics::HIGH).vsync, off.flags().last().unwrap().as_str()), ("Medium", false, "--no-vsync"));
         // P63: an old Deck settings.txt moves up to the Deck's
-        assert_eq!(Graphics::STEAM_DECK.preset(), "Default");
+        assert_eq!(Graphics::STEAM_DECK.preset(), "Medium");
         let old = Graphics { shadows: Shadows::Low, windowed: true, ..Graphics::STEAM_DECK };
         assert_eq!(old.upgrade(), Graphics { windowed: true, ..Graphics::STEAM_DECK });
         assert_eq!((Graphics::LOW.upgrade(), Graphics::default().upgrade()), (Graphics::LOW, Graphics::default()));

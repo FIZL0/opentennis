@@ -412,6 +412,33 @@ extern "C" fn tick(_: *mut std::ffi::c_void) {
     }
 }
 
+/// B765: the faintest tick, a notch of the on-screen stick into a new direction (`UISelectionFeedbackGenerator`).
+pub fn notch() {
+    // SAFETY: as `haptic`
+    unsafe { dispatch_async_f(&raw const _dispatch_main_q, std::ptr::null_mut(), notch_tick) };
+}
+
+extern "C" fn notch_tick(_: *mut std::ffi::c_void) {
+    use std::sync::atomic::{AtomicPtr, Ordering};
+    static GENERATOR: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
+    // SAFETY: as `tick`: main thread, objc_msgSend cast to `new` / `selectionChanged`'s signature, the generator kept
+    unsafe {
+        let obj: extern "C" fn(*mut std::ffi::c_void, *mut std::ffi::c_void) -> *mut std::ffi::c_void = std::mem::transmute(objc_msgSend as *const ());
+        let mut g = GENERATOR.load(Ordering::Relaxed);
+        if g.is_null() {
+            let class = objc_getClass(c"UISelectionFeedbackGenerator".as_ptr());
+            if class.is_null() {
+                return;
+            }
+            g = obj(class, sel_registerName(c"new".as_ptr()));
+            GENERATOR.store(g, Ordering::Relaxed);
+        }
+        if !g.is_null() {
+            obj(g, sel_registerName(c"selectionChanged".as_ptr()));
+        }
+    }
+}
+
 /// B501: opens `url` in Safari (`UIApplication.openURL`, on the main thread; there's no `xdg-open`).
 pub fn open_url(url: &str) {
     let ctx = Box::into_raw(Box::new(url.to_owned())).cast();
