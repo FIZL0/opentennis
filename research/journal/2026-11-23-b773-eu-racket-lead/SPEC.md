@@ -48,13 +48,29 @@ contain the swing that shows it most.
 - The per-frame update starts the queued swing at speed 1 on the frame where the decremented countdown equals 8.
   It runs after the step, so the swing shows from the next tick's step.
 - Play starts these one tick early.
-  - EU: the swing to motion 0x12 at rally tick 180 and the switch to 0x2 at 257.
+  - EU: the swing to motion 0x12 at rally tick 180. The switch to 0x2 at 257 is not an early start of its own:
+    it is the stance that follows the swing when it ends (see *After a swing ends*).
   - US: 0x10 at play tick 289, 0x1b at 433, and the idle 0x0 that follows the 0x1b swing at 503. That return comes
     early because the early swing ends early.
 - Every other switch lines up: idle, run and walk, the fast swings, and the returns after lined-up swings.
 - EU: the game's swing to 0x10 at rally tick 539 is also a queued speed-1 swing. B772's lead-0 window 555–589 lies
   inside it. Play had already left the recording by then (it diverges after 1585), so that start couldn't be
   compared directly. Lead 0 is what Rule 2 predicts there.
+
+## After a swing ends
+
+- In stand mode, once a swing clip has run out, the player goes back to a ready stance: the backhand turn (0x2) or
+  the forehand turn (0x1), chosen by which side of the ball's line the player stands on. The square stand is 0x0.
+- EU: the 0x12 swing starts at rally tick 180 (clip time 0) and runs 77 ticks to tick 256 (last sampled clip time 76).
+  0x2 starts at 257 at clip time 0, with a 7-tick crossfade from the swing held at clip time 77.
+- Play: 0x12 starts at 179 (play tick 1353), runs the same 77 ticks to 255 (play tick 1429), and 0x2 starts at 256
+  (play tick 1430).
+- The swing has the same length in both. Play's 0x2 is early only because its 0x12 started a tick early (Rule 2).
+  It is the same knock-on as the US idle 0x0 after the early 0x1b swing at 503.
+- Moving the per-frame swing update after the motion step makes the swing start at 180 and end at 256, so the stance
+  follows at 257 with no extra change.
+- Port check: against the EU anim capture, the stance read one tick later must still pick 0x2 at 257, as the game
+  does, and the crossfade must match.
 
 ## What the lead is, in B772's terms
 
@@ -88,7 +104,4 @@ The US fit (`research/b773_us_lead_fit.py` against `fixtures/ai_net_s05.bin`) ag
 
 ## Open questions
 
-- EU's early 0x2 at rally tick 257 is a ready motion, which play starts at the stroke decision rather than in the
-  per-frame update. Check in the port, against the EU anim capture, whether moving the per-frame update fixes it
-  too: the decision for that stroke may itself run in the after-step update. If it doesn't, bring the case back
-  through `--spec`.
+none

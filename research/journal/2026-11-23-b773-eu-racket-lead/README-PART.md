@@ -28,7 +28,10 @@ Spec phase. The spec is in `SPEC.md`.
 ## Not verified / not 1:1
 
 - Look-ahead 3 after the fix is predicted from the EU fit and the US 0x10 window. It has not been run.
-- The ordering explanation (the per-frame update runs after the step) fits every case except the 0x2 ready motion at EU tick 257 (Open questions). Play has not been tried with the update moved. Lead 0 in the EU 555–589 window is predicted, not compared: play diverges before then.
+- The ordering explanation (the per-frame update runs after the step) fits every case, including the 0x2 at EU tick 257,
+  which is the stance after the early-started swing ends (*After a swing ends*). Play has not been tried with the update
+  moved. Lead 0 in the EU 555–589 window is predicted, not compared: play diverges before then.
+- The stance pick one tick later (ball position read a tick later) is predicted to still give 0x2 at 257. Not run.
 - The US fit only covers ticks where slot 2's AI stored a racket direction. Many idle and run ticks show no match
   (the scratch holds other values there), and the idle loop's period makes those shifts ambiguous.
 - The EU lead-4 window was fitted on ticks 396–421. B772 measured it on 393–423. The edge ticks weren't re-fitted.
