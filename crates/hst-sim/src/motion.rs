@@ -119,11 +119,19 @@ pub struct Fade {
     pub count: i32,
     pub weight: f32,
     pub hold: bool,
+    /// The outgoing motion this frame's (unheld) mix samples, or −1: the fade's last frame still mixes, at weight 0,
+    /// after the countdown has dropped the outgoing motion from `id`.
+    #[serde(default = "no_motion")]
+    pub mixed: i32,
+}
+
+fn no_motion() -> i32 {
+    -1
 }
 
 impl Default for Fade {
     fn default() -> Fade {
-        Fade { id: -1, clip: false, sampled: 0.0, time: 0.0, speed: 0.0, looping: false, frames: 0, count: 0, weight: 0.0, hold: false }
+        Fade { id: -1, clip: false, sampled: 0.0, time: 0.0, speed: 0.0, looping: false, frames: 0, count: 0, weight: 0.0, hold: false, mixed: -1 }
     }
 }
 
@@ -166,6 +174,7 @@ impl Fade {
     /// pose is mixed with this frame (`None`: no fade). `length` is the outgoing clip's.
     pub fn tick(&mut self, length: f32) -> Option<f32> {
         if self.hold {
+            self.mixed = -1;
             if self.clip {
                 self.time = crate::pose::wrap(self.time, length, self.looping);
                 self.sampled = self.time;
@@ -173,6 +182,7 @@ impl Fade {
             return None;
         }
         let w = self.clip.then_some(self.weight);
+        self.mixed = if self.clip { self.id } else { -1 };
         if self.clip {
             self.time = crate::pose::wrap(self.time, length, self.looping);
             self.sampled = self.time;

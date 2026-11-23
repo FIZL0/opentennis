@@ -537,6 +537,7 @@ fn anim_s05_fade() {
             count: i(0x60),
             weight: f(an, 0x64),
             hold: an[0x6c] != 0,
+            mixed: -1,
         };
         (i(0x20), i(0x24), clock, fade, i(0x48), f(b, 0x480))
     };

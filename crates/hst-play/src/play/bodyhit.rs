@@ -239,12 +239,14 @@ pub(super) fn pose(mut posed: ResMut<Posed>, mut bones: ResMut<Bones>, g: Res<Ga
             nodes.bind(sk, new);
         }
         let old = data.motions.get(&(m.fade.id as usize)).filter(|_| m.fade.clip);
-        match (m.mix, old) {
-            (Some((w, true)), Some(old)) => {
+        // the fade's last frame mixes the outgoing motion its countdown just dropped, at weight 0 (B777)
+        let out = data.motions.get(&(m.fade.mixed as usize));
+        match (m.mix, old, out) {
+            (Some((w, true)), Some(old), _) => {
                 nodes.sample_kept(old, m.fade.sampled, keep);
                 nodes.mix_kept(new, 0.0, w, 23, keep);
             }
-            (Some((w, false)), Some(old)) => {
+            (Some((w, false)), _, Some(old)) => {
                 nodes.sample_kept(new, m.clock.sampled, keep);
                 nodes.mix_kept(old, m.fade.sampled, w, 23, keep);
             }
