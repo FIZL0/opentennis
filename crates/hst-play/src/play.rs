@@ -504,6 +504,8 @@ pub struct Game {
     finish: popups::Finish,
     /// The player the ball hit this point, if any (`bodyhit`).
     body_hit: Option<i32>,
+    /// A body hit the computer players haven't heard yet (`bodyhit::broadcast`).
+    body_heard_due: bool,
     /// The jingle due (slot 8 key: 0 change ends, 1 game, 2 set, 3 match won by a player's side, 4 lost), and whether the BGM
     /// stays faded until the next point.
     jingle: Option<u8>,
@@ -1580,6 +1582,7 @@ fn new_game(iso: &mut Iso, args: &Args, match_rng: Option<&MatchRng>) -> (Game, 
         pelvis: vec![vec![[0.0, 1.0]; 48]; rules.players as usize].into(),
         chars: vec![0; rules.players as usize],
         body_hit: None,
+        body_heard_due: false,
         voices: vec![default(); rules.players as usize],
         first_serve: true,
         serve_called: [false; 4],
@@ -3427,6 +3430,7 @@ fn control(mut g: ResMut<Game>, pads: Res<Pads>, tick: Res<tick_input::TickPads>
             None => bot(g, i),
         }
     }
+    bodyhit::broadcast(g);
     ai_serve_entered(g);
     g.cam_owner = (0..g.players.len()).find(|&i| pads.slot_of(i, g.players.len()).is_some());
     let server = g.score.server as usize;
@@ -4050,7 +4054,7 @@ fn remember(mut g: ResMut<Game>) {
 
 fn simulate(mut g: ResMut<Game>, hits: Option<Res<bodyhit::Hits>>, posed: Option<Res<bodyhit::Posed>>, bones: Option<Res<bodyhit::Bones>>, figures: Query<&Figure, With<Motion>>) {
     if g.phase == Phase::Serve {
-        g.body_hit = None;
+        (g.body_hit, g.body_heard_due) = (None, false);
     }
     let g2 = &mut *g;
     if std::mem::take(&mut g2.rally_due) {

@@ -271,7 +271,18 @@ fn struck(g: &mut Game, i: usize, last: [f32; 3]) {
     // the hit state drops a press still running toward the ball
     (p.pending, p.approach) = (None, None);
     super::set_motion(p, hst_sim::motion::id::HIT_BY_BALL, 1.0, false, None);
+    g.body_heard_due = true;
     g.whooshes.push((0, i, hst_sim::sound::hit_cry(i)));
+}
+
+/// A body hit's strike message (M183a1): the computer players start their state again and the path object stops, then
+/// the cry's key is drawn out of one. The hit's tick has its thinking first, which play runs at the next tick's start
+/// (the EU match's recorded 9094: 4 AI draws, then the message's 3).
+pub(super) fn broadcast(g: &mut Game) {
+    if std::mem::take(&mut g.body_heard_due) {
+        super::doubles_ai::heard(g, hst_sim::rally::msg::STRIKE);
+        g.rng.shared.next();
+    }
 }
 
 /// The hit player stands in its motion from the hit to the point's reaction (in a match; the game's mode 3), and

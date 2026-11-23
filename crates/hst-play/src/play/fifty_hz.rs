@@ -623,7 +623,7 @@ mod tests {
         let toss_ai = std::env::var("HST_M183A1_TOSS_AI").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
         let Some((want, got)) = european(None, toss_ai) else { return };
         // B785: through the first fault's early call (phase 24) to phase 38's rally
-        assert!(compare("eu", &want, &got) >= 40, "the phases through phase 39 (B723, B785; phase 38 a volley into the net player's body)");
+        assert!(compare("eu", &want, &got) >= 90, "the phases through phase 39 (B723, B785; phase 38 a volley into the net player's body)");
         first_point_part("eu", &want, &got, 141);
         part_from("eu", &want, &got);
         shot_probe("eu", "fixtures/m169/eu-bot-match.bin", &want);
@@ -662,7 +662,7 @@ mod tests {
     fn the_european_generators_play_as_recorded() {
         use hst_sim::rng::Mt;
         // the longer recording (7000 ticks from the same start, the first 1300 the same as eu-rng.bin) when it's there
-        let long = std::fs::read(hst_data::fixture::path("fixtures/m183a1/eu-rng-long.bin"));
+        let long = std::fs::read(hst_data::fixture::path("fixtures/m183a1/eu-rng-full.bin")).or_else(|_| std::fs::read(hst_data::fixture::path("fixtures/m183a1/eu-rng-long.bin")));
         let Ok(d) = long.or_else(|_| std::fs::read(hst_data::fixture::path("fixtures/m169/eu-rng.bin"))) else {
             eprintln!("skipped: no fixtures/m169/eu-rng.bin");
             return;
@@ -711,7 +711,10 @@ mod tests {
         let span = std::env::var("HST_B768_DRAWS").ok().map(|v| v.split(',').filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 2);
         for k in span.map_or(0..0, |v| v[0].max(1)..v[1].min(rngs.len() - 1)) {
             let game = by_tick(k - 1).zip(by_tick(k)).and_then(|(a, b)| steps(&a.2, &b.2));
-            eprintln!("eu ai draws at tick {k} (vsync {:?}): game {game:?}, play {:?}", vsyncs[k], steps(&rngs[k].ai, &rngs[k + 1].ai));
+            // how far play's AI stream is ahead of the game's (or behind it), and the same for the shared one
+            let gap = |a: &Mt, b: &Mt| steps(a, b).map(|n| n as i64).or_else(|| steps(b, a).map(|n| -(n as i64)));
+            let ahead = by_tick(k).map(|x| (gap(&x.2, &rngs[k + 1].ai), gap(&x.1, &rngs[k + 1].shared)));
+            eprintln!("eu ai draws at tick {k} (vsync {:?}): game {game:?}, play {:?}, ahead {ahead:?}", vsyncs[k], steps(&rngs[k].ai, &rngs[k + 1].ai));
         }
         // the AI generator as recorded every tick through player 2's steps after the return and the ticks after it
         // stops (250-260; play a tick later), its stand to the server's return back (303), the receiver's whiff and
@@ -1091,7 +1094,9 @@ mod tests {
     #[ignore]
     fn eu_point_reseeds() {
         use hst_sim::rng::Mt;
-        let Ok(d) = std::fs::read(hst_data::fixture::path("fixtures/m183a1/eu-rng-long.bin")) else { return };
+        // the whole match when it's there (36000 frames), else its first 7000
+        let full = std::fs::read(hst_data::fixture::path("fixtures/m183a1/eu-rng-full.bin"));
+        let Ok(d) = full.or_else(|_| std::fs::read(hst_data::fixture::path("fixtures/m183a1/eu-rng-long.bin"))) else { return };
         let Ok(m) = std::fs::read(hst_data::fixture::path("fixtures/m169/eu-bot-match.bin")) else { return };
         let frames = hst_sim::replay::frames_live(&m);
         let start = frames.iter().find(|f| f.gm()[0x55] == 2).unwrap().vsync() as i64;
