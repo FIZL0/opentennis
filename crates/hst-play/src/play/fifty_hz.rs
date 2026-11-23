@@ -654,7 +654,11 @@ mod tests {
         // M183a1: the longer recording of slot 5's generators (`us_rng_rec.py 5 5200`, vsyncs 7520..12719, taken in
         // PCSX2 v2.9.52; it equals `rng_s05.bin` where they overlap, but for three torn samples) when it's there
         let long = std::fs::read(hst_data::fixture::path("fixtures/m183a1/us-rng-long.bin")).ok();
-        let Some((want, got, rngs)) = us(None, if long.is_some() { 5150 } else { 1500 }, toss_ai) else { return };
+        // B767: slot 5's generators over the change of ends and game 2's first serve (`us_rng_window.py 5 2000 …
+        // 12550`, vsyncs 12551..14550; B767's journal)
+        let ends = std::fs::read(hst_data::fixture::path("fixtures/b767/us-rng-game2.bin")).ok();
+        let keep = if ends.is_some() { 6815 } else if long.is_some() { 5150 } else { 1500 };
+        let Some((want, got, rngs)) = us(None, keep, toss_ai) else { return };
         // B723: the first point's serve set-up, rally and point-over phase as long as the game's (point 2's set-up
         // parts: B722)
         // M183a1: point 2's set-up too (the flare draws before the point's logic, the reaction stops the players
@@ -678,6 +682,19 @@ mod tests {
         // tick)
         assert!(compare("us", &want, &got) >= 25, "the phases through the change of ends");
         assert_eq!((219..6845).filter(|&k| ![1084, 2354, 3190, 3795, 4391, 5011, 5689, 6543].contains(&k)).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before tick 6845");
+        // B767: between ends a computer player makes only its state's entry (no serve routine, walk or re-roll draws):
+        // game 2's first serve set-up and its fault phase for phase, and every player on to the fault's point-over
+        // (80 ticks in the game, 38 in play)
+        assert!(compare("us", &want, &got) >= 27, "the phases through game 2's first serve's fault");
+        assert_eq!((219..6899).filter(|&k| ![1084, 2354, 3190, 3795, 4391, 5011, 5689, 6543].contains(&k)).find(|&k| ground(&want[k]) != ground(&got[k + 1])), None, "the players part before tick 6899");
+        if let Some(d) = &ends {
+            // the AI generator on the recording's draws from point 10's point-over through the change of ends and game
+            // 2's serve set-up to the press, but at the two phase changes' ticks (as at every point's)
+            let size = 4 + 8 + 4 * 0x9d0;
+            let rec: Vec<hst_sim::rng::Mt> = d.chunks_exact(size).map(|s| hst_sim::rng::Mt::from_ram(&s[12 + 0x9d0..])).collect();
+            let lost: Vec<usize> = (6500..6813).filter(|&k| !rec.contains(&rngs[k + 1].ai)).collect();
+            assert_eq!(lost, [6544, 6625], "play's AI generator leaves the recording between ends");
+        }
         if std::env::var_os("HST_M183A1_OFF").is_some() {
             let off: Vec<usize> = (219..want.len().min(got.len() - 1)).filter(|&k| ground(&want[k]) != ground(&got[k + 1])).take(40).collect();
             eprintln!("us players off at {off:?}");
