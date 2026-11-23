@@ -387,7 +387,7 @@ pub enum Installer {
     TrollStore,
 }
 
-/// The source `web/ios.html` adds to AltStore and SideStore, which lists this app.
+/// The source the FIZL0 apps page adds to AltStore and SideStore, which lists this app.
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 const SOURCE: &str = "https://fizl0.github.io/apps/source.json";

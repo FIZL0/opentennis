@@ -286,11 +286,10 @@ fn layout(v: &View) -> Vec<Quad> {
     out
 }
 
-/// B764: digit `d` in the stats sheet's 16×24 cell at `x, y`, drawn with the result board's orange outlined digits
-/// (`result_gameset02`, the pause board's), 20 px square round the cell's middle.
+/// Digit `d` in the stats sheet's own plain white 16×24 cell at `x, y` (B765: the board's orange outlined digits
+/// stay on the score board; the values read in the sheet's font, as before B764).
 fn cell(d: u32, x: i32, y: i32) -> Quad {
-    let (x, y) = (x as f32, y as f32);
-    Quad { tex: Tex::Board(2), src: [(d % 10) as f32 * 32.0, 0.0, 32.0, 32.0], dst: [x - 2.0, y + 2.0, 20.0, 20.0], rgb: WHITE, alpha: 128.0 }
+    text([(d % 10) as i32 * 16, 0, 16, 24], x, y)
 }
 
 /// B764: the header's plates, as the pause board's: each player's face in the board's white ring at the column's
@@ -722,7 +721,8 @@ fn draw(
     panel_art: Option<Res<panel::Art>>,
     colours: Option<Res<Colours>>,
     (names, mut plates): (Option<Res<super::name_tags::Names>>, ResMut<super::name_tags::Plates>),
-    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility)>,
+    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility, Option<&ChildOf>)>,
+    parents: Query<&ComputedNode>,
     mut fade: Query<&mut BackgroundColor, (With<Fade>, Without<Dim>)>,
     mut dim: Query<&mut BackgroundColor, (With<Dim>, Without<Fade>)>,
     np: Option<Res<super::netplay::Netplay>>,
@@ -774,7 +774,7 @@ fn draw(
     };
     let slots: Vec<usize> = (0..n).map(slot).collect();
     plates.0[super::name_tags::RESULT] = super::name_tags::take(&mut quads, names.as_deref(), &slots, 0.0, label, |q| (q.dst, q.src, q.rgb, q.alpha));
-    for (Slot(i), mut img, mut node, mut vis) in &mut q {
+    for (Slot(i), mut img, mut node, mut vis, up) in &mut q {
         let Some(quad) = quads.get(*i) else {
             vis.set_if_neq(Visibility::Hidden);
             continue;
@@ -807,7 +807,8 @@ fn draw(
         let [r, g, b] = quad.rgb.map(|c| c / 128.0);
         img.color = Color::srgba(r, g, b, quad.alpha / 128.0);
         let [x, y, w, h] = quad.dst;
-        crate::play::widescreen::put(&mut node, x / 6.4, y / 4.48, w / 6.4, h / 4.48);
+        let px = up.and_then(|u| parents.get(u.parent()).ok()).map_or(Vec2::ZERO, ComputedNode::size);
+        crate::play::widescreen::put_snapped(&mut node, x / 6.4, y / 4.48, w / 6.4, h / 4.48, px);
         vis.set_if_neq(Visibility::Inherited);
     }
 }
@@ -893,12 +894,12 @@ mod tests {
         let quads = layout(&v);
         let at = |x: i32, y: i32| quads.iter().filter(|q| q.dst[0] == x as f32 && q.dst[1] == y as f32).map(|q| q.src).collect::<Vec<_>>();
         // the cell at (x, y) holds digit d
-        let digit = |x: i32, y: i32, d: u32| at(x - 2, y + HEAD + 2) == vec![[d as f32 * 32.0, 0.0, 32.0, 32.0]];
+        let digit = |x: i32, y: i32, d: u32| at(x, y + HEAD) == vec![[d as f32 * 16.0, 0.0, 16.0, 24.0]];
         // fastest serve: 161 km/h is 100 mph at 0x8a
         assert!(digit(0x8a, 120, 1) && digit(0x8a + 32, 120, 0));
         // points won 24 right-aligned in 4 digits from 0x92: "2" at +32, "4" at +48
         assert!(digit(0x92 + 32, 144, 2) && digit(0x92 + 48, 144, 4));
-        assert!(at(0x92 - 2, 144 + HEAD + 2).is_empty());
+        assert!(at(0x92, 144 + HEAD).is_empty());
         // 12.25 %: "1" "2" "." "2" from 0x19a (no hundreds); the point is the stats sheet's
         assert!(digit(0x19a + 16, 240, 1) && digit(0x19a + 56, 240, 2));
         assert_eq!(at(0x19a + 48, 240 + HEAD), vec![[160.0, 0.0, 8.0, 24.0]]);
@@ -911,8 +912,8 @@ mod tests {
         // 12:34 match time: 00:12:34, in the bar
         assert!(digit(480 + 16, 359, 2) && digit(520, 359, 3));
         assert!(quads.len() <= POOL);
-        // no digit from the stats sheet
-        assert!(!quads.iter().any(|q| q.tex == Tex::Text && q.src[1] == 0.0 && q.src[0] < 160.0));
+        // B765: the values in the sheet's white digits, none in the board's orange outlined ones
+        assert!(!quads.iter().any(|q| q.tex == Tex::Board(2)));
         // the dark background; the COM's rank under its "COM", in the room beside the face
         assert_eq!((quads[0].tex, quads[0].alpha), (Tex::Back, board::BACK_ALPHA));
         let ranks: Vec<_> = quads.iter().filter(|q| q.tex == Tex::Rank).map(|q| (q.src, q.dst, q.rgb)).collect();

@@ -608,9 +608,40 @@ pub fn put(node: &mut Mut<Node>, left: f32, top: f32, width: f32, height: f32) {
     node.set_if_neq(placed);
 }
 
+/// [`put`] with each edge rounded to a whole pixel of a `px`-sized (physical px) parent, each from its own position,
+/// so abutting quads (a pill's three slices, a bar's ends) share their edge's pixel instead of leaving a hairline seam
+/// at some window sizes (B765). `px` zero: as [`put`].
+pub fn put_snapped(node: &mut Mut<Node>, left: f32, top: f32, width: f32, height: f32, px: Vec2) {
+    let ((left, width), (top, height)) = (snap(left, width, px.x), snap(top, height, px.y));
+    put(node, left, top, width, height);
+}
+
+/// `start, len` in percent of a `p`-px parent, both edges on whole pixels (`p` zero: as given).
+fn snap(start: f32, len: f32, p: f32) -> (f32, f32) {
+    if p <= 0.0 {
+        return (start, len);
+    }
+    let edge = |e: f32| (e / 100.0 * p).round() / p * 100.0;
+    (edge(start), edge(start + len) - edge(start))
+}
+
 #[cfg(test)]
 mod point_tests {
     use super::*;
+
+    /// B765: two quads sharing an edge at any parent size end and start on the same whole pixel.
+    #[test]
+    fn snapped_edges_meet() {
+        for p in [1179.0f32, 2556.0, 1333.0, 777.7] {
+            let (x, e, w) = (390.0f32 / 6.4, 19.0 / 6.4, 400.0 / 6.4);
+            // the middle slice and the right end, their shared edge computed apart (as the layouts do)
+            let (l1, w1) = snap(x + e, (x + w - e) - (x + e), p);
+            let (l2, _) = snap(x + w - e, e, p);
+            let px = |v: f32| v / 100.0 * p;
+            assert!((px(l1 + w1) - px(l2)).abs() < 1e-2, "{p}");
+            assert!((px(l2) - px(l2).round()).abs() < 1e-2, "{p}");
+        }
+    }
 
     /// B659: a half's rect lands in its half of the view.
     #[test]

@@ -448,7 +448,7 @@ pub(super) fn listed(o: Opt) -> bool {
 fn hint(o: Opt, c: &str) -> &'static str {
     match (o, c) {
         (Preset, "High") => "full quality, no speed-ups",
-        (Preset, "Default") => "High with speed-ups on",
+        (Preset, "Medium") => "High with speed-ups on",
         (Preset, "Low") => "less detail, more fps",
         (Preset, "Lowest") => "half res, no shadows",
         (Preset, "Potato") => "Lowest, no crowd",
@@ -2525,7 +2525,7 @@ mod tests {
         s.step(FewerShadows, 1);
         assert_eq!((s.graphics.fewer_shadows, s.value(Preset).as_str()), (true, "Custom"));
         s.step(Cull, 1);
-        assert_eq!(s.value(Preset), "Default");
+        assert_eq!(s.value(Preset), "Medium");
         s.step(Mesh, -1);
         assert_eq!((s.graphics.mesh, s.value(Preset).as_str()), (75, "Custom"));
         s.step(Mesh, 1);

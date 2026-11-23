@@ -16,7 +16,7 @@ in Europe and **Minna no Tennis** (みんなのテニス) in Japan, in Rust with
 The Mac app isn't notarized: the first time, right-click OpenTennis → Open, or on macOS 15 and later open it once, then
 System Settings → Privacy & Security → Open Anyway.
 
-**iPhone / iPad:** [add the source in one tap](https://opentennis.dev/ios.html) to Feather, AltStore or SideStore, or add
+**iPhone / iPad:** [add the source in one tap](https://fizl0.github.io/apps/) to [iFizBox](https://ifizbox.com), Feather, AltStore or SideStore, or add
 `https://fizl0.github.io/apps/source.json` under Sources. You sign it
 with your own certificate, and updates arrive through the app.
 
@@ -66,22 +66,6 @@ What you need:
 - **Don't ask for, share or commit disc images or anything extracted from them.** Nobody here can provide one.
 - **You don't need a PS2 BIOS, an emulator or any other files** to play. Those are only for the research tools
   (see [docs/DEVELOPING.md](docs/DEVELOPING.md)).
-
-## Controls
-
-Player 1 uses the keyboard or the first controller. In doubles, a second controller plays player 1's partner (P1 + P2
-vs 2 CPUs); in singles it plays the opponent. Every other player is a CPU.
-
-| Action | Keyboard | Controller |
-|---|---|---|
-| Move (aim while swinging) | WASD | Left stick / d-pad |
-| Topspin | J | A |
-| Slice | K | B |
-| Lob | L | Y |
-| Serve | any shot key | any shot button |
-| Emote | 1–4 | Right stick |
-| Pause | Esc | Start |
-| Swap hand (character select) / switch camera (match) | C | Select |
 
 ## Mods
 

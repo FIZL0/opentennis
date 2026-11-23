@@ -753,7 +753,8 @@ fn draw(
     mut first_near: Local<Option<bool>>,
     result: Res<ResultBanner>,
     (names, mut plates): (Option<Res<super::name_tags::Names>>, ResMut<super::name_tags::Plates>),
-    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility)>,
+    mut q: Query<(&Slot, &mut ImageNode, &mut Node, &mut Visibility, Option<&ChildOf>)>,
+    parents: Query<&ComputedNode>,
 ) {
     let (Some(art), Some(panel_art), Some(colours)) = (art, panel_art, colours) else {
         return;
@@ -801,7 +802,7 @@ fn draw(
     let label = |q: &Quad| matches!(q.tex, Tex::Slot).then(|| (q.src[0] / 40.0) as usize);
     let extra = label_room(g.post.as_ref().and_then(|p| p.show()).map(|s| s.event));
     plates.0[super::name_tags::BOARDS] = super::name_tags::take(&mut quads, names.as_deref(), &slots, extra, label, |q| (q.dst, q.src, q.rgb, q.alpha));
-    for (Slot(i), mut img, mut node, mut vis) in &mut q {
+    for (Slot(i), mut img, mut node, mut vis, up) in &mut q {
         let Some(quad) = quads.get(*i) else {
             vis.set_if_neq(Visibility::Hidden);
             continue;
@@ -828,7 +829,8 @@ fn draw(
         let [r, g, b] = quad.rgb.map(|c| c / 128.0);
         crate::ui_pool::paint(&mut img, handle.clone(), rect, Color::srgba(r, g, b, quad.alpha / 128.0));
         let [x, y, w, h] = quad.dst;
-        crate::play::widescreen::put(&mut node, x / 6.4, y / 4.48, w / 6.4, h / 4.48);
+        let px = up.and_then(|u| parents.get(u.parent()).ok()).map_or(Vec2::ZERO, ComputedNode::size);
+        crate::play::widescreen::put_snapped(&mut node, x / 6.4, y / 4.48, w / 6.4, h / 4.48, px);
         vis.set_if_neq(Visibility::Inherited);
     }
 }

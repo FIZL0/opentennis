@@ -227,7 +227,8 @@ impl Layout {
 
     /// The control under `p`: a button, else the stick (`menu`: its corner circle; a match: the zone).
     fn control_at(&self, p: Vec2, menu: bool) -> Option<Control> {
-        if let Some(k) = self.key_at(p) {
+        // B765: a hidden □ isn't there: no press, no haptic tick
+        if let Some(k) = self.key_at(p).filter(|&k| k != SQUARE || !LABELS.lock().unwrap().0) {
             return Some(Control::Key(k));
         }
         let stick = if menu { p.distance(self.corner) <= self.reach() } else { self.zone.contains(p) };
@@ -283,6 +284,15 @@ struct Fingers {
     seen: HashMap<u64, (Vec2, u64)>,
     /// B746: a button whose lost fingers a new one replaced on that frame: up then, down again the next.
     again: [u64; 8],
+    /// B765: the stick's last direction notch (`notch`).
+    notch: Option<u8>,
+}
+
+/// B765: the stick's direction notch, 0..8 (45° sectors from right, centred on the axes and diagonals) once tilted
+/// past the game's dead zone (48/127, `hst_sim::player::pad`), else none. ponytail: a round gate, not the game's
+/// per-axis dead square; close enough for a feel cue.
+fn notch(tilt: Vec2) -> Option<u8> {
+    (tilt.length() >= 48.0 / 127.0).then(|| (tilt.y.atan2(tilt.x) / std::f32::consts::FRAC_PI_4).round().rem_euclid(8.0) as u8)
 }
 
 /// B746: frames a finger on a control can give no sign (no move) before a new finger landing on that control counts
@@ -592,6 +602,16 @@ fn drive(
         f.lift(id);
     }
     f.settle(frame);
+    // B765: in a match, the faintest tick each time the stick notches into another of its eight directions
+    let notch = if menu { None } else { notch(f.tilt) };
+    let notched = notch.is_some() && notch != f.notch;
+    f.notch = notch;
+    if notched && !buzz && BUZZ.load(Ordering::Relaxed) {
+        #[cfg(target_os = "ios")]
+        crate::ios::notch();
+        #[cfg(target_os = "android")]
+        crate::android::notch();
+    }
     if buzz && BUZZ.load(Ordering::Relaxed) {
         #[cfg(target_os = "ios")]
         crate::ios::haptic();
@@ -845,6 +865,17 @@ fn disc_waiting() -> bool {
 mod tests {
     use super::*;
     use bevy::input::touch::{TouchInput, TouchPhase};
+
+    /// B765: no notch inside the dead zone; eight 45° sectors past it, one step per crossing.
+    #[test]
+    fn notches() {
+        assert_eq!(notch(Vec2::new(0.3, 0.0)), None);
+        assert_eq!(notch(Vec2::X), Some(0));
+        assert_eq!(notch(Vec2::new(1.0, 0.41)), Some(0));
+        assert_eq!(notch(Vec2::new(1.0, 0.42)), Some(1));
+        assert_eq!(notch(-Vec2::Y), Some(6));
+        assert_eq!(notch(Vec2::new(1.0, -0.1)), Some(0));
+    }
 
     const SIZE: Vec2 = Vec2::new(852.0, 393.0);
 
