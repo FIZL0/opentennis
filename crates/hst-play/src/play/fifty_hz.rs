@@ -722,6 +722,26 @@ mod tests {
         Some((want, got, rngs))
     }
 
+    /// B783: slot 5's first set-up tick as it ends, in place of the recording's sample of it. The recorder took that
+    /// sample (counter 1, the tick run after the loading stall) before the tick's motion step and ball placement had
+    /// run: every player's clock and the held ball still read the frame before, and the next sample's are two steps on
+    /// (`anim_s05.bin`, and a fresh record from slot 5 the same). The stance frame tick 0 ends on (the serve stance's
+    /// third) comes round again at recorded tick 11: the server restarts its stance 0.2333 to the left at tick 9, and
+    /// ticks 9 to 11 hold the ball where the stance's first three frames did, bit for bit apart from x. So tick 0's
+    /// ball is tick 11's taken back by the server's step (as the hand's offset from the server: bit for bit the same).
+    fn us_first_tick(want: &mut [Tick]) {
+        let data = hst_data::fixture::read("fixtures/match_s05.bin").unwrap();
+        let frames = hst_sim::replay::frames_live(&data);
+        let first = frames.iter().position(|f| f.gm()[0x55] == 2).unwrap();
+        let b = frames[first - 1].live_ball();
+        let before = [0, 4, 8].map(|o| f32::from_le_bytes(b[0xe0 + o..0xe4 + o].try_into().unwrap()));
+        // the stance moves the hand every frame: an unmoved ball is a tick sampled before its placement
+        assert_eq!(want[0].2.map(f32::to_bits), before.map(f32::to_bits), "us: tick 0 sampled before its placement");
+        assert_eq!(want[10].2[1..], before[1..], "us: tick 10 replays the frame before the set-up");
+        let (from, to) = (want[11].1[0][0], want[0].1[0][0]);
+        want[0].2 = [want[11].2[0] - from + to, want[11].2[1], want[11].2[2]];
+    }
+
     /// The US baseline for the European test above: slot 5's first serve as recorded (M184's tick table): toss press
     /// at 124, the ball leaves the hand at 169 (45 ticks on), the press at 215, the contact at 219; players, the held
     /// ball and the toss bit for bit to the contact. And the generators, beside `rng_s05.bin`: the toss's hit message
@@ -729,8 +749,9 @@ mod tests {
     /// the press draws the swing kind, the contact the aim and the launch.
     #[test]
     fn the_us_first_serve_set_up_plays_as_recorded() {
-        let Some((want, got, rngs)) = us(Some(380), 240, 0) else { return };
-        serve_to_contact("us", &want, &got, 1, (169, 215, 219));
+        let Some((mut want, got, rngs)) = us(Some(380), 240, 0) else { return };
+        us_first_tick(&mut want);
+        serve_to_contact("us", &want, &got, 0, (169, 215, 219));
         serve_to_return("us", &want, &got, 219, 370, 298);
         // to the tick before the server's side strikes it back; every player stands where the recording has them to
         // there (they part at 855 first, `the_us_bot_match_plays_as_recorded`)
