@@ -67,7 +67,7 @@ pub(super) fn sim_plugin(app: &mut App) {
 }
 
 /// B770: the computer players' own handling of the ball striking a creature (`doubles_ai::struck`: back to the start
-/// of their state, on their generator), as the tick after next starts, before they move. The creature meets the ball
+/// of their state, on their generator) and the path's end, as the tick after next starts, before they move. The creature meets the ball
 /// at the end of a tick (`step`), which is the original's next tick: its obstacles run before the ball moves, so the
 /// ball steps off them before that move. Play's computer players run a tick behind its ball against the original
 /// (as at a contact, whose AI draws come a tick after the ball's), so they hear it a tick later again (court 6's
@@ -77,6 +77,10 @@ fn hear_strike(mut g: ResMut<Game>, npcs: Option<ResMut<Npcs>>) {
     let [now, next] = npcs.strike_heard;
     npcs.strike_heard = [next, 0];
     for _ in 0..now {
+        // a path a hit or a net touch began since then stands (the original's comes after the strike's message)
+        if g.doubles_ai.record.start > 0 {
+            g.doubles_ai.record.stop();
+        }
         super::doubles_ai::struck(&mut g);
     }
 }
@@ -761,7 +765,6 @@ fn figures(
             g.marks.serve_red = None;
             let (shot, material) = (g.shot, g.world.1[0]);
             g.flight.step_plane(&shot, &hst_sim::ball::COURTS[g.court], material);
-            g.doubles_ai.record.stop();
             g.doubles_ai.hear(&g.players, msg::STRIKE, true);
             strikes += 1;
         }

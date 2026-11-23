@@ -328,6 +328,12 @@ impl Dive {
         self.tick > self.lock_frames()
     }
 
+    /// The partner pushed the diver (`player::mover`'s keep-apart, no step) before this frame: past the slide, the
+    /// lunge ends where they lie.
+    pub fn pushed(&mut self) {
+        self.stopped |= self.tick > self.frame;
+    }
+
     /// One frame of the dive for a player at `pos` (x, z); `None` once over. The slide is spread evenly up to
     /// `frame`, then the receive motion's root path is followed along `dir` (`root_z`: its forward offset at a
     /// motion time). `mover` applies a step and returns the new position; a step it alters that leaves the

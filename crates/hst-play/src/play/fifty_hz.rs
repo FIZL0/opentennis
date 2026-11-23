@@ -411,6 +411,29 @@ mod tests {
         same
     }
 
+    /// The runs of ticks (`who`, first, end, the recording's phase at the first) `got` (play) spends off `want` (the
+    /// recording): a player on the ground (0..4, play a tick behind), or the ball (4, play level with it or a tick
+    /// behind). Runs of three ticks or fewer are dropped: play places everyone for the next point a tick before the
+    /// recording shows it.
+    fn off_runs(want: &[Tick], got: &[Tick]) -> Vec<(usize, usize, usize, u8)> {
+        let mut runs: Vec<(usize, usize, usize, u8)> = vec![];
+        for who in 0..5 {
+            for k in 0..want.len().min(got.len() - 1) {
+                let off = match who {
+                    4 => want[k].2 != got[k].2 && want[k].2 != got[k + 1].2,
+                    i => [want[k].1[i][0], want[k].1[i][2]] != [got[k + 1].1[i][0], got[k + 1].1[i][2]],
+                };
+                match runs.last_mut() {
+                    Some(r) if off && r.0 == who && r.2 == k => r.2 += 1,
+                    _ if off => runs.push((who, k, k + 1, want[k].0)),
+                    _ => {}
+                }
+            }
+        }
+        runs.retain(|r| r.2 - r.1 > 3);
+        runs
+    }
+
     /// The first serve of `got` (play) beside `want` (the recording) from its set-up to the contact, as play's
     /// ticks line up with the game's: play's setup state is the game's last frame before the set-up, so play's tick
     /// k + 1 is the recording's tick k; play steps a launched ball in the tick it leaves the hand or the racket (the
@@ -624,6 +647,13 @@ mod tests {
         let Some((want, got)) = european(None, toss_ai) else { return };
         // to the end of the match (the result after it is a screen of ours)
         assert!(compare("eu", &want, &got) >= 144, "the phases through the last point");
+        let runs = off_runs(&want, &got);
+        eprintln!("eu runs off {runs:?}");
+        // every player on every tick, but one celebration whose player faces 22.5° off (journal 14)
+        let players: Vec<_> = runs.iter().filter(|r| r.0 < 4).map(|r| (r.0, r.1, r.2)).collect();
+        assert_eq!(players, [(0, 7175, 7281)], "the players off the recording");
+        // the ball, but held at a serve's set-up (the hand's pose)
+        assert!(runs.iter().all(|r| r.0 < 4 || r.3 == 2), "the ball off the recording: {runs:?}");
         first_point_part("eu", &want, &got, 141);
         part_from("eu", &want, &got);
         shot_probe("eu", "fixtures/m169/eu-bot-match.bin", &want);

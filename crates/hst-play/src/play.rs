@@ -2399,7 +2399,6 @@ fn serve_turn(g: &mut Game, i: usize, stick: Vec2, press: Option<i32>) {
         );
         g.players[i].balloon = serve::balloon(sw.grade, sw.offset, false).map(|b| (b, 0));
         g.players[i].serve_anim = None;
-        g.players[i].stance = pos[0].abs();
         strike(g, i, class::SERVE, sw.kind, target, (branch::SERVE, sw.grade, sw.offset));
         g.finish.strong = toss == Toss::Strong;
         // the serve stays timed as the original's, a paced mod's too (`stroke_pace`)
@@ -2843,6 +2842,39 @@ fn timing_word(c: &Contact) -> &'static str {
     }
 }
 
+/// One frame of a player carried by their motion's root path (a post-point reaction's, a knock-back's), kept on court
+/// and 1 m from the partner `mate` as a run is.
+fn root_step(g: &mut Game, i: usize, mate: Option<V3>) {
+    let (p, data) = (&mut g.players[i], &g.data[i]);
+    p.prev = p.pos;
+    let mut delta = [0.0; 3];
+    if let Some(r) = p.root.as_mut()
+        && let Some(path) = data.paths.get(&r.motion)
+    {
+        // the motion's time, held at its end
+        let t = r.t.min(data.motions.get(&r.motion).map_or(0.0, |c| c.length));
+        r.t += 1.0;
+        let [fx, _, fz, _] = p.body.face.dir;
+        let rows = [
+            [p.hand * fz, 0.0, -(p.hand * fx), 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [fx, 0.0, fz, 0.0],
+        ];
+        let mut at = path.at(t);
+        // a knock-back goes straight back
+        if r.motion == motion::id::HIT_BY_BALL as usize {
+            at[0] = 0.0;
+        }
+        let acc = motion::reaction_root(at, r.motion >= motion::id::TEAM as usize, g.chars[i], rows, r.base, r.acc);
+        delta = [0, 1, 2].map(|k| hst_sim::ps2::sub(acc[k], r.acc[k]));
+        r.acc = acc;
+    } else if p.root.is_none_or(|r| r.motion < motion::id::TEAM as usize) {
+        // a motion without a root path keeps its player in place (a team's still goes through the mover)
+        return;
+    }
+    p.pos = loco::mover(p.pos, delta, p.end, mate, false);
+}
+
 /// Run in direction `dir` (game-space x, z; any length) or stand, as the original's play state
 /// (`hst_sim::player::Body`): full speed in the stick's direction growing by 30 % over the character's agility
 /// frames, stamina drained while running in a rally, the body turning toward the run 22.5° a frame, the run motion
@@ -2863,43 +2895,9 @@ fn locomote(g: &mut Game, i: usize, dir: Vec2) {
         ball_dir: g.flight.ball.vel,
         short: false,
     };
-    if bodyhit::standing(g, i) {
-        g.players[i].prev = g.players[i].pos;
-        return;
-    }
-    // reacting to the point: the reaction plays, nobody runs
-    if g.post.as_ref().is_some_and(|p| p.reacted) {
-        let (p, data) = (&mut g.players[i], &g.data[i]);
-        p.prev = p.pos;
-        if let Some(r) = p.root.as_mut()
-            && let Some(path) = data.paths.get(&r.motion)
-        {
-            // the motion's time, held at its end
-            let t =
-                r.t.min(data.motions.get(&r.motion).map_or(0.0, |c| c.length));
-            r.t += 1.0;
-            let [fx, _, fz, _] = p.body.face.dir;
-            let rows = [
-                [p.hand * fz, 0.0, -(p.hand * fx), 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [fx, 0.0, fz, 0.0],
-            ];
-            let acc = motion::reaction_root(
-                path.at(t),
-                r.motion >= motion::id::TEAM as usize,
-                g.chars[i],
-                rows,
-                r.base,
-                r.acc,
-            );
-            // ponytail: moved straight by the change; the game's mover also checks collisions
-            p.pos[0] += acc[0] - r.acc[0];
-            p.pos[2] += acc[2] - r.acc[2];
-            r.acc = acc;
-            if std::env::var("HST_DBG").is_ok() {
-            }
-        }
-        return;
+    // knocked back by the ball, or reacting to the point: the motion plays, nobody runs
+    if bodyhit::standing(g, i) || g.post.as_ref().is_some_and(|p| p.reacted) {
+        return root_step(g, i, sc.mate);
     }
     let Game {
         players, pelvis, ..

@@ -1281,6 +1281,10 @@ pub fn disc_motions_counted(iso: &mut Iso, n: usize, skeleton: &Skeleton, target
         if id == 0x35 {
             paths.extend(Path::new(&a).map(|p| (0x2e, p)));
         }
+        // the hit-by-the-ball motion's root path: the knock-back
+        if id == 0x32 {
+            paths.extend(Path::new(&a).map(|p| (hst_sim::motion::id::HIT_BY_BALL as usize, p)));
+        }
         // the dive's (receive_f) root path
         if id == 51 {
             paths.extend(Path::new(&a).map(|p| (0x1e, p)));

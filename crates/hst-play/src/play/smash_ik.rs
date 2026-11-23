@@ -18,5 +18,6 @@ pub(super) fn start(g: &mut Game, i: usize, ball: [f32; 3], frames: i32) {
     let pos = [p.pos[0], p.pos[1], p.pos[2], 1.0];
     // the side scale is +1 on the −z end (`end`); the second size factor is 1 in normal play
     let (solve, _jump) = serve::overhead_solve(&arm, [ball[0], ball[1], ball[2], 1.0], pos, [p.end, 1.0]);
-    p.ik = Some(ArmIk::new(solve, frames, pos));
+    // the ramp runs over every frame to contact, as the serve's (a stroke's takes the last 8)
+    p.ik = Some(ArmIk { solve, frames, n: 0, on: true, free: true, pos0: pos, seen: pos });
 }

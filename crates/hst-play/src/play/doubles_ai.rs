@@ -668,7 +668,11 @@ pub(super) fn stroke_check(g: &mut Game, i: usize) {
     if !claimant && let Some(ik) = p.ik.as_mut() {
         ik.free = false;
     }
-    p.pos = loco::mover(p.pos, [0.0; 3], p.end, mate, false);
+    let was = p.pos;
+    p.pos = loco::mover(was, [0.0; 3], p.end, mate, false);
+    if p.pos != was && let Some(d) = p.dive.as_mut() {
+        d.pushed();
+    }
 }
 
 /// A human player `i` in doubles: its AI object keeps its shot record (where it will play the opponents' shot), so

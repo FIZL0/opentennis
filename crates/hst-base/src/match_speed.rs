@@ -17,8 +17,8 @@ use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 pub const SPEEDS: [u32; 2] = [60, 50];
 
 /// Whether the sim plays the European program's 50 Hz timing (its retimed counts, per-tick amounts and motion
-/// rescale: M169a1). Off until it does: a 50 Hz tick on the 60 Hz sim would play everything 5/6 as fast.
-pub const FIFTY_HZ_SIM: bool = false;
+/// rescale: M169a1), as the recorded European bot match shows (M183a1). Off, a match only runs at 60.
+pub const FIFTY_HZ_SIM: bool = true;
 
 /// The saved choice (60 or 50).
 static CHOSEN: AtomicU32 = AtomicU32::new(60);

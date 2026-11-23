@@ -270,6 +270,8 @@ fn struck(g: &mut Game, i: usize, last: [f32; 3]) {
     p.vel = Vec2::ZERO;
     // the hit state drops a press still running toward the ball
     (p.pending, p.approach) = (None, None);
+    let at = [p.pos[0], p.pos[1], p.pos[2], 1.0];
+    p.root = Some(super::Root { motion: hst_sim::motion::id::HIT_BY_BALL as usize, base: at, acc: at, t: 0.0 });
     super::set_motion(p, hst_sim::motion::id::HIT_BY_BALL, 1.0, false, None);
     g.body_heard_due = true;
     g.whooshes.push((0, i, hst_sim::sound::hit_cry(i)));
