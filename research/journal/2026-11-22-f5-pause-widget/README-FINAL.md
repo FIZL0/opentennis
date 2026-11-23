@@ -32,13 +32,17 @@ in the concept's place, with one Quit that asks first. But F2 built the board wi
   - Side by side with the concept's Pause menu tab: menu box left, score board over the stats board and the
     Rally/Time bar right. At 4:3 the whole block scales uniformly; at 21:9 it stays centred.
   - The confirm shows "Quit the match?" and its three pills with the board still up.
+- Pause choices, live after this change, in `context/f5/run4/` (`HST_KEYS`):
+  - Enter on Resume the Match: back to the match.
+  - On the Quit confirm (`HST_PAUSE_ASK=1`), Down then Enter: Quit without Saving fades out to the title.
+  - `KeyJ` doesn't choose under `HST_KEYS` (run3). Enter does.
 
 ## Not verified / not 1:1
 
 - These screens are ours to design (PLAN.md: front-end and menus), so the concept is the reference, not the original.
   I compared them with the concept by eye only.
-- I didn't press each pause choice again live. menu.rs is unchanged since F2's live checks (`context/f2/run4`,
-  `run5`), and the unit tests cover the choices.
+- Of the pause choices, I checked only Resume and Quit without Saving live. Save and Quit and Cancel rely on the
+  unit tests and F2's live checks (menu.rs is unchanged).
 - Carried over from F2:
   - The in-world "COM" markers show faintly through the court dim.
   - The point score (15/30/40) isn't on the board, since the concept has none.
