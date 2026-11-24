@@ -33,6 +33,7 @@ index out of bounds: the len is 0 but the index is 0"
 ### Follow-ups
 
 - [ ] **T31a** (follow-up, normal) The merge gate runs everything: new tools/gate.sh runs tools/check.sh, then clippy as tools/done.sh does (--workspace --all-targets -D warnings, same messages), then tools/webcheck.sh; done.sh calls gate.sh in place of those three for now, so no check is lost. runner.toml [run] test = tools/gate.sh; retest stays on tools/check.sh; gate.sh, check.sh and webcheck.sh are kept out of [run] untested. Check: a clippy warning or a web-only break fails tools/gate.sh; a failing test still prints the lines [run] failures matches. | files: tools/gate.sh, tools/done.sh, runner.toml
+- [ ] **T31b** (follow-up, normal) Slots test only what they touched: in a worktree done.sh keeps audit.sh, patches.py and tests only the crates its diff against main touches (check.sh -p <crate>; none: no tests), in --blocked too; in the main checkout, where no merge gate follows, it still runs tools/gate.sh. AGENT.md, PLAN.md, tools/runner-prompt.md and done.sh's header say so. Check: done.sh on a one-crate change builds no other crate's test binaries; another crate's broken test is caught by the merge gate. | files: tools/done.sh, AGENT.md, PLAN.md, tools/runner-prompt.md | after: T31a
 
 
 ### Stretch
