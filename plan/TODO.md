@@ -8,10 +8,9 @@ hst-data and hst-oracle in the crate's `tests/`; hst-base, hst-play and hst in-m
 
 ### Next (user priorities, in order)
 
-1949cf8c6b5b557f/bevy_render-0.19.1/src/render_phase/mod.rs:1241:40:
-index out of bounds: the len is 0 but the index is 0"
-
+- [ ] **C38** Release on idle: set [run] auto_release = { idle = true } in this project's runner.toml, so a release is queued when the run idles with work landed (shape per agent-runner docs/REFERENCE.md, F63). Check: its run log at start shows no unknown-key warning | files: runner.toml
 - [ ] **T31** Slots test only what they touched; the combined merge runs everything: tests, clippy and the browser check (the person agreed, 2026-11-24) (split into T31a, T31b) | files: tools/done.sh, tools/gate.sh, runner.toml, AGENT.md, PLAN.md, tools/runner-prompt.md
+
 ### Netplay and mobile (user 2026-10-09: right after the bugs/priority list, in this order)
 
 ### Match basics
@@ -20,13 +19,11 @@ index out of bounds: the len is 0 but the index is 0"
 
 ### Players
 
-
 ### AI
 
 ### Match
 
 ### Presentation
-
 
 ### Confirmations
 
@@ -34,7 +31,6 @@ index out of bounds: the len is 0 but the index is 0"
 
 - [ ] **T31a** (follow-up, normal) The merge gate runs everything: new tools/gate.sh runs tools/check.sh, then clippy as tools/done.sh does (--workspace --all-targets -D warnings, same messages), then tools/webcheck.sh; done.sh calls gate.sh in place of those three for now, so no check is lost. runner.toml [run] test = tools/gate.sh; retest stays on tools/check.sh; gate.sh, check.sh and webcheck.sh are kept out of [run] untested. Check: a clippy warning or a web-only break fails tools/gate.sh; a failing test still prints the lines [run] failures matches. | files: tools/gate.sh, tools/done.sh, runner.toml
 - [ ] **T31b** (follow-up, normal) Slots test only what they touched: in a worktree done.sh keeps audit.sh, patches.py and tests only the crates its diff against main touches (check.sh -p <crate>; none: no tests), in --blocked too; in the main checkout, where no merge gate follows, it still runs tools/gate.sh. AGENT.md, PLAN.md, tools/runner-prompt.md and done.sh's header say so. Check: done.sh on a one-crate change builds no other crate's test binaries; another crate's broken test is caught by the merge gate. | files: tools/done.sh, AGENT.md, PLAN.md, tools/runner-prompt.md | after: T31a
-
 
 ### Stretch
 
